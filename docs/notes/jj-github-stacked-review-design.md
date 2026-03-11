@@ -174,6 +174,7 @@ If the tool stores anything locally, it should be limited to:
 - pinned generated bookmark name for a specific change, if bookmark names
   include mutable text such as the subject slug
 - cached PR number and URL
+- cached stack-comment identifier, if the tool uses a dedicated PR comment
 - last known PR state, only as a cache
 - per-change user preferences such as draft or skip-review
 - repo defaults such as preferred remote, trunk branch, or GitHub owner/repo
@@ -181,6 +182,24 @@ If the tool stores anything locally, it should be limited to:
 
 Even PR linkage can often be rediscovered by asking GitHub for the PR whose head
 branch matches the synthetic bookmark name.
+
+### Reviewer-Facing Stack Metadata
+
+The tool should also maintain a reviewer-facing description of the stack on
+GitHub, but that description must not be the source of truth.
+
+For the MVP, that can be either:
+
+- a small stack section in each PR body
+- or a dedicated bot comment on each PR
+
+It should be regenerated on each submit from the current `jj` stack and should
+list the nearest ancestor and descendant PRs in a simple human-readable order.
+
+This serves the same UX purpose as similar stack navigation used by tools such
+as `ghstack` and Graphite, but it is only presentation. The tool should not
+reconstruct stack topology by reading that text back from GitHub, except
+optionally to rediscover the identity of a previously created bot comment.
 
 ## Recommended Storage Strategy
 
@@ -344,6 +363,7 @@ trunk_branch = "main"
 bookmark = "review/alice/fix-cache-invalidation-ypvmkkuo"
 pr_number = 123
 pr_url = "https://github.com/org/repo/pull/123"
+stack_comment_id = 456789
 draft = true
 skip = false
 ```
