@@ -2,7 +2,7 @@
 
 This document describes how we intend to implement the stacked GitHub review
 tool described in [JJ-Native Stacked GitHub Review
-Design](./jj-github-stacked-review-design.md).
+Design](./design.md).
 
 It is intentionally pragmatic. The goal is to describe how we will build the
 tool, how we will test it, and how we will stage the work into reviewable
@@ -83,14 +83,15 @@ can be tested without network or subprocess side effects.
 
 ## Expected Command Surface
 
-The initial command surface should track the design doc:
+The initial MVP command surface should track the design doc:
 
 - `jj review submit [<revset>]`
 - `jj review status [<revset>]`
 - `jj review sync [<revset>]`
 - `jj review adopt <pr> [<revset>]`
-- `jj review land [<selector>]`
 - `jj review cleanup`
+
+`land` is explicitly deferred until after the initial review lifecycle is stable.
 
 The tool itself should ship as a standalone executable, for example
 `jj-review`.
@@ -232,6 +233,38 @@ Important persisted records:
 Command output and planning results should use first-class typed models.
 Rendered output should be derived from those models rather than carrying ad hoc
 dicts or stringly typed intermediate state through the command layer.
+
+## Default Repo Resolution
+
+For the MVP, the common case should be zero-config. The tool should prefer
+repo-derived defaults and only require explicit configuration when the repo is
+ambiguous.
+
+The resolution order should be:
+
+- selected remote: command-line flag, then local config, then `origin` if it
+  exists, then the only remote if exactly one exists, otherwise fail
+- trunk branch: command-line flag, then local config, then the selected
+  remote's default branch if discoverable, then one remote bookmark on the
+  selected remote that points at `trunk()`, otherwise fail
+- GitHub owner/repo: derive from the selected remote URL, otherwise fail
+
+Ambiguity should be a hard stop, not something the tool guesses past.
+
+## Authentication
+
+For the MVP, the tool should resolve GitHub credentials in this order:
+
+- `GH_TOKEN`, if set
+- `GITHUB_TOKEN`, if set
+- `gh auth token --hostname <resolved-github-host>`, if `gh` is installed and
+  authenticated
+- otherwise fail with an explicit authentication error
+
+The application client should continue to use `httpx` directly for GitHub API
+calls. If we reuse `gh` credentials, we should do so only through the supported
+`gh auth token` command, not by reading `gh` config files, keychain entries, or
+other internal storage directly.
 
 ## Tooling Strategy
 
@@ -491,36 +524,12 @@ Done when:
 - cleanup reports planned actions clearly
 - ambiguous remote deletions are not automatic
 
-### Slice 9: Landing
+### Post-MVP: Landing
 
-Deliver:
-
-- `land` command surface
-- stack-aware landing semantics
-- interaction with branch protection and merge requirements
-- local and live tests for landing behavior
-
-Landing contract:
-
-- `jj review land` lands the current stack prefix ending at the current review
-  unit
-- `jj review land <selector>` lands the stack prefix ending at the selected
-  review unit
-- the current review unit is `@-` if `@` is the empty working-copy commit,
-  otherwise `@`
-- `<selector>` may be any unambiguous identifier for one local review unit,
-  such as a PR URL, PR number, review bookmark, `change_id` prefix, or revset
-- in all cases, the operation lands the contiguous linear chain from `trunk()`
-  through the selected unit, not an arbitrary subset
-- if open descendants remain above the landed prefix, the tool leaves them in
-  place and reports that they need rebase/restack before later submit/update
-- `land` should support `--dry-run` from day one
-
-Done when:
-
-- landing works for the supported happy path end-to-end
-- failures around branch protection or merge requirements are explicit
-- the implementation does not silently mutate the wrong PR or branch
+`land` is deferred until after the MVP review lifecycle is stable end-to-end.
+When we revisit it, it should be planned as a separate slice because merge
+policy, branch protection, and partial-stack semantics materially expand the
+product surface.
 
 ## Error Handling Strategy
 
