@@ -84,6 +84,24 @@ def test_submit_updates_remote_bookmark_after_change_rewrite(
     assert _read_remote_ref(remote, initial_bookmark) == rewritten_stack.revisions[-1].commit_id
 
 
+def test_submit_reports_no_reviewable_commits_when_head_is_trunk(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
+    repo, _remote = _init_repo(tmp_path)
+
+    # main itself is trunk(); selecting it means there is nothing to review.
+    exit_code = main(["--repository", str(repo), "submit", "main"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "No reviewable commits" in captured.out
+    # Nothing should have been persisted or pushed.
+    assert ReviewStateStore.for_repo(repo).load().changes == {}
+
+
 def test_submit_rejects_duplicate_bookmark_overrides_before_projection(
     tmp_path: Path,
     monkeypatch,
@@ -109,9 +127,7 @@ def test_submit_rejects_duplicate_bookmark_overrides_before_projection(
         encoding="utf-8",
     )
 
-    exit_code = main(
-        ["--config", str(config_path), "--repository", str(repo), "submit"]
-    )
+    exit_code = main(["--config", str(config_path), "--repository", str(repo), "submit"])
     captured = capsys.readouterr()
 
     assert exit_code == 1

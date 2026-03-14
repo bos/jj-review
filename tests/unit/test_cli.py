@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from jj_review.bootstrap import resolve_repo_root
 from jj_review.cli import main
 from jj_review.config import CONFIG_DIRNAME, CONFIG_FILENAME
 

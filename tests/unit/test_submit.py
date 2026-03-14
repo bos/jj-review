@@ -71,6 +71,14 @@ def test_select_submit_remote_rejects_ambiguous_remote_set_without_origin() -> N
         )
 
 
+def test_select_submit_remote_rejects_empty_remote_list() -> None:
+    with pytest.raises(
+        SubmitRemoteResolutionError,
+        match="Could not determine which Git remote to use for submit",
+    ):
+        select_submit_remote(RepoConfig(), ())
+
+
 def test_resolve_local_action_created_when_no_local_targets() -> None:
     assert _resolve_local_action("review/foo", (), "abc123") == "created"
 

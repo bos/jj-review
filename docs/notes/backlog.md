@@ -49,3 +49,10 @@ GitHub has a native draft PR concept (visible but not reviewable or mergeable
 until marked ready). We should eventually support creating PRs as drafts and
 promoting them, but the semantics need to be designed before adding it. Deferred
 from MVP.
+
+## Private Commits
+
+`jj` can be configured with `git.private-commits` to refuse pushes for commits
+matching a revset, and for descendants that would require pushing those commits
+too. `submit` should preflight that policy and fail with a targeted diagnostic
+before attempting `jj git push`.

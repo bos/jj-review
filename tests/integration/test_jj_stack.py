@@ -46,6 +46,42 @@ def test_discover_review_stack_rejects_branching_review_children(tmp_path: Path)
         JjClient(repo).discover_review_stack(feature_2)
 
 
+def test_discover_review_stack_returns_empty_when_head_is_trunk(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    # No commits beyond trunk; the selected revset resolves to trunk itself.
+    stack = JjClient(repo).discover_review_stack("main")
+
+    assert stack.revisions == ()
+    assert stack.head.subject == "base"
+
+
+def test_discover_review_stack_fails_with_root_before_trunk(tmp_path: Path) -> None:
+    # If a commit's ancestry reaches the root before finding trunk(), the
+    # walk should fail with a targeted UnsupportedStackError rather than
+    # silently producing a corrupted stack.  We set trunk() to a bookmark
+    # that is NOT an ancestor of the selected head.
+    repo = _init_repo(tmp_path, configure_trunk=False)
+    # Create a detached bookmark that lives on @- (the base commit).
+    _run(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
+    # Create a sibling branch starting from the root commit, not from main.
+    _run(["jj", "new", "root()"], repo)
+    _run(["jj", "bookmark", "create", "trunk-alias", "-r", "@"], repo)
+    _run(
+        ["jj", "config", "set", "--repo", 'revset-aliases."trunk()"', "trunk-alias"],
+        repo,
+    )
+    # Now go back and add a commit on the main branch.
+    _run(["jj", "new", "main"], repo)
+    _commit(repo, "feature on main", "feature.txt")
+    head = _current_parent_commit_id(repo)
+
+    with pytest.raises(
+        UnsupportedStackError,
+        match="stack reached the root commit before `trunk\\(\\)`",
+    ):
+        JjClient(repo).discover_review_stack(head)
+
+
 def test_discover_review_stack_rejects_immutable_revisions(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     _commit(repo, "feature 1", "feature-1.txt")

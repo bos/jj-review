@@ -60,9 +60,7 @@ class ReviewStateStore:
         try:
             return ReviewState.model_validate(raw_data)
         except ValidationError as error:
-            raise ReviewStateError(
-                f"Invalid jj-review state in {self._path}: {error}"
-            ) from error
+            raise ReviewStateError(f"Invalid jj-review state in {self._path}: {error}") from error
 
     def save(self, state: ReviewState) -> None:
         """Persist the supplied state."""
@@ -92,9 +90,7 @@ class ReviewStateStore:
             with path.open("rb") as file:
                 data = tomllib.load(file)
         except tomllib.TOMLDecodeError as error:
-            raise ReviewStateError(
-                f"Invalid jj-review state in {path}: {error}"
-            ) from error
+            raise ReviewStateError(f"Invalid jj-review state in {path}: {error}") from error
         except OSError as error:
             raise ReviewStateError(
                 f"Could not read jj-review state file {path}: {error}"

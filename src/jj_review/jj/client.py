@@ -87,8 +87,7 @@ class JjClient:
                         "reviewable children require separate PR chains."
                     )
                 child_matches_path = any(
-                    child.commit_id == child_in_path.commit_id
-                    for child in reviewable_children
+                    child.commit_id == child_in_path.commit_id for child in reviewable_children
                 )
                 if not child_matches_path:
                     raise UnsupportedStackError(
@@ -258,6 +257,14 @@ class JjClient:
         return completed.stdout
 
     def _validate_reviewable_revision(self, revision: LocalRevision) -> None:
+        # Check the root-commit condition before immutable, because the root
+        # is always immutable in jj and "reached root before trunk()" is more
+        # actionable than "immutable commit".
+        if len(revision.parents) == 0:
+            raise UnsupportedStackError(
+                f"Unsupported stack shape at {revision.change_id}: stack reached the root "
+                "commit before `trunk()`."
+            )
         if revision.immutable:
             raise UnsupportedStackError(
                 f"Unsupported stack shape at {revision.change_id}: immutable commits are not "
@@ -272,11 +279,6 @@ class JjClient:
             raise UnsupportedStackError(
                 f"Unsupported stack shape at {revision.change_id}: merge commits are not "
                 "supported."
-            )
-        if len(revision.parents) == 0:
-            raise UnsupportedStackError(
-                f"Unsupported stack shape at {revision.change_id}: stack reached the root "
-                "commit before `trunk()`."
             )
 
 
@@ -300,7 +302,16 @@ def _parse_revision_line(line: str) -> LocalRevision:
             f"`jj log` output has unexpected format: expected {_EXPECTED_FIELD_COUNT} "
             f"tab-separated fields, got {len(parts)}. Raw line: {line!r}"
         )
-    change_id_json, commit_id_json, description_json, parents_json, empty_json, divergent_json, working_copy_json, immutable_json = parts  # fmt: skip
+    (
+        change_id_json,
+        commit_id_json,
+        description_json,
+        parents_json,
+        empty_json,
+        divergent_json,
+        working_copy_json,
+        immutable_json,
+    ) = parts
     try:
         parents_raw = json.loads(parents_json)
         if not isinstance(parents_raw, list):

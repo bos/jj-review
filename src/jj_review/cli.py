@@ -126,8 +126,7 @@ def _status_handler(args: Namespace) -> int:
     if bookmark_result.changed:
         state_store.save(bookmark_result.state)
     bookmarks_by_change = {
-        resolution.change_id: resolution
-        for resolution in bookmark_result.resolutions
+        resolution.change_id: resolution for resolution in bookmark_result.resolutions
     }
     print(f"Selected revset: {stack.selected_revset}")
     print(f"Trunk: {stack.trunk.subject} [{stack.trunk.change_id[:12]}]")

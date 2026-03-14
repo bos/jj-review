@@ -98,10 +98,14 @@ def load_config(*, repo_root: Path | None, config_path: Path | None = None) -> A
 def default_config_path() -> Path:
     """Return the default user config path."""
 
-    return _xdg_path(
-        env_var="XDG_CONFIG_HOME",
-        fallback=("~", ".config"),
-    ) / CONFIG_DIRNAME / CONFIG_FILENAME
+    return (
+        _xdg_path(
+            env_var="XDG_CONFIG_HOME",
+            fallback=("~", ".config"),
+        )
+        / CONFIG_DIRNAME
+        / CONFIG_FILENAME
+    )
 
 
 def _apply_repo_overrides(config: AppConfig, repo_root: Path | None) -> AppConfig:

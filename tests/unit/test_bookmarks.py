@@ -45,9 +45,7 @@ def test_bookmark_resolver_pins_generated_names() -> None:
 def test_bookmark_resolver_reuses_pinned_bookmark_after_subject_changes() -> None:
     state = ReviewState(
         change={
-            "zvlywqkxtmnpqrstu": CachedChange(
-                bookmark="review/fix-cache-invalidation-zvlywqkx"
-            )
+            "zvlywqkxtmnpqrstu": CachedChange(bookmark="review/fix-cache-invalidation-zvlywqkx")
         }
     )
     renamed_revision = _revision(
@@ -65,9 +63,7 @@ def test_bookmark_resolver_reuses_pinned_bookmark_after_subject_changes() -> Non
 def test_bookmark_resolver_prefers_explicit_override() -> None:
     state = ReviewState(
         change={
-            "zvlywqkxtmnpqrstu": CachedChange(
-                bookmark="review/fix-cache-invalidation-zvlywqkx"
-            )
+            "zvlywqkxtmnpqrstu": CachedChange(bookmark="review/fix-cache-invalidation-zvlywqkx")
         }
     )
     revision = _revision(

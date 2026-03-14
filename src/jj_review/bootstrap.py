@@ -102,15 +102,11 @@ def resolve_repo_root(start_dir: Path) -> Path:
         raise BootstrapError("`jj` is not installed or is not on PATH.") from error
     if completed.returncode != 0:
         message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
-        raise BootstrapError(
-            f"Not inside a jj workspace (from {start_dir}): {message}"
-        )
+        raise BootstrapError(f"Not inside a jj workspace (from {start_dir}): {message}")
 
     root = completed.stdout.strip()
     if not root:
-        raise BootstrapError(
-            f"`jj root` returned an empty path (from {start_dir})."
-        )
+        raise BootstrapError(f"`jj root` returned an empty path (from {start_dir}).")
     return Path(root)
 
 

@@ -7,6 +7,7 @@ import pytest
 
 from jj_review.jj import JjClient, JjCommandError, UnsupportedStackError
 
+
 def _revision_line(
     *,
     commit_id: str,
@@ -97,6 +98,18 @@ _DIVERGENT_SIBLING = _revision_line(
     description="divergent sibling\n",
     divergent=True,
 )
+
+
+def test_discover_review_stack_returns_empty_revisions_when_head_is_trunk() -> None:
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
+        ("jj", "log", "--no-graph", "-r", "trunk", "-T", _template(), "--limit", "2"): _TRUNK,
+    }
+
+    stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack("trunk")
+
+    assert stack.revisions == ()
+    assert stack.head.commit_id == "trunk"
 
 
 def test_discover_review_stack_defaults_to_parent_of_empty_working_copy() -> None:
@@ -217,11 +230,7 @@ def test_discover_review_stack_raises_jj_command_error_on_invalid_json() -> None
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
         ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): (
-            "NOT_JSON\t"
-            '"commit-id"\t'
-            '"desc"\t'
-            "[]"
-            "\tfalse\tfalse\tfalse\tfalse\n"
+            'NOT_JSON\t"commit-id"\t"desc"\t[]\tfalse\tfalse\tfalse\tfalse\n'
         ),
     }
 
