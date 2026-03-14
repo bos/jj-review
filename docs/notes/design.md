@@ -60,8 +60,22 @@ A few properties of `jj` drive this design:
 
 A review unit is one visible mutable `jj` change, identified by full `change_id`.
 
-That is the durable identity. Not the commit ID, not the bookmark name, and not the current diff
-base.
+That is the durable identity. Not the commit ID, not the bookmark name, and not
+the current diff base.
+
+For the purposes of this tool, "visible mutable" should follow `jj`'s own
+revset semantics rather than a tool-specific definition:
+
+- "visible" means a commit in `visible()`, not a hidden predecessor reached by
+  commit ID or change offset
+- "mutable" means a commit in `mutable()`, with immutability determined by the
+  repo's configured `immutable_heads()` and its ancestors
+
+By default, that means the tool inherits `jj`'s notion that `trunk()`, tags,
+and untracked remote bookmarks define immutable history. If a repo customizes
+`immutable_heads()`, the tool should honor that customization rather than
+trying to maintain its own competing definition of what is safe to review or
+rewrite.
 
 ### Review Stack
 
@@ -151,6 +165,25 @@ For the MVP, require one of:
 If `trunk()` falls back to `root()` or resolves to a commit that cannot be
 mapped to exactly one remote bookmark on the target remote, submit should fail
 with a configuration error instead of guessing.
+
+### Workspaces
+
+Review state is repo-scoped, not workspace-scoped.
+
+That matches `jj`'s model: one repository can have multiple workspaces, each
+with its own working copy, while sharing the same commit graph, bookmark view,
+and operation history.
+
+For the MVP:
+
+- machine-written review state should be shared across workspaces for the same
+  repo
+- stale working copies are a local workspace problem, not a distinct review
+  concept for this tool
+- if `jj` reports a stale workspace, the tool should stop and point the user to
+  `jj workspace update-stale`
+- divergence caused by concurrent rewrites from multiple workspaces remains an
+  unsupported fail-closed case
 
 ## What Should Be Derived vs Stored
 
@@ -274,7 +307,16 @@ Given a selected head revision:
      this is not a no-op
    - if the selected remote bookmark already points at the desired commit, treat
      it as up to date even when the local repo has not tracked that remote
-     bookmark yet; otherwise push the bookmark
+     bookmark yet
+   - if the local bookmark or selected remote bookmark is conflicted, stop and
+     require the user to resolve the bookmark state first
+   - if the selected remote bookmark exists but points somewhere else, proceed
+     only if review linkage for that branch is already proven by local state,
+     cached state, or GitHub discovery; otherwise fail closed instead of
+     silently taking over that branch
+   - when updating an existing untracked remote bookmark, do not import its
+     old target into the local bookmark before the remote update completes
+   - otherwise push the bookmark
    - compute the GitHub base branch name:
      - nearest ancestor in the chain whose PR is still open, if any
      - otherwise the resolved trunk branch

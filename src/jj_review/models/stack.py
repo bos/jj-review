@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class LocalRevision(BaseModel):
-    """A visible commit with the fields needed for stack discovery."""
+    """A commit with the fields needed for stack discovery."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -16,6 +16,7 @@ class LocalRevision(BaseModel):
     description: str
     divergent: bool
     empty: bool
+    hidden: bool
     immutable: bool
     parents: tuple[str, ...]
 
@@ -30,7 +31,8 @@ class LocalRevision(BaseModel):
         """Whether the revision should count as a review unit."""
 
         return (
-            not self.immutable
+            not self.hidden
+            and not self.immutable
             and not self.divergent
             and not (self.current_working_copy and self.empty)
         )

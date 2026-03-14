@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 
-from jj_review.jj import JjClient, JjCommandError, UnsupportedStackError
+from jj_review.jj import JjClient, JjCommandError, StaleWorkspaceError, UnsupportedStackError
 
 
 def _revision_line(
@@ -16,6 +17,7 @@ def _revision_line(
     description: str,
     empty: bool = False,
     divergent: bool = False,
+    hidden: bool = False,
     working_copy: bool = False,
     immutable: bool = False,
 ) -> str:
@@ -29,6 +31,7 @@ def _revision_line(
         "true" if empty else "false",
         "true" if divergent else "false",
         "true" if working_copy else "false",
+        "true" if hidden else "false",
         "true" if immutable else "false",
     ]
     return "\t".join(fields) + "\n"
@@ -84,6 +87,13 @@ _IMMUTABLE_PARENT = _revision_line(
     change_id="immutable-parent-change",
     description="immutable parent\n",
     immutable=True,
+)
+_HIDDEN = _revision_line(
+    commit_id="hidden",
+    parents=["trunk"],
+    change_id="hidden-change/1",
+    description="hidden predecessor\n",
+    hidden=True,
 )
 _CHILD_A = _revision_line(
     commit_id="child-a", parents=["parent"], change_id="child-a-change", description="child a\n"
@@ -192,6 +202,17 @@ def test_discover_review_stack_rejects_immutable_revisions() -> None:
         client.discover_review_stack("head")
 
 
+def test_discover_review_stack_rejects_hidden_revisions() -> None:
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
+        ("jj", "log", "--no-graph", "-r", "hidden", "-T", _template(), "--limit", "2"): _HIDDEN,
+    }
+
+    client = JjClient(Path("/repo"), runner=_runner(responses))
+    with pytest.raises(UnsupportedStackError, match="hidden commits are not reviewable"):
+        client.discover_review_stack("hidden")
+
+
 def test_discover_review_stack_rejects_multiple_reviewable_children() -> None:
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
@@ -230,12 +251,41 @@ def test_discover_review_stack_raises_jj_command_error_on_invalid_json() -> None
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
         ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): (
-            'NOT_JSON\t"commit-id"\t"desc"\t[]\tfalse\tfalse\tfalse\tfalse\n'
+            'NOT_JSON\t"commit-id"\t"desc"\t[]\tfalse\tfalse\tfalse\tfalse\tfalse\n'
         ),
     }
 
     client = JjClient(Path("/repo"), runner=_runner(responses))
     with pytest.raises(JjCommandError, match="invalid JSON"):
+        client.discover_review_stack("head")
+
+
+def test_discover_review_stack_surfaces_stale_workspace_errors() -> None:
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        assert tuple(command) == (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "trunk()",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        )
+        assert cwd == Path("/repo")
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr=(
+                "Error: The working copy is stale (not updated since operation abc123).\n"
+                "Hint: Run `jj workspace update-stale` to update it.\n"
+            ),
+        )
+
+    client = JjClient(Path("/repo"), runner=run)
+    with pytest.raises(StaleWorkspaceError, match="jj workspace update-stale"):
         client.discover_review_stack("head")
 
 
@@ -249,7 +299,7 @@ def test_discover_review_stack_raises_jj_command_error_on_wrong_field_type() -> 
             '"commit-id"\t'
             '"desc"\t'
             '"not-a-list"\t'  # parents must be a list
-            "false\tfalse\tfalse\tfalse\n"
+            "false\tfalse\tfalse\tfalse\tfalse\n"
         ),
     }
 
@@ -280,12 +330,42 @@ def test_discover_review_stack_excludes_divergent_siblings_from_child_count() ->
     assert [r.subject for r in stack.revisions] == ["parent", "head"]
 
 
+def test_update_untracked_remote_bookmark_pushes_fetches_and_tracks() -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        commands.append(tuple(command))
+        assert cwd == Path("/repo")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    client = JjClient(Path("/repo"), runner=run)
+    client.update_untracked_remote_bookmark(
+        remote="origin",
+        bookmark="review/foo",
+        desired_target="new123",
+        expected_remote_target="old456",
+    )
+
+    assert commands == [
+        (
+            "git",
+            "push",
+            "--force-with-lease=refs/heads/review/foo:old456",
+            "origin",
+            "new123:refs/heads/review/foo",
+        ),
+        ("jj", "git", "fetch", "--remote", "origin"),
+        ("jj", "bookmark", "track", "review/foo", "--remote", "origin"),
+    ]
+
+
 def _template() -> str:
     return (
         r'json(change_id) ++ "\t" ++ json(commit_id) ++ "\t" ++ json(description) ++ "\t" ++ '
         r'json(parents.map(|p| p.commit_id())) ++ "\t" ++ '
         r'json(empty) ++ "\t" ++ json(divergent) ++ "\t" ++ '
-        r'json(current_working_copy) ++ "\t" ++ json(immutable) ++ "\n"'
+        r'json(current_working_copy) ++ "\t" ++ json(self.hidden()) ++ "\t" ++ '
+        r'json(immutable) ++ "\n"'
     )
 
 

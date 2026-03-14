@@ -6,14 +6,20 @@ from jj_review.bookmarks import ResolvedBookmark
 from jj_review.commands.submit import (
     SubmitBookmarkCollisionError,
     SubmitBookmarkConflictError,
+    SubmitRemoteBookmarkConflictError,
+    SubmitRemoteBookmarkOwnershipError,
     SubmitRemoteResolutionError,
+    _bookmark_linkage_is_proven,
+    _ensure_remote_can_be_updated,
     _ensure_unique_bookmarks,
     _remote_is_up_to_date,
     _resolve_local_action,
+    _should_update_untracked_remote_with_git,
     select_submit_remote,
 )
 from jj_review.config import RepoConfig
-from jj_review.models.bookmarks import GitRemote, RemoteBookmarkState
+from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
+from jj_review.models.cache import CachedChange, ReviewState
 
 
 def test_select_submit_remote_prefers_configured_remote() -> None:
@@ -107,6 +113,103 @@ def test_remote_is_up_to_date_when_untracked_remote_target_matches() -> None:
     )
 
     assert _remote_is_up_to_date(remote_state, "abc123") is True
+
+
+def test_bookmark_linkage_is_proven_by_existing_local_bookmark() -> None:
+    assert _bookmark_linkage_is_proven(
+        bookmark="review/foo",
+        bookmark_source="generated",
+        bookmark_state=BookmarkState(name="review/foo", local_targets=("abc123",)),
+        change_id="change-a",
+        state=ReviewState(),
+    )
+
+
+def test_bookmark_linkage_is_proven_by_cached_bookmark() -> None:
+    assert _bookmark_linkage_is_proven(
+        bookmark="review/foo",
+        bookmark_source="cache",
+        bookmark_state=BookmarkState(name="review/foo"),
+        change_id="change-a",
+        state=ReviewState(change={"change-a": CachedChange(bookmark="review/foo")}),
+    )
+
+
+def test_bookmark_linkage_is_not_proven_by_newly_generated_name() -> None:
+    assert not _bookmark_linkage_is_proven(
+        bookmark="review/foo",
+        bookmark_source="generated",
+        bookmark_state=BookmarkState(name="review/foo"),
+        change_id="change-a",
+        state=ReviewState(change={"change-a": CachedChange(bookmark="review/foo")}),
+    )
+
+
+def test_ensure_remote_can_be_updated_rejects_conflicted_remote_bookmark() -> None:
+    with pytest.raises(
+        SubmitRemoteBookmarkConflictError,
+        match="Remote bookmark 'review/foo'@origin is conflicted",
+    ):
+        _ensure_remote_can_be_updated(
+            bookmark="review/foo",
+            bookmark_source="cache",
+            bookmark_state=BookmarkState(name="review/foo"),
+            change_id="change-a",
+            desired_target="zzz999",
+            remote="origin",
+            remote_state=RemoteBookmarkState(
+                remote="origin",
+                targets=("abc123", "def456"),
+                tracking_targets=("abc123", "def456"),
+            ),
+            state=ReviewState(change={"change-a": CachedChange(bookmark="review/foo")}),
+        )
+
+
+def test_ensure_remote_can_be_updated_rejects_unproven_existing_remote_branch() -> None:
+    with pytest.raises(
+        SubmitRemoteBookmarkOwnershipError,
+        match="already exists and points elsewhere",
+    ):
+        _ensure_remote_can_be_updated(
+            bookmark="review/foo",
+            bookmark_source="generated",
+            bookmark_state=BookmarkState(name="review/foo"),
+            change_id="change-a",
+            desired_target="def456",
+            remote="origin",
+            remote_state=RemoteBookmarkState(remote="origin", targets=("abc123",)),
+            state=ReviewState(),
+        )
+
+
+def test_ensure_remote_can_be_updated_allows_matching_untracked_remote_branch() -> None:
+    _ensure_remote_can_be_updated(
+        bookmark="review/foo",
+        bookmark_source="generated",
+        bookmark_state=BookmarkState(name="review/foo"),
+        change_id="change-a",
+        desired_target="abc123",
+        remote="origin",
+        remote_state=RemoteBookmarkState(remote="origin", targets=("abc123",)),
+        state=ReviewState(),
+    )
+
+
+def test_should_update_untracked_remote_with_git_only_for_differing_untracked_remote() -> None:
+    assert not _should_update_untracked_remote_with_git(None, "def456")
+    assert not _should_update_untracked_remote_with_git(
+        RemoteBookmarkState(remote="origin", targets=("abc123",), tracking_targets=("abc123",)),
+        "def456",
+    )
+    assert not _should_update_untracked_remote_with_git(
+        RemoteBookmarkState(remote="origin", targets=("abc123",), tracking_targets=()),
+        "abc123",
+    )
+    assert _should_update_untracked_remote_with_git(
+        RemoteBookmarkState(remote="origin", targets=("abc123",), tracking_targets=()),
+        "def456",
+    )
 
 
 def test_ensure_unique_bookmarks_rejects_duplicate_names() -> None:

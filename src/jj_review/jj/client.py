@@ -18,7 +18,8 @@ _COMMIT_TEMPLATE = (
     r'json(change_id) ++ "\t" ++ json(commit_id) ++ "\t" ++ json(description) ++ "\t" ++ '
     r'json(parents.map(|p| p.commit_id())) ++ "\t" ++ '
     r'json(empty) ++ "\t" ++ json(divergent) ++ "\t" ++ '
-    r'json(current_working_copy) ++ "\t" ++ json(immutable) ++ "\n"'
+    r'json(current_working_copy) ++ "\t" ++ json(self.hidden()) ++ "\t" ++ '
+    r'json(immutable) ++ "\n"'
 )
 _BOOKMARK_TEMPLATE = r'json(self) ++ "\n"'
 
@@ -33,6 +34,10 @@ class RevsetResolutionError(CliError):
 
 class UnsupportedStackError(CliError):
     """Raised when local history cannot be treated as a linear review stack."""
+
+
+class StaleWorkspaceError(CliError):
+    """Raised when `jj` refuses to run because the current workspace is stale."""
 
 
 type JjRunner = Callable[[Sequence[str], Path], subprocess.CompletedProcess[str]]
@@ -116,7 +121,7 @@ class JjClient:
         return working_copy, "@"
 
     def resolve_revision(self, revset: str) -> LocalRevision:
-        """Resolve a revset to exactly one visible revision."""
+        """Resolve a revset to exactly one revision."""
 
         revisions = self._query_revisions(revset, limit=2)
         if not revisions:
@@ -147,7 +152,7 @@ class JjClient:
     def list_git_remotes(self) -> tuple[GitRemote, ...]:
         """List configured Git remotes for the repository."""
 
-        stdout = self._run(("git", "remote", "list"))
+        stdout = self._run_jj(("git", "remote", "list"))
         remotes: list[GitRemote] = []
         for line in stdout.splitlines():
             stripped = line.strip()
@@ -172,7 +177,7 @@ class JjClient:
         if bookmarks:
             command.extend(bookmarks)
 
-        stdout = self._run(command)
+        stdout = self._run_jj(command)
         grouped: dict[str, _RawBookmarkState] = {}
         for line in stdout.splitlines():
             stripped = line.strip()
@@ -223,19 +228,50 @@ class JjClient:
     def set_bookmark(self, bookmark: str, revision: str) -> None:
         """Create or move a local bookmark to the supplied revision."""
 
-        self._run(("bookmark", "set", bookmark, "-r", revision))
+        self._run_jj(("bookmark", "set", bookmark, "-r", revision))
 
     def push_bookmark(self, *, remote: str, bookmark: str) -> None:
         """Push one bookmark to the selected remote."""
 
-        self._run(("git", "push", "--remote", remote, "--bookmark", bookmark))
+        self._run_jj(("git", "push", "--remote", remote, "--bookmark", bookmark))
+
+    def fetch_remote(self, *, remote: str) -> None:
+        """Refresh remembered remote bookmark state for the selected remote."""
+
+        self._run_jj(("git", "fetch", "--remote", remote))
+
+    def track_bookmark(self, *, remote: str, bookmark: str) -> None:
+        """Track an existing remote bookmark locally."""
+
+        self._run_jj(("bookmark", "track", bookmark, "--remote", remote))
+
+    def update_untracked_remote_bookmark(
+        self,
+        *,
+        remote: str,
+        bookmark: str,
+        desired_target: str,
+        expected_remote_target: str,
+    ) -> None:
+        """Update an existing untracked remote bookmark without importing it first."""
+
+        self._run_git(
+            (
+                "push",
+                f"--force-with-lease=refs/heads/{bookmark}:{expected_remote_target}",
+                remote,
+                f"{desired_target}:refs/heads/{bookmark}",
+            )
+        )
+        self.fetch_remote(remote=remote)
+        self.track_bookmark(remote=remote, bookmark=bookmark)
 
     def _query_revisions(self, revset: str, *, limit: int | None = None) -> list[LocalRevision]:
         command = ["log", "--no-graph", "-r", revset, "-T", _COMMIT_TEMPLATE]
         if limit is not None:
             command.extend(["--limit", str(limit)])
 
-        stdout = self._run(command)
+        stdout = self._run_jj(command)
         revisions: list[LocalRevision] = []
         for line in stdout.splitlines():
             stripped = line.strip()
@@ -244,15 +280,39 @@ class JjClient:
             revisions.append(_parse_revision_line(stripped))
         return revisions
 
-    def _run(self, args: Sequence[str]) -> str:
-        command = ["jj", *args]
+    def _run_jj(self, args: Sequence[str]) -> str:
+        return self._run_command(
+            ["jj", *args],
+            missing_tool_message="`jj` is not installed or is not on PATH.",
+            detect_stale_workspace=True,
+        )
+
+    def _run_git(self, args: Sequence[str]) -> str:
+        return self._run_command(
+            ["git", *args],
+            missing_tool_message="`git` is not installed or is not on PATH.",
+            detect_stale_workspace=False,
+        )
+
+    def _run_command(
+        self,
+        command: Sequence[str],
+        *,
+        missing_tool_message: str,
+        detect_stale_workspace: bool,
+    ) -> str:
         try:
             completed = self._runner(command, self._repo_root)
         except FileNotFoundError as error:
-            raise JjCommandError("`jj` is not installed or is not on PATH.") from error
+            raise JjCommandError(missing_tool_message) from error
 
         if completed.returncode != 0:
             message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+            if detect_stale_workspace and "The working copy is stale" in message:
+                raise StaleWorkspaceError(
+                    "The current workspace is stale. Run `jj workspace update-stale` "
+                    "and retry."
+                )
             raise JjCommandError(f"{shlex.join(command)} failed: {message}")
         return completed.stdout
 
@@ -264,6 +324,11 @@ class JjClient:
             raise UnsupportedStackError(
                 f"Unsupported stack shape at {revision.change_id}: stack reached the root "
                 "commit before `trunk()`."
+            )
+        if revision.hidden:
+            raise UnsupportedStackError(
+                f"Unsupported stack shape at {revision.change_id}: hidden commits are not "
+                "reviewable."
             )
         if revision.immutable:
             raise UnsupportedStackError(
@@ -292,7 +357,7 @@ def _default_runner(command: Sequence[str], cwd: Path) -> subprocess.CompletedPr
     )
 
 
-_EXPECTED_FIELD_COUNT = 8
+_EXPECTED_FIELD_COUNT = 9
 
 
 def _parse_revision_line(line: str) -> LocalRevision:
@@ -310,6 +375,7 @@ def _parse_revision_line(line: str) -> LocalRevision:
         empty_json,
         divergent_json,
         working_copy_json,
+        hidden_json,
         immutable_json,
     ) = parts
     try:
@@ -326,6 +392,7 @@ def _parse_revision_line(line: str) -> LocalRevision:
             description=json.loads(description_json),
             divergent=json.loads(divergent_json),
             empty=json.loads(empty_json),
+            hidden=json.loads(hidden_json),
             immutable=json.loads(immutable_json),
             parents=tuple(parents_raw),
         )

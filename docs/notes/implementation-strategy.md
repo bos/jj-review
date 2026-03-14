@@ -168,6 +168,8 @@ operations such as:
 - inspect the working-copy/default submit target
 - enumerate the linear review chain
 - read bookmarks plus tracked and untracked remote bookmark state
+- surface stale-workspace errors distinctly so commands can suggest
+  `jj workspace update-stale`
 
 The adapter should prefer machine-readable template output over parsing human
 text.
@@ -191,6 +193,11 @@ local and remote state, it should decide:
 - which PR each change should map to
 - which remote mutations are required
 - which operations are hard errors
+
+Reviewability should be computed from `jj` state, not reimplemented as
+tool-local policy. In practice, that means the planner should respect the
+repo's configured `immutable_heads()` boundary via `jj`'s `immutable()` /
+`mutable()` semantics.
 
 This is where most correctness should live.
 
@@ -537,6 +544,8 @@ Done when:
 - tests assert on the backing Git repo after client actions
 - no-op detection respects topology changes as well as content changes,
   including matching untracked remote bookmarks
+- submit can update an existing untracked remote bookmark without creating a
+  local bookmark conflict first
 
 ### Slice 5: PR Create and Update
 
@@ -623,6 +632,7 @@ When possible, diagnostics should point to the exact recovery action:
 - `jj review adopt`
 - `jj rebase`
 - `jj review cleanup`
+- `jj workspace update-stale`
 
 ## Observability
 

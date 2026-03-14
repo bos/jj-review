@@ -84,6 +84,45 @@ def test_submit_updates_remote_bookmark_after_change_rewrite(
     assert _read_remote_ref(remote, initial_bookmark) == rewritten_stack.revisions[-1].commit_id
 
 
+def test_submit_updates_existing_untracked_remote_bookmark(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
+    repo, remote = _init_repo(tmp_path)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert main(["--repository", str(repo), "submit"]) == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    bookmark = ReviewStateStore.for_repo(repo).load().changes[change_id].bookmark
+    assert bookmark is not None
+
+    _run(["jj", "bookmark", "forget", bookmark], repo)
+    # Forgetting the local bookmark leaves only an untracked remote bookmark, which makes
+    # the old commit immutable in jj. Rewrite it explicitly so the test can exercise the
+    # resubmit path instead of the immutability guard.
+    _run(
+        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 renamed"],
+        repo,
+    )
+
+    exit_code = main(["--repository", str(repo), "submit", change_id])
+    captured = capsys.readouterr()
+    rewritten_stack = JjClient(repo).discover_review_stack(change_id)
+    bookmark_state = JjClient(repo).get_bookmark_state(bookmark)
+    remote_state = bookmark_state.remote_target("origin")
+
+    assert exit_code == 0
+    assert "pushed" in captured.out
+    assert _read_remote_ref(remote, bookmark) == rewritten_stack.revisions[-1].commit_id
+    assert remote_state is not None
+    assert remote_state.is_tracked is True
+
+
 def test_submit_reports_no_reviewable_commits_when_head_is_trunk(
     tmp_path: Path,
     monkeypatch,

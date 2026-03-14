@@ -89,6 +89,7 @@ def _revision(*, change_id: str, description: str) -> LocalRevision:
         description=description,
         divergent=False,
         empty=False,
+        hidden=False,
         immutable=False,
         parents=("parent",),
     )
