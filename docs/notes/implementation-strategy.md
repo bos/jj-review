@@ -466,6 +466,8 @@ Done when:
 
 ### Slice 3: Bookmark Resolution and Cache
 
+Status: complete.
+
 Deliver:
 
 - bookmark naming policy

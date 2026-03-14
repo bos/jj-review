@@ -93,13 +93,13 @@ By default, it should be derived from:
 Example shape:
 
 ```text
-review/<owner>/<slug-from-subject>-<change_id.short(8)>
+review/<slug-from-subject>-<change_id.short(8)>
 ```
 
 Example:
 
 ```text
-review/alice/fix-cache-invalidation-ypvmkkuo
+review/fix-cache-invalidation-ypvmkkuo
 ```
 
 The slug is there for reviewers using GitHub or plain Git. The short
@@ -402,11 +402,9 @@ If a cache file exists, keep it sparse:
 
 ```toml
 version = 1
-remote = "origin"
-trunk_branch = "main"
 
 [change."<full-change-id>"]
-bookmark = "review/alice/fix-cache-invalidation-ypvmkkuo"
+bookmark = "review/fix-cache-invalidation-ypvmkkuo"
 pr_number = 123
 pr_url = "https://github.com/org/repo/pull/123"
 stack_comment_id = 456789
@@ -441,9 +439,8 @@ The MVP should intentionally reject:
 
 ## Open Questions
 
-1. Should the default bookmark namespace include the user name, or only the change ID?
-2. Should the tool derive PR titles from commit subject, full description, or a template?
-3. Should abandoned or split PRs be auto-closed, or only surfaced as cleanup suggestions?
+1. Should the tool derive PR titles from commit subject, full description, or a template?
+2. Should abandoned or split PRs be auto-closed, or only surfaced as cleanup suggestions?
 
 ## Bottom Line
 

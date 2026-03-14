@@ -9,7 +9,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from jj_review import __version__
+from jj_review.bookmarks import BookmarkResolver
 from jj_review.bootstrap import BootstrapError, bootstrap_context
+from jj_review.cache import ReviewStateStore
+from jj_review.config import CONFIG_FILENAME
 from jj_review.errors import CliError, CommandNotImplementedError
 from jj_review.jj import JjClient
 
@@ -114,6 +117,16 @@ def _add_revision_command(
 def _status_handler(args: Namespace) -> int:
     context = bootstrap_context(args)
     stack = JjClient(context.repo_root).discover_review_stack(args.revset)
+    state_path = context.options.config_path or context.repo_root / CONFIG_FILENAME
+    state_store = ReviewStateStore(state_path)
+    state = state_store.load()
+    bookmark_result = BookmarkResolver(state).pin_revisions(stack.revisions)
+    if bookmark_result.changed:
+        state_store.save(bookmark_result.state)
+    bookmarks_by_change = {
+        resolution.change_id: resolution
+        for resolution in bookmark_result.resolutions
+    }
     print(f"Selected revset: {stack.selected_revset}")
     print(f"Trunk: {stack.trunk.subject} [{stack.trunk.change_id[:12]}]")
     if not stack.revisions:
@@ -122,7 +135,11 @@ def _status_handler(args: Namespace) -> int:
 
     print("Stack:")
     for revision in stack.revisions:
-        print(f"- {revision.subject} [{revision.change_id[:12]}]")
+        bookmark = bookmarks_by_change[revision.change_id]
+        print(
+            f"- {revision.subject} [{revision.change_id[:12]}] "
+            f"-> {bookmark.bookmark} ({bookmark.source})"
+        )
     return 0
 
 

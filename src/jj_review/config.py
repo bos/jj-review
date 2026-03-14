@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 CONFIG_FILENAME = ".jj-review.toml"
+_CACHE_TOP_LEVEL_KEYS = {"change", "version"}
 
 
 class ConfigError(RuntimeError):
@@ -67,7 +68,12 @@ def load_config(*, repo_root: Path | None, config_path: Path | None = None) -> A
         raise ConfigError(f"Could not read config file {resolved_path}: {error}") from error
 
     try:
-        return AppConfig.model_validate(raw_config)
+        config_data = {
+            key: value
+            for key, value in raw_config.items()
+            if key not in _CACHE_TOP_LEVEL_KEYS
+        }
+        return AppConfig.model_validate(config_data)
     except ValidationError as error:
         raise ConfigError(f"Invalid jj-review config in {resolved_path}: {error}") from error
 
