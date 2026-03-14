@@ -8,12 +8,14 @@ from jj_review.bookmarks import ResolvedBookmark
 from jj_review.commands.submit import (
     SubmitBookmarkCollisionError,
     SubmitBookmarkConflictError,
+    SubmitBookmarkResolutionError,
     SubmitGithubResolutionError,
     SubmitPullRequestResolutionError,
     SubmitRemoteBookmarkConflictError,
     SubmitRemoteBookmarkOwnershipError,
     SubmitRemoteResolutionError,
     _bookmark_linkage_is_proven,
+    _discover_bookmarks_for_revisions,
     _ensure_pull_request_linkage_is_consistent,
     _ensure_remote_can_be_updated,
     _ensure_unique_bookmarks,
@@ -255,6 +257,16 @@ def test_bookmark_linkage_is_proven_by_cached_bookmark() -> None:
     )
 
 
+def test_bookmark_linkage_is_proven_by_discovered_bookmark() -> None:
+    assert _bookmark_linkage_is_proven(
+        bookmark="review/foo",
+        bookmark_source="discovered",
+        bookmark_state=BookmarkState(name="review/foo"),
+        change_id="change-a",
+        state=ReviewState(),
+    )
+
+
 def test_bookmark_linkage_is_not_proven_by_newly_generated_name() -> None:
     assert not _bookmark_linkage_is_proven(
         bookmark="review/foo",
@@ -263,6 +275,50 @@ def test_bookmark_linkage_is_not_proven_by_newly_generated_name() -> None:
         change_id="change-a",
         state=ReviewState(change={"change-a": CachedChange(bookmark="review/foo")}),
     )
+
+
+def test_discover_bookmarks_for_revisions_reuses_unique_matching_remote_bookmark() -> None:
+    bookmarks = _discover_bookmarks_for_revisions(
+        bookmark_states={
+            "review/original-title-zvlywqkx": BookmarkState(
+                name="review/original-title-zvlywqkx",
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("abc123",)),),
+            ),
+        },
+        remote_name="origin",
+        revisions=(
+            SimpleNamespace(change_id="zvlywqkxtmnpqrstu"),
+        ),
+    )
+
+    assert bookmarks == {"zvlywqkxtmnpqrstu": "review/original-title-zvlywqkx"}
+
+
+def test_discover_bookmarks_for_revisions_rejects_ambiguous_matches() -> None:
+    with pytest.raises(
+        SubmitBookmarkResolutionError,
+        match="multiple existing bookmarks match",
+    ):
+        _discover_bookmarks_for_revisions(
+            bookmark_states={
+                "review/first-zvlywqkx": BookmarkState(
+                    name="review/first-zvlywqkx",
+                    remote_targets=(
+                        RemoteBookmarkState(remote="origin", targets=("abc123",)),
+                    ),
+                ),
+                "review/second-zvlywqkx": BookmarkState(
+                    name="review/second-zvlywqkx",
+                    remote_targets=(
+                        RemoteBookmarkState(remote="origin", targets=("def456",)),
+                    ),
+                ),
+            },
+            remote_name="origin",
+            revisions=(
+                SimpleNamespace(change_id="zvlywqkxtmnpqrstu"),
+            ),
+        )
 
 
 def test_ensure_remote_can_be_updated_rejects_conflicted_remote_bookmark() -> None:

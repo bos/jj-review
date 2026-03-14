@@ -5,7 +5,7 @@ from pathlib import Path
 
 import httpx
 
-from jj_review.cache import ReviewStateStore
+from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.cli import main
 from jj_review.github.client import GithubClient
 from jj_review.jj import JjClient
@@ -163,6 +163,52 @@ def test_submit_updates_existing_untracked_remote_bookmark(
     )
     assert remote_state is not None
     assert remote_state.is_tracked is True
+    assert fake_repo.pull_requests[pr_number].title == "feature 1 renamed"
+
+
+def test_submit_rediscovers_review_branch_after_state_and_local_bookmark_loss(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    cached_change = state_store.load().changes[change_id]
+    bookmark = cached_change.bookmark
+    pr_number = cached_change.pr_number
+    assert bookmark is not None
+    assert pr_number is not None
+
+    state_path = resolve_state_path(repo)
+    state_path.unlink()
+    _run(["jj", "bookmark", "forget", bookmark], repo)
+    _run(
+        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 renamed"],
+        repo,
+    )
+
+    exit_code = _main(repo, config_path, "submit", change_id)
+    captured = capsys.readouterr()
+    rewritten_stack = JjClient(repo).discover_review_stack(change_id)
+    rewritten_state = state_store.load()
+
+    assert exit_code == 0
+    assert "PR #1 updated" in captured.out
+    assert set(fake_repo.pull_requests) == {pr_number}
+    assert rewritten_state.changes[change_id].bookmark == bookmark
+    assert rewritten_state.changes[change_id].pr_number == pr_number
+    assert (
+        _read_remote_ref(fake_repo.git_dir, bookmark)
+        == rewritten_stack.revisions[-1].commit_id
+    )
     assert fake_repo.pull_requests[pr_number].title == "feature 1 renamed"
 
 

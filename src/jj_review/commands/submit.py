@@ -32,6 +32,10 @@ class SubmitBookmarkConflictError(CliError):
     """Raised when a local bookmark has multiple conflicting targets."""
 
 
+class SubmitBookmarkResolutionError(CliError):
+    """Raised when `submit` cannot safely rediscover review bookmark linkage."""
+
+
 class SubmitRemoteBookmarkConflictError(CliError):
     """Raised when the selected remote bookmark is conflicted."""
 
@@ -155,7 +159,16 @@ async def _run_submit_async(
     remote = select_submit_remote(config, remotes)
     state_store = ReviewStateStore.for_repo(repo_root)
     state = state_store.load()
-    bookmark_result = BookmarkResolver(state, change_overrides).pin_revisions(stack.revisions)
+    discovered_bookmarks = _discover_bookmarks_for_revisions(
+        bookmark_states=client.list_bookmark_states(),
+        remote_name=remote.name,
+        revisions=stack.revisions,
+    )
+    bookmark_result = BookmarkResolver(
+        state,
+        change_overrides,
+        discovered_bookmarks=discovered_bookmarks,
+    ).pin_revisions(stack.revisions)
     _ensure_unique_bookmarks(bookmark_result.resolutions)
 
     if not stack.revisions:
@@ -431,6 +444,8 @@ def _bookmark_linkage_is_proven(
     state: ReviewState,
 ) -> bool:
     if bookmark_state.local_target is not None:
+        return True
+    if bookmark_source == "discovered":
         return True
     if bookmark_source != "cache":
         return False
@@ -711,6 +726,44 @@ def _updated_cached_change(
 
 def _build_github_client(*, base_url: str) -> GithubClient:
     return GithubClient(base_url=base_url)
+
+
+def _discover_bookmarks_for_revisions(
+    *,
+    bookmark_states: dict[str, BookmarkState],
+    remote_name: str,
+    revisions: tuple[Any, ...],
+) -> dict[str, str]:
+    discovered: dict[str, str] = {}
+    for revision in revisions:
+        candidates = [
+            bookmark
+            for bookmark, bookmark_state in bookmark_states.items()
+            if _bookmark_matches_generated_change_id(bookmark, revision.change_id)
+            and _bookmark_state_is_discoverable(bookmark_state, remote_name)
+        ]
+        if not candidates:
+            continue
+        unique_candidates = sorted(set(candidates))
+        if len(unique_candidates) > 1:
+            raise SubmitBookmarkResolutionError(
+                f"Could not safely rediscover the review bookmark for change "
+                f"{revision.change_id}: multiple existing bookmarks match its stable "
+                f"change-ID suffix: {', '.join(unique_candidates)}."
+            )
+        discovered[revision.change_id] = unique_candidates[0]
+    return discovered
+
+
+def _bookmark_matches_generated_change_id(bookmark: str, change_id: str) -> bool:
+    return bookmark.startswith("review/") and bookmark.endswith(f"-{change_id[:8]}")
+
+
+def _bookmark_state_is_discoverable(bookmark_state: BookmarkState, remote_name: str) -> bool:
+    if bookmark_state.local_targets:
+        return True
+    remote_state = bookmark_state.remote_target(remote_name)
+    return remote_state is not None and bool(remote_state.targets)
 
 
 def _remote_bookmarks_pointing_at_trunk(

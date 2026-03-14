@@ -81,6 +81,28 @@ def test_bookmark_resolver_prefers_explicit_override() -> None:
     assert result.resolutions[0].source == "override"
 
 
+def test_bookmark_resolver_reuses_discovered_bookmark_when_cache_is_missing() -> None:
+    renamed_revision = _revision(
+        change_id="zvlywqkxtmnpqrstu",
+        description="Rewrite cache invalidation from scratch\n",
+    )
+
+    result = BookmarkResolver(
+        ReviewState(),
+        discovered_bookmarks={
+            "zvlywqkxtmnpqrstu": "review/fix-cache-invalidation-zvlywqkx"
+        },
+    ).pin_revisions((renamed_revision,))
+
+    assert result.changed is True
+    assert result.resolutions[0].bookmark == "review/fix-cache-invalidation-zvlywqkx"
+    assert result.resolutions[0].source == "discovered"
+    assert (
+        result.state.changes["zvlywqkxtmnpqrstu"].bookmark
+        == "review/fix-cache-invalidation-zvlywqkx"
+    )
+
+
 def _revision(*, change_id: str, description: str) -> LocalRevision:
     return LocalRevision(
         change_id=change_id,

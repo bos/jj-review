@@ -16,7 +16,7 @@ _DEFAULT_SLUG = "change"
 _REVIEW_NAMESPACE = "review"
 _SHORT_CHANGE_ID_LENGTH = 8
 
-BookmarkSource = Literal["cache", "generated", "override"]
+BookmarkSource = Literal["cache", "discovered", "generated", "override"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,9 +44,12 @@ class BookmarkResolver:
         self,
         state: ReviewState,
         overrides: Mapping[str, ChangeConfig] | None = None,
+        *,
+        discovered_bookmarks: Mapping[str, str] | None = None,
     ) -> None:
         self._state = state
         self._overrides = overrides or {}
+        self._discovered_bookmarks = discovered_bookmarks or {}
 
     def pin_revisions(
         self,
@@ -77,6 +80,20 @@ class BookmarkResolver:
                         source="cache",
                     )
                 )
+                continue
+            if discovered_bookmark := self._discovered_bookmarks.get(revision.change_id):
+                changes[revision.change_id] = _updated_cached_change(
+                    cached_change,
+                    discovered_bookmark,
+                )
+                resolutions.append(
+                    ResolvedBookmark(
+                        bookmark=discovered_bookmark,
+                        change_id=revision.change_id,
+                        source="discovered",
+                    )
+                )
+                changed = True
                 continue
 
             bookmark = generate_bookmark_name(revision)
