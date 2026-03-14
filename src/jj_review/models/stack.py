@@ -29,7 +29,11 @@ class LocalRevision(BaseModel):
     def is_reviewable(self) -> bool:
         """Whether the revision should count as a review unit."""
 
-        return not self.immutable and not (self.current_working_copy and self.empty)
+        return (
+            not self.immutable
+            and not self.divergent
+            and not (self.current_working_copy and self.empty)
+        )
 
     def only_parent_commit_id(self) -> str:
         """Return the sole parent commit ID when the revision is linear."""

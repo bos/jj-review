@@ -63,6 +63,11 @@ _CHILD_B = (
     '"description":"child b\\n","author":{},"committer":{}}'
     "\tfalse\tfalse\tfalse\tfalse\n"
 )
+_DIVERGENT_SIBLING = (
+    '{"commit_id":"div-sibling","parents":["parent"],"change_id":"div-sibling-change",'
+    '"description":"divergent sibling\\n","author":{},"committer":{}}'
+    "\tfalse\ttrue\tfalse\tfalse\n"
+)
 
 
 def test_discover_review_stack_defaults_to_parent_of_empty_working_copy() -> None:
@@ -162,6 +167,28 @@ def test_discover_review_stack_rejects_multiple_reviewable_children() -> None:
         match="multiple reviewable children require separate PR chains",
     ):
         client.discover_review_stack("head")
+
+
+def test_discover_review_stack_excludes_divergent_siblings_from_child_count() -> None:
+    # A divergent sibling of a node in the walk path must not be counted as a
+    # second reviewable child.  Before the fix, is_reviewable() did not exclude
+    # divergent revisions, so the walk would fail with "multiple reviewable
+    # children" instead of succeeding.
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
+        ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): _HEAD,
+        ("jj", "log", "--no-graph", "-r", "parent", "-T", _template(), "--limit", "2"): _PARENT,
+        ("jj", "log", "--no-graph", "-r", "trunk", "-T", _template(), "--limit", "2"): _TRUNK,
+        # parent has one valid child (head) and one divergent sibling — only
+        # head is reviewable, so there is no branching conflict.
+        ("jj", "log", "--no-graph", "-r", "children('parent')", "-T", _template()): (
+            _HEAD + _DIVERGENT_SIBLING
+        ),
+    }
+
+    stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack("head")
+
+    assert [r.subject for r in stack.revisions] == ["parent", "head"]
 
 
 def _template() -> str:
