@@ -169,20 +169,24 @@ All of that already lives in the commit DAG, the change ID model, and the bookma
 
 ### Store Only Optional Review State
 
-If the tool stores anything locally, it should be limited to:
+If the tool stores any machine-written local state, it should be limited to:
 
-- optional bookmark-name override for a specific change
 - pinned generated bookmark name for a specific change, if bookmark names
   include mutable text such as the subject slug
 - cached PR number and URL
 - cached stack-comment identifier, if the tool uses a dedicated PR comment
 - last known PR state, only as a cache
-- per-change user preferences such as draft or skip-review
+
+Even PR linkage can often be rediscovered by asking GitHub for the PR whose
+head branch matches the synthetic bookmark name.
+
+User-authored settings and overrides are a separate category and should not be
+mixed into machine-written review state. Those include:
+
 - repo defaults such as preferred remote, trunk branch, or GitHub owner/repo
   override
-
-Even PR linkage can often be rediscovered by asking GitHub for the PR whose head
-branch matches the synthetic bookmark name.
+- explicit bookmark-name override for a specific change
+- per-change user preferences such as draft or skip-review
 
 ### Reviewer-Facing Stack Metadata
 
@@ -210,20 +214,38 @@ Do not write into `jj` internals such as:
 - the view/op store
 - private Git ref namespaces inside the backing store
 
-Those are tempting, but they tie the tool to storage details that `jj` explicitly keeps flexible.
+Those are tempting, but they tie the tool to storage details that `jj`
+explicitly keeps flexible.
 
-For an MVP, use a tool-owned sidecar file such as:
+Do not store `jj-review` config or machine-written state in the working tree.
+Tracked workspace files are the wrong default for both:
 
-```text
-<workspace-root>/.jj-review.toml
-```
+- config in the working tree looks like project-shared policy and is too easy to
+  commit accidentally
+- machine-written state in the working tree dirties the `jj` working copy and
+  perturbs the history the tool is supposed to project
 
-Treat it as a cache, override file, and bookmark-name pin file, not the source
-of truth for stack topology.
+Instead, split storage into two locations:
 
-That is not perfect for multi-workspace repos, but it is acceptable because the important state is
-reconstructible. If multi-workspace coherence later matters, add a repo-shared cache once there is
-a clean, intentional way to resolve a shared repo path.
+- user config in `~/.config/jj-review/config.toml`
+- machine-written review state in
+  `~/.local/state/jj-review/repos/<repo-id>/state.toml`
+
+For the MVP, repo-specific config should live in the main user config file via
+path-based conditional matching rather than a separate repo-local config file.
+
+For machine-written review state, reuse `jj`'s repo config identity:
+
+1. if `.jj/repo/config-id` exists, use it as `<repo-id>`
+2. otherwise run `jj config path --repo` to ask `jj` to materialize its repo
+   config identity
+3. then read `.jj/repo/config-id` and use that as `<repo-id>`
+
+That follows `jj`'s repo-scoped identity model without writing any
+tool-specific file into the workspace.
+
+If `jj` still cannot provide a repo config ID, the tool should continue without
+persisted repo state rather than writing a fallback file into the working tree.
 
 ## Submission Algorithm
 
@@ -396,9 +418,9 @@ For the MVP, cleanup should prefer reporting planned actions before mutating
 remote state. Deleting open PRs or deleting review branches for ambiguous cases
 should require explicit user intent rather than happening automatically.
 
-## Suggested Optional Cache Format
+## Suggested Review State Format
 
-If a cache file exists, keep it sparse:
+If a machine-written review state file exists, keep it sparse:
 
 ```toml
 version = 1
@@ -408,17 +430,30 @@ bookmark = "review/fix-cache-invalidation-ypvmkkuo"
 pr_number = 123
 pr_url = "https://github.com/org/repo/pull/123"
 stack_comment_id = 456789
-draft = true
-skip = false
+```
+
+Suggested path:
+
+```text
+~/.local/state/jj-review/repos/<repo-id>/state.toml
 ```
 
 Semantics:
 
 - missing entry means "reuse any discoverable bookmark or PR state, otherwise
   generate defaults"
-- present entry means "apply override or reuse cached GitHub linkage"
+- present entry means "reuse cached generated state if still consistent"
 - deleting the file must never break the review stack model, though it may
   force rediscovery or manual reattachment of review bookmarks
+
+Suggested config path:
+
+```text
+~/.config/jj-review/config.toml
+```
+
+User-authored per-change overrides such as `bookmark_override`, `draft`, or
+`skip` belong in config, not in the machine-written state file.
 
 ## MVP Boundary
 

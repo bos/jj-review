@@ -4,16 +4,20 @@ import subprocess
 from pathlib import Path
 
 from jj_review.bookmarks import BookmarkResolver
-from jj_review.cache import ReviewStateStore
+from jj_review.cache import ReviewStateStore, ReviewStateUnavailable, resolve_state_path
 from jj_review.cli import main
 from jj_review.jj import JjClient
 
 
-def test_bookmark_pins_survive_subject_rewrites(tmp_path: Path) -> None:
+def test_bookmark_pins_survive_subject_rewrites(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
     repo = _init_repo(tmp_path)
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
-    state_store = ReviewStateStore(repo / ".jj-review.toml")
+    state_store = ReviewStateStore.for_repo(repo)
 
     first_stack = JjClient(repo).discover_review_stack()
     first_result = BookmarkResolver(state_store.load()).pin_revisions(first_stack.revisions)
@@ -30,7 +34,11 @@ def test_bookmark_pins_survive_subject_rewrites(tmp_path: Path) -> None:
     assert second_result.resolutions[-1].source == "cache"
 
 
-def test_status_persists_generated_bookmark_pins(tmp_path: Path) -> None:
+def test_status_persists_generated_bookmark_pins(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
     repo = _init_repo(tmp_path)
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
@@ -39,12 +47,50 @@ def test_status_persists_generated_bookmark_pins(tmp_path: Path) -> None:
     exit_code = main(["--repository", str(repo), "status"])
 
     assert exit_code == 0
-    state = ReviewStateStore(repo / ".jj-review.toml").load()
+    state = ReviewStateStore.for_repo(repo).load()
 
     assert set(state.changes) == {revision.change_id for revision in stack.revisions}
     for revision in stack.revisions:
         cached_change = state.changes[revision.change_id]
         assert cached_change.bookmark is not None
+    assert not (repo / ".jj-review.toml").exists()
+
+
+def test_resolve_state_path_bootstraps_jj_repo_id(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
+    repo = _init_repo(tmp_path)
+    config_id_path = repo / ".jj" / "repo" / "config-id"
+    config_id_path.unlink()
+
+    state_path = resolve_state_path(repo)
+
+    assert config_id_path.exists()
+    assert state_path.name == "state.toml"
+
+
+def test_status_continues_when_repo_id_cannot_be_materialized(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
+    repo = _init_repo(tmp_path)
+    _commit(repo, "feature 1", "feature-1.txt")
+    monkeypatch.setattr(
+        "jj_review.cache._resolve_repo_id",
+        lambda _: (_ for _ in ()).throw(ReviewStateUnavailable("repo config ID missing")),
+    )
+
+    exit_code = main(["--repository", str(repo), "status"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Stack:" in captured.out
+    assert "(generated)" in captured.out
+    assert not list((tmp_path / "state-home").rglob("state.toml"))
 
 
 def _init_repo(tmp_path: Path, *, configure_trunk: bool = True) -> Path:

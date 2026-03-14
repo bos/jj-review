@@ -12,7 +12,6 @@ from jj_review import __version__
 from jj_review.bookmarks import BookmarkResolver
 from jj_review.bootstrap import BootstrapError, bootstrap_context
 from jj_review.cache import ReviewStateStore
-from jj_review.config import CONFIG_FILENAME
 from jj_review.errors import CliError, CommandNotImplementedError
 from jj_review.jj import JjClient
 
@@ -117,10 +116,11 @@ def _add_revision_command(
 def _status_handler(args: Namespace) -> int:
     context = bootstrap_context(args)
     stack = JjClient(context.repo_root).discover_review_stack(args.revset)
-    state_path = context.options.config_path or context.repo_root / CONFIG_FILENAME
-    state_store = ReviewStateStore(state_path)
+    state_store = ReviewStateStore.for_repo(context.repo_root)
     state = state_store.load()
-    bookmark_result = BookmarkResolver(state).pin_revisions(stack.revisions)
+    bookmark_result = BookmarkResolver(state, context.config.change).pin_revisions(
+        stack.revisions
+    )
     if bookmark_result.changed:
         state_store.save(bookmark_result.state)
     bookmarks_by_change = {

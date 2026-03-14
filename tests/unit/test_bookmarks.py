@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from jj_review.bookmarks import BookmarkResolver, generate_bookmark_name
+from jj_review.config import ChangeConfig
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision
 
@@ -65,8 +66,7 @@ def test_bookmark_resolver_prefers_explicit_override() -> None:
     state = ReviewState(
         change={
             "zvlywqkxtmnpqrstu": CachedChange(
-                bookmark="review/fix-cache-invalidation-zvlywqkx",
-                bookmark_override="review/custom-name",
+                bookmark="review/fix-cache-invalidation-zvlywqkx"
             )
         }
     )
@@ -75,7 +75,10 @@ def test_bookmark_resolver_prefers_explicit_override() -> None:
         description="Fix cache invalidation\n",
     )
 
-    result = BookmarkResolver(state).pin_revisions((revision,))
+    result = BookmarkResolver(
+        state,
+        {"zvlywqkxtmnpqrstu": ChangeConfig(bookmark_override="review/custom-name")},
+    ).pin_revisions((revision,))
 
     assert result.changed is False
     assert result.resolutions[0].bookmark == "review/custom-name"

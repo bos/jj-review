@@ -76,7 +76,7 @@ At a high level, each command should follow the same shape:
 3. Read relevant GitHub state.
 4. Reconcile actual remote state with desired state.
 5. Apply mutations in a controlled order.
-6. Persist only minimal local cache and override data.
+6. Persist only minimal local review state and user-authored overrides.
 
 We should keep the code separated along those boundaries so that planning logic
 can be tested without network or subprocess side effects.
@@ -210,11 +210,27 @@ It should know how to:
 
 It should not decide stack topology or branch naming policy.
 
-### Local Cache
+### Config and Review State
 
-The design doc defines the local cache as minimal, optional, and
-non-authoritative. The implementation should model it as a sparse, versioned
-sidecar with typed persistence.
+The design doc now distinguishes user-authored config from machine-written
+review state.
+
+For the MVP:
+
+- config should live in `~/.config/jj-review/config.toml`
+- repo-specific config should be expressed in that file with path-based
+  conditional matching
+- machine-written review state should live in
+  `~/.local/state/jj-review/repos/<repo-id>/state.toml`
+- `<repo-id>` should come from `jj`'s repo config identity; if
+  `.jj/repo/config-id` is missing, the client should run
+  `jj config path --repo` and then read the resulting ID
+- if `jj` still cannot provide a repo config ID, commands should continue with
+  review-state persistence disabled for that repo
+
+That review state remains minimal, optional, and non-authoritative. The
+implementation should model it as a sparse, versioned state file with typed
+persistence.
 
 ## Data Model
 
@@ -227,14 +243,16 @@ Important model families:
 - bookmark and remote branch models
 - GitHub PR and comment models
 - mutation plan models
-- cache file models
+- config and review-state file models
 
-Important persisted records should mirror the design doc's minimal review-state
-cache:
+Important persisted records should mirror the design doc's minimal review
+state:
 
-- repo defaults used for resolution
 - per-change pinned bookmark and GitHub linkage
 - per-change reviewer-facing stack comment identifier, if used
+
+Repo defaults used for resolution belong in config, not in machine-written
+review state.
 
 Command output and planning results should use first-class typed models.
 Rendered output should be derived from those models rather than carrying ad hoc
@@ -257,6 +275,25 @@ The resolution order should be:
 - GitHub owner/repo: derive from the selected remote URL, otherwise fail
 
 Ambiguity should be a hard stop, not something the tool guesses past.
+
+## Documenting Changes Before Coding
+
+When we discover a design bug or a behavioral ambiguity, write down the
+intended fix before implementing it.
+
+Use these documents with a clear split:
+
+- update `docs/notes/design.md` first if the change affects product behavior,
+  persistence boundaries, invariants, or user-visible semantics
+- update `docs/notes/implementation-strategy.md` if the change is primarily
+  about execution strategy, staging, or component boundaries
+- use the commit message to summarize what landed, not as the primary place
+  where the design decision lives
+
+For small bug fixes, a short targeted edit to the relevant section is enough.
+We do not need a new note for every issue. The important thing is that the
+canonical docs reflect the intended behavior before code starts depending on a
+new assumption.
 
 ## Authentication
 
@@ -414,17 +451,19 @@ That means:
 
 We should prefer a sequence like:
 
-1. failing tests
-2. minimal implementation
-3. cleanup/refactor if needed
-4. docs or notes update
+1. targeted design or strategy note update when behavior or assumptions change
+2. failing tests
+3. minimal implementation
+4. cleanup/refactor if needed
+5. final docs sync if user-facing behavior or usage changed
 
 rather than:
 
 1. large framework commit
 2. large feature commit
 3. delayed tests
-4. delayed docs
+4. delayed design clarification
+5. delayed docs
 
 ## Delivery Plan
 
@@ -464,20 +503,24 @@ Done when:
 - stack discovery behavior is covered by unit and integration tests
 - unsupported shapes fail with explicit diagnostics
 
-### Slice 3: Bookmark Resolution and Cache
+### Slice 3: Bookmark Resolution and Review State
 
 Status: complete.
 
 Deliver:
 
 - bookmark naming policy
-- bookmark pinning in local cache
-- cache model and persistence
+- bookmark pinning in machine-written review state
+- sparse review-state model and persistence
+- separation between human config and machine-written review state
 
 Done when:
 
 - tests prove "generate once, then pin"
 - subject changes do not churn bookmark names
+- config and review state no longer live in a workspace-root sidecar file
+- repo ID lookup failures fall back to generated bookmarks without persisted
+  state
 
 ### Slice 4: Remote Branch Projection
 

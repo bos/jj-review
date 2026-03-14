@@ -11,11 +11,8 @@ class CachedChange(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     bookmark: str | None = None
-    bookmark_override: str | None = None
-    draft: bool | None = None
     pr_number: int | None = None
     pr_url: str | None = None
-    skip: bool | None = None
     stack_comment_id: int | None = None
 
 

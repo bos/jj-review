@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal
 
+from jj_review.config import ChangeConfig
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision
 
@@ -38,8 +40,13 @@ class BookmarkResolutionResult:
 class BookmarkResolver:
     """Resolve synthetic bookmark names using cache-first semantics."""
 
-    def __init__(self, state: ReviewState) -> None:
+    def __init__(
+        self,
+        state: ReviewState,
+        overrides: Mapping[str, ChangeConfig] | None = None,
+    ) -> None:
         self._state = state
+        self._overrides = overrides or {}
 
     def pin_revisions(
         self,
@@ -51,11 +58,12 @@ class BookmarkResolver:
         changes = dict(self._state.changes)
         resolutions: list[ResolvedBookmark] = []
         for revision in revisions:
+            configured_change = self._overrides.get(revision.change_id)
             cached_change = changes.get(revision.change_id)
-            if cached_change and cached_change.bookmark_override:
+            if configured_change and configured_change.bookmark_override:
                 resolutions.append(
                     ResolvedBookmark(
-                        bookmark=cached_change.bookmark_override,
+                        bookmark=configured_change.bookmark_override,
                         change_id=revision.change_id,
                         source="override",
                     )
