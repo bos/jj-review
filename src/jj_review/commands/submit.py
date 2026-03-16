@@ -815,7 +815,14 @@ async def _discover_stack_comment(
     ]
     if not matching_comments:
         return None
-    return max(matching_comments, key=lambda comment: comment.id)
+    if len(matching_comments) > 1:
+        comment_ids = ", ".join(str(comment.id) for comment in matching_comments)
+        raise SubmitStackCommentError(
+            "GitHub reports multiple `jj-review` stack comments for the same pull "
+            f"request: {comment_ids}. Repair the linkage with `sync` or delete the extra "
+            "stack comments before submitting again."
+        )
+    return matching_comments[0]
 
 
 async def _create_stack_comment(
@@ -846,12 +853,17 @@ async def _update_stack_comment(
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
 ) -> GithubIssueComment:
-    return await github_client.update_issue_comment(
-        github_repository.owner,
-        github_repository.repo,
-        comment_id=comment_id,
-        body=comment_body,
-    )
+    try:
+        return await github_client.update_issue_comment(
+            github_repository.owner,
+            github_repository.repo,
+            comment_id=comment_id,
+            body=comment_body,
+        )
+    except GithubClientError as error:
+        raise SubmitStackCommentError(
+            f"Could not update stack comment #{comment_id}: {error}"
+        ) from error
 
 
 def _render_stack_comment(

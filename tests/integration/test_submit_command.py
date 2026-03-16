@@ -7,7 +7,7 @@ import httpx
 
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.cli import main
-from jj_review.github.client import GithubClient
+from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.jj import JjClient
 from jj_review.testing.fake_github import (
     FakeGithubRepository,
@@ -168,6 +168,88 @@ def test_submit_rejects_cached_stack_comment_id_for_non_stack_comment(
     assert exit_code == 1
     assert "is not managed by `jj-review`" in captured.err
     assert fake_repo.issue_comments[1][1].body == "manual note"
+
+
+def test_submit_rejects_ambiguous_discovered_stack_comments(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+    fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=1)
+    state_store.save(
+        initial_state.model_copy(
+            update={
+                "changes": {
+                    **initial_state.changes,
+                    change_id: initial_state.changes[change_id].model_copy(
+                        update={"stack_comment_id": None}
+                    ),
+                }
+            }
+        )
+    )
+
+    exit_code = _main(repo, config_path, "submit", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "multiple `jj-review` stack comments" in captured.err
+
+
+def test_submit_reports_stack_comment_update_failures_without_traceback(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    _run(["jj", "describe", "-r", change_id, "-m", "feature 1 renamed"], repo)
+
+    class FailingCommentUpdateClient(GithubClient):
+        async def update_issue_comment(
+            self,
+            owner: str,
+            repo: str,
+            *,
+            comment_id: int,
+            body: str,
+        ):
+            raise GithubClientError("GitHub request failed: 404 Not Found", status_code=404)
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return FailingCommentUpdateClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
+
+    exit_code = _main(repo, config_path, "submit", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Could not update stack comment" in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_submit_reports_up_to_date_when_remote_bookmark_and_pr_already_match(
