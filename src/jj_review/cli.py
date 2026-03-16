@@ -132,11 +132,12 @@ def _status_handler(args: Namespace) -> int:
         print(f"Selected remote: {result.remote.name}")
     if result.github_repository is None:
         if result.github_error is not None:
-            print(f"GitHub: unavailable ({result.github_error})")
+            print(f"GitHub target: unavailable ({result.github_error})")
     else:
-        print(f"GitHub: {result.github_repository}")
-        if result.github_error is not None:
-            print(f"GitHub note: {result.github_error}")
+        if result.github_error is None:
+            print(f"GitHub: {result.github_repository}")
+        else:
+            print(f"GitHub target: {result.github_repository} ({result.github_error})")
     print(f"Trunk: {result.trunk_subject}")
     if not result.revisions:
         print("No reviewable commits between the selected revision and `trunk()`.")
@@ -144,21 +145,14 @@ def _status_handler(args: Namespace) -> int:
 
     print("Stack:")
     for revision in result.revisions:
-        details: list[str] = [revision.bookmark_source]
-        if result.remote is not None or result.remote_error is not None:
-            details.append(_format_remote_status(revision))
-        if result.github_repository is not None:
-            details.append(_format_pull_request_status(revision))
-            if (
-                revision.pull_request_lookup is not None
-                and revision.pull_request_lookup.state == "open"
-            ):
-                details.append(_format_stack_comment_status(revision))
-        print(
-            f"- {revision.subject} [{revision.change_id[:12]}] -> {revision.bookmark} "
-            f"({', '.join(details)})"
+        summary = _format_status_summary(
+            revision,
+            github_available=(
+                result.github_repository is not None and result.github_error is None
+            ),
         )
-    return 0
+        print(f"- {revision.subject} [{revision.change_id[:12]}]: {summary}")
+    return 1 if result.incomplete else 0
 
 
 def _sync_handler(args: Namespace) -> int:
@@ -190,19 +184,32 @@ def _sync_handler(args: Namespace) -> int:
         )
     return 0
 
-
-def _format_remote_status(revision) -> str:
-    remote_state = revision.remote_state
-    if remote_state is None:
-        return "remote unavailable"
-    if remote_state.remote == "":
-        return "remote not configured"
-    if len(remote_state.targets) > 1:
-        return f"remote {remote_state.remote} conflicted"
-    if remote_state.target is None:
-        return f"remote {remote_state.remote} missing"
-    tracking = "tracked" if remote_state.is_tracked else "untracked"
-    return f"remote {remote_state.remote} {tracking}"
+def _format_status_summary(revision, *, github_available: bool) -> str:
+    lookup = revision.pull_request_lookup
+    cached_change = revision.cached_change
+    cached_pr_number = None if cached_change is None else cached_change.pr_number
+    if lookup is None:
+        if github_available:
+            return "not submitted"
+        if cached_pr_number is not None:
+            return f"cached PR #{cached_pr_number}"
+        return "GitHub status unknown"
+    if lookup.state == "open":
+        if lookup.pull_request is None:
+            raise AssertionError("Open pull request lookup must include a pull request.")
+        return f"PR #{lookup.pull_request.number}"
+    if lookup.state == "missing":
+        if cached_pr_number is not None:
+            return f"cached PR #{cached_pr_number}, no GitHub PR"
+        return "not submitted"
+    if lookup.state == "closed":
+        if lookup.pull_request is None:
+            raise AssertionError("Closed pull request lookup must include a pull request.")
+        return f"PR #{lookup.pull_request.number} is {lookup.pull_request.state}"
+    message = lookup.message or "GitHub lookup failed"
+    if cached_pr_number is not None:
+        return f"cached PR #{cached_pr_number}, {message}"
+    return message
 
 
 def _format_pull_request_status(revision) -> str:

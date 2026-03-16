@@ -298,11 +298,103 @@ def test_status_reports_remote_and_github_linkage(
     assert exit_code == 0
     assert "Selected remote: origin" in captured.out
     assert f"GitHub: {fake_repo.owner}/{fake_repo.name}" in captured.out
-    assert "cached PR #1, GitHub PR #1" in captured.out
-    assert "cached stack comment #1, stack comment #1" in captured.out
+    assert "feature 1 [" in captured.out
+    assert ": PR #1" in captured.out
+    assert "review/" not in captured.out
+    assert "stack comment" not in captured.out
 
 
 def test_status_preserves_remote_observations_when_github_lookup_fails(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    class FailingRepositoryLookupClient(GithubClient):
+        async def get_repository(
+            self,
+            owner: str,
+            repo: str,
+        ):
+            raise GithubClientError(
+                'GitHub request failed: 404 {"message":"Not Found","documentation_url":"x"}',
+                status_code=404,
+            )
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return FailingRepositoryLookupClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr(
+        "jj_review.commands.review_state._build_github_client",
+        build_github_client,
+    )
+
+    exit_code = _main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert (
+        "GitHub target: octo-org/stacked-review "
+        "(repo not found or inaccessible - check GITHUB_TOKEN or gh auth)"
+    ) in captured.out
+    assert "documentation_url" not in captured.out
+    assert ": cached PR #1" in captured.out
+    assert ": PR #1" not in captured.out
+
+
+def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    class OfflineGithubClient(GithubClient):
+        async def get_repository(
+            self,
+            owner: str,
+            repo: str,
+        ):
+            raise GithubClientError("Connection refused")
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return OfflineGithubClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr(
+        "jj_review.commands.review_state._build_github_client",
+        build_github_client,
+    )
+
+    exit_code = _main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert (
+        "GitHub target: octo-org/stacked-review "
+        "(unavailable - check network connectivity)"
+    ) in captured.out
+    assert ": GitHub status unknown" in captured.out
+
+
+def test_status_exits_nonzero_when_pull_request_lookup_fails(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -325,10 +417,7 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
             head: str,
             state: str = "all",
         ) -> tuple:
-            raise GithubClientError(
-                'GitHub request failed: 404 {"message":"Not Found","documentation_url":"x"}',
-                status_code=404,
-            )
+            raise GithubClientError("Connection reset")
 
     def build_github_client(*, base_url: str) -> GithubClient:
         return FailingPullRequestLookupClient(
@@ -344,10 +433,9 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
     exit_code = _main(repo, config_path, "status")
     captured = capsys.readouterr()
 
-    assert exit_code == 0
-    assert "pull request lookup failed (GitHub 404)" in captured.out
-    assert "documentation_url" not in captured.out
-    assert "remote origin tracked" in captured.out
+    assert exit_code == 1
+    assert f"GitHub: {fake_repo.owner}/{fake_repo.name}" in captured.out
+    assert ": cached PR #1, GitHub is unavailable - check network connectivity" in captured.out
 
 
 def test_sync_refreshes_cached_pull_request_and_stack_comment_metadata(
@@ -669,7 +757,7 @@ def test_status_reports_remote_linkage_without_refreshing_pr_cache(
     assert exit_code == 0
     assert "Selected remote: origin" in captured.out
     assert "GitHub: octo-org/stacked-review" in captured.out
-    assert "no cached PR, GitHub PR #1" in captured.out
+    assert ": PR #1" in captured.out
     assert refreshed_state.changes[change_id].bookmark == bookmark
     assert refreshed_state.changes[change_id].pr_number is None
     assert refreshed_state.changes[change_id].pr_url is None

@@ -15,6 +15,7 @@ from jj_review.commands.submit import (
     _discover_bookmarks_for_revisions,
     _ensure_pull_request_linkage_is_consistent,
     _ensure_unique_bookmarks,
+    _github_token_from_env,
     resolve_github_repository,
     select_submit_remote,
 )
@@ -73,6 +74,7 @@ class StatusResult:
 
     github_error: str | None
     github_repository: str | None
+    incomplete: bool
     remote: GitRemote | None
     remote_error: str | None
     revisions: tuple[ReviewStatusRevision, ...]
@@ -172,6 +174,7 @@ async def _run_status_async(
         return StatusResult(
             github_error=None,
             github_repository=None,
+            incomplete=False,
             remote=None,
             remote_error=prepared.remote_error,
             revisions=_build_status_revisions_without_github(prepared),
@@ -190,6 +193,20 @@ async def _run_status_async(
         return StatusResult(
             github_error=github_repository_error,
             github_repository=None,
+            incomplete=False,
+            remote=prepared.remote,
+            remote_error=None,
+            revisions=_build_status_revisions_without_github(prepared),
+            selected_revset=prepared.stack.selected_revset,
+            trunk_subject=prepared.stack.trunk.subject,
+        )
+
+    github_error = await _probe_github_repository(github_repository)
+    if github_error is not None:
+        return StatusResult(
+            github_error=github_error,
+            github_repository=github_repository.full_name,
+            incomplete=True,
             remote=prepared.remote,
             remote_error=None,
             revisions=_build_status_revisions_without_github(prepared),
@@ -203,14 +220,16 @@ async def _run_status_async(
             prepared=prepared,
             raise_on_lookup_error=False,
         )
-        github_error = None
     except CliError as error:
         revisions = _build_status_revisions_without_github(prepared)
         github_error = str(error)
+    else:
+        github_error = None
 
     return StatusResult(
         github_error=github_error,
         github_repository=github_repository.full_name,
+        incomplete=_status_is_incomplete(revisions),
         remote=prepared.remote,
         remote_error=None,
         revisions=revisions,
@@ -390,6 +409,29 @@ def _build_status_revisions_without_github(
         )
         for revision in prepared.status_revisions
     )
+
+
+def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
+    for revision in revisions:
+        pull_request_lookup = revision.pull_request_lookup
+        if pull_request_lookup is not None and pull_request_lookup.state == "error":
+            return True
+        stack_comment_lookup = revision.stack_comment_lookup
+        if stack_comment_lookup is not None and stack_comment_lookup.state == "error":
+            return True
+    return False
+
+
+async def _probe_github_repository(github_repository) -> str | None:
+    async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+        try:
+            await github_client.get_repository(
+                github_repository.owner,
+                github_repository.repo,
+            )
+        except GithubClientError as error:
+            return _summarize_github_repository_error(error)
+    return None
 
 
 async def _inspect_revisions_with_github(
@@ -582,5 +624,33 @@ def _summarize_github_lookup_error(*, action: str, error: GithubClientError) -> 
     """Render a concise GitHub lookup failure for `status` and `sync` output."""
 
     if error.status_code is None:
-        return f"{action} failed"
+        return "GitHub is unavailable - check network connectivity"
+    if error.status_code == 401:
+        return "GitHub authentication failed - check GITHUB_TOKEN"
+    if error.status_code == 403:
+        return "GitHub access was denied - check GITHUB_TOKEN and repo access"
+    if error.status_code >= 500:
+        return "GitHub is unavailable - check network connectivity"
     return f"{action} failed (GitHub {error.status_code})"
+
+
+def _summarize_github_repository_error(error: GithubClientError) -> str:
+    """Render a concise repo-level GitHub availability failure."""
+
+    if error.status_code is None:
+        return "unavailable - check network connectivity"
+    if error.status_code == 401:
+        return "auth failed - check GITHUB_TOKEN"
+    if error.status_code == 403:
+        return "access denied - check GITHUB_TOKEN and repo access"
+    if error.status_code == 404:
+        return _github_auth_failure_message("repo not found or inaccessible")
+    if error.status_code >= 500:
+        return "unavailable - check network connectivity"
+    return f"request failed (GitHub {error.status_code})"
+
+
+def _github_auth_failure_message(message: str) -> str:
+    if _github_token_from_env() is None:
+        return f"{message} - check GITHUB_TOKEN or gh auth"
+    return message

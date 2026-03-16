@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import subprocess
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -942,7 +944,59 @@ def _updated_cached_change(
 
 
 def _build_github_client(*, base_url: str) -> GithubClient:
-    return GithubClient(base_url=base_url)
+    return GithubClient(
+        base_url=base_url,
+        token=_github_token_for_base_url(base_url),
+    )
+
+
+def _github_token_from_env() -> str | None:
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        return token
+    token = os.environ.get("GH_TOKEN")
+    if token:
+        return token
+    return None
+
+
+def _github_token_for_base_url(base_url: str) -> str | None:
+    token = _github_token_from_env()
+    if token is not None:
+        return token
+    hostname = _github_hostname_from_api_base_url(base_url)
+    if hostname is None:
+        return None
+    return _github_token_from_gh_cli(hostname)
+
+
+def _github_hostname_from_api_base_url(base_url: str) -> str | None:
+    hostname = urlparse(base_url).hostname
+    if hostname is None:
+        return None
+    if hostname == "api.github.com":
+        return "github.com"
+    if hostname.startswith("api."):
+        return hostname[4:]
+    return hostname
+
+
+def _github_token_from_gh_cli(hostname: str) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["gh", "auth", "token", "--hostname", hostname],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+    except FileNotFoundError:
+        return None
+    if completed.returncode != 0:
+        return None
+    token = completed.stdout.strip()
+    if not token:
+        return None
+    return token
 
 
 def _discover_bookmarks_for_revisions(

@@ -358,6 +358,12 @@ those bookmarks. It is read-only with respect to GitHub and review bookmarks,
 aside from persisting generated bookmark pins into the sparse local cache.
 Unlike `submit` or `sync`, it may fall back to local-only reporting when the
 repo is not configured well enough to resolve a remote or GitHub target.
+Its default output should stay concise and summarize the effective review state
+for each change rather than dumping cache and transport diagnostics inline.
+If GitHub is unreachable or misconfigured, status should report that once at the
+repo level and then fall back to conservative per-change summaries derived from
+local cache rather than claiming a PR is absent. Because that output is
+incomplete, the command should exit non-zero instead of reporting success.
 
 These commands are not sources of truth either. They are operator-driven ways
 to reattach GitHub state to a `jj`-derived stack after damage, cross-machine
