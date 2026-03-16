@@ -11,6 +11,10 @@ commits.
 Anything marked `XXX` is not fully cooked yet and should be treated as a draft
 decision or an open question.
 
+Non-blocking follow-up design questions and deferred architecture concerns
+should be added to [Backlog](./backlog.md) rather than left implicit in code or
+commit discussion.
+
 ## Relationship to the Design Doc
 
 [JJ-Native Stacked GitHub Review Design](./design.md) is the canonical source

@@ -56,3 +56,19 @@ from MVP.
 matching a revset, and for descendants that would require pushing those commits
 too. `submit` should preflight that policy and fail with a targeted diagnostic
 before attempting `jj git push`.
+
+## Status Command Architecture
+
+The current `status` implementation computes a full `StatusResult` before
+printing anything. That makes it easy to bundle repo-level and per-change
+state, but it also means the command cannot stream output incrementally and may
+be carrying a command-specific result object that does not justify its added
+indirection.
+
+We should revisit whether `status` should:
+
+- print incremental progress or per-change output as it inspects GitHub state
+- keep a top-level `StatusResult` object at all, or instead stream status
+  events / render directly from the handler
+- separate repo-level GitHub reachability from per-change review state more
+  cleanly

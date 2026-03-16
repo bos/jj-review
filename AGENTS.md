@@ -15,5 +15,7 @@
   finishing a change.
 - If behavior changes, update the docs in the same change and make sure tests pass.
 - Once a slice is implemented, update the implementation doc to note this.
+- Non-blocking design debt, architecture follow-ups, and deferred ideas belong
+  in [docs/notes/backlog.md](docs/notes/backlog.md).
 - Hard-wrap new prose at 96-98 columns unless the file uses a different
   convention.
