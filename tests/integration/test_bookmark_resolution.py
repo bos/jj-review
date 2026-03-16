@@ -89,7 +89,7 @@ def test_status_continues_when_repo_id_cannot_be_materialized(
 
     assert exit_code == 0
     assert "Stack:" in captured.out
-    assert "(generated)" in captured.out
+    assert ": GitHub status unknown" in captured.out
     assert not list((tmp_path / "state-home").rglob("state.toml"))
 
 

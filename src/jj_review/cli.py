@@ -163,7 +163,7 @@ def _status_handler(args: Namespace) -> int:
         return 0
 
     print("Stack:")
-    for revision in result.revisions:
+    for revision in reversed(result.revisions):
         summary = _format_status_summary(
             revision,
             github_available=(

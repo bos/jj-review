@@ -304,6 +304,28 @@ def test_status_reports_remote_and_github_linkage(
     assert "stack comment" not in captured.out
 
 
+def test_status_prints_stack_tip_first_like_jj_log(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    exit_code = _main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    feature_2_line = captured.out.index("- feature 2 [")
+    feature_1_line = captured.out.index("- feature 1 [")
+    assert feature_2_line < feature_1_line
+
+
 def test_status_preserves_remote_observations_when_github_lookup_fails(
     tmp_path: Path,
     monkeypatch,
