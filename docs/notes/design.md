@@ -344,10 +344,20 @@ linkage, bookmark state, or GitHub state is missing or damaged.
 For the MVP, the recovery surface should be explicit and narrow:
 
 - `jj review sync [<revset>]` refreshes local cache from GitHub for already
-  linked review branches and PRs, but does not change stack topology
+  linked review branches and PRs, but does not change stack topology. It may
+  refresh remembered remote-branch observations first, but it must still fail
+  closed if cached and discoverable linkage disagree or if GitHub reports
+  ambiguity
 - `jj review adopt <pr> [<revset>]` explicitly associates an existing PR and
   its head branch with a specific `jj` change when the user intends that
   linkage
+
+`jj review status [<revset>]` should show the selected local stack, pinned or
+discovered review bookmarks, and any cached or discoverable GitHub linkage for
+those bookmarks. It is read-only with respect to GitHub and review bookmarks,
+aside from persisting generated bookmark pins into the sparse local cache.
+Unlike `submit` or `sync`, it may fall back to local-only reporting when the
+repo is not configured well enough to resolve a remote or GitHub target.
 
 These commands are not sources of truth either. They are operator-driven ways
 to reattach GitHub state to a `jj`-derived stack after damage, cross-machine

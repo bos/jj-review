@@ -590,6 +590,22 @@ Done when:
 
 ### Slice 7: Status, Sync, and Adopt
 
+Status: in progress.
+
+Implemented in the first vertical cut:
+
+- `status` now reports local bookmark resolution together with any discoverable
+  remote and GitHub linkage, while still falling back to local-only output when
+  the repo is not configured well enough for remote inspection
+- `sync` now refreshes cached PR metadata and managed stack-comment IDs from
+  GitHub for already-linked review branches, refreshes remembered remote state
+  first, and fails closed when cached linkage is ambiguous or damaged instead
+  of silently repairing it
+
+Remaining for the slice:
+
+- explicit `adopt`
+
 Deliver:
 
 - `status`

@@ -280,6 +280,182 @@ def test_submit_reports_up_to_date_when_remote_bookmark_and_pr_already_match(
     assert {number: pr.title for number, pr in fake_repo.pull_requests.items()} == first_prs
 
 
+def test_status_reports_remote_and_github_linkage(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    exit_code = _main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Selected remote: origin" in captured.out
+    assert f"GitHub: {fake_repo.owner}/{fake_repo.name}" in captured.out
+    assert "cached PR #1, GitHub PR #1" in captured.out
+    assert "cached stack comment #1, stack comment #1" in captured.out
+
+
+def test_status_preserves_remote_observations_when_github_lookup_fails(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    class FailingPullRequestLookupClient(GithubClient):
+        async def list_pull_requests(
+            self,
+            owner: str,
+            repo: str,
+            *,
+            head: str,
+            state: str = "all",
+        ) -> tuple:
+            raise GithubClientError("GitHub request failed: 503 Service Unavailable")
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return FailingPullRequestLookupClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr(
+        "jj_review.commands.review_state._build_github_client",
+        build_github_client,
+    )
+
+    exit_code = _main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Could not list pull requests for head" in captured.out
+    assert "remote origin tracked" in captured.out
+
+
+def test_sync_refreshes_cached_pull_request_and_stack_comment_metadata(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+    state_store.save(
+        initial_state.model_copy(
+            update={
+                "changes": {
+                    **initial_state.changes,
+                    change_id: initial_state.changes[change_id].model_copy(
+                        update={
+                            "pr_number": None,
+                            "pr_url": None,
+                            "stack_comment_id": None,
+                        }
+                    ),
+                }
+            }
+        )
+    )
+
+    exit_code = _main(repo, config_path, "sync", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert exit_code == 0
+    assert "GitHub PR #1" in captured.out
+    assert "stack comment #1" in captured.out
+    assert refreshed_state.changes[change_id].pr_number == 1
+    assert refreshed_state.changes[change_id].stack_comment_id == 1
+
+
+def test_sync_rejects_mismatched_cached_pull_request_metadata(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+    state_store.save(
+        initial_state.model_copy(
+            update={
+                "changes": {
+                    **initial_state.changes,
+                    change_id: initial_state.changes[change_id].model_copy(
+                        update={
+                            "pr_number": 99,
+                            "pr_url": "https://github.test/octo-org/stacked-review/pull/99",
+                        }
+                    ),
+                }
+            }
+        )
+    )
+
+    exit_code = _main(repo, config_path, "sync", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert exit_code == 1
+    assert "Cached pull request #99 does not match" in captured.err
+    assert refreshed_state.changes[change_id].pr_number == 99
+    assert refreshed_state.changes[change_id].pr_url == (
+        "https://github.test/octo-org/stacked-review/pull/99"
+    )
+
+
+def test_sync_rejects_missing_open_pull_request_for_cached_linkage(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    del fake_repo.pull_requests[1]
+
+    exit_code = _main(repo, config_path, "sync")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Cached pull request linkage exists" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_submit_updates_existing_pull_request_after_change_rewrite(
     tmp_path: Path,
     monkeypatch,
@@ -463,6 +639,128 @@ def test_submit_rejects_duplicate_bookmark_overrides_before_projection(
     assert fake_repo.pull_requests == {}
 
 
+def test_status_reports_remote_linkage_without_refreshing_pr_cache(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    initial_state = ReviewStateStore.for_repo(repo).load()
+    bookmark = initial_state.changes[change_id].bookmark
+    assert bookmark is not None
+    resolve_state_path(repo).unlink()
+
+    exit_code = _main(repo, config_path, "status", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = ReviewStateStore.for_repo(repo).load()
+
+    assert exit_code == 0
+    assert "Selected remote: origin" in captured.out
+    assert "GitHub: octo-org/stacked-review" in captured.out
+    assert "no cached PR, GitHub PR #1" in captured.out
+    assert refreshed_state.changes[change_id].bookmark == bookmark
+    assert refreshed_state.changes[change_id].pr_number is None
+    assert refreshed_state.changes[change_id].pr_url is None
+
+
+def test_sync_refreshes_cached_pull_request_metadata_after_state_loss(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    bookmark = ReviewStateStore.for_repo(repo).load().changes[change_id].bookmark
+    assert bookmark is not None
+    resolve_state_path(repo).unlink()
+
+    exit_code = _main(repo, config_path, "sync", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = ReviewStateStore.for_repo(repo).load()
+
+    assert exit_code == 0
+    assert "Selected remote: origin" in captured.out
+    assert "GitHub: octo-org/stacked-review" in captured.out
+    assert "no cached PR, GitHub PR #1" in captured.out
+    assert refreshed_state.changes[change_id].bookmark == bookmark
+    assert refreshed_state.changes[change_id].pr_number == 1
+    assert (
+        refreshed_state.changes[change_id].pr_url
+        == "https://github.test/octo-org/stacked-review/pull/1"
+    )
+
+
+def test_sync_rejects_mismatched_cached_pull_request_number(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+    state_store.save(
+        initial_state.model_copy(
+            update={
+                "changes": {
+                    **initial_state.changes,
+                    change_id: initial_state.changes[change_id].model_copy(
+                        update={"pr_number": 99}
+                    ),
+                }
+            }
+        )
+    )
+
+    exit_code = _main(repo, config_path, "sync", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert exit_code == 1
+    assert "Cached pull request #99 does not match" in captured.err
+    assert refreshed_state.changes[change_id].pr_number == 99
+
+
+def test_sync_skips_unlinked_generated_changes_without_persisting_cache(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    exit_code = _main(repo, config_path, "sync")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "generated" in captured.out
+    assert "no cached PR, no GitHub PR" in captured.out
+    assert ReviewStateStore.for_repo(repo).load().changes == {}
+
+
 def _configure_submit_environment(
     monkeypatch,
     tmp_path: Path,
@@ -479,6 +777,10 @@ def _configure_submit_environment(
         )
 
     monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
+    monkeypatch.setattr(
+        "jj_review.commands.review_state._build_github_client",
+        build_github_client,
+    )
     return config_path
 
 

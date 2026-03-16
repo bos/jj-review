@@ -9,12 +9,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from jj_review import __version__
-from jj_review.bookmarks import BookmarkResolver
 from jj_review.bootstrap import BootstrapError, bootstrap_context
-from jj_review.cache import ReviewStateStore
+from jj_review.commands.review_state import run_status, run_sync
 from jj_review.commands.submit import run_submit
 from jj_review.errors import CliError, CommandNotImplementedError
-from jj_review.jj import JjClient
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +62,7 @@ def build_parser() -> ArgumentParser:
         subparsers,
         command="sync",
         help_text="Refresh cached review linkage from GitHub.",
+        handler=_sync_handler,
     )
 
     adopt_parser = subparsers.add_parser(
@@ -117,31 +116,129 @@ def _add_revision_command(
 
 def _status_handler(args: Namespace) -> int:
     context = bootstrap_context(args)
-    stack = JjClient(context.repo_root).discover_review_stack(args.revset)
-    state_store = ReviewStateStore.for_repo(context.repo_root)
-    state = state_store.load()
-    bookmark_result = BookmarkResolver(state, context.config.change).pin_revisions(
-        stack.revisions
+    result = run_status(
+        change_overrides=context.config.change,
+        config=context.config.repo,
+        repo_root=context.repo_root,
+        revset=args.revset,
     )
-    if bookmark_result.changed:
-        state_store.save(bookmark_result.state)
-    bookmarks_by_change = {
-        resolution.change_id: resolution for resolution in bookmark_result.resolutions
-    }
-    print(f"Selected revset: {stack.selected_revset}")
-    print(f"Trunk: {stack.trunk.subject} [{stack.trunk.change_id[:12]}]")
-    if not stack.revisions:
+    print(f"Selected revset: {result.selected_revset}")
+    if result.remote is None:
+        if result.remote_error is None:
+            print("Selected remote: unavailable")
+        else:
+            print(f"Selected remote: unavailable ({result.remote_error})")
+    else:
+        print(f"Selected remote: {result.remote.name}")
+    if result.github_repository is None:
+        if result.github_error is not None:
+            print(f"GitHub: unavailable ({result.github_error})")
+    else:
+        print(f"GitHub: {result.github_repository}")
+        if result.github_error is not None:
+            print(f"GitHub note: {result.github_error}")
+    print(f"Trunk: {result.trunk_subject}")
+    if not result.revisions:
         print("No reviewable commits between the selected revision and `trunk()`.")
         return 0
 
     print("Stack:")
-    for revision in stack.revisions:
-        bookmark = bookmarks_by_change[revision.change_id]
+    for revision in result.revisions:
+        details: list[str] = [revision.bookmark_source]
+        if result.remote is not None or result.remote_error is not None:
+            details.append(_format_remote_status(revision))
+        if result.github_repository is not None:
+            details.append(_format_pull_request_status(revision))
+            if (
+                revision.pull_request_lookup is not None
+                and revision.pull_request_lookup.state == "open"
+            ):
+                details.append(_format_stack_comment_status(revision))
         print(
-            f"- {revision.subject} [{revision.change_id[:12]}] "
-            f"-> {bookmark.bookmark} ({bookmark.source})"
+            f"- {revision.subject} [{revision.change_id[:12]}] -> {revision.bookmark} "
+            f"({', '.join(details)})"
         )
     return 0
+
+
+def _sync_handler(args: Namespace) -> int:
+    context = bootstrap_context(args)
+    result = run_sync(
+        change_overrides=context.config.change,
+        config=context.config.repo,
+        repo_root=context.repo_root,
+        revset=args.revset,
+    )
+    print(f"Selected revset: {result.selected_revset}")
+    print(f"Selected remote: {result.remote.name}")
+    print(f"GitHub: {result.github_repository}")
+    print(f"Trunk: {result.trunk_subject}")
+    if not result.revisions:
+        print("No reviewable commits between the selected revision and `trunk()`.")
+        return 0
+
+    print("Synchronized review cache:")
+    for revision in result.revisions:
+        details: list[str] = [
+            revision.bookmark_source,
+            _format_pull_request_status(revision),
+            _format_stack_comment_status(revision),
+        ]
+        print(
+            f"- {revision.subject} [{revision.change_id[:12]}] -> {revision.bookmark} "
+            f"({', '.join(details)})"
+        )
+    return 0
+
+
+def _format_remote_status(revision) -> str:
+    remote_state = revision.remote_state
+    if remote_state is None:
+        return "remote unavailable"
+    if remote_state.remote == "":
+        return "remote not configured"
+    if len(remote_state.targets) > 1:
+        return f"remote {remote_state.remote} conflicted"
+    if remote_state.target is None:
+        return f"remote {remote_state.remote} missing"
+    tracking = "tracked" if remote_state.is_tracked else "untracked"
+    return f"remote {remote_state.remote} {tracking}"
+
+
+def _format_pull_request_status(revision) -> str:
+    cached_change = revision.cached_change
+    cached_label = "no cached PR"
+    if cached_change is not None and cached_change.pr_number is not None:
+        cached_label = f"cached PR #{cached_change.pr_number}"
+    lookup = revision.pull_request_lookup
+    if lookup is None:
+        return cached_label
+    if lookup.state == "open":
+        if lookup.pull_request is None:
+            raise AssertionError("Open pull request lookup must include a pull request.")
+        return f"{cached_label}, GitHub PR #{lookup.pull_request.number}"
+    if lookup.state == "missing":
+        return f"{cached_label}, no GitHub PR"
+    message = lookup.message or "pull request lookup failed"
+    return f"{cached_label}, {message}"
+
+
+def _format_stack_comment_status(revision) -> str:
+    cached_change = revision.cached_change
+    cached_label = "no cached stack comment"
+    if cached_change is not None and cached_change.stack_comment_id is not None:
+        cached_label = f"cached stack comment #{cached_change.stack_comment_id}"
+    lookup = revision.stack_comment_lookup
+    if lookup is None:
+        return cached_label
+    if lookup.state == "present":
+        if lookup.comment is None:
+            raise AssertionError("Present stack comment lookup must include a comment.")
+        return f"{cached_label}, stack comment #{lookup.comment.id}"
+    if lookup.state == "missing":
+        return f"{cached_label}, no stack comment"
+    message = lookup.message or "stack comment lookup failed"
+    return f"{cached_label}, {message}"
 
 
 def _submit_handler(args: Namespace) -> int:
