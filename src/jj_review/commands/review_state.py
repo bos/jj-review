@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -12,6 +13,7 @@ from jj_review.bookmarks import BookmarkResolver, BookmarkSource
 from jj_review.cache import ReviewStateStore
 from jj_review.commands.submit import (
     _STACK_COMMENT_MARKER,
+    ResolvedGithubRepository,
     _build_github_client,
     _discover_bookmarks_for_revisions,
     _ensure_pull_request_linkage_is_consistent,
@@ -87,6 +89,17 @@ class StatusResult:
 
 
 @dataclass(frozen=True, slots=True)
+class PreparedStatus:
+    """Locally prepared status inputs before any GitHub inspection."""
+
+    github_repository: ResolvedGithubRepository | None
+    github_repository_error: str | None
+    prepared: _PreparedStack
+    selected_revset: str
+    trunk_subject: str
+
+
+@dataclass(frozen=True, slots=True)
 class SyncResult:
     """Cache-refresh result for one selected local stack."""
 
@@ -129,13 +142,191 @@ def run_status(
 ) -> StatusResult:
     """Inspect local, cached, and discoverable review linkage."""
 
+    prepared_status = prepare_status(
+        change_overrides=change_overrides,
+        config=config,
+        repo_root=repo_root,
+        revset=revset,
+    )
+    return stream_status(prepared_status=prepared_status)
+
+
+def prepare_status(
+    *,
+    change_overrides: dict[str, ChangeConfig],
+    config: RepoConfig,
+    repo_root: Path,
+    revset: str | None,
+) -> PreparedStatus:
+    """Resolve local status inputs before any GitHub network inspection."""
+
+    prepared = _prepare_stack(
+        change_overrides=change_overrides,
+        config=config,
+        persist_bookmarks=True,
+        refresh_remote_state=False,
+        repo_root=repo_root,
+        require_remote=False,
+        revset=revset,
+    )
+    logger.debug(
+        "status prepared: selected_revset=%s revisions=%d remote=%s",
+        prepared.stack.selected_revset,
+        len(prepared.status_revisions),
+        prepared.remote.name if prepared.remote is not None else "unavailable",
+    )
+    github_repository_error: str | None = None
+    github_repository: ResolvedGithubRepository | None = None
+    if prepared.remote is not None:
+        try:
+            github_repository = resolve_github_repository(config, prepared.remote)
+        except CliError as error:
+            github_repository_error = str(error)
+
+    return PreparedStatus(
+        github_repository=github_repository,
+        github_repository_error=github_repository_error,
+        prepared=prepared,
+        selected_revset=prepared.stack.selected_revset,
+        trunk_subject=prepared.stack.trunk.subject,
+    )
+
+
+def stream_status(
+    *,
+    prepared_status: PreparedStatus,
+    on_github_status: Callable[[str | None, str | None], None] | None = None,
+    on_revision: Callable[[ReviewStatusRevision, bool], None] | None = None,
+) -> StatusResult:
+    """Inspect GitHub state for a prepared stack and optionally stream results out."""
+
     return asyncio.run(
-        _run_status_async(
-            change_overrides=change_overrides,
-            config=config,
-            repo_root=repo_root,
-            revset=revset,
+        _stream_status_async(
+            on_github_status=on_github_status,
+            on_revision=on_revision,
+            prepared_status=prepared_status,
         )
+    )
+
+
+async def _stream_status_async(
+    *,
+    on_github_status: Callable[[str | None, str | None], None] | None,
+    on_revision: Callable[[ReviewStatusRevision, bool], None] | None,
+    prepared_status: PreparedStatus,
+) -> StatusResult:
+    prepared = prepared_status.prepared
+    selected_revset = prepared_status.selected_revset
+    trunk_subject = prepared_status.trunk_subject
+    github_repository = prepared_status.github_repository
+    github_repository_error = prepared_status.github_repository_error
+
+    if prepared.remote is None:
+        revisions = _status_revisions_in_display_order(
+            _build_status_revisions_without_github(prepared)
+        )
+        if on_github_status is not None:
+            on_github_status(None, None)
+        for revision in revisions:
+            if on_revision is not None:
+                on_revision(revision, False)
+        return StatusResult(
+            github_error=None,
+            github_repository=None,
+            incomplete=False,
+            remote=None,
+            remote_error=prepared.remote_error,
+            revisions=revisions,
+            selected_revset=selected_revset,
+            trunk_subject=trunk_subject,
+        )
+
+    if github_repository is None:
+        logger.debug("status github target unavailable: %s", github_repository_error)
+        revisions = _status_revisions_in_display_order(
+            _build_status_revisions_without_github(prepared)
+        )
+        if on_github_status is not None:
+            on_github_status(None, github_repository_error)
+        for revision in revisions:
+            if on_revision is not None:
+                on_revision(revision, False)
+        return StatusResult(
+            github_error=github_repository_error,
+            github_repository=None,
+            incomplete=False,
+            remote=prepared.remote,
+            remote_error=None,
+            revisions=revisions,
+            selected_revset=selected_revset,
+            trunk_subject=trunk_subject,
+        )
+
+    github_error = await _probe_github_repository(github_repository)
+    if on_github_status is not None:
+        on_github_status(github_repository.full_name, github_error)
+    if github_error is not None:
+        logger.debug(
+            "status github probe failed for %s: %s",
+            github_repository.full_name,
+            github_error,
+        )
+        revisions = _status_revisions_in_display_order(
+            _build_status_revisions_without_github(prepared)
+        )
+        for revision in revisions:
+            if on_revision is not None:
+                on_revision(revision, False)
+        return StatusResult(
+            github_error=github_error,
+            github_repository=github_repository.full_name,
+            incomplete=True,
+            remote=prepared.remote,
+            remote_error=None,
+            revisions=revisions,
+            selected_revset=selected_revset,
+            trunk_subject=trunk_subject,
+        )
+
+    revisions: list[ReviewStatusRevision] = []
+    try:
+        async for revision in _iter_status_revisions_with_github(
+            github_repository=github_repository,
+            prepared=prepared,
+        ):
+            revisions.append(revision)
+            if on_revision is not None:
+                on_revision(revision, True)
+    except CliError as error:
+        fallback_revisions = _status_revisions_in_display_order(
+            _build_status_revisions_without_github(prepared)
+        )
+        github_error = str(error)
+        logger.debug("status github inspection failed: %s", github_error)
+        streamed_change_ids = {revision.change_id for revision in revisions}
+        for revision in fallback_revisions:
+            if on_revision is not None and revision.change_id not in streamed_change_ids:
+                on_revision(revision, False)
+        return StatusResult(
+            github_error=github_error,
+            github_repository=github_repository.full_name,
+            incomplete=True,
+            remote=prepared.remote,
+            remote_error=None,
+            revisions=fallback_revisions,
+            selected_revset=selected_revset,
+            trunk_subject=trunk_subject,
+        )
+
+    return StatusResult(
+        github_error=None,
+        github_repository=github_repository.full_name,
+        incomplete=_status_is_incomplete(tuple(revisions)),
+        remote=prepared.remote,
+        remote_error=None,
+        revisions=tuple(revisions),
+        selected_revset=selected_revset,
+        trunk_subject=trunk_subject,
     )
 
 
@@ -155,103 +346,6 @@ def run_sync(
             repo_root=repo_root,
             revset=revset,
         )
-    )
-
-
-async def _run_status_async(
-    *,
-    change_overrides: dict[str, ChangeConfig],
-    config: RepoConfig,
-    repo_root: Path,
-    revset: str | None,
-) -> StatusResult:
-    prepared = _prepare_stack(
-        change_overrides=change_overrides,
-        config=config,
-        persist_bookmarks=True,
-        refresh_remote_state=False,
-        repo_root=repo_root,
-        require_remote=False,
-        revset=revset,
-    )
-    logger.debug(
-        "status prepared: selected_revset=%s revisions=%d remote=%s",
-        prepared.stack.selected_revset,
-        len(prepared.status_revisions),
-        prepared.remote.name if prepared.remote is not None else "unavailable",
-    )
-    if prepared.remote is None:
-        return StatusResult(
-            github_error=None,
-            github_repository=None,
-            incomplete=False,
-            remote=None,
-            remote_error=prepared.remote_error,
-            revisions=_build_status_revisions_without_github(prepared),
-            selected_revset=prepared.stack.selected_revset,
-            trunk_subject=prepared.stack.trunk.subject,
-        )
-
-    github_repository_error: str | None = None
-    try:
-        github_repository = resolve_github_repository(config, prepared.remote)
-    except CliError as error:
-        github_repository_error = str(error)
-        github_repository = None
-
-    if github_repository is None:
-        logger.debug("status github target unavailable: %s", github_repository_error)
-        return StatusResult(
-            github_error=github_repository_error,
-            github_repository=None,
-            incomplete=False,
-            remote=prepared.remote,
-            remote_error=None,
-            revisions=_build_status_revisions_without_github(prepared),
-            selected_revset=prepared.stack.selected_revset,
-            trunk_subject=prepared.stack.trunk.subject,
-        )
-
-    github_error = await _probe_github_repository(github_repository)
-    if github_error is not None:
-        logger.debug(
-            "status github probe failed for %s: %s",
-            github_repository.full_name,
-            github_error,
-        )
-        return StatusResult(
-            github_error=github_error,
-            github_repository=github_repository.full_name,
-            incomplete=True,
-            remote=prepared.remote,
-            remote_error=None,
-            revisions=_build_status_revisions_without_github(prepared),
-            selected_revset=prepared.stack.selected_revset,
-            trunk_subject=prepared.stack.trunk.subject,
-        )
-
-    try:
-        revisions = await _inspect_revisions_with_github(
-            github_repository=github_repository,
-            prepared=prepared,
-            raise_on_lookup_error=False,
-        )
-    except CliError as error:
-        revisions = _build_status_revisions_without_github(prepared)
-        github_error = str(error)
-        logger.debug("status github inspection failed: %s", github_error)
-    else:
-        github_error = None
-
-    return StatusResult(
-        github_error=github_error,
-        github_repository=github_repository.full_name,
-        incomplete=_status_is_incomplete(revisions),
-        remote=prepared.remote,
-        remote_error=None,
-        revisions=revisions,
-        selected_revset=prepared.stack.selected_revset,
-        trunk_subject=prepared.stack.trunk.subject,
     )
 
 
@@ -434,6 +528,12 @@ def _build_status_revisions_without_github(
     )
 
 
+def _status_revisions_in_display_order(
+    revisions: tuple[ReviewStatusRevision, ...],
+) -> tuple[ReviewStatusRevision, ...]:
+    return tuple(reversed(revisions))
+
+
 def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
     for revision in revisions:
         pull_request_lookup = revision.pull_request_lookup
@@ -469,28 +569,58 @@ async def _inspect_revisions_with_github(
         [revision.bookmark for revision in prepared.status_revisions]
     )
     async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
-        revisions: list[ReviewStatusRevision | None] = [
-            None for _ in prepared.status_revisions
-        ]
         semaphore = asyncio.Semaphore(_GITHUB_INSPECTION_CONCURRENCY)
-        await asyncio.gather(
-            *(
+        return tuple(
+            await asyncio.gather(
+                *(
+                    _inspect_revision_with_github(
+                        bookmark_states=bookmark_states,
+                        github_client=github_client,
+                        github_repository=github_repository,
+                        prepared=prepared,
+                        prepared_revision=prepared_revision,
+                        raise_on_lookup_error=raise_on_lookup_error,
+                        semaphore=semaphore,
+                    )
+                    for prepared_revision in prepared.status_revisions
+                )
+            )
+        )
+
+
+async def _iter_status_revisions_with_github(
+    *,
+    github_repository: ResolvedGithubRepository,
+    prepared: _PreparedStack,
+) -> AsyncIterator[ReviewStatusRevision]:
+    bookmark_states = prepared.client.list_bookmark_states(
+        [revision.bookmark for revision in prepared.status_revisions]
+    )
+    status_revisions = tuple(reversed(prepared.status_revisions))
+    async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+        semaphore = asyncio.Semaphore(_GITHUB_INSPECTION_CONCURRENCY)
+        tasks = tuple(
+            asyncio.create_task(
                 _inspect_revision_with_github(
                     bookmark_states=bookmark_states,
                     github_client=github_client,
                     github_repository=github_repository,
-                    index=index,
                     prepared=prepared,
                     prepared_revision=prepared_revision,
-                    raise_on_lookup_error=raise_on_lookup_error,
-                    revisions=revisions,
+                    raise_on_lookup_error=False,
                     semaphore=semaphore,
                 )
-                for index, prepared_revision in enumerate(prepared.status_revisions)
             )
+            for prepared_revision in status_revisions
         )
-
-    return tuple(_require_inspected_revision(revision) for revision in revisions)
+        try:
+            for task in tasks:
+                yield await task
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def _inspect_revision_with_github(
@@ -498,13 +628,11 @@ async def _inspect_revision_with_github(
     bookmark_states: dict[str, BookmarkState],
     github_client: GithubClient,
     github_repository,
-    index: int,
     prepared: _PreparedStack,
     prepared_revision: _PreparedRevision,
     raise_on_lookup_error: bool,
-    revisions: list[ReviewStatusRevision | None],
     semaphore: asyncio.Semaphore,
-) -> None:
+) -> ReviewStatusRevision:
     async with semaphore:
         bookmark_state = bookmark_states.get(
             prepared_revision.bookmark,
@@ -548,7 +676,7 @@ async def _inspect_revision_with_github(
             prepared_revision.bookmark,
             pull_request_lookup.state,
         )
-        revisions[index] = ReviewStatusRevision(
+        return ReviewStatusRevision(
             bookmark=prepared_revision.bookmark,
             bookmark_source=prepared_revision.bookmark_source,
             cached_change=prepared_revision.cached_change,
@@ -558,12 +686,6 @@ async def _inspect_revision_with_github(
             stack_comment_lookup=stack_comment_lookup,
             subject=prepared_revision.revision.subject,
         )
-
-
-def _require_inspected_revision(revision: ReviewStatusRevision | None) -> ReviewStatusRevision:
-    if revision is None:
-        raise AssertionError("GitHub inspection did not populate every prepared revision.")
-    return revision
 
 
 async def _inspect_pull_request(
