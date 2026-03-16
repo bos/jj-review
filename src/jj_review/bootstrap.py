@@ -63,13 +63,20 @@ def bootstrap_context(args: Namespace) -> AppContext:
 def configure_logging(*, debug: bool, configured_level: str) -> None:
     """Apply process-wide logging defaults for the current command."""
 
-    level_name = "DEBUG" if debug else configured_level.upper()
-    level = _resolve_logging_level(level_name, original_value=configured_level)
+    root_level = _resolve_logging_level(
+        configured_level.upper(),
+        original_value=configured_level,
+    )
     logging.basicConfig(
         format="%(levelname)s %(name)s: %(message)s",
         force=True,
-        level=level,
+        level=root_level,
     )
+    app_level = logging.DEBUG if debug else root_level
+    logging.getLogger("jj_review").setLevel(app_level)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
 
 
 def _resolve_logging_level(level_name: str, *, original_value: str) -> int:

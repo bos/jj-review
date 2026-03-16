@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -27,6 +28,8 @@ from jj_review.models.bookmarks import GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
 from jj_review.models.stack import LocalRevision, LocalStack
+
+logger = logging.getLogger(__name__)
 
 PullRequestLookupState = Literal["ambiguous", "closed", "error", "missing", "open"]
 StackCommentLookupState = Literal["ambiguous", "error", "missing", "present"]
@@ -170,6 +173,12 @@ async def _run_status_async(
         require_remote=False,
         revset=revset,
     )
+    logger.debug(
+        "status prepared: selected_revset=%s revisions=%d remote=%s",
+        prepared.stack.selected_revset,
+        len(prepared.status_revisions),
+        prepared.remote.name if prepared.remote is not None else "unavailable",
+    )
     if prepared.remote is None:
         return StatusResult(
             github_error=None,
@@ -190,6 +199,7 @@ async def _run_status_async(
         github_repository = None
 
     if github_repository is None:
+        logger.debug("status github target unavailable: %s", github_repository_error)
         return StatusResult(
             github_error=github_repository_error,
             github_repository=None,
@@ -203,6 +213,11 @@ async def _run_status_async(
 
     github_error = await _probe_github_repository(github_repository)
     if github_error is not None:
+        logger.debug(
+            "status github probe failed for %s: %s",
+            github_repository.full_name,
+            github_error,
+        )
         return StatusResult(
             github_error=github_error,
             github_repository=github_repository.full_name,
@@ -223,6 +238,7 @@ async def _run_status_async(
     except CliError as error:
         revisions = _build_status_revisions_without_github(prepared)
         github_error = str(error)
+        logger.debug("status github inspection failed: %s", github_error)
     else:
         github_error = None
 
@@ -337,6 +353,12 @@ def _prepare_stack(
             if require_remote:
                 raise
             remote_error = str(error)
+    logger.debug(
+        "prepared stack: remotes=%s selected_remote=%s remote_error=%s",
+        [remote.name for remote in remotes],
+        remote.name if remote is not None else None,
+        remote_error,
+    )
     if remote is not None and refresh_remote_state:
         client.fetch_remote(remote=remote.name)
 
@@ -423,6 +445,7 @@ def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
 
 
 async def _probe_github_repository(github_repository) -> str | None:
+    logger.debug("probing github target %s", github_repository.full_name)
     async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
         try:
             await github_client.get_repository(
@@ -431,6 +454,7 @@ async def _probe_github_repository(github_repository) -> str | None:
             )
         except GithubClientError as error:
             return _summarize_github_repository_error(error)
+    logger.debug("github target reachable: %s", github_repository.full_name)
     return None
 
 
@@ -476,6 +500,12 @@ async def _inspect_revisions_with_github(
                         pull_request_number=pull_request.number,
                         stack_comment_lookup=stack_comment_lookup,
                     )
+            logger.debug(
+                "status revision inspected: change_id=%s bookmark=%s pr_state=%s",
+                prepared_revision.revision.change_id[:12],
+                prepared_revision.bookmark,
+                pull_request_lookup.state,
+            )
             revisions.append(
                 ReviewStatusRevision(
                     bookmark=prepared_revision.bookmark,
