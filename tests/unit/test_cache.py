@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -58,6 +60,43 @@ def test_review_state_store_rejects_unknown_fields(tmp_path: Path) -> None:
 
     with pytest.raises(ReviewStateError, match="bookmark_override"):
         ReviewStateStore(state_path).load()
+
+
+def test_save_leaves_no_temp_file_on_success(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.toml"
+    store = ReviewStateStore(state_path)
+
+    store.save(ReviewState(change={"abc": CachedChange(bookmark="review/abc")}))
+
+    leftover = list(tmp_path.glob("*.tmp"))
+    assert leftover == []
+    assert state_path.exists()
+
+
+def test_save_preserves_original_and_leaves_no_temp_file_when_write_fails(
+    tmp_path: Path,
+) -> None:
+    state_path = tmp_path / "state.toml"
+    original = ReviewState(change={"abc": CachedChange(bookmark="review/abc-original")})
+    store = ReviewStateStore(state_path)
+    store.save(original)
+
+    original_text = state_path.read_text(encoding="utf-8")
+
+    real_fdopen = os.fdopen
+
+    def fail_fdopen(fd, *args, **kwargs):
+        fobj = real_fdopen(fd, *args, **kwargs)
+        fobj.write = lambda _: (_ for _ in ()).throw(OSError("disk full"))
+        return fobj
+
+    with patch("os.fdopen", side_effect=fail_fdopen):
+        with pytest.raises(ReviewStateError, match="Could not write"):
+            store.save(ReviewState(change={"abc": CachedChange(bookmark="review/abc-new")}))
+
+    assert state_path.read_text(encoding="utf-8") == original_text
+    leftover = list(tmp_path.glob("*.tmp"))
+    assert leftover == []
 
 
 def test_review_state_store_disables_persistence_when_repo_id_is_unavailable(

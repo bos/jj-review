@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import subprocess
+import tempfile
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -72,7 +73,18 @@ class ReviewStateStore:
         rendered = _render_toml(serialized_state)
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(rendered, encoding="utf-8")
+            fd, tmp_name = tempfile.mkstemp(
+                dir=self._path.parent,
+                prefix=self._path.name + ".",
+                suffix=".tmp",
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as tmp:
+                    tmp.write(rendered)
+                Path(tmp_name).replace(self._path)
+            except OSError:
+                Path(tmp_name).unlink(missing_ok=True)
+                raise
         except OSError as error:
             raise ReviewStateError(
                 f"Could not write jj-review state file {self._path}: {error}"

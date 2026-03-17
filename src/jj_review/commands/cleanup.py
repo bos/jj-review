@@ -712,6 +712,32 @@ def _build_restack_result(
             )
         )
 
+    current_commit_id_by_change_id = {
+        pr.revision.change_id: pr.revision.commit_id for pr in prepared.status_revisions
+    }
+    for revision in merged_revisions:
+        cached_change = revision.cached_change
+        if cached_change is None or cached_change.last_submitted_commit_id is None:
+            continue
+        # merged_revisions is a subset of path_revisions, which is derived from
+        # prepared.status_revisions, so every change_id is guaranteed to be present.
+        current_commit_id = current_commit_id_by_change_id[revision.change_id]
+        last_submitted = cached_change.last_submitted_commit_id
+        if current_commit_id == last_submitted:
+            continue
+        hard_blocked = True
+        record_action(
+            CleanupAction(
+                kind="restack",
+                message=(
+                    f"cannot restack past {_revision_label(revision)} because it has "
+                    "local edits since last submit; push a new version first or rebase "
+                    "manually"
+                ),
+                status="blocked",
+            )
+        )
+
     survivor_change_ids: list[str] = []
     rebase_plans: list[tuple[str, str | None]] = []
     for prepared_revision in prepared.status_revisions:

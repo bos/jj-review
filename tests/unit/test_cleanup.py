@@ -239,6 +239,7 @@ def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
 ) -> None:
     inspect_calls: list[PreparedRestack] = []
     merged_revision = SimpleNamespace(
+        cached_change=None,
         change_id="merged-change",
         local_divergent=False,
         pull_request_lookup=SimpleNamespace(
@@ -336,6 +337,7 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
             rebase_calls.append((source, destination))
 
     merged_revision = SimpleNamespace(
+        cached_change=None,
         change_id="merged-change",
         local_divergent=False,
         pull_request_lookup=SimpleNamespace(
@@ -418,6 +420,175 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
     assert result.actions[0].status == "applied"
 
 
+def test_stream_restack_blocks_when_merged_path_change_has_unpublished_edits(
+    monkeypatch,
+) -> None:
+    merged_revision = SimpleNamespace(
+        cached_change=CachedChange(last_submitted_commit_id="old-commit"),
+        change_id="merged-change",
+        local_divergent=False,
+        pull_request_lookup=SimpleNamespace(
+            pull_request=SimpleNamespace(
+                base=SimpleNamespace(ref="main"),
+                number=1,
+                state="merged",
+            ),
+            state="closed",
+        ),
+        subject="merged feature",
+    )
+    survivor_revision = SimpleNamespace(
+        change_id="survivor-change",
+        local_divergent=False,
+        pull_request_lookup=SimpleNamespace(
+            pull_request=SimpleNamespace(
+                base=SimpleNamespace(ref="main"),
+                number=2,
+                state="open",
+            ),
+            state="open",
+        ),
+        subject="survivor feature",
+    )
+    prepared_restack = PreparedRestack(
+        apply=False,
+        allow_nontrunk_rebase=False,
+        prepared_status=cast(
+            Any,
+            SimpleNamespace(
+                prepared=SimpleNamespace(
+                    client=SimpleNamespace(),
+                    stack=SimpleNamespace(trunk=SimpleNamespace(commit_id="trunk-commit")),
+                    status_revisions=(
+                        SimpleNamespace(
+                            revision=SimpleNamespace(
+                                change_id="merged-change",
+                                commit_id="new-commit",
+                                only_parent_commit_id=lambda: "trunk-commit",
+                            )
+                        ),
+                        SimpleNamespace(
+                            revision=SimpleNamespace(
+                                change_id="survivor-change",
+                                commit_id="survivor-commit",
+                                only_parent_commit_id=lambda: "merged-commit",
+                            )
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    async def fake_inspect_restack(*, prepared_restack):
+        return SimpleNamespace(
+            github_error=None,
+            github_repository="octo-org/stacked-review",
+            remote=GitRemote(
+                name="origin",
+                url="git@github.com:octo-org/stacked-review.git",
+            ),
+            remote_error=None,
+            revisions=(merged_revision, survivor_revision),
+            selected_revset="@",
+        )
+
+    monkeypatch.setattr("jj_review.commands.cleanup._inspect_restack", fake_inspect_restack)
+
+    result = stream_restack(prepared_restack=prepared_restack)
+
+    assert result.blocked is True
+    assert result.requires_nontrunk_rebase is False
+    assert len(result.actions) == 1
+    assert result.actions[0].kind == "restack"
+    assert "local edits since last submit" in result.actions[0].message
+    assert "merged feature" in result.actions[0].message
+    assert result.actions[0].status == "blocked"
+
+
+def test_stream_restack_does_not_block_when_merged_change_commit_matches_last_submitted(
+    monkeypatch,
+) -> None:
+    merged_revision = SimpleNamespace(
+        cached_change=CachedChange(last_submitted_commit_id="merged-commit"),
+        change_id="merged-change",
+        local_divergent=False,
+        pull_request_lookup=SimpleNamespace(
+            pull_request=SimpleNamespace(
+                base=SimpleNamespace(ref="main"),
+                number=1,
+                state="merged",
+            ),
+            state="closed",
+        ),
+        subject="merged feature",
+    )
+    survivor_revision = SimpleNamespace(
+        change_id="survivor-change",
+        local_divergent=False,
+        pull_request_lookup=SimpleNamespace(
+            pull_request=SimpleNamespace(
+                base=SimpleNamespace(ref="main"),
+                number=2,
+                state="open",
+            ),
+            state="open",
+        ),
+        subject="survivor feature",
+    )
+    prepared_restack = PreparedRestack(
+        apply=False,
+        allow_nontrunk_rebase=False,
+        prepared_status=cast(
+            Any,
+            SimpleNamespace(
+                prepared=SimpleNamespace(
+                    client=SimpleNamespace(),
+                    stack=SimpleNamespace(trunk=SimpleNamespace(commit_id="trunk-commit")),
+                    status_revisions=(
+                        SimpleNamespace(
+                            revision=SimpleNamespace(
+                                change_id="merged-change",
+                                commit_id="merged-commit",
+                                only_parent_commit_id=lambda: "trunk-commit",
+                            )
+                        ),
+                        SimpleNamespace(
+                            revision=SimpleNamespace(
+                                change_id="survivor-change",
+                                commit_id="survivor-commit",
+                                only_parent_commit_id=lambda: "merged-commit",
+                            )
+                        ),
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    async def fake_inspect_restack(*, prepared_restack):
+        return SimpleNamespace(
+            github_error=None,
+            github_repository="octo-org/stacked-review",
+            remote=GitRemote(
+                name="origin",
+                url="git@github.com:octo-org/stacked-review.git",
+            ),
+            remote_error=None,
+            revisions=(merged_revision, survivor_revision),
+            selected_revset="@",
+        )
+
+    monkeypatch.setattr("jj_review.commands.cleanup._inspect_restack", fake_inspect_restack)
+
+    result = stream_restack(prepared_restack=prepared_restack)
+
+    assert result.blocked is False
+    assert len(result.actions) == 1
+    assert result.actions[0].message == "rebase survivor onto trunk()"
+    assert result.actions[0].status == "planned"
+
+
 def test_prepare_restack_skips_fetch_remote_state(monkeypatch) -> None:
     prepare_calls: list[dict[str, object]] = []
 
@@ -467,6 +638,7 @@ def test_stream_restack_blocks_nontrunk_rebase_without_override(
         subject="open base",
     )
     merged_revision = SimpleNamespace(
+        cached_change=None,
         change_id="merged-change",
         local_divergent=False,
         pull_request_lookup=SimpleNamespace(
@@ -601,6 +773,7 @@ def test_stream_restack_applies_nontrunk_rebase_with_override(
         subject="open base",
     )
     merged_revision = SimpleNamespace(
+        cached_change=None,
         change_id="merged-change",
         local_divergent=False,
         pull_request_lookup=SimpleNamespace(
