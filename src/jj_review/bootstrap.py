@@ -10,6 +10,9 @@ from pathlib import Path
 
 from jj_review.config import AppConfig, ConfigError, load_config
 
+_MINIMUM_JJ_VERSION = (0, 21, 0)
+_MINIMUM_JJ_VERSION_STRING = "0.21.0"
+
 
 class BootstrapError(RuntimeError):
     """Raised when CLI bootstrap fails with a user-facing error."""
@@ -41,6 +44,7 @@ def bootstrap_context(args: Namespace) -> AppContext:
     repository = _resolve_optional_path(getattr(args, "repository", None))
     _validate_repository_path(repository)
     config_path = _resolve_optional_path(getattr(args, "config", None))
+    check_jj_version()
     try:
         repo_root = resolve_repo_root(repository or Path.cwd())
         config = load_config(repo_root=repo_root, config_path=config_path)
@@ -115,6 +119,59 @@ def resolve_repo_root(start_dir: Path) -> Path:
     if not root:
         raise BootstrapError(f"`jj root` returned an empty path (from {start_dir}).")
     return Path(root)
+
+
+def check_jj_version() -> None:
+    """Verify that the installed `jj` meets the minimum required version.
+
+    Raises `BootstrapError` if `jj` is absent, if its version string cannot
+    be parsed, or if the installed version is older than the minimum.
+    """
+
+    try:
+        completed = subprocess.run(
+            ["jj", "--version"],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+    except FileNotFoundError as error:
+        raise BootstrapError("`jj` is not installed or is not on PATH.") from error
+
+    if completed.returncode != 0:
+        message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+        raise BootstrapError(f"`jj --version` failed: {message}")
+
+    version = _parse_jj_version(completed.stdout.strip())
+    if version is None:
+        raise BootstrapError(
+            f"Could not parse `jj --version` output: {completed.stdout.strip()!r}. "
+            f"jj-review requires jj {_MINIMUM_JJ_VERSION_STRING} or later."
+        )
+    if version < _MINIMUM_JJ_VERSION:
+        installed = ".".join(str(x) for x in version)
+        raise BootstrapError(
+            f"jj {installed} is too old. "
+            f"jj-review requires jj {_MINIMUM_JJ_VERSION_STRING} or later. "
+            "Please upgrade jj."
+        )
+
+
+def _parse_jj_version(version_output: str) -> tuple[int, ...] | None:
+    """Parse version tuple from `jj --version` output.
+
+    Expected formats: ``"jj 0.39.0"`` or ``"jj 0.39.0-<build-hash>"``.
+    Returns ``None`` if the output does not match the expected format.
+    """
+
+    parts = version_output.split()
+    if len(parts) < 2 or parts[0] != "jj":
+        return None
+    version_str = parts[1].split("-")[0]
+    try:
+        return tuple(int(x) for x in version_str.split("."))
+    except ValueError:
+        return None
 
 
 def _resolve_optional_path(raw_path: object) -> Path | None:
