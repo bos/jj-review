@@ -270,6 +270,18 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
         )
         return pull_request.to_payload(repository=repository, web_origin=fake_state.web_origin)
 
+    @app.get("/repos/{owner}/{repo}/pulls/{pull_number}")
+    async def get_pull_request(
+        owner: str,
+        repo: str,
+        pull_number: int,
+    ) -> dict[str, object]:
+        repository = _get_repository(fake_state, owner, repo)
+        pull_request = repository.pull_requests.get(pull_number)
+        if pull_request is None:
+            raise HTTPException(status_code=404, detail="Not Found")
+        return pull_request.to_payload(repository=repository, web_origin=fake_state.web_origin)
+
     @app.patch("/repos/{owner}/{repo}/pulls/{pull_number}")
     async def update_pull_request(
         owner: str,

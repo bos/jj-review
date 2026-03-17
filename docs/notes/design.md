@@ -349,8 +349,10 @@ For the MVP, the recovery surface should be explicit and narrow:
   closed if cached and discoverable linkage disagree or if GitHub reports
   ambiguity
 - `jj review adopt <pr> [<revset>]` explicitly associates an existing PR and
-  its head branch with a specific `jj` change when the user intends that
-  linkage
+  its same-repository head branch with a specific `jj` change when the user
+  intends that linkage; it should pin that branch locally and persist the PR
+  identity so a later submit can update the adopted review instead of opening
+  a replacement PR
 
 `jj review status [<revset>]` should show the selected local stack, pinned or
 discovered review bookmarks, and any cached or discoverable GitHub linkage for

@@ -15,6 +15,7 @@ from typing import Any, cast
 
 from jj_review import __version__
 from jj_review.bootstrap import BootstrapError, bootstrap_context
+from jj_review.commands.adopt import run_adopt
 from jj_review.commands.review_state import prepare_status, run_sync, stream_status
 from jj_review.commands.submit import run_submit
 from jj_review.errors import CliError, CommandNotImplementedError
@@ -77,7 +78,7 @@ def build_parser() -> ArgumentParser:
         nargs="?",
         help="Revision to associate with the pull request.",
     )
-    adopt_parser.set_defaults(handler=_stub_handler("adopt"))
+    adopt_parser.set_defaults(handler=_adopt_handler)
 
     cleanup_parser = subparsers.add_parser(
         "cleanup",
@@ -487,6 +488,24 @@ def _submit_handler(args: Namespace) -> int:
             f"({revision.bookmark_source}, {revision.remote_action}, "
             f"PR #{revision.pull_request_number} {revision.pull_request_action})"
         )
+    return 0
+
+
+def _adopt_handler(args: Namespace) -> int:
+    context = bootstrap_context(args)
+    result = run_adopt(
+        config=context.config.repo,
+        pull_request_reference=args.pull_request,
+        repo_root=context.repo_root,
+        revset=args.revset,
+    )
+    print(f"Selected revset: {result.selected_revset}")
+    print(f"Selected remote: {result.remote_name}")
+    print(f"GitHub: {result.github_repository}")
+    print(
+        f"Adopted PR #{result.pull_request_number} for {result.subject} "
+        f"[{result.change_id[:12]}] -> {result.bookmark}"
+    )
     return 0
 
 

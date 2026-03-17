@@ -100,6 +100,19 @@ class GithubClient:
         )
         return tuple(GithubPullRequest.model_validate(item) for item in payload)
 
+    async def get_pull_request(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        pull_number: int,
+    ) -> GithubPullRequest:
+        response = await self._request(
+            "GET",
+            f"/repos/{owner}/{repo}/pulls/{pull_number}",
+        )
+        return GithubPullRequest.model_validate(self._expect_success(response))
+
     async def create_pull_request(
         self,
         owner: str,

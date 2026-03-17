@@ -659,6 +659,65 @@ def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
     assert "multiple `jj-review` stack comments" in captured.out
 
 
+def test_adopt_repairs_existing_pull_request_linkage_for_rewritten_change(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    manual_bookmark = "review/manual-feature-1"
+    _run(["jj", "bookmark", "create", manual_bookmark, "-r", change_id], repo)
+    _run(["jj", "git", "push", "--remote", "origin", "--bookmark", manual_bookmark], repo)
+    fake_repo.create_pull_request(
+        base_ref="main",
+        body="manual body",
+        head_ref=manual_bookmark,
+        title="manual title",
+    )
+    _run(["jj", "bookmark", "forget", manual_bookmark], repo)
+    _run(
+        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 adopted"],
+        repo,
+    )
+
+    exit_code = _main(
+        repo,
+        config_path,
+        "adopt",
+        "https://github.test/octo-org/stacked-review/pull/1",
+        change_id,
+    )
+    captured = capsys.readouterr()
+    adopted_state = ReviewStateStore.for_repo(repo).load()
+
+    assert exit_code == 0
+    assert "Adopted PR #1" in captured.out
+    assert adopted_state.changes[change_id].bookmark == manual_bookmark
+    assert adopted_state.changes[change_id].pr_number == 1
+    assert adopted_state.changes[change_id].pr_state == "open"
+    assert adopted_state.changes[change_id].pr_url == (
+        "https://github.test/octo-org/stacked-review/pull/1"
+    )
+
+    exit_code = _main(repo, config_path, "submit", change_id)
+    captured = capsys.readouterr()
+    rewritten_stack = JjClient(repo).discover_review_stack(change_id)
+
+    assert exit_code == 0
+    assert "PR #1 updated" in captured.out
+    assert set(fake_repo.pull_requests) == {1}
+    assert fake_repo.pull_requests[1].title == "feature 1 adopted"
+    assert (
+        _read_remote_ref(fake_repo.git_dir, manual_bookmark)
+        == rewritten_stack.revisions[-1].commit_id
+    )
+
+
 def test_sync_refreshes_cached_pull_request_and_stack_comment_metadata(
     tmp_path: Path,
     monkeypatch,
@@ -1480,6 +1539,7 @@ def _configure_submit_environment(
         )
 
     monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
+    monkeypatch.setattr("jj_review.commands.adopt._build_github_client", build_github_client)
     monkeypatch.setattr(
         "jj_review.commands.review_state._build_github_client",
         build_github_client,
@@ -1559,10 +1619,9 @@ def _run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return completed
 
 
-def _main(repo: Path, config_path: Path, command: str, revset: str | None = None) -> int:
+def _main(repo: Path, config_path: Path, command: str, *command_args: str) -> int:
     argv = ["--config", str(config_path), "--repository", str(repo), command]
-    if revset is not None:
-        argv.append(revset)
+    argv.extend(command_args)
     return main(argv)
 
 

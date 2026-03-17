@@ -600,7 +600,7 @@ Done when:
 
 ### Slice 7: Status, Sync, and Adopt
 
-Status: in progress.
+Status: done.
 
 Implemented in the first vertical cut:
 
@@ -647,10 +647,10 @@ Implemented in the first vertical cut:
   GitHub for already-linked review branches, refreshes remembered remote state
   first, and fails closed when cached linkage is ambiguous or damaged instead
   of silently repairing it
-
-Remaining for the slice:
-
-- explicit `adopt`
+- `adopt` now resolves one explicit PR number or URL against the configured
+  repository, verifies that the PR is open on a same-repository head branch,
+  pins that branch locally for the selected change, and persists the PR
+  linkage so a later submit can update the adopted review intentionally
 
 Deliver:
 
