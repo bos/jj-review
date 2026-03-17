@@ -327,6 +327,28 @@ def test_status_prints_stack_tip_first_like_jj_log(
     assert feature_2_line < feature_1_line
 
 
+def test_status_prints_trunk_below_stack_like_jj_log(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    exit_code = _main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "◆ base [" in captured.out
+    assert ": main" in captured.out
+    assert captured.out.index("- feature 1 [") < captured.out.index("◆ base [")
+
+
 def test_status_limits_concurrent_github_lookups(
     tmp_path: Path,
     monkeypatch,

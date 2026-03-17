@@ -7,6 +7,7 @@ import pytest
 
 from jj_review.cli import main
 from jj_review.config import CONFIG_DIRNAME, CONFIG_FILENAME
+from jj_review.models.bookmarks import BookmarkState
 
 
 def test_main_without_command_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
@@ -79,8 +80,16 @@ def test_main_accepts_global_options_after_subcommand(
         "jj_review.cli.prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
+                client=SimpleNamespace(list_bookmark_states=lambda: {}),
                 remote=None,
                 remote_error=None,
+                stack=SimpleNamespace(
+                    trunk=SimpleNamespace(
+                        change_id="trunkchangeid",
+                        commit_id="trunk-commit",
+                        subject="base",
+                    )
+                ),
                 status_revisions=(),
             ),
             selected_revset="@",
@@ -97,6 +106,7 @@ def test_main_accepts_global_options_after_subcommand(
 
     assert exit_code == 0
     assert "Selected revset: @" in captured.out
+    assert "◆ base [trunkchangei]: trunk()" in captured.out
     assert "No reviewable commits" in captured.out
     assert "Traceback" not in captured.err
 
@@ -131,8 +141,23 @@ def test_main_status_prints_local_header_before_streaming(
         "jj_review.cli.prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
+                client=SimpleNamespace(
+                    list_bookmark_states=lambda: {
+                        "main": BookmarkState(
+                            name="main",
+                            local_targets=("trunk-commit",),
+                        )
+                    }
+                ),
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
+                stack=SimpleNamespace(
+                    trunk=SimpleNamespace(
+                        change_id="trunkchangeid",
+                        commit_id="trunk-commit",
+                        subject="base",
+                    )
+                ),
                 status_revisions=(object(),),
             ),
             selected_revset="@",
@@ -144,7 +169,7 @@ def test_main_status_prints_local_header_before_streaming(
         streamed = capsys.readouterr()
         assert "Selected revset: @" in streamed.out
         assert "Selected remote: origin" in streamed.out
-        assert "Trunk: base" in streamed.out
+        assert "◆ base [trunkchangeid" not in streamed.out
         kwargs["on_github_status"]("octo-org/stacked-review", None)
         kwargs["on_revision"](
             SimpleNamespace(
@@ -172,6 +197,10 @@ def test_main_status_prints_local_header_before_streaming(
     assert "GitHub: octo-org/stacked-review" in captured.out
     assert "Stack:" in captured.out
     assert "- feature 1 [abcdefghijkl]: PR #1" in captured.out
+    assert "◆ base [trunkchangei]: main" in captured.out
+    assert captured.out.index("- feature 1 [abcdefghijkl]: PR #1") < captured.out.index(
+        "◆ base [trunkchangei]: main"
+    )
 
 
 def test_main_reports_keyboard_interrupt_during_status_stream_without_traceback(
@@ -184,8 +213,16 @@ def test_main_reports_keyboard_interrupt_during_status_stream_without_traceback(
         "jj_review.cli.prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
+                client=SimpleNamespace(list_bookmark_states=lambda: {}),
                 remote=None,
                 remote_error=None,
+                stack=SimpleNamespace(
+                    trunk=SimpleNamespace(
+                        change_id="trunkchangeid",
+                        commit_id="trunk-commit",
+                        subject="base",
+                    )
+                ),
                 status_revisions=(),
             ),
             selected_revset="@",
@@ -203,7 +240,7 @@ def test_main_reports_keyboard_interrupt_during_status_stream_without_traceback(
     assert exit_code == 130
     assert "Selected revset: @" in captured.out
     assert "Selected remote: unavailable" in captured.out
-    assert "Trunk: base" in captured.out
+    assert "◆ base [trunkchangei]" not in captured.out
     assert captured.err.strip() == "Interrupted."
     assert "Traceback" not in captured.err
 

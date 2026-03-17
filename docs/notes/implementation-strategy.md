@@ -607,9 +607,12 @@ Implemented in the first vertical cut:
 - `status` now reports local bookmark resolution together with any discoverable
   remote and GitHub linkage, while still falling back to local-only output when
   the repo is not configured well enough for remote inspection
-- `status` now prints the selected revset, remote, and trunk immediately from
-  local state, then streams per-change summaries in display order once GitHub
+- `status` now prints the selected revset and remote immediately from local
+  state, then streams per-change summaries in display order once GitHub
   inspection starts instead of waiting for a fully buffered status object
+- `status` now renders the `trunk()` commit as a footer row beneath the stack,
+  using the same summary shape as stack entries and a best-effort trunk
+  bookmark name when one can be resolved
 - `status` and `sync` now inspect per-change GitHub linkage with bounded
   concurrency on one shared client, while retrying rate-limited GitHub
   responses conservatively instead of hammering the API

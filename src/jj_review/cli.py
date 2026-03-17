@@ -150,7 +150,6 @@ def _status_handler(args: Namespace) -> int:
             print(f"Selected remote: unavailable ({prepared.remote_error})")
     else:
         print(f"Selected remote: {prepared.remote.name}")
-    print(f"Trunk: {prepared_status.trunk_subject}")
 
     stack_started = False
 
@@ -181,10 +180,22 @@ def _status_handler(args: Namespace) -> int:
         prepared_status=prepared_status,
     )
     if not prepared.status_revisions:
+        print(
+            _format_trunk_status_row(
+                prepared,
+                configured_trunk_branch=context.config.repo.trunk_branch,
+            )
+        )
         print("No reviewable commits between the selected revision and `trunk()`.")
         return 0
     if not stack_started:
         print("Stack:")
+    print(
+        _format_trunk_status_row(
+            prepared,
+            configured_trunk_branch=context.config.repo.trunk_branch,
+        )
+    )
     return 1 if result.incomplete else 0
 
 
@@ -216,6 +227,58 @@ def _sync_handler(args: Namespace) -> int:
             f"({', '.join(details)})"
         )
     return 0
+
+
+def _format_trunk_status_row(
+    prepared,
+    *,
+    configured_trunk_branch: str | None,
+) -> str:
+    trunk = prepared.stack.trunk
+    trunk_name = _resolve_status_trunk_name(
+        prepared,
+        configured_trunk_branch=configured_trunk_branch,
+    )
+    suffix = "trunk()" if trunk_name is None else trunk_name
+    return f"◆ {trunk.subject} [{trunk.change_id[:12]}]: {suffix}"
+
+
+def _resolve_status_trunk_name(
+    prepared,
+    *,
+    configured_trunk_branch: str | None,
+) -> str | None:
+    if configured_trunk_branch:
+        return configured_trunk_branch
+
+    trunk_commit_id = prepared.stack.trunk.commit_id
+    bookmark_states = prepared.client.list_bookmark_states()
+    local_matches = tuple(
+        sorted(
+            name
+            for name, bookmark_state in bookmark_states.items()
+            if bookmark_state.local_target == trunk_commit_id
+        )
+    )
+    if len(local_matches) == 1:
+        return local_matches[0]
+
+    remote = prepared.remote
+    if remote is None:
+        return None
+
+    remote_matches = tuple(
+        sorted(
+            name
+            for name, bookmark_state in bookmark_states.items()
+            if (remote_state := bookmark_state.remote_target(remote.name)) is not None
+            and remote_state.target == trunk_commit_id
+        )
+    )
+    if len(remote_matches) == 1:
+        return remote_matches[0]
+    return None
+
 
 def _format_status_summary(revision, *, github_available: bool) -> str:
     lookup = revision.pull_request_lookup
