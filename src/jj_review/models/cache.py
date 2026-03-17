@@ -11,6 +11,7 @@ class CachedChange(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     bookmark: str | None = None
+    last_submitted_commit_id: str | None = None
     pr_number: int | None = None
     pr_review_decision: str | None = None
     pr_state: str | None = None

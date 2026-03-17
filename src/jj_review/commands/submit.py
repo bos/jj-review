@@ -580,6 +580,7 @@ async def _sync_pull_request(
     state_changes[change_id] = _updated_cached_change(
         bookmark=bookmark,
         cached_change=cached_change,
+        commit_id=revision.commit_id,
         pull_request=pull_request,
     )
     return PullRequestSyncResult(action=action, pull_request=pull_request)
@@ -927,11 +928,13 @@ def _updated_cached_change(
     *,
     bookmark: str,
     cached_change: CachedChange | None,
+    commit_id: str,
     pull_request: GithubPullRequest,
 ) -> CachedChange:
     if cached_change is None:
         return CachedChange(
             bookmark=bookmark,
+            last_submitted_commit_id=commit_id,
             pr_number=pull_request.number,
             pr_state=pull_request.state,
             pr_url=pull_request.html_url,
@@ -939,6 +942,7 @@ def _updated_cached_change(
     return cached_change.model_copy(
         update={
             "bookmark": bookmark,
+            "last_submitted_commit_id": commit_id,
             "pr_number": pull_request.number,
             "pr_state": pull_request.state,
             "pr_url": pull_request.html_url,

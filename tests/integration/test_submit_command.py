@@ -1513,6 +1513,205 @@ def test_cleanup_restack_blocks_nontrunk_rebase_without_override(
     assert rewritten_top.only_parent_commit_id() == rewritten_bottom.commit_id
 
 
+def test_submit_persists_last_submitted_commit_id(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    commit_id = stack.revisions[-1].commit_id
+    state = ReviewStateStore.for_repo(repo).load()
+
+    assert state.changes[change_id].last_submitted_commit_id == commit_id
+
+
+def test_submit_updates_last_submitted_commit_id_after_rewrite(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    original_commit_id = stack.revisions[-1].commit_id
+
+    _run(["jj", "describe", "-r", change_id, "-m", "feature 1 updated"], repo)
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    rewritten_commit_id = JjClient(repo).resolve_revision(change_id).commit_id
+    state = ReviewStateStore.for_repo(repo).load()
+
+    assert rewritten_commit_id != original_commit_id
+    assert state.changes[change_id].last_submitted_commit_id == rewritten_commit_id
+
+
+def test_status_fetch_tolerates_regular_merge_commit_on_path(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """status --fetch must not fail when a regular merge commit makes a stack
+    revision immutable after fetching merged PR branches from the remote."""
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    top_change_id = stack.revisions[1].change_id
+
+    # Simulate a regular merge on GitHub: create a merge commit on remote main
+    # that has both the old main and the feature-1 review branch as parents.
+    # After jj git fetch, the feature-1 commit becomes an ancestor of main@origin,
+    # making it immutable. status --fetch must tolerate this via allow_immutable=True.
+    remote = fake_repo.git_dir
+    feature1_bookmark = ReviewStateStore.for_repo(repo).load().changes[bottom_change_id].bookmark
+    assert feature1_bookmark is not None
+    remote_main = _read_remote_ref(remote, "main")
+    remote_feature1 = _read_remote_ref(remote, feature1_bookmark)
+    merge_commit = _run(
+        [
+            "git",
+            "--git-dir",
+            str(remote),
+            "commit-tree",
+            f"{remote_feature1}^{{tree}}",
+            "-p",
+            remote_main,
+            "-p",
+            remote_feature1,
+            "-m",
+            "Merge PR #1: feature 1",
+        ],
+        remote.parent,
+    ).stdout.strip()
+    _run(
+        ["git", "--git-dir", str(remote), "update-ref", "refs/heads/main", merge_commit],
+        remote.parent,
+    )
+    fake_repo.pull_requests[1].state = "closed"
+    fake_repo.pull_requests[1].merged_at = "2026-03-16T12:00:00Z"
+
+    exit_code = _main(repo, config_path, "status", "--fetch", top_change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "feature 1" in captured.out
+    assert "cleanup needed" in captured.out
+    assert "feature 2" in captured.out
+
+
+def test_status_fetch_tolerates_squash_merge_after_fetch(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """status --fetch must work after a squash merge advances main@origin past the
+    feature-1 commit without making it immutable."""
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    top_change_id = stack.revisions[1].change_id
+
+    # Simulate a squash merge: create a new commit on remote main with feature-1's
+    # tree but only the old main as parent (not feature-1 itself). This mirrors how
+    # GitHub squash merges work: the feature branch commits are not parents of the
+    # squash commit, so the local feature-1 revision stays mutable after fetch.
+    remote = fake_repo.git_dir
+    bottom_change_id = stack.revisions[0].change_id
+    feature1_bookmark = ReviewStateStore.for_repo(repo).load().changes[bottom_change_id].bookmark
+    assert feature1_bookmark is not None
+    remote_main = _read_remote_ref(remote, "main")
+    remote_feature1 = _read_remote_ref(remote, feature1_bookmark)
+    squash_commit = _run(
+        [
+            "git",
+            "--git-dir",
+            str(remote),
+            "commit-tree",
+            f"{remote_feature1}^{{tree}}",
+            "-p",
+            remote_main,
+            "-m",
+            "squash: feature 1",
+        ],
+        remote.parent,
+    ).stdout.strip()
+    _run(
+        ["git", "--git-dir", str(remote), "update-ref", "refs/heads/main", squash_commit],
+        remote.parent,
+    )
+    fake_repo.pull_requests[1].state = "closed"
+    fake_repo.pull_requests[1].merged_at = "2026-03-16T12:00:00Z"
+
+    exit_code = _main(repo, config_path, "status", "--fetch", top_change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "feature 1" in captured.out
+    assert "cleanup needed" in captured.out
+    assert "feature 2" in captured.out
+
+
+def test_cleanup_restack_blocks_when_merged_path_change_has_unpublished_edits(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    top_change_id = stack.revisions[1].change_id
+
+    # Rewrite feature 1 without re-submitting — it now has local edits since last submit.
+    _run(
+        ["jj", "describe", "-r", bottom_change_id, "-m", "feature 1 with unpublished edit"],
+        repo,
+    )
+
+    fake_repo.pull_requests[1].state = "closed"
+    fake_repo.pull_requests[1].merged_at = "2026-03-16T12:00:00Z"
+
+    exit_code = _main(repo, config_path, "cleanup", "--restack", top_change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "local edits since last submit" in captured.out
+    assert "[blocked] restack" in captured.out
+
+
 def test_cleanup_reports_stale_cache_and_remote_branch_without_applying(
     tmp_path: Path,
     monkeypatch,
