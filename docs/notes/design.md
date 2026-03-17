@@ -343,11 +343,10 @@ linkage, bookmark state, or GitHub state is missing or damaged.
 
 For the MVP, the recovery surface should be explicit and narrow:
 
-- `jj review sync [<revset>]` refreshes local cache from GitHub for already
-  linked review branches and PRs, but does not change stack topology. It may
-  refresh remembered remote-branch observations first, but it must still fail
-  closed if cached and discoverable linkage disagree or if GitHub reports
-  ambiguity
+- `jj review status --fetch [<revset>]` refreshes remembered remote-branch
+  observations before inspecting GitHub linkage, then reports the selected
+  stack and any cached or discoverable PR state without mutating GitHub or
+  review bookmarks
 - `jj review adopt <pr> [<revset>]` explicitly associates an existing PR and
   its same-repository head branch with a specific `jj` change when the user
   intends that linkage; it should pin that branch locally and persist the PR
@@ -363,7 +362,7 @@ than a source of truth.
 `jj review status --fetch [<revset>]` is the same inspection command, but it
 refreshes remote bookmark observations first so the report reflects the latest
 remote state before it inspects GitHub linkage.
-Unlike `submit` or `sync`, it may fall back to local-only reporting when the
+Unlike `submit`, it may fall back to local-only reporting when the
 repo is not configured well enough to resolve a remote or GitHub target.
 Its default output should stay concise and summarize the effective review state
 for each change rather than dumping cache and transport diagnostics inline.
@@ -377,6 +376,9 @@ incomplete, the command should exit non-zero instead of reporting success.
 Likewise, if live inspection finds ambiguous PR linkage or multiple managed
 stack comments for the same PR, status should surface that inline and exit
 non-zero rather than silently treating the stack as healthy.
+If cached PR linkage existed but GitHub now reports no PR for that review
+branch, status should likewise surface that stale linkage inline and exit
+non-zero before it clears the stale cached identity.
 When cached GitHub linkage includes a last-known PR state, status may surface
 that state in the fallback output as cached information rather than implying it
 is live.
@@ -430,7 +432,6 @@ The tool can stay small. A reasonable surface would be:
 
 - `jj review submit [<revset>]`
 - `jj review status [--fetch] [<revset>]`
-- `jj review sync [<revset>]`
 - `jj review adopt <pr> [<revset>]`
 - `jj review cleanup`
 

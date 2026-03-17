@@ -16,7 +16,7 @@ from typing import Any, cast
 from jj_review import __version__
 from jj_review.bootstrap import BootstrapError, bootstrap_context
 from jj_review.commands.adopt import run_adopt
-from jj_review.commands.review_state import prepare_status, run_sync, stream_status
+from jj_review.commands.review_state import prepare_status, stream_status
 from jj_review.commands.submit import run_submit
 from jj_review.errors import CliError, CommandNotImplementedError
 
@@ -59,14 +59,6 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         help="Fetch remote bookmark state before inspecting review status.",
     )
-    _add_revision_command(
-        subparsers,
-        command="sync",
-        help_text="Refresh cached review linkage from GitHub.",
-        handler=_sync_handler,
-        parents=[common_options],
-    )
-
     adopt_parser = subparsers.add_parser(
         "adopt",
         help="Associate an existing pull request with a local change.",
@@ -254,38 +246,6 @@ def _status_handler(args: Namespace) -> int:
         )
     )
     return 1 if result.incomplete else 0
-
-
-def _sync_handler(args: Namespace) -> int:
-    context = bootstrap_context(args)
-    result = run_sync(
-        change_overrides=context.config.change,
-        config=context.config.repo,
-        repo_root=context.repo_root,
-        revset=args.revset,
-    )
-    print(f"Selected revset: {result.selected_revset}")
-    print(f"Selected remote: {result.remote.name}")
-    print(f"GitHub: {result.github_repository}")
-    print(f"Trunk: {result.trunk_subject}")
-    if not result.revisions:
-        print("No reviewable commits between the selected revision and `trunk()`.")
-        return 0
-
-    print("Synchronized review cache:")
-    for revision in result.revisions:
-        details: list[str] = [
-            revision.bookmark_source,
-            _format_pull_request_status(revision),
-            _format_stack_comment_status(revision),
-        ]
-        print(
-            f"- {revision.subject} [{revision.change_id[:12]}] -> {revision.bookmark} "
-            f"({', '.join(details)})"
-        )
-    return 0
-
-
 def _format_trunk_status_row(
     prepared,
     *,
@@ -390,32 +350,6 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
     return summary
 
 
-def _format_pull_request_status(revision) -> str:
-    cached_change = revision.cached_change
-    cached_label = "no cached PR"
-    formatted_cached_label = _format_cached_pull_request_label(cached_change)
-    if formatted_cached_label is not None:
-        cached_label = formatted_cached_label
-    lookup = revision.pull_request_lookup
-    if lookup is None:
-        return cached_label
-    if lookup.state == "open":
-        if lookup.pull_request is None:
-            raise AssertionError("Open pull request lookup must include a pull request.")
-        summary = f"{cached_label}, GitHub PR #{lookup.pull_request.number}"
-        review_decision = _effective_review_decision(
-            cached_change=cached_change,
-            lookup=lookup,
-        )
-        if review_decision is None:
-            return summary
-        return f"{summary} {_format_review_decision_label(review_decision)}"
-    if lookup.state == "missing":
-        return f"{cached_label}, no GitHub PR"
-    message = lookup.message or "pull request lookup failed"
-    return f"{cached_label}, {message}"
-
-
 def _format_cached_pull_request_label(cached_change) -> str | None:
     if cached_change is None or cached_change.pr_number is None:
         return None
@@ -446,24 +380,6 @@ def _format_review_decision_label(review_decision: str) -> str:
     if review_decision == "changes_requested":
         return "changes requested"
     return review_decision
-
-
-def _format_stack_comment_status(revision) -> str:
-    cached_change = revision.cached_change
-    cached_label = "no cached stack comment"
-    if cached_change is not None and cached_change.stack_comment_id is not None:
-        cached_label = f"cached stack comment #{cached_change.stack_comment_id}"
-    lookup = revision.stack_comment_lookup
-    if lookup is None:
-        return cached_label
-    if lookup.state == "present":
-        if lookup.comment is None:
-            raise AssertionError("Present stack comment lookup must include a comment.")
-        return f"{cached_label}, stack comment #{lookup.comment.id}"
-    if lookup.state == "missing":
-        return f"{cached_label}, no stack comment"
-    message = lookup.message or "stack comment lookup failed"
-    return f"{cached_label}, {message}"
 
 
 def _submit_handler(args: Namespace) -> int:

@@ -605,7 +605,8 @@ async def _discover_pull_request(
     if len(pull_requests) > 1:
         raise SubmitPullRequestResolutionError(
             f"GitHub reports multiple pull requests for head branch {head_label!r}. "
-            "Repair the linkage with `sync` or `adopt` before submitting again."
+            "Inspect the linkage with `status --fetch` and repair it with `adopt` "
+            "before submitting again."
         )
     if not pull_requests:
         return None
@@ -613,8 +614,8 @@ async def _discover_pull_request(
     if pull_request.state != "open":
         raise SubmitPullRequestResolutionError(
             f"GitHub reports pull request #{pull_request.number} for head branch "
-            f"{head_label!r} in state {pull_request.state!r}. Repair the linkage with "
-            "`sync` or `adopt` before submitting again."
+            f"{head_label!r} in state {pull_request.state!r}. Inspect the linkage with "
+            "`status --fetch` and repair it with `adopt` before submitting again."
         )
     return pull_request
 
@@ -632,21 +633,21 @@ def _ensure_pull_request_linkage_is_consistent(
     if discovered_pull_request is None:
         raise SubmitPullRequestResolutionError(
             f"Cached pull request linkage exists for bookmark {bookmark!r}, but GitHub "
-            "no longer reports a PR for that head branch. Repair the linkage with "
-            "`sync` or `adopt` before submitting again."
+            "no longer reports a PR for that head branch. Inspect the linkage with "
+            "`status --fetch` and repair it with `adopt` before submitting again."
         )
     if cached_change.pr_number not in (None, discovered_pull_request.number):
         raise SubmitPullRequestResolutionError(
             f"Cached pull request #{cached_change.pr_number} does not match the PR "
             f"GitHub reports for bookmark {bookmark!r} "
-            f"(#{discovered_pull_request.number}). Repair the linkage with `sync` or "
-            "`adopt` before submitting again."
+            f"(#{discovered_pull_request.number}). Inspect the linkage with "
+            "`status --fetch` and repair it with `adopt` before submitting again."
         )
     if cached_change.pr_url not in (None, discovered_pull_request.html_url):
         raise SubmitPullRequestResolutionError(
             f"Cached pull request URL for bookmark {bookmark!r} does not match "
-            "GitHub. Repair the linkage with `sync` or `adopt` before submitting "
-            "again."
+            "GitHub. Inspect the linkage with `status --fetch` and repair it with "
+            "`adopt` before submitting again."
         )
 
 
@@ -758,8 +759,8 @@ async def _upsert_stack_comment(
                 raise SubmitStackCommentError(
                     f"Cached stack comment #{cached_change.stack_comment_id} for pull "
                     f"request #{pull_request_number} is not managed by `jj-review`. "
-                    "Repair the linkage with `sync` or delete the cached comment ID "
-                    "before submitting again."
+                    "Inspect the linkage with `status --fetch` or delete the cached "
+                    "comment ID before submitting again."
                 )
             if cached_comment.body == comment_body:
                 return cached_comment
@@ -821,8 +822,8 @@ async def _discover_stack_comment(
         comment_ids = ", ".join(str(comment.id) for comment in matching_comments)
         raise SubmitStackCommentError(
             "GitHub reports multiple `jj-review` stack comments for the same pull "
-            f"request: {comment_ids}. Repair the linkage with `sync` or delete the extra "
-            "stack comments before submitting again."
+            f"request: {comment_ids}. Inspect the linkage with `status --fetch` or "
+            "delete the extra stack comments before submitting again."
         )
     return matching_comments[0]
 

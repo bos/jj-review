@@ -22,7 +22,7 @@ for product behavior and policy, including:
 
 - the review-unit and stack model
 - bookmark naming and cache semantics
-- submit, sync, adopt, and cleanup behavior
+- submit, status, adopt, and cleanup behavior
 - MVP command surface and scope
 - fail-closed behavior when review identity is ambiguous
 
@@ -598,7 +598,7 @@ Done when:
 - tests prove the stack metadata is regenerated from current `jj` state
 - tests prove stack metadata is not used as topology source
 
-### Slice 7: Status, Sync, and Adopt
+### Slice 7: Status and Adopt
 
 Status: done.
 
@@ -618,17 +618,18 @@ Implemented in the first vertical cut:
   bookmark name when one can be resolved
 - the CLI now supports `--time-output` as a global debugging aid that prefixes
   printed lines with elapsed time from process start
-- `status` and `sync` now inspect per-change GitHub linkage with bounded
-  concurrency on one shared client, while retrying rate-limited GitHub
-  responses conservatively instead of hammering the API
+- `status` now inspects per-change GitHub linkage with bounded concurrency on
+  one shared client, while retrying rate-limited GitHub responses
+  conservatively instead of hammering the API
 - `status` now derives repo-level GitHub availability from the first real PR
   lookup instead of blocking on a separate repository probe before streaming
   output
 - `status` now also supports `--fetch` / `-f` to refresh remote bookmark
   observations first when the user wants a freshly fetched view before live
   GitHub inspection
-- submit and sync now persist each change's last-known PR state, and `status`
-  uses that cached state to render more informative offline fallback summaries
+- submit and `status` now persist each change's last-known PR state, and
+  `status` uses that cached state to render more informative offline fallback
+  summaries
 - successful live `status` runs now refresh sparse cached PR linkage too, so a
   later offline run can still show last-known review identity for previously
   inspected changes
@@ -642,11 +643,7 @@ Implemented in the first vertical cut:
   comments as incomplete inspection, so the command exits non-zero instead of
   presenting those cases as healthy output
 - GitHub client list endpoints now follow pagination links through one shared
-  helper so status and sync do not silently truncate multi-page remote state
-- `sync` now refreshes cached PR metadata and managed stack-comment IDs from
-  GitHub for already-linked review branches, refreshes remembered remote state
-  first, and fails closed when cached linkage is ambiguous or damaged instead
-  of silently repairing it
+  helper so status and adopt do not silently truncate multi-page remote state
 - `adopt` now resolves one explicit PR number or URL against the configured
   repository, verifies that the PR is open on a same-repository head branch,
   pins that branch locally for the selected change, and persists the PR
@@ -655,13 +652,11 @@ Implemented in the first vertical cut:
 Deliver:
 
 - `status`
-- explicit `sync`
 - explicit `adopt`
 
 Done when:
 
 - damaged linkage fails closed in `submit`
-- `sync` can refresh cached PR metadata
 - `adopt` can attach an existing PR intentionally
 
 ### Slice 8: Cleanup
@@ -702,7 +697,7 @@ We should distinguish between:
 
 When possible, diagnostics should point to the exact recovery action:
 
-- `jj review sync`
+- `jj review status --fetch`
 - `jj review adopt`
 - `jj rebase`
 - `jj review cleanup`

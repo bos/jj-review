@@ -1,4 +1,4 @@
-"""Shared review-state inspection for `status` and `sync`."""
+"""Shared review-state inspection for `status`."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from jj_review.commands.submit import (
     ResolvedGithubRepository,
     _build_github_client,
     _discover_bookmarks_for_revisions,
-    _ensure_pull_request_linkage_is_consistent,
     _ensure_unique_bookmarks,
     _github_token_from_env,
     resolve_github_repository,
@@ -36,10 +35,6 @@ _GITHUB_INSPECTION_CONCURRENCY = 4
 
 PullRequestLookupState = Literal["ambiguous", "closed", "error", "missing", "open"]
 StackCommentLookupState = Literal["ambiguous", "error", "missing", "present"]
-
-
-class SyncResolutionError(CliError):
-    """Raised when `sync` cannot safely refresh cached review linkage."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,17 +93,6 @@ class PreparedStatus:
     github_repository: ResolvedGithubRepository | None
     github_repository_error: str | None
     prepared: _PreparedStack
-    selected_revset: str
-    trunk_subject: str
-
-
-@dataclass(frozen=True, slots=True)
-class SyncResult:
-    """Cache-refresh result for one selected local stack."""
-
-    github_repository: str
-    remote: GitRemote
-    revisions: tuple[ReviewStatusRevision, ...]
     selected_revset: str
     trunk_subject: str
 
@@ -343,108 +327,6 @@ async def _stream_status_async(
     )
 
 
-def run_sync(
-    *,
-    change_overrides: dict[str, ChangeConfig],
-    config: RepoConfig,
-    repo_root: Path,
-    revset: str | None,
-) -> SyncResult:
-    """Refresh sparse local review cache from GitHub without mutating remotes."""
-
-    return asyncio.run(
-        _run_sync_async(
-            change_overrides=change_overrides,
-            config=config,
-            repo_root=repo_root,
-            revset=revset,
-        )
-    )
-
-
-async def _run_sync_async(
-    *,
-    change_overrides: dict[str, ChangeConfig],
-    config: RepoConfig,
-    repo_root: Path,
-    revset: str | None,
-) -> SyncResult:
-    prepared = _prepare_stack(
-        change_overrides=change_overrides,
-        config=config,
-        persist_bookmarks=False,
-        refresh_remote_state=True,
-        repo_root=repo_root,
-        require_remote=True,
-        revset=revset,
-    )
-    if prepared.remote is None:
-        raise AssertionError("Sync requires a resolved remote.")
-    github_repository = resolve_github_repository(config, prepared.remote)
-    revisions = await _inspect_revisions_with_github(
-        github_repository=github_repository,
-        prepared=prepared,
-        raise_on_lookup_error=True,
-    )
-
-    state = prepared.state
-    state_changes = dict(prepared.state_changes)
-    for revision in revisions:
-        cached_change = (
-            state_changes.get(revision.change_id)
-            or state.changes.get(revision.change_id)
-        )
-        if (
-            revision.bookmark_source == "generated"
-            and revision.pull_request_lookup is not None
-            and revision.pull_request_lookup.state == "missing"
-        ):
-            continue
-        updated_change = cached_change or CachedChange(bookmark=revision.bookmark)
-        pull_request_lookup = revision.pull_request_lookup
-        if pull_request_lookup is not None and pull_request_lookup.pull_request is not None:
-            pull_request = pull_request_lookup.pull_request
-            updated_change = updated_change.model_copy(
-                update={
-                    "bookmark": revision.bookmark,
-                    "pr_number": pull_request.number,
-                    "pr_review_decision": _resolved_review_decision(
-                        cached_change=cached_change,
-                        pull_request_lookup=pull_request_lookup,
-                    ),
-                    "pr_state": pull_request.state,
-                    "pr_url": pull_request.html_url,
-                }
-            )
-            if pull_request_lookup.state == "open":
-                stack_comment_lookup = revision.stack_comment_lookup
-                if stack_comment_lookup is not None and stack_comment_lookup.state == "present":
-                    if stack_comment_lookup.comment is None:
-                        raise AssertionError(
-                            "Present stack comment lookup must include a comment."
-                        )
-                    updated_change = updated_change.model_copy(
-                        update={"stack_comment_id": stack_comment_lookup.comment.id}
-                    )
-                elif stack_comment_lookup is not None and stack_comment_lookup.state == "missing":
-                    updated_change = updated_change.model_copy(update={"stack_comment_id": None})
-            else:
-                updated_change = updated_change.model_copy(update={"stack_comment_id": None})
-        state_changes[revision.change_id] = updated_change
-
-    next_state = state.model_copy(update={"changes": state_changes})
-    if prepared.bookmark_result_changed or next_state != state:
-        prepared.state_store.save(next_state)
-
-    return SyncResult(
-        github_repository=github_repository.full_name,
-        remote=prepared.remote,
-        revisions=revisions,
-        selected_revset=prepared.stack.selected_revset,
-        trunk_subject=prepared.stack.trunk.subject,
-    )
-
-
 def _prepare_stack(
     *,
     change_overrides: dict[str, ChangeConfig],
@@ -561,6 +443,14 @@ def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
         if pull_request_lookup is not None and (
             pull_request_lookup.state == "ambiguous"
             or pull_request_lookup.state == "error"
+            or (
+                pull_request_lookup.state == "missing"
+                and revision.cached_change is not None
+                and (
+                    revision.cached_change.pr_number is not None
+                    or revision.cached_change.pr_url is not None
+                )
+            )
             or pull_request_lookup.review_decision_error is not None
         ):
             return True
@@ -646,36 +536,6 @@ def _persist_status_cache_updates(
         prepared.state_store.save(next_state)
 
 
-async def _inspect_revisions_with_github(
-    *,
-    github_repository,
-    prepared: _PreparedStack,
-    raise_on_lookup_error: bool,
-) -> tuple[ReviewStatusRevision, ...]:
-    bookmark_states = prepared.client.list_bookmark_states(
-        [revision.bookmark for revision in prepared.status_revisions]
-    )
-    async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
-        semaphore = asyncio.Semaphore(_GITHUB_INSPECTION_CONCURRENCY)
-        return tuple(
-            await asyncio.gather(
-                *(
-                    _inspect_revision_with_github(
-                        bookmark_states=bookmark_states,
-                        github_client=github_client,
-                        github_repository=github_repository,
-                        on_github_status=None,
-                        prepared=prepared,
-                        prepared_revision=prepared_revision,
-                        raise_on_lookup_error=raise_on_lookup_error,
-                        semaphore=semaphore,
-                    )
-                    for prepared_revision in prepared.status_revisions
-                )
-            )
-        )
-
-
 async def _iter_status_revisions_with_github(
     *,
     github_repository: ResolvedGithubRepository,
@@ -703,7 +563,6 @@ async def _iter_status_revisions_with_github(
                     on_github_status=observe_github_status,
                     prepared=prepared,
                     prepared_revision=prepared_revision,
-                    raise_on_lookup_error=False,
                     semaphore=semaphore,
                 )
             )
@@ -759,7 +618,6 @@ async def _inspect_revision_with_github(
     on_github_status: Callable[[str | None], None] | None,
     prepared: _PreparedStack,
     prepared_revision: _PreparedRevision,
-    raise_on_lookup_error: bool,
     semaphore: asyncio.Semaphore,
 ) -> ReviewStatusRevision:
     async with semaphore:
@@ -780,12 +638,6 @@ async def _inspect_revision_with_github(
         )
         if on_github_status is not None:
             on_github_status(pull_request_lookup.repository_error)
-        if raise_on_lookup_error:
-            _ensure_syncable_pull_request(
-                bookmark=prepared_revision.bookmark,
-                cached_change=prepared_revision.cached_change,
-                pull_request_lookup=pull_request_lookup,
-            )
         stack_comment_lookup: StackCommentLookup | None = None
         if pull_request_lookup.state == "open":
             pull_request = pull_request_lookup.pull_request
@@ -796,11 +648,6 @@ async def _inspect_revision_with_github(
                 github_repository=github_repository,
                 pull_request_number=pull_request.number,
             )
-            if raise_on_lookup_error:
-                _ensure_syncable_stack_comment(
-                    pull_request_number=pull_request.number,
-                    stack_comment_lookup=stack_comment_lookup,
-                )
         logger.debug(
             "status revision inspected: change_id=%s bookmark=%s pr_state=%s",
             prepared_revision.revision.change_id[:12],
@@ -965,63 +812,8 @@ async def _inspect_stack_comment(
             state="ambiguous",
         )
     return StackCommentLookup(comment=matching_comments[0], message=None, state="present")
-
-
-def _ensure_syncable_pull_request(
-    *,
-    bookmark: str,
-    cached_change: CachedChange | None,
-    pull_request_lookup: PullRequestLookup,
-) -> None:
-    if pull_request_lookup.state == "open":
-        pull_request = pull_request_lookup.pull_request
-        if pull_request is None:
-            raise AssertionError("Open pull request lookup must include a pull request.")
-        _ensure_pull_request_linkage_is_consistent(
-            bookmark=bookmark,
-            cached_change=cached_change,
-            discovered_pull_request=pull_request,
-        )
-        return
-    if pull_request_lookup.state == "closed":
-        pull_request = pull_request_lookup.pull_request
-        if pull_request is None:
-            raise AssertionError("Closed pull request lookup must include a pull request.")
-        _ensure_pull_request_linkage_is_consistent(
-            bookmark=bookmark,
-            cached_change=cached_change,
-            discovered_pull_request=pull_request,
-        )
-        return
-    if pull_request_lookup.state == "missing":
-        if cached_change is not None and (
-            cached_change.pr_number is not None or cached_change.pr_url is not None
-        ):
-            raise SyncResolutionError(
-                f"Cached pull request linkage exists for bookmark {bookmark!r}, but GitHub "
-                "no longer reports an open PR for that head branch. Repair the linkage with "
-                "`adopt` before syncing again."
-            )
-        return
-    message = pull_request_lookup.message or "Unknown pull request lookup failure."
-    raise SyncResolutionError(f"{message} Repair the linkage with `adopt` before syncing again.")
-
-
-def _ensure_syncable_stack_comment(
-    *,
-    pull_request_number: int,
-    stack_comment_lookup: StackCommentLookup,
-) -> None:
-    if stack_comment_lookup.state in {"missing", "present"}:
-        return
-    message = stack_comment_lookup.message or "Unknown stack comment lookup failure."
-    raise SyncResolutionError(
-        f"{message} Repair the linkage before syncing pull request #{pull_request_number} again."
-    )
-
-
 def _summarize_github_lookup_error(*, action: str, error: GithubClientError) -> str:
-    """Render a concise GitHub lookup failure for `status` and `sync` output."""
+    """Render a concise GitHub lookup failure for `status` output."""
 
     if error.status_code is None:
         return "GitHub is unavailable - check network connectivity"
