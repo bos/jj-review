@@ -28,7 +28,11 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
         github_repository_error=None,
         prepared=cast(
             _PreparedStack,
-            SimpleNamespace(remote=remote, remote_error=None),
+            SimpleNamespace(
+                remote=remote,
+                remote_error=None,
+                status_revisions=(SimpleNamespace(change_id="aaaaaaaaaaaa"),),
+            ),
         ),
         selected_revset="@",
         trunk_subject="base",
@@ -58,18 +62,11 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
     github_status_calls: list[tuple[str | None, str | None]] = []
     streamed_revisions: list[tuple[str, bool]] = []
 
-    async def fake_probe_github_repository(github_repository) -> str | None:
-        return None
-
     async def fake_iter_status_revisions_with_github(**kwargs):
         if False:
             yield None
         raise CliError("jj bookmark list failed")
 
-    monkeypatch.setattr(
-        "jj_review.commands.review_state._probe_github_repository",
-        fake_probe_github_repository,
-    )
     monkeypatch.setattr(
         "jj_review.commands.review_state._iter_status_revisions_with_github",
         fake_iter_status_revisions_with_github,

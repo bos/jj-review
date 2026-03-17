@@ -43,6 +43,7 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
         bookmark = cached_change.bookmark
         assert bookmark is not None
         assert cached_change.pr_number == index
+        assert cached_change.pr_state == "open"
         assert cached_change.pr_url == fake_repo.pull_requests[index].to_payload(
             repository=fake_repo,
             web_origin="https://github.test",
@@ -426,11 +427,14 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
 
     app = create_app(FakeGithubState.single_repository(fake_repo))
 
-    class FailingRepositoryLookupClient(GithubClient):
-        async def get_repository(
+    class FailingPullRequestLookupClient(GithubClient):
+        async def list_pull_requests(
             self,
             owner: str,
             repo: str,
+            *,
+            head: str,
+            state: str = "all",
         ):
             raise GithubClientError(
                 'GitHub request failed: 404 {"message":"Not Found","documentation_url":"x"}',
@@ -438,7 +442,7 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
             )
 
     def build_github_client(*, base_url: str) -> GithubClient:
-        return FailingRepositoryLookupClient(
+        return FailingPullRequestLookupClient(
             base_url=base_url,
             transport=httpx.ASGITransport(app=app),
         )
@@ -457,7 +461,7 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
         "(repo not found or inaccessible - check GITHUB_TOKEN or gh auth)"
     ) in captured.out
     assert "documentation_url" not in captured.out
-    assert ": cached PR #1" in captured.out
+    assert ": cached PR #1 (open)" in captured.out
     assert ": PR #1" not in captured.out
 
 
@@ -473,10 +477,13 @@ def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
     app = create_app(FakeGithubState.single_repository(fake_repo))
 
     class OfflineGithubClient(GithubClient):
-        async def get_repository(
+        async def list_pull_requests(
             self,
             owner: str,
             repo: str,
+            *,
+            head: str,
+            state: str = "all",
         ):
             raise GithubClientError("Connection refused")
 
@@ -502,6 +509,47 @@ def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
     assert ": GitHub status unknown" in captured.out
 
 
+def test_status_does_not_probe_repository_before_pull_request_lookup(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    class NoRepositoryProbeClient(GithubClient):
+        async def get_repository(
+            self,
+            owner: str,
+            repo: str,
+        ):
+            raise AssertionError("status should not probe repository availability")
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return NoRepositoryProbeClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr(
+        "jj_review.commands.review_state._build_github_client",
+        build_github_client,
+    )
+
+    exit_code = _main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GitHub: octo-org/stacked-review" in captured.out
+    assert ": PR #1" in captured.out
+
+
 def test_status_exits_nonzero_when_pull_request_lookup_fails(
     tmp_path: Path,
     monkeypatch,
@@ -525,7 +573,10 @@ def test_status_exits_nonzero_when_pull_request_lookup_fails(
             head: str,
             state: str = "all",
         ) -> tuple:
-            raise GithubClientError("Connection reset")
+            raise GithubClientError(
+                'GitHub request failed: 422 {"message":"Validation Failed"}',
+                status_code=422,
+            )
 
     def build_github_client(*, base_url: str) -> GithubClient:
         return FailingPullRequestLookupClient(
@@ -543,7 +594,7 @@ def test_status_exits_nonzero_when_pull_request_lookup_fails(
 
     assert exit_code == 1
     assert f"GitHub: {fake_repo.owner}/{fake_repo.name}" in captured.out
-    assert ": cached PR #1, GitHub is unavailable - check network connectivity" in captured.out
+    assert ": cached PR #1 (open), pull request lookup failed (GitHub 422)" in captured.out
 
 
 def test_sync_refreshes_cached_pull_request_and_stack_comment_metadata(
@@ -839,7 +890,7 @@ def test_submit_rejects_duplicate_bookmark_overrides_before_projection(
     assert fake_repo.pull_requests == {}
 
 
-def test_status_reports_remote_linkage_without_refreshing_pr_cache(
+def test_status_refreshes_cached_pull_request_metadata_after_state_loss(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -867,8 +918,135 @@ def test_status_reports_remote_linkage_without_refreshing_pr_cache(
     assert "GitHub: octo-org/stacked-review" in captured.out
     assert ": PR #1" in captured.out
     assert refreshed_state.changes[change_id].bookmark == bookmark
+    assert refreshed_state.changes[change_id].pr_number == 1
+    assert refreshed_state.changes[change_id].pr_state == "open"
+    assert (
+        refreshed_state.changes[change_id].pr_url
+        == "https://github.test/octo-org/stacked-review/pull/1"
+    )
+
+
+def test_status_uses_cached_pull_request_metadata_after_prior_online_run(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+    bookmark = initial_state.changes[change_id].bookmark
+    assert bookmark is not None
+    resolve_state_path(repo).unlink()
+
+    assert _main(repo, config_path, "status", change_id) == 0
+    capsys.readouterr()
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    class OfflineGithubClient(GithubClient):
+        async def list_pull_requests(
+            self,
+            owner: str,
+            repo: str,
+            *,
+            head: str,
+            state: str = "all",
+        ):
+            raise GithubClientError("Connection refused")
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return OfflineGithubClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr(
+        "jj_review.commands.review_state._build_github_client",
+        build_github_client,
+    )
+
+    exit_code = _main(repo, config_path, "status", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert (
+        "GitHub target: octo-org/stacked-review "
+        "(unavailable - check network connectivity)"
+    ) in captured.out
+    assert ": cached PR #1 (open)" in captured.out
+
+
+def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+    assert initial_state.changes[change_id].pr_number == 1
+    assert initial_state.changes[change_id].stack_comment_id == 1
+
+    del fake_repo.pull_requests[1]
+
+    exit_code = _main(repo, config_path, "status", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert exit_code == 0
+    assert ": cached PR #1 (open), no GitHub PR" in captured.out
     assert refreshed_state.changes[change_id].pr_number is None
+    assert refreshed_state.changes[change_id].pr_state is None
     assert refreshed_state.changes[change_id].pr_url is None
+    assert refreshed_state.changes[change_id].stack_comment_id is None
+
+
+def test_status_refreshes_closed_pull_request_state_in_cache(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    fake_repo.pull_requests[1].state = "closed"
+
+    exit_code = _main(repo, config_path, "status", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert exit_code == 0
+    assert ": PR #1 is closed" in captured.out
+    assert refreshed_state.changes[change_id].pr_number == 1
+    assert refreshed_state.changes[change_id].pr_state == "closed"
+    assert (
+        refreshed_state.changes[change_id].pr_url
+        == "https://github.test/octo-org/stacked-review/pull/1"
+    )
+    assert refreshed_state.changes[change_id].stack_comment_id is None
 
 
 def test_sync_refreshes_cached_pull_request_metadata_after_state_loss(
@@ -899,6 +1077,7 @@ def test_sync_refreshes_cached_pull_request_metadata_after_state_loss(
     assert "no cached PR, GitHub PR #1" in captured.out
     assert refreshed_state.changes[change_id].bookmark == bookmark
     assert refreshed_state.changes[change_id].pr_number == 1
+    assert refreshed_state.changes[change_id].pr_state == "open"
     assert (
         refreshed_state.changes[change_id].pr_url
         == "https://github.test/octo-org/stacked-review/pull/1"

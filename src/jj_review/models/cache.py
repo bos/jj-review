@@ -12,6 +12,7 @@ class CachedChange(BaseModel):
 
     bookmark: str | None = None
     pr_number: int | None = None
+    pr_state: str | None = None
     pr_url: str | None = None
     stack_comment_id: int | None = None
 

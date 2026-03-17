@@ -49,6 +49,7 @@ class PullRequestLookup:
     message: str | None
     pull_request: GithubPullRequest | None
     state: PullRequestLookupState
+    repository_error: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,28 +263,25 @@ async def _stream_status_async(
             trunk_subject=trunk_subject,
         )
 
-    github_error = await _probe_github_repository(github_repository)
-    if on_github_status is not None:
-        on_github_status(github_repository.full_name, github_error)
-    if github_error is not None:
-        logger.debug(
-            "status github probe failed for %s: %s",
-            github_repository.full_name,
-            github_error,
-        )
-        revisions = _status_revisions_in_display_order(
-            _build_status_revisions_without_github(prepared)
-        )
-        for revision in revisions:
-            if on_revision is not None:
-                on_revision(revision, False)
+    github_status_reported = False
+
+    def emit_github_status(github_error: str | None) -> None:
+        nonlocal github_status_reported
+        if github_status_reported:
+            return
+        github_status_reported = True
+        if on_github_status is not None:
+            on_github_status(github_repository.full_name, github_error)
+
+    if not prepared.status_revisions:
+        emit_github_status(None)
         return StatusResult(
-            github_error=github_error,
+            github_error=None,
             github_repository=github_repository.full_name,
-            incomplete=True,
+            incomplete=False,
             remote=prepared.remote,
             remote_error=None,
-            revisions=revisions,
+            revisions=(),
             selected_revset=selected_revset,
             trunk_subject=trunk_subject,
         )
@@ -292,12 +290,15 @@ async def _stream_status_async(
     try:
         async for revision in _iter_status_revisions_with_github(
             github_repository=github_repository,
+            on_github_status=emit_github_status,
             prepared=prepared,
         ):
             revisions.append(revision)
             if on_revision is not None:
                 on_revision(revision, True)
     except CliError as error:
+        if not github_status_reported:
+            emit_github_status(None)
         fallback_revisions = _status_revisions_in_display_order(
             _build_status_revisions_without_github(prepared)
         )
@@ -318,6 +319,9 @@ async def _stream_status_async(
             trunk_subject=trunk_subject,
         )
 
+    if not github_status_reported:
+        emit_github_status(None)
+    _persist_status_cache_updates(prepared=prepared, revisions=tuple(revisions))
     return StatusResult(
         github_error=None,
         github_repository=github_repository.full_name,
@@ -397,6 +401,7 @@ async def _run_sync_async(
                 update={
                     "bookmark": revision.bookmark,
                     "pr_number": pull_request.number,
+                    "pr_state": pull_request.state,
                     "pr_url": pull_request.html_url,
                 }
             )
@@ -545,18 +550,60 @@ def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
     return False
 
 
-async def _probe_github_repository(github_repository) -> str | None:
-    logger.debug("probing github target %s", github_repository.full_name)
-    async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
-        try:
-            await github_client.get_repository(
-                github_repository.owner,
-                github_repository.repo,
-            )
-        except GithubClientError as error:
-            return _summarize_github_repository_error(error)
-    logger.debug("github target reachable: %s", github_repository.full_name)
-    return None
+def _persist_status_cache_updates(
+    *,
+    prepared: _PreparedStack,
+    revisions: tuple[ReviewStatusRevision, ...],
+) -> None:
+    state_changes = dict(prepared.state_changes)
+    for revision in revisions:
+        cached_change = (
+            state_changes.get(revision.change_id)
+            or prepared.state.changes.get(revision.change_id)
+        )
+        updated_change = cached_change or CachedChange(bookmark=revision.bookmark)
+        pull_request_lookup = revision.pull_request_lookup
+        if pull_request_lookup is not None:
+            if pull_request_lookup.state == "missing":
+                updated_change = updated_change.model_copy(
+                    update={
+                        "bookmark": revision.bookmark,
+                        "pr_number": None,
+                        "pr_state": None,
+                        "pr_url": None,
+                        "stack_comment_id": None,
+                    }
+                )
+            elif pull_request_lookup.pull_request is not None:
+                pull_request = pull_request_lookup.pull_request
+                updated_change = updated_change.model_copy(
+                    update={
+                        "bookmark": revision.bookmark,
+                        "pr_number": pull_request.number,
+                        "pr_state": pull_request.state,
+                        "pr_url": pull_request.html_url,
+                    }
+                )
+                if pull_request_lookup.state != "open":
+                    updated_change = updated_change.model_copy(
+                        update={"stack_comment_id": None}
+                    )
+        stack_comment_lookup = revision.stack_comment_lookup
+        if stack_comment_lookup is not None:
+            if stack_comment_lookup.state == "present":
+                if stack_comment_lookup.comment is None:
+                    raise AssertionError("Present stack comment lookup must include a comment.")
+                updated_change = updated_change.model_copy(
+                    update={"stack_comment_id": stack_comment_lookup.comment.id}
+                )
+            elif stack_comment_lookup.state == "missing":
+                updated_change = updated_change.model_copy(update={"stack_comment_id": None})
+        if updated_change != cached_change:
+            state_changes[revision.change_id] = updated_change
+
+    next_state = prepared.state.model_copy(update={"changes": state_changes})
+    if next_state != prepared.state:
+        prepared.state_store.save(next_state)
 
 
 async def _inspect_revisions_with_github(
@@ -577,6 +624,7 @@ async def _inspect_revisions_with_github(
                         bookmark_states=bookmark_states,
                         github_client=github_client,
                         github_repository=github_repository,
+                        on_github_status=None,
                         prepared=prepared,
                         prepared_revision=prepared_revision,
                         raise_on_lookup_error=raise_on_lookup_error,
@@ -591,12 +639,19 @@ async def _inspect_revisions_with_github(
 async def _iter_status_revisions_with_github(
     *,
     github_repository: ResolvedGithubRepository,
+    on_github_status: Callable[[str | None], None] | None,
     prepared: _PreparedStack,
 ) -> AsyncIterator[ReviewStatusRevision]:
     bookmark_states = prepared.client.list_bookmark_states(
         [revision.bookmark for revision in prepared.status_revisions]
     )
     status_revisions = tuple(reversed(prepared.status_revisions))
+    github_status_result: asyncio.Future[str | None] = asyncio.get_running_loop().create_future()
+
+    def observe_github_status(github_error: str | None) -> None:
+        if not github_status_result.done():
+            github_status_result.set_result(github_error)
+
     async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
         semaphore = asyncio.Semaphore(_GITHUB_INSPECTION_CONCURRENCY)
         tasks = tuple(
@@ -605,6 +660,7 @@ async def _iter_status_revisions_with_github(
                     bookmark_states=bookmark_states,
                     github_client=github_client,
                     github_repository=github_repository,
+                    on_github_status=observe_github_status,
                     prepared=prepared,
                     prepared_revision=prepared_revision,
                     raise_on_lookup_error=False,
@@ -614,8 +670,40 @@ async def _iter_status_revisions_with_github(
             for prepared_revision in status_revisions
         )
         try:
+            github_status_reported = False
             for task in tasks:
+                while True:
+                    if not github_status_reported:
+                        done, _ = await asyncio.wait(
+                            (task, github_status_result),
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        if github_status_result in done:
+                            github_status_reported = True
+                            github_error = github_status_result.result()
+                            if on_github_status is not None:
+                                on_github_status(github_error)
+                            if github_error is not None:
+                                raise CliError(github_error)
+                            if task in done:
+                                break
+                            continue
+                    else:
+                        done, _ = await asyncio.wait(
+                            (task,),
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                    if task in done:
+                        break
                 yield await task
+            if not github_status_reported:
+                github_error = None
+                if github_status_result.done():
+                    github_error = github_status_result.result()
+                if on_github_status is not None:
+                    on_github_status(github_error)
+                if github_error is not None:
+                    raise CliError(github_error)
         finally:
             for task in tasks:
                 if not task.done():
@@ -628,6 +716,7 @@ async def _inspect_revision_with_github(
     bookmark_states: dict[str, BookmarkState],
     github_client: GithubClient,
     github_repository,
+    on_github_status: Callable[[str | None], None] | None,
     prepared: _PreparedStack,
     prepared_revision: _PreparedRevision,
     raise_on_lookup_error: bool,
@@ -649,6 +738,8 @@ async def _inspect_revision_with_github(
             github_repository=github_repository,
             head_label=head_label,
         )
+        if on_github_status is not None:
+            on_github_status(pull_request_lookup.repository_error)
         if raise_on_lookup_error:
             _ensure_syncable_pull_request(
                 bookmark=prepared_revision.bookmark,
@@ -707,11 +798,19 @@ async def _inspect_pull_request(
                 error=error,
             ),
             pull_request=None,
+            repository_error=_summarize_github_repository_error(error)
+            if _is_repository_level_github_lookup_error(error)
+            else None,
             state="error",
         )
 
     if not pull_requests:
-        return PullRequestLookup(message=None, pull_request=None, state="missing")
+        return PullRequestLookup(
+            message=None,
+            pull_request=None,
+            repository_error=None,
+            state="missing",
+        )
     if len(pull_requests) > 1:
         numbers = ", ".join(str(pull_request.number) for pull_request in pull_requests)
         return PullRequestLookup(
@@ -720,6 +819,7 @@ async def _inspect_pull_request(
                 f"{numbers}."
             ),
             pull_request=None,
+            repository_error=None,
             state="ambiguous",
         )
 
@@ -731,9 +831,15 @@ async def _inspect_pull_request(
                 f"{head_label!r} in state {pull_request.state!r}."
             ),
             pull_request=pull_request,
+            repository_error=None,
             state="closed",
         )
-    return PullRequestLookup(message=None, pull_request=pull_request, state="open")
+    return PullRequestLookup(
+        message=None,
+        pull_request=pull_request,
+        repository_error=None,
+        state="open",
+    )
 
 
 async def _inspect_stack_comment(
@@ -845,6 +951,14 @@ def _summarize_github_repository_error(error: GithubClientError) -> str:
     if error.status_code >= 500:
         return "unavailable - check network connectivity"
     return f"request failed (GitHub {error.status_code})"
+
+
+def _is_repository_level_github_lookup_error(error: GithubClientError) -> bool:
+    if error.status_code is None:
+        return True
+    if error.status_code in {401, 403, 404}:
+        return True
+    return error.status_code >= 500
 
 
 def _github_auth_failure_message(message: str) -> str:

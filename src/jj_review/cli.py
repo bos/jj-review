@@ -314,36 +314,37 @@ def _resolve_status_trunk_name(
 def _format_status_summary(revision, *, github_available: bool) -> str:
     lookup = revision.pull_request_lookup
     cached_change = revision.cached_change
-    cached_pr_number = None if cached_change is None else cached_change.pr_number
+    cached_label = _format_cached_pull_request_label(cached_change)
     if lookup is None:
         if github_available:
             return "not submitted"
-        if cached_pr_number is not None:
-            return f"cached PR #{cached_pr_number}"
+        if cached_label is not None:
+            return cached_label
         return "GitHub status unknown"
     if lookup.state == "open":
         if lookup.pull_request is None:
             raise AssertionError("Open pull request lookup must include a pull request.")
         return f"PR #{lookup.pull_request.number}"
     if lookup.state == "missing":
-        if cached_pr_number is not None:
-            return f"cached PR #{cached_pr_number}, no GitHub PR"
+        if cached_label is not None:
+            return f"{cached_label}, no GitHub PR"
         return "not submitted"
     if lookup.state == "closed":
         if lookup.pull_request is None:
             raise AssertionError("Closed pull request lookup must include a pull request.")
         return f"PR #{lookup.pull_request.number} is {lookup.pull_request.state}"
     message = lookup.message or "GitHub lookup failed"
-    if cached_pr_number is not None:
-        return f"cached PR #{cached_pr_number}, {message}"
+    if cached_label is not None:
+        return f"{cached_label}, {message}"
     return message
 
 
 def _format_pull_request_status(revision) -> str:
     cached_change = revision.cached_change
     cached_label = "no cached PR"
-    if cached_change is not None and cached_change.pr_number is not None:
-        cached_label = f"cached PR #{cached_change.pr_number}"
+    formatted_cached_label = _format_cached_pull_request_label(cached_change)
+    if formatted_cached_label is not None:
+        cached_label = formatted_cached_label
     lookup = revision.pull_request_lookup
     if lookup is None:
         return cached_label
@@ -355,6 +356,16 @@ def _format_pull_request_status(revision) -> str:
         return f"{cached_label}, no GitHub PR"
     message = lookup.message or "pull request lookup failed"
     return f"{cached_label}, {message}"
+
+
+def _format_cached_pull_request_label(cached_change) -> str | None:
+    if cached_change is None or cached_change.pr_number is None:
+        return None
+
+    label = f"cached PR #{cached_change.pr_number}"
+    if cached_change.pr_state is None:
+        return label
+    return f"{label} ({cached_change.pr_state})"
 
 
 def _format_stack_comment_status(revision) -> str:

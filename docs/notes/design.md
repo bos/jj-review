@@ -354,8 +354,10 @@ For the MVP, the recovery surface should be explicit and narrow:
 
 `jj review status [<revset>]` should show the selected local stack, pinned or
 discovered review bookmarks, and any cached or discoverable GitHub linkage for
-those bookmarks. It is read-only with respect to GitHub and review bookmarks,
-aside from persisting generated bookmark pins into the sparse local cache.
+those bookmarks. It is read-only with respect to GitHub and review bookmarks.
+It may persist generated bookmark pins and last-known discoverable GitHub
+linkage into the sparse local cache, but that cache remains advisory rather
+than a source of truth.
 Unlike `submit` or `sync`, it may fall back to local-only reporting when the
 repo is not configured well enough to resolve a remote or GitHub target.
 Its default output should stay concise and summarize the effective review state
@@ -364,6 +366,12 @@ If GitHub is unreachable or misconfigured, status should report that once at the
 repo level and then fall back to conservative per-change summaries derived from
 local cache rather than claiming a PR is absent. Because that output is
 incomplete, the command should exit non-zero instead of reporting success.
+When cached GitHub linkage includes a last-known PR state, status may surface
+that state in the fallback output as cached information rather than implying it
+is live.
+When live GitHub inspection succeeds, status should refresh that cached
+linkage in both directions, including clearing stale cached PR identity when
+GitHub now reports that no PR exists for the review branch.
 
 These commands are not sources of truth either. They are operator-driven ways
 to reattach GitHub state to a `jj`-derived stack after damage, cross-machine

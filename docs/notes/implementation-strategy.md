@@ -621,6 +621,17 @@ Implemented in the first vertical cut:
 - `status` and `sync` now inspect per-change GitHub linkage with bounded
   concurrency on one shared client, while retrying rate-limited GitHub
   responses conservatively instead of hammering the API
+- `status` now derives repo-level GitHub availability from the first real PR
+  lookup instead of blocking on a separate repository probe before streaming
+  output
+- submit and sync now persist each change's last-known PR state, and `status`
+  uses that cached state to render more informative offline fallback summaries
+- successful live `status` runs now refresh sparse cached PR linkage too, so a
+  later offline run can still show last-known review identity for previously
+  inspected changes
+- that `status` cache refresh is now bidirectional: live observations update
+  open and closed PR state, and clear cached PR linkage when GitHub reports
+  that the review branch no longer has a PR
 - `sync` now refreshes cached PR metadata and managed stack-comment IDs from
   GitHub for already-linked review branches, refreshes remembered remote state
   first, and fails closed when cached linkage is ambiguous or damaged instead

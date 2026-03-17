@@ -932,12 +932,14 @@ def _updated_cached_change(
         return CachedChange(
             bookmark=bookmark,
             pr_number=pull_request.number,
+            pr_state=pull_request.state,
             pr_url=pull_request.html_url,
         )
     return cached_change.model_copy(
         update={
             "bookmark": bookmark,
             "pr_number": pull_request.number,
+            "pr_state": pull_request.state,
             "pr_url": pull_request.html_url,
         }
     )
