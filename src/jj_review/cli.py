@@ -21,6 +21,7 @@ from jj_review.commands.submit import run_submit
 from jj_review.errors import CliError, CommandNotImplementedError
 
 logger = logging.getLogger(__name__)
+_DISPLAY_CHANGE_ID_LENGTH = 8
 
 
 def build_parser() -> ArgumentParser:
@@ -221,7 +222,7 @@ def _status_handler(args: Namespace) -> int:
             revision,
             github_available=github_available,
         )
-        print(f"- {revision.subject} [{revision.change_id[:12]}]: {summary}")
+        print(f"- {revision.subject} [{_display_change_id(revision.change_id)}]: {summary}")
 
     result = stream_status(
         on_github_status=emit_github_status,
@@ -257,7 +258,11 @@ def _format_trunk_status_row(
         configured_trunk_branch=configured_trunk_branch,
     )
     suffix = "trunk()" if trunk_name is None else trunk_name
-    return f"◆ {trunk.subject} [{trunk.change_id[:12]}]: {suffix}"
+    return f"◆ {trunk.subject} [{_display_change_id(trunk.change_id)}]: {suffix}"
+
+
+def _display_change_id(change_id: str) -> str:
+    return change_id[:_DISPLAY_CHANGE_ID_LENGTH]
 
 
 def _resolve_status_trunk_name(
@@ -400,7 +405,8 @@ def _submit_handler(args: Namespace) -> int:
     print("Projected review bookmarks:")
     for revision in result.revisions:
         print(
-            f"- {revision.subject} [{revision.change_id[:12]}] -> {revision.bookmark} "
+            f"- {revision.subject} [{_display_change_id(revision.change_id)}] -> "
+            f"{revision.bookmark} "
             f"({revision.bookmark_source}, {revision.remote_action}, "
             f"PR #{revision.pull_request_number} {revision.pull_request_action})"
         )
@@ -420,7 +426,7 @@ def _adopt_handler(args: Namespace) -> int:
     print(f"GitHub: {result.github_repository}")
     print(
         f"Adopted PR #{result.pull_request_number} for {result.subject} "
-        f"[{result.change_id[:12]}] -> {result.bookmark}"
+        f"[{_display_change_id(result.change_id)}] -> {result.bookmark}"
     )
     return 0
 

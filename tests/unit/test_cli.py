@@ -117,7 +117,7 @@ def test_main_accepts_global_options_after_subcommand(
 
     assert exit_code == 0
     assert "Selected revset: @" in captured.out
-    assert "◆ base [trunkchangei]: trunk()" in captured.out
+    assert "◆ base [trunkcha]: trunk()" in captured.out
     assert "No reviewable commits" in captured.out
     assert "Traceback" not in captured.err
 
@@ -294,7 +294,7 @@ def test_main_time_output_prefixes_status_lines(
     assert lines
     assert all(line.startswith("[") for line in lines)
     assert any("Selected revset: @" in line for line in lines)
-    assert any("◆ base [trunkchangei]: trunk()" in line for line in lines)
+    assert any("◆ base [trunkcha]: trunk()" in line for line in lines)
 
 
 def test_main_reports_keyboard_interrupt_without_traceback(
@@ -355,7 +355,7 @@ def test_main_status_prints_local_header_before_streaming(
         streamed = capsys.readouterr()
         assert "Selected revset: @" in streamed.out
         assert "Selected remote: origin" in streamed.out
-        assert "◆ base [trunkchangeid" not in streamed.out
+        assert "◆ base [trunkcha" not in streamed.out
         kwargs["on_github_status"]("octo-org/stacked-review", None)
         kwargs["on_revision"](
             SimpleNamespace(
@@ -383,10 +383,10 @@ def test_main_status_prints_local_header_before_streaming(
     assert exit_code == 0
     assert "GitHub: octo-org/stacked-review" in captured.out
     assert "Stack:" in captured.out
-    assert "- feature 1 [abcdefghijkl]: PR #1" in captured.out
-    assert "◆ base [trunkchangei]: main" in captured.out
-    assert captured.out.index("- feature 1 [abcdefghijkl]: PR #1") < captured.out.index(
-        "◆ base [trunkchangei]: main"
+    assert "- feature 1 [abcdefgh]: PR #1" in captured.out
+    assert "◆ base [trunkcha]: main" in captured.out
+    assert captured.out.index("- feature 1 [abcdefgh]: PR #1") < captured.out.index(
+        "◆ base [trunkcha]: main"
     )
 
 
@@ -427,7 +427,7 @@ def test_main_reports_keyboard_interrupt_during_status_stream_without_traceback(
     assert exit_code == 130
     assert "Selected revset: @" in captured.out
     assert "Selected remote: unavailable" in captured.out
-    assert "◆ base [trunkchangei]" not in captured.out
+    assert "◆ base [trunkcha]" not in captured.out
     assert captured.err.strip() == "Interrupted."
     assert "Traceback" not in captured.err
 

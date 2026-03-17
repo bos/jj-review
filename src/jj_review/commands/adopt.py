@@ -24,6 +24,7 @@ from jj_review.models.cache import CachedChange, ReviewState
 _PULL_REQUEST_URL_RE = re.compile(
     r"^/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>[0-9]+)/?$"
 )
+_DISPLAY_CHANGE_ID_LENGTH = 8
 
 
 class AdoptResolutionError(CliError):
@@ -195,13 +196,16 @@ def _ensure_adoptable_cached_linkage(
             continue
         if cached_change.bookmark == bookmark:
             raise AdoptResolutionError(
-                f"Bookmark {bookmark!r} is already cached for change {cached_change_id[:12]}. "
+                "Bookmark "
+                f"{bookmark!r} is already cached for change "
+                f"{cached_change_id[:_DISPLAY_CHANGE_ID_LENGTH]}. "
                 "Clear or repair that linkage before adopting it elsewhere."
             )
         if cached_change.pr_number == pull_request_number:
             raise AdoptResolutionError(
                 f"Pull request #{pull_request_number} is already cached for change "
-                f"{cached_change_id[:12]}. Clear or repair that linkage before adopting it "
+                f"{cached_change_id[:_DISPLAY_CHANGE_ID_LENGTH]}. Clear or repair that linkage "
+                "before adopting it "
                 "elsewhere."
             )
 
