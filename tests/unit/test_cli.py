@@ -19,6 +19,15 @@ def test_main_without_command_prints_help(capsys: pytest.CaptureFixture[str]) ->
     assert "cleanup" in captured.out
 
 
+def test_main_time_output_prefixes_help_lines(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["--time-output"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out.startswith("[")
+    assert "submit" in captured.out
+
+
 def test_main_reports_invalid_config_without_traceback(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -109,6 +118,48 @@ def test_main_accepts_global_options_after_subcommand(
     assert "◆ base [trunkchangei]: trunk()" in captured.out
     assert "No reviewable commits" in captured.out
     assert "Traceback" not in captured.err
+
+
+def test_main_time_output_prefixes_status_lines(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.cli.prepare_status",
+        lambda **kwargs: SimpleNamespace(
+            prepared=SimpleNamespace(
+                client=SimpleNamespace(list_bookmark_states=lambda: {}),
+                remote=None,
+                remote_error=None,
+                stack=SimpleNamespace(
+                    trunk=SimpleNamespace(
+                        change_id="trunkchangeid",
+                        commit_id="trunk-commit",
+                        subject="base",
+                    )
+                ),
+                status_revisions=(),
+            ),
+            selected_revset="@",
+            trunk_subject="base",
+        ),
+    )
+    monkeypatch.setattr(
+        "jj_review.cli.stream_status",
+        lambda **kwargs: SimpleNamespace(incomplete=False),
+    )
+
+    exit_code = main(["status", "--time-output", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    lines = [line for line in captured.out.splitlines() if line]
+    assert lines
+    assert all(line.startswith("[") for line in lines)
+    assert any("Selected revset: @" in line for line in lines)
+    assert any("◆ base [trunkchangei]: trunk()" in line for line in lines)
 
 
 def test_main_reports_keyboard_interrupt_without_traceback(
@@ -243,6 +294,26 @@ def test_main_reports_keyboard_interrupt_during_status_stream_without_traceback(
     assert "◆ base [trunkchangei]" not in captured.out
     assert captured.err.strip() == "Interrupted."
     assert "Traceback" not in captured.err
+
+
+def test_main_time_output_prefixes_interrupt_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.cli.prepare_status",
+        lambda **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    exit_code = main(["status", "--time-output", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 130
+    assert captured.out == ""
+    assert captured.err.startswith("[")
+    assert "Interrupted." in captured.err
 
 
 def test_main_reports_non_jj_directory_without_traceback(

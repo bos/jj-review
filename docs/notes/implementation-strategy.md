@@ -613,6 +613,8 @@ Implemented in the first vertical cut:
 - `status` now renders the `trunk()` commit as a footer row beneath the stack,
   using the same summary shape as stack entries and a best-effort trunk
   bookmark name when one can be resolved
+- the CLI now supports `--time-output` as a global debugging aid that prefixes
+  printed lines with elapsed time from process start
 - `status` and `sync` now inspect per-change GitHub linkage with bounded
   concurrency on one shared client, while retrying rate-limited GitHub
   responses conservatively instead of hammering the API

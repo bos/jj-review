@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import builtins
 import logging
 import sys
+import time
 from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from collections.abc import Sequence
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Any, cast
 
 from jj_review import __version__
 from jj_review.bootstrap import BootstrapError, bootstrap_context
@@ -82,19 +86,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser = build_parser()
     args = parser.parse_args(argv)
-    handler = getattr(args, "handler", None)
-    if handler is None:
-        parser.print_help()
-        return 0
+    with _time_output(enabled=getattr(args, "time_output", False)):
+        handler = getattr(args, "handler", None)
+        if handler is None:
+            print(parser.format_help(), end="")
+            return 0
 
-    try:
-        return handler(args)
-    except (BootstrapError, CliError) as error:
-        print(error, file=sys.stderr)
-        return error.exit_code
-    except KeyboardInterrupt:
-        print("Interrupted.", file=sys.stderr)
-        return 130
+        try:
+            return handler(args)
+        except (BootstrapError, CliError) as error:
+            print(error, file=sys.stderr)
+            return error.exit_code
+        except KeyboardInterrupt:
+            print("Interrupted.", file=sys.stderr)
+            return 130
 
 
 def _add_revision_command(
@@ -130,7 +135,33 @@ def _build_common_options_parser() -> ArgumentParser:
         default=SUPPRESS,
         help="Enable debug logging.",
     )
+    parser.add_argument(
+        "--time-output",
+        action="store_true",
+        default=SUPPRESS,
+        help="Prefix each printed line with elapsed seconds since process start.",
+    )
     return parser
+
+
+@contextmanager
+def _time_output(*, enabled: bool):
+    if not enabled:
+        yield
+        return
+
+    start = time.perf_counter()
+    original_print = builtins.print
+
+    def timed_print(*args, **kwargs) -> None:
+        elapsed = time.perf_counter() - start
+        original_print(f"[{elapsed:0.6f}]", *args, **kwargs)
+
+    builtins.print = cast(Any, timed_print)
+    try:
+        yield
+    finally:
+        builtins.print = original_print
 
 
 def _status_handler(args: Namespace) -> int:
