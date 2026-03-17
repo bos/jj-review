@@ -643,7 +643,7 @@ def _cleanup_handler(args: Namespace) -> int:
             print(
                 "Re-run with `cleanup --restack --apply"
                 f"{' ' + result.selected_revset if result.selected_revset else ''}` "
-                "to rewrite surviving local changes."
+                "to rewrite surviving local changes"
             )
         return 1 if result.blocked else 0
 
