@@ -11,8 +11,11 @@ from jj_review.commands.review_state import (
     _stream_status_async,
 )
 from jj_review.commands.submit import ResolvedGithubRepository
+from jj_review.config import RepoConfig
 from jj_review.errors import CliError
-from jj_review.models.bookmarks import GitRemote
+from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
+from jj_review.models.cache import ReviewState
+from jj_review.models.stack import LocalRevision, LocalStack
 
 
 def test_stream_status_streams_local_fallback_revisions_after_github_abort(
@@ -256,3 +259,118 @@ def test_stream_status_marks_missing_github_target_as_incomplete(monkeypatch) ->
     assert result.incomplete is True
     assert result.remote == remote
     assert result.revisions == local_only_revisions
+
+
+def test_prepare_status_fetches_before_remote_bookmark_discovery(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    revision = LocalRevision(
+        change_id="aaaaaaaa1234",
+        commit_id="commit-1",
+        current_working_copy=False,
+        description="feature 1",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=("trunk-commit",),
+    )
+    trunk = LocalRevision(
+        change_id="trunkchangeid",
+        commit_id="trunk-commit",
+        current_working_copy=False,
+        description="base",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=True,
+        parents=("root",),
+    )
+    stack = LocalStack(
+        head=revision,
+        revisions=(revision,),
+        selected_revset="@",
+        trunk=trunk,
+    )
+    remote = GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git")
+    discovered_bookmark = "review/manual-feature-aaaaaaaa"
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.fetched = False
+
+        def discover_review_stack(self, revset):
+            assert revset is None
+            return stack
+
+        def list_git_remotes(self):
+            return (remote,)
+
+        def fetch_remote(self, *, remote: str) -> None:
+            assert remote == "origin"
+            self.fetched = True
+
+        def list_bookmark_states(self, bookmarks=None):
+            if not self.fetched:
+                return {}
+            return {
+                discovered_bookmark: BookmarkState(
+                    name=discovered_bookmark,
+                    remote_targets=(
+                        RemoteBookmarkState(remote="origin", targets=("commit-1",)),
+                    ),
+                )
+            }
+
+    class FakeStateStore:
+        def __init__(self) -> None:
+            self.state = ReviewState()
+
+        def load(self) -> ReviewState:
+            return self.state
+
+        def save(self, state: ReviewState) -> None:
+            self.state = state
+
+    def build_status(*, fetch_remote_state: bool):
+        client = FakeClient()
+        state_store = FakeStateStore()
+        monkeypatch.setattr("jj_review.commands.review_state.JjClient", lambda _: client)
+        monkeypatch.setattr(
+            "jj_review.commands.review_state.ReviewStateStore.for_repo",
+            lambda _: state_store,
+        )
+        return _prepare_status_for_test(
+            config=RepoConfig(),
+            fetch_remote_state=fetch_remote_state,
+            repo_root=tmp_path,
+        )
+
+    prepared_without_fetch = build_status(fetch_remote_state=False)
+    prepared_with_fetch = build_status(fetch_remote_state=True)
+
+    assert (
+        prepared_without_fetch.prepared.status_revisions[0].bookmark
+        == "review/feature-1-aaaaaaaa"
+    )
+    assert prepared_without_fetch.prepared.status_revisions[0].bookmark_source == "generated"
+    assert prepared_with_fetch.prepared.status_revisions[0].bookmark == discovered_bookmark
+    assert prepared_with_fetch.prepared.status_revisions[0].bookmark_source == "discovered"
+
+
+def _prepare_status_for_test(
+    *,
+    config: RepoConfig,
+    fetch_remote_state: bool,
+    repo_root,
+) -> PreparedStatus:
+    from jj_review.commands.review_state import prepare_status
+
+    return prepare_status(
+        change_overrides={},
+        config=config,
+        fetch_remote_state=fetch_remote_state,
+        repo_root=repo_root,
+        revset=None,
+    )

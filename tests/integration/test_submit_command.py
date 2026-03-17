@@ -769,6 +769,108 @@ def test_adopt_rejects_existing_local_bookmark_on_different_change(
     assert bookmark_state.local_target == bottom_commit_id
 
 
+def test_adopt_rejects_closed_pull_request(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    manual_bookmark = "review/manual-feature-1"
+    _run(["jj", "bookmark", "create", manual_bookmark, "-r", change_id], repo)
+    _run(["jj", "git", "push", "--remote", "origin", "--bookmark", manual_bookmark], repo)
+    fake_repo.create_pull_request(
+        base_ref="main",
+        body="manual body",
+        head_ref=manual_bookmark,
+        title="manual title",
+    )
+    fake_repo.pull_requests[1].state = "closed"
+
+    exit_code = _main(repo, config_path, "adopt", "1", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "is not open" in captured.err
+
+
+def test_adopt_rejects_cross_repository_pull_request_head(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    manual_bookmark = "review/manual-feature-1"
+    _run(["jj", "bookmark", "create", manual_bookmark, "-r", change_id], repo)
+    _run(["jj", "git", "push", "--remote", "origin", "--bookmark", manual_bookmark], repo)
+    fake_repo.create_pull_request(
+        base_ref="main",
+        body="manual body",
+        head_ref=manual_bookmark,
+        title="manual title",
+    )
+    fake_repo.pull_requests[1].head_label = f"someone-else:{manual_bookmark}"
+
+    exit_code = _main(repo, config_path, "adopt", "1", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "same-repository review branches" in captured.err
+
+
+def test_adopt_rejects_pull_request_with_missing_remote_head_branch(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    manual_bookmark = "review/manual-feature-1"
+    _run(["jj", "bookmark", "create", manual_bookmark, "-r", change_id], repo)
+    _run(["jj", "git", "push", "--remote", "origin", "--bookmark", manual_bookmark], repo)
+    fake_repo.create_pull_request(
+        base_ref="main",
+        body="manual body",
+        head_ref=manual_bookmark,
+        title="manual title",
+    )
+    _run(["jj", "bookmark", "forget", manual_bookmark], repo)
+    _run(
+        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 adopted"],
+        repo,
+    )
+    _run(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "update-ref",
+            "-d",
+            f"refs/heads/{manual_bookmark}",
+        ],
+        fake_repo.git_dir.parent,
+    )
+
+    exit_code = _main(repo, config_path, "adopt", "1", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "does not exist" in captured.err
+
+
 def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
     tmp_path: Path,
     monkeypatch,

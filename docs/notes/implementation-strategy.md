@@ -655,6 +655,9 @@ Implemented in the first vertical cut:
   uncaught transport exceptions through the CLI
 - `adopt` now also refuses to steal an already-bound local review bookmark from
   another revision when sparse cache state is missing or stale
+- slice coverage now exercises `status --fetch` as a real remote-rediscovery
+  path and covers explicit `adopt` failure cases such as missing PRs, closed
+  PRs, cross-repository heads, and missing remote head branches
 
 Deliver:
 
