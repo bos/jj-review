@@ -635,6 +635,8 @@ Implemented in the first vertical cut:
 - `status` now also distinguishes merged PRs from merely closed ones and
   derives a lightweight review decision for open PRs from GitHub reviews so
   the stack summary can show approval and change-request state
+- GitHub client list endpoints now follow pagination links through one shared
+  helper so status and sync do not silently truncate multi-page remote state
 - `sync` now refreshes cached PR metadata and managed stack-comment IDs from
   GitHub for already-linked review branches, refreshes remembered remote state
   first, and fails closed when cached linkage is ambiguous or damaged instead

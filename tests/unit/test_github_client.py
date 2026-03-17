@@ -134,19 +134,32 @@ def test_github_client_does_not_retry_non_rate_limited_errors() -> None:
 def test_github_client_lists_pull_request_reviews() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/repos/octo-org/stacked-review/pulls/7/reviews"
+        if request.url.params.get("page") == "2":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 2,
+                        "state": "COMMENTED",
+                        "user": {"login": "reviewer-2"},
+                    }
+                ],
+                request=request,
+            )
         return httpx.Response(
             200,
+            headers={
+                "Link": (
+                    '<https://api.github.test/repos/octo-org/stacked-review/pulls/7/reviews'
+                    '?page=2>; rel="next"'
+                )
+            },
             json=[
                 {
                     "id": 1,
                     "state": "APPROVED",
                     "user": {"login": "reviewer-1"},
-                },
-                {
-                    "id": 2,
-                    "state": "COMMENTED",
-                    "user": {"login": "reviewer-2"},
-                },
+                }
             ],
             request=request,
         )
@@ -167,3 +180,60 @@ def test_github_client_lists_pull_request_reviews() -> None:
         return reviews[0].user.login, reviews[1].state
 
     assert asyncio.run(run_test()) == ("reviewer-1", "COMMENTED")
+
+
+def test_github_client_paginates_pull_request_list() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/repos/octo-org/stacked-review/pulls"
+        if request.url.params.get("page") == "2":
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "base": {"label": "octo-org/stacked-review:main", "ref": "main"},
+                        "head": {"label": "octo-org:review/two", "ref": "review/two"},
+                        "html_url": "https://github.test/octo-org/stacked-review/pull/2",
+                        "merged_at": None,
+                        "number": 2,
+                        "state": "open",
+                        "title": "two",
+                    }
+                ],
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            headers={
+                "Link": (
+                    '<https://api.github.test/repos/octo-org/stacked-review/pulls?page=2>; '
+                    'rel="next"'
+                )
+            },
+            json=[
+                {
+                    "base": {"label": "octo-org/stacked-review:main", "ref": "main"},
+                    "head": {"label": "octo-org:review/one", "ref": "review/one"},
+                    "html_url": "https://github.test/octo-org/stacked-review/pull/1",
+                    "merged_at": None,
+                    "number": 1,
+                    "state": "open",
+                    "title": "one",
+                }
+            ],
+            request=request,
+        )
+
+    async def run_test() -> tuple[int, int]:
+        transport = httpx.MockTransport(handler)
+        async with GithubClient(
+            base_url="https://api.github.test",
+            transport=transport,
+        ) as client:
+            pull_requests = await client.list_pull_requests(
+                "octo-org",
+                "stacked-review",
+                head="octo-org:review/one",
+            )
+        return pull_requests[0].number, pull_requests[1].number
+
+    assert asyncio.run(run_test()) == (1, 2)

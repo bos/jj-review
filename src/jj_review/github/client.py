@@ -93,14 +93,11 @@ class GithubClient:
         head: str,
         state: str = "all",
     ) -> tuple[GithubPullRequest, ...]:
-        response = await self._request(
-            "GET",
+        payload = await self._get_paginated_json_array(
             f"/repos/{owner}/{repo}/pulls",
             params={"head": head, "state": state},
+            response_name="pull request list",
         )
-        payload = self._expect_success(response)
-        if not isinstance(payload, list):
-            raise GithubClientError("GitHub pull request list response was not a JSON array.")
         return tuple(GithubPullRequest.model_validate(item) for item in payload)
 
     async def create_pull_request(
@@ -127,15 +124,10 @@ class GithubClient:
         *,
         pull_number: int,
     ) -> tuple[GithubPullRequestReview, ...]:
-        response = await self._request(
-            "GET",
+        payload = await self._get_paginated_json_array(
             f"/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            response_name="pull request reviews",
         )
-        payload = self._expect_success(response)
-        if not isinstance(payload, list):
-            raise GithubClientError(
-                "GitHub pull request reviews response was not a JSON array."
-            )
         return tuple(GithubPullRequestReview.model_validate(item) for item in payload)
 
     async def list_issue_comments(
@@ -145,13 +137,10 @@ class GithubClient:
         *,
         issue_number: int,
     ) -> tuple[GithubIssueComment, ...]:
-        response = await self._request(
-            "GET",
+        payload = await self._get_paginated_json_array(
             f"/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            response_name="issue comment list",
         )
-        payload = self._expect_success(response)
-        if not isinstance(payload, list):
-            raise GithubClientError("GitHub issue comment list response was not a JSON array.")
         return tuple(GithubIssueComment.model_validate(item) for item in payload)
 
     async def create_issue_comment(
@@ -239,6 +228,34 @@ class GithubClient:
             await self._sleep(retry_after_seconds)
 
         raise AssertionError("Rate-limit retry loop did not return a response.")
+
+    async def _get_paginated_json_array(
+        self,
+        path: str,
+        *,
+        params: dict[str, str] | None = None,
+        response_name: str,
+    ) -> tuple[object, ...]:
+        items: list[object] = []
+        next_path: str | None = path
+        next_params = params
+
+        while next_path is not None:
+            response = await self._request(
+                "GET",
+                next_path,
+                params=next_params,
+            )
+            payload = self._expect_success(response)
+            if not isinstance(payload, list):
+                raise GithubClientError(
+                    f"GitHub {response_name} response was not a JSON array."
+                )
+            items.extend(payload)
+            next_path = response.links.get("next", {}).get("url")
+            next_params = None
+
+        return tuple(items)
 
     def _expect_success(self, response: httpx.Response) -> Any:
         try:
