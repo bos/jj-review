@@ -342,7 +342,10 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
         if lookup.pull_request is None:
             raise AssertionError("Open pull request lookup must include a pull request.")
         summary = f"PR #{lookup.pull_request.number}"
-        review_decision = getattr(lookup, "review_decision", None)
+        review_decision = _effective_review_decision(
+            cached_change=cached_change,
+            lookup=lookup,
+        )
         if review_decision == "approved":
             return f"{summary} approved"
         if review_decision == "changes_requested":
@@ -377,7 +380,10 @@ def _format_pull_request_status(revision) -> str:
         if lookup.pull_request is None:
             raise AssertionError("Open pull request lookup must include a pull request.")
         summary = f"{cached_label}, GitHub PR #{lookup.pull_request.number}"
-        review_decision = getattr(lookup, "review_decision", None)
+        review_decision = _effective_review_decision(
+            cached_change=cached_change,
+            lookup=lookup,
+        )
         if review_decision is None:
             return summary
         return f"{summary} {_format_review_decision_label(review_decision)}"
@@ -402,6 +408,15 @@ def _format_cached_pull_request_label(cached_change) -> str | None:
     ):
         details.append(_format_review_decision_label(cached_change.pr_review_decision))
     return f"{label} ({', '.join(details)})"
+
+
+def _effective_review_decision(*, cached_change, lookup) -> str | None:
+    review_decision = getattr(lookup, "review_decision", None)
+    if review_decision is not None:
+        return review_decision
+    if getattr(lookup, "review_decision_error", None) is None or cached_change is None:
+        return None
+    return cached_change.pr_review_decision
 
 
 def _format_review_decision_label(review_decision: str) -> str:

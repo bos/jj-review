@@ -1114,6 +1114,118 @@ def test_submit_preserves_cached_review_decision(
     assert refreshed_state.changes[change_id].pr_state == "open"
 
 
+def test_status_preserves_cached_review_decision_when_review_lookup_fails(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    fake_repo.create_pull_request_review(
+        pull_number=1,
+        reviewer_login="reviewer-1",
+        state="APPROVED",
+    )
+
+    assert _main(repo, config_path, "status", change_id) == 0
+    capsys.readouterr()
+    assert state_store.load().changes[change_id].pr_review_decision == "approved"
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    class FailingReviewLookupClient(GithubClient):
+        async def list_pull_request_reviews(
+            self,
+            owner: str,
+            repo: str,
+            *,
+            pull_number: int,
+        ):
+            raise GithubClientError("Connection refused")
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return FailingReviewLookupClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr(
+        "jj_review.commands.review_state._build_github_client",
+        build_github_client,
+    )
+
+    exit_code = _main(repo, config_path, "status", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert ": PR #1 approved" in captured.out
+    assert state_store.load().changes[change_id].pr_review_decision == "approved"
+
+
+def test_sync_preserves_cached_review_decision_when_review_lookup_fails(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    fake_repo.create_pull_request_review(
+        pull_number=1,
+        reviewer_login="reviewer-1",
+        state="APPROVED",
+    )
+
+    assert _main(repo, config_path, "status", change_id) == 0
+    capsys.readouterr()
+    assert state_store.load().changes[change_id].pr_review_decision == "approved"
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    class FailingReviewLookupClient(GithubClient):
+        async def list_pull_request_reviews(
+            self,
+            owner: str,
+            repo: str,
+            *,
+            pull_number: int,
+        ):
+            raise GithubClientError("Connection refused")
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return FailingReviewLookupClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr(
+        "jj_review.commands.review_state._build_github_client",
+        build_github_client,
+    )
+
+    assert _main(repo, config_path, "sync", change_id) == 0
+    capsys.readouterr()
+
+    refreshed_state = state_store.load()
+    assert refreshed_state.changes[change_id].pr_review_decision == "approved"
+    assert refreshed_state.changes[change_id].pr_state == "open"
+
+
 def test_status_reports_merged_pull_request_state(
     tmp_path: Path,
     monkeypatch,

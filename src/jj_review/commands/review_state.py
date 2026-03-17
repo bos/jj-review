@@ -50,6 +50,7 @@ class PullRequestLookup:
     pull_request: GithubPullRequest | None
     state: PullRequestLookupState
     review_decision: str | None = None
+    review_decision_error: str | None = None
     repository_error: str | None = None
 
 
@@ -406,7 +407,10 @@ async def _run_sync_async(
                 update={
                     "bookmark": revision.bookmark,
                     "pr_number": pull_request.number,
-                    "pr_review_decision": pull_request_lookup.review_decision,
+                    "pr_review_decision": _resolved_review_decision(
+                        cached_change=cached_change,
+                        pull_request_lookup=pull_request_lookup,
+                    ),
                     "pr_state": pull_request.state,
                     "pr_url": pull_request.html_url,
                 }
@@ -548,12 +552,27 @@ def _status_revisions_in_display_order(
 def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
     for revision in revisions:
         pull_request_lookup = revision.pull_request_lookup
-        if pull_request_lookup is not None and pull_request_lookup.state == "error":
+        if pull_request_lookup is not None and (
+            pull_request_lookup.state == "error"
+            or pull_request_lookup.review_decision_error is not None
+        ):
             return True
         stack_comment_lookup = revision.stack_comment_lookup
         if stack_comment_lookup is not None and stack_comment_lookup.state == "error":
             return True
     return False
+
+
+def _resolved_review_decision(
+    *,
+    cached_change: CachedChange | None,
+    pull_request_lookup: PullRequestLookup,
+) -> str | None:
+    if pull_request_lookup.review_decision_error is None:
+        return pull_request_lookup.review_decision
+    if cached_change is None:
+        return None
+    return cached_change.pr_review_decision
 
 
 def _persist_status_cache_updates(
@@ -587,7 +606,10 @@ def _persist_status_cache_updates(
                     update={
                         "bookmark": revision.bookmark,
                         "pr_number": pull_request.number,
-                        "pr_review_decision": pull_request_lookup.review_decision,
+                        "pr_review_decision": _resolved_review_decision(
+                            cached_change=cached_change,
+                            pull_request_lookup=pull_request_lookup,
+                        ),
                         "pr_state": pull_request.state,
                         "pr_url": pull_request.html_url,
                     }
@@ -844,7 +866,7 @@ async def _inspect_pull_request(
             repository_error=None,
             state="closed",
         )
-    review_decision = await _inspect_pull_request_review_decision(
+    review_decision, review_decision_error = await _inspect_pull_request_review_decision(
         github_client=github_client,
         github_repository=github_repository,
         pull_request_number=effective_pull_request.number,
@@ -853,6 +875,7 @@ async def _inspect_pull_request(
         message=None,
         pull_request=effective_pull_request,
         review_decision=review_decision,
+        review_decision_error=review_decision_error,
         repository_error=None,
         state="open",
     )
@@ -869,7 +892,7 @@ async def _inspect_pull_request_review_decision(
     github_client: GithubClient,
     github_repository,
     pull_request_number: int,
-) -> str | None:
+) -> tuple[str | None, str | None]:
     try:
         reviews = await github_client.list_pull_request_reviews(
             github_repository.owner,
@@ -877,7 +900,7 @@ async def _inspect_pull_request_review_decision(
             pull_number=pull_request_number,
         )
     except GithubClientError:
-        return None
+        return None, "review decision lookup failed"
 
     latest_relevant_reviews_by_user: dict[str, str] = {}
     for review in reviews:
@@ -890,10 +913,10 @@ async def _inspect_pull_request_review_decision(
 
     review_states = set(latest_relevant_reviews_by_user.values())
     if "CHANGES_REQUESTED" in review_states:
-        return "changes_requested"
+        return "changes_requested", None
     if "APPROVED" in review_states:
-        return "approved"
-    return None
+        return "approved", None
+    return None, None
 
 
 async def _inspect_stack_comment(
