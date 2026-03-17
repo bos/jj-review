@@ -45,12 +45,18 @@ def build_parser() -> ArgumentParser:
         handler=_submit_handler,
         parents=[common_options],
     )
-    _add_revision_command(
+    status_parser = _add_revision_command(
         subparsers,
         command="status",
         help_text="Show cached and remote review state for a stack.",
         handler=_status_handler,
         parents=[common_options],
+    )
+    status_parser.add_argument(
+        "-f",
+        "--fetch",
+        action="store_true",
+        help="Fetch remote bookmark state before inspecting review status.",
     )
     _add_revision_command(
         subparsers,
@@ -110,10 +116,11 @@ def _add_revision_command(
     help_text: str,
     handler=None,
     parents=None,
-) -> None:
+) -> ArgumentParser:
     parser = subparsers.add_parser(command, help=help_text, parents=parents or [])
     parser.add_argument("revset", nargs="?", help="Revision to operate on.")
     parser.set_defaults(handler=handler or _stub_handler(command))
+    return parser
 
 
 def _build_common_options_parser() -> ArgumentParser:
@@ -186,6 +193,7 @@ def _status_handler(args: Namespace) -> int:
     prepared_status = prepare_status(
         change_overrides=context.config.change,
         config=context.config.repo,
+        fetch_remote_state=args.fetch,
         repo_root=context.repo_root,
         revset=args.revset,
     )

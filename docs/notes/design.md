@@ -358,6 +358,9 @@ those bookmarks. It is read-only with respect to GitHub and review bookmarks.
 It may persist generated bookmark pins and last-known discoverable GitHub
 linkage into the sparse local cache, but that cache remains advisory rather
 than a source of truth.
+`jj review status --fetch [<revset>]` is the same inspection command, but it
+refreshes remote bookmark observations first so the report reflects the latest
+remote state before it inspects GitHub linkage.
 Unlike `submit` or `sync`, it may fall back to local-only reporting when the
 repo is not configured well enough to resolve a remote or GitHub target.
 Its default output should stay concise and summarize the effective review state
@@ -424,7 +427,7 @@ not need a saved parent graph.
 The tool can stay small. A reasonable surface would be:
 
 - `jj review submit [<revset>]`
-- `jj review status [<revset>]`
+- `jj review status [--fetch] [<revset>]`
 - `jj review sync [<revset>]`
 - `jj review adopt <pr> [<revset>]`
 - `jj review cleanup`

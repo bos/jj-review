@@ -624,6 +624,9 @@ Implemented in the first vertical cut:
 - `status` now derives repo-level GitHub availability from the first real PR
   lookup instead of blocking on a separate repository probe before streaming
   output
+- `status` now also supports `--fetch` / `-f` to refresh remote bookmark
+  observations first when the user wants a freshly fetched view before live
+  GitHub inspection
 - submit and sync now persist each change's last-known PR state, and `status`
   uses that cached state to render more informative offline fallback summaries
 - successful live `status` runs now refresh sparse cached PR linkage too, so a

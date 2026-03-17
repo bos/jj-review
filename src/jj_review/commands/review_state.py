@@ -140,6 +140,7 @@ def run_status(
     *,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
+    fetch_remote_state: bool = False,
     repo_root: Path,
     revset: str | None,
 ) -> StatusResult:
@@ -148,6 +149,7 @@ def run_status(
     prepared_status = prepare_status(
         change_overrides=change_overrides,
         config=config,
+        fetch_remote_state=fetch_remote_state,
         repo_root=repo_root,
         revset=revset,
     )
@@ -158,6 +160,7 @@ def prepare_status(
     *,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
+    fetch_remote_state: bool = False,
     repo_root: Path,
     revset: str | None,
 ) -> PreparedStatus:
@@ -167,7 +170,7 @@ def prepare_status(
         change_overrides=change_overrides,
         config=config,
         persist_bookmarks=True,
-        refresh_remote_state=False,
+        refresh_remote_state=fetch_remote_state,
         repo_root=repo_root,
         require_remote=False,
         revset=revset,

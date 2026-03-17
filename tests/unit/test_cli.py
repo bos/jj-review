@@ -122,6 +122,90 @@ def test_main_accepts_global_options_after_subcommand(
     assert "Traceback" not in captured.err
 
 
+def test_main_status_passes_fetch_to_prepare_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    prepare_calls: list[bool] = []
+
+    def fake_prepare_status(**kwargs):
+        prepare_calls.append(bool(kwargs["fetch_remote_state"]))
+        return SimpleNamespace(
+            prepared=SimpleNamespace(
+                client=SimpleNamespace(list_bookmark_states=lambda: {}),
+                remote=None,
+                remote_error=None,
+                stack=SimpleNamespace(
+                    trunk=SimpleNamespace(
+                        change_id="trunkchangeid",
+                        commit_id="trunk-commit",
+                        subject="base",
+                    )
+                ),
+                status_revisions=(),
+            ),
+            selected_revset="@",
+            trunk_subject="base",
+        )
+
+    monkeypatch.setattr("jj_review.cli.prepare_status", fake_prepare_status)
+    monkeypatch.setattr(
+        "jj_review.cli.stream_status",
+        lambda **kwargs: SimpleNamespace(incomplete=False),
+    )
+
+    exit_code = main(["status", "--fetch", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "No reviewable commits" in captured.out
+    assert prepare_calls == [True]
+
+
+def test_main_status_short_fetch_alias_passes_fetch_to_prepare_status(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    prepare_calls: list[bool] = []
+
+    def fake_prepare_status(**kwargs):
+        prepare_calls.append(bool(kwargs["fetch_remote_state"]))
+        return SimpleNamespace(
+            prepared=SimpleNamespace(
+                client=SimpleNamespace(list_bookmark_states=lambda: {}),
+                remote=None,
+                remote_error=None,
+                stack=SimpleNamespace(
+                    trunk=SimpleNamespace(
+                        change_id="trunkchangeid",
+                        commit_id="trunk-commit",
+                        subject="base",
+                    )
+                ),
+                status_revisions=(),
+            ),
+            selected_revset="@",
+            trunk_subject="base",
+        )
+
+    monkeypatch.setattr("jj_review.cli.prepare_status", fake_prepare_status)
+    monkeypatch.setattr(
+        "jj_review.cli.stream_status",
+        lambda **kwargs: SimpleNamespace(incomplete=False),
+    )
+
+    exit_code = main(["status", "-f", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "No reviewable commits" in captured.out
+    assert prepare_calls == [True]
+
+
 def test_main_status_reports_uninspected_github_target_for_empty_stack(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -281,6 +365,7 @@ def test_main_status_prints_local_header_before_streaming(
                     pull_request=SimpleNamespace(number=1),
                     state="open",
                 ),
+                stack_comment_lookup=None,
                 subject="feature 1",
             ),
             True,
