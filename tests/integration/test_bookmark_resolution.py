@@ -46,7 +46,7 @@ def test_status_persists_generated_bookmark_pins(
 
     exit_code = main(["--repository", str(repo), "status"])
 
-    assert exit_code == 0
+    assert exit_code == 1
     state = ReviewStateStore.for_repo(repo).load()
 
     assert set(state.changes) == {revision.change_id for revision in stack.revisions}
@@ -87,7 +87,7 @@ def test_status_continues_when_repo_id_cannot_be_materialized(
     exit_code = main(["--repository", str(repo), "status"])
     captured = capsys.readouterr()
 
-    assert exit_code == 0
+    assert exit_code == 1
     assert "Stack:" in captured.out
     assert ": GitHub status unknown" in captured.out
     assert not list((tmp_path / "state-home").rglob("state.toml"))
