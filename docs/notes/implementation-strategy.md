@@ -329,7 +329,7 @@ The implementation should standardize on:
 - `uv run` for local command execution
 - `uv tool run` only where it clearly improves ergonomics
 - `./check.py` as the default local verification entrypoint
-- `ty` for static type checking
+- `pyrefly` for static type checking
 - `ruff` for linting and formatting
 - `pytest` for the test runner
 
@@ -359,7 +359,8 @@ The default local verification command should be:
 ./check.py
 ```
 
-That script should run `uv sync --locked`, then run `ruff check`, `ty check`,
+That script should run `uv sync --locked`, then run `ruff check`, `pyrefly
+check`,
 and `pytest -n auto` by default, with randomized test order so hidden
 cross-test coupling is more likely to fail fast during normal local runs.
 

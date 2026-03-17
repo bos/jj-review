@@ -43,17 +43,17 @@ def _build_checks(*, pytest_jobs: PytestJobs | None) -> tuple[tuple[str, tuple[s
         pytest_command = (*pytest_command, "-n", str(pytest_jobs))
     return (
         ("ruff", ("-m", "ruff", "check")),
-        ("ty", ("-m", "ty", "check")),
+        ("pyrefly", ("-m", "pyrefly", "check")),
         ("pytest", pytest_command),
     )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run Ruff, type checking, and the test suite in sequence."""
+    """Run Ruff, Pyrefly, and the test suite in sequence."""
 
     parser = ArgumentParser(
         prog="check.py",
-        description="Run the local Ruff, ty, and pytest checks.",
+        description="Run the local Ruff, pyrefly, and pytest checks.",
     )
     parser.add_argument(
         "-n",

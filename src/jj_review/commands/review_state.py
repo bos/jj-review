@@ -212,12 +212,12 @@ async def _stream_status_async(
     github_repository_error = prepared_status.github_repository_error
 
     if prepared.remote is None:
-        revisions = _status_revisions_in_display_order(
+        display_revisions = _status_revisions_in_display_order(
             _build_status_revisions_without_github(prepared)
         )
         if on_github_status is not None:
             on_github_status(None, None)
-        for revision in revisions:
+        for revision in display_revisions:
             if on_revision is not None:
                 on_revision(revision, False)
         return StatusResult(
@@ -226,19 +226,19 @@ async def _stream_status_async(
             incomplete=True,
             remote=None,
             remote_error=prepared.remote_error,
-            revisions=revisions,
+            revisions=display_revisions,
             selected_revset=selected_revset,
             trunk_subject=trunk_subject,
         )
 
     if github_repository is None:
         logger.debug("status github target unavailable: %s", github_repository_error)
-        revisions = _status_revisions_in_display_order(
+        display_revisions = _status_revisions_in_display_order(
             _build_status_revisions_without_github(prepared)
         )
         if on_github_status is not None:
             on_github_status(None, github_repository_error)
-        for revision in revisions:
+        for revision in display_revisions:
             if on_revision is not None:
                 on_revision(revision, False)
         return StatusResult(
@@ -247,7 +247,7 @@ async def _stream_status_async(
             incomplete=True,
             remote=prepared.remote,
             remote_error=None,
-            revisions=revisions,
+            revisions=display_revisions,
             selected_revset=selected_revset,
             trunk_subject=trunk_subject,
         )

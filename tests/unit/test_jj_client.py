@@ -365,7 +365,7 @@ def _template() -> str:
 def _runner(
     responses: dict[tuple[str, ...], str],
 ):
-    def run(command: tuple[str, ...] | list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         key = tuple(command)
         assert cwd == Path("/repo")
         if key not in responses:

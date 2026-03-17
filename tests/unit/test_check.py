@@ -88,7 +88,7 @@ def test_main_adds_xdist_workers_when_requested(
     assert exit_code == 0
     assert commands == [
         (str(venv_python), "-m", "ruff", "check"),
-        (str(venv_python), "-m", "ty", "check"),
+        (str(venv_python), "-m", "pyrefly", "check"),
         (str(venv_python), "-m", "pytest", "-n", "4"),
     ]
 
@@ -124,7 +124,7 @@ def test_main_uses_auto_xdist_workers_by_default(
     assert exit_code == 0
     assert commands == [
         (str(venv_python), "-m", "ruff", "check"),
-        (str(venv_python), "-m", "ty", "check"),
+        (str(venv_python), "-m", "pyrefly", "check"),
         (str(venv_python), "-m", "pytest", "-n", "auto"),
     ]
 
@@ -160,7 +160,7 @@ def test_main_adds_auto_xdist_workers_when_requested(
     assert exit_code == 0
     assert commands == [
         (str(venv_python), "-m", "ruff", "check"),
-        (str(venv_python), "-m", "ty", "check"),
+        (str(venv_python), "-m", "pyrefly", "check"),
         (str(venv_python), "-m", "pytest", "-n", "auto"),
     ]
 
@@ -196,7 +196,7 @@ def test_main_runs_pytest_serially_when_requested(
     assert exit_code == 0
     assert commands == [
         (str(venv_python), "-m", "ruff", "check"),
-        (str(venv_python), "-m", "ty", "check"),
+        (str(venv_python), "-m", "pyrefly", "check"),
         (str(venv_python), "-m", "pytest"),
     ]
 
