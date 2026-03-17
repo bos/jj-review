@@ -292,6 +292,9 @@ def test_discover_review_stack_stops_at_first_path_revision_already_in_trunk() -
         ("jj", "log", "--no-graph", "-r", "::'current-trunk'", "-T", _template()): (
             current_trunk + merged + old_trunk + _ROOT
         ),
+        ("jj", "log", "--no-graph", "-r", "children(::'current-trunk')", "-T", _template()): (
+            current_trunk
+        ),
         ("jj", "log", "--no-graph", "-r", "::'head-3'", "-T", _template()): (
             head + merged + old_trunk + _ROOT
         ),
@@ -310,6 +313,52 @@ def test_discover_review_stack_stops_at_first_path_revision_already_in_trunk() -
         "merged",
         "head 3",
     ]
+
+
+def test_discover_review_stack_rejects_shared_trunk_ancestor_without_merge() -> None:
+    current_trunk = _revision_line(
+        commit_id="current-trunk",
+        parents=["old-trunk"],
+        change_id="trunk-change",
+        description="main\n",
+    )
+    head = _revision_line(
+        commit_id="head-4",
+        parents=["old-trunk"],
+        change_id="head-4-change",
+        description="head 4\n",
+    )
+    old_trunk = _revision_line(
+        commit_id="old-trunk",
+        parents=["root"],
+        change_id="old-trunk-change",
+        description="old trunk\n",
+        immutable=True,
+    )
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): (
+            current_trunk
+        ),
+        ("jj", "log", "--no-graph", "-r", "head-4", "-T", _template(), "--limit", "2"): head,
+        ("jj", "log", "--no-graph", "-r", "::'current-trunk'", "-T", _template()): (
+            current_trunk + old_trunk + _ROOT
+        ),
+        ("jj", "log", "--no-graph", "-r", "children(::'current-trunk')", "-T", _template()): (
+            current_trunk
+        ),
+        ("jj", "log", "--no-graph", "-r", "::'head-4'", "-T", _template()): (
+            head + old_trunk + _ROOT
+        ),
+        ("jj", "log", "--no-graph", "-r", "children(::'head-4')", "-T", _template()): head,
+    }
+
+    client = JjClient(Path("/repo"), runner=_runner(responses))
+    with pytest.raises(UnsupportedStackError, match="root commit before `trunk\\(\\)`"):
+        client.discover_review_stack(
+            "head-4",
+            allow_immutable=True,
+            allow_trunk_ancestors=True,
+        )
 
 
 def test_discover_review_stack_rejects_hidden_revisions() -> None:

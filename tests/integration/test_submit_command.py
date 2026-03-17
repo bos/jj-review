@@ -1399,9 +1399,53 @@ def test_status_reports_merged_pull_request_state(
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert ": PR #1 merged" in captured.out
+    assert ": PR #1 merged, cleanup needed" in captured.out
     assert refreshed_state.changes[change_id].pr_state == "merged"
     assert refreshed_state.changes[change_id].pr_review_decision is None
+
+
+def test_cleanup_restack_previews_and_applies_survivor_rebase_after_merged_ancestor(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    top_change_id = stack.revisions[1].change_id
+    trunk_commit_id = stack.trunk.commit_id
+    fake_repo.pull_requests[1].state = "closed"
+    fake_repo.pull_requests[1].merged_at = "2026-03-16T12:00:00Z"
+
+    preview_exit_code = _main(repo, config_path, "cleanup", "--restack", top_change_id)
+    preview = capsys.readouterr()
+
+    assert preview_exit_code == 0
+    assert "Planned restack actions:" in preview.out
+    assert f"rebase {top_change_id[:8]} onto trunk()" in preview.out
+
+    apply_exit_code = _main(
+        repo,
+        config_path,
+        "cleanup",
+        "--restack",
+        "--apply",
+        top_change_id,
+    )
+    applied = capsys.readouterr()
+    rewritten_top = JjClient(repo).resolve_revision(top_change_id)
+
+    assert apply_exit_code == 0
+    assert "Applied restack actions:" in applied.out
+    assert rewritten_top.only_parent_commit_id() == trunk_commit_id
+    assert JjClient(repo).resolve_revision(bottom_change_id).commit_id != rewritten_top.commit_id
 
 
 def test_cleanup_reports_stale_cache_and_remote_branch_without_applying(

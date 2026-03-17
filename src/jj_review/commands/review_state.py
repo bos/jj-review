@@ -446,6 +446,8 @@ def _status_revisions_in_display_order(
 
 def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
     for revision in revisions:
+        if revision.local_divergent and not _revision_has_merged_pull_request(revision):
+            return True
         pull_request_lookup = revision.pull_request_lookup
         if pull_request_lookup is not None and (
             pull_request_lookup.state == "ambiguous"
@@ -468,6 +470,16 @@ def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
         }:
             return True
     return False
+
+
+def _revision_has_merged_pull_request(revision: ReviewStatusRevision) -> bool:
+    lookup = revision.pull_request_lookup
+    return (
+        lookup is not None
+        and lookup.state == "closed"
+        and lookup.pull_request is not None
+        and lookup.pull_request.state == "merged"
+    )
 
 
 def _resolved_review_decision(

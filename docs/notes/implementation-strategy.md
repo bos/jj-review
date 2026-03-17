@@ -712,6 +712,49 @@ Done when:
 - cleanup reports planned actions clearly
 - ambiguous remote deletions are not automatic
 
+### Slice 9: Merged PR Reconciliation
+
+Status: planned.
+
+Deliver:
+
+- persist each change's last submitted local `commit_id` in sparse review
+  state on successful `submit`
+- teach `status` and `status --fetch` to inspect the selected local path even
+  after fetching merged PR branches has created immutable or divergent off-path
+  revisions
+- render merged path changes as cleanup needed instead of treating normal
+  fetched GitHub merge state as a broken stack
+- make `status` explain why cleanup is needed, warn that descendant submit
+  operations still follow the old local ancestry, and print the exact
+  `cleanup --restack` next step
+- diagnose merged PRs whose base branch matches `review/*` as a GitHub policy
+  problem instead of presenting them as a mysterious stack failure
+- add `cleanup --restack` as the explicit opt-in local rewrite path for merged
+  ancestors
+- restack surviving descendants onto the nearest surviving local review base,
+  using the selected local path rather than fetched branch-tip commits for
+  merged non-trunk PRs
+- leave merged or off-path artifacts alone unless some later cleanup pass can
+  prove they are stale and removable
+
+Done when:
+
+- merge commit, squash merge, and rebase merge all show a usable status view
+  after fetch because inspection follows the selected local path instead of
+  failing on fetched branch artifacts
+- the default status output tells the operator what `cleanup needed` means and
+  what command to run next instead of making them infer the repair flow
+- `cleanup --restack` restores one linear local stack of surviving review
+  units by excising merged path changes from active local ancestry
+- fetched branch-tip commits for merged non-trunk PRs are treated as projected
+  remote state, not as the canonical continuation of the local stack
+- automatic local rewrites fail closed only when the selected path or PR
+  linkage is truly ambiguous, or when removing a merged path change would
+  discard unpublished local edits
+- tests cover the common fetched-merge case, safe survivor restacking, and the
+  refusal cases that still require human intervention
+
 ### Post-MVP: Landing
 
 `land` is deferred until after the MVP review lifecycle is stable end-to-end.

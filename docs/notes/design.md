@@ -23,6 +23,35 @@ parallel stack manager.
 
 For an MVP, the tool can be almost stateless.
 
+## Recommended GitHub Policy
+
+This workflow works best when the GitHub repository is configured to reduce
+branch-history shapes that do not map cleanly back into one active local stack.
+
+Recommended settings:
+
+- `main` should require linear history
+- `review/*` should require linear history
+- the repository should allow squash merges and/or rebase merges so linear
+  history remains mergeable
+- PRs whose base branch matches `review/*` should be blocked from merging by a
+  required check or required workflow
+
+That last rule is important. Linear-history protection by itself is not enough:
+GitHub can still merge PRs targeting `review/*` with squash or rebase, which
+creates accepted branch-local history that is awkward to project back into the
+intended local `jj` stack model.
+
+The intended policy is:
+
+- PRs targeting `main` may be merged
+- PRs targeting `review/*` are review-only and should not be merged directly
+
+The tool should diagnose that policy explicitly when it sees a merged PR whose
+base branch matches `review/*`. That is not a mysterious stack failure. It is a
+repository-policy problem, and the user should be told that the repo should
+block those merges on GitHub.
+
 ## Design Goals
 
 1. Make stacked GitHub PRs feel natural in a `jj` workflow.
@@ -362,13 +391,17 @@ than a source of truth.
 `jj review status --fetch [<revset>]` is the same inspection command, but it
 refreshes remote bookmark observations first so the report reflects the latest
 remote state before it inspects GitHub linkage.
-If that refreshed local view reveals local divergence on an ancestor while the
-selected commit-parent path is still linear, status should continue, surface
-that fetched GitHub state inline on the affected change as cleanup needed
-rather than treating the stack as broken. If refresh reveals that the selected
-history no longer has any supported linear walk at all, status should fail
-closed with a targeted local diagnostic rather than a traceback or an
-unadorned subprocess error.
+Because fetched GitHub state often produces extra visible revisions for merged
+changes, status should not insist that every visible revision in the repo still
+forms one supported review stack. Instead, it should discover the selected
+commit-parent path, tolerate immutable or divergent off-path copies created by
+fetching merged PR branches, and report the path revision for each logical
+change.
+If a merged pull request still appears on the selected local path, status
+should continue and surface that row as cleanup needed rather than treating the
+stack as broken. If refresh reveals that the selected history itself no longer
+has any supported linear walk, status should fail closed with a targeted local
+diagnostic rather than a traceback or an unadorned subprocess error.
 Unlike `submit`, it may fall back to local-only reporting when the
 repo is not configured well enough to resolve a remote or GitHub target.
 Its default output should stay concise and summarize the effective review state
@@ -393,6 +426,19 @@ When live GitHub inspection succeeds, status should refresh that cached
 linkage in both directions, including clearing stale cached PR identity when
 GitHub now reports that no PR exists for the review branch.
 
+When status reports `cleanup needed`, it should explain why in plain language:
+
+- the merged PR still appears on the selected local path
+- descendant submit operations will continue to follow that old local ancestry
+  until the user repairs it
+- the next command to run is `jj review cleanup --restack [<revset>]`, with a
+  follow-up `--apply` once the preview looks correct
+
+That guidance matters more than the raw internal distinction between "selected
+path", fetched branch-tip artifacts, and off-path immutable copies. The tool
+still needs those concepts internally, but the user should see an actionable
+explanation rather than having to infer the repair flow from one terse label.
+
 These commands are not sources of truth either. They are operator-driven ways
 to reattach GitHub state to a `jj`-derived stack after damage, cross-machine
 work, or manual edits on GitHub.
@@ -413,8 +459,9 @@ This design behaves well under normal `jj` rewrite-heavy workflows:
   not a bug.
 - Ancestor merged on GitHub: merged ancestors stop acting as review bases.
   Descendants should target the nearest remaining open ancestor PR, or trunk if
-  none remain. For the MVP, the tool should require a matching local `jj`
-  rebase before it updates child PR bases.
+  none remain. `cleanup --restack` should perform that local rewrite
+  explicitly, using the selected local path as the source of truth for which
+  logical changes survive.
 
 This is exactly the kind of rewrite-heavy flow the `jj` model is good at.
 
@@ -440,7 +487,7 @@ The tool can stay small. A reasonable surface would be:
 - `jj review submit [<revset>]`
 - `jj review status [--fetch] [<revset>]`
 - `jj review adopt <pr> [<revset>]`
-- `jj review cleanup`
+- `jj review cleanup [--restack] [--apply] [<revset>]`
 
 Notably absent:
 
@@ -512,6 +559,76 @@ For the MVP, cleanup should prefer reporting planned actions before mutating
 remote state. Deleting open PRs or deleting review branches for ambiguous cases
 should require explicit user intent rather than happening automatically.
 
+`jj review cleanup --restack` is the explicit local-history repair path for the
+common case where GitHub merges have been fetched and the local stack still
+contains merged review units.
+
+Its UX should be explicit:
+
+- without `--apply`, it previews the local restack plan
+- with `--apply`, it performs the local rewrite
+- if repo policy is part of the problem, it should say so directly instead of
+  making the user reverse-engineer it from the DAG
+
+Its job is to restore one active local linear stack from three inputs:
+
+- the selected local commit-parent path
+- GitHub PR state for review bookmarks
+- sparse local review state, including the last submitted local `commit_id`
+  for each change
+
+It should not treat every fetched remote branch tip as local ancestry that must
+be preserved. GitHub is authoritative about PR outcomes and remote branch tips,
+but the selected local path remains authoritative about which logical changes
+are still part of the user's active stack.
+
+The algorithm should be:
+
+1. Discover the selected local path from the requested head back toward
+   `trunk()`, tolerating immutable or divergent off-path revisions created by
+   fetching merged PR branches.
+2. For each logical change on that path, classify its PR state as open,
+   merged, closed-unmerged, or absent.
+3. Treat only merged path changes as removable review units. Open and absent
+   path changes are survivors. Closed-unmerged path changes are not rewritten
+   automatically.
+4. For each survivor, compute its desired new parent in logical order:
+   - the nearest earlier survivor on the selected path, if any
+   - otherwise the current `trunk()`
+5. Rebase each survivor segment whose current parent is a merged path change
+   onto that desired new parent. This restores one linear local stack of the
+   surviving review units and any unsubmitted descendants above them.
+6. After the rebases succeed, the implementation may leave merged or fetched
+   off-path artifacts in place until a later conservative cleanup pass can
+   prove they are stale and removable. Restack's primary job is to repair the
+   active local path first.
+7. Do not rebase surviving local descendants onto fetched branch-tip commits
+   for merged non-trunk PRs. Those fetched commits are projected branch state,
+   not the canonical continuation of the active local stack.
+
+This keeps the local result as close to linear as possible:
+
+- merged review units disappear from the active path
+- surviving open review units stay in order
+- unsubmitted local work above them stays attached to the nearest surviving
+  base
+- fetched off-path copies of merged changes may remain as stale artifacts, but
+  they no longer define the active stack
+
+`cleanup --restack` should fail closed only when it cannot prove what the
+selected path means. In particular, it should stop with a targeted diagnostic
+when:
+
+- the selected path itself is not a supported linear walk
+- a path change has ambiguous PR linkage
+- a merged path change has local edits since its last submit and removing it
+  would discard unpublished work
+- a closed-unmerged path change would need to be skipped or removed, because
+  that policy is user intent rather than automatic cleanup
+
+It should not stop merely because fetched GitHub merges created extra visible
+revisions or moved review branches to merge commits.
+
 ## Suggested Review State Format
 
 If a machine-written review state file exists, keep it sparse:
@@ -526,6 +643,7 @@ pr_review_decision = "approved"
 pr_state = "open"
 pr_url = "https://github.com/org/repo/pull/123"
 stack_comment_id = 456789
+last_submitted_commit_id = "0123456789abcdef"
 ```
 
 Suggested path:

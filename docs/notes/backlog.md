@@ -50,6 +50,13 @@ until marked ready). We should eventually support creating PRs as drafts and
 promoting them, but the semantics need to be designed before adding it. Deferred
 from MVP.
 
+## GitHub Review-Branch Merge Policy Example
+
+The design doc now recommends blocking merges for PRs whose base branch matches
+`review/*`, using a required check or required workflow. We should add a
+concrete example of how to automate that policy on GitHub, such as a minimal
+GitHub Actions workflow that fails when a PR targets `review/*`.
+
 ## Private Commits
 
 `jj` can be configured with `git.private-commits` to refuse pushes for commits

@@ -9,6 +9,12 @@ from pathlib import Path
 from typing import Literal
 
 from jj_review.cache import ReviewStateStore
+from jj_review.commands.review_state import (
+    PreparedStatus,
+    ReviewStatusRevision,
+    prepare_status,
+    stream_status,
+)
 from jj_review.commands.submit import (
     _STACK_COMMENT_MARKER,
     ResolvedGithubRepository,
@@ -16,7 +22,7 @@ from jj_review.commands.submit import (
     resolve_github_repository,
     select_submit_remote,
 )
-from jj_review.config import RepoConfig
+from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.jj import JjClient
@@ -96,6 +102,28 @@ class PreparedCleanupChange:
     stale_reason: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class RestackResult:
+    """Rendered restack result for one selected local stack."""
+
+    actions: tuple[CleanupAction, ...]
+    applied: bool
+    blocked: bool
+    github_error: str | None
+    github_repository: str | None
+    remote: GitRemote | None
+    remote_error: str | None
+    selected_revset: str
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedRestack:
+    """Locally prepared restack inputs before any rewrite."""
+
+    apply: bool
+    prepared_status: PreparedStatus
+
+
 def run_cleanup(
     *,
     apply: bool,
@@ -148,6 +176,28 @@ def prepare_cleanup(
     )
 
 
+def prepare_restack(
+    *,
+    apply: bool,
+    change_overrides: dict[str, ChangeConfig],
+    config: RepoConfig,
+    repo_root: Path,
+    revset: str | None,
+) -> PreparedRestack:
+    """Resolve local restack inputs before any rewrite."""
+
+    return PreparedRestack(
+        apply=apply,
+        prepared_status=prepare_status(
+            change_overrides=change_overrides,
+            config=config,
+            fetch_remote_state=True,
+            repo_root=repo_root,
+            revset=revset,
+        ),
+    )
+
+
 def stream_cleanup(
     *,
     on_action: Callable[[CleanupAction], None] | None = None,
@@ -161,6 +211,270 @@ def stream_cleanup(
             prepared_cleanup=prepared_cleanup,
         )
     )
+
+
+def stream_restack(
+    *,
+    on_action: Callable[[CleanupAction], None] | None = None,
+    prepared_restack: PreparedRestack,
+) -> RestackResult:
+    """Inspect and optionally apply a local restack plan for merged path changes."""
+
+    status_result = stream_status(prepared_status=prepared_restack.prepared_status)
+    return _build_restack_result(
+        on_action=on_action,
+        prepared_restack=prepared_restack,
+        status_result=status_result,
+    )
+
+
+def _build_restack_result(
+    *,
+    on_action: Callable[[CleanupAction], None] | None,
+    prepared_restack: PreparedRestack,
+    status_result,
+) -> RestackResult:
+    prepared_status = prepared_restack.prepared_status
+    prepared = prepared_status.prepared
+    revisions_by_change_id = {
+        revision.change_id: revision for revision in status_result.revisions
+    }
+    path_revisions = tuple(
+        revisions_by_change_id[prepared_revision.revision.change_id]
+        for prepared_revision in prepared.status_revisions
+        if prepared_revision.revision.change_id in revisions_by_change_id
+    )
+
+    actions: list[CleanupAction] = []
+
+    def record_action(action: CleanupAction) -> None:
+        actions.append(action)
+        if on_action is not None:
+            on_action(action)
+
+    if status_result.github_error is not None or status_result.github_repository is None:
+        record_action(
+            CleanupAction(
+                kind="restack",
+                message=(
+                    "cannot compute a restack plan without live GitHub pull request state; "
+                    "fix GitHub access and retry"
+                ),
+                status="blocked",
+            )
+        )
+        return RestackResult(
+            actions=tuple(actions),
+            applied=prepared_restack.apply,
+            blocked=True,
+            github_error=status_result.github_error,
+            github_repository=status_result.github_repository,
+            remote=status_result.remote,
+            remote_error=status_result.remote_error,
+            selected_revset=status_result.selected_revset,
+        )
+
+    blocked = False
+    merged_revisions = tuple(
+        revision for revision in path_revisions if _revision_has_merged_pull_request(revision)
+    )
+    if not merged_revisions:
+        return RestackResult(
+            actions=(),
+            applied=prepared_restack.apply,
+            blocked=False,
+            github_error=status_result.github_error,
+            github_repository=status_result.github_repository,
+            remote=status_result.remote,
+            remote_error=status_result.remote_error,
+            selected_revset=status_result.selected_revset,
+        )
+
+    closed_unmerged_revisions = tuple(
+        revision for revision in path_revisions if _revision_is_closed_unmerged(revision)
+    )
+    for revision in closed_unmerged_revisions:
+        blocked = True
+        record_action(
+            CleanupAction(
+                kind="restack",
+                message=(
+                    f"cannot restack past {_revision_label(revision)} because PR "
+                    f"#{_revision_pull_request_number(revision)} is closed without merge; "
+                    "decide whether to keep or drop that change first"
+                ),
+                status="blocked",
+            )
+        )
+
+    survivor_change_ids: list[str] = []
+    rebase_plans: list[tuple[str, str | None]] = []
+    for prepared_revision in prepared.status_revisions:
+        revision = revisions_by_change_id.get(prepared_revision.revision.change_id)
+        if revision is None:
+            continue
+        if _revision_has_merged_pull_request(revision):
+            continue
+        if _revision_is_closed_unmerged(revision):
+            continue
+        if revision.local_divergent:
+            blocked = True
+            record_action(
+                CleanupAction(
+                    kind="restack",
+                    message=(
+                        f"cannot restack {_revision_label(revision)} while multiple visible "
+                        "revisions still share that change ID"
+                    ),
+                    status="blocked",
+                )
+            )
+            survivor_change_ids.append(revision.change_id)
+            continue
+
+        desired_parent_change_id = survivor_change_ids[-1] if survivor_change_ids else None
+        parent_commit_id = prepared_revision.revision.only_parent_commit_id()
+        parent_is_merged = False
+        for candidate in prepared.status_revisions:
+            if candidate.revision.commit_id == parent_commit_id:
+                parent_is_merged = _revision_has_merged_pull_request(
+                    revisions_by_change_id[candidate.revision.change_id]
+                )
+                break
+        if parent_is_merged:
+            rebase_plans.append((revision.change_id, desired_parent_change_id))
+        survivor_change_ids.append(revision.change_id)
+
+    client = prepared.client
+    if prepared_restack.apply and not blocked:
+        for source_change_id, destination_change_id in rebase_plans:
+            source_revision = client.resolve_revision(source_change_id)
+            if destination_change_id is None:
+                destination_revision = prepared.stack.trunk.commit_id
+            else:
+                destination_revision = client.resolve_revision(destination_change_id).commit_id
+            if source_revision.only_parent_commit_id() == destination_revision:
+                continue
+            client.rebase_revision(
+                source=source_change_id,
+                destination=destination_revision,
+            )
+            record_action(
+                CleanupAction(
+                    kind="restack",
+                    message=(
+                        f"rebase {_short_change_id(source_change_id)} onto "
+                        f"{_restack_destination_label(destination_change_id)}"
+                    ),
+                    status="applied",
+                )
+            )
+    else:
+        for source_change_id, destination_change_id in rebase_plans:
+            status = "blocked" if blocked else "planned"
+            message = (
+                f"rebase {_short_change_id(source_change_id)} onto "
+                f"{_restack_destination_label(destination_change_id)}"
+            )
+            if blocked and closed_unmerged_revisions:
+                message = f"{message} once blocked path changes are resolved"
+            record_action(
+                CleanupAction(
+                    kind="restack",
+                    message=message,
+                    status=status,
+                )
+            )
+
+    for revision in merged_revisions:
+        pull_request_number = _revision_pull_request_number(revision)
+        if pull_request_number is None:
+            continue
+        base_ref = _revision_pull_request_base_ref(revision)
+        if base_ref is None or not base_ref.startswith("review/"):
+            continue
+        record_action(
+            CleanupAction(
+                kind="policy",
+                message=(
+                    f"PR #{pull_request_number} merged into review branch {base_ref}; "
+                    "configure GitHub to block merges of PRs targeting `review/*`"
+                ),
+                status="planned",
+            )
+        )
+
+    if not actions and merged_revisions:
+        merged_labels = ", ".join(_revision_label(revision) for revision in merged_revisions)
+        record_action(
+            CleanupAction(
+                kind="restack",
+                message=(
+                    f"merged review units remain on the selected path ({merged_labels}), but "
+                    "no surviving descendants need to move"
+                ),
+                status="planned" if not prepared_restack.apply else "applied",
+            )
+        )
+
+    return RestackResult(
+        actions=tuple(actions),
+        applied=prepared_restack.apply,
+        blocked=blocked,
+        github_error=status_result.github_error,
+        github_repository=status_result.github_repository,
+        remote=status_result.remote,
+        remote_error=status_result.remote_error,
+        selected_revset=status_result.selected_revset,
+    )
+
+
+def _revision_has_merged_pull_request(revision: ReviewStatusRevision) -> bool:
+    lookup = revision.pull_request_lookup
+    return (
+        lookup is not None
+        and lookup.state == "closed"
+        and lookup.pull_request is not None
+        and lookup.pull_request.state == "merged"
+    )
+
+
+def _revision_is_closed_unmerged(revision: ReviewStatusRevision) -> bool:
+    lookup = revision.pull_request_lookup
+    return (
+        lookup is not None
+        and lookup.state == "closed"
+        and lookup.pull_request is not None
+        and lookup.pull_request.state != "merged"
+    )
+
+
+def _revision_pull_request_number(revision: ReviewStatusRevision) -> int | None:
+    lookup = revision.pull_request_lookup
+    if lookup is None or lookup.pull_request is None:
+        return None
+    return lookup.pull_request.number
+
+
+def _revision_pull_request_base_ref(revision: ReviewStatusRevision) -> str | None:
+    lookup = revision.pull_request_lookup
+    if lookup is None or lookup.pull_request is None:
+        return None
+    return lookup.pull_request.base.ref
+
+
+def _revision_label(revision: ReviewStatusRevision) -> str:
+    return f"{revision.subject} [{_short_change_id(revision.change_id)}]"
+
+
+def _short_change_id(change_id: str) -> str:
+    return change_id[:8]
+
+
+def _restack_destination_label(destination_change_id: str | None) -> str:
+    if destination_change_id is None:
+        return "trunk()"
+    return _short_change_id(destination_change_id)
 
 
 async def _stream_cleanup_async(

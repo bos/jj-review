@@ -86,14 +86,12 @@ class JjClient:
                 trunk=trunk,
             )
 
-        trunk_ancestor_commit_ids: set[str] = set()
+        merged_trunk_side_branch_commit_ids: set[str] = set()
         if allow_trunk_ancestors:
             trunk_ancestors_revset = f"::{_quote_revset_symbol(trunk.commit_id)}"
-            trunk_ancestor_commit_ids = {
-                revision.commit_id
-                for revision in self._query_revisions(trunk_ancestors_revset)
-            }
-            trunk_ancestor_commit_ids.add(trunk.commit_id)
+            merged_trunk_side_branch_commit_ids = (
+                self._merged_trunk_side_branch_commit_ids(trunk_ancestors_revset)
+            )
 
         self._validate_reviewable_revision(
             head,
@@ -151,7 +149,10 @@ class JjClient:
                     )
 
             stack_head_first.append(current)
-            if allow_trunk_ancestors and current.commit_id in trunk_ancestor_commit_ids:
+            if (
+                allow_trunk_ancestors
+                and current.commit_id in merged_trunk_side_branch_commit_ids
+            ):
                 break
             parent_commit_id = current.only_parent_commit_id()
             child_in_path = current
@@ -230,6 +231,26 @@ class JjClient:
         return {
             parent_commit_id: tuple(children)
             for parent_commit_id, children in grouped.items()
+        }
+
+    def _merged_trunk_side_branch_commit_ids(self, trunk_ancestors_revset: str) -> set[str]:
+        trunk_ancestor_commit_ids = {
+            revision.commit_id
+            for revision in self._query_revisions(trunk_ancestors_revset)
+        }
+        trunk_children_by_parent = self._query_children_by_parent(
+            f"children({trunk_ancestors_revset})"
+        )
+        return {
+            parent_commit_id
+            for parent_commit_id, children in trunk_children_by_parent.items()
+            if parent_commit_id in trunk_ancestor_commit_ids
+            and any(
+                child.commit_id in trunk_ancestor_commit_ids
+                and len(child.parents) > 1
+                and child.parents[0] != parent_commit_id
+                for child in children
+            )
         }
 
     def list_git_remotes(self) -> tuple[GitRemote, ...]:
@@ -367,6 +388,11 @@ class JjClient:
             )
         )
         self.fetch_remote(remote=remote)
+
+    def rebase_revision(self, *, source: str, destination: str) -> None:
+        """Rebase one revision and its descendants onto a new destination."""
+
+        self._run_jj(("rebase", "-s", source, "-d", destination))
 
     def _query_revisions(self, revset: str, *, limit: int | None = None) -> list[LocalRevision]:
         command = ["log", "--no-graph", "-r", revset, "-T", _COMMIT_TEMPLATE]

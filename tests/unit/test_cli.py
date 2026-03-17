@@ -271,6 +271,51 @@ def test_main_cleanup_passes_apply_to_prepare_cleanup(
     assert "No cleanup actions planned." in captured.out
 
 
+def test_main_cleanup_restack_passes_apply_and_revset_to_prepare_restack(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    prepare_calls: list[tuple[bool, str | None]] = []
+
+    def fake_prepare_restack(**kwargs):
+        prepare_calls.append((bool(kwargs["apply"]), kwargs["revset"]))
+        return SimpleNamespace(
+            apply=True,
+            prepared_status=SimpleNamespace(
+                github_repository=SimpleNamespace(full_name="octo-org/stacked-review"),
+                github_repository_error=None,
+                prepared=SimpleNamespace(
+                    remote=SimpleNamespace(name="origin"),
+                    remote_error=None,
+                ),
+                selected_revset="@-",
+            ),
+        )
+
+    monkeypatch.setattr("jj_review.cli.prepare_restack", fake_prepare_restack)
+    monkeypatch.setattr(
+        "jj_review.cli.stream_restack",
+        lambda **kwargs: SimpleNamespace(
+            actions=(),
+            applied=True,
+            blocked=False,
+            selected_revset="@-",
+        ),
+    )
+
+    exit_code = main(
+        ["cleanup", "--restack", "--apply", "--repository", str(tmp_path), "@-"]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert prepare_calls == [(True, "@-")]
+    assert "Selected revset: @-" in captured.out
+    assert "No merged review units on the selected path need restacking." in captured.out
+
+
 def test_main_cleanup_renders_planned_and_blocked_actions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -337,6 +382,74 @@ def test_main_cleanup_renders_planned_and_blocked_actions(
         captured.out
     )
     assert "cleanup --apply" in captured.out
+
+
+def test_main_cleanup_restack_renders_next_step_and_policy_warning(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.cli.prepare_restack",
+        lambda **kwargs: SimpleNamespace(
+            apply=False,
+            prepared_status=SimpleNamespace(
+                github_repository=SimpleNamespace(full_name="octo-org/stacked-review"),
+                github_repository_error=None,
+                prepared=SimpleNamespace(
+                    remote=SimpleNamespace(name="origin"),
+                    remote_error=None,
+                ),
+                selected_revset="@",
+            ),
+        ),
+    )
+
+    def fake_stream_restack(**kwargs):
+        kwargs["on_action"](
+            SimpleNamespace(
+                kind="restack",
+                message="rebase abcdef12 onto trunk()",
+                status="planned",
+            )
+        )
+        kwargs["on_action"](
+            SimpleNamespace(
+                kind="policy",
+                message="PR #5 merged into review/base-branch",
+                status="planned",
+            )
+        )
+        return SimpleNamespace(
+            actions=(
+                SimpleNamespace(
+                    kind="restack",
+                    message="rebase abcdef12 onto trunk()",
+                    status="planned",
+                ),
+                SimpleNamespace(
+                    kind="policy",
+                    message="PR #5 merged into review/base-branch",
+                    status="planned",
+                ),
+            ),
+            applied=False,
+            blocked=False,
+            selected_revset="@",
+        )
+
+    monkeypatch.setattr("jj_review.cli.stream_restack", fake_stream_restack)
+
+    exit_code = main(["cleanup", "--restack", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Selected revset: @" in captured.out
+    assert "Planned restack actions:" in captured.out
+    assert "[planned] restack: rebase abcdef12 onto trunk()" in captured.out
+    assert "[planned] policy: PR #5 merged into review/base-branch" in captured.out
+    assert "cleanup --restack --apply @" in captured.out
 
 
 def test_main_cleanup_prints_remote_and_github_before_stream_completes(
@@ -620,6 +733,81 @@ def test_main_reports_keyboard_interrupt_during_status_stream_without_traceback(
     assert "◆ base [trunkcha]" not in captured.out
     assert captured.err.strip() == "Interrupted."
     assert "Traceback" not in captured.err
+
+
+def test_main_status_prints_cleanup_advisories_for_merged_review_units(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.cli.prepare_status",
+        lambda **kwargs: SimpleNamespace(
+            prepared=SimpleNamespace(
+                client=SimpleNamespace(list_bookmark_states=lambda: {}),
+                remote=SimpleNamespace(name="origin"),
+                remote_error=None,
+                stack=SimpleNamespace(
+                    trunk=SimpleNamespace(
+                        change_id="trunkchangeid",
+                        commit_id="trunk-commit",
+                        subject="base",
+                    )
+                ),
+                status_revisions=(object(),),
+            ),
+            selected_revset="@",
+            trunk_subject="base",
+        ),
+    )
+
+    merged_revision = SimpleNamespace(
+        cached_change=None,
+        change_id="abcdefghijkl",
+        local_divergent=False,
+        pull_request_lookup=SimpleNamespace(
+            pull_request=SimpleNamespace(
+                base=SimpleNamespace(ref="review/feature-base"),
+                number=5,
+                state="merged",
+            ),
+            state="closed",
+        ),
+        stack_comment_lookup=None,
+        subject="feature 1",
+    )
+
+    def fake_stream_status(**kwargs):
+        kwargs["on_github_status"]("octo-org/stacked-review", None)
+        kwargs["on_revision"](merged_revision, True)
+        return SimpleNamespace(
+            incomplete=False,
+            revisions=(merged_revision,),
+            selected_revset="@",
+        )
+
+    monkeypatch.setattr("jj_review.cli.stream_status", fake_stream_status)
+
+    exit_code = main(["status", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "- feature 1 [abcdefgh]: PR #5 merged, cleanup needed" in captured.out
+    assert "◆ base [trunkcha]: trunk()\n\nAdvisories:" in captured.out
+    assert "Advisories:" in captured.out
+    assert "Submit note: descendant PR bases still follow the old local ancestry" in (
+        captured.out
+    )
+    assert "jj-review cleanup --restack @" in captured.out
+    assert "[abcdefgh]: PR #5 is merged, and later local changes are still based on it" in (
+        captured.out
+    )
+    assert "Repository policy warning: PR #5 merged into review/feature-base;" in (
+        captured.out
+    )
+    advisory_lines = captured.out.split("Advisories:\n", maxsplit=1)[1].splitlines()
+    assert all(len(line) <= 80 for line in advisory_lines if line)
 
 
 def test_main_time_output_prefixes_interrupt_message(

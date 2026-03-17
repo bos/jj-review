@@ -7,6 +7,7 @@ import io
 import logging
 import re
 import sys
+import textwrap
 import time
 from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from collections.abc import Sequence
@@ -17,7 +18,12 @@ from typing import Any, cast
 from jj_review import __version__
 from jj_review.bootstrap import BootstrapError, bootstrap_context
 from jj_review.commands.adopt import run_adopt
-from jj_review.commands.cleanup import prepare_cleanup, stream_cleanup
+from jj_review.commands.cleanup import (
+    prepare_cleanup,
+    prepare_restack,
+    stream_cleanup,
+    stream_restack,
+)
 from jj_review.commands.review_state import prepare_status, stream_status
 from jj_review.commands.submit import run_submit
 from jj_review.errors import CliError, CommandNotImplementedError
@@ -86,6 +92,16 @@ def build_parser() -> ArgumentParser:
         "--apply",
         action="store_true",
         help="Apply safe cleanup actions instead of only reporting them.",
+    )
+    cleanup_parser.add_argument(
+        "--restack",
+        action="store_true",
+        help="Preview or apply a local restack for merged review units on the selected path.",
+    )
+    cleanup_parser.add_argument(
+        "revset",
+        nargs="?",
+        help="Revision whose stack should be inspected or restacked.",
     )
     cleanup_parser.set_defaults(handler=_cleanup_handler)
     return parser
@@ -258,6 +274,7 @@ def _status_handler(args: Namespace) -> int:
             configured_trunk_branch=context.config.repo.trunk_branch,
         )
     )
+    _emit_status_advisories(result)
     return 1 if result.incomplete else 0
 
 
@@ -373,7 +390,7 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
         if lookup.pull_request is None:
             raise AssertionError("Closed pull request lookup must include a pull request.")
         if lookup.pull_request.state == "merged":
-            summary = f"PR #{lookup.pull_request.number} merged"
+            summary = f"PR #{lookup.pull_request.number} merged, cleanup needed"
         else:
             summary = f"PR #{lookup.pull_request.number} closed"
     else:
@@ -383,16 +400,10 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
         else:
             summary = message
 
-    if getattr(revision, "local_divergent", False):
-        if (
-            lookup is not None
-            and lookup.state == "closed"
-            and lookup.pull_request is not None
-            and lookup.pull_request.state == "merged"
-        ):
-            summary = f"{summary}, cleanup needed"
-        else:
-            summary = f"{summary}, multiple visible revisions"
+    if getattr(revision, "local_divergent", False) and not _revision_has_merged_pull_request(
+        revision
+    ):
+        summary = f"{summary}, multiple visible revisions"
 
     stack_comment_lookup = revision.stack_comment_lookup
     if stack_comment_lookup is not None and stack_comment_lookup.state in {
@@ -434,6 +445,101 @@ def _format_review_decision_label(review_decision: str) -> str:
     if review_decision == "changes_requested":
         return "changes requested"
     return review_decision
+
+
+def _emit_status_advisories(result) -> None:
+    if not hasattr(result, "revisions") or not hasattr(result, "selected_revset"):
+        return
+    cleanup_revisions = [
+        revision for revision in result.revisions if _revision_has_merged_pull_request(revision)
+    ]
+    divergent_revisions = [
+        revision
+        for revision in result.revisions
+        if getattr(revision, "local_divergent", False)
+        and not _revision_has_merged_pull_request(revision)
+    ]
+    policy_warnings = [
+        revision
+        for revision in cleanup_revisions
+        if (
+            revision.pull_request_lookup is not None
+            and revision.pull_request_lookup.pull_request is not None
+            and revision.pull_request_lookup.pull_request.base.ref.startswith("review/")
+        )
+    ]
+    if not cleanup_revisions and not divergent_revisions and not policy_warnings:
+        return
+
+    print()
+    print("Advisories:")
+    if cleanup_revisions:
+        next_command = f"jj-review cleanup --restack {result.selected_revset}"
+        _print_wrapped_advisory(
+            "Submit note: descendant PR bases still follow the old local ancestry "
+            "until the stack is restacked"
+        )
+        _print_wrapped_advisory(
+            f"Next step: run `{next_command}` to preview the local restack plan, "
+            "then rerun it with `--apply`"
+        )
+        for revision in cleanup_revisions:
+            pull_request_number = _revision_pull_request_number(revision)
+            pull_request_label = (
+                f"PR #{pull_request_number}" if pull_request_number is not None else "merged PR"
+            )
+            _print_wrapped_advisory(
+                f"{_status_revision_label(revision)}: {pull_request_label} is merged, "
+                "and later local changes are still based on it"
+            )
+    for revision in policy_warnings:
+        base_ref = revision.pull_request_lookup.pull_request.base.ref
+        pull_request_number = _revision_pull_request_number(revision)
+        _print_wrapped_advisory(
+            f"Repository policy warning: PR #{pull_request_number} merged into "
+            f"{base_ref}; configure GitHub to block merges of PRs targeting "
+            "`review/*`"
+        )
+    for revision in divergent_revisions:
+        _print_wrapped_advisory(
+            f"{_status_revision_label(revision)}: resolve the multiple visible "
+            "revisions for this change before retrying "
+            f"(`jj log -r 'change_id({revision.change_id})'`)"
+        )
+
+
+def _print_wrapped_advisory(message: str) -> None:
+    print(
+        textwrap.fill(
+            message,
+            width=80,
+            initial_indent="- ",
+            subsequent_indent="  ",
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+    )
+
+
+def _status_revision_label(revision) -> str:
+    return f"[{_display_change_id(revision.change_id)}]"
+
+
+def _revision_has_merged_pull_request(revision) -> bool:
+    lookup = revision.pull_request_lookup
+    return (
+        lookup is not None
+        and lookup.state == "closed"
+        and lookup.pull_request is not None
+        and lookup.pull_request.state == "merged"
+    )
+
+
+def _revision_pull_request_number(revision) -> int | None:
+    lookup = revision.pull_request_lookup
+    if lookup is None or lookup.pull_request is None:
+        return None
+    return lookup.pull_request.number
 
 
 def _submit_handler(args: Namespace) -> int:
@@ -482,6 +588,65 @@ def _adopt_handler(args: Namespace) -> int:
 
 def _cleanup_handler(args: Namespace) -> int:
     context = bootstrap_context(args)
+    if args.restack:
+        try:
+            prepared_restack = prepare_restack(
+                apply=bool(args.apply),
+                change_overrides=context.config.change,
+                config=context.config.repo,
+                repo_root=context.repo_root,
+                revset=args.revset,
+            )
+        except UnsupportedStackError as error:
+            raise CliError(_describe_status_preparation_error(error)) from error
+        prepared_status = prepared_restack.prepared_status
+        prepared = prepared_status.prepared
+        print(f"Selected revset: {prepared_status.selected_revset}")
+        if prepared.remote is None:
+            if prepared.remote_error is None:
+                print("Selected remote: unavailable")
+            else:
+                print(f"Selected remote: unavailable ({prepared.remote_error})")
+        else:
+            print(f"Selected remote: {prepared.remote.name}")
+        if prepared_status.github_repository is None:
+            if prepared_status.github_repository_error is not None:
+                print(
+                    "GitHub target: unavailable "
+                    f"({prepared_status.github_repository_error})"
+                )
+        else:
+            print(f"GitHub: {prepared_status.github_repository.full_name}")
+
+        header_printed = False
+
+        def emit_action(action) -> None:
+            nonlocal header_printed
+            if not header_printed:
+                header = (
+                    "Applied restack actions:"
+                    if prepared_restack.apply
+                    else "Planned restack actions:"
+                )
+                print(header)
+                header_printed = True
+            print(f"- [{action.status}] {action.kind}: {action.message}")
+
+        result = stream_restack(
+            on_action=emit_action,
+            prepared_restack=prepared_restack,
+        )
+        if not result.actions:
+            print("No merged review units on the selected path need restacking.")
+            return 0
+        if not result.applied:
+            print(
+                "Re-run with `cleanup --restack --apply"
+                f"{' ' + result.selected_revset if result.selected_revset else ''}` "
+                "to rewrite surviving local changes."
+            )
+        return 1 if result.blocked else 0
+
     prepared_cleanup = prepare_cleanup(
         apply=bool(args.apply),
         config=context.config.repo,

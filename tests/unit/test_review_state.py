@@ -185,6 +185,36 @@ def test_status_treats_cleanup_needed_after_merged_pr_as_informational() -> None
     assert _status_is_incomplete((revision,)) is False
 
 
+def test_status_marks_non_merged_divergent_revision_incomplete() -> None:
+    revision = ReviewStatusRevision(
+        bookmark="review/feature-1-aaaaaaaa",
+        bookmark_source="generated",
+        cached_change=None,
+        change_id="aaaaaaaaaaaa",
+        local_divergent=True,
+        pull_request_lookup=PullRequestLookup(
+            message=None,
+            pull_request=GithubPullRequest(
+                base=GithubBranchRef(ref="main"),
+                head=GithubBranchRef(ref="review/feature-1-aaaaaaaa"),
+                html_url="https://github.test/octo-org/stacked-review/pull/1",
+                number=1,
+                state="open",
+                title="feature 1",
+            ),
+            repository_error=None,
+            review_decision=None,
+            review_decision_error=None,
+            state="open",
+        ),
+        remote_state=None,
+        stack_comment_lookup=None,
+        subject="feature 1",
+    )
+
+    assert _status_is_incomplete((revision,)) is True
+
+
 def test_stream_status_marks_missing_remote_as_incomplete() -> None:
     prepared_status = PreparedStatus(
         github_repository=None,
