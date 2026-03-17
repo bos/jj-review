@@ -119,6 +119,14 @@ async def _run_adopt_async(
         raise AdoptResolutionError(
             f"Local bookmark {bookmark!r} is conflicted. Resolve it before adopting."
         )
+    if (
+        bookmark_state.local_target is not None
+        and bookmark_state.local_target != revision.commit_id
+    ):
+        raise AdoptResolutionError(
+            f"Local bookmark {bookmark!r} already points to a different revision. "
+            "Move or forget it explicitly before adopting."
+        )
     remote_state = bookmark_state.remote_target(remote.name)
     if remote_state is None or not remote_state.targets:
         raise AdoptResolutionError(

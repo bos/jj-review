@@ -653,6 +653,8 @@ Implemented in the first vertical cut:
   linkage so a later submit can update the adopted review intentionally
 - `adopt` now also fails closed on GitHub lookup errors instead of surfacing
   uncaught transport exceptions through the CLI
+- `adopt` now also refuses to steal an already-bound local review bookmark from
+  another revision when sparse cache state is missing or stale
 
 Deliver:
 

@@ -735,6 +735,40 @@ def test_adopt_reports_missing_pull_request_without_traceback(
     assert "Traceback" not in captured.err
 
 
+def test_adopt_rejects_existing_local_bookmark_on_different_change(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _write_file(repo / "feature-2.txt", "feature 2\n")
+    _run(["jj", "commit", "-m", "feature 2"], repo)
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    bottom_commit_id = stack.revisions[0].commit_id
+    top_change_id = stack.revisions[-1].change_id
+    manual_bookmark = "review/manual-feature-1"
+    _run(["jj", "bookmark", "create", manual_bookmark, "-r", bottom_change_id], repo)
+    _run(["jj", "git", "push", "--remote", "origin", "--bookmark", manual_bookmark], repo)
+    fake_repo.create_pull_request(
+        base_ref="main",
+        body="manual body",
+        head_ref=manual_bookmark,
+        title="manual title",
+    )
+
+    exit_code = _main(repo, config_path, "adopt", "1", top_change_id)
+    captured = capsys.readouterr()
+    bookmark_state = JjClient(repo).get_bookmark_state(manual_bookmark)
+
+    assert exit_code == 1
+    assert "already points to a different revision" in captured.err
+    assert bookmark_state.local_target == bottom_commit_id
+
+
 def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
     tmp_path: Path,
     monkeypatch,
