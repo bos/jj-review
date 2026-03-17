@@ -608,6 +608,57 @@ def test_status_exits_nonzero_when_pull_request_lookup_fails(
     assert ": cached PR #1 (open), pull request lookup failed (GitHub 422)" in captured.out
 
 
+def test_status_exits_nonzero_when_github_reports_multiple_pull_requests(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    bookmark = ReviewStateStore.for_repo(repo).load().changes[change_id].bookmark
+    assert bookmark is not None
+    fake_repo.create_pull_request(
+        base_ref="main",
+        body="duplicate",
+        head_ref=bookmark,
+        title="feature 1 duplicate",
+    )
+
+    exit_code = _main(repo, config_path, "status", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "multiple pull requests" in captured.out
+
+
+def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=1)
+
+    exit_code = _main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "multiple `jj-review` stack comments" in captured.out
+
+
 def test_sync_refreshes_cached_pull_request_and_stack_comment_metadata(
     tmp_path: Path,
     monkeypatch,

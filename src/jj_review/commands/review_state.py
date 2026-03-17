@@ -556,12 +556,16 @@ def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
     for revision in revisions:
         pull_request_lookup = revision.pull_request_lookup
         if pull_request_lookup is not None and (
-            pull_request_lookup.state == "error"
+            pull_request_lookup.state == "ambiguous"
+            or pull_request_lookup.state == "error"
             or pull_request_lookup.review_decision_error is not None
         ):
             return True
         stack_comment_lookup = revision.stack_comment_lookup
-        if stack_comment_lookup is not None and stack_comment_lookup.state == "error":
+        if stack_comment_lookup is not None and stack_comment_lookup.state in {
+            "ambiguous",
+            "error",
+        }:
             return True
     return False
 

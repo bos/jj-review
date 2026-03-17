@@ -369,6 +369,9 @@ If GitHub is unreachable or misconfigured, status should report that once at the
 repo level and then fall back to conservative per-change summaries derived from
 local cache rather than claiming a PR is absent. Because that output is
 incomplete, the command should exit non-zero instead of reporting success.
+Likewise, if live inspection finds ambiguous PR linkage or multiple managed
+stack comments for the same PR, status should surface that inline and exit
+non-zero rather than silently treating the stack as healthy.
 When cached GitHub linkage includes a last-known PR state, status may surface
 that state in the fallback output as cached information rather than implying it
 is live.

@@ -332,13 +332,15 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
     lookup = revision.pull_request_lookup
     cached_change = revision.cached_change
     cached_label = _format_cached_pull_request_label(cached_change)
+    summary: str
     if lookup is None:
         if github_available:
-            return "not submitted"
-        if cached_label is not None:
-            return cached_label
-        return "GitHub status unknown"
-    if lookup.state == "open":
+            summary = "not submitted"
+        elif cached_label is not None:
+            summary = cached_label
+        else:
+            summary = "GitHub status unknown"
+    elif lookup.state == "open":
         if lookup.pull_request is None:
             raise AssertionError("Open pull request lookup must include a pull request.")
         summary = f"PR #{lookup.pull_request.number}"
@@ -347,24 +349,36 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
             lookup=lookup,
         )
         if review_decision == "approved":
-            return f"{summary} approved"
-        if review_decision == "changes_requested":
-            return f"{summary} changes requested"
-        return summary
-    if lookup.state == "missing":
+            summary = f"{summary} approved"
+        elif review_decision == "changes_requested":
+            summary = f"{summary} changes requested"
+    elif lookup.state == "missing":
         if cached_label is not None:
-            return f"{cached_label}, no GitHub PR"
-        return "not submitted"
-    if lookup.state == "closed":
+            summary = f"{cached_label}, no GitHub PR"
+        else:
+            summary = "not submitted"
+    elif lookup.state == "closed":
         if lookup.pull_request is None:
             raise AssertionError("Closed pull request lookup must include a pull request.")
         if lookup.pull_request.state == "merged":
-            return f"PR #{lookup.pull_request.number} merged"
-        return f"PR #{lookup.pull_request.number} closed"
-    message = lookup.message or "GitHub lookup failed"
-    if cached_label is not None:
-        return f"{cached_label}, {message}"
-    return message
+            summary = f"PR #{lookup.pull_request.number} merged"
+        else:
+            summary = f"PR #{lookup.pull_request.number} closed"
+    else:
+        message = lookup.message or "GitHub lookup failed"
+        if cached_label is not None:
+            summary = f"{cached_label}, {message}"
+        else:
+            summary = message
+
+    stack_comment_lookup = revision.stack_comment_lookup
+    if stack_comment_lookup is not None and stack_comment_lookup.state in {
+        "ambiguous",
+        "error",
+    }:
+        message = stack_comment_lookup.message or "stack comment lookup failed"
+        return f"{summary}, {message}"
+    return summary
 
 
 def _format_pull_request_status(revision) -> str:
