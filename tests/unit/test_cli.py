@@ -206,7 +206,7 @@ def test_main_status_short_fetch_alias_passes_fetch_to_prepare_status(
     assert prepare_calls == [True]
 
 
-def test_main_cleanup_passes_apply_to_run_cleanup(
+def test_main_cleanup_passes_apply_to_prepare_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -214,8 +214,17 @@ def test_main_cleanup_passes_apply_to_run_cleanup(
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     apply_calls: list[bool] = []
 
-    def fake_run_cleanup(**kwargs):
+    def fake_prepare_cleanup(**kwargs):
         apply_calls.append(bool(kwargs["apply"]))
+        return SimpleNamespace(
+            apply=True,
+            github_repository=None,
+            github_repository_error=None,
+            remote=None,
+            remote_error=None,
+        )
+
+    def fake_stream_cleanup(**kwargs):
         return SimpleNamespace(
             actions=(),
             applied=True,
@@ -225,7 +234,8 @@ def test_main_cleanup_passes_apply_to_run_cleanup(
             remote_error=None,
         )
 
-    monkeypatch.setattr("jj_review.cli.run_cleanup", fake_run_cleanup)
+    monkeypatch.setattr("jj_review.cli.prepare_cleanup", fake_prepare_cleanup)
+    monkeypatch.setattr("jj_review.cli.stream_cleanup", fake_stream_cleanup)
 
     exit_code = main(["cleanup", "--apply", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -242,8 +252,32 @@ def test_main_cleanup_renders_planned_and_blocked_actions(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(
-        "jj_review.cli.run_cleanup",
+        "jj_review.cli.prepare_cleanup",
         lambda **kwargs: SimpleNamespace(
+            apply=False,
+            github_repository=SimpleNamespace(full_name="octo-org/stacked-review"),
+            github_repository_error=None,
+            remote=SimpleNamespace(name="origin"),
+            remote_error=None,
+        ),
+    )
+
+    def fake_stream_cleanup(**kwargs):
+        kwargs["on_action"](
+            SimpleNamespace(
+                kind="cache",
+                message="remove cached review state for abcdef12",
+                status="planned",
+            )
+        )
+        kwargs["on_action"](
+            SimpleNamespace(
+                kind="remote branch",
+                message="cannot delete review/feature-abcdef12@origin",
+                status="blocked",
+            )
+        )
+        return SimpleNamespace(
             actions=(
                 SimpleNamespace(
                     kind="cache",
@@ -261,8 +295,9 @@ def test_main_cleanup_renders_planned_and_blocked_actions(
             github_repository="octo-org/stacked-review",
             remote=SimpleNamespace(name="origin"),
             remote_error=None,
-        ),
-    )
+        )
+
+    monkeypatch.setattr("jj_review.cli.stream_cleanup", fake_stream_cleanup)
 
     exit_code = main(["cleanup", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -275,6 +310,63 @@ def test_main_cleanup_renders_planned_and_blocked_actions(
     assert "[blocked] remote branch: cannot delete review/feature-abcdef12@origin" in (
         captured.out
     )
+    assert "cleanup --apply" in captured.out
+
+
+def test_main_cleanup_prints_remote_and_github_before_stream_completes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.cli.prepare_cleanup",
+        lambda **kwargs: SimpleNamespace(
+            apply=False,
+            github_repository=SimpleNamespace(full_name="octo-org/stacked-review"),
+            github_repository_error=None,
+            remote=SimpleNamespace(name="origin"),
+            remote_error=None,
+        ),
+    )
+
+    checkpoints: list[str] = []
+
+    def fake_stream_cleanup(**kwargs):
+        checkpoints.append(capsys.readouterr().out)
+        kwargs["on_action"](
+            SimpleNamespace(
+                kind="cache",
+                message="remove cached review state for abcdef12",
+                status="planned",
+            )
+        )
+        checkpoints.append(capsys.readouterr().out)
+        return SimpleNamespace(
+            actions=(
+                SimpleNamespace(
+                    kind="cache",
+                    message="remove cached review state for abcdef12",
+                    status="planned",
+                ),
+            ),
+            applied=False,
+            github_error=None,
+            github_repository="octo-org/stacked-review",
+            remote=SimpleNamespace(name="origin"),
+            remote_error=None,
+        )
+
+    monkeypatch.setattr("jj_review.cli.stream_cleanup", fake_stream_cleanup)
+
+    exit_code = main(["cleanup", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Selected remote: origin" in checkpoints[0]
+    assert "GitHub: octo-org/stacked-review" in checkpoints[0]
+    assert "Planned cleanup actions:" in checkpoints[1]
+    assert "[planned] cache: remove cached review state for abcdef12" in checkpoints[1]
     assert "cleanup --apply" in captured.out
 
 

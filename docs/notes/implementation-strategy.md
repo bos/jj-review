@@ -156,6 +156,9 @@ The CLI layer should be thin. It should:
 - initialize logging
 - build command dependencies
 - render user-facing output and diagnostics
+- for inspection-style commands such as `status` and `cleanup`, print resolved
+  local context promptly and stream per-item results as remote inspection
+  completes rather than buffering the full command behind one aggregate result
 
 It should not contain stack planning logic.
 

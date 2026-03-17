@@ -16,7 +16,7 @@ from typing import Any, cast
 from jj_review import __version__
 from jj_review.bootstrap import BootstrapError, bootstrap_context
 from jj_review.commands.adopt import run_adopt
-from jj_review.commands.cleanup import run_cleanup
+from jj_review.commands.cleanup import prepare_cleanup, stream_cleanup
 from jj_review.commands.review_state import prepare_status, stream_status
 from jj_review.commands.submit import run_submit
 from jj_review.errors import CliError, CommandNotImplementedError
@@ -439,36 +439,49 @@ def _adopt_handler(args: Namespace) -> int:
 
 def _cleanup_handler(args: Namespace) -> int:
     context = bootstrap_context(args)
-    result = run_cleanup(
+    prepared_cleanup = prepare_cleanup(
         apply=bool(args.apply),
         config=context.config.repo,
         repo_root=context.repo_root,
     )
-    if result.remote is None:
-        if result.remote_error is None:
+    if prepared_cleanup.remote is None:
+        if prepared_cleanup.remote_error is None:
             print("Selected remote: unavailable")
         else:
-            print(f"Selected remote: unavailable ({result.remote_error})")
+            print(f"Selected remote: unavailable ({prepared_cleanup.remote_error})")
     else:
-        print(f"Selected remote: {result.remote.name}")
+        print(f"Selected remote: {prepared_cleanup.remote.name}")
 
-    if result.github_repository is None:
-        if result.github_error is not None:
-            print(f"GitHub target: unavailable ({result.github_error})")
+    if prepared_cleanup.github_repository is None:
+        if prepared_cleanup.github_repository_error is not None:
+            print(
+                "GitHub target: unavailable "
+                f"({prepared_cleanup.github_repository_error})"
+            )
     else:
-        if result.github_error is None:
-            print(f"GitHub: {result.github_repository}")
-        else:
-            print(f"GitHub target: {result.github_repository} ({result.github_error})")
+        print(f"GitHub: {prepared_cleanup.github_repository.full_name}")
 
+    header_printed = False
+
+    def emit_action(action) -> None:
+        nonlocal header_printed
+        if not header_printed:
+            header = (
+                "Applied cleanup actions:"
+                if prepared_cleanup.apply
+                else "Planned cleanup actions:"
+            )
+            print(header)
+            header_printed = True
+        print(f"- [{action.status}] {action.kind}: {action.message}")
+
+    result = stream_cleanup(
+        on_action=emit_action,
+        prepared_cleanup=prepared_cleanup,
+    )
     if not result.actions:
         print("No cleanup actions planned.")
         return 0
-
-    header = "Applied cleanup actions:" if result.applied else "Planned cleanup actions:"
-    print(header)
-    for action in result.actions:
-        print(f"- [{action.status}] {action.kind}: {action.message}")
     if not result.applied:
         print("Re-run with `cleanup --apply` to perform safe actions.")
     return 0
