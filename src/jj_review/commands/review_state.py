@@ -417,7 +417,9 @@ async def _run_sync_async(
                 stack_comment_lookup = revision.stack_comment_lookup
                 if stack_comment_lookup is not None and stack_comment_lookup.state == "present":
                     if stack_comment_lookup.comment is None:
-                        raise AssertionError("Present stack comment lookup must include a comment.")
+                        raise AssertionError(
+                            "Present stack comment lookup must include a comment."
+                        )
                     updated_change = updated_change.model_copy(
                         update={"stack_comment_id": stack_comment_lookup.comment.id}
                     )
