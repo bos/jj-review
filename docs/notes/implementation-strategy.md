@@ -623,8 +623,7 @@ Implemented in the first vertical cut:
 - the CLI now supports `--time-output` as a global debugging aid that prefixes
   printed lines with elapsed time from process start
 - `status` now inspects per-change GitHub linkage with bounded concurrency on
-  one shared client, while retrying rate-limited GitHub responses
-  conservatively instead of hammering the API
+  one shared client with bounded concurrency
 - `status` now derives repo-level GitHub availability from the first real PR
   lookup instead of blocking on a separate repository probe before streaming
   output
@@ -714,16 +713,7 @@ Done when:
 
 ### Slice 9: Merged PR Reconciliation
 
-Status: in progress.
-
-Implemented so far:
-
-- `cleanup --restack` no longer reuses the full `status` GitHub inspection
-  path; it now performs a narrower PR-state-only inspection for the selected
-  path
-- that restack-specific inspection batches GitHub lookups by cached PR number
-  and by uncached head branch so large local stacks do not pay one REST pull
-  request lookup per revision just to plan a restack
+Status: done.
 
 Deliver:
 

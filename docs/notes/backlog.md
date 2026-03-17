@@ -16,8 +16,12 @@ tool-controlled files, so that partially written files can't exist or be read.
 
 The submit algorithm walks bottom-to-top creating/updating PRs sequentially.
 For deep stacks this means many API round trips. We need to decide whether to
-batch or parallelize GitHub API calls, and handle GitHub rate limiting
-gracefully. Acceptable to stay serial for the MVP.
+batch or parallelize GitHub API calls. Acceptable to stay serial for the MVP.
+
+The GitHub client already implements retry-with-backoff for 429 and 403
+rate-limit responses, reading `Retry-After` and `X-RateLimit-Reset` headers
+and falling back to exponential backoff. The remaining gap is parallelising
+the per-change API calls in `submit` and `status` for large stacks.
 
 ## Ancestor Merged on GitHub
 
@@ -37,12 +41,6 @@ makes this extremely unlikely, but the tool should detect it and fail with a
 clear diagnostic describing what went wrong and how to resolve it (e.g., set an
 explicit bookmark override for one of the changes).
 
-## Minimum JJ Version
-
-The implementation shells out to `jj` and relies on machine-readable template
-output. We need to either pin a minimum `jj` version or add a capability check
-at startup to confirm the expected template syntax works.
-
 ## Draft PR Support
 
 GitHub has a native draft PR concept (visible but not reviewable or mergeable
@@ -56,6 +54,21 @@ from MVP.
 matching a revset, and for descendants that would require pushing those commits
 too. `submit` should preflight that policy and fail with a targeted diagnostic
 before attempting `jj git push`.
+
+## Submit Dry-Run Mode
+
+`submit` currently mutates local bookmarks, pushes branches, and
+creates/updates PRs in a single command with no preview step. `status` serves
+as the pre-flight inspection, but it does not show what submit would actually
+do (which bookmarks would move, which PRs would be created vs. updated, what
+the computed base branches would be).
+
+A `submit --dry-run` flag that prints the planned bookmark moves, pushes, and
+PR actions without performing them would lower the friction for first-time
+submits and make it easier to verify that a rebase or rename has been
+interpreted correctly before touching GitHub. The planned output format should
+match what `submit` prints on a live run so the user knows exactly what to
+expect.
 
 ## Status Command Architecture
 
