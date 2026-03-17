@@ -1404,6 +1404,106 @@ def test_status_reports_merged_pull_request_state(
     assert refreshed_state.changes[change_id].pr_review_decision is None
 
 
+def test_cleanup_reports_stale_cache_and_remote_branch_without_applying(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+    bookmark = initial_state.changes[change_id].bookmark
+    assert bookmark is not None
+
+    _run(["jj", "abandon", change_id], repo)
+    _run(["jj", "bookmark", "delete", bookmark], repo)
+
+    exit_code = _main(repo, config_path, "cleanup")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Planned cleanup actions:" in captured.out
+    assert "[planned] cache:" in captured.out
+    assert f"[planned] remote branch: delete remote review branch {bookmark}@origin" in (
+        captured.out
+    )
+    assert "cleanup --apply" in captured.out
+    assert change_id in state_store.load().changes
+    assert f"refs/heads/{bookmark}" in _remote_refs(fake_repo.git_dir)
+
+
+def test_cleanup_apply_removes_stale_cache_and_remote_branch(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+    bookmark = initial_state.changes[change_id].bookmark
+    assert bookmark is not None
+
+    _run(["jj", "abandon", change_id], repo)
+    _run(["jj", "bookmark", "delete", bookmark], repo)
+
+    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Applied cleanup actions:" in captured.out
+    assert f"[applied] remote branch: delete remote review branch {bookmark}@origin" in (
+        captured.out
+    )
+    assert change_id not in state_store.load().changes
+    assert f"refs/heads/{bookmark}" not in _remote_refs(fake_repo.git_dir)
+
+
+def test_cleanup_apply_deletes_managed_stack_comment_for_closed_pull_request(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    fake_repo.pull_requests[1].state = "closed"
+
+    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    captured = capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert exit_code == 0
+    assert "[applied] stack comment: delete managed stack comment #1 from PR #1" in (
+        captured.out
+    )
+    assert refreshed_state.changes[change_id].pr_number == 1
+    assert refreshed_state.changes[change_id].stack_comment_id is None
+    assert _issue_comments(fake_repo, 1) == []
+
+
 def _configure_submit_environment(
     monkeypatch,
     tmp_path: Path,
@@ -1421,6 +1521,7 @@ def _configure_submit_environment(
 
     monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
     monkeypatch.setattr("jj_review.commands.adopt._build_github_client", build_github_client)
+    monkeypatch.setattr("jj_review.commands.cleanup._build_github_client", build_github_client)
     monkeypatch.setattr(
         "jj_review.commands.review_state._build_github_client",
         build_github_client,

@@ -186,6 +186,19 @@ class GithubClient:
         )
         return GithubIssueComment.model_validate(self._expect_success(response))
 
+    async def delete_issue_comment(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        comment_id: int,
+    ) -> None:
+        response = await self._request(
+            "DELETE",
+            f"/repos/{owner}/{repo}/issues/comments/{comment_id}",
+        )
+        self._expect_no_content(response)
+
     async def update_pull_request(
         self,
         owner: str,
@@ -282,6 +295,18 @@ class GithubClient:
                 status_code=error.response.status_code,
             ) from error
         return response.json()
+
+    def _expect_no_content(self, response: httpx.Response) -> None:
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as error:
+            raise GithubClientError(
+                f"GitHub request failed: {error.response.status_code} {error.response.text}",
+                retry_after_seconds=_parse_retry_after_header(
+                    error.response.headers.get("Retry-After")
+                ),
+                status_code=error.response.status_code,
+            ) from error
 
     def _retry_after_seconds(
         self,

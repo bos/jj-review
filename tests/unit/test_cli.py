@@ -206,6 +206,78 @@ def test_main_status_short_fetch_alias_passes_fetch_to_prepare_status(
     assert prepare_calls == [True]
 
 
+def test_main_cleanup_passes_apply_to_run_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    apply_calls: list[bool] = []
+
+    def fake_run_cleanup(**kwargs):
+        apply_calls.append(bool(kwargs["apply"]))
+        return SimpleNamespace(
+            actions=(),
+            applied=True,
+            github_error=None,
+            github_repository=None,
+            remote=None,
+            remote_error=None,
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_cleanup", fake_run_cleanup)
+
+    exit_code = main(["cleanup", "--apply", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert apply_calls == [True]
+    assert "No cleanup actions planned." in captured.out
+
+
+def test_main_cleanup_renders_planned_and_blocked_actions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.cli.run_cleanup",
+        lambda **kwargs: SimpleNamespace(
+            actions=(
+                SimpleNamespace(
+                    kind="cache",
+                    message="remove cached review state for abcdef12",
+                    status="planned",
+                ),
+                SimpleNamespace(
+                    kind="remote branch",
+                    message="cannot delete review/feature-abcdef12@origin",
+                    status="blocked",
+                ),
+            ),
+            applied=False,
+            github_error=None,
+            github_repository="octo-org/stacked-review",
+            remote=SimpleNamespace(name="origin"),
+            remote_error=None,
+        ),
+    )
+
+    exit_code = main(["cleanup", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Selected remote: origin" in captured.out
+    assert "GitHub: octo-org/stacked-review" in captured.out
+    assert "Planned cleanup actions:" in captured.out
+    assert "[planned] cache: remove cached review state for abcdef12" in captured.out
+    assert "[blocked] remote branch: cannot delete review/feature-abcdef12@origin" in (
+        captured.out
+    )
+    assert "cleanup --apply" in captured.out
+
+
 def test_main_status_reports_uninspected_github_target_for_empty_stack(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

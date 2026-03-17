@@ -672,6 +672,25 @@ Done when:
 
 ### Slice 8: Cleanup
 
+Status: done.
+
+Implemented in the first vertical cut:
+
+- `cleanup` now reports repo-scoped sparse-state cleanup actions before it
+  mutates anything, including stale cached change records, removable managed
+  stack comments on stale PRs, and stale synthetic remote review branches
+- `cleanup --apply` now performs the safe subset of those actions: it prunes
+  cached change entries that no longer resolve to supported local review
+  stacks, deletes only managed stack comments on closed or detached PRs, and
+  deletes stale remote review branches only when the remote branch is
+  unambiguous and no local bookmark still owns it
+- remote-branch cleanup remains conservative and fail-closed: conflicted
+  remote branches and still-present local bookmarks are surfaced as blocked
+  cleanup items instead of being deleted automatically
+- the fake GitHub server and GitHub client now support stack-comment deletion
+  so cleanup can exercise reviewer-facing metadata removal end-to-end in the
+  default integration suite
+
 Deliver:
 
 - stale cache cleanup

@@ -16,6 +16,7 @@ from typing import Any, cast
 from jj_review import __version__
 from jj_review.bootstrap import BootstrapError, bootstrap_context
 from jj_review.commands.adopt import run_adopt
+from jj_review.commands.cleanup import run_cleanup
 from jj_review.commands.review_state import prepare_status, stream_status
 from jj_review.commands.submit import run_submit
 from jj_review.errors import CliError, CommandNotImplementedError
@@ -78,7 +79,12 @@ def build_parser() -> ArgumentParser:
         help="Report or apply conservative review cleanup actions.",
         parents=[common_options],
     )
-    cleanup_parser.set_defaults(handler=_stub_handler("cleanup"))
+    cleanup_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply safe cleanup actions instead of only reporting them.",
+    )
+    cleanup_parser.set_defaults(handler=_cleanup_handler)
     return parser
 
 
@@ -428,6 +434,43 @@ def _adopt_handler(args: Namespace) -> int:
         f"Adopted PR #{result.pull_request_number} for {result.subject} "
         f"[{_display_change_id(result.change_id)}] -> {result.bookmark}"
     )
+    return 0
+
+
+def _cleanup_handler(args: Namespace) -> int:
+    context = bootstrap_context(args)
+    result = run_cleanup(
+        apply=bool(args.apply),
+        config=context.config.repo,
+        repo_root=context.repo_root,
+    )
+    if result.remote is None:
+        if result.remote_error is None:
+            print("Selected remote: unavailable")
+        else:
+            print(f"Selected remote: unavailable ({result.remote_error})")
+    else:
+        print(f"Selected remote: {result.remote.name}")
+
+    if result.github_repository is None:
+        if result.github_error is not None:
+            print(f"GitHub target: unavailable ({result.github_error})")
+    else:
+        if result.github_error is None:
+            print(f"GitHub: {result.github_repository}")
+        else:
+            print(f"GitHub target: {result.github_repository} ({result.github_error})")
+
+    if not result.actions:
+        print("No cleanup actions planned.")
+        return 0
+
+    header = "Applied cleanup actions:" if result.applied else "Planned cleanup actions:"
+    print(header)
+    for action in result.actions:
+        print(f"- [{action.status}] {action.kind}: {action.message}")
+    if not result.applied:
+        print("Re-run with `cleanup --apply` to perform safe actions.")
     return 0
 
 

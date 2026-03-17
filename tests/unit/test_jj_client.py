@@ -352,6 +352,60 @@ def test_update_untracked_remote_bookmark_pushes_fetches_and_tracks() -> None:
     ]
 
 
+def test_list_bookmark_states_treats_null_targets_as_deleted() -> None:
+    responses: dict[tuple[str, ...], str] = {
+        (
+            "jj",
+            "bookmark",
+            "list",
+            "--all-remotes",
+            "-T",
+            'json(self) ++ "\\n"',
+            "review/foo",
+        ): (
+            '{"name":"review/foo","target":[null]}\n'
+            '{"name":"review/foo","remote":"origin","target":["abc123"],'
+            '"tracking_target":[null]}\n'
+        ),
+    }
+
+    bookmark_state = JjClient(Path("/repo"), runner=_runner(responses)).get_bookmark_state(
+        "review/foo"
+    )
+
+    assert bookmark_state.local_targets == ()
+    remote_state = bookmark_state.remote_target("origin")
+    assert remote_state is not None
+    assert remote_state.targets == ("abc123",)
+    assert remote_state.tracking_targets == ()
+
+
+def test_query_revisions_returns_empty_when_change_id_no_longer_exists() -> None:
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        assert tuple(command) == (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "missing-change-id",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        )
+        assert cwd == Path("/repo")
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr="Error: Revision `missing-change-id` doesn't exist\n",
+        )
+
+    client = JjClient(Path("/repo"), runner=run)
+
+    assert client.query_revisions("missing-change-id", limit=2) == ()
+
+
 def _template() -> str:
     return (
         r'json(change_id) ++ "\t" ++ json(commit_id) ++ "\t" ++ json(description) ++ "\t" ++ '

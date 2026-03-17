@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Body, FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException, Response
 
 
 @dataclass(slots=True)
@@ -191,6 +191,16 @@ class FakeGithubRepository:
                     return comment
         return None
 
+    def delete_issue_comment(self, *, comment_id: int) -> bool:
+        for issue_number, comments in self.issue_comments.items():
+            for index, comment in enumerate(comments):
+                if comment.id == comment_id:
+                    del comments[index]
+                    if not comments:
+                        self.issue_comments.pop(issue_number, None)
+                    return True
+        return False
+
     def _require_issue_number(self, issue_number: int) -> None:
         if issue_number not in self.pull_requests:
             raise HTTPException(status_code=404, detail="Not Found")
@@ -357,6 +367,22 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
         if comment is None:
             raise HTTPException(status_code=404, detail="Not Found")
         return comment.to_payload(repository=repository, web_origin=fake_state.web_origin)
+
+    @app.delete(
+        "/repos/{owner}/{repo}/issues/comments/{comment_id}",
+        response_model=None,
+        status_code=204,
+    )
+    async def delete_issue_comment(
+        owner: str,
+        repo: str,
+        comment_id: int,
+    ) -> Response:
+        repository = _get_repository(fake_state, owner, repo)
+        deleted = repository.delete_issue_comment(comment_id=comment_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Not Found")
+        return Response(status_code=204)
 
     return app
 

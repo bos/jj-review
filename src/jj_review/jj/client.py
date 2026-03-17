@@ -150,6 +150,21 @@ class JjClient:
             raise RevsetResolutionError(f"Revset {revset!r} resolved to more than one revision.")
         return revisions[0]
 
+    def query_revisions(
+        self,
+        revset: str,
+        *,
+        limit: int | None = None,
+    ) -> tuple[LocalRevision, ...]:
+        """Return revisions matching the supplied revset."""
+
+        try:
+            return tuple(self._query_revisions(revset, limit=limit))
+        except JjCommandError as error:
+            if _is_missing_revision_error(str(error)):
+                return ()
+            raise
+
     def _resolve_trunk(self) -> LocalRevision:
         """Resolve `trunk()` and reject the implicit root fallback."""
 
@@ -298,6 +313,12 @@ class JjClient:
         self.fetch_remote(remote=remote)
         self.track_bookmark(remote=remote, bookmark=bookmark)
 
+    def delete_remote_bookmark(self, *, remote: str, bookmark: str) -> None:
+        """Delete one remote bookmark by name."""
+
+        self._run_git(("push", remote, f":refs/heads/{bookmark}"))
+        self.fetch_remote(remote=remote)
+
     def _query_revisions(self, revset: str, *, limit: int | None = None) -> list[LocalRevision]:
         command = ["log", "--no-graph", "-r", revset, "-T", _COMMIT_TEMPLATE]
         if limit is not None:
@@ -392,6 +413,10 @@ def _default_runner(command: Sequence[str], cwd: Path) -> subprocess.CompletedPr
 _EXPECTED_FIELD_COUNT = 9
 
 
+def _is_missing_revision_error(message: str) -> bool:
+    return "Revision `" in message and "doesn't exist" in message
+
+
 def _parse_revision_line(line: str) -> LocalRevision:
     parts = line.split("\t")
     if len(parts) != _EXPECTED_FIELD_COUNT:
@@ -441,7 +466,7 @@ def _parse_revision_line(line: str) -> LocalRevision:
 def _require_sequence(value: Any) -> Sequence[str]:
     if not isinstance(value, list | tuple):
         raise JjCommandError("Unexpected `jj bookmark list` payload: expected a sequence.")
-    return tuple(str(item) for item in value)
+    return tuple(str(item) for item in value if item is not None)
 
 
 def _quote_revset_symbol(symbol: str) -> str:
