@@ -145,3 +145,114 @@ def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> No
     assert result.github_repository == "octo-org/stacked-review"
     assert result.incomplete is False
     assert result.revisions == ()
+
+
+def test_stream_status_marks_missing_remote_as_incomplete() -> None:
+    prepared_status = PreparedStatus(
+        github_repository=None,
+        github_repository_error=None,
+        prepared=cast(
+            _PreparedStack,
+            SimpleNamespace(
+                remote=None,
+                remote_error="no git remote configured",
+                status_revisions=(
+                    SimpleNamespace(
+                        bookmark="review/feature-1-aaaaaaaa",
+                        bookmark_source="generated",
+                        cached_change=None,
+                        revision=SimpleNamespace(
+                            change_id="aaaaaaaaaaaa",
+                            subject="feature 1",
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        selected_revset="@",
+        trunk_subject="base",
+    )
+    local_only_revisions = (
+        ReviewStatusRevision(
+            bookmark="review/feature-1-aaaaaaaa",
+            bookmark_source="generated",
+            cached_change=None,
+            change_id="aaaaaaaaaaaa",
+            pull_request_lookup=None,
+            remote_state=None,
+            stack_comment_lookup=None,
+            subject="feature 1",
+        ),
+    )
+
+    result = asyncio.run(
+        _stream_status_async(
+            on_github_status=None,
+            on_revision=None,
+            prepared_status=prepared_status,
+        )
+    )
+
+    assert result.github_error is None
+    assert result.github_repository is None
+    assert result.incomplete is True
+    assert result.remote_error == "no git remote configured"
+    assert result.revisions == local_only_revisions
+
+
+def test_stream_status_marks_missing_github_target_as_incomplete(monkeypatch) -> None:
+    remote = GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git")
+    prepared_status = PreparedStatus(
+        github_repository=None,
+        github_repository_error="repo not found or inaccessible",
+        prepared=cast(
+            _PreparedStack,
+            SimpleNamespace(
+                remote=remote,
+                remote_error=None,
+                status_revisions=(
+                    SimpleNamespace(
+                        bookmark="review/feature-1-aaaaaaaa",
+                        bookmark_source="generated",
+                        cached_change=None,
+                        revision=SimpleNamespace(
+                            change_id="aaaaaaaaaaaa",
+                            subject="feature 1",
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        selected_revset="@",
+        trunk_subject="base",
+    )
+    local_only_revisions = (
+        ReviewStatusRevision(
+            bookmark="review/feature-1-aaaaaaaa",
+            bookmark_source="generated",
+            cached_change=None,
+            change_id="aaaaaaaaaaaa",
+            pull_request_lookup=None,
+            remote_state=None,
+            stack_comment_lookup=None,
+            subject="feature 1",
+        ),
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.review_state._build_status_revisions_without_github",
+        lambda prepared: local_only_revisions,
+    )
+
+    result = asyncio.run(
+        _stream_status_async(
+            on_github_status=None,
+            on_revision=None,
+            prepared_status=prepared_status,
+        )
+    )
+
+    assert result.github_error == "repo not found or inaccessible"
+    assert result.github_repository is None
+    assert result.incomplete is True
+    assert result.remote == remote
+    assert result.revisions == local_only_revisions

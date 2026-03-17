@@ -223,7 +223,7 @@ async def _stream_status_async(
         return StatusResult(
             github_error=None,
             github_repository=None,
-            incomplete=False,
+            incomplete=True,
             remote=None,
             remote_error=prepared.remote_error,
             revisions=revisions,
@@ -244,7 +244,7 @@ async def _stream_status_async(
         return StatusResult(
             github_error=github_repository_error,
             github_repository=None,
-            incomplete=False,
+            incomplete=True,
             remote=prepared.remote,
             remote_error=None,
             revisions=revisions,

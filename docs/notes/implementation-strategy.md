@@ -642,6 +642,9 @@ Implemented in the first vertical cut:
 - `status` now treats ambiguous GitHub PR linkage and ambiguous managed stack
   comments as incomplete inspection, so the command exits non-zero instead of
   presenting those cases as healthy output
+- `status` now also treats remote-resolution and GitHub-target fallback output
+  as incomplete inspection, so local-only summaries exit non-zero when live
+  inspection could not be completed
 - GitHub client list endpoints now follow pagination links through one shared
   helper so status and adopt do not silently truncate multi-page remote state
 - `adopt` now resolves one explicit PR number or URL against the configured
