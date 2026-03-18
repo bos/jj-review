@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
 from jj_review.cache import ReviewStateStore
 from jj_review.commands.review_state import (
     PreparedStatus,
-    PullRequestLookup,
     ReviewStatusRevision,
     prepare_status,
+    stream_status,
 )
 from jj_review.commands.submit import (
     _STACK_COMMENT_MARKER,
@@ -25,11 +27,19 @@ from jj_review.commands.submit import (
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.intent import (
+    check_same_kind_intent,
+    delete_intent,
+    match_ordered_change_ids,
+    retire_superseded_intents,
+    write_intent,
+)
 from jj_review.jj import JjClient
 from jj_review.jj.client import UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
+from jj_review.models.intent import CleanupApplyIntent, CleanupRestackIntent, LoadedIntent
 
 CleanupActionStatus = Literal["applied", "blocked", "planned"]
 _GITHUB_INSPECTION_CONCURRENCY = 4
@@ -72,6 +82,7 @@ class PreparedCleanup:
     remote: GitRemote | None
     remote_error: str | None
     state: ReviewState
+    state_dir: Path | None
     state_store: ReviewStateStore
 
 
@@ -113,7 +124,6 @@ class RestackResult:
     github_repository: str | None
     remote: GitRemote | None
     remote_error: str | None
-    requires_nontrunk_rebase: bool
     selected_revset: str
 
 
@@ -122,18 +132,8 @@ class PreparedRestack:
     """Locally prepared restack inputs before any rewrite."""
 
     apply: bool
-    allow_nontrunk_rebase: bool
     prepared_status: PreparedStatus
-
-
-@dataclass(frozen=True, slots=True)
-class _RestackInspection:
-    github_error: str | None
-    github_repository: str | None
-    remote: GitRemote | None
-    remote_error: str | None
-    revisions: tuple[ReviewStatusRevision, ...]
-    selected_revset: str
+    state_dir: Path | None
 
 
 def run_cleanup(
@@ -163,6 +163,7 @@ def prepare_cleanup(
     jj_client = JjClient(repo_root)
     state_store = ReviewStateStore.for_repo(repo_root)
     state = state_store.load()
+    state_dir = state_store.require_writable() if apply else state_store.state_dir
 
     remote, remote_error = _resolve_remote(config=config, jj_client=jj_client)
     github_repository, github_error = _resolve_github_repository(
@@ -184,6 +185,7 @@ def prepare_cleanup(
         remote=remote,
         remote_error=remote_error,
         state=state,
+        state_dir=state_dir,
         state_store=state_store,
     )
 
@@ -191,7 +193,6 @@ def prepare_cleanup(
 def prepare_restack(
     *,
     apply: bool,
-    allow_nontrunk_rebase: bool,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     repo_root: Path,
@@ -199,16 +200,20 @@ def prepare_restack(
 ) -> PreparedRestack:
     """Resolve local restack inputs before any rewrite."""
 
+    from jj_review.cache import ReviewStateStore as _RSS
+    _state_store = _RSS.for_repo(repo_root)
+    _state_dir = _state_store.require_writable() if apply else _state_store.state_dir
+
     return PreparedRestack(
         apply=apply,
-        allow_nontrunk_rebase=allow_nontrunk_rebase,
         prepared_status=prepare_status(
             change_overrides=change_overrides,
             config=config,
-            fetch_remote_state=False,
+            fetch_remote_state=True,
             repo_root=repo_root,
             revset=revset,
         ),
+        state_dir=_state_dir,
     )
 
 
@@ -234,413 +239,25 @@ def stream_restack(
 ) -> RestackResult:
     """Inspect and optionally apply a local restack plan for merged path changes."""
 
-    inspection = asyncio.run(_inspect_restack(prepared_restack=prepared_restack))
+    status_result = stream_status(prepared_status=prepared_restack.prepared_status)
     return _build_restack_result(
-        inspection=inspection,
         on_action=on_action,
         prepared_restack=prepared_restack,
-    )
-
-
-async def _inspect_restack(
-    *,
-    prepared_restack: PreparedRestack,
-) -> _RestackInspection:
-    prepared_status = prepared_restack.prepared_status
-    prepared = prepared_status.prepared
-    selected_revset = prepared_status.selected_revset
-    github_repository = prepared_status.github_repository
-    github_repository_error = prepared_status.github_repository_error
-
-    if prepared.remote is None:
-        return _RestackInspection(
-            github_error=None,
-            github_repository=None,
-            remote=None,
-            remote_error=prepared.remote_error,
-            revisions=(),
-            selected_revset=selected_revset,
-        )
-    if github_repository is None:
-        return _RestackInspection(
-            github_error=github_repository_error,
-            github_repository=None,
-            remote=prepared.remote,
-            remote_error=None,
-            revisions=(),
-            selected_revset=selected_revset,
-        )
-    if not prepared.status_revisions:
-        return _RestackInspection(
-            github_error=None,
-            github_repository=github_repository.full_name,
-            remote=prepared.remote,
-            remote_error=None,
-            revisions=(),
-            selected_revset=selected_revset,
-        )
-
-    async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
-        try:
-            revisions = await _inspect_restack_revisions(
-                github_client=github_client,
-                github_repository=github_repository,
-                prepared_status=prepared_status,
-            )
-        except GithubClientError as error:
-            return _RestackInspection(
-                github_error=_summarize_restack_batch_error(error),
-                github_repository=github_repository.full_name,
-                remote=prepared.remote,
-                remote_error=None,
-                revisions=(),
-                selected_revset=selected_revset,
-            )
-
-    github_error = next(
-        (
-            lookup.repository_error
-            for revision in revisions
-            if revision.pull_request_lookup is not None
-            and (lookup := revision.pull_request_lookup).repository_error is not None
-        ),
-        None,
-    )
-    return _RestackInspection(
-        github_error=github_error,
-        github_repository=github_repository.full_name,
-        remote=prepared.remote,
-        remote_error=None,
-        revisions=tuple(revisions),
-        selected_revset=selected_revset,
-    )
-
-
-async def _inspect_restack_revisions(
-    *,
-    github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
-    prepared_status: PreparedStatus,
-) -> list[ReviewStatusRevision]:
-    prepared_revisions = prepared_status.prepared.status_revisions
-    cached_pull_requests = await _load_cached_pull_requests_for_restack(
-        github_client=github_client,
-        github_repository=github_repository,
-        prepared_revisions=prepared_revisions,
-    )
-    pull_requests_by_head_ref = await _load_pull_requests_by_head_refs_for_restack(
-        cached_pull_requests=cached_pull_requests,
-        github_client=github_client,
-        github_repository=github_repository,
-        prepared_revisions=prepared_revisions,
-    )
-    semaphore = asyncio.Semaphore(_GITHUB_INSPECTION_CONCURRENCY)
-    tasks = [
-        asyncio.create_task(
-            _inspect_restack_revision(
-                cached_pull_requests=cached_pull_requests,
-                github_client=github_client,
-                github_repository=github_repository,
-                prepared_revision=prepared_revision,
-                pull_requests_by_head_ref=pull_requests_by_head_ref,
-                semaphore=semaphore,
-            )
-        )
-        for prepared_revision in prepared_revisions
-    ]
-    return list(await asyncio.gather(*tasks))
-
-
-async def _load_cached_pull_requests_for_restack(
-    *,
-    github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
-    prepared_revisions,
-) -> dict[int, GithubPullRequest | None]:
-    pull_numbers = sorted(
-        {
-            prepared_revision.cached_change.pr_number
-            for prepared_revision in prepared_revisions
-            if prepared_revision.cached_change is not None
-            and prepared_revision.cached_change.pr_number is not None
-        }
-    )
-    if not pull_numbers:
-        return {}
-    try:
-        return await github_client.get_pull_requests_by_numbers(
-            github_repository.owner,
-            github_repository.repo,
-            pull_numbers=pull_numbers,
-        )
-    except GithubClientError as error:
-        if error.status_code not in {404, 405, 501}:
-            raise
-        return {}
-
-
-async def _load_pull_requests_by_head_refs_for_restack(
-    *,
-    cached_pull_requests: dict[int, GithubPullRequest | None],
-    github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
-    prepared_revisions,
-) -> dict[str, tuple[GithubPullRequest, ...]]:
-    head_refs = sorted(
-        {
-            prepared_revision.bookmark
-            for prepared_revision in prepared_revisions
-            if not _cached_pull_request_matches_revision(
-                prepared_revision=prepared_revision,
-                cached_pull_requests=cached_pull_requests,
-            )
-        }
-    )
-    if not head_refs:
-        return {}
-    try:
-        return await github_client.get_pull_requests_by_head_refs(
-            github_repository.owner,
-            github_repository.repo,
-            head_refs=head_refs,
-        )
-    except GithubClientError as error:
-        if error.status_code not in {404, 405, 501}:
-            raise
-        return {}
-
-
-def _cached_pull_request_matches_revision(
-    *,
-    prepared_revision,
-    cached_pull_requests: dict[int, GithubPullRequest | None],
-) -> bool:
-    cached_change = prepared_revision.cached_change
-    if cached_change is None or cached_change.pr_number is None:
-        return False
-    cached_pull_request = cached_pull_requests.get(cached_change.pr_number)
-    return (
-        cached_pull_request is not None
-        and cached_pull_request.head.ref == prepared_revision.bookmark
-    )
-
-
-async def _inspect_restack_revision(
-    *,
-    cached_pull_requests: dict[int, GithubPullRequest | None],
-    github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
-    prepared_revision,
-    pull_requests_by_head_ref: dict[str, tuple[GithubPullRequest, ...]],
-    semaphore: asyncio.Semaphore,
-) -> ReviewStatusRevision:
-    async with semaphore:
-        pull_request_lookup = await _inspect_restack_pull_request(
-            bookmark=prepared_revision.bookmark,
-            cached_change=prepared_revision.cached_change,
-            cached_pull_requests=cached_pull_requests,
-            github_client=github_client,
-            github_repository=github_repository,
-            pull_requests_by_head_ref=pull_requests_by_head_ref,
-        )
-        return ReviewStatusRevision(
-            bookmark=prepared_revision.bookmark,
-            bookmark_source=prepared_revision.bookmark_source,
-            cached_change=prepared_revision.cached_change,
-            change_id=prepared_revision.revision.change_id,
-            local_divergent=getattr(prepared_revision.revision, "divergent", False),
-            pull_request_lookup=pull_request_lookup,
-            remote_state=None,
-            stack_comment_lookup=None,
-            subject=prepared_revision.revision.subject,
-        )
-
-
-async def _inspect_restack_pull_request(
-    *,
-    bookmark: str,
-    cached_change: CachedChange | None,
-    cached_pull_requests: dict[int, GithubPullRequest | None],
-    github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
-    pull_requests_by_head_ref: dict[str, tuple[GithubPullRequest, ...]],
-) -> PullRequestLookup:
-    cached_pr_number = cached_change.pr_number if cached_change is not None else None
-    if cached_pr_number is not None:
-        cached_pull_request = cached_pull_requests.get(cached_pr_number)
-        if cached_pull_request is not None and cached_pull_request.head.ref == bookmark:
-            return _restack_lookup_from_pull_request(
-                _normalize_restack_pull_request(cached_pull_request)
-            )
-
-    pull_requests = pull_requests_by_head_ref.get(bookmark)
-    if pull_requests is not None:
-        return _restack_lookup_from_head_pull_requests(
-            bookmark=bookmark,
-            pull_requests=pull_requests,
-        )
-
-    return await _inspect_restack_pull_request_by_head(
-        bookmark=bookmark,
-        github_client=github_client,
-        github_repository=github_repository,
-    )
-
-
-async def _inspect_restack_pull_request_by_head(
-    *,
-    bookmark: str,
-    github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
-) -> PullRequestLookup:
-    head_label = f"{github_repository.owner}:{bookmark}"
-    try:
-        pull_requests = await github_client.list_pull_requests(
-            github_repository.owner,
-            github_repository.repo,
-            head=head_label,
-        )
-    except GithubClientError as error:
-        return _restack_lookup_from_error(action="pull request lookup", error=error)
-
-    if not pull_requests:
-        return PullRequestLookup(
-            message=None,
-            pull_request=None,
-            repository_error=None,
-            state="missing",
-        )
-    if len(pull_requests) > 1:
-        numbers = ", ".join(str(pull_request.number) for pull_request in pull_requests)
-        return PullRequestLookup(
-            message=(
-                f"GitHub reports multiple pull requests for head branch {head_label!r}: "
-                f"{numbers}."
-            ),
-            pull_request=None,
-            repository_error=None,
-            state="ambiguous",
-        )
-    return _restack_lookup_from_pull_request(_normalize_restack_pull_request(pull_requests[0]))
-
-
-def _restack_lookup_from_pull_request(pull_request: GithubPullRequest) -> PullRequestLookup:
-    if pull_request.state != "open":
-        return PullRequestLookup(
-            message=(
-                f"GitHub reports pull request #{pull_request.number} for head branch "
-                f"{pull_request.head.ref!r} in state {pull_request.state!r}."
-            ),
-            pull_request=pull_request,
-            review_decision=None,
-            repository_error=None,
-            state="closed",
-        )
-    return PullRequestLookup(
-        message=None,
-        pull_request=pull_request,
-        review_decision=None,
-        review_decision_error=None,
-        repository_error=None,
-        state="open",
-    )
-
-
-def _restack_lookup_from_head_pull_requests(
-    *,
-    bookmark: str,
-    pull_requests: tuple[GithubPullRequest, ...],
-) -> PullRequestLookup:
-    head_label = bookmark
-    if not pull_requests:
-        return PullRequestLookup(
-            message=None,
-            pull_request=None,
-            repository_error=None,
-            state="missing",
-        )
-    if len(pull_requests) > 1:
-        numbers = ", ".join(str(pull_request.number) for pull_request in pull_requests)
-        return PullRequestLookup(
-            message=(
-                f"GitHub reports multiple pull requests for head branch {head_label!r}: "
-                f"{numbers}."
-            ),
-            pull_request=None,
-            repository_error=None,
-            state="ambiguous",
-        )
-    return _restack_lookup_from_pull_request(_normalize_restack_pull_request(pull_requests[0]))
-
-
-def _restack_lookup_from_error(*, action: str, error: GithubClientError) -> PullRequestLookup:
-    return PullRequestLookup(
-        message=_summarize_restack_lookup_error(action=action, error=error),
-        pull_request=None,
-        repository_error=(
-            _summarize_restack_repository_error(error)
-            if _is_repository_level_restack_error(error)
-            else None
-        ),
-        state="error",
-    )
-
-
-def _normalize_restack_pull_request(pull_request: GithubPullRequest) -> GithubPullRequest:
-    if pull_request.state != "closed" or pull_request.merged_at is None:
-        return pull_request
-    return pull_request.model_copy(update={"state": "merged"})
-
-
-def _summarize_restack_lookup_error(*, action: str, error: GithubClientError) -> str:
-    if error.status_code is None:
-        return "GitHub is unavailable - check network connectivity"
-    if error.status_code == 401:
-        return "GitHub authentication failed - check GITHUB_TOKEN"
-    if error.status_code == 403:
-        return "GitHub access was denied - check GITHUB_TOKEN and repo access"
-    if error.status_code >= 500:
-        return "GitHub is unavailable - check network connectivity"
-    return f"{action} failed (GitHub {error.status_code})"
-
-
-def _summarize_restack_repository_error(error: GithubClientError) -> str:
-    if error.status_code is None:
-        return "unavailable - check network connectivity"
-    if error.status_code == 401:
-        return "auth failed - check GITHUB_TOKEN"
-    if error.status_code == 403:
-        return "access denied - check GITHUB_TOKEN and repo access"
-    if error.status_code == 404:
-        return "repo not found or inaccessible - check GITHUB_TOKEN and repo access"
-    if error.status_code >= 500:
-        return "unavailable - check network connectivity"
-    return f"unavailable (GitHub {error.status_code})"
-
-
-def _summarize_restack_batch_error(error: GithubClientError) -> str:
-    if _is_repository_level_restack_error(error):
-        return _summarize_restack_repository_error(error)
-    return _summarize_restack_lookup_error(action="pull request lookup", error=error)
-
-
-def _is_repository_level_restack_error(error: GithubClientError) -> bool:
-    return (
-        error.status_code in {401, 403, 404}
-        or error.status_code is None
-        or (error.status_code is not None and error.status_code >= 500)
+        status_result=status_result,
     )
 
 
 def _build_restack_result(
     *,
-    inspection: _RestackInspection,
     on_action: Callable[[CleanupAction], None] | None,
     prepared_restack: PreparedRestack,
+    status_result,
 ) -> RestackResult:
     prepared_status = prepared_restack.prepared_status
     prepared = prepared_status.prepared
-    revisions_by_change_id = {revision.change_id: revision for revision in inspection.revisions}
+    revisions_by_change_id = {
+        revision.change_id: revision for revision in status_result.revisions
+    }
     path_revisions = tuple(
         revisions_by_change_id[prepared_revision.revision.change_id]
         for prepared_revision in prepared.status_revisions
@@ -654,7 +271,7 @@ def _build_restack_result(
         if on_action is not None:
             on_action(action)
 
-    if inspection.github_error is not None or inspection.github_repository is None:
+    if status_result.github_error is not None or status_result.github_repository is None:
         record_action(
             CleanupAction(
                 kind="restack",
@@ -669,16 +286,14 @@ def _build_restack_result(
             actions=tuple(actions),
             applied=prepared_restack.apply,
             blocked=True,
-            github_error=inspection.github_error,
-            github_repository=inspection.github_repository,
-            remote=inspection.remote,
-            remote_error=inspection.remote_error,
-            requires_nontrunk_rebase=False,
-            selected_revset=inspection.selected_revset,
+            github_error=status_result.github_error,
+            github_repository=status_result.github_repository,
+            remote=status_result.remote,
+            remote_error=status_result.remote_error,
+            selected_revset=status_result.selected_revset,
         )
 
-    hard_blocked = False
-    requires_nontrunk_rebase = False
+    blocked = False
     merged_revisions = tuple(
         revision for revision in path_revisions if _revision_has_merged_pull_request(revision)
     )
@@ -687,19 +302,18 @@ def _build_restack_result(
             actions=(),
             applied=prepared_restack.apply,
             blocked=False,
-            github_error=inspection.github_error,
-            github_repository=inspection.github_repository,
-            remote=inspection.remote,
-            remote_error=inspection.remote_error,
-            requires_nontrunk_rebase=False,
-            selected_revset=inspection.selected_revset,
+            github_error=status_result.github_error,
+            github_repository=status_result.github_repository,
+            remote=status_result.remote,
+            remote_error=status_result.remote_error,
+            selected_revset=status_result.selected_revset,
         )
 
     closed_unmerged_revisions = tuple(
         revision for revision in path_revisions if _revision_is_closed_unmerged(revision)
     )
     for revision in closed_unmerged_revisions:
-        hard_blocked = True
+        blocked = True
         record_action(
             CleanupAction(
                 kind="restack",
@@ -725,7 +339,7 @@ def _build_restack_result(
         last_submitted = cached_change.last_submitted_commit_id
         if current_commit_id == last_submitted:
             continue
-        hard_blocked = True
+        blocked = True
         record_action(
             CleanupAction(
                 kind="restack",
@@ -749,7 +363,7 @@ def _build_restack_result(
         if _revision_is_closed_unmerged(revision):
             continue
         if revision.local_divergent:
-            hard_blocked = True
+            blocked = True
             record_action(
                 CleanupAction(
                     kind="restack",
@@ -776,53 +390,54 @@ def _build_restack_result(
             rebase_plans.append((revision.change_id, desired_parent_change_id))
         survivor_change_ids.append(revision.change_id)
 
-    client = prepared.client
-    if prepared_restack.apply and not hard_blocked:
-        trunk_rebase_plans = tuple(
-            (source_change_id, destination_change_id)
-            for source_change_id, destination_change_id in rebase_plans
-            if destination_change_id is None
+    # Write intent file before the rebase loop (apply mode only)
+    restack_intent_path: Path | None = None
+    restack_stale_intents: list[LoadedIntent] = []
+    _restack_intent: CleanupRestackIntent | None = None
+    if prepared_restack.apply and not blocked and prepared_restack.state_dir is not None:
+        _ordered_ids = tuple(
+            pr.revision.change_id for pr in prepared.status_revisions
         )
-        for source_change_id, destination_change_id in trunk_rebase_plans:
-            source_revision = client.resolve_revision(source_change_id)
-            destination_revision = prepared.stack.trunk.commit_id
-            if source_revision.only_parent_commit_id() == destination_revision:
-                continue
-            client.rebase_revision(
-                source=source_change_id,
-                destination=destination_revision,
+        _restack_intent = CleanupRestackIntent(
+            kind="cleanup-restack",
+            pid=os.getpid(),
+            label=f"cleanup --restack on {status_result.selected_revset}",
+            display_revset=status_result.selected_revset,
+            ordered_change_ids=_ordered_ids,
+            started_at=datetime.now(timezone.utc).isoformat(),
+        )
+        restack_stale_intents = check_same_kind_intent(
+            prepared_restack.state_dir, _restack_intent
+        )
+        for _loaded in restack_stale_intents:
+            _match = match_ordered_change_ids(
+                _loaded.intent.ordered_change_ids, _ordered_ids
             )
-            record_action(
-                CleanupAction(
-                    kind="restack",
-                    message=(
-                        f"rebase {_short_change_id(source_change_id)} onto "
-                        f"{_restack_destination_label(destination_change_id)}"
-                    ),
-                    status="applied",
+            if _match == "exact":
+                print(f"Resuming interrupted {_loaded.intent.label}")
+            elif _match == "superset":
+                pass  # proceed silently; retire old intent on success
+            elif _match == "overlap":
+                print(
+                    f"Warning: this restack overlaps an incomplete earlier operation "
+                    f"({_loaded.intent.label})"
                 )
-            )
+            else:
+                print(f"Note: incomplete operation outstanding: {_loaded.intent.label}")
+        restack_intent_path = write_intent(prepared_restack.state_dir, _restack_intent)
 
-        remaining_nontrunk_rebase_plans = _remaining_nontrunk_rebase_plans(
-            client=client,
-            rebase_plans=rebase_plans,
-        )
-        if remaining_nontrunk_rebase_plans and not prepared_restack.allow_nontrunk_rebase:
-            requires_nontrunk_rebase = True
-            for source_change_id, destination_change_id in remaining_nontrunk_rebase_plans:
-                record_action(
-                    CleanupAction(
-                        kind="restack",
-                        message=_blocked_nontrunk_restack_message(
-                            source_change_id=source_change_id,
-                            destination_change_id=destination_change_id,
-                        ),
-                        status="blocked",
-                    )
-                )
-        else:
-            for source_change_id, destination_change_id in remaining_nontrunk_rebase_plans:
-                destination_revision = client.resolve_revision(destination_change_id).commit_id
+    client = prepared.client
+    _restack_succeeded = False
+    try:
+        if prepared_restack.apply and not blocked:
+            for source_change_id, destination_change_id in rebase_plans:
+                source_revision = client.resolve_revision(source_change_id)
+                if destination_change_id is None:
+                    destination_revision = prepared.stack.trunk.commit_id
+                else:
+                    destination_revision = client.resolve_revision(destination_change_id).commit_id
+                if source_revision.only_parent_commit_id() == destination_revision:
+                    continue
                 client.rebase_revision(
                     source=source_change_id,
                     destination=destination_revision,
@@ -837,116 +452,69 @@ def _build_restack_result(
                         status="applied",
                     )
                 )
-    else:
-        for source_change_id, destination_change_id in rebase_plans:
-            message = _planned_restack_message(
-                source_change_id=source_change_id,
-                destination_change_id=destination_change_id,
-            )
-            status: CleanupActionStatus = "planned"
-            if hard_blocked:
-                status = "blocked"
-                message = f"{message} once blocked path changes are resolved"
-            elif (
-                destination_change_id is not None
-                and not prepared_restack.allow_nontrunk_rebase
-            ):
-                status = "blocked"
-                requires_nontrunk_rebase = True
-                message = _blocked_nontrunk_restack_message(
-                    source_change_id=source_change_id,
-                    destination_change_id=destination_change_id,
+        else:
+            for source_change_id, destination_change_id in rebase_plans:
+                status = "blocked" if blocked else "planned"
+                message = (
+                    f"rebase {_short_change_id(source_change_id)} onto "
+                    f"{_restack_destination_label(destination_change_id)}"
                 )
+                if blocked and closed_unmerged_revisions:
+                    message = f"{message} once blocked path changes are resolved"
+                record_action(
+                    CleanupAction(
+                        kind="restack",
+                        message=message,
+                        status=status,
+                    )
+                )
+
+        for revision in merged_revisions:
+            pull_request_number = _revision_pull_request_number(revision)
+            if pull_request_number is None:
+                continue
+            base_ref = _revision_pull_request_base_ref(revision)
+            if base_ref is None or not base_ref.startswith("review/"):
+                continue
+            record_action(
+                CleanupAction(
+                    kind="policy",
+                    message=(
+                        f"PR #{pull_request_number} merged into review branch {base_ref}; "
+                        "configure GitHub to block merges of PRs targeting `review/*`"
+                    ),
+                    status="planned",
+                )
+            )
+
+        if not actions and merged_revisions:
+            merged_labels = ", ".join(_revision_label(revision) for revision in merged_revisions)
             record_action(
                 CleanupAction(
                     kind="restack",
-                    message=message,
-                    status=status,
+                    message=(
+                        f"merged review units remain on the selected path ({merged_labels}), but "
+                        "no surviving descendants need to move"
+                    ),
+                    status="planned" if not prepared_restack.apply else "applied",
                 )
             )
 
-    for revision in merged_revisions:
-        pull_request_number = _revision_pull_request_number(revision)
-        if pull_request_number is None:
-            continue
-        base_ref = _revision_pull_request_base_ref(revision)
-        if base_ref is None or not base_ref.startswith("review/"):
-            continue
-        record_action(
-            CleanupAction(
-                kind="policy",
-                message=(
-                    f"PR #{pull_request_number} merged into review branch {base_ref}; "
-                    "configure GitHub to block merges of PRs targeting `review/*`"
-                ),
-                status="planned",
-            )
+        _restack_succeeded = True
+        return RestackResult(
+            actions=tuple(actions),
+            applied=prepared_restack.apply,
+            blocked=blocked,
+            github_error=status_result.github_error,
+            github_repository=status_result.github_repository,
+            remote=status_result.remote,
+            remote_error=status_result.remote_error,
+            selected_revset=status_result.selected_revset,
         )
-
-    if not actions and merged_revisions:
-        merged_labels = ", ".join(_revision_label(revision) for revision in merged_revisions)
-        record_action(
-            CleanupAction(
-                kind="restack",
-                message=(
-                    f"merged review units remain on the selected path ({merged_labels}), but "
-                    "no surviving descendants need to move"
-                ),
-                status="planned" if not prepared_restack.apply else "applied",
-            )
-        )
-
-    return RestackResult(
-        actions=tuple(actions),
-        applied=prepared_restack.apply,
-        blocked=hard_blocked or requires_nontrunk_rebase,
-        github_error=inspection.github_error,
-        github_repository=inspection.github_repository,
-        remote=inspection.remote,
-        remote_error=inspection.remote_error,
-        requires_nontrunk_rebase=requires_nontrunk_rebase,
-        selected_revset=inspection.selected_revset,
-    )
-
-
-def _remaining_nontrunk_rebase_plans(
-    *,
-    client: JjClient,
-    rebase_plans: list[tuple[str, str | None]],
-) -> tuple[tuple[str, str], ...]:
-    remaining_plans: list[tuple[str, str]] = []
-    for source_change_id, destination_change_id in rebase_plans:
-        if destination_change_id is None:
-            continue
-        source_revision = client.resolve_revision(source_change_id)
-        destination_revision = client.resolve_revision(destination_change_id).commit_id
-        if source_revision.only_parent_commit_id() == destination_revision:
-            continue
-        remaining_plans.append((source_change_id, destination_change_id))
-    return tuple(remaining_plans)
-
-
-def _planned_restack_message(
-    *,
-    source_change_id: str,
-    destination_change_id: str | None,
-) -> str:
-    return (
-        f"rebase {_short_change_id(source_change_id)} onto "
-        f"{_restack_destination_label(destination_change_id)}"
-    )
-
-
-def _blocked_nontrunk_restack_message(
-    *,
-    source_change_id: str,
-    destination_change_id: str,
-) -> str:
-    return (
-        f"rebase {_short_change_id(source_change_id)} onto "
-        f"{_restack_destination_label(destination_change_id)} requires "
-        "--allow-nontrunk-rebase"
-    )
+    finally:
+        if _restack_succeeded and restack_intent_path is not None and _restack_intent is not None:
+            retire_superseded_intents(restack_stale_intents, _restack_intent)
+            delete_intent(restack_intent_path)
 
 
 def _revision_has_merged_pull_request(revision: ReviewStatusRevision) -> bool:
@@ -1013,170 +581,208 @@ async def _stream_cleanup_async(
         if on_action is not None:
             on_action(action)
 
-    if prepared_cleanup.github_repository is None:
-        for change_id, cached_change in prepared_cleanup.state.changes.items():
-            prepared_change = _prepare_cleanup_change(
-                cached_change=cached_change,
-                change_id=change_id,
-                prepared_cleanup=prepared_cleanup,
-            )
-            stale_reason = prepared_change.stale_reason
-            if stale_reason is None:
-                continue
-            record_action(
-                _cache_action(
-                    change_id=change_id,
-                    reason=stale_reason,
-                    status="applied" if apply else "planned",
-                )
-            )
-            if apply:
-                next_changes.pop(change_id, None)
+    # Write an intent file before the first mutation (apply mode only)
+    intent_path: Path | None = None
+    if apply and prepared_cleanup.state_dir is not None:
+        _intent = CleanupApplyIntent(
+            kind="cleanup-apply",
+            pid=os.getpid(),
+            label="cleanup --apply",
+            started_at=datetime.now(timezone.utc).isoformat(),
+        )
+        _stale_intents = check_same_kind_intent(prepared_cleanup.state_dir, _intent)
+        for _loaded in _stale_intents:
+            print(f"Note: a previous cleanup was interrupted ({_loaded.intent.label})")
+        intent_path = write_intent(prepared_cleanup.state_dir, _intent)
 
-            remote_plan = _plan_remote_branch_cleanup(
-                bookmark_state=prepared_change.bookmark_state,
-                cached_change=cached_change,
+    _cleanup_succeeded = False
+    try:
+        if prepared_cleanup.github_repository is None:
+            for change_id, cached_change in prepared_cleanup.state.changes.items():
+                prepared_change = _prepare_cleanup_change(
+                    cached_change=cached_change,
+                    change_id=change_id,
+                    prepared_cleanup=prepared_cleanup,
+                )
+                stale_reason = prepared_change.stale_reason
+                if stale_reason is None:
+                    continue
+                record_action(
+                    _cache_action(
+                        change_id=change_id,
+                        reason=stale_reason,
+                        status="applied" if apply else "planned",
+                    )
+                )
+                if apply:
+                    next_changes.pop(change_id, None)
+
+                remote_plan = _plan_remote_branch_cleanup(
+                    bookmark_state=prepared_change.bookmark_state,
+                    cached_change=cached_change,
+                    remote=remote,
+                )
+                if remote_plan is not None:
+                    remote_action = remote_plan.action
+                    if (
+                        apply
+                        and remote_action.status == "planned"
+                        and remote is not None
+                        and remote_plan.expected_remote_target is not None
+                    ):
+                        jj_client.delete_remote_bookmark(
+                            remote=remote.name,
+                            bookmark=cached_change.bookmark or "",
+                            expected_remote_target=remote_plan.expected_remote_target,
+                        )
+                        remote_action = CleanupAction(
+                            kind=remote_plan.action.kind,
+                            message=remote_plan.action.message,
+                            status="applied",
+                        )
+                    record_action(remote_action)
+
+                if apply:
+                    interim = prepared_cleanup.state.model_copy(
+                        update={"changes": dict(next_changes)}
+                    )
+                    prepared_cleanup.state_store.save(interim)
+
+            if apply and next_changes != prepared_cleanup.state.changes:
+                prepared_cleanup.state_store.save(
+                    prepared_cleanup.state.model_copy(update={"changes": next_changes})
+                )
+
+            _cleanup_succeeded = True
+            return CleanupResult(
+                actions=tuple(actions),
+                applied=apply,
+                github_error=prepared_cleanup.github_repository_error,
+                github_repository=None,
                 remote=remote,
+                remote_error=prepared_cleanup.remote_error,
             )
-            if remote_plan is not None:
-                remote_action = remote_plan.action
-                if (
-                    apply
-                    and remote_action.status == "planned"
-                    and remote is not None
-                    and remote_plan.expected_remote_target is not None
-                ):
-                    jj_client.delete_remote_bookmark(
-                        remote=remote.name,
-                        bookmark=cached_change.bookmark or "",
-                        expected_remote_target=remote_plan.expected_remote_target,
+
+        github_repository = prepared_cleanup.github_repository
+        async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+            prepared_changes: list[PreparedCleanupChange] = []
+            for change_id, cached_change in prepared_cleanup.state.changes.items():
+                prepared_change = _prepare_cleanup_change(
+                    cached_change=cached_change,
+                    change_id=change_id,
+                    prepared_cleanup=prepared_cleanup,
+                )
+                prepared_changes.append(prepared_change)
+
+                stale_reason = prepared_change.stale_reason
+                if stale_reason is None:
+                    continue
+
+                record_action(
+                    _cache_action(
+                        change_id=change_id,
+                        reason=stale_reason,
+                        status="applied" if apply else "planned",
                     )
-                    remote_action = CleanupAction(
-                        kind=remote_plan.action.kind,
-                        message=remote_plan.action.message,
-                        status="applied",
+                )
+                if apply:
+                    next_changes.pop(change_id, None)
+
+                remote_plan = _plan_remote_branch_cleanup(
+                    bookmark_state=prepared_change.bookmark_state,
+                    cached_change=cached_change,
+                    remote=remote,
+                )
+                if remote_plan is not None:
+                    remote_action = remote_plan.action
+                    if (
+                        apply
+                        and remote_action.status == "planned"
+                        and remote is not None
+                        and remote_plan.expected_remote_target is not None
+                    ):
+                        jj_client.delete_remote_bookmark(
+                            remote=remote.name,
+                            bookmark=cached_change.bookmark or "",
+                            expected_remote_target=remote_plan.expected_remote_target,
+                        )
+                        remote_action = CleanupAction(
+                            kind=remote_plan.action.kind,
+                            message=remote_plan.action.message,
+                            status="applied",
+                        )
+                    record_action(remote_action)
+
+                if apply:
+                    interim = prepared_cleanup.state.model_copy(
+                        update={"changes": dict(next_changes)}
                     )
-                record_action(remote_action)
+                    prepared_cleanup.state_store.save(interim)
+
+            comment_plan_tasks = _create_stack_comment_cleanup_tasks(
+                github_client=github_client,
+                github_repository=github_repository,
+                prepared_changes=tuple(prepared_changes),
+            )
+            try:
+                for prepared_change in prepared_changes:
+                    change_id = prepared_change.change_id
+                    if not prepared_change.inspect_stack_comment:
+                        continue
+
+                    comment_plan = await comment_plan_tasks[change_id]
+                    if comment_plan is None:
+                        continue
+                    comment_action = comment_plan.action
+                    if (
+                        apply
+                        and comment_action.status == "planned"
+                        and comment_plan.comment_id is not None
+                    ):
+                        await _delete_issue_comment(
+                            comment_id=comment_plan.comment_id,
+                            github_client=github_client,
+                            github_repository=github_repository,
+                        )
+                        if change_id in next_changes:
+                            next_changes[change_id] = next_changes[change_id].model_copy(
+                                update={"stack_comment_id": None}
+                            )
+                        comment_action = CleanupAction(
+                            kind=comment_plan.action.kind,
+                            message=comment_plan.action.message,
+                            status="applied",
+                        )
+                    record_action(comment_action)
+                    if apply:
+                        interim = prepared_cleanup.state.model_copy(
+                            update={"changes": dict(next_changes)}
+                        )
+                        prepared_cleanup.state_store.save(interim)
+            finally:
+                for task in comment_plan_tasks.values():
+                    if not task.done():
+                        task.cancel()
+                if comment_plan_tasks:
+                    await asyncio.gather(*comment_plan_tasks.values(), return_exceptions=True)
 
         if apply and next_changes != prepared_cleanup.state.changes:
             prepared_cleanup.state_store.save(
                 prepared_cleanup.state.model_copy(update={"changes": next_changes})
             )
 
+        _cleanup_succeeded = True
         return CleanupResult(
             actions=tuple(actions),
             applied=apply,
             github_error=prepared_cleanup.github_repository_error,
-            github_repository=None,
+            github_repository=github_repository.full_name,
             remote=remote,
             remote_error=prepared_cleanup.remote_error,
         )
-
-    github_repository = prepared_cleanup.github_repository
-    async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
-        prepared_changes: list[PreparedCleanupChange] = []
-        for change_id, cached_change in prepared_cleanup.state.changes.items():
-            prepared_change = _prepare_cleanup_change(
-                cached_change=cached_change,
-                change_id=change_id,
-                prepared_cleanup=prepared_cleanup,
-            )
-            prepared_changes.append(prepared_change)
-
-            stale_reason = prepared_change.stale_reason
-            if stale_reason is None:
-                continue
-
-            record_action(
-                _cache_action(
-                    change_id=change_id,
-                    reason=stale_reason,
-                    status="applied" if apply else "planned",
-                )
-            )
-            if apply:
-                next_changes.pop(change_id, None)
-
-            remote_plan = _plan_remote_branch_cleanup(
-                bookmark_state=prepared_change.bookmark_state,
-                cached_change=cached_change,
-                remote=remote,
-            )
-            if remote_plan is not None:
-                remote_action = remote_plan.action
-                if (
-                    apply
-                    and remote_action.status == "planned"
-                    and remote is not None
-                    and remote_plan.expected_remote_target is not None
-                ):
-                    jj_client.delete_remote_bookmark(
-                        remote=remote.name,
-                        bookmark=cached_change.bookmark or "",
-                        expected_remote_target=remote_plan.expected_remote_target,
-                    )
-                    remote_action = CleanupAction(
-                        kind=remote_plan.action.kind,
-                        message=remote_plan.action.message,
-                        status="applied",
-                    )
-                record_action(remote_action)
-
-        comment_plan_tasks = _create_stack_comment_cleanup_tasks(
-            github_client=github_client,
-            github_repository=github_repository,
-            prepared_changes=tuple(prepared_changes),
-        )
-        try:
-            for prepared_change in prepared_changes:
-                change_id = prepared_change.change_id
-                if not prepared_change.inspect_stack_comment:
-                    continue
-
-                comment_plan = await comment_plan_tasks[change_id]
-                if comment_plan is None:
-                    continue
-                comment_action = comment_plan.action
-                if (
-                    apply
-                    and comment_action.status == "planned"
-                    and comment_plan.comment_id is not None
-                ):
-                    await _delete_issue_comment(
-                        comment_id=comment_plan.comment_id,
-                        github_client=github_client,
-                        github_repository=github_repository,
-                    )
-                    if change_id in next_changes:
-                        next_changes[change_id] = next_changes[change_id].model_copy(
-                            update={"stack_comment_id": None}
-                        )
-                    comment_action = CleanupAction(
-                        kind=comment_plan.action.kind,
-                        message=comment_plan.action.message,
-                        status="applied",
-                    )
-                record_action(comment_action)
-        finally:
-            for task in comment_plan_tasks.values():
-                if not task.done():
-                    task.cancel()
-            if comment_plan_tasks:
-                await asyncio.gather(*comment_plan_tasks.values(), return_exceptions=True)
-
-    if apply and next_changes != prepared_cleanup.state.changes:
-        prepared_cleanup.state_store.save(
-            prepared_cleanup.state.model_copy(update={"changes": next_changes})
-        )
-
-    return CleanupResult(
-        actions=tuple(actions),
-        applied=apply,
-        github_error=prepared_cleanup.github_repository_error,
-        github_repository=github_repository.full_name,
-        remote=remote,
-        remote_error=prepared_cleanup.remote_error,
-    )
+    finally:
+        if _cleanup_succeeded and intent_path is not None:
+            delete_intent(intent_path)
 
 
 def _prepare_cleanup_change(
@@ -1472,7 +1078,9 @@ def _pull_request_is_closed_or_detached(
     if bookmark is None:
         return False
     expected_label = f"{github_repository.owner}:{bookmark}"
-    return pull_request.head.ref != bookmark or pull_request.head.label != expected_label
+    return (
+        pull_request.head.ref != bookmark or pull_request.head.label != expected_label
+    )
 
 
 async def _resolve_managed_stack_comment(
@@ -1488,7 +1096,11 @@ async def _resolve_managed_stack_comment(
     )
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
-            (comment for comment in comments if comment.id == cached_change.stack_comment_id),
+            (
+                comment
+                for comment in comments
+                if comment.id == cached_change.stack_comment_id
+            ),
             None,
         )
         if cached_comment is not None:
@@ -1504,7 +1116,9 @@ async def _resolve_managed_stack_comment(
                 )
             return cached_comment
 
-    managed_comments = [comment for comment in comments if _STACK_COMMENT_MARKER in comment.body]
+    managed_comments = [
+        comment for comment in comments if _STACK_COMMENT_MARKER in comment.body
+    ]
     if len(managed_comments) > 1:
         return CleanupAction(
             kind="stack comment",
@@ -1533,7 +1147,8 @@ async def _list_issue_comments(
         )
     except GithubClientError as error:
         raise CleanupError(
-            f"Could not list stack comments for pull request #{pull_request_number}: {error}"
+            f"Could not list stack comments for pull request #{pull_request_number}: "
+            f"{error}"
         ) from error
 
 
