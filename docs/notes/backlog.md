@@ -5,44 +5,85 @@ current slices.
 
 ## Crash and Interrupt Recovery
 
-Atomic state file writes are in place. The remaining gaps are:
+Atomic state file writes are in place. The remaining gaps, in dependency order:
 
-- **Incremental cache saves**: the cache is currently written once at the end
-  of a successful `submit` run. A crash mid-stack leaves the cache stale and
-  `status` showing no PR linkage for completed revisions. Saving the cache
-  after each per-revision sync would make the cache accurate at any crash point
-  and let `status` show correct state without requiring a re-run.
+### 1. Exclusive state lock (prerequisite for everything below)
 
-- **Intent files**: write a per-operation intent file (atomically) before any
-  mutations begin and delete it (atomically) after all mutations and the cache
-  write complete. If the file exists on the next run, the previous operation
-  was interrupted. `status` should surface outstanding intent files prominently.
-  Intent files store the resolved change IDs (not just the revset string) so
-  matching is semantic rather than syntactic — `@` at write time and `@` at
-  re-run time may refer to different commits. When a new submit runs, it scans
-  all incomplete submit intents and compares change ID sets:
+An exclusive advisory lock (`fcntl` on a `lock` file in the state directory)
+must be acquired before any mutating command reads or writes state. Without it,
+a concurrent process can observe a live intent file as if it were interrupted,
+and two writers can corrupt the cache or intent directory. Read-only `status`
+(no `--fetch`) does not need the lock. Locking is a prerequisite for intent
+files, not a follow-up.
 
-  - **Exact match**: "resuming interrupted submit on `@`"
-  - **New is a strict superset**: proceed normally; clean up the old intent on
-    success (common case: extend the stack and re-submit after an interrupt)
-  - **Partial overlap**: warn that this submit overlaps an incomplete earlier
-    one; proceed
-  - **Disjoint**: brief notice only, do not block
+When the state directory is unavailable (no writable path, `jj config path
+--repo` fails), mutating commands must hard-fail rather than proceeding
+silently. The current code allows mutations to continue with persistence
+disabled; that is safe today only because there is no intent file or lock to
+depend on. Once this work lands, commands that cannot write state must refuse to
+run.
 
-  When `submit` or `cleanup --apply` is re-run and matches an outstanding
-  intent exactly, it should say "completing interrupted submit on `@`" rather
-  than acting as if nothing happened. Running a different revset should show a
-  brief notice ("1 incomplete submit outstanding on `@-`") without blocking the
-  new operation.
+### 2. Incremental cache saves
 
-  Intent files live in the repo state directory alongside `state.toml`, one
-  file per incomplete operation. Names follow the pattern
-  `incomplete-YYYY-MM-DD-HH-MM.NN.toml` (e.g.
-  `incomplete-2026-03-18-14-40.01.toml`), where `NN` starts at `01` and
-  increments if a file with that timestamp already exists. This scheme sorts
-  naturally by creation time and avoids colons (which are problematic on macOS
-  and Windows). The kind and other fields are read from file contents; scanning
-  all `incomplete-*.toml` files is cheap since the typical count is zero.
+The cache is currently written once at the end of a successful run. A crash
+mid-stack leaves the cache stale, so `status` shows no PR linkage for completed
+revisions. Save the cache after each per-revision sync in both `submit` and
+`cleanup --apply` (which also performs multiple remote mutations before its
+single end-of-run save). This makes the cache accurate at any crash point.
+
+### 3. Intent files
+
+Write a per-operation intent file (atomically, under the state lock) before any
+mutations begin. Delete it (atomically) after all mutations and the final cache
+write complete. If the file exists when a command starts, the previous operation
+was interrupted.
+
+**File naming**: `incomplete-YYYY-MM-DD-HH-MM.NN.toml` (e.g.
+`incomplete-2026-03-18-14-40.01.toml`). `NN` starts at `01` and increments if
+a file with that timestamp already exists. Names sort naturally by creation
+time. Colons are avoided because they are problematic on macOS and Windows. The
+operation kind and all other fields are read from file contents; scanning all
+`incomplete-*.toml` files is cheap since the typical count is zero.
+
+**Per-kind payloads and semantics**: `submit` and `cleanup` have different
+shapes and different matching needs; do not fold them together.
+
+- `submit`: stores the **ordered** list of change IDs (bottom to top), the
+  display revset string, a user-facing label (e.g. `"submit on @"`), and the
+  start timestamp. Order matters because each PR base is derived from the
+  previous revision in the chain; a reordered or reparented stack with the same
+  change IDs is not the same operation.
+
+- `cleanup-apply`: repo-wide; no change IDs. Stores the display revset and
+  start timestamp.
+
+- `cleanup-restack`: stores the ordered change IDs for the selected path, the
+  display revset, and the start timestamp (same topology-aware semantics as
+  `submit`).
+
+**Matching for `submit` and `cleanup-restack`**: when a new operation starts,
+scan all outstanding intent files of the same kind and compare ordered change ID
+lists:
+
+- **Exact match** (same IDs, same order): "resuming interrupted submit on `@`"
+- **New is a strict ordered superset** (same prefix, new adds trailing
+  revisions): proceed normally; clean up the old intent on success. This is the
+  common case — extend the stack and re-submit after an interrupt.
+- **Partial or reordered overlap**: warn that this operation overlaps an
+  incomplete earlier one; proceed.
+- **Disjoint**: brief notice only, do not block.
+
+**UX contract**:
+
+- `status` always lists outstanding intent files prominently and exits non-zero
+  when any are present, consistent with how it treats other incomplete
+  inspection.
+- Each intent file includes a short user-facing label stored at write time
+  (e.g. `"submit on @"`, `"cleanup --apply"`) so `status` can display it
+  without re-evaluating revsets.
+- An intent file is considered stale if none of its change IDs resolve to any
+  revision in the local repo. Stale intents are reported separately and should
+  be retirable via `cleanup` or an explicit flag.
 
 ## Aborting Incomplete Operations
 
@@ -58,11 +99,10 @@ to the intent file implementation.
 Running two submits simultaneously (two terminals, a script, an accidental
 double-enter) or two cleanups at once is currently unsafe: both processes read
 the same cache, perform overlapping mutations, and write back independently,
-with the last writer winning. The tool needs an exclusive-write lock on the
-repo state directory for any operation that mutates local or remote state.
-Read-only operations (`status` without `--fetch`) do not need the lock.
-Design the locking strategy (e.g. `fcntl` advisory lock on a `lock` file in
-the state directory) separately from the intent file work.
+with the last writer winning. This is addressed by the exclusive state lock
+described under Crash and Interrupt Recovery above. Tracked here as a
+reminder that the lock design must cover concurrent access explicitly, not
+just crash recovery.
 
 ## Concurrency and Rate Limiting
 
