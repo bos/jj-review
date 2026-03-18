@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -18,8 +20,10 @@ from jj_review.commands.submit import (
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClientError
+from jj_review.intent import check_same_kind_intent, delete_intent, write_intent
 from jj_review.jj import JjClient
 from jj_review.models.cache import CachedChange, ReviewState
+from jj_review.models.intent import AdoptIntent
 
 _PULL_REQUEST_URL_RE = re.compile(
     r"^/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>[0-9]+)/?$"
@@ -71,6 +75,9 @@ async def _run_adopt_async(
     revset: str | None,
 ) -> AdoptResult:
     client = JjClient(repo_root)
+    state_store = ReviewStateStore.for_repo(repo_root)
+    state_dir = state_store.require_writable()
+
     stack = client.discover_review_stack(revset)
     if not stack.revisions:
         raise AdoptResolutionError(
@@ -140,7 +147,6 @@ async def _run_adopt_async(
             "adopting."
         )
 
-    state_store = ReviewStateStore.for_repo(repo_root)
     state = state_store.load()
     _ensure_adoptable_cached_linkage(
         bookmark=bookmark,
@@ -149,39 +155,57 @@ async def _run_adopt_async(
         state=state,
     )
 
-    client.set_bookmark(bookmark, revision.change_id)
-
-    cached_change = state.changes.get(revision.change_id)
-    updated_change = (cached_change or CachedChange()).model_copy(
-        update={
-            "bookmark": bookmark,
-            "pr_number": pull_request.number,
-            "pr_review_decision": None,
-            "pr_state": pull_request.state,
-            "pr_url": pull_request.html_url,
-            "stack_comment_id": None,
-        }
+    # Write intent before the first mutation
+    intent = AdoptIntent(
+        kind="adopt",
+        pid=os.getpid(),
+        label=f"adopt for {revision.change_id[:8]}",
+        change_id=revision.change_id,
+        started_at=datetime.now(timezone.utc).isoformat(),
     )
-    state_store.save(
-        state.model_copy(
+    stale_intents = check_same_kind_intent(state_dir, intent)
+    for loaded in stale_intents:
+        print(f"Warning: a previous adopt was interrupted ({loaded.intent.label})")
+    intent_path = write_intent(state_dir, intent)
+
+    _adopt_succeeded = False
+    try:
+        client.set_bookmark(bookmark, revision.change_id)
+
+        cached_change = state.changes.get(revision.change_id)
+        updated_change = (cached_change or CachedChange()).model_copy(
             update={
-                "changes": {
-                    **state.changes,
-                    revision.change_id: updated_change,
-                }
+                "bookmark": bookmark,
+                "pr_number": pull_request.number,
+                "pr_review_decision": None,
+                "pr_state": pull_request.state,
+                "pr_url": pull_request.html_url,
+                "stack_comment_id": None,
             }
         )
-    )
-
-    return AdoptResult(
-        bookmark=bookmark,
-        change_id=revision.change_id,
-        github_repository=github_repository.full_name,
-        pull_request_number=pull_request.number,
-        remote_name=remote.name,
-        selected_revset=selected_revset,
-        subject=revision.subject,
-    )
+        state_store.save(
+            state.model_copy(
+                update={
+                    "changes": {
+                        **state.changes,
+                        revision.change_id: updated_change,
+                    }
+                }
+            )
+        )
+        _adopt_succeeded = True
+        return AdoptResult(
+            bookmark=bookmark,
+            change_id=revision.change_id,
+            github_repository=github_repository.full_name,
+            pull_request_number=pull_request.number,
+            remote_name=remote.name,
+            selected_revset=selected_revset,
+            subject=revision.subject,
+        )
+    finally:
+        if _adopt_succeeded:
+            delete_intent(intent_path)
 
 
 def _ensure_adoptable_cached_linkage(
