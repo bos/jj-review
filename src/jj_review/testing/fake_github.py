@@ -21,6 +21,9 @@ class FakeGithubPullRequest:
     merged_at: str | None
     number: int
     title: str
+    labels: list[str] = field(default_factory=list)
+    requested_reviewers: list[str] = field(default_factory=list)
+    requested_team_reviewers: list[str] = field(default_factory=list)
     state: str = "open"
 
     def to_payload(
@@ -311,6 +314,44 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
             pull_request.base_ref = _require_string(payload, "base")
             _require_branch(repository, pull_request.base_ref)
         return pull_request.to_payload(repository=repository, web_origin=fake_state.web_origin)
+
+    @app.post(
+        "/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+        status_code=201,
+    )
+    async def request_reviewers(
+        owner: str,
+        repo: str,
+        pull_number: int,
+        payload: Annotated[dict[str, object], Body(...)],
+    ) -> dict[str, object]:
+        repository = _get_repository(fake_state, owner, repo)
+        pull_request = repository.pull_requests.get(pull_number)
+        if pull_request is None:
+            raise HTTPException(status_code=404, detail="Not Found")
+        reviewers = payload.get("reviewers", [])
+        team_reviewers = payload.get("team_reviewers", [])
+        if isinstance(reviewers, list):
+            pull_request.requested_reviewers = [str(r) for r in reviewers]
+        if isinstance(team_reviewers, list):
+            pull_request.requested_team_reviewers = [str(t) for t in team_reviewers]
+        return pull_request.to_payload(repository=repository, web_origin=fake_state.web_origin)
+
+    @app.post("/repos/{owner}/{repo}/issues/{issue_number}/labels")
+    async def add_labels(
+        owner: str,
+        repo: str,
+        issue_number: int,
+        payload: Annotated[dict[str, object], Body(...)],
+    ) -> list[dict[str, object]]:
+        repository = _get_repository(fake_state, owner, repo)
+        pull_request = repository.pull_requests.get(issue_number)
+        if pull_request is None:
+            raise HTTPException(status_code=404, detail="Not Found")
+        labels = payload.get("labels", [])
+        if isinstance(labels, list):
+            pull_request.labels = [str(label) for label in labels]
+        return [{"name": label} for label in pull_request.labels]
 
     @app.get("/repos/{owner}/{repo}/pulls/{pull_number}/reviews")
     async def list_pull_request_reviews(

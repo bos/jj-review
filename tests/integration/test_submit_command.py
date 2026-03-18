@@ -1919,13 +1919,77 @@ def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing
     assert _issue_comments(fake_repo, 1) == []
 
 
+def test_submit_requests_reviewers_and_labels_on_pr_creation(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(
+        monkeypatch,
+        tmp_path,
+        fake_repo,
+        extra_config_lines=[
+            'reviewers = ["alice", "bob"]',
+            'team_reviewers = ["my-team"]',
+            'labels = ["needs-review"]',
+        ],
+    )
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    pr = fake_repo.pull_requests[1]
+    assert pr.requested_reviewers == ["alice", "bob"]
+    assert pr.requested_team_reviewers == ["my-team"]
+    assert pr.labels == ["needs-review"]
+
+
+def test_submit_does_not_re_request_reviewers_or_labels_on_update(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(
+        monkeypatch,
+        tmp_path,
+        fake_repo,
+        extra_config_lines=[
+            'reviewers = ["alice"]',
+            'labels = ["needs-review"]',
+        ],
+    )
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    # Simulate someone removing the reviewer/label manually on GitHub.
+    fake_repo.pull_requests[1].requested_reviewers = []
+    fake_repo.pull_requests[1].labels = []
+
+    # Amend the commit to force a PR update, then re-submit.
+    _run(["jj", "describe", "-r", "@-", "-m", "feature 1 (amended)"], repo)
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    # Reviewers and labels must not have been re-applied.
+    pr = fake_repo.pull_requests[1]
+    assert pr.requested_reviewers == []
+    assert pr.labels == []
+
+
 def _configure_submit_environment(
     monkeypatch,
     tmp_path: Path,
     fake_repo: FakeGithubRepository,
+    *,
+    extra_config_lines: list[str] | None = None,
 ) -> Path:
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    config_path = _write_config(tmp_path, fake_repo)
+    config_path = _write_config(tmp_path, fake_repo, extra_lines=extra_config_lines)
     app = create_app(FakeGithubState.single_repository(fake_repo))
 
     def build_github_client(*, base_url: str) -> GithubClient:

@@ -288,6 +288,37 @@ class GithubClient:
         )
         self._expect_no_content(response)
 
+    async def request_reviewers(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        pull_number: int,
+        reviewers: list[str],
+        team_reviewers: list[str],
+    ) -> None:
+        response = await self._request(
+            "POST",
+            f"/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+            json={"reviewers": reviewers, "team_reviewers": team_reviewers},
+        )
+        self._expect_success(response)
+
+    async def add_labels(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        issue_number: int,
+        labels: list[str],
+    ) -> None:
+        response = await self._request(
+            "POST",
+            f"/repos/{owner}/{repo}/issues/{issue_number}/labels",
+            json={"labels": labels},
+        )
+        self._expect_success(response)
+
     async def update_pull_request(
         self,
         owner: str,

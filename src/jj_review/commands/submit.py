@@ -269,9 +269,12 @@ async def _run_submit_async(
                 change_id=revision.change_id,
                 github_client=github_client,
                 github_repository=github_repository,
+                labels=config.labels,
+                reviewers=config.reviewers,
                 revision=revision,
                 state=bookmark_result.state,
                 state_changes=state_changes,
+                team_reviewers=config.team_reviewers,
             )
 
             revisions.append(
@@ -529,9 +532,12 @@ async def _sync_pull_request(
     change_id: str,
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
+    labels: list[str],
+    reviewers: list[str],
     revision: Any,
     state: ReviewState,
     state_changes: dict[str, CachedChange],
+    team_reviewers: list[str],
 ) -> PullRequestSyncResult:
     head_label = f"{github_repository.owner}:{bookmark}"
     discovered_pull_request = await _discover_pull_request(
@@ -555,6 +561,9 @@ async def _sync_pull_request(
             github_client=github_client,
             github_repository=github_repository,
             head_branch=bookmark,
+            labels=labels,
+            reviewers=reviewers,
+            team_reviewers=team_reviewers,
             title=title,
         )
         action: PullRequestAction = "created"
@@ -659,10 +668,13 @@ async def _create_pull_request(
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     head_branch: str,
+    labels: list[str],
+    reviewers: list[str],
+    team_reviewers: list[str],
     title: str,
 ) -> GithubPullRequest:
     try:
-        return await github_client.create_pull_request(
+        pull_request = await github_client.create_pull_request(
             github_repository.owner,
             github_repository.repo,
             base=base_branch,
@@ -670,6 +682,22 @@ async def _create_pull_request(
             head=head_branch,
             title=title,
         )
+        if reviewers or team_reviewers:
+            await github_client.request_reviewers(
+                github_repository.owner,
+                github_repository.repo,
+                pull_number=pull_request.number,
+                reviewers=reviewers,
+                team_reviewers=team_reviewers,
+            )
+        if labels:
+            await github_client.add_labels(
+                github_repository.owner,
+                github_repository.repo,
+                issue_number=pull_request.number,
+                labels=labels,
+            )
+        return pull_request
     except GithubClientError as error:
         raise SubmitPullRequestResolutionError(
             f"Could not create a pull request for branch {head_branch!r}: {error}"

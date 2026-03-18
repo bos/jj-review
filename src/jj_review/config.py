@@ -24,7 +24,10 @@ class RepoConfig(BaseModel):
     github_host: str = "github.com"
     github_owner: str | None = None
     github_repo: str | None = None
+    labels: list[str] = Field(default_factory=list)
     remote: str | None = None
+    reviewers: list[str] = Field(default_factory=list)
+    team_reviewers: list[str] = Field(default_factory=list)
     trunk_branch: str | None = None
 
 
