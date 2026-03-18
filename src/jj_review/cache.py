@@ -29,7 +29,7 @@ class ReviewStateError(CliError):
     """Raised when the local review state file is unreadable or invalid."""
 
 
-class ReviewStateUnavailable(RuntimeError):
+class ReviewStateUnavailable(CliError):
     """Raised when optional repo-scoped review state cannot be used."""
 
 
@@ -49,6 +49,22 @@ class ReviewStateStore:
         except ReviewStateUnavailable as error:
             logger.debug("Review state disabled for %s: %s", repo_root, error)
             return cls(path=None, disabled_reason=str(error))
+
+    @property
+    def state_dir(self) -> Path | None:
+        if self._path is None:
+            return None
+        return self._path.parent
+
+    def require_writable(self) -> Path:
+        """Return the state directory, or raise ReviewStateUnavailable if unavailable."""
+        if self._path is None:
+            raise ReviewStateUnavailable(
+                f"The review state directory is not available: {self._disabled_reason}. "
+                "Mutating operations require a writable state directory. "
+                "Ensure `jj config path --repo` succeeds and the path is writable."
+            )
+        return self._path.parent
 
     def load(self) -> ReviewState:
         """Load the persisted state, or defaults when the file is missing."""
