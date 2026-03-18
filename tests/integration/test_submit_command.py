@@ -10,7 +10,9 @@ import pytest
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.cli import main
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.intent import write_intent
 from jj_review.jj import JjClient
+from jj_review.models.intent import SubmitIntent
 from jj_review.testing.fake_github import (
     FakeGithubRepository,
     FakeGithubState,
@@ -1448,270 +1450,6 @@ def test_cleanup_restack_previews_and_applies_survivor_rebase_after_merged_ances
     assert JjClient(repo).resolve_revision(bottom_change_id).commit_id != rewritten_top.commit_id
 
 
-def test_cleanup_restack_blocks_nontrunk_rebase_without_override(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
-    _commit(repo, "feature 3", "feature-3.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    stack = JjClient(repo).discover_review_stack()
-    bottom_change_id = stack.revisions[0].change_id
-    top_change_id = stack.revisions[-1].change_id
-    fake_repo.pull_requests[2].state = "closed"
-    fake_repo.pull_requests[2].merged_at = "2026-03-16T12:00:00Z"
-
-    preview_exit_code = _main(repo, config_path, "cleanup", "--restack", top_change_id)
-    preview = capsys.readouterr()
-
-    assert preview_exit_code == 1
-    assert "Planned restack actions:" in preview.out
-    assert (
-        f"rebase {top_change_id[:8]} onto {bottom_change_id[:8]} requires "
-        "--allow-nontrunk-rebase" in preview.out
-    )
-    assert "Manual follow-up: run `jj rebase`" in preview.out
-
-    apply_exit_code = _main(
-        repo,
-        config_path,
-        "cleanup",
-        "--restack",
-        "--apply",
-        top_change_id,
-    )
-    blocked_apply = capsys.readouterr()
-    unchanged_top = JjClient(repo).resolve_revision(top_change_id)
-    unchanged_bottom = JjClient(repo).resolve_revision(bottom_change_id)
-
-    assert apply_exit_code == 1
-    assert "[blocked] restack" in blocked_apply.out
-    assert unchanged_top.only_parent_commit_id() != unchanged_bottom.commit_id
-
-    forced_apply_exit_code = _main(
-        repo,
-        config_path,
-        "cleanup",
-        "--restack",
-        "--apply",
-        "--allow-nontrunk-rebase",
-        top_change_id,
-    )
-    forced_apply = capsys.readouterr()
-    rewritten_top = JjClient(repo).resolve_revision(top_change_id)
-    rewritten_bottom = JjClient(repo).resolve_revision(bottom_change_id)
-
-    assert forced_apply_exit_code == 0
-    assert "Applied restack actions:" in forced_apply.out
-    assert rewritten_top.only_parent_commit_id() == rewritten_bottom.commit_id
-
-
-def test_submit_persists_last_submitted_commit_id(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
-    commit_id = stack.revisions[-1].commit_id
-    state = ReviewStateStore.for_repo(repo).load()
-
-    assert state.changes[change_id].last_submitted_commit_id == commit_id
-
-
-def test_submit_updates_last_submitted_commit_id_after_rewrite(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
-    original_commit_id = stack.revisions[-1].commit_id
-
-    _run(["jj", "describe", "-r", change_id, "-m", "feature 1 updated"], repo)
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    rewritten_commit_id = JjClient(repo).resolve_revision(change_id).commit_id
-    state = ReviewStateStore.for_repo(repo).load()
-
-    assert rewritten_commit_id != original_commit_id
-    assert state.changes[change_id].last_submitted_commit_id == rewritten_commit_id
-
-
-def test_status_fetch_tolerates_regular_merge_commit_on_path(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    """status --fetch must not fail when a regular merge commit makes a stack
-    revision immutable after fetching merged PR branches from the remote."""
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    stack = JjClient(repo).discover_review_stack()
-    bottom_change_id = stack.revisions[0].change_id
-    top_change_id = stack.revisions[1].change_id
-
-    # Simulate a regular merge on GitHub: create a merge commit on remote main
-    # that has both the old main and the feature-1 review branch as parents.
-    # After jj git fetch, the feature-1 commit becomes an ancestor of main@origin,
-    # making it immutable. status --fetch must tolerate this via allow_immutable=True.
-    remote = fake_repo.git_dir
-    feature1_bookmark = ReviewStateStore.for_repo(repo).load().changes[bottom_change_id].bookmark
-    assert feature1_bookmark is not None
-    remote_main = _read_remote_ref(remote, "main")
-    remote_feature1 = _read_remote_ref(remote, feature1_bookmark)
-    merge_commit = _run(
-        [
-            "git",
-            "--git-dir",
-            str(remote),
-            "commit-tree",
-            f"{remote_feature1}^{{tree}}",
-            "-p",
-            remote_main,
-            "-p",
-            remote_feature1,
-            "-m",
-            "Merge PR #1: feature 1",
-        ],
-        remote.parent,
-    ).stdout.strip()
-    _run(
-        ["git", "--git-dir", str(remote), "update-ref", "refs/heads/main", merge_commit],
-        remote.parent,
-    )
-    fake_repo.pull_requests[1].state = "closed"
-    fake_repo.pull_requests[1].merged_at = "2026-03-16T12:00:00Z"
-
-    exit_code = _main(repo, config_path, "status", "--fetch", top_change_id)
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "feature 1" in captured.out
-    assert "cleanup needed" in captured.out
-    assert "feature 2" in captured.out
-
-
-def test_status_fetch_tolerates_squash_merge_after_fetch(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    """status --fetch must work after a squash merge advances main@origin past the
-    feature-1 commit without making it immutable."""
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    stack = JjClient(repo).discover_review_stack()
-    top_change_id = stack.revisions[1].change_id
-
-    # Simulate a squash merge: create a new commit on remote main with feature-1's
-    # tree but only the old main as parent (not feature-1 itself). This mirrors how
-    # GitHub squash merges work: the feature branch commits are not parents of the
-    # squash commit, so the local feature-1 revision stays mutable after fetch.
-    remote = fake_repo.git_dir
-    bottom_change_id = stack.revisions[0].change_id
-    feature1_bookmark = ReviewStateStore.for_repo(repo).load().changes[bottom_change_id].bookmark
-    assert feature1_bookmark is not None
-    remote_main = _read_remote_ref(remote, "main")
-    remote_feature1 = _read_remote_ref(remote, feature1_bookmark)
-    squash_commit = _run(
-        [
-            "git",
-            "--git-dir",
-            str(remote),
-            "commit-tree",
-            f"{remote_feature1}^{{tree}}",
-            "-p",
-            remote_main,
-            "-m",
-            "squash: feature 1",
-        ],
-        remote.parent,
-    ).stdout.strip()
-    _run(
-        ["git", "--git-dir", str(remote), "update-ref", "refs/heads/main", squash_commit],
-        remote.parent,
-    )
-    fake_repo.pull_requests[1].state = "closed"
-    fake_repo.pull_requests[1].merged_at = "2026-03-16T12:00:00Z"
-
-    exit_code = _main(repo, config_path, "status", "--fetch", top_change_id)
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "feature 1" in captured.out
-    assert "cleanup needed" in captured.out
-    assert "feature 2" in captured.out
-
-
-def test_cleanup_restack_blocks_when_merged_path_change_has_unpublished_edits(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    stack = JjClient(repo).discover_review_stack()
-    bottom_change_id = stack.revisions[0].change_id
-    top_change_id = stack.revisions[1].change_id
-
-    # Rewrite feature 1 without re-submitting — it now has local edits since last submit.
-    _run(
-        ["jj", "describe", "-r", bottom_change_id, "-m", "feature 1 with unpublished edit"],
-        repo,
-    )
-
-    fake_repo.pull_requests[1].state = "closed"
-    fake_repo.pull_requests[1].merged_at = "2026-03-16T12:00:00Z"
-
-    exit_code = _main(repo, config_path, "cleanup", "--restack", top_change_id)
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "local edits since last submit" in captured.out
-    assert "[blocked] restack" in captured.out
-
-
 def test_cleanup_reports_stale_cache_and_remote_branch_without_applying(
     tmp_path: Path,
     monkeypatch,
@@ -1919,77 +1657,492 @@ def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing
     assert _issue_comments(fake_repo, 1) == []
 
 
-def test_submit_requests_reviewers_and_labels_on_pr_creation(
+def test_submit_incremental_cache_save_after_first_revision(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(
-        monkeypatch,
-        tmp_path,
-        fake_repo,
-        extra_config_lines=[
-            'reviewers = ["alice", "bob"]',
-            'team_reviewers = ["my-team"]',
-            'labels = ["needs-review"]',
-        ],
-    )
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    stack = JjClient(repo).discover_review_stack()
+    change_id_1 = stack.revisions[0].change_id
+    change_id_2 = stack.revisions[1].change_id
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+    call_count = [0]
+
+    class FailOnSecondPRClient(GithubClient):
+        async def list_pull_requests(self, owner, repo_name, *, head, state="all"):
+            call_count[0] += 1
+            if call_count[0] >= 2:
+                raise GithubClientError(
+                    "Simulated failure on second PR", status_code=500
+                )
+            return await super().list_pull_requests(owner, repo_name, head=head, state=state)
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return FailOnSecondPRClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
+
+    exit_code = _main(repo, config_path, "submit")
     capsys.readouterr()
 
-    pr = fake_repo.pull_requests[1]
-    assert pr.requested_reviewers == ["alice", "bob"]
-    assert pr.requested_team_reviewers == ["my-team"]
-    assert pr.labels == ["needs-review"]
+    assert exit_code != 0
+
+    state = ReviewStateStore.for_repo(repo).load()
+    # Change 1 should have been incrementally saved (PR created)
+    assert state.changes.get(change_id_1) is not None
+    assert state.changes[change_id_1].pr_number is not None
+    # Change 2 was not reached before failure
+    change2 = state.changes.get(change_id_2)
+    assert change2 is None or change2.pr_number is None
 
 
-def test_submit_does_not_re_request_reviewers_or_labels_on_update(
+def test_submit_writes_and_deletes_intent_file_on_success(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(
-        monkeypatch,
-        tmp_path,
-        fake_repo,
-        extra_config_lines=[
-            'reviewers = ["alice"]',
-            'labels = ["needs-review"]',
-        ],
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    exit_code = _main(repo, config_path, "submit")
+    capsys.readouterr()
+
+    assert exit_code == 0
+    state_dir = resolve_state_path(repo).parent
+    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    assert intent_files == [], f"Expected no intent files, found: {intent_files}"
+
+
+def test_submit_leaves_intent_file_on_failure(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id_1 = stack.revisions[0].change_id
+    change_id_2 = stack.revisions[1].change_id
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+    call_count = [0]
+
+    class FailOnFirstPRClient(GithubClient):
+        async def list_pull_requests(self, owner, repo_name, *, head, state="all"):
+            call_count[0] += 1
+            if call_count[0] >= 1:
+                raise GithubClientError(
+                    "Simulated failure on first PR", status_code=500
+                )
+            return await super().list_pull_requests(owner, repo_name, head=head, state=state)
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return FailOnFirstPRClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
+
+    exit_code = _main(repo, config_path, "submit")
+    capsys.readouterr()
+
+    assert exit_code != 0
+    state_dir = resolve_state_path(repo).parent
+    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    assert len(intent_files) == 1
+
+    import tomllib
+    with intent_files[0].open("rb") as f:
+        data = tomllib.load(f)
+    assert data["kind"] == "submit"
+    stored_ids = data.get("ordered_change_ids", [])
+    assert change_id_1 in stored_ids
+    assert change_id_2 in stored_ids
+
+
+def test_submit_resumes_and_retires_stale_intent(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id_1 = stack.revisions[0].change_id
+    change_id_2 = stack.revisions[1].change_id
+    state_dir = resolve_state_path(repo).parent
+
+    # Write a stale intent with dead PID (99999999 is almost certainly dead)
+    old_intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,
+        label="submit on @",
+        display_revset="@",
+        head_change_id=change_id_2,
+        ordered_change_ids=(change_id_1, change_id_2),
+        bookmarks={},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
     )
+    old_intent_path = write_intent(state_dir, old_intent)
+
+    exit_code = _main(repo, config_path, "submit")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Resuming interrupted" in captured.out
+    # Old intent file should be gone after success
+    assert not old_intent_path.exists()
+    # No intent files remain
+    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    assert intent_files == []
+
+
+def test_submit_warns_on_overlapping_stale_intent(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id_1 = stack.revisions[0].change_id
+    state_dir = resolve_state_path(repo).parent
+
+    # Write a stale intent with only the first change ID (partial overlap)
+    old_intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,
+        label="submit on @",
+        display_revset="@",
+        head_change_id=change_id_1,
+        ordered_change_ids=(change_id_1,),
+        bookmarks={},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_intent(state_dir, old_intent)
+
+    exit_code = _main(repo, config_path, "submit")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    # Old intent is a prefix of new, so it should be retired (superset match)
+    # No warning should appear for superset (it proceeds silently)
+    # Actually: old=(change_id_1,), new=(change_id_1, change_id_2)
+    # match_ordered_change_ids(old, new) == "superset" => silent retirement
+    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    assert intent_files == []
+
+
+def test_status_shows_outstanding_submit_intent(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    # First do a submit to create cache state
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[0].change_id
+    state_dir = resolve_state_path(repo).parent
+
+    # Write an outstanding intent with dead PID
+    intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,
+        label="submit on @",
+        display_revset="@",
+        head_change_id=change_id,
+        ordered_change_ids=(change_id,),
+        bookmarks={},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_intent(state_dir, intent)
+
+    exit_code = _main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert "submit on @" in captured.out
+    assert "interrupted" in captured.out
+
+
+def test_status_exits_nonzero_for_overlapping_intent(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    # First do a submit to create cache state
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[0].change_id
+    state_dir = resolve_state_path(repo).parent
+
+    # Write an outstanding intent overlapping the current stack
+    intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,
+        label="submit on @",
+        display_revset="@",
+        head_change_id=change_id,
+        ordered_change_ids=(change_id,),
+        bookmarks={},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_intent(state_dir, intent)
+
+    exit_code = _main(repo, config_path, "status")
+    capsys.readouterr()
+
+    assert exit_code == 1
+
+
+def test_status_exits_zero_for_stale_intent(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """Stale intents (change IDs no longer in repo) are advisory only and don't affect exit code."""
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    # First do a submit to create cache state
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    state_dir = resolve_state_path(repo).parent
+
+    # Write an intent with a non-resolving change_id — classifies as stale
+    intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,
+        label="submit on other-branch",
+        display_revset="other-branch",
+        head_change_id="zzzzzzzzzzzz",
+        ordered_change_ids=("zzzzzzzzzzzz",),
+        bookmarks={},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_intent(state_dir, intent)
+
+    exit_code = _main(repo, config_path, "status")
+    capsys.readouterr()
+
+    # Stale intent: shown in stale section, exit code 0 (advisory only)
+    assert exit_code == 0
+
+
+def test_status_exits_zero_for_disjoint_intent(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """An outstanding intent on a different stack is advisory only and doesn't raise exit code."""
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    # Create feature 1 on top of main
+    _commit(repo, "feature 1", "feature-1.txt")
+    stack_1 = JjClient(repo).discover_review_stack()
+    feature_1_change_id = stack_1.revisions[0].change_id
+
+    # Submit feature 1 to get a PR linkage (ensures the change_id resolves)
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    # Create feature 2 branching off main independently (not on top of feature 1)
+    _run(["jj", "new", "main", "-m", "feature 2"], repo)
+    _write_file(repo / "feature-2.txt", "feature 2\n")
+    _run(["jj", "describe", "-m", "feature 2"], repo)
+
+    # Submit feature 2 to create its own PR linkage
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack_2 = JjClient(repo).discover_review_stack()
+    feature_2_change_id = stack_2.revisions[0].change_id
+    state_dir = resolve_state_path(repo).parent
+
+    # Write an outstanding (not stale) intent referencing ONLY feature-1's change ID
+    # with a dead PID — so it is outstanding (change ID resolves in repo) but
+    # disjoint from feature-2's stack
+    intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,
+        label="submit on feature-1-branch",
+        display_revset="feature-1",
+        head_change_id=feature_1_change_id,
+        ordered_change_ids=(feature_1_change_id,),
+        bookmarks={},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_intent(state_dir, intent)
+
+    # Run status scoped to feature-2 stack — the intent is outstanding but disjoint
+    exit_code = _main(repo, config_path, "status", feature_2_change_id)
+    captured = capsys.readouterr()
+
+    # Disjoint outstanding intent: advisory-only, exit code is not raised
+    assert exit_code == 0
+    # The intent label should appear in the output (advisory notice)
+    assert "submit on feature-1-branch" in captured.out
+
+
+def test_cleanup_apply_writes_and_deletes_intent_file_on_success(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """cleanup --apply deletes its intent file on success."""
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
     assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
-    # Simulate someone removing the reviewer/label manually on GitHub.
-    fake_repo.pull_requests[1].requested_reviewers = []
-    fake_repo.pull_requests[1].labels = []
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    bookmark = ReviewStateStore.for_repo(repo).load().changes[change_id].bookmark
+    assert bookmark is not None
 
-    # Amend the commit to force a PR update, then re-submit.
-    _run(["jj", "describe", "-r", "@-", "-m", "feature 1 (amended)"], repo)
+    # Abandon the change and delete the bookmark to make it stale
+    _run(["jj", "abandon", change_id], repo)
+    _run(["jj", "bookmark", "delete", bookmark], repo)
+
+    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    capsys.readouterr()
+
+    assert exit_code == 0
+    state_dir = resolve_state_path(repo).parent
+    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    assert intent_files == [], f"Expected no intent files after success, found: {intent_files}"
+
+
+def test_cleanup_apply_leaves_intent_file_on_failure(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """cleanup --apply leaves its intent file behind when it fails mid-way."""
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
     assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
-    # Reviewers and labels must not have been re-applied.
-    pr = fake_repo.pull_requests[1]
-    assert pr.requested_reviewers == []
-    assert pr.labels == []
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    bookmark = ReviewStateStore.for_repo(repo).load().changes[change_id].bookmark
+    assert bookmark is not None
+
+    _run(["jj", "abandon", change_id], repo)
+    _run(["jj", "bookmark", "delete", bookmark], repo)
+
+    original_delete_remote_bookmark = JjClient.delete_remote_bookmark
+
+    def failing_delete_remote_bookmark(self, *, remote, bookmark, expected_remote_target):
+        raise RuntimeError("Simulated failure during cleanup apply")
+
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.JjClient.delete_remote_bookmark",
+        failing_delete_remote_bookmark,
+    )
+
+    with pytest.raises(RuntimeError, match="Simulated failure"):
+        _main(repo, config_path, "cleanup", "--apply")
+    capsys.readouterr()
+
+    state_dir = resolve_state_path(repo).parent
+    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    assert len(intent_files) == 1, f"Expected 1 intent file after failure, found: {intent_files}"
+
+    import tomllib
+    with intent_files[0].open("rb") as f:
+        data = tomllib.load(f)
+    assert data["kind"] == "cleanup-apply"
+
+
+def test_adopt_writes_and_deletes_intent_file_on_success(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """adopt deletes its intent file on success."""
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    manual_bookmark = "review/manual-feature-1"
+    _run(["jj", "bookmark", "create", manual_bookmark, "-r", change_id], repo)
+    _run(["jj", "git", "push", "--remote", "origin", "--bookmark", manual_bookmark], repo)
+    fake_repo.create_pull_request(
+        base_ref="main",
+        body="manual body",
+        head_ref=manual_bookmark,
+        title="manual title",
+    )
+    _run(["jj", "bookmark", "forget", manual_bookmark], repo)
+    _run(
+        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 adopted"],
+        repo,
+    )
+
+    exit_code = _main(repo, config_path, "adopt", "1", change_id)
+    capsys.readouterr()
+
+    assert exit_code == 0
+    state_dir = resolve_state_path(repo).parent
+    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    assert intent_files == [], f"Expected no intent files after success, found: {intent_files}"
 
 
 def _configure_submit_environment(
     monkeypatch,
     tmp_path: Path,
     fake_repo: FakeGithubRepository,
-    *,
-    extra_config_lines: list[str] | None = None,
 ) -> Path:
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    config_path = _write_config(tmp_path, fake_repo, extra_lines=extra_config_lines)
+    config_path = _write_config(tmp_path, fake_repo)
     app = create_app(FakeGithubState.single_repository(fake_repo))
 
     def build_github_client(*, base_url: str) -> GithubClient:

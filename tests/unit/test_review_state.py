@@ -32,6 +32,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
             repo="stacked-review",
         ),
         github_repository_error=None,
+        outstanding_intents=(),
         prepared=cast(
             _PreparedStack,
             SimpleNamespace(
@@ -41,6 +42,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
             ),
         ),
         selected_revset="@",
+        stale_intents=(),
         trunk_subject="base",
     )
     local_only_revisions = (
@@ -123,6 +125,7 @@ def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> No
             repo="stacked-review",
         ),
         github_repository_error=None,
+        outstanding_intents=(),
         prepared=cast(
             _PreparedStack,
             SimpleNamespace(
@@ -132,6 +135,7 @@ def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> No
             ),
         ),
         selected_revset="main",
+        stale_intents=(),
         trunk_subject="base",
     )
     github_status_calls: list[tuple[str | None, str | None]] = []
@@ -219,6 +223,7 @@ def test_stream_status_marks_missing_remote_as_incomplete() -> None:
     prepared_status = PreparedStatus(
         github_repository=None,
         github_repository_error=None,
+        outstanding_intents=(),
         prepared=cast(
             _PreparedStack,
             SimpleNamespace(
@@ -238,6 +243,7 @@ def test_stream_status_marks_missing_remote_as_incomplete() -> None:
             ),
         ),
         selected_revset="@",
+        stale_intents=(),
         trunk_subject="base",
     )
     local_only_revisions = (
@@ -274,6 +280,7 @@ def test_stream_status_marks_missing_github_target_as_incomplete(monkeypatch) ->
     prepared_status = PreparedStatus(
         github_repository=None,
         github_repository_error="repo not found or inaccessible",
+        outstanding_intents=(),
         prepared=cast(
             _PreparedStack,
             SimpleNamespace(
@@ -293,6 +300,7 @@ def test_stream_status_marks_missing_github_target_as_incomplete(monkeypatch) ->
             ),
         ),
         selected_revset="@",
+        stale_intents=(),
         trunk_subject="base",
     )
     local_only_revisions = (
@@ -403,6 +411,7 @@ def test_prepare_status_fetches_before_remote_bookmark_discovery(
     class FakeStateStore:
         def __init__(self) -> None:
             self.state = ReviewState()
+            self.state_dir = None
 
         def load(self) -> ReviewState:
             return self.state

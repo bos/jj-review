@@ -6,6 +6,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -24,10 +25,13 @@ from jj_review.commands.submit import (
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.intent import intent_is_stale, scan_intents
 from jj_review.jj import JjClient
+from jj_review.jj.client import RevsetResolutionError
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
+from jj_review.models.intent import LoadedIntent
 from jj_review.models.stack import LocalRevision, LocalStack
 
 logger = logging.getLogger(__name__)
@@ -93,8 +97,10 @@ class PreparedStatus:
 
     github_repository: ResolvedGithubRepository | None
     github_repository_error: str | None
+    outstanding_intents: tuple[LoadedIntent, ...]
     prepared: _PreparedStack
     selected_revset: str
+    stale_intents: tuple[LoadedIntent, ...]
     trunk_subject: str
 
 
@@ -174,11 +180,27 @@ def prepare_status(
         except CliError as error:
             github_repository_error = str(error)
 
+    outstanding_intents: list[LoadedIntent] = []
+    stale_intents_list: list[LoadedIntent] = []
+    if prepared.state_store.state_dir is not None:
+        _now = datetime.now(timezone.utc)
+        for loaded in scan_intents(prepared.state_store.state_dir):
+            if intent_is_stale(
+                loaded.intent,
+                lambda cid: _change_id_resolves(prepared.client, cid),
+                now=_now,
+            ):
+                stale_intents_list.append(loaded)
+            else:
+                outstanding_intents.append(loaded)
+
     return PreparedStatus(
         github_repository=github_repository,
         github_repository_error=github_repository_error,
+        outstanding_intents=tuple(outstanding_intents),
         prepared=prepared,
         selected_revset=prepared.stack.selected_revset,
+        stale_intents=tuple(stale_intents_list),
         trunk_subject=prepared.stack.trunk.subject,
     )
 
@@ -832,6 +854,8 @@ async def _inspect_stack_comment(
             state="ambiguous",
         )
     return StackCommentLookup(comment=matching_comments[0], message=None, state="present")
+
+
 def _summarize_github_lookup_error(*, action: str, error: GithubClientError) -> str:
     """Render a concise GitHub lookup failure for `status` output."""
 
@@ -874,3 +898,12 @@ def _github_auth_failure_message(message: str) -> str:
     if _github_token_from_env() is None:
         return f"{message} - check GITHUB_TOKEN or gh auth"
     return message
+
+
+def _change_id_resolves(client: JjClient, change_id: str) -> bool:
+    """Return True if the change_id resolves to a visible revision in the local repo."""
+    try:
+        client.resolve_revision(change_id)
+        return True
+    except (RevsetResolutionError, CliError):
+        return False

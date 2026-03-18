@@ -27,6 +27,7 @@ from jj_review.commands.cleanup import (
 from jj_review.commands.review_state import prepare_status, stream_status
 from jj_review.commands.submit import run_submit
 from jj_review.errors import CliError, CommandNotImplementedError
+from jj_review.intent import intent_change_ids, pid_is_alive
 from jj_review.jj import UnsupportedStackError
 
 logger = logging.getLogger(__name__)
@@ -97,11 +98,6 @@ def build_parser() -> ArgumentParser:
         "--restack",
         action="store_true",
         help="Preview or apply a local restack for merged review units on the selected path.",
-    )
-    cleanup_parser.add_argument(
-        "--allow-nontrunk-rebase",
-        action="store_true",
-        help="Allow cleanup --restack --apply to rebase onto surviving review changes",
     )
     cleanup_parser.add_argument(
         "revset",
@@ -280,7 +276,41 @@ def _status_handler(args: Namespace) -> int:
         )
     )
     _emit_status_advisories(result)
-    return 1 if result.incomplete else 0
+
+    # Render intent file notices
+    _stale_intents = prepared_status.stale_intents
+    _outstanding_intents = prepared_status.outstanding_intents
+
+    if _stale_intents:
+        print()
+        print("Stale incomplete operations (change IDs no longer in repo):")
+        for loaded in _stale_intents:
+            alive = pid_is_alive(loaded.intent.pid)
+            status_str = "process alive" if alive else "process dead"
+            print(f"  {loaded.intent.label}  [{status_str}, {loaded.path.name}]")
+
+    if _outstanding_intents:
+        print()
+        print("Incomplete operations detected:")
+        for loaded in _outstanding_intents:
+            alive = pid_is_alive(loaded.intent.pid)
+            if alive:
+                print(f"  {loaded.intent.label}  [in progress, PID {loaded.intent.pid}]")
+            else:
+                print(f"  {loaded.intent.label}  [interrupted — re-run to complete]")
+
+    exit_code = 1 if result.incomplete else 0
+
+    # Outstanding intents overlapping selected changes increase exit code
+    selected_change_ids = {r.change_id for r in getattr(result, "revisions", ())}
+    overlapping = any(
+        intent_change_ids(loaded.intent) & selected_change_ids
+        for loaded in _outstanding_intents
+    )
+    if overlapping:
+        exit_code = max(exit_code, 1)
+
+    return exit_code
 
 
 def _describe_status_preparation_error(error: UnsupportedStackError) -> str:
@@ -597,7 +627,6 @@ def _cleanup_handler(args: Namespace) -> int:
         try:
             prepared_restack = prepare_restack(
                 apply=bool(args.apply),
-                allow_nontrunk_rebase=bool(args.allow_nontrunk_rebase),
                 change_overrides=context.config.change,
                 config=context.config.repo,
                 repo_root=context.repo_root,
@@ -643,22 +672,13 @@ def _cleanup_handler(args: Namespace) -> int:
             prepared_restack=prepared_restack,
         )
         if not result.actions:
-            print("No merged review units on the selected path need restacking")
+            print("No merged review units on the selected path need restacking.")
             return 0
-        if result.requires_nontrunk_rebase:
-            rerun_command = (
-                "cleanup --restack --apply --allow-nontrunk-rebase"
-                f"{' ' + result.selected_revset if result.selected_revset else ''}"
-            )
-            print(
-                "Manual follow-up: run `jj rebase` for the blocked non-trunk restack, "
-                f"or rerun with `{rerun_command}`"
-            )
-        elif not result.applied:
+        if not result.applied:
             print(
                 "Re-run with `cleanup --restack --apply"
                 f"{' ' + result.selected_revset if result.selected_revset else ''}` "
-                "to rewrite surviving local changes"
+                "to rewrite surviving local changes."
             )
         return 1 if result.blocked else 0
 

@@ -277,19 +277,12 @@ def test_main_cleanup_restack_passes_apply_and_revset_to_prepare_restack(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
-    prepare_calls: list[tuple[bool, bool, str | None]] = []
+    prepare_calls: list[tuple[bool, str | None]] = []
 
     def fake_prepare_restack(**kwargs):
-        prepare_calls.append(
-            (
-                bool(kwargs["apply"]),
-                bool(kwargs["allow_nontrunk_rebase"]),
-                kwargs["revset"],
-            )
-        )
+        prepare_calls.append((bool(kwargs["apply"]), kwargs["revset"]))
         return SimpleNamespace(
             apply=True,
-            allow_nontrunk_rebase=False,
             prepared_status=SimpleNamespace(
                 github_repository=SimpleNamespace(full_name="octo-org/stacked-review"),
                 github_repository_error=None,
@@ -308,7 +301,6 @@ def test_main_cleanup_restack_passes_apply_and_revset_to_prepare_restack(
             actions=(),
             applied=True,
             blocked=False,
-            requires_nontrunk_rebase=False,
             selected_revset="@-",
         ),
     )
@@ -319,9 +311,9 @@ def test_main_cleanup_restack_passes_apply_and_revset_to_prepare_restack(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert prepare_calls == [(True, False, "@-")]
+    assert prepare_calls == [(True, "@-")]
     assert "Selected revset: @-" in captured.out
-    assert "No merged review units on the selected path need restacking" in captured.out
+    assert "No merged review units on the selected path need restacking." in captured.out
 
 
 def test_main_cleanup_renders_planned_and_blocked_actions(
@@ -402,7 +394,6 @@ def test_main_cleanup_restack_renders_next_step_and_policy_warning(
         "jj_review.cli.prepare_restack",
         lambda **kwargs: SimpleNamespace(
             apply=False,
-            allow_nontrunk_rebase=False,
             prepared_status=SimpleNamespace(
                 github_repository=SimpleNamespace(full_name="octo-org/stacked-review"),
                 github_repository_error=None,
@@ -445,7 +436,6 @@ def test_main_cleanup_restack_renders_next_step_and_policy_warning(
             ),
             applied=False,
             blocked=False,
-            requires_nontrunk_rebase=False,
             selected_revset="@",
         )
 
@@ -460,62 +450,6 @@ def test_main_cleanup_restack_renders_next_step_and_policy_warning(
     assert "[planned] restack: rebase abcdef12 onto trunk()" in captured.out
     assert "[planned] policy: PR #5 merged into review/base-branch" in captured.out
     assert "cleanup --restack --apply @" in captured.out
-
-
-def test_main_cleanup_restack_reports_blocked_nontrunk_follow_up(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
-    monkeypatch.setattr(
-        "jj_review.cli.prepare_restack",
-        lambda **kwargs: SimpleNamespace(
-            apply=True,
-            allow_nontrunk_rebase=False,
-            prepared_status=SimpleNamespace(
-                github_repository=SimpleNamespace(full_name="octo-org/stacked-review"),
-                github_repository_error=None,
-                prepared=SimpleNamespace(
-                    remote=SimpleNamespace(name="origin"),
-                    remote_error=None,
-                ),
-                selected_revset="@",
-            ),
-        ),
-    )
-
-    def fake_stream_restack(**kwargs):
-        kwargs["on_action"](
-            SimpleNamespace(
-                kind="restack",
-                message="rebase abcdef12 onto qrstuvwx requires --allow-nontrunk-rebase",
-                status="blocked",
-            )
-        )
-        return SimpleNamespace(
-            actions=(
-                SimpleNamespace(
-                    kind="restack",
-                    message="rebase abcdef12 onto qrstuvwx requires --allow-nontrunk-rebase",
-                    status="blocked",
-                ),
-            ),
-            applied=True,
-            blocked=True,
-            requires_nontrunk_rebase=True,
-            selected_revset="@",
-        )
-
-    monkeypatch.setattr("jj_review.cli.stream_restack", fake_stream_restack)
-
-    exit_code = main(["cleanup", "--restack", "--apply", "--repository", str(tmp_path)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "[blocked] restack: rebase abcdef12 onto qrstuvwx requires" in captured.out
-    assert "Manual follow-up: run `jj rebase`" in captured.out
-    assert "--allow-nontrunk-rebase @" in captured.out
 
 
 def test_main_cleanup_prints_remote_and_github_before_stream_completes(
@@ -715,7 +649,9 @@ def test_main_status_prints_local_header_before_streaming(
                 ),
                 status_revisions=(object(),),
             ),
+            outstanding_intents=(),
             selected_revset="@",
+            stale_intents=(),
             trunk_subject="base",
         ),
     )
@@ -823,7 +759,9 @@ def test_main_status_prints_cleanup_advisories_for_merged_review_units(
                 ),
                 status_revisions=(object(),),
             ),
+            outstanding_intents=(),
             selected_revset="@",
+            stale_intents=(),
             trunk_subject="base",
         ),
     )
