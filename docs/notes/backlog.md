@@ -7,21 +7,27 @@ current slices.
 
 Atomic state file writes are in place. The remaining gaps, in dependency order:
 
-### 1. Exclusive state lock (prerequisite for everything below)
+### 1. Intent files (which also serve as the concurrency lock)
 
-An exclusive advisory lock (`fcntl` on a `lock` file in the state directory)
-must be acquired before any mutating command reads or writes state. Without it,
-a concurrent process can observe a live intent file as if it were interrupted,
-and two writers can corrupt the cache or intent directory. Read-only `status`
-(no `--fetch`) does not need the lock. Locking is a prerequisite for intent
-files, not a follow-up.
+The intent file IS the lock — no separate locking primitive is needed and no
+platform-specific locking API (`fcntl`, `msvcrt`) is required. Each intent file
+contains the PID of the writing process. When a mutating command starts it
+scans for intent files of the same kind. If one exists:
+
+- **PID is alive**: another operation is in progress. Print "Another submit is
+  in progress (PID X). Waiting..." and poll every 0.5 s. After 5 minutes print
+  a "still waiting" notice. The user can Ctrl-C to abort.
+- **PID is dead**: the previous operation was interrupted. Report it and proceed
+  (resume or warn as described below).
+
+Cross-platform PID liveness: `os.kill(pid, 0)` on Linux and macOS;
+`ctypes.windll.kernel32.OpenProcess` on Windows. No third-party dependencies.
 
 When the state directory is unavailable (no writable path, `jj config path
 --repo` fails), mutating commands must hard-fail rather than proceeding
 silently. The current code allows mutations to continue with persistence
-disabled; that is safe today only because there is no intent file or lock to
-depend on. Once this work lands, commands that cannot write state must refuse to
-run.
+disabled; that is safe today only because there is no intent file to depend on.
+Once this work lands, commands that cannot write state must refuse to run.
 
 ### 2. Incremental cache saves
 
@@ -96,13 +102,8 @@ to the intent file implementation.
 
 ## Concurrent Operations
 
-Running two submits simultaneously (two terminals, a script, an accidental
-double-enter) or two cleanups at once is currently unsafe: both processes read
-the same cache, perform overlapping mutations, and write back independently,
-with the last writer winning. This is addressed by the exclusive state lock
-described under Crash and Interrupt Recovery above. Tracked here as a
-reminder that the lock design must cover concurrent access explicitly, not
-just crash recovery.
+Addressed by the PID-in-intent-file design described under Crash and Interrupt
+Recovery. No separate work item needed.
 
 ## Concurrency and Rate Limiting
 
