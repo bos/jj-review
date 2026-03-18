@@ -7,6 +7,7 @@ import os
 import subprocess
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal, Protocol
 from urllib.parse import urlparse
@@ -16,10 +17,18 @@ from jj_review.cache import ReviewStateStore
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.intent import (
+    check_same_kind_intent,
+    delete_intent,
+    match_ordered_change_ids,
+    retire_superseded_intents,
+    write_intent,
+)
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest, GithubRepository
+from jj_review.models.intent import SubmitIntent
 
 
 class SubmitRemoteResolutionError(CliError):
@@ -143,12 +152,17 @@ def run_submit(
 ) -> SubmitResult:
     """Project the selected local stack to synthetic review bookmarks and PRs."""
 
+    state_store = ReviewStateStore.for_repo(repo_root)
+    state_dir = state_store.require_writable()
+
     return asyncio.run(
         _run_submit_async(
             change_overrides=change_overrides,
             config=config,
             repo_root=repo_root,
             revset=revset,
+            state_dir=state_dir,
+            state_store=state_store,
         )
     )
 
@@ -159,12 +173,13 @@ async def _run_submit_async(
     config: RepoConfig,
     repo_root: Path,
     revset: str | None,
+    state_dir: Path,
+    state_store: ReviewStateStore,
 ) -> SubmitResult:
     client = JjClient(repo_root)
     stack = client.discover_review_stack(revset)
     remotes = client.list_git_remotes()
     remote = select_submit_remote(config, remotes)
-    state_store = ReviewStateStore.for_repo(repo_root)
     state = state_store.load()
     discovered_bookmarks = _discover_bookmarks_for_revisions(
         bookmark_states=client.list_bookmark_states(),
@@ -201,116 +216,162 @@ async def _run_submit_async(
     github_repository = resolve_github_repository(config, remote)
     state_changes = dict(bookmark_result.state.changes)
 
-    async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
-        github_repository_state = await _get_github_repository(
-            github_client,
-            github_repository=github_repository,
-        )
-        trunk_branch = resolve_trunk_branch(
-            client=client,
-            config=config,
-            github_repository_state=github_repository_state,
-            remote=remote,
-            stack=stack,
-        )
-
-        revisions: list[SubmittedRevision] = []
-        for index, (resolution, revision) in enumerate(
-            zip(
-                bookmark_result.resolutions,
-                stack.revisions,
-                strict=True,
+    # Build the intent before any mutation, using info already in hand
+    ordered_change_ids = tuple(r.change_id for r in stack.revisions)
+    bookmarks_map = {
+        r.change_id: res.bookmark
+        for r, res in zip(stack.revisions, bookmark_result.resolutions, strict=True)
+    }
+    intent = SubmitIntent(
+        kind="submit",
+        pid=os.getpid(),
+        label=f"submit on {stack.selected_revset}",
+        display_revset=stack.selected_revset,
+        head_change_id=stack.revisions[-1].change_id if stack.revisions else stack.trunk.change_id,
+        ordered_change_ids=ordered_change_ids,
+        bookmarks=bookmarks_map,
+        bases={},
+        started_at=datetime.now(timezone.utc).isoformat(),
+    )
+    stale_intents = check_same_kind_intent(state_dir, intent)
+    for loaded in stale_intents:
+        match = match_ordered_change_ids(loaded.intent.ordered_change_ids, ordered_change_ids)
+        if match == "exact":
+            print(f"Resuming interrupted {loaded.intent.label}")
+        elif match == "superset":
+            pass  # proceed silently, retire on success
+        elif match == "overlap":
+            print(
+                f"Warning: this submit overlaps an incomplete earlier operation "
+                f"({loaded.intent.label})"
             )
-        ):
-            bookmark_state = client.get_bookmark_state(resolution.bookmark)
-            local_action = _resolve_local_action(
-                resolution.bookmark,
-                bookmark_state.local_targets,
-                revision.commit_id,
-            )
-            remote_state = bookmark_state.remote_target(remote.name)
-            _ensure_remote_can_be_updated(
-                bookmark=resolution.bookmark,
-                bookmark_source=resolution.source,
-                bookmark_state=bookmark_state,
-                change_id=revision.change_id,
-                desired_target=revision.commit_id,
-                remote=remote.name,
-                remote_state=remote_state,
-                state=bookmark_result.state,
-            )
+        else:
+            print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
+    intent_path = write_intent(state_dir, intent)
 
-            if local_action != "unchanged":
-                client.set_bookmark(resolution.bookmark, revision.commit_id)
-
-            if _remote_is_up_to_date(remote_state, revision.commit_id):
-                remote_action = "up to date"
-            else:
-                if _should_update_untracked_remote_with_git(remote_state, revision.commit_id):
-                    if remote_state is None:
-                        raise AssertionError("Checked remote bookmark state must exist.")
-                    expected_remote_target = remote_state.target
-                    if expected_remote_target is None:
-                        raise AssertionError("Checked remote target must be unambiguous.")
-                    client.update_untracked_remote_bookmark(
-                        remote=remote.name,
-                        bookmark=resolution.bookmark,
-                        desired_target=revision.commit_id,
-                        expected_remote_target=expected_remote_target,
-                    )
-                else:
-                    client.push_bookmark(remote=remote.name, bookmark=resolution.bookmark)
-                remote_action = "pushed"
-
-            base_branch = revisions[index - 1].bookmark if index > 0 else trunk_branch
-            pull_request_result = await _sync_pull_request(
-                base_branch=base_branch,
-                bookmark=resolution.bookmark,
-                change_id=revision.change_id,
-                github_client=github_client,
+    succeeded = False
+    try:
+        async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+            github_repository_state = await _get_github_repository(
+                github_client,
                 github_repository=github_repository,
-                labels=config.labels,
-                reviewers=config.reviewers,
-                revision=revision,
-                state=bookmark_result.state,
-                state_changes=state_changes,
-                team_reviewers=config.team_reviewers,
+            )
+            trunk_branch = resolve_trunk_branch(
+                client=client,
+                config=config,
+                github_repository_state=github_repository_state,
+                remote=remote,
+                stack=stack,
             )
 
-            revisions.append(
-                SubmittedRevision(
+            revisions: list[SubmittedRevision] = []
+            for index, (resolution, revision) in enumerate(
+                zip(
+                    bookmark_result.resolutions,
+                    stack.revisions,
+                    strict=True,
+                )
+            ):
+                bookmark_state = client.get_bookmark_state(resolution.bookmark)
+                local_action = _resolve_local_action(
+                    resolution.bookmark,
+                    bookmark_state.local_targets,
+                    revision.commit_id,
+                )
+                remote_state = bookmark_state.remote_target(remote.name)
+                _ensure_remote_can_be_updated(
                     bookmark=resolution.bookmark,
                     bookmark_source=resolution.source,
+                    bookmark_state=bookmark_state,
                     change_id=revision.change_id,
-                    local_action=local_action,
-                    pull_request_action=pull_request_result.action,
-                    pull_request_number=pull_request_result.pull_request.number,
-                    pull_request_url=pull_request_result.pull_request.html_url,
-                    remote_action=remote_action,
-                    subject=revision.subject,
+                    desired_target=revision.commit_id,
+                    remote=remote.name,
+                    remote_state=remote_state,
+                    state=bookmark_result.state,
                 )
+
+                if local_action != "unchanged":
+                    client.set_bookmark(resolution.bookmark, revision.commit_id)
+
+                if _remote_is_up_to_date(remote_state, revision.commit_id):
+                    remote_action = "up to date"
+                else:
+                    if _should_update_untracked_remote_with_git(remote_state, revision.commit_id):
+                        if remote_state is None:
+                            raise AssertionError("Checked remote bookmark state must exist.")
+                        expected_remote_target = remote_state.target
+                        if expected_remote_target is None:
+                            raise AssertionError("Checked remote target must be unambiguous.")
+                        client.update_untracked_remote_bookmark(
+                            remote=remote.name,
+                            bookmark=resolution.bookmark,
+                            desired_target=revision.commit_id,
+                            expected_remote_target=expected_remote_target,
+                        )
+                    else:
+                        client.push_bookmark(remote=remote.name, bookmark=resolution.bookmark)
+                    remote_action = "pushed"
+
+                base_branch = revisions[index - 1].bookmark if index > 0 else trunk_branch
+                pull_request_result = await _sync_pull_request(
+                    base_branch=base_branch,
+                    bookmark=resolution.bookmark,
+                    change_id=revision.change_id,
+                    github_client=github_client,
+                    github_repository=github_repository,
+                    labels=config.labels,
+                    reviewers=config.reviewers,
+                    revision=revision,
+                    state=bookmark_result.state,
+                    state_changes=state_changes,
+                    team_reviewers=config.team_reviewers,
+                )
+
+                revisions.append(
+                    SubmittedRevision(
+                        bookmark=resolution.bookmark,
+                        bookmark_source=resolution.source,
+                        change_id=revision.change_id,
+                        local_action=local_action,
+                        pull_request_action=pull_request_result.action,
+                        pull_request_number=pull_request_result.pull_request.number,
+                        pull_request_url=pull_request_result.pull_request.html_url,
+                        remote_action=remote_action,
+                        subject=revision.subject,
+                    )
+                )
+
+                # Incremental cache save after this revision
+                _interim_state = bookmark_result.state.model_copy(
+                    update={"changes": dict(state_changes)}
+                )
+                state_store.save(_interim_state)
+
+            await _sync_stack_comments(
+                github_client=github_client,
+                github_repository=github_repository,
+                revisions=tuple(revisions),
+                state=state,
+                state_changes=state_changes,
+                trunk_branch=trunk_branch,
             )
 
-        await _sync_stack_comments(
-            github_client=github_client,
-            github_repository=github_repository,
+        next_state = bookmark_result.state.model_copy(update={"changes": state_changes})
+        if bookmark_result.changed or next_state != state:
+            state_store.save(next_state)
+
+        succeeded = True
+        return SubmitResult(
+            remote=remote,
             revisions=tuple(revisions),
-            state=state,
-            state_changes=state_changes,
+            selected_revset=stack.selected_revset,
             trunk_branch=trunk_branch,
+            trunk_subject=stack.trunk.subject,
         )
-
-    next_state = bookmark_result.state.model_copy(update={"changes": state_changes})
-    if bookmark_result.changed or next_state != state:
-        state_store.save(next_state)
-
-    return SubmitResult(
-        remote=remote,
-        revisions=tuple(revisions),
-        selected_revset=stack.selected_revset,
-        trunk_branch=trunk_branch,
-        trunk_subject=stack.trunk.subject,
-    )
+    finally:
+        if succeeded:
+            retire_superseded_intents(stale_intents, intent)
+            delete_intent(intent_path)
 
 
 def select_submit_remote(
