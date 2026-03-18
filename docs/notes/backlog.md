@@ -5,12 +5,47 @@ current slices.
 
 ## Crash and Interrupt Recovery
 
-There's a variety of ways in which a crash or ctrl-C can cause potentially
-persistent failures. We need to figure out how to test for those, what the
-failure modes are, and how to recover from those that we can't prevent.
+Atomic state file writes are in place. The remaining gaps are:
 
-We should also be mindful of atomic write-tempfile-then-rename modifications to
-tool-controlled files, so that partially written files can't exist or be read.
+- **Incremental cache saves**: the cache is currently written once at the end
+  of a successful `submit` run. A crash mid-stack leaves the cache stale and
+  `status` showing no PR linkage for completed revisions. Saving the cache
+  after each per-revision sync would make the cache accurate at any crash point
+  and let `status` show correct state without requiring a re-run.
+
+- **Intent files**: write a per-operation intent file (atomically) before any
+  mutations begin and delete it (atomically) after all mutations and the cache
+  write complete. If the file exists on the next run, the previous operation
+  was interrupted. `status` should surface outstanding intent files prominently.
+  When `submit` or `cleanup --apply` is re-run with the same revset as an
+  outstanding intent, it should say "completing interrupted submit on `@`"
+  rather than acting as if nothing happened. Running a different revset should
+  show a brief notice ("1 incomplete submit outstanding on `@-`") without
+  blocking the new operation.
+
+  Intent files live in the repo state directory alongside `state.toml`, one
+  file per incomplete operation (named by a UUID so multiple can coexist). Each
+  file records the operation kind, revset, and start time.
+
+## Aborting Incomplete Operations
+
+Once intent files and incremental cache saves are in place, `submit --abort`
+and `cleanup --abort` become well-defined: use the intent file to identify what
+was in progress and the cache to identify what completed, then retract the
+completed work (close PRs, delete remote branches, revert local bookmarks,
+clear cache entries) and remove the intent file. Design separately; don't tie
+to the intent file implementation.
+
+## Concurrent Operations
+
+Running two submits simultaneously (two terminals, a script, an accidental
+double-enter) or two cleanups at once is currently unsafe: both processes read
+the same cache, perform overlapping mutations, and write back independently,
+with the last writer winning. The tool needs an exclusive-write lock on the
+repo state directory for any operation that mutates local or remote state.
+Read-only operations (`status` without `--fetch`) do not need the lock.
+Design the locking strategy (e.g. `fcntl` advisory lock on a `lock` file in
+the state directory) separately from the intent file work.
 
 ## Concurrency and Rate Limiting
 
