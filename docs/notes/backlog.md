@@ -17,15 +17,32 @@ Atomic state file writes are in place. The remaining gaps are:
   mutations begin and delete it (atomically) after all mutations and the cache
   write complete. If the file exists on the next run, the previous operation
   was interrupted. `status` should surface outstanding intent files prominently.
-  When `submit` or `cleanup --apply` is re-run with the same revset as an
-  outstanding intent, it should say "completing interrupted submit on `@`"
-  rather than acting as if nothing happened. Running a different revset should
-  show a brief notice ("1 incomplete submit outstanding on `@-`") without
-  blocking the new operation.
+  Intent files store the resolved change IDs (not just the revset string) so
+  matching is semantic rather than syntactic — `@` at write time and `@` at
+  re-run time may refer to different commits. When a new submit runs, it scans
+  all incomplete submit intents and compares change ID sets:
+
+  - **Exact match**: "resuming interrupted submit on `@`"
+  - **New is a strict superset**: proceed normally; clean up the old intent on
+    success (common case: extend the stack and re-submit after an interrupt)
+  - **Partial overlap**: warn that this submit overlaps an incomplete earlier
+    one; proceed
+  - **Disjoint**: brief notice only, do not block
+
+  When `submit` or `cleanup --apply` is re-run and matches an outstanding
+  intent exactly, it should say "completing interrupted submit on `@`" rather
+  than acting as if nothing happened. Running a different revset should show a
+  brief notice ("1 incomplete submit outstanding on `@-`") without blocking the
+  new operation.
 
   Intent files live in the repo state directory alongside `state.toml`, one
-  file per incomplete operation (named by a UUID so multiple can coexist). Each
-  file records the operation kind, revset, and start time.
+  file per incomplete operation. Names follow the pattern
+  `incomplete-YYYY-MM-DD-HH-MM.NN.toml` (e.g.
+  `incomplete-2026-03-18-14-40.01.toml`), where `NN` starts at `01` and
+  increments if a file with that timestamp already exists. This scheme sorts
+  naturally by creation time and avoids colons (which are problematic on macOS
+  and Windows). The kind and other fields are read from file contents; scanning
+  all `incomplete-*.toml` files is cheap since the typical count is zero.
 
 ## Aborting Incomplete Operations
 
