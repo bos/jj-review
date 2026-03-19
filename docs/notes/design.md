@@ -313,8 +313,9 @@ persisted repo state rather than writing a fallback file into the working tree.
 
 Given a selected head revision:
 
-1. Resolve the head revision, defaulting to `@-` if `@` is the empty
-   working-copy commit, else `@`.
+1. Resolve the selected head revision. When the operator explicitly asks to
+   use the current path, default to `@-` if `@` is the empty working-copy
+   commit, else `@`.
 2. Walk parents back toward `trunk()`, building a linear chain of visible mutable changes.
 3. Reject ambiguous shapes instead of inventing metadata to patch around them.
 4. Resolve each change's review bookmark by reuse-first, generation-second:
@@ -376,11 +377,28 @@ For the MVP, the recovery surface should be explicit and narrow:
   observations before inspecting GitHub linkage, then reports the selected
   stack and any cached or discoverable PR state without mutating GitHub or
   review bookmarks
-- `jj review adopt <pr> [<revset>]` explicitly associates an existing PR and
-  its same-repository head branch with a specific `jj` change when the user
-  intends that linkage; it should pin that branch locally and persist the PR
-  identity so a later submit can update the adopted review instead of opening
-  a replacement PR
+- `jj review adopt <pr> [--current | <revset>]` explicitly associates an
+  existing PR and its same-repository head branch with a specific `jj` change
+  when the user intends that linkage; it should pin that branch locally and
+  persist the PR identity so a later submit can update the adopted review
+  instead of opening a replacement PR
+
+Mutating commands should not silently infer that target from the current
+workspace path. The CLI should require an explicit selector for commands that
+submit, adopt, or rewrite one local review path:
+
+- `submit` requires either an explicit `<revset>` or an explicit `--current`
+  opt-in
+- `adopt` requires either an explicit `<revset>` or an explicit `--current`
+  opt-in
+- `cleanup --restack --apply` requires either an explicit `<revset>` or an
+  explicit `--current` opt-in
+
+Read-only inspection may remain ergonomic:
+
+- `status` may omit `<revset>` and inspect the current path by default
+- `cleanup --restack` without `--apply` may omit `<revset>` and preview the
+  current path by default
 
 `jj review status [<revset>]` should show the selected local stack, pinned or
 discovered review bookmarks, and any cached or discoverable GitHub linkage for
@@ -484,10 +502,19 @@ not need a saved parent graph.
 
 The tool can stay small. A reasonable surface would be:
 
-- `jj review submit [<revset>]`
+- `jj review submit [--current | <revset>]`
 - `jj review status [--fetch] [<revset>]`
-- `jj review adopt <pr> [<revset>]`
-- `jj review cleanup [--restack] [--apply] [<revset>]`
+- `jj review adopt <pr> [--current | <revset>]`
+- `jj review cleanup [--restack] [--apply] [--current | <revset>]`
+
+Target selection should stay explicit:
+
+- `submit` and `adopt` require one explicit selector, either `<revset>` or
+  `--current`
+- `cleanup --restack --apply` likewise requires one explicit selector
+- `status` and `cleanup --restack` preview may still omit both and inspect the
+  current path
+- passing both `<revset>` and `--current` is an error
 
 Notably absent:
 

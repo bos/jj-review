@@ -111,6 +111,17 @@ For development workflows, the package may also be invoked as
 Tests and packaging should target the standalone executable directly. Any `jj`
 alias integration should stay thin and optional.
 
+Command target selection should stay conservative at the CLI boundary:
+
+- `submit` and `adopt` should require either an explicit `<revset>` or an
+  explicit `--current` opt-in instead of silently defaulting to the current
+  workspace path
+- `cleanup --restack --apply` should require the same explicit selector
+- read-only inspection may stay ergonomic, so `status` and `cleanup --restack`
+  preview may still omit a selector and inspect the current path by default
+- the lower-level `jj` adapter may keep its existing current-path resolution
+  helper so the CLI can opt into that behavior intentionally via `--current`
+
 ## Proposed Repository Layout
 
 Slice 1 establishes the initial scaffold using a clean layout.

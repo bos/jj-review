@@ -63,6 +63,11 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         help="Print the submit plan without mutating local, remote, or GitHub state.",
     )
+    submit_parser.add_argument(
+        "--current",
+        action="store_true",
+        help="Explicitly operate on the current review path instead of passing a revset.",
+    )
     status_parser = _add_revision_command(
         subparsers,
         command="status",
@@ -82,6 +87,11 @@ def build_parser() -> ArgumentParser:
         parents=[common_options],
     )
     adopt_parser.add_argument("pull_request", help="Pull request number or URL.")
+    adopt_parser.add_argument(
+        "--current",
+        action="store_true",
+        help="Explicitly operate on the current review path instead of passing a revset.",
+    )
     adopt_parser.add_argument(
         "revset",
         nargs="?",
@@ -103,6 +113,11 @@ def build_parser() -> ArgumentParser:
         "--restack",
         action="store_true",
         help="Preview or apply a local restack for merged review units on the selected path.",
+    )
+    cleanup_parser.add_argument(
+        "--current",
+        action="store_true",
+        help="Explicitly operate on the current review path instead of passing a revset.",
     )
     cleanup_parser.add_argument(
         "revset",
@@ -616,8 +631,37 @@ def _revision_pull_request_number(revision) -> int | None:
     return lookup.pull_request.number
 
 
+def _resolve_selected_revset(
+    args: Namespace,
+    *,
+    command_label: str,
+    require_explicit: bool,
+) -> str | None:
+    revset = getattr(args, "revset", None)
+    current = bool(getattr(args, "current", False))
+    if current and revset is not None:
+        raise CliError(
+            f"`{command_label}` accepts either `<revset>` or `--current`, not both."
+        )
+    if current:
+        return None
+    if revset is not None:
+        return cast(str, revset)
+    if require_explicit:
+        raise CliError(
+            f"`{command_label}` requires an explicit revision selection; "
+            "pass `<revset>` or `--current`."
+        )
+    return None
+
+
 def _submit_handler(args: Namespace) -> int:
     context = bootstrap_context(args)
+    selected_revset = _resolve_selected_revset(
+        args,
+        command_label="submit",
+        require_explicit=True,
+    )
     emitted_prepared = False
     emitted_revisions = False
     emitted_section_header = False
@@ -658,7 +702,7 @@ def _submit_handler(args: Namespace) -> int:
             on_progress=emit_progress,
             on_trunk_resolved=emit_trunk,
             repo_root=context.repo_root,
-            revset=args.revset,
+            revset=selected_revset,
         )
     except CliError:
         progress_renderer.finish_open_line()
@@ -779,11 +823,16 @@ def _render_submit_progress_pr_suffix(event: SubmitProgressEvent) -> str:
 
 def _adopt_handler(args: Namespace) -> int:
     context = bootstrap_context(args)
+    selected_revset = _resolve_selected_revset(
+        args,
+        command_label="adopt",
+        require_explicit=True,
+    )
     result = run_adopt(
         config=context.config.repo,
         pull_request_reference=args.pull_request,
         repo_root=context.repo_root,
-        revset=args.revset,
+        revset=selected_revset,
     )
     print(f"Selected revset: {result.selected_revset}")
     print(f"Selected remote: {result.remote_name}")
@@ -798,13 +847,18 @@ def _adopt_handler(args: Namespace) -> int:
 def _cleanup_handler(args: Namespace) -> int:
     context = bootstrap_context(args)
     if args.restack:
+        selected_revset = _resolve_selected_revset(
+            args,
+            command_label="cleanup --restack --apply" if args.apply else "cleanup --restack",
+            require_explicit=bool(args.apply),
+        )
         try:
             prepared_restack = prepare_restack(
                 apply=bool(args.apply),
                 change_overrides=context.config.change,
                 config=context.config.repo,
                 repo_root=context.repo_root,
-                revset=args.revset,
+                revset=selected_revset,
             )
         except UnsupportedStackError as error:
             raise CliError(_describe_status_preparation_error(error)) from error

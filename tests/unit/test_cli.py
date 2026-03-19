@@ -233,6 +233,59 @@ def test_main_status_reports_targeted_divergent_stack_error(
     assert "`status --fetch` or another fetch imports remote bookmark updates" in captured.err
 
 
+def test_main_submit_requires_explicit_revision_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.bootstrap.load_config",
+        lambda **kwargs: SimpleNamespace(
+            change={},
+            logging=SimpleNamespace(level="WARNING"),
+            repo=SimpleNamespace(),
+        ),
+    )
+    run_called = False
+
+    def fake_run_submit(**kwargs):
+        nonlocal run_called
+        run_called = True
+        raise AssertionError("submit should not run without an explicit selector")
+
+    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+
+    exit_code = main(["submit", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert not run_called
+    assert "requires an explicit revision selection" in captured.err
+
+
+def test_main_submit_rejects_revset_and_current_together(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.bootstrap.load_config",
+        lambda **kwargs: SimpleNamespace(
+            change={},
+            logging=SimpleNamespace(level="WARNING"),
+            repo=SimpleNamespace(),
+        ),
+    )
+
+    exit_code = main(["submit", "--current", "--repository", str(tmp_path), "@-"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "accepts either `<revset>` or `--current`, not both" in captured.err
+
+
 def test_main_submit_passes_dry_run_and_renders_planned_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -240,9 +293,11 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     dry_run_calls: list[bool] = []
+    selected_revsets: list[str | None] = []
 
     def fake_run_submit(**kwargs):
         dry_run_calls.append(bool(kwargs["dry_run"]))
+        selected_revsets.append(kwargs["revset"])
         return SimpleNamespace(
             dry_run=True,
             remote=SimpleNamespace(name="origin"),
@@ -265,11 +320,12 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
 
     monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
 
-    exit_code = main(["submit", "--dry-run", "--repository", str(tmp_path)])
+    exit_code = main(["submit", "--dry-run", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
     assert dry_run_calls == [True]
+    assert selected_revsets == [None]
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
     assert "Planned review bookmarks:" in captured.out
     assert "- feature 1 [abcdefgh]" in captured.out
@@ -343,7 +399,7 @@ def test_main_submit_uses_streamed_callbacks_without_duplicate_output(
 
     monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
 
-    exit_code = main(["submit", "--dry-run", "--repository", str(tmp_path)])
+    exit_code = main(["submit", "--dry-run", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -423,7 +479,7 @@ def test_main_time_output_keeps_one_prefix_for_incremental_line(
 
     monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
 
-    exit_code = main(["submit", "--time-output", "--repository", str(tmp_path)])
+    exit_code = main(["submit", "--current", "--time-output", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -519,6 +575,37 @@ def test_main_cleanup_restack_passes_apply_and_revset_to_prepare_restack(
     assert "No merged review units on the selected path need restacking." in captured.out
 
 
+def test_main_cleanup_restack_apply_requires_explicit_revision_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.bootstrap.load_config",
+        lambda **kwargs: SimpleNamespace(
+            change={},
+            logging=SimpleNamespace(level="WARNING"),
+            repo=SimpleNamespace(),
+        ),
+    )
+    prepare_called = False
+
+    def fake_prepare_restack(**kwargs):
+        nonlocal prepare_called
+        prepare_called = True
+        raise AssertionError("restack apply should not prepare without a selector")
+
+    monkeypatch.setattr("jj_review.cli.prepare_restack", fake_prepare_restack)
+
+    exit_code = main(["cleanup", "--restack", "--apply", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert not prepare_called
+    assert "requires an explicit revision selection" in captured.err
+
+
 def test_main_cleanup_renders_planned_and_blocked_actions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -585,6 +672,69 @@ def test_main_cleanup_renders_planned_and_blocked_actions(
         captured.out
     )
     assert "cleanup --apply" in captured.out
+
+
+def test_main_adopt_requires_explicit_revision_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.bootstrap.load_config",
+        lambda **kwargs: SimpleNamespace(
+            change={},
+            logging=SimpleNamespace(level="WARNING"),
+            repo=SimpleNamespace(),
+        ),
+    )
+    run_called = False
+
+    def fake_run_adopt(**kwargs):
+        nonlocal run_called
+        run_called = True
+        raise AssertionError("adopt should not run without an explicit selector")
+
+    monkeypatch.setattr("jj_review.cli.run_adopt", fake_run_adopt)
+
+    exit_code = main(["adopt", "--repository", str(tmp_path), "123"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert not run_called
+    assert "requires an explicit revision selection" in captured.err
+
+
+def test_main_adopt_current_passes_current_path_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    adopt_calls: list[str | None] = []
+
+    def fake_run_adopt(**kwargs):
+        adopt_calls.append(kwargs["revset"])
+        return SimpleNamespace(
+            bookmark="review/feature-abcdefgh",
+            change_id="abcdefghijkl",
+            github_repository="octo-org/stacked-review",
+            pull_request_number=7,
+            remote_name="origin",
+            selected_revset="@",
+            subject="feature 1",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_adopt", fake_run_adopt)
+
+    exit_code = main(["adopt", "--current", "--repository", str(tmp_path), "7"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert adopt_calls == [None]
+    assert "Adopted PR #7 for feature 1 [abcdefgh] -> review/feature-abcdefgh" in (
+        captured.out
+    )
 
 
 def test_main_cleanup_restack_renders_next_step_and_policy_warning(
