@@ -5,102 +5,11 @@ current slices.
 
 ## Crash and Interrupt Recovery
 
-Atomic state file writes are in place. The remaining gaps, in dependency order:
+Intent files now act as the concurrency lock, mutating commands hard-fail when
+review state is unavailable, cache writes are incremental during mutating
+operations, and `status` surfaces outstanding and stale incomplete operations.
 
-### 1. Intent files (which also serve as the concurrency lock)
-
-The intent file IS the lock — no separate locking primitive is needed and no
-platform-specific locking API (`fcntl`, `msvcrt`) is required. Each intent file
-contains the PID of the writing process. When a mutating command starts it
-scans for intent files of the same kind. If one exists:
-
-- **PID is alive**: another operation is in progress. Print "Another submit is
-  in progress (PID X). Waiting..." and poll every 0.5 s. After 5 minutes print
-  a "still waiting" notice. The user can Ctrl-C to abort.
-- **PID is dead**: the previous operation was interrupted. Report it and proceed
-  (resume or warn as described below).
-
-Cross-platform PID liveness: `os.kill(pid, 0)` on Linux and macOS;
-`ctypes.windll.kernel32.OpenProcess` on Windows. No third-party dependencies.
-
-**Commands that must acquire an intent file before mutating**: `submit`,
-`cleanup --apply`, `cleanup --restack --apply`, and `adopt` (which does a
-read-modify-write on the cache). Read-only `status` (without `--fetch`) does
-not need one.
-
-**Hard-fail if state is unavailable**: when the state directory is unavailable
-(no writable path, `jj config path --repo` fails), mutating commands must
-refuse to run with a clear explanation. The current code allows mutations to
-continue with persistence disabled; that is safe today only because there is no
-intent file to depend on. Once this work lands, commands that cannot write
-state must not proceed.
-
-### 2. Incremental cache saves
-
-The cache is currently written once at the end of a successful run. A crash
-mid-stack leaves the cache stale, so `status` shows no PR linkage for completed
-revisions. Save the cache after each per-revision sync in both `submit` and
-`cleanup --apply` (which also performs multiple remote mutations before its
-single end-of-run save). This makes the cache accurate at any crash point.
-
-After an interrupted run, `status` should show both a repo-level interrupted-
-operation warning and normal per-change rows drawn from the incrementally saved
-cache — not suppress the rows in favour of just the warning.
-
-### 3. Intent file design
-
-Write a per-operation intent file (atomically) before any mutations begin.
-Delete it (atomically) after all mutations and the final cache write complete.
-
-**File naming**: `incomplete-YYYY-MM-DD-HH-MM.NN.toml` (e.g.
-`incomplete-2026-03-18-14-40.01.toml`). `NN` starts at `01` and increments if
-a file with that timestamp already exists. Names sort naturally by creation
-time. Colons are avoided because they are problematic on macOS and Windows. The
-operation kind and all other fields are read from file contents; scanning all
-`incomplete-*.toml` files is cheap since the typical count is zero.
-
-**Per-kind payloads**: `submit` and the two cleanup modes have different shapes
-and different matching needs; do not fold them together.
-
-- `submit`: stores the PID, a user-facing label, the display revset, the
-  selected head change ID, the **ordered** change IDs (bottom to top), the
-  resolved bookmark name per change ID, and the resolved base branch per change
-  ID. Order and topology both matter: a reordered or reparented stack with the
-  same change IDs produces different PR bases and is not the same operation.
-
-- `cleanup-apply`: repo-wide; no change IDs. Stores the PID, label, and start
-  timestamp.
-
-- `cleanup-restack`: stores the PID, label, display revset, and the ordered
-  change IDs for the selected path (same topology-aware semantics as `submit`).
-
-**Matching for `submit` and `cleanup-restack`**: when a new operation starts,
-scan all outstanding intent files of the same kind and compare ordered change ID
-lists:
-
-- **Exact match** (same IDs, same order): "resuming interrupted submit on `@`".
-  Resume is informational only — the same command logic runs; the message just
-  sets the user's expectations.
-- **New is a strict ordered superset** (same prefix, new adds trailing
-  revisions): proceed normally; retire the old intent on success.
-- **Partial or reordered overlap**: warn that this operation overlaps an
-  incomplete earlier one; proceed.
-- **Disjoint**: brief one-line notice only; do not block.
-
-**UX contract**:
-
-- `status` lists outstanding intent files prominently. Exit code: non-zero if
-  the selected revset's change IDs overlap an outstanding intent; advisory
-  only (zero) if all outstanding intents are disjoint from the selected revset.
-- Each intent file includes a short user-facing label stored at write time
-  (e.g. `"submit on @"`, `"cleanup --apply"`) so `status` can display it
-  without re-evaluating revsets.
-- Stale intent retirement: automatically retire an intent only when a later
-  successful run is a proven exact match or strict ordered superset. All other
-  intents remain until explicit `--abort` support exists or `cleanup` is
-  extended to cover them.
-- An intent is considered stale (and reported separately) when none of its
-  stored change IDs resolve to any revision in the local repo.
+The remaining follow-up in this area is explicit abort support.
 
 ## Aborting Incomplete Operations
 
@@ -110,11 +19,6 @@ was in progress and the cache to identify what completed, then retract the
 completed work (close PRs, delete remote branches, revert local bookmarks,
 clear cache entries) and remove the intent file. Design separately; don't tie
 to the intent file implementation.
-
-## Concurrent Operations
-
-Addressed by the PID-in-intent-file design described under Crash and Interrupt
-Recovery. No separate work item needed.
 
 ## Concurrency and Rate Limiting
 
