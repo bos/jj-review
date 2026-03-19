@@ -55,18 +55,3 @@ GitHub has a native draft PR concept (visible but not reviewable or mergeable
 until marked ready). We should eventually support creating PRs as drafts and
 promoting them, but the semantics need to be designed before adding it. Deferred
 from MVP.
-
-## Status Command Architecture
-
-`status` now prepares local state first, prints the local header immediately,
-and streams per-change rows after bounded concurrent GitHub inspection starts.
-It still keeps a collected `StatusResult` as a secondary API for tests and any
-future non-streaming callers.
-
-We should still revisit whether `status` should:
-
-- show explicit in-progress markers while GitHub inspection is underway
-- keep a top-level collected `StatusResult` object at all, or switch fully to
-  streamed status events
-- separate repo-level GitHub reachability from per-change review state even
-  more cleanly in the renderer
