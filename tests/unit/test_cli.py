@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from jj_review.cli import main
+from jj_review.commands.submit import SubmitProgressEvent
 from jj_review.config import CONFIG_DIRNAME, CONFIG_FILENAME
 from jj_review.jj import UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState
@@ -271,10 +272,8 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
     assert dry_run_calls == [True]
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
     assert "Planned review bookmarks:" in captured.out
-    assert (
-        "- feature 1 [abcdefgh] -> review/feature-abcdefgh "
-        "(generated, local created, pushed, PR create)"
-    ) in captured.out
+    assert "- feature 1 [abcdefgh]" in captured.out
+    assert "  -> review/feature-abcdefgh [pushed] [PR #n created]" in captured.out
 
 
 def test_main_submit_uses_streamed_callbacks_without_duplicate_output(
@@ -298,7 +297,41 @@ def test_main_submit_uses_streamed_callbacks_without_duplicate_output(
     def fake_run_submit(**kwargs):
         kwargs["on_prepared"]("@", SimpleNamespace(name="origin"), True)
         kwargs["on_trunk_resolved"]("base", "main", True)
-        kwargs["on_revision"](revision)
+        kwargs["on_progress"](
+            SubmitProgressEvent(
+                change_id="abcdefghijkl",
+                kind="revision_started",
+                subject="feature 1",
+            )
+        )
+        kwargs["on_progress"](
+            SubmitProgressEvent(
+                change_id="abcdefghijkl",
+                kind="bookmark_ready",
+                bookmark="review/feature-abcdefgh",
+            )
+        )
+        kwargs["on_progress"](
+            SubmitProgressEvent(change_id="abcdefghijkl", kind="push_started")
+        )
+        kwargs["on_progress"](
+            SubmitProgressEvent(change_id="abcdefghijkl", kind="push_finished")
+        )
+        kwargs["on_progress"](
+            SubmitProgressEvent(
+                change_id="abcdefghijkl",
+                kind="pr_started",
+                pull_request_action="created",
+            )
+        )
+        kwargs["on_progress"](
+            SubmitProgressEvent(
+                change_id="abcdefghijkl",
+                kind="pr_finished",
+                pull_request_action="created",
+                pull_request_number=None,
+            )
+        )
         return SimpleNamespace(
             dry_run=True,
             remote=SimpleNamespace(name="origin"),
@@ -319,13 +352,87 @@ def test_main_submit_uses_streamed_callbacks_without_duplicate_output(
     assert captured.out.count("Trunk: base -> main") == 1
     assert captured.out.count("Dry run: no local, remote, or GitHub changes applied.") == 1
     assert captured.out.count("Planned review bookmarks:") == 1
-    assert (
-        captured.out.count(
-            "- feature 1 [abcdefgh] -> review/feature-abcdefgh "
-            "(generated, local created, pushed, PR create)"
-        )
-        == 1
+    assert captured.out.count("- feature 1 [abcdefgh]") == 1
+    assert captured.out.count("  -> review/feature-abcdefgh [pushed] [PR #n created]") == 1
+
+
+def test_main_time_output_keeps_one_prefix_for_incremental_line(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+
+    revision = SimpleNamespace(
+        bookmark="review/feature-abcdefgh",
+        bookmark_source="generated",
+        change_id="abcdefghijkl",
+        local_action="created",
+        pull_request_action="created",
+        pull_request_number=7,
+        remote_action="pushed",
+        subject="feature 1",
     )
+
+    def fake_run_submit(**kwargs):
+        kwargs["on_prepared"]("@", SimpleNamespace(name="origin"), True)
+        kwargs["on_trunk_resolved"]("base", "main", True)
+        kwargs["on_progress"](
+            SubmitProgressEvent(
+                change_id="abcdefghijkl",
+                kind="revision_started",
+                subject="feature 1",
+            )
+        )
+        kwargs["on_progress"](
+            SubmitProgressEvent(
+                change_id="abcdefghijkl",
+                kind="bookmark_ready",
+                bookmark="review/feature-abcdefgh",
+            )
+        )
+        kwargs["on_progress"](
+            SubmitProgressEvent(change_id="abcdefghijkl", kind="push_started")
+        )
+        kwargs["on_progress"](
+            SubmitProgressEvent(change_id="abcdefghijkl", kind="push_finished")
+        )
+        kwargs["on_progress"](
+            SubmitProgressEvent(
+                change_id="abcdefghijkl",
+                kind="pr_started",
+                pull_request_action="created",
+            )
+        )
+        kwargs["on_progress"](
+            SubmitProgressEvent(
+                change_id="abcdefghijkl",
+                kind="pr_finished",
+                pull_request_action="created",
+                pull_request_number=7,
+            )
+        )
+        return SimpleNamespace(
+            dry_run=False,
+            remote=SimpleNamespace(name="origin"),
+            revisions=(revision,),
+            selected_revset="@",
+            trunk_branch="main",
+            trunk_subject="base",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+
+    exit_code = main(["submit", "--time-output", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    progress_line = next(
+        line
+        for line in captured.out.splitlines()
+        if "review/feature-abcdefgh [pushed] [PR #7 created]" in line
+    )
+    assert progress_line.count("[") == 3
 
 
 def test_main_cleanup_passes_apply_to_prepare_cleanup(

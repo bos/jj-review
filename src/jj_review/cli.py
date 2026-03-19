@@ -25,7 +25,7 @@ from jj_review.commands.cleanup import (
     stream_restack,
 )
 from jj_review.commands.review_state import prepare_status, stream_status
-from jj_review.commands.submit import run_submit
+from jj_review.commands.submit import SubmitProgressEvent, run_submit
 from jj_review.errors import CliError, CommandNotImplementedError
 from jj_review.intent import intent_change_ids, pid_is_alive
 from jj_review.jj import UnsupportedStackError
@@ -185,6 +185,7 @@ def _time_output(*, enabled: bool):
 
     start = time.perf_counter()
     original_print = builtins.print
+    at_line_start: dict[int, bool] = {}
 
     def timed_print(*args, **kwargs) -> None:
         elapsed = time.perf_counter() - start
@@ -196,9 +197,23 @@ def _time_output(*, enabled: bool):
         rendered = buffer.getvalue()
         if rendered:
             prefix = f"[{elapsed:0.6f}] "
-            destination.write(_prefix_rendered_lines(rendered, prefix=prefix))
+            key = id(destination)
+            rendered_output, next_at_line_start = _prefix_rendered_output(
+                rendered,
+                prefix=prefix,
+                at_line_start=at_line_start.get(key, True),
+            )
+            destination.write(rendered_output)
+            at_line_start[key] = next_at_line_start
         elif end:
-            destination.write(f"[{elapsed:0.6f}] {end}")
+            key = id(destination)
+            rendered_output, next_at_line_start = _prefix_rendered_output(
+                end,
+                prefix=f"[{elapsed:0.6f}] ",
+                at_line_start=at_line_start.get(key, True),
+            )
+            destination.write(rendered_output)
+            at_line_start[key] = next_at_line_start
         if flush:
             destination.flush()
 
@@ -211,6 +226,25 @@ def _time_output(*, enabled: bool):
 
 def _prefix_rendered_lines(rendered: str, *, prefix: str) -> str:
     return "".join(f"{prefix}{line}" for line in rendered.splitlines(keepends=True))
+
+
+def _prefix_rendered_output(
+    rendered: str,
+    *,
+    prefix: str,
+    at_line_start: bool,
+) -> tuple[str, bool]:
+    if not rendered:
+        return "", at_line_start
+
+    chunks: list[str] = []
+    current_at_line_start = at_line_start
+    for chunk in rendered.splitlines(keepends=True):
+        if current_at_line_start:
+            chunks.append(prefix)
+        chunks.append(chunk)
+        current_at_line_start = chunk.endswith("\n")
+    return "".join(chunks), current_at_line_start
 
 
 def _status_handler(args: Namespace) -> int:
@@ -588,6 +622,7 @@ def _submit_handler(args: Namespace) -> int:
     emitted_revisions = False
     emitted_section_header = False
     emitted_trunk = False
+    progress_renderer = _SubmitProgressRenderer()
 
     def emit_prepared(selected_revset: str, remote, has_revisions: bool) -> None:
         del has_revisions
@@ -609,25 +644,25 @@ def _submit_handler(args: Namespace) -> int:
             print("Projected review bookmarks:")
         emitted_section_header = True
 
-    def emit_revision(revision) -> None:
+    def emit_progress(event: SubmitProgressEvent) -> None:
         nonlocal emitted_revisions
-        print(
-            f"- {revision.subject} [{_display_change_id(revision.change_id)}] -> "
-            f"{revision.bookmark} "
-            f"({_format_submit_projection_details(revision)})"
-        )
+        progress_renderer.emit(event)
         emitted_revisions = True
 
-    result = run_submit(
-        change_overrides=context.config.change,
-        config=context.config.repo,
-        dry_run=bool(args.dry_run),
-        on_prepared=emit_prepared,
-        on_revision=emit_revision,
-        on_trunk_resolved=emit_trunk,
-        repo_root=context.repo_root,
-        revset=args.revset,
-    )
+    try:
+        result = run_submit(
+            change_overrides=context.config.change,
+            config=context.config.repo,
+            dry_run=bool(args.dry_run),
+            on_prepared=emit_prepared,
+            on_progress=emit_progress,
+            on_trunk_resolved=emit_trunk,
+            repo_root=context.repo_root,
+            revset=args.revset,
+        )
+    except CliError:
+        progress_renderer.finish_open_line()
+        raise
     if not emitted_prepared:
         print(f"Selected revset: {result.selected_revset}")
         print(f"Selected remote: {result.remote.name}")
@@ -645,33 +680,101 @@ def _submit_handler(args: Namespace) -> int:
             print("Projected review bookmarks:")
     if not emitted_revisions:
         for revision in result.revisions:
-            print(
-                f"- {revision.subject} [{_display_change_id(revision.change_id)}] -> "
-                f"{revision.bookmark} "
-                f"({_format_submit_projection_details(revision)})"
-            )
+            _print_submit_revision(revision)
     return 0
 
 
-def _format_submit_projection_details(revision) -> str:
+class _SubmitProgressRenderer:
+    def __init__(self) -> None:
+        self._line_open = False
+
+    def emit(self, event: SubmitProgressEvent) -> None:
+        if event.kind == "revision_started":
+            self.finish_open_line()
+            if event.subject is None:
+                raise AssertionError("Revision-start events must include a subject.")
+            print(
+                f"- {event.subject} [{_display_change_id(event.change_id)}]",
+                flush=True,
+            )
+            return
+        if event.kind == "bookmark_ready":
+            if event.bookmark is None:
+                raise AssertionError("Bookmark-ready events must include a bookmark.")
+            print(f"  -> {event.bookmark}", end="", flush=True)
+            self._line_open = True
+            return
+        if event.kind == "push_started":
+            print(" [push", end="", flush=True)
+            self._line_open = True
+            return
+        if event.kind == "push_finished":
+            print("ed]", end="", flush=True)
+            self._line_open = True
+            return
+        if event.kind == "push_up_to_date":
+            print(" [already pushed]", end="", flush=True)
+            self._line_open = True
+            return
+        if event.kind == "pr_started":
+            print(" [PR", end="", flush=True)
+            self._line_open = True
+            return
+        if event.kind == "pr_finished":
+            print(_render_submit_progress_pr_suffix(event), end="\n", flush=True)
+            self._line_open = False
+            return
+        raise AssertionError(f"Unknown submit progress event kind: {event.kind}")
+
+    def finish_open_line(self) -> None:
+        if self._line_open:
+            print(flush=True)
+            self._line_open = False
+
+
+def _print_submit_revision(revision) -> None:
+    print(f"- {revision.subject} [{_display_change_id(revision.change_id)}]")
+    print(f"  -> {revision.bookmark}{_render_submit_revision_suffix(revision)}")
+
+
+def _render_submit_revision_suffix(revision) -> str:
     return (
-        f"{revision.bookmark_source}, local {revision.local_action}, "
-        f"{revision.remote_action}, {_format_submit_pull_request_action(revision)}"
+        _render_submit_remote_suffix(revision.remote_action)
+        + _render_submit_pr_suffix(
+            action=revision.pull_request_action,
+            pull_request_number=revision.pull_request_number,
+        )
     )
 
 
-def _format_submit_pull_request_action(revision) -> str:
-    if revision.pull_request_number is None:
-        return f"PR {_submit_action_label(revision.pull_request_action)}"
-    return f"PR #{revision.pull_request_number} {revision.pull_request_action}"
+def _render_submit_remote_suffix(remote_action: str) -> str:
+    if remote_action == "up to date":
+        return " [already pushed]"
+    return " [pushed]"
 
 
-def _submit_action_label(action: str) -> str:
-    if action == "created":
-        return "create"
-    if action == "updated":
-        return "update"
-    return action
+def _render_submit_pr_suffix(*, action: str, pull_request_number: int | None) -> str:
+    if pull_request_number is None:
+        if action == "created":
+            return " [PR #n created]"
+        if action == "updated":
+            return " [PR #n updated]"
+        return " [PR unchanged]"
+    return f" [PR #{pull_request_number} {action}]"
+
+
+def _render_submit_progress_pr_suffix(event: SubmitProgressEvent) -> str:
+    action = event.pull_request_action
+    if action is None:
+        raise AssertionError("PR-finished events must include a pull-request action.")
+    if action == "unchanged":
+        return _render_submit_pr_suffix(
+            action=action,
+            pull_request_number=event.pull_request_number,
+        )
+    if event.pull_request_number is None:
+        return f" #n {action}]"
+    return f" #{event.pull_request_number} {action}]"
 
 
 def _adopt_handler(args: Namespace) -> int:

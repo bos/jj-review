@@ -113,8 +113,9 @@ def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
     assert exit_code == 0
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
     assert "Planned review bookmarks:" in captured.out
-    assert "local created" in captured.out
-    assert "PR create" in captured.out
+    assert "feature 1 [" in captured.out
+    assert "  -> review/" in captured.out
+    assert " [pushed] [PR #n created]" in captured.out
     assert fake_repo.pull_requests == {}
     assert _remote_refs(fake_repo.git_dir) == initial_remote_refs
     assert ReviewStateStore.for_repo(repo).load().changes == {}
@@ -148,7 +149,8 @@ def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
 
     assert exit_code == 0
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
-    assert "local unchanged" in captured.out
+    assert "  -> review/" in captured.out
+    assert "[pushed]" in captured.out
     assert "PR #1 updated" in captured.out
     assert fake_repo.pull_requests[1].title == "feature 1"
     assert _remote_refs(fake_repo.git_dir) == remote_refs_before
@@ -385,8 +387,8 @@ def test_submit_reports_up_to_date_when_remote_bookmark_and_pr_already_match(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "pushed" in first_output
-    assert "up to date" in captured.out
+    assert "[pushed]" in first_output
+    assert "[already pushed]" in captured.out
     assert "unchanged" in captured.out
     assert _remote_refs(fake_repo.git_dir) == first_refs
     assert {number: pr.title for number, pr in fake_repo.pull_requests.items()} == first_prs

@@ -582,8 +582,9 @@ Implemented in a follow-up:
   actions, push actions, and PR actions through the normal submit path while
   skipping local, remote, GitHub, cache, and intent-file mutations
 - the submit CLI now prints the selected revset and remote promptly, then
-  streams projected review rows as the submit loop resolves each revision,
-  instead of buffering the whole plan behind one final render
+  streams one two-line progress block per revision so bookmark, push, and PR
+  progress can unfold in place instead of buffering the whole plan behind one
+  final render
 
 Done when:
 

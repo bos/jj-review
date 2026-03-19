@@ -144,6 +144,29 @@ class PullRequestSyncResult:
     pull_request: GithubPullRequest | None
 
 
+SubmitProgressKind = Literal[
+    "bookmark_ready",
+    "pr_finished",
+    "pr_started",
+    "push_finished",
+    "push_started",
+    "push_up_to_date",
+    "revision_started",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class SubmitProgressEvent:
+    """One incremental progress event emitted while processing a revision."""
+
+    change_id: str
+    kind: SubmitProgressKind
+    bookmark: str | None = None
+    pull_request_action: PullRequestAction | None = None
+    pull_request_number: int | None = None
+    subject: str | None = None
+
+
 class BookmarkStateReader(Protocol):
     """Subset of the jj client interface needed for trunk-branch fallback."""
 
@@ -167,7 +190,7 @@ def run_submit(
     config: RepoConfig,
     dry_run: bool = False,
     on_prepared: Callable[[str, GitRemote, bool], None] | None = None,
-    on_revision: Callable[[SubmittedRevision], None] | None = None,
+    on_progress: Callable[[SubmitProgressEvent], None] | None = None,
     on_trunk_resolved: Callable[[str, str, bool], None] | None = None,
     repo_root: Path,
     revset: str | None,
@@ -183,7 +206,7 @@ def run_submit(
             config=config,
             dry_run=dry_run,
             on_prepared=on_prepared,
-            on_revision=on_revision,
+            on_progress=on_progress,
             on_trunk_resolved=on_trunk_resolved,
             repo_root=repo_root,
             revset=revset,
@@ -199,7 +222,7 @@ async def _run_submit_async(
     config: RepoConfig,
     dry_run: bool,
     on_prepared: Callable[[str, GitRemote, bool], None] | None,
-    on_revision: Callable[[SubmittedRevision], None] | None,
+    on_progress: Callable[[SubmitProgressEvent], None] | None,
     on_trunk_resolved: Callable[[str, str, bool], None] | None,
     repo_root: Path,
     revset: str | None,
@@ -329,6 +352,14 @@ async def _run_submit_async(
                     strict=True,
                 )
             ):
+                if on_progress is not None:
+                    on_progress(
+                        SubmitProgressEvent(
+                            change_id=revision.change_id,
+                            kind="revision_started",
+                            subject=revision.subject,
+                        )
+                    )
                 bookmark_state = client.get_bookmark_state(resolution.bookmark)
                 local_action = _resolve_local_action(
                     resolution.bookmark,
@@ -349,10 +380,32 @@ async def _run_submit_async(
 
                 if local_action != "unchanged" and not dry_run:
                     client.set_bookmark(resolution.bookmark, revision.commit_id)
+                if on_progress is not None:
+                    on_progress(
+                        SubmitProgressEvent(
+                            change_id=revision.change_id,
+                            kind="bookmark_ready",
+                            bookmark=resolution.bookmark,
+                        )
+                    )
 
                 if _remote_is_up_to_date(remote_state, revision.commit_id):
                     remote_action = "up to date"
+                    if on_progress is not None:
+                        on_progress(
+                            SubmitProgressEvent(
+                                change_id=revision.change_id,
+                                kind="push_up_to_date",
+                            )
+                        )
                 else:
+                    if on_progress is not None:
+                        on_progress(
+                            SubmitProgressEvent(
+                                change_id=revision.change_id,
+                                kind="push_started",
+                            )
+                        )
                     if not dry_run:
                         if _should_update_untracked_remote_with_git(
                             remote_state, revision.commit_id
@@ -373,6 +426,13 @@ async def _run_submit_async(
                         else:
                             client.push_bookmark(remote=remote.name, bookmark=resolution.bookmark)
                     remote_action = "pushed"
+                    if on_progress is not None:
+                        on_progress(
+                            SubmitProgressEvent(
+                                change_id=revision.change_id,
+                                kind="push_finished",
+                            )
+                        )
 
                 base_branch = revisions[index - 1].bookmark if index > 0 else trunk_branch
                 pull_request_result = await _sync_pull_request(
@@ -382,6 +442,7 @@ async def _run_submit_async(
                     github_client=github_client,
                     github_repository=github_repository,
                     labels=config.labels,
+                    on_progress=on_progress,
                     reviewers=config.reviewers,
                     revision=revision,
                     dry_run=dry_run,
@@ -410,8 +471,6 @@ async def _run_submit_async(
                     subject=revision.subject,
                 )
                 revisions.append(submitted_revision)
-                if on_revision is not None:
-                    on_revision(submitted_revision)
 
                 if not dry_run:
                     # Incremental cache save after this revision.
@@ -699,6 +758,7 @@ async def _sync_pull_request(
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     labels: list[str],
+    on_progress: Callable[[SubmitProgressEvent], None] | None,
     reviewers: list[str],
     revision: Any,
     state: ReviewState,
@@ -721,6 +781,14 @@ async def _sync_pull_request(
     title = revision.subject
     body = _pull_request_body(revision.description)
     if discovered_pull_request is None:
+        if on_progress is not None:
+            on_progress(
+                SubmitProgressEvent(
+                    change_id=change_id,
+                    kind="pr_started",
+                    pull_request_action="created",
+                )
+            )
         pull_request = None
         if not dry_run:
             pull_request = await _create_pull_request(
@@ -744,6 +812,15 @@ async def _sync_pull_request(
         pull_request = discovered_pull_request
         action = "unchanged"
     else:
+        if on_progress is not None:
+            on_progress(
+                SubmitProgressEvent(
+                    change_id=change_id,
+                    kind="pr_started",
+                    pull_request_action="updated",
+                    pull_request_number=discovered_pull_request.number,
+                )
+            )
         pull_request = discovered_pull_request
         if not dry_run:
             pull_request = await _update_pull_request(
@@ -755,6 +832,18 @@ async def _sync_pull_request(
                 title=title,
             )
         action = "updated"
+
+    if on_progress is not None:
+        on_progress(
+            SubmitProgressEvent(
+                change_id=change_id,
+                kind="pr_finished",
+                pull_request_action=action,
+                pull_request_number=(
+                    pull_request.number if pull_request is not None else None
+                ),
+            )
+        )
 
     if pull_request is not None:
         state_changes[change_id] = _updated_cached_change(
