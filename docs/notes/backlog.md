@@ -38,6 +38,14 @@ view would likely fit the new batched execution model better than the older
 line-open incremental renderer. Design that as an explicit UX follow-up rather
 than coupling it to the remote/GitHub concurrency changes.
 
+## Submit Output Simplification
+
+The per-change `submit` summary currently renders both the remote push result
+and PR creation state, which makes lines like `[pushed] [PR #n created]`
+redundant. Revisit that output and simplify the created-PR case to something
+shorter like `[PR #n]` while preserving the distinct updated and unchanged
+cases.
+
 ## Ancestor Merged on GitHub
 
 The design doc says "require a local `jj rebase` before changing the PR base"
