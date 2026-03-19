@@ -77,7 +77,9 @@ class SubmitStackCommentError(CliError):
 LocalBookmarkAction = Literal["created", "moved", "unchanged"]
 PullRequestAction = Literal["created", "unchanged", "updated"]
 RemoteBookmarkAction = Literal["pushed", "up to date"]
+PushOperation = Literal["batch", "git_update", "up_to_date"]
 _DEFAULT_GITHUB_HOST = "github.com"
+_GITHUB_INSPECTION_CONCURRENCY = 4
 _STACK_COMMENT_MARKER = "<!-- jj-review-stack -->"
 
 
@@ -142,6 +144,20 @@ class PullRequestSyncResult:
 
     action: PullRequestAction
     pull_request: GithubPullRequest | None
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedSubmitRevision:
+    """Local submit state gathered before remote and GitHub mutation."""
+
+    bookmark: str
+    bookmark_source: BookmarkSource
+    change_id: str
+    expected_remote_target: str | None
+    local_action: LocalBookmarkAction
+    push_operation: PushOperation
+    remote_action: RemoteBookmarkAction
+    revision: Any
 
 
 SubmitProgressKind = Literal[
@@ -330,9 +346,18 @@ async def _run_submit_async(
     succeeded = False
     try:
         async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
-            github_repository_state = await _get_github_repository(
-                github_client,
-                github_repository=github_repository,
+            github_repository_state, discovered_pull_requests = await asyncio.gather(
+                _get_github_repository(
+                    github_client,
+                    github_repository=github_repository,
+                ),
+                _discover_pull_requests_by_bookmark(
+                    github_client=github_client,
+                    github_repository=github_repository,
+                    bookmarks=tuple(
+                        resolution.bookmark for resolution in bookmark_result.resolutions
+                    ),
+                ),
             )
             trunk_branch = resolve_trunk_branch(
                 client=client,
@@ -344,22 +369,12 @@ async def _run_submit_async(
             if on_trunk_resolved is not None:
                 on_trunk_resolved(stack.trunk.subject, trunk_branch, True)
 
-            revisions: list[SubmittedRevision] = []
-            for index, (resolution, revision) in enumerate(
-                zip(
-                    bookmark_result.resolutions,
-                    stack.revisions,
-                    strict=True,
-                )
+            prepared_revisions: list[PreparedSubmitRevision] = []
+            for resolution, revision in zip(
+                bookmark_result.resolutions,
+                stack.revisions,
+                strict=True,
             ):
-                if on_progress is not None:
-                    on_progress(
-                        SubmitProgressEvent(
-                            change_id=revision.change_id,
-                            kind="revision_started",
-                            subject=revision.subject,
-                        )
-                    )
                 bookmark_state = client.get_bookmark_state(resolution.bookmark)
                 local_action = _resolve_local_action(
                     resolution.bookmark,
@@ -380,71 +395,92 @@ async def _run_submit_async(
 
                 if local_action != "unchanged" and not dry_run:
                     client.set_bookmark(resolution.bookmark, revision.commit_id)
+
+                expected_remote_target: str | None = None
+                if _remote_is_up_to_date(remote_state, revision.commit_id):
+                    push_operation: PushOperation = "up_to_date"
+                    remote_action: RemoteBookmarkAction = "up to date"
+                elif _should_update_untracked_remote_with_git(remote_state, revision.commit_id):
+                    if remote_state is None:
+                        raise AssertionError("Checked remote bookmark state must exist.")
+                    expected_remote_target = remote_state.target
+                    if expected_remote_target is None:
+                        raise AssertionError("Checked remote target must be unambiguous.")
+                    push_operation = "git_update"
+                    remote_action = "pushed"
+                else:
+                    push_operation = "batch"
+                    remote_action = "pushed"
+
+                prepared_revisions.append(
+                    PreparedSubmitRevision(
+                        bookmark=resolution.bookmark,
+                        bookmark_source=resolution.source,
+                        change_id=revision.change_id,
+                        expected_remote_target=expected_remote_target,
+                        local_action=local_action,
+                        push_operation=push_operation,
+                        remote_action=remote_action,
+                        revision=revision,
+                    )
+                )
+
+            _sync_remote_bookmarks(
+                client=client,
+                dry_run=dry_run,
+                prepared_revisions=tuple(prepared_revisions),
+                remote=remote,
+            )
+
+            revisions: list[SubmittedRevision] = []
+            for index, prepared_revision in enumerate(prepared_revisions):
                 if on_progress is not None:
                     on_progress(
                         SubmitProgressEvent(
-                            change_id=revision.change_id,
-                            kind="bookmark_ready",
-                            bookmark=resolution.bookmark,
+                            change_id=prepared_revision.change_id,
+                            kind="revision_started",
+                            subject=prepared_revision.revision.subject,
                         )
                     )
-
-                if _remote_is_up_to_date(remote_state, revision.commit_id):
-                    remote_action = "up to date"
-                    if on_progress is not None:
+                    on_progress(
+                        SubmitProgressEvent(
+                            change_id=prepared_revision.change_id,
+                            kind="bookmark_ready",
+                            bookmark=prepared_revision.bookmark,
+                        )
+                    )
+                    if prepared_revision.remote_action == "up to date":
                         on_progress(
                             SubmitProgressEvent(
-                                change_id=revision.change_id,
+                                change_id=prepared_revision.change_id,
                                 kind="push_up_to_date",
                             )
                         )
-                else:
-                    if on_progress is not None:
+                    else:
                         on_progress(
                             SubmitProgressEvent(
-                                change_id=revision.change_id,
+                                change_id=prepared_revision.change_id,
                                 kind="push_started",
                             )
                         )
-                    if not dry_run:
-                        if _should_update_untracked_remote_with_git(
-                            remote_state, revision.commit_id
-                        ):
-                            if remote_state is None:
-                                raise AssertionError("Checked remote bookmark state must exist.")
-                            expected_remote_target = remote_state.target
-                            if expected_remote_target is None:
-                                raise AssertionError(
-                                    "Checked remote target must be unambiguous."
-                                )
-                            client.update_untracked_remote_bookmark(
-                                remote=remote.name,
-                                bookmark=resolution.bookmark,
-                                desired_target=revision.commit_id,
-                                expected_remote_target=expected_remote_target,
-                            )
-                        else:
-                            client.push_bookmark(remote=remote.name, bookmark=resolution.bookmark)
-                    remote_action = "pushed"
-                    if on_progress is not None:
                         on_progress(
                             SubmitProgressEvent(
-                                change_id=revision.change_id,
+                                change_id=prepared_revision.change_id,
                                 kind="push_finished",
                             )
                         )
-
                 base_branch = revisions[index - 1].bookmark if index > 0 else trunk_branch
                 pull_request_result = await _sync_pull_request(
                     base_branch=base_branch,
-                    bookmark=resolution.bookmark,
-                    change_id=revision.change_id,
+                    bookmark=prepared_revision.bookmark,
+                    change_id=prepared_revision.change_id,
+                    discovered_pull_request=discovered_pull_requests[prepared_revision.bookmark],
                     github_client=github_client,
                     github_repository=github_repository,
                     labels=config.labels,
                     on_progress=on_progress,
                     reviewers=config.reviewers,
-                    revision=revision,
+                    revision=prepared_revision.revision,
                     dry_run=dry_run,
                     state=bookmark_result.state,
                     state_changes=state_changes,
@@ -452,10 +488,10 @@ async def _run_submit_async(
                 )
 
                 submitted_revision = SubmittedRevision(
-                    bookmark=resolution.bookmark,
-                    bookmark_source=resolution.source,
-                    change_id=revision.change_id,
-                    local_action=local_action,
+                    bookmark=prepared_revision.bookmark,
+                    bookmark_source=prepared_revision.bookmark_source,
+                    change_id=prepared_revision.change_id,
+                    local_action=prepared_revision.local_action,
                     pull_request_action=pull_request_result.action,
                     pull_request_number=(
                         pull_request_result.pull_request.number
@@ -467,8 +503,8 @@ async def _run_submit_async(
                         if pull_request_result.pull_request is not None
                         else None
                     ),
-                    remote_action=remote_action,
-                    subject=revision.subject,
+                    remote_action=prepared_revision.remote_action,
+                    subject=prepared_revision.revision.subject,
                 )
                 revisions.append(submitted_revision)
 
@@ -749,11 +785,75 @@ async def _get_github_repository(
         ) from error
 
 
+async def _discover_pull_requests_by_bookmark(
+    *,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+    bookmarks: tuple[str, ...],
+) -> dict[str, GithubPullRequest | None]:
+    if not bookmarks:
+        return {}
+
+    try:
+        discovered_pull_requests = await github_client.get_pull_requests_by_head_refs(
+            github_repository.owner,
+            github_repository.repo,
+            head_refs=bookmarks,
+        )
+    except GithubClientError as error:
+        raise SubmitPullRequestResolutionError(
+            "Could not batch pull request discovery for review branches: "
+            f"{error}"
+        ) from error
+
+    return {
+        bookmark: _select_discovered_pull_request(
+            head_label=f"{github_repository.owner}:{bookmark}",
+            pull_requests=discovered_pull_requests.get(bookmark, ()),
+        )
+        for bookmark in bookmarks
+    }
+
+
+def _sync_remote_bookmarks(
+    *,
+    client: JjClient,
+    dry_run: bool,
+    prepared_revisions: tuple[PreparedSubmitRevision, ...],
+    remote: GitRemote,
+) -> None:
+    batch_push_bookmarks = tuple(
+        prepared_revision.bookmark
+        for prepared_revision in prepared_revisions
+        if prepared_revision.push_operation == "batch"
+    )
+    if batch_push_bookmarks:
+        if not dry_run:
+            client.push_bookmarks(
+                remote=remote.name,
+                bookmarks=batch_push_bookmarks,
+            )
+
+    for prepared_revision in prepared_revisions:
+        if prepared_revision.push_operation != "git_update":
+            continue
+        if not dry_run:
+            if prepared_revision.expected_remote_target is None:
+                raise AssertionError("Git remote update requires an expected target.")
+            client.update_untracked_remote_bookmark(
+                remote=remote.name,
+                bookmark=prepared_revision.bookmark,
+                desired_target=prepared_revision.revision.commit_id,
+                expected_remote_target=prepared_revision.expected_remote_target,
+            )
+
+
 async def _sync_pull_request(
     *,
     base_branch: str,
     bookmark: str,
     change_id: str,
+    discovered_pull_request: GithubPullRequest | None,
     dry_run: bool,
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
@@ -765,12 +865,6 @@ async def _sync_pull_request(
     state_changes: dict[str, CachedChange],
     team_reviewers: list[str],
 ) -> PullRequestSyncResult:
-    head_label = f"{github_repository.owner}:{bookmark}"
-    discovered_pull_request = await _discover_pull_request(
-        github_client=github_client,
-        github_repository=github_repository,
-        head_label=head_label,
-    )
     cached_change = state.changes.get(change_id)
     _ensure_pull_request_linkage_is_consistent(
         bookmark=bookmark,
@@ -872,6 +966,17 @@ async def _discover_pull_request(
             f"Could not list pull requests for head {head_label!r}: {error}"
         ) from error
 
+    return _select_discovered_pull_request(
+        head_label=head_label,
+        pull_requests=pull_requests,
+    )
+
+
+def _select_discovered_pull_request(
+    *,
+    head_label: str,
+    pull_requests: tuple[GithubPullRequest, ...],
+) -> GithubPullRequest | None:
     if len(pull_requests) > 1:
         raise SubmitPullRequestResolutionError(
             f"GitHub reports multiple pull requests for head branch {head_label!r}. "
@@ -998,6 +1103,8 @@ async def _sync_stack_comments(
     state_changes: dict[str, CachedChange],
     trunk_branch: str,
 ) -> None:
+    semaphore = asyncio.Semaphore(_GITHUB_INSPECTION_CONCURRENCY)
+    tasks: list[asyncio.Task[tuple[str, CachedChange, GithubIssueComment | None]]] = []
     for index, revision in enumerate(revisions):
         if revision.pull_request_number is None:
             continue
@@ -1014,18 +1121,50 @@ async def _sync_stack_comments(
             previous=revisions[index - 1] if index > 0 else None,
             trunk_branch=trunk_branch,
         )
+        tasks.append(
+            asyncio.create_task(
+                _sync_stack_comment_with_semaphore(
+                    cached_change=cached_change,
+                    change_id=revision.change_id,
+                    comment_body=comment_body,
+                    dry_run=dry_run,
+                    github_client=github_client,
+                    github_repository=github_repository,
+                    pull_request_number=revision.pull_request_number,
+                    semaphore=semaphore,
+                )
+            )
+        )
+    if not tasks:
+        return
+    for change_id, cached_change, comment in await asyncio.gather(*tasks):
+        if not dry_run and comment is not None:
+            state_changes[change_id] = cached_change.model_copy(
+                update={"stack_comment_id": comment.id}
+            )
+
+
+async def _sync_stack_comment_with_semaphore(
+    *,
+    cached_change: CachedChange,
+    change_id: str,
+    comment_body: str,
+    dry_run: bool,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+    pull_request_number: int,
+    semaphore: asyncio.Semaphore,
+) -> tuple[str, CachedChange, GithubIssueComment | None]:
+    async with semaphore:
         comment = await _upsert_stack_comment(
             cached_change=cached_change,
             comment_body=comment_body,
             dry_run=dry_run,
             github_client=github_client,
             github_repository=github_repository,
-            pull_request_number=revision.pull_request_number,
+            pull_request_number=pull_request_number,
         )
-        if not dry_run and comment is not None:
-            state_changes[revision.change_id] = cached_change.model_copy(
-                update={"stack_comment_id": comment.id}
-            )
+    return change_id, cached_change, comment
 
 
 async def _upsert_stack_comment(

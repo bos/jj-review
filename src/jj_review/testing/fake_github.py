@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +43,24 @@ class FakeGithubPullRequest:
             "number": self.number,
             "state": self.state,
             "title": self.title,
+        }
+
+    def to_graphql_payload(
+        self,
+        *,
+        repository: FakeGithubRepository,
+        web_origin: str,
+    ) -> dict[str, object]:
+        return {
+            "baseRefName": self.base_ref,
+            "body": self.body,
+            "headRefName": self.head_ref,
+            "headRepositoryOwner": {"login": repository.owner},
+            "mergedAt": self.merged_at,
+            "number": self.number,
+            "state": self.state.upper(),
+            "title": self.title,
+            "url": f"{web_origin}/{repository.full_name}/pull/{self.number}",
         }
 
 
@@ -236,6 +256,29 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
             api_origin=fake_state.api_origin,
             web_origin=fake_state.web_origin,
         )
+
+    @app.post("/graphql")
+    async def graphql(
+        payload: Annotated[dict[str, object], Body(...)],
+    ) -> dict[str, object]:
+        query = _require_string(payload, "query")
+        raw_variables = payload.get("variables")
+        if raw_variables is None:
+            raw_variables = {}
+        if not isinstance(raw_variables, dict):
+            raise HTTPException(status_code=422, detail="Expected 'variables' to be an object.")
+        owner = _require_graphql_variable(raw_variables, "owner")
+        repo = _require_graphql_variable(raw_variables, "repo")
+        repository = _get_repository(fake_state, owner, repo)
+        return {
+            "data": {
+                "repository": _graphql_repository_payload(
+                    query=query,
+                    repository=repository,
+                    web_origin=fake_state.web_origin,
+                )
+            }
+        }
 
     @app.get("/repos/{owner}/{repo}/pulls")
     async def list_pull_requests(
@@ -503,3 +546,45 @@ def _require_string(payload: dict[str, object], key: str) -> str:
     if value is None:
         raise HTTPException(status_code=422, detail=f"Missing required field {key!r}.")
     return value
+
+
+def _require_graphql_variable(payload: dict[str, object], key: str) -> str:
+    value = payload.get(key)
+    if isinstance(value, str):
+        return value
+    raise HTTPException(status_code=422, detail=f"Expected GraphQL variable {key!r}.")
+
+
+_HEAD_REF_QUERY_PATTERN = re.compile(
+    r"(?m)^\s*(?P<alias>\w+):\s*pullRequests\([^)]*headRefName:\s*"
+    r'(?P<head_ref>"(?:\\.|[^"])*")[^)]*\)\s*\{'
+)
+
+
+def _graphql_repository_payload(
+    *,
+    query: str,
+    repository: FakeGithubRepository,
+    web_origin: str,
+) -> dict[str, object]:
+    head_ref_matches = list(_HEAD_REF_QUERY_PATTERN.finditer(query))
+    if not head_ref_matches:
+        raise HTTPException(status_code=422, detail="Unsupported GraphQL query.")
+
+    payload: dict[str, object] = {}
+    for match in head_ref_matches:
+        alias = match.group("alias")
+        head_ref = json.loads(match.group("head_ref"))
+        matching_pull_requests = [
+            pull_request.to_graphql_payload(
+                repository=repository,
+                web_origin=web_origin,
+            )
+            for pull_request in sorted(
+                repository.pull_requests.values(),
+                key=lambda candidate: candidate.number,
+            )
+            if pull_request.head_ref == head_ref
+        ]
+        payload[alias] = {"nodes": matching_pull_requests[:2]}
+    return payload

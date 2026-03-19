@@ -216,6 +216,7 @@ models.
 It should know how to:
 
 - fetch PR state
+- batch PR lookup by known head branch where that avoids one-request-per-PR
 - create PRs
 - update PRs
 - assign reviewers and labels
@@ -721,7 +722,39 @@ Done when:
 - cleanup reports planned actions clearly
 - ambiguous remote deletions are not automatic
 
-### Slice 9: Merged PR Reconciliation
+### Slice 9: Submit Throughput
+
+Status: done.
+
+Implemented in the first vertical cut:
+
+- `submit` now batches pull-request discovery by head branch through the
+  GitHub GraphQL lookup path instead of issuing one REST list call per review
+  unit
+- `submit` now batches ordinary `jj git push --bookmark ...` updates into one
+  remote push when the selected review branches can use the normal tracked
+  bookmark path, while still handling untracked remote-bookmark lease updates
+  conservatively one branch at a time
+- submit-side stack-comment inspection and upsert planning now run with
+  bounded concurrency so reviewer-facing metadata regeneration no longer waits
+  for one PR comment list request at a time
+- the fake GitHub server now implements the GraphQL head-ref lookup path so
+  the default integration suite exercises the same batched submit discovery
+  flow as the real client
+
+Deliver:
+
+- batched submit PR discovery
+- batched ordinary submit pushes
+- bounded-concurrency submit stack-comment inspection
+
+Done when:
+
+- submit no longer performs one PR lookup request per review unit
+- submit preserves fail-closed PR linkage checks under batched discovery
+- submit still checkpoints cache state after each completed PR sync
+
+### Slice 10: Merged PR Reconciliation
 
 Status: done.
 

@@ -66,6 +66,20 @@ async def _round_trip_pull_request_reviews(app: FastAPI) -> tuple[str, str]:
     return reviews[0].user.login, reviews[1].state
 
 
+async def _lookup_pull_requests_by_head_refs(app: FastAPI) -> tuple[int, int]:
+    transport = httpx.ASGITransport(app=app)
+    async with GithubClient(base_url="https://api.github.test", transport=transport) as client:
+        pull_requests = await client.get_pull_requests_by_head_refs(
+            "octo-org",
+            "stacked-review",
+            head_refs=("feature-1", "feature-2"),
+        )
+    return (
+        pull_requests["feature-1"][0].number,
+        pull_requests["feature-2"][0].number,
+    )
+
+
 def test_fake_github_repository_endpoint_round_trips_through_client(tmp_path: Path) -> None:
     fake_repo = initialize_bare_repository(
         tmp_path,
@@ -171,3 +185,28 @@ def test_fake_github_pull_request_reviews_round_trip_through_client(tmp_path: Pa
 
     assert first_reviewer == "reviewer-1"
     assert second_state == "COMMENTED"
+
+
+def test_fake_github_graphql_head_lookup_round_trips_through_client(tmp_path: Path) -> None:
+    fake_repo = initialize_bare_repository(
+        tmp_path,
+        owner="octo-org",
+        name="stacked-review",
+    )
+    fake_repo.create_pull_request(
+        base_ref="main",
+        body="body 1",
+        head_ref="feature-1",
+        title="feature 1",
+    )
+    fake_repo.create_pull_request(
+        base_ref="feature-1",
+        body="body 2",
+        head_ref="feature-2",
+        title="feature 2",
+    )
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    pull_request_numbers = asyncio.run(_lookup_pull_requests_by_head_refs(app))
+
+    assert pull_request_numbers == (1, 2)

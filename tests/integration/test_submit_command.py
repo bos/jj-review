@@ -95,6 +95,126 @@ def test_submit_creates_stack_comments_for_each_pull_request(
     assert {change.stack_comment_id for change in state.changes.values()} == {1, 2}
 
 
+def test_submit_batches_pull_request_discovery_with_graphql(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    for index in range(4):
+        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+    batch_calls: list[tuple[str, ...]] = []
+
+    class TrackingGithubClient(GithubClient):
+        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
+            batch_calls.append(tuple(head_refs))
+            return await super().get_pull_requests_by_head_refs(
+                owner,
+                repo,
+                head_refs=head_refs,
+            )
+
+        async def list_pull_requests(self, owner, repo, *, head, state="all"):
+            raise AssertionError("submit should batch pull request discovery")
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return TrackingGithubClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    state = ReviewStateStore.for_repo(repo).load()
+
+    assert len(batch_calls) == 1
+    assert set(batch_calls[0]) == {
+        change.bookmark for change in state.changes.values() if change.bookmark is not None
+    }
+
+
+def test_submit_batches_ordinary_pushes(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    for index in range(3):
+        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
+
+    push_calls: list[tuple[str, ...]] = []
+    original_push_bookmarks = JjClient.push_bookmarks
+
+    def tracking_push_bookmarks(self, *, remote: str, bookmarks: tuple[str, ...]) -> None:
+        push_calls.append(tuple(bookmarks))
+        original_push_bookmarks(self, remote=remote, bookmarks=bookmarks)
+
+    def fail_push_bookmark(*args, **kwargs) -> None:
+        raise AssertionError("submit should batch ordinary bookmark pushes")
+
+    monkeypatch.setattr(JjClient, "push_bookmarks", tracking_push_bookmarks)
+    monkeypatch.setattr(JjClient, "push_bookmark", fail_push_bookmark)
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    state = ReviewStateStore.for_repo(repo).load()
+
+    assert len(push_calls) == 1
+    assert set(push_calls[0]) == {
+        change.bookmark for change in state.changes.values() if change.bookmark is not None
+    }
+
+
+def test_submit_limits_stack_comment_github_inspection_concurrency(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    for index in range(4):
+        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+    max_in_flight = 0
+    in_flight = 0
+
+    class TrackingGithubClient(GithubClient):
+        async def list_issue_comments(self, owner, repo, *, issue_number):
+            nonlocal in_flight, max_in_flight
+            in_flight += 1
+            max_in_flight = max(max_in_flight, in_flight)
+            try:
+                await asyncio.sleep(0.02)
+                return await super().list_issue_comments(
+                    owner,
+                    repo,
+                    issue_number=issue_number,
+                )
+            finally:
+                in_flight -= 1
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return TrackingGithubClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit._GITHUB_INSPECTION_CONCURRENCY", 2)
+    monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    assert max_in_flight == 2
+
+
 def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
     tmp_path: Path,
     monkeypatch,
@@ -118,6 +238,35 @@ def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
     assert " [pushed] [PR #n created]" in captured.out
     assert fake_repo.pull_requests == {}
     assert _remote_refs(fake_repo.git_dir) == initial_remote_refs
+
+
+def test_submit_dry_run_keeps_revision_output_grouped(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    exit_code = _main(repo, config_path, "submit", "--dry-run")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "[push [pushed]ed]" not in captured.out
+    assert captured.out.count("[pushed] [PR #n created]") == 2
+    lines = captured.out.splitlines()
+    feature_1_index = next(
+        index for index, line in enumerate(lines) if "- feature 1 [" in line
+    )
+    assert "  -> review/" in lines[feature_1_index + 1]
+    assert "[pushed] [PR #n created]" in lines[feature_1_index + 1]
+    feature_2_index = next(
+        index for index, line in enumerate(lines) if "- feature 2 [" in line
+    )
+    assert "  -> review/" in lines[feature_2_index + 1]
+    assert "[pushed] [PR #n created]" in lines[feature_2_index + 1]
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert list(resolve_state_path(repo).parent.glob("incomplete-*.toml")) == []
 
@@ -1774,13 +1923,20 @@ def test_submit_incremental_cache_save_after_first_revision(
     call_count = [0]
 
     class FailOnSecondPRClient(GithubClient):
-        async def list_pull_requests(self, owner, repo, *, head, state="all"):
+        async def create_pull_request(self, owner, repo, *, base, body, head, title):
             call_count[0] += 1
             if call_count[0] >= 2:
                 raise GithubClientError(
                     "Simulated failure on second PR", status_code=500
                 )
-            return await super().list_pull_requests(owner, repo, head=head, state=state)
+            return await super().create_pull_request(
+                owner,
+                repo,
+                base=base,
+                body=body,
+                head=head,
+                title=title,
+            )
 
     def build_github_client(*, base_url: str) -> GithubClient:
         return FailOnSecondPRClient(
@@ -1840,13 +1996,20 @@ def test_submit_leaves_intent_file_on_failure(
     call_count = [0]
 
     class FailOnFirstPRClient(GithubClient):
-        async def list_pull_requests(self, owner, repo, *, head, state="all"):
+        async def create_pull_request(self, owner, repo, *, base, body, head, title):
             call_count[0] += 1
             if call_count[0] >= 1:
                 raise GithubClientError(
                     "Simulated failure on first PR", status_code=500
                 )
-            return await super().list_pull_requests(owner, repo, head=head, state=state)
+            return await super().create_pull_request(
+                owner,
+                repo,
+                base=base,
+                body=body,
+                head=head,
+                title=title,
+            )
 
     def build_github_client(*, base_url: str) -> GithubClient:
         return FailOnFirstPRClient(

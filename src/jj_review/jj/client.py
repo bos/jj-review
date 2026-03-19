@@ -362,7 +362,23 @@ class JjClient:
     def push_bookmark(self, *, remote: str, bookmark: str) -> None:
         """Push one bookmark to the selected remote."""
 
-        self._run_jj(("git", "push", "--remote", remote, "--bookmark", bookmark))
+        self.push_bookmarks(remote=remote, bookmarks=(bookmark,))
+
+    def push_bookmarks(
+        self,
+        *,
+        remote: str,
+        bookmarks: Sequence[str],
+    ) -> None:
+        """Push one or more bookmarks to the selected remote."""
+
+        ordered_bookmarks = tuple(bookmarks)
+        if not ordered_bookmarks:
+            return
+        command = ["git", "push", "--remote", remote]
+        for bookmark in ordered_bookmarks:
+            command.extend(["--bookmark", bookmark])
+        self._run_jj(command)
 
     def fetch_remote(self, *, remote: str) -> None:
         """Refresh remembered remote bookmark state for the selected remote."""
