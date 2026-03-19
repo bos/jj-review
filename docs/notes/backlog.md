@@ -31,6 +31,13 @@ rate-limit responses, reading `Retry-After` and `X-RateLimit-Reset` headers
 and falling back to exponential backoff. The remaining gap is parallelising
 the per-change API calls in `submit` and `status` for large stacks.
 
+Now that `submit` is moving toward phase-based batching and bounded
+concurrency, the CLI progress model should be revisited separately from the
+throughput work. In particular, a TTY-only spinner or live per-change progress
+view would likely fit the new batched execution model better than the older
+line-open incremental renderer. Design that as an explicit UX follow-up rather
+than coupling it to the remote/GitHub concurrency changes.
+
 ## Ancestor Merged on GitHub
 
 The design doc says "require a local `jj rebase` before changing the PR base"
