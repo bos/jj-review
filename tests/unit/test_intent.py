@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -10,7 +10,6 @@ import pytest
 from jj_review.intent import (
     _intent_filename,
     check_same_kind_intent,
-    delete_intent,
     intent_is_stale,
     match_ordered_change_ids,
     pid_is_alive,
@@ -25,7 +24,6 @@ from jj_review.models.intent import (
     LoadedIntent,
     SubmitIntent,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -86,13 +84,13 @@ def _make_adopt_intent(change_id: str = "cccc", pid: int = 12345) -> AdoptIntent
 # ---------------------------------------------------------------------------
 
 def test_intent_filename_first_slot(tmp_path: Path) -> None:
-    now = datetime(2026, 1, 15, 10, 30, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 15, 10, 30, tzinfo=UTC)
     candidate = _intent_filename(tmp_path, now)
     assert candidate.name == "incomplete-2026-01-15-10-30.01.toml"
 
 
 def test_intent_filename_collision(tmp_path: Path) -> None:
-    now = datetime(2026, 1, 15, 10, 30, tzinfo=timezone.utc)
+    now = datetime(2026, 1, 15, 10, 30, tzinfo=UTC)
     # Create the first slot
     first = _intent_filename(tmp_path, now)
     first.touch()
@@ -147,8 +145,8 @@ def test_scan_intents_ignores_unparseable_files(tmp_path: Path) -> None:
 
 def test_scan_intents_sorted_by_name(tmp_path: Path) -> None:
     # Write two intents with different timestamps by writing files directly
-    now1 = datetime(2026, 1, 15, 9, 0, tzinfo=timezone.utc)
-    now2 = datetime(2026, 1, 15, 10, 0, tzinfo=timezone.utc)
+    now1 = datetime(2026, 1, 15, 9, 0, tzinfo=UTC)
+    now2 = datetime(2026, 1, 15, 10, 0, tzinfo=UTC)
     intent1 = _make_submit_intent(("aaaa",))
     intent2 = _make_submit_intent(("bbbb",))
     path1 = _intent_filename(tmp_path, now1)
@@ -271,7 +269,7 @@ def test_cleanup_apply_intent_is_not_stale_when_recent_and_pid_dead(
     # Dead PID, but only 1 day old — not stale yet (started_at = 2026-01-01)
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
     intent = _make_cleanup_apply_intent(pid=99999999)
-    one_day_after = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    one_day_after = datetime(2026, 1, 2, tzinfo=UTC)
     assert intent_is_stale(intent, lambda cid: False, now=one_day_after) is False
 
 
@@ -281,7 +279,7 @@ def test_cleanup_apply_intent_not_stale_when_pid_alive(
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: True)
     intent = _make_cleanup_apply_intent(pid=12345)
     # Even very old, if PID is alive → not stale
-    old_time = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    old_time = datetime(2030, 1, 1, tzinfo=UTC)
     assert intent_is_stale(intent, lambda cid: False, now=old_time) is False
 
 
@@ -291,7 +289,7 @@ def test_cleanup_apply_intent_stale_when_old_and_pid_dead(
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
     intent = _make_cleanup_apply_intent(pid=99999999)
     # 8 days after started_at (2026-01-01) → stale
-    eight_days_after = datetime(2026, 1, 9, tzinfo=timezone.utc)
+    eight_days_after = datetime(2026, 1, 9, tzinfo=UTC)
     assert intent_is_stale(intent, lambda cid: False, now=eight_days_after) is True
 
 
@@ -300,7 +298,7 @@ def test_adopt_intent_not_stale_when_pid_alive(
 ) -> None:
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: True)
     intent = _make_adopt_intent(pid=12345)
-    old_time = datetime(2030, 1, 1, tzinfo=timezone.utc)
+    old_time = datetime(2030, 1, 1, tzinfo=UTC)
     assert intent_is_stale(intent, lambda cid: False, now=old_time) is False
 
 
@@ -309,7 +307,7 @@ def test_adopt_intent_not_stale_when_recent_and_pid_dead(
 ) -> None:
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
     intent = _make_adopt_intent(pid=99999999)
-    one_day_after = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    one_day_after = datetime(2026, 1, 2, tzinfo=UTC)
     assert intent_is_stale(intent, lambda cid: False, now=one_day_after) is False
 
 
@@ -318,7 +316,7 @@ def test_adopt_intent_stale_when_old_and_pid_dead(
 ) -> None:
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
     intent = _make_adopt_intent(pid=99999999)
-    eight_days_after = datetime(2026, 1, 9, tzinfo=timezone.utc)
+    eight_days_after = datetime(2026, 1, 9, tzinfo=UTC)
     assert intent_is_stale(intent, lambda cid: False, now=eight_days_after) is True
 
 

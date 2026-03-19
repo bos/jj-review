@@ -10,9 +10,9 @@ import sys
 import tempfile
 import time
 import tomllib
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 
 from jj_review.models.intent import (
     AdoptIntent,
@@ -83,7 +83,7 @@ def _render_intent_value(value) -> str:
         return str(value)
     if isinstance(value, str):
         return json.dumps(value)
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list | tuple):
         items = ", ".join(json.dumps(item) for item in value)
         return f"[{items}]"
     raise TypeError(f"Unsupported intent TOML value type: {type(value)!r}")
@@ -94,7 +94,7 @@ def write_intent(state_dir: Path, intent: IntentFile) -> Path:
     data = dataclasses.asdict(intent)
     rendered = _render_intent_toml(data)
     state_dir.mkdir(parents=True, exist_ok=True)
-    dest = _intent_filename(state_dir, datetime.now(timezone.utc))
+    dest = _intent_filename(state_dir, datetime.now(UTC))
     fd, tmp_path_str = tempfile.mkstemp(dir=state_dir, suffix=".toml.tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -278,7 +278,7 @@ def match_ordered_change_ids(
 # ---------------------------------------------------------------------------
 
 def intent_change_ids(intent: IntentFile) -> frozenset[str]:
-    if isinstance(intent, (SubmitIntent, CleanupRestackIntent)):
+    if isinstance(intent, SubmitIntent | CleanupRestackIntent):
         return frozenset(intent.ordered_change_ids)
     if isinstance(intent, AdoptIntent):
         return frozenset([intent.change_id])
@@ -302,15 +302,15 @@ def intent_is_stale(
     For CleanupApplyIntent and AdoptIntent (no useful change IDs):
         stale if the PID is dead AND the intent is older than 7 days.
     """
-    if isinstance(intent, (CleanupApplyIntent, AdoptIntent)):
+    if isinstance(intent, CleanupApplyIntent | AdoptIntent):
         if pid_is_alive(intent.pid):
             return False
         if now is None:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
         try:
             started = datetime.fromisoformat(intent.started_at)
             if started.tzinfo is None:
-                started = started.replace(tzinfo=timezone.utc)
+                started = started.replace(tzinfo=UTC)
         except ValueError:
             return True  # can't parse → treat as stale
         return (now - started).days >= 7
@@ -329,8 +329,8 @@ def retire_superseded_intents(
     stale_intents: list[LoadedIntent],
     new_intent: IntentFile,
 ) -> None:
-    """Auto-retire stale intents that are exact matches or strict ordered subsets of new_intent."""
-    if not isinstance(new_intent, (SubmitIntent, CleanupRestackIntent)):
+    """Auto-retire stale intents that are exact matches or strict ordered subsets."""
+    if not isinstance(new_intent, SubmitIntent | CleanupRestackIntent):
         return
     new_ids = new_intent.ordered_change_ids
     for loaded in stale_intents:

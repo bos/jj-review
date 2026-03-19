@@ -95,6 +95,103 @@ def test_submit_creates_stack_comments_for_each_pull_request(
     assert {change.stack_comment_id for change in state.changes.values()} == {1, 2}
 
 
+def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    initial_remote_refs = _remote_refs(fake_repo.git_dir)
+
+    exit_code = _main(repo, config_path, "submit", "--dry-run")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
+    assert "Planned review bookmarks:" in captured.out
+    assert "local created" in captured.out
+    assert "PR create" in captured.out
+    assert fake_repo.pull_requests == {}
+    assert _remote_refs(fake_repo.git_dir) == initial_remote_refs
+    assert ReviewStateStore.for_repo(repo).load().changes == {}
+    assert list(resolve_state_path(repo).parent.glob("incomplete-*.toml")) == []
+
+    bookmark_states = JjClient(repo).list_bookmark_states()
+    assert all(not name.startswith("review/") for name in bookmark_states)
+
+
+def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_before = ReviewStateStore.for_repo(repo).load()
+    remote_refs_before = _remote_refs(fake_repo.git_dir)
+
+    _run(["jj", "describe", "-r", change_id, "-m", "feature 1 renamed"], repo)
+
+    exit_code = _main(repo, config_path, "submit", "--dry-run", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
+    assert "local unchanged" in captured.out
+    assert "PR #1 updated" in captured.out
+    assert fake_repo.pull_requests[1].title == "feature 1"
+    assert _remote_refs(fake_repo.git_dir) == remote_refs_before
+    assert ReviewStateStore.for_repo(repo).load() == state_before
+    assert list(resolve_state_path(repo).parent.glob("incomplete-*.toml")) == []
+
+
+def test_submit_dry_run_warns_on_stale_intent_without_retiring_it(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id_1 = stack.revisions[0].change_id
+    change_id_2 = stack.revisions[1].change_id
+    state_dir = resolve_state_path(repo).parent
+    old_intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,
+        label="submit on @",
+        display_revset="@",
+        head_change_id=change_id_2,
+        ordered_change_ids=(change_id_1, change_id_2),
+        bookmarks={},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    old_intent_path = write_intent(state_dir, old_intent)
+
+    exit_code = _main(repo, config_path, "submit", "--dry-run")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Resuming interrupted submit on @" in captured.out
+    assert old_intent_path.exists()
+    assert fake_repo.pull_requests == {}
+
+
 def test_submit_rediscovers_and_regenerates_stack_comments_when_cache_is_missing(
     tmp_path: Path,
     monkeypatch,
@@ -1675,13 +1772,13 @@ def test_submit_incremental_cache_save_after_first_revision(
     call_count = [0]
 
     class FailOnSecondPRClient(GithubClient):
-        async def list_pull_requests(self, owner, repo_name, *, head, state="all"):
+        async def list_pull_requests(self, owner, repo, *, head, state="all"):
             call_count[0] += 1
             if call_count[0] >= 2:
                 raise GithubClientError(
                     "Simulated failure on second PR", status_code=500
                 )
-            return await super().list_pull_requests(owner, repo_name, head=head, state=state)
+            return await super().list_pull_requests(owner, repo, head=head, state=state)
 
     def build_github_client(*, base_url: str) -> GithubClient:
         return FailOnSecondPRClient(
@@ -1741,13 +1838,13 @@ def test_submit_leaves_intent_file_on_failure(
     call_count = [0]
 
     class FailOnFirstPRClient(GithubClient):
-        async def list_pull_requests(self, owner, repo_name, *, head, state="all"):
+        async def list_pull_requests(self, owner, repo, *, head, state="all"):
             call_count[0] += 1
             if call_count[0] >= 1:
                 raise GithubClientError(
                     "Simulated failure on first PR", status_code=500
                 )
-            return await super().list_pull_requests(owner, repo_name, head=head, state=state)
+            return await super().list_pull_requests(owner, repo, head=head, state=state)
 
     def build_github_client(*, base_url: str) -> GithubClient:
         return FailOnFirstPRClient(
@@ -1844,7 +1941,7 @@ def test_submit_warns_on_overlapping_stale_intent(
     write_intent(state_dir, old_intent)
 
     exit_code = _main(repo, config_path, "submit")
-    captured = capsys.readouterr()
+    capsys.readouterr()
 
     assert exit_code == 0
     # Old intent is a prefix of new, so it should be retired (superset match)
@@ -1886,7 +1983,7 @@ def test_status_shows_outstanding_submit_intent(
     )
     write_intent(state_dir, intent)
 
-    exit_code = _main(repo, config_path, "status")
+    _main(repo, config_path, "status")
     captured = capsys.readouterr()
 
     assert "submit on @" in captured.out
@@ -1935,7 +2032,7 @@ def test_status_exits_zero_for_stale_intent(
     monkeypatch,
     capsys,
 ) -> None:
-    """Stale intents (change IDs no longer in repo) are advisory only and don't affect exit code."""
+    """Stale intents are advisory only when their change IDs no longer resolve."""
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
@@ -2075,8 +2172,6 @@ def test_cleanup_apply_leaves_intent_file_on_failure(
 
     _run(["jj", "abandon", change_id], repo)
     _run(["jj", "bookmark", "delete", bookmark], repo)
-
-    original_delete_remote_bookmark = JjClient.delete_remote_bookmark
 
     def failing_delete_remote_bookmark(self, *, remote, bookmark, expected_remote_target):
         raise RuntimeError("Simulated failure during cleanup apply")

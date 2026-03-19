@@ -7,7 +7,7 @@ import os
 import subprocess
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 from urllib.parse import urlparse
@@ -21,14 +21,16 @@ from jj_review.intent import (
     check_same_kind_intent,
     delete_intent,
     match_ordered_change_ids,
+    pid_is_alive,
     retire_superseded_intents,
+    scan_intents,
     write_intent,
 )
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest, GithubRepository
-from jj_review.models.intent import SubmitIntent
+from jj_review.models.intent import LoadedIntent, SubmitIntent
 
 
 class SubmitRemoteResolutionError(CliError):
@@ -83,8 +85,8 @@ class SubmittedRevision:
     change_id: str
     local_action: LocalBookmarkAction
     pull_request_action: PullRequestAction
-    pull_request_number: int
-    pull_request_url: str
+    pull_request_number: int | None
+    pull_request_url: str | None
     remote_action: RemoteBookmarkAction
     subject: str
 
@@ -93,6 +95,7 @@ class SubmittedRevision:
 class SubmitResult:
     """Projected remote bookmark and pull request state for the selected stack."""
 
+    dry_run: bool
     remote: GitRemote
     revisions: tuple[SubmittedRevision, ...]
     selected_revset: str
@@ -133,7 +136,7 @@ class PullRequestSyncResult:
     """Result of creating, reusing, or updating one pull request."""
 
     action: PullRequestAction
-    pull_request: GithubPullRequest
+    pull_request: GithubPullRequest | None
 
 
 class BookmarkStateReader(Protocol):
@@ -147,18 +150,20 @@ def run_submit(
     *,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
+    dry_run: bool = False,
     repo_root: Path,
     revset: str | None,
 ) -> SubmitResult:
     """Project the selected local stack to synthetic review bookmarks and PRs."""
 
     state_store = ReviewStateStore.for_repo(repo_root)
-    state_dir = state_store.require_writable()
+    state_dir = state_store.require_writable() if not dry_run else state_store.state_dir
 
     return asyncio.run(
         _run_submit_async(
             change_overrides=change_overrides,
             config=config,
+            dry_run=dry_run,
             repo_root=repo_root,
             revset=revset,
             state_dir=state_dir,
@@ -171,9 +176,10 @@ async def _run_submit_async(
     *,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
+    dry_run: bool,
     repo_root: Path,
     revset: str | None,
-    state_dir: Path,
+    state_dir: Path | None,
     state_store: ReviewStateStore,
 ) -> SubmitResult:
     client = JjClient(repo_root)
@@ -194,7 +200,7 @@ async def _run_submit_async(
     _ensure_unique_bookmarks(bookmark_result.resolutions)
 
     if not stack.revisions:
-        if bookmark_result.changed:
+        if bookmark_result.changed and not dry_run:
             state_store.save(bookmark_result.state)
         trunk_branch = config.trunk_branch
         if trunk_branch is None:
@@ -206,6 +212,7 @@ async def _run_submit_async(
             if len(remote_bookmarks) == 1:
                 trunk_branch = remote_bookmarks[0]
         return SubmitResult(
+            dry_run=dry_run,
             remote=remote,
             revisions=(),
             selected_revset=stack.selected_revset,
@@ -227,14 +234,29 @@ async def _run_submit_async(
         pid=os.getpid(),
         label=f"submit on {stack.selected_revset}",
         display_revset=stack.selected_revset,
-        head_change_id=stack.revisions[-1].change_id if stack.revisions else stack.trunk.change_id,
+        head_change_id=(
+            stack.revisions[-1].change_id if stack.revisions else stack.trunk.change_id
+        ),
         ordered_change_ids=ordered_change_ids,
         bookmarks=bookmarks_map,
         bases={},
-        started_at=datetime.now(timezone.utc).isoformat(),
+        started_at=datetime.now(UTC).isoformat(),
     )
-    stale_intents = check_same_kind_intent(state_dir, intent)
+    stale_intents = []
+    intent_path: Path | None = None
+    if dry_run:
+        stale_intents = _list_stale_submit_intents_without_waiting(
+            state_dir=state_dir,
+            intent=intent,
+        )
+    else:
+        if state_dir is None:
+            raise AssertionError("Live submit requires a writable state directory.")
+        stale_intents = check_same_kind_intent(state_dir, intent)
+
     for loaded in stale_intents:
+        if not isinstance(loaded.intent, SubmitIntent):
+            continue
         match = match_ordered_change_ids(loaded.intent.ordered_change_ids, ordered_change_ids)
         if match == "exact":
             print(f"Resuming interrupted {loaded.intent.label}")
@@ -247,7 +269,11 @@ async def _run_submit_async(
             )
         else:
             print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
-    intent_path = write_intent(state_dir, intent)
+
+    if not dry_run:
+        if state_dir is None:
+            raise AssertionError("Live submit requires a writable state directory.")
+        intent_path = write_intent(state_dir, intent)
 
     succeeded = False
     try:
@@ -290,26 +316,31 @@ async def _run_submit_async(
                     state=bookmark_result.state,
                 )
 
-                if local_action != "unchanged":
+                if local_action != "unchanged" and not dry_run:
                     client.set_bookmark(resolution.bookmark, revision.commit_id)
 
                 if _remote_is_up_to_date(remote_state, revision.commit_id):
                     remote_action = "up to date"
                 else:
-                    if _should_update_untracked_remote_with_git(remote_state, revision.commit_id):
-                        if remote_state is None:
-                            raise AssertionError("Checked remote bookmark state must exist.")
-                        expected_remote_target = remote_state.target
-                        if expected_remote_target is None:
-                            raise AssertionError("Checked remote target must be unambiguous.")
-                        client.update_untracked_remote_bookmark(
-                            remote=remote.name,
-                            bookmark=resolution.bookmark,
-                            desired_target=revision.commit_id,
-                            expected_remote_target=expected_remote_target,
-                        )
-                    else:
-                        client.push_bookmark(remote=remote.name, bookmark=resolution.bookmark)
+                    if not dry_run:
+                        if _should_update_untracked_remote_with_git(
+                            remote_state, revision.commit_id
+                        ):
+                            if remote_state is None:
+                                raise AssertionError("Checked remote bookmark state must exist.")
+                            expected_remote_target = remote_state.target
+                            if expected_remote_target is None:
+                                raise AssertionError(
+                                    "Checked remote target must be unambiguous."
+                                )
+                            client.update_untracked_remote_bookmark(
+                                remote=remote.name,
+                                bookmark=resolution.bookmark,
+                                desired_target=revision.commit_id,
+                                expected_remote_target=expected_remote_target,
+                            )
+                        else:
+                            client.push_bookmark(remote=remote.name, bookmark=resolution.bookmark)
                     remote_action = "pushed"
 
                 base_branch = revisions[index - 1].bookmark if index > 0 else trunk_branch
@@ -322,6 +353,7 @@ async def _run_submit_async(
                     labels=config.labels,
                     reviewers=config.reviewers,
                     revision=revision,
+                    dry_run=dry_run,
                     state=bookmark_result.state,
                     state_changes=state_changes,
                     team_reviewers=config.team_reviewers,
@@ -334,20 +366,30 @@ async def _run_submit_async(
                         change_id=revision.change_id,
                         local_action=local_action,
                         pull_request_action=pull_request_result.action,
-                        pull_request_number=pull_request_result.pull_request.number,
-                        pull_request_url=pull_request_result.pull_request.html_url,
+                        pull_request_number=(
+                            pull_request_result.pull_request.number
+                            if pull_request_result.pull_request is not None
+                            else None
+                        ),
+                        pull_request_url=(
+                            pull_request_result.pull_request.html_url
+                            if pull_request_result.pull_request is not None
+                            else None
+                        ),
                         remote_action=remote_action,
                         subject=revision.subject,
                     )
                 )
 
-                # Incremental cache save after this revision
-                _interim_state = bookmark_result.state.model_copy(
-                    update={"changes": dict(state_changes)}
-                )
-                state_store.save(_interim_state)
+                if not dry_run:
+                    # Incremental cache save after this revision.
+                    _interim_state = bookmark_result.state.model_copy(
+                        update={"changes": dict(state_changes)}
+                    )
+                    state_store.save(_interim_state)
 
             await _sync_stack_comments(
+                dry_run=dry_run,
                 github_client=github_client,
                 github_repository=github_repository,
                 revisions=tuple(revisions),
@@ -356,12 +398,14 @@ async def _run_submit_async(
                 trunk_branch=trunk_branch,
             )
 
-        next_state = bookmark_result.state.model_copy(update={"changes": state_changes})
-        if bookmark_result.changed or next_state != state:
-            state_store.save(next_state)
+        if not dry_run:
+            next_state = bookmark_result.state.model_copy(update={"changes": state_changes})
+            if bookmark_result.changed or next_state != state:
+                state_store.save(next_state)
 
         succeeded = True
         return SubmitResult(
+            dry_run=dry_run,
             remote=remote,
             revisions=tuple(revisions),
             selected_revset=stack.selected_revset,
@@ -369,9 +413,23 @@ async def _run_submit_async(
             trunk_subject=stack.trunk.subject,
         )
     finally:
-        if succeeded:
+        if succeeded and intent_path is not None:
             retire_superseded_intents(stale_intents, intent)
             delete_intent(intent_path)
+
+
+def _list_stale_submit_intents_without_waiting(
+    *,
+    state_dir: Path | None,
+    intent: SubmitIntent,
+) -> list[LoadedIntent]:
+    if state_dir is None:
+        return []
+    return [
+        loaded
+        for loaded in scan_intents(state_dir)
+        if loaded.intent.kind == intent.kind and not pid_is_alive(loaded.intent.pid)
+    ]
 
 
 def select_submit_remote(
@@ -591,6 +649,7 @@ async def _sync_pull_request(
     base_branch: str,
     bookmark: str,
     change_id: str,
+    dry_run: bool,
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     labels: list[str],
@@ -616,17 +675,19 @@ async def _sync_pull_request(
     title = revision.subject
     body = _pull_request_body(revision.description)
     if discovered_pull_request is None:
-        pull_request = await _create_pull_request(
-            base_branch=base_branch,
-            body=body,
-            github_client=github_client,
-            github_repository=github_repository,
-            head_branch=bookmark,
-            labels=labels,
-            reviewers=reviewers,
-            team_reviewers=team_reviewers,
-            title=title,
-        )
+        pull_request = None
+        if not dry_run:
+            pull_request = await _create_pull_request(
+                base_branch=base_branch,
+                body=body,
+                github_client=github_client,
+                github_repository=github_repository,
+                head_branch=bookmark,
+                labels=labels,
+                reviewers=reviewers,
+                team_reviewers=team_reviewers,
+                title=title,
+            )
         action: PullRequestAction = "created"
     elif _pull_request_matches(
         base_branch=base_branch,
@@ -637,22 +698,25 @@ async def _sync_pull_request(
         pull_request = discovered_pull_request
         action = "unchanged"
     else:
-        pull_request = await _update_pull_request(
-            base_branch=base_branch,
-            body=body,
-            github_client=github_client,
-            github_repository=github_repository,
-            pull_request=discovered_pull_request,
-            title=title,
-        )
+        pull_request = discovered_pull_request
+        if not dry_run:
+            pull_request = await _update_pull_request(
+                base_branch=base_branch,
+                body=body,
+                github_client=github_client,
+                github_repository=github_repository,
+                pull_request=discovered_pull_request,
+                title=title,
+            )
         action = "updated"
 
-    state_changes[change_id] = _updated_cached_change(
-        bookmark=bookmark,
-        cached_change=cached_change,
-        commit_id=revision.commit_id,
-        pull_request=pull_request,
-    )
+    if pull_request is not None:
+        state_changes[change_id] = _updated_cached_change(
+            bookmark=bookmark,
+            cached_change=cached_change,
+            commit_id=revision.commit_id,
+            pull_request=pull_request,
+        )
     return PullRequestSyncResult(action=action, pull_request=pull_request)
 
 
@@ -791,6 +855,7 @@ async def _update_pull_request(
 
 async def _sync_stack_comments(
     *,
+    dry_run: bool,
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     revisions: tuple[SubmittedRevision, ...],
@@ -799,10 +864,14 @@ async def _sync_stack_comments(
     trunk_branch: str,
 ) -> None:
     for index, revision in enumerate(revisions):
+        if revision.pull_request_number is None:
+            continue
         cached_change = state_changes.get(revision.change_id) or state.changes.get(
             revision.change_id
         )
         if cached_change is None:
+            if dry_run:
+                continue
             raise AssertionError("Stack comments require cached pull request linkage.")
         comment_body = _render_stack_comment(
             current=revision,
@@ -813,23 +882,26 @@ async def _sync_stack_comments(
         comment = await _upsert_stack_comment(
             cached_change=cached_change,
             comment_body=comment_body,
+            dry_run=dry_run,
             github_client=github_client,
             github_repository=github_repository,
             pull_request_number=revision.pull_request_number,
         )
-        state_changes[revision.change_id] = cached_change.model_copy(
-            update={"stack_comment_id": comment.id}
-        )
+        if not dry_run and comment is not None:
+            state_changes[revision.change_id] = cached_change.model_copy(
+                update={"stack_comment_id": comment.id}
+            )
 
 
 async def _upsert_stack_comment(
     *,
     cached_change: CachedChange,
     comment_body: str,
+    dry_run: bool,
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     pull_request_number: int,
-) -> GithubIssueComment:
+) -> GithubIssueComment | None:
     comments = await _list_issue_comments(
         github_client=github_client,
         github_repository=github_repository,
@@ -854,6 +926,8 @@ async def _upsert_stack_comment(
                 )
             if cached_comment.body == comment_body:
                 return cached_comment
+            if dry_run:
+                return cached_comment
             return await _update_stack_comment(
                 comment_body=comment_body,
                 comment_id=cached_change.stack_comment_id,
@@ -865,6 +939,8 @@ async def _upsert_stack_comment(
         comments=comments,
     )
     if discovered_comment is None:
+        if dry_run:
+            return None
         return await _create_stack_comment(
             comment_body=comment_body,
             github_client=github_client,
@@ -872,6 +948,8 @@ async def _upsert_stack_comment(
             pull_request_number=pull_request_number,
         )
     if discovered_comment.body == comment_body:
+        return discovered_comment
+    if dry_run:
         return discovered_comment
     return await _update_stack_comment(
         comment_body=comment_body,

@@ -63,21 +63,6 @@ matching a revset, and for descendants that would require pushing those commits
 too. `submit` should preflight that policy and fail with a targeted diagnostic
 before attempting `jj git push`.
 
-## Submit Dry-Run Mode
-
-`submit` currently mutates local bookmarks, pushes branches, and
-creates/updates PRs in a single command with no preview step. `status` serves
-as the pre-flight inspection, but it does not show what submit would actually
-do (which bookmarks would move, which PRs would be created vs. updated, what
-the computed base branches would be).
-
-A `submit --dry-run` flag that prints the planned bookmark moves, pushes, and
-PR actions without performing them would lower the friction for first-time
-submits and make it easier to verify that a rebase or rename has been
-interpreted correctly before touching GitHub. The planned output format should
-match what `submit` prints on a live run so the user knows exactly what to
-expect.
-
 ## Status Command Architecture
 
 `status` now prepares local state first, prints the local header immediately,

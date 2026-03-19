@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -183,7 +183,7 @@ def prepare_status(
     outstanding_intents: list[LoadedIntent] = []
     stale_intents_list: list[LoadedIntent] = []
     if prepared.state_store.state_dir is not None:
-        _now = datetime.now(timezone.utc)
+        _now = datetime.now(UTC)
         for loaded in scan_intents(prepared.state_store.state_dir):
             if intent_is_stale(
                 loaded.intent,

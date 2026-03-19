@@ -51,12 +51,17 @@ def build_parser() -> ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command")
-    _add_revision_command(
+    submit_parser = _add_revision_command(
         subparsers,
         command="submit",
         help_text="Project a local jj stack onto GitHub pull requests.",
         handler=_submit_handler,
         parents=[common_options],
+    )
+    submit_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the submit plan without mutating local, remote, or GitHub state.",
     )
     status_parser = _add_revision_command(
         subparsers,
@@ -582,6 +587,7 @@ def _submit_handler(args: Namespace) -> int:
     result = run_submit(
         change_overrides=context.config.change,
         config=context.config.repo,
+        dry_run=bool(args.dry_run),
         repo_root=context.repo_root,
         revset=args.revset,
     )
@@ -592,15 +598,39 @@ def _submit_handler(args: Namespace) -> int:
         print("No reviewable commits between the selected revision and `trunk()`.")
         return 0
 
-    print("Projected review bookmarks:")
+    if result.dry_run:
+        print("Dry run: no local, remote, or GitHub changes applied.")
+        print("Planned review bookmarks:")
+    else:
+        print("Projected review bookmarks:")
     for revision in result.revisions:
         print(
             f"- {revision.subject} [{_display_change_id(revision.change_id)}] -> "
             f"{revision.bookmark} "
-            f"({revision.bookmark_source}, {revision.remote_action}, "
-            f"PR #{revision.pull_request_number} {revision.pull_request_action})"
+            f"({_format_submit_projection_details(revision)})"
         )
     return 0
+
+
+def _format_submit_projection_details(revision) -> str:
+    return (
+        f"{revision.bookmark_source}, local {revision.local_action}, "
+        f"{revision.remote_action}, {_format_submit_pull_request_action(revision)}"
+    )
+
+
+def _format_submit_pull_request_action(revision) -> str:
+    if revision.pull_request_number is None:
+        return f"PR {_submit_action_label(revision.pull_request_action)}"
+    return f"PR #{revision.pull_request_number} {revision.pull_request_action}"
+
+
+def _submit_action_label(action: str) -> str:
+    if action == "created":
+        return "create"
+    if action == "updated":
+        return "update"
+    return action
 
 
 def _adopt_handler(args: Namespace) -> int:

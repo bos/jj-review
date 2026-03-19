@@ -576,6 +576,12 @@ Deferred pending config/design work:
 
 - reviewer and label assignment
 
+Implemented in a follow-up:
+
+- `submit` now also supports `--dry-run`, which resolves the stack, bookmark
+  actions, push actions, and PR actions through the normal submit path while
+  skipping local, remote, GitHub, cache, and intent-file mutations
+
 Done when:
 
 - submit works end-to-end against the fake server

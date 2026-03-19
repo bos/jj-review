@@ -6,7 +6,7 @@ import asyncio
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -161,7 +161,7 @@ async def _run_adopt_async(
         pid=os.getpid(),
         label=f"adopt for {revision.change_id[:8]}",
         change_id=revision.change_id,
-        started_at=datetime.now(timezone.utc).isoformat(),
+        started_at=datetime.now(UTC).isoformat(),
     )
     stale_intents = check_same_kind_intent(state_dir, intent)
     for loaded in stale_intents:

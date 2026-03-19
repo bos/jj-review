@@ -232,6 +232,51 @@ def test_main_status_reports_targeted_divergent_stack_error(
     assert "`status --fetch` or another fetch imports remote bookmark updates" in captured.err
 
 
+def test_main_submit_passes_dry_run_and_renders_planned_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    dry_run_calls: list[bool] = []
+
+    def fake_run_submit(**kwargs):
+        dry_run_calls.append(bool(kwargs["dry_run"]))
+        return SimpleNamespace(
+            dry_run=True,
+            remote=SimpleNamespace(name="origin"),
+            revisions=(
+                SimpleNamespace(
+                    bookmark="review/feature-abcdefgh",
+                    bookmark_source="generated",
+                    change_id="abcdefghijkl",
+                    local_action="created",
+                    pull_request_action="created",
+                    pull_request_number=None,
+                    remote_action="pushed",
+                    subject="feature 1",
+                ),
+            ),
+            selected_revset="@",
+            trunk_branch="main",
+            trunk_subject="base",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+
+    exit_code = main(["submit", "--dry-run", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert dry_run_calls == [True]
+    assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
+    assert "Planned review bookmarks:" in captured.out
+    assert (
+        "- feature 1 [abcdefgh] -> review/feature-abcdefgh "
+        "(generated, local created, pushed, PR create)"
+    ) in captured.out
+
+
 def test_main_cleanup_passes_apply_to_prepare_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

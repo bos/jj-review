@@ -6,7 +6,7 @@ import asyncio
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -404,12 +404,14 @@ def _build_restack_result(
             label=f"cleanup --restack on {status_result.selected_revset}",
             display_revset=status_result.selected_revset,
             ordered_change_ids=_ordered_ids,
-            started_at=datetime.now(timezone.utc).isoformat(),
+            started_at=datetime.now(UTC).isoformat(),
         )
         restack_stale_intents = check_same_kind_intent(
             prepared_restack.state_dir, _restack_intent
         )
         for _loaded in restack_stale_intents:
+            if not isinstance(_loaded.intent, CleanupRestackIntent):
+                continue
             _match = match_ordered_change_ids(
                 _loaded.intent.ordered_change_ids, _ordered_ids
             )
@@ -435,7 +437,9 @@ def _build_restack_result(
                 if destination_change_id is None:
                     destination_revision = prepared.stack.trunk.commit_id
                 else:
-                    destination_revision = client.resolve_revision(destination_change_id).commit_id
+                    destination_revision = client.resolve_revision(
+                        destination_change_id
+                    ).commit_id
                 if source_revision.only_parent_commit_id() == destination_revision:
                     continue
                 client.rebase_revision(
@@ -588,7 +592,7 @@ async def _stream_cleanup_async(
             kind="cleanup-apply",
             pid=os.getpid(),
             label="cleanup --apply",
-            started_at=datetime.now(timezone.utc).isoformat(),
+            started_at=datetime.now(UTC).isoformat(),
         )
         _stale_intents = check_same_kind_intent(prepared_cleanup.state_dir, _intent)
         for _loaded in _stale_intents:
