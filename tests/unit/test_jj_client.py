@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from jj_review.jj import JjClient, JjCommandError, StaleWorkspaceError, UnsupportedStackError
+from jj_review.models.stack import LocalRevision
 
 
 def _revision_line(
@@ -573,6 +574,118 @@ def test_list_bookmark_states_treats_null_targets_as_deleted() -> None:
     assert remote_state is not None
     assert remote_state.targets == ("abc123",)
     assert remote_state.tracking_targets == ()
+
+
+def test_get_config_string_returns_value_when_key_is_set() -> None:
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "config", "get", "git.private-commits"): "description(private)\n",
+    }
+
+    value = JjClient(Path("/repo"), runner=_runner(responses)).get_config_string(
+        "git.private-commits"
+    )
+
+    assert value == "description(private)"
+
+
+def test_get_config_string_returns_none_when_key_is_unset() -> None:
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        assert tuple(command) == ("jj", "config", "get", "git.private-commits")
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr="Config error: no config value for 'git.private-commits'\n",
+        )
+
+    value = JjClient(Path("/repo"), runner=run).get_config_string("git.private-commits")
+
+    assert value is None
+
+
+def _make_revision(*, commit_id: str, change_id: str, description: str) -> LocalRevision:
+    return LocalRevision(
+        change_id=change_id,
+        commit_id=commit_id,
+        current_working_copy=False,
+        description=description,
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=("trunk",),
+    )
+
+
+def test_find_private_commits_returns_empty_when_config_is_unset() -> None:
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        assert tuple(command) == ("jj", "config", "get", "git.private-commits")
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="no config\n")
+
+    revisions = (
+        _make_revision(commit_id="head", change_id="head-change", description="head\n"),
+        _make_revision(commit_id="parent", change_id="parent-change", description="parent\n"),
+    )
+    result = JjClient(Path("/repo"), runner=run).find_private_commits(revisions)
+
+    assert result == ()
+
+
+def test_find_private_commits_returns_matching_revisions() -> None:
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "config", "get", "git.private-commits"): "description(private)\n",
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "(description(private)) & ('head' | 'parent')",
+            "-T",
+            _template(),
+        ): _HEAD,
+    }
+
+    revisions = (
+        _make_revision(commit_id="head", change_id="head-change", description="head\n"),
+        _make_revision(commit_id="parent", change_id="parent-change", description="parent\n"),
+    )
+    result = JjClient(Path("/repo"), runner=_runner(responses)).find_private_commits(revisions)
+
+    assert len(result) == 1
+    assert result[0].commit_id == "head"
+
+
+def test_find_private_commits_returns_empty_when_no_revision_matches() -> None:
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "config", "get", "git.private-commits"): "description(private)\n",
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "(description(private)) & ('head' | 'parent')",
+            "-T",
+            _template(),
+        ): "",
+    }
+
+    revisions = (
+        _make_revision(commit_id="head", change_id="head-change", description="head\n"),
+        _make_revision(commit_id="parent", change_id="parent-change", description="parent\n"),
+    )
+    result = JjClient(Path("/repo"), runner=_runner(responses)).find_private_commits(revisions)
+
+    assert result == ()
+
+
+def test_find_private_commits_returns_empty_when_revisions_is_empty() -> None:
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "config", "get", "git.private-commits"): "description(private)\n",
+    }
+
+    result = JjClient(Path("/repo"), runner=_runner(responses)).find_private_commits(())
+
+    assert result == ()
 
 
 def test_query_revisions_returns_empty_when_change_id_no_longer_exists() -> None:

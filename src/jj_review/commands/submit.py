@@ -65,6 +65,10 @@ class SubmitPullRequestResolutionError(CliError):
     """Raised when `submit` cannot safely resolve a pull request."""
 
 
+class SubmitPrivateCommitError(CliError):
+    """Raised when the stack contains commits blocked by git.private-commits."""
+
+
 class SubmitStackCommentError(CliError):
     """Raised when `submit` cannot create or update stack metadata comments."""
 
@@ -198,6 +202,7 @@ async def _run_submit_async(
         discovered_bookmarks=discovered_bookmarks,
     ).pin_revisions(stack.revisions)
     _ensure_unique_bookmarks(bookmark_result.resolutions)
+    _preflight_private_commits(client, stack.revisions)
 
     if not stack.revisions:
         if bookmark_result.changed and not dry_run:
@@ -600,6 +605,20 @@ def _should_update_untracked_remote_with_git(
     if len(remote_state.targets) != 1:
         return False
     return remote_state.target != desired_target
+
+
+def _preflight_private_commits(
+    client: JjClient,
+    revisions: tuple[Any, ...],
+) -> None:
+    private = client.find_private_commits(revisions)
+    if not private:
+        return
+    subjects = ", ".join(f"{r.change_id[:8]} ({r.subject})" for r in private)
+    raise SubmitPrivateCommitError(
+        f"Stack contains commits blocked by `git.private-commits`: {subjects}. "
+        "Remove these changes from the stack before submitting."
+    )
 
 
 def _ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:

@@ -10,6 +10,7 @@ from jj_review.commands.submit import (
     SubmitBookmarkConflictError,
     SubmitBookmarkResolutionError,
     SubmitGithubResolutionError,
+    SubmitPrivateCommitError,
     SubmitPullRequestResolutionError,
     SubmitRemoteBookmarkConflictError,
     SubmitRemoteBookmarkOwnershipError,
@@ -24,6 +25,7 @@ from jj_review.commands.submit import (
     _github_token_for_base_url,
     _github_token_from_env,
     _github_token_from_gh_cli,
+    _preflight_private_commits,
     _remote_is_up_to_date,
     _resolve_local_action,
     _should_update_untracked_remote_with_git,
@@ -35,6 +37,7 @@ from jj_review.config import RepoConfig
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest, GithubRepository
+from jj_review.models.stack import LocalRevision
 
 
 def test_select_submit_remote_prefers_configured_remote() -> None:
@@ -525,6 +528,59 @@ def test_ensure_unique_bookmarks_rejects_duplicate_names() -> None:
         match="multiple review units to the same bookmark",
     ):
         _ensure_unique_bookmarks(resolutions)
+
+
+def _make_revision(*, commit_id: str, change_id: str, description: str) -> LocalRevision:
+    return LocalRevision(
+        change_id=change_id,
+        commit_id=commit_id,
+        current_working_copy=False,
+        description=description,
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=("trunk",),
+    )
+
+
+class _FakeJjClientWithPrivateCommits:
+    def __init__(self, private_revisions: tuple[LocalRevision, ...]) -> None:
+        self._private_revisions = private_revisions
+
+    def find_private_commits(
+        self, revisions: tuple[LocalRevision, ...]
+    ) -> tuple[LocalRevision, ...]:
+        return self._private_revisions
+
+
+def test_preflight_private_commits_passes_when_no_private_commits() -> None:
+    client = _FakeJjClientWithPrivateCommits(())
+    revisions = (
+        _make_revision(commit_id="head", change_id="head-change", description="feature\n"),
+    )
+
+    _preflight_private_commits(client, revisions)  # no exception
+
+
+def test_preflight_private_commits_raises_on_private_commit() -> None:
+    private = _make_revision(
+        commit_id="head", change_id="head-change", description="private thing\n"
+    )
+    client = _FakeJjClientWithPrivateCommits((private,))
+
+    with pytest.raises(SubmitPrivateCommitError, match="git.private-commits"):
+        _preflight_private_commits(client, (private,))
+
+
+def test_preflight_private_commits_error_names_the_blocked_changes() -> None:
+    private = _make_revision(
+        commit_id="abc12345", change_id="abcd1234", description="secret work\n"
+    )
+    client = _FakeJjClientWithPrivateCommits((private,))
+
+    with pytest.raises(SubmitPrivateCommitError, match="secret work"):
+        _preflight_private_commits(client, (private,))
 
 
 class _FakeJjClient:

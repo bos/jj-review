@@ -253,6 +253,31 @@ class JjClient:
             )
         }
 
+    def get_config_string(self, key: str) -> str | None:
+        """Return the string value of a jj config key, or None if unset."""
+
+        try:
+            value = self._run_jj(("config", "get", key))
+        except JjCommandError:
+            return None
+        stripped = value.strip()
+        return stripped if stripped else None
+
+    def find_private_commits(
+        self,
+        revisions: tuple[LocalRevision, ...],
+    ) -> tuple[LocalRevision, ...]:
+        """Return revisions blocked by the repo's git.private-commits policy."""
+
+        private_commits_revset = self.get_config_string("git.private-commits")
+        if not private_commits_revset or not revisions:
+            return ()
+        commit_ids_revset = " | ".join(
+            _quote_revset_symbol(r.commit_id) for r in revisions
+        )
+        combined_revset = f"({private_commits_revset}) & ({commit_ids_revset})"
+        return tuple(self.query_revisions(combined_revset))
+
     def list_git_remotes(self) -> tuple[GitRemote, ...]:
         """List configured Git remotes for the repository."""
 
