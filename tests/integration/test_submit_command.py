@@ -1967,7 +1967,7 @@ def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing
     assert _issue_comments(fake_repo, 1) == []
 
 
-def test_submit_incremental_cache_save_after_first_revision(
+def test_submit_checkpoints_successful_in_flight_pull_request_before_failure(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1982,15 +1982,17 @@ def test_submit_incremental_cache_save_after_first_revision(
     change_id_2 = stack.revisions[1].change_id
 
     app = create_app(FakeGithubState.single_repository(fake_repo))
-    call_count = [0]
 
-    class FailOnSecondPRClient(GithubClient):
+    class FailSpecificPullRequestClient(GithubClient):
         async def create_pull_request(self, owner, repo, *, base, body, head, title):
-            call_count[0] += 1
-            if call_count[0] >= 2:
+            if title == "feature 2":
+                await asyncio.sleep(0.01)
                 raise GithubClientError(
-                    "Simulated failure on second PR", status_code=500
+                    "Simulated failure for feature 2",
+                    status_code=500,
                 )
+            if title == "feature 1":
+                await asyncio.sleep(0.03)
             return await super().create_pull_request(
                 owner,
                 repo,
@@ -2001,7 +2003,7 @@ def test_submit_incremental_cache_save_after_first_revision(
             )
 
     def build_github_client(*, base_url: str) -> GithubClient:
-        return FailOnSecondPRClient(
+        return FailSpecificPullRequestClient(
             base_url=base_url,
             transport=httpx.ASGITransport(app=app),
         )
@@ -2014,12 +2016,12 @@ def test_submit_incremental_cache_save_after_first_revision(
     assert exit_code != 0
 
     state = ReviewStateStore.for_repo(repo).load()
-    # Change 1 should have been incrementally saved (PR created)
     assert state.changes.get(change_id_1) is not None
     assert state.changes[change_id_1].pr_number is not None
-    # Change 2 was not reached before failure
     change2 = state.changes.get(change_id_2)
     assert change2 is None or change2.pr_number is None
+    assert len(fake_repo.pull_requests) == 1
+    assert fake_repo.pull_requests[1].title == "feature 1"
     pushed_review_refs = {
         ref: target
         for ref, target in _remote_refs(fake_repo.git_dir).items()
@@ -2029,6 +2031,225 @@ def test_submit_incremental_cache_save_after_first_revision(
     assert set(pushed_review_refs.values()) == {
         revision.commit_id for revision in stack.revisions
     }
+
+
+def test_submit_rerun_converges_pull_request_metadata_after_partial_create_failure(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
+    config_path = _write_config(
+        tmp_path,
+        fake_repo,
+        extra_lines=[
+            'labels = ["needs-review"]',
+            'reviewers = ["alice"]',
+            'team_reviewers = ["platform"]',
+        ],
+    )
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+    metadata_failure_injected = False
+
+    class FlakyMetadataClient(GithubClient):
+        async def add_labels(self, owner, repo, *, issue_number, labels):
+            nonlocal metadata_failure_injected
+            if not metadata_failure_injected:
+                metadata_failure_injected = True
+                raise GithubClientError(
+                    "Simulated label failure",
+                    status_code=500,
+                )
+            await super().add_labels(
+                owner,
+                repo,
+                issue_number=issue_number,
+                labels=labels,
+            )
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return FlakyMetadataClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
+
+    assert _main(repo, config_path, "submit", "--current") == 1
+    capsys.readouterr()
+
+    state_after_failure = ReviewStateStore.for_repo(repo).load()
+    assert len(fake_repo.pull_requests) == 1
+    assert state_after_failure.changes == {}
+    assert fake_repo.pull_requests[1].requested_reviewers == ["alice"]
+    assert fake_repo.pull_requests[1].requested_team_reviewers == ["platform"]
+    assert fake_repo.pull_requests[1].labels == []
+    for intent_path in resolve_state_path(repo).parent.glob("incomplete-*.toml"):
+        intent_path.unlink()
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    state_after_rerun = ReviewStateStore.for_repo(repo).load()
+
+    assert state_after_rerun.changes[stack.revisions[0].change_id].pr_number == 1
+    assert fake_repo.pull_requests[1].requested_reviewers == ["alice"]
+    assert fake_repo.pull_requests[1].requested_team_reviewers == ["platform"]
+    assert fake_repo.pull_requests[1].labels == ["needs-review"]
+
+
+def test_submit_unchanged_rerun_skips_pull_request_metadata_writes(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
+    config_path = _write_config(
+        tmp_path,
+        fake_repo,
+        extra_lines=[
+            'labels = ["needs-review"]',
+            'reviewers = ["alice"]',
+            'team_reviewers = ["platform"]',
+        ],
+    )
+    _commit(repo, "feature 1", "feature-1.txt")
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    def initial_build_github_client(*, base_url: str) -> GithubClient:
+        return GithubClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr(
+        "jj_review.commands.submit._build_github_client",
+        initial_build_github_client,
+    )
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    metadata_write_calls: list[str] = []
+
+    class NoMetadataWritesClient(GithubClient):
+        async def request_reviewers(
+            self,
+            owner,
+            repo,
+            *,
+            pull_number,
+            reviewers,
+            team_reviewers,
+        ) -> None:
+            metadata_write_calls.append("reviewers")
+            raise AssertionError("unchanged rerun should not request reviewers")
+
+        async def add_labels(self, owner, repo, *, issue_number, labels) -> None:
+            metadata_write_calls.append("labels")
+            raise AssertionError("unchanged rerun should not add labels")
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return NoMetadataWritesClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    assert metadata_write_calls == []
+
+
+def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    for index in range(3):
+        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    state_store = ReviewStateStore.for_repo(repo)
+    stack = JjClient(repo).discover_review_stack()
+    initial_state = state_store.load()
+    change_id_1 = stack.revisions[0].change_id
+    change_id_2 = stack.revisions[1].change_id
+    change_id_3 = stack.revisions[2].change_id
+    issue_number_1 = initial_state.changes[change_id_1].pr_number
+    issue_number_2 = initial_state.changes[change_id_2].pr_number
+    issue_number_3 = initial_state.changes[change_id_3].pr_number
+    if issue_number_1 is None or issue_number_2 is None or issue_number_3 is None:
+        raise AssertionError("Expected pull request numbers after initial submit.")
+
+    for issue_number in (issue_number_1, issue_number_2, issue_number_3):
+        fake_repo.issue_comments[issue_number] = []
+
+    state_store.save(
+        initial_state.model_copy(
+            update={
+                "changes": {
+                    change_id: cached_change.model_copy(update={"stack_comment_id": None})
+                    for change_id, cached_change in initial_state.changes.items()
+                }
+            }
+        )
+    )
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+    started_issue_numbers: list[int] = []
+
+    class FlakyCommentClient(GithubClient):
+        async def list_issue_comments(self, owner, repo, *, issue_number):
+            started_issue_numbers.append(issue_number)
+            if issue_number == issue_number_2:
+                await asyncio.sleep(0.01)
+                raise GithubClientError(
+                    "Simulated stack comment failure",
+                    status_code=500,
+                )
+            if issue_number == issue_number_1:
+                await asyncio.sleep(0.03)
+            return await super().list_issue_comments(
+                owner,
+                repo,
+                issue_number=issue_number,
+            )
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return FlakyCommentClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit._GITHUB_INSPECTION_CONCURRENCY", 2)
+    monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
+
+    assert _main(repo, config_path, "submit", "--current") == 1
+    capsys.readouterr()
+
+    refreshed_state = state_store.load()
+
+    assert refreshed_state.changes[change_id_1].stack_comment_id is not None
+    assert refreshed_state.changes[change_id_2].stack_comment_id is None
+    assert refreshed_state.changes[change_id_3].stack_comment_id is None
+    assert issue_number_1 in started_issue_numbers
+    assert issue_number_2 in started_issue_numbers
+    assert issue_number_3 not in started_issue_numbers
+    assert len(_issue_comments(fake_repo, issue_number_1)) == 1
+    assert _issue_comments(fake_repo, issue_number_2) == []
+    assert _issue_comments(fake_repo, issue_number_3) == []
 
 
 def test_submit_writes_and_deletes_intent_file_on_success(

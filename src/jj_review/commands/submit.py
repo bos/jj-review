@@ -6,11 +6,11 @@ import asyncio
 import os
 import subprocess
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, TypeVar
 from urllib.parse import urlparse
 
 from jj_review.bookmarks import BookmarkResolver, BookmarkSource, ResolvedBookmark
@@ -169,6 +169,25 @@ class SubmittedPullRequestSync:
     submitted_revision: SubmittedRevision
 
 
+@dataclass(frozen=True, slots=True)
+class PendingPullRequestSync:
+    """One queued PR sync task."""
+
+    base_branch: str
+    discovered_pull_request: GithubPullRequest | None
+    prepared_revision: PreparedSubmitRevision
+
+
+@dataclass(frozen=True, slots=True)
+class PendingStackCommentSync:
+    """One queued stack-comment sync task."""
+
+    cached_change: CachedChange
+    change_id: str
+    comment_body: str
+    pull_request_number: int
+
+
 class BookmarkStateReader(Protocol):
     """Subset of the jj client interface needed for trunk-branch fallback."""
 
@@ -182,8 +201,12 @@ class PrivateCommitFinder(Protocol):
     def find_private_commits(
         self,
         revisions: tuple[Any, ...],
-    ) -> tuple[Any, ...]:
+        ) -> tuple[Any, ...]:
         """Return the revisions blocked by the repo's private-commit policy."""
+
+
+_TaskItemT = TypeVar("_TaskItemT")
+_TaskResultT = TypeVar("_TaskResultT")
 
 
 def run_submit(
@@ -433,8 +456,9 @@ async def _run_submit_async(
                 github_client=github_client,
                 github_repository=github_repository,
                 revisions=submitted_revisions,
-                state=state,
+                state=bookmark_result.state,
                 state_changes=state_changes,
+                state_store=state_store,
                 trunk_branch=trunk_branch,
             )
 
@@ -761,6 +785,81 @@ def _sync_remote_bookmarks(
             )
 
 
+def _save_submit_state_checkpoint(
+    *,
+    dry_run: bool,
+    state: ReviewState,
+    state_changes: dict[str, CachedChange],
+    state_store: ReviewStateStore,
+) -> None:
+    if dry_run:
+        return
+    interim_state = state.model_copy(update={"changes": dict(state_changes)})
+    state_store.save(interim_state)
+
+
+async def _run_bounded_submit_tasks(
+    *,
+    concurrency: int,
+    items: tuple[_TaskItemT, ...],
+    run_item: Callable[[_TaskItemT], Coroutine[Any, Any, _TaskResultT]],
+    on_success: Callable[[int, _TaskResultT], None],
+) -> list[_TaskResultT]:
+    if not items:
+        return []
+
+    item_iter = iter(enumerate(items))
+    in_flight: dict[asyncio.Task[_TaskResultT], int] = {}
+    results: list[_TaskResultT | None] = [None] * len(items)
+    first_failure: tuple[int, Exception] | None = None
+
+    def start_next() -> bool:
+        try:
+            index, item = next(item_iter)
+        except StopIteration:
+            return False
+        in_flight[asyncio.create_task(run_item(item))] = index
+        return True
+
+    for _ in range(min(concurrency, len(items))):
+        start_next()
+
+    while in_flight:
+        done, _ = await asyncio.wait(
+            tuple(in_flight),
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in done:
+            index = in_flight.pop(task)
+            try:
+                result = task.result()
+            except Exception as error:
+                if first_failure is None or index < first_failure[0]:
+                    first_failure = (index, error)
+                continue
+
+            results[index] = result
+            try:
+                on_success(index, result)
+            except Exception as error:
+                if first_failure is None or index < first_failure[0]:
+                    first_failure = (index, error)
+
+        while first_failure is None and len(in_flight) < concurrency:
+            if not start_next():
+                break
+
+    if first_failure is not None:
+        raise first_failure[1]
+
+    completed_results: list[_TaskResultT] = []
+    for result in results:
+        if result is None:
+            raise AssertionError("Submit task runner completed without a task result.")
+        completed_results.append(result)
+    return completed_results
+
+
 async def _sync_pull_requests(
     *,
     discovered_pull_requests: dict[str, GithubPullRequest | None],
@@ -776,80 +875,82 @@ async def _sync_pull_requests(
     team_reviewers: list[str],
     trunk_branch: str,
 ) -> tuple[SubmittedRevision, ...]:
-    semaphore = asyncio.Semaphore(_GITHUB_INSPECTION_CONCURRENCY)
-    tasks = tuple(
-        asyncio.create_task(
-            _sync_pull_request_with_semaphore(
-                base_branch=(
-                    prepared_revisions[index - 1].bookmark if index > 0 else trunk_branch
-                ),
-                discovered_pull_request=discovered_pull_requests[prepared_revision.bookmark],
-                dry_run=dry_run,
-                github_client=github_client,
-                github_repository=github_repository,
-                labels=labels,
-                prepared_revision=prepared_revision,
-                reviewers=reviewers,
-                semaphore=semaphore,
-                state=state,
-                team_reviewers=team_reviewers,
-            )
+    pending = tuple(
+        PendingPullRequestSync(
+            base_branch=prepared_revisions[index - 1].bookmark if index > 0 else trunk_branch,
+            discovered_pull_request=discovered_pull_requests[prepared_revision.bookmark],
+            prepared_revision=prepared_revision,
         )
         for index, prepared_revision in enumerate(prepared_revisions)
     )
-    submitted_revisions_by_change_id: dict[str, SubmittedRevision] = {}
-    try:
-        for task in asyncio.as_completed(tasks):
-            submitted = await task
-            submitted_revisions_by_change_id[submitted.submitted_revision.change_id] = (
-                submitted.submitted_revision
-            )
-            if submitted.cached_change is not None:
-                state_changes[submitted.submitted_revision.change_id] = submitted.cached_change
-            if not dry_run:
-                interim_state = state.model_copy(update={"changes": dict(state_changes)})
-                state_store.save(interim_state)
-    finally:
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-    return tuple(
-        submitted_revisions_by_change_id[prepared_revision.change_id]
-        for prepared_revision in prepared_revisions
-    )
-
-
-async def _sync_pull_request_with_semaphore(
-    *,
-    base_branch: str,
-    discovered_pull_request: GithubPullRequest | None,
-    dry_run: bool,
-    github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
-    labels: list[str],
-    prepared_revision: PreparedSubmitRevision,
-    reviewers: list[str],
-    semaphore: asyncio.Semaphore,
-    state: ReviewState,
-    team_reviewers: list[str],
-) -> SubmittedPullRequestSync:
-    async with semaphore:
-        pull_request_result = await _sync_pull_request(
-            base_branch=base_branch,
-            bookmark=prepared_revision.bookmark,
-            change_id=prepared_revision.change_id,
-            discovered_pull_request=discovered_pull_request,
+    submitted_revisions = await _run_bounded_submit_tasks(
+        concurrency=_GITHUB_INSPECTION_CONCURRENCY,
+        items=pending,
+        run_item=lambda pending_sync: _sync_pull_request_task(
             dry_run=dry_run,
             github_client=github_client,
             github_repository=github_repository,
             labels=labels,
+            pending_sync=pending_sync,
             reviewers=reviewers,
-            revision=prepared_revision.revision,
             state=state,
             team_reviewers=team_reviewers,
-        )
+        ),
+        on_success=lambda _index, submitted: _record_pull_request_success(
+            dry_run=dry_run,
+            state=state,
+            state_changes=state_changes,
+            state_store=state_store,
+            submitted=submitted,
+        ),
+    )
+    return tuple(submitted.submitted_revision for submitted in submitted_revisions)
+
+
+def _record_pull_request_success(
+    *,
+    dry_run: bool,
+    state: ReviewState,
+    state_changes: dict[str, CachedChange],
+    state_store: ReviewStateStore,
+    submitted: SubmittedPullRequestSync,
+) -> None:
+    if submitted.cached_change is not None:
+        state_changes[submitted.submitted_revision.change_id] = submitted.cached_change
+    _save_submit_state_checkpoint(
+        dry_run=dry_run,
+        state=state,
+        state_changes=state_changes,
+        state_store=state_store,
+    )
+
+
+async def _sync_pull_request_task(
+    *,
+    dry_run: bool,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+    labels: list[str],
+    pending_sync: PendingPullRequestSync,
+    reviewers: list[str],
+    state: ReviewState,
+    team_reviewers: list[str],
+) -> SubmittedPullRequestSync:
+    prepared_revision = pending_sync.prepared_revision
+    pull_request_result = await _sync_pull_request(
+        base_branch=pending_sync.base_branch,
+        bookmark=prepared_revision.bookmark,
+        change_id=prepared_revision.change_id,
+        discovered_pull_request=pending_sync.discovered_pull_request,
+        dry_run=dry_run,
+        github_client=github_client,
+        github_repository=github_repository,
+        labels=labels,
+        reviewers=reviewers,
+        revision=prepared_revision.revision,
+        state=state,
+        team_reviewers=team_reviewers,
+    )
     return SubmittedPullRequestSync(
         cached_change=pull_request_result.cached_change,
         submitted_revision=SubmittedRevision(
@@ -907,9 +1008,6 @@ async def _sync_pull_request(
                 github_client=github_client,
                 github_repository=github_repository,
                 head_branch=bookmark,
-                labels=labels,
-                reviewers=reviewers,
-                team_reviewers=team_reviewers,
                 title=title,
             )
         action: PullRequestAction = "created"
@@ -934,6 +1032,23 @@ async def _sync_pull_request(
             )
         action = "updated"
 
+    if (
+        not dry_run
+        and pull_request is not None
+        and _should_sync_pull_request_metadata(
+            action=action,
+            cached_change=cached_change,
+        )
+    ):
+        await _sync_pull_request_metadata(
+            github_client=github_client,
+            github_repository=github_repository,
+            labels=labels,
+            pull_request_number=pull_request.number,
+            reviewers=reviewers,
+            team_reviewers=team_reviewers,
+        )
+
     next_cached_change: CachedChange | None = None
     if pull_request is not None:
         next_cached_change = _updated_cached_change(
@@ -947,6 +1062,18 @@ async def _sync_pull_request(
         cached_change=next_cached_change,
         pull_request=pull_request,
     )
+
+
+def _should_sync_pull_request_metadata(
+    *,
+    action: PullRequestAction,
+    cached_change: CachedChange | None,
+) -> bool:
+    if action != "unchanged":
+        return True
+    if cached_change is None:
+        return True
+    return cached_change.pr_number is None and cached_change.pr_url is None
 
 
 async def _discover_pull_request(
@@ -1033,13 +1160,10 @@ async def _create_pull_request(
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     head_branch: str,
-    labels: list[str],
-    reviewers: list[str],
-    team_reviewers: list[str],
     title: str,
 ) -> GithubPullRequest:
     try:
-        pull_request = await github_client.create_pull_request(
+        return await github_client.create_pull_request(
             github_repository.owner,
             github_repository.repo,
             base=base_branch,
@@ -1047,11 +1171,27 @@ async def _create_pull_request(
             head=head_branch,
             title=title,
         )
+    except GithubClientError as error:
+        raise SubmitPullRequestResolutionError(
+            f"Could not create a pull request for branch {head_branch!r}: {error}"
+        ) from error
+
+
+async def _sync_pull_request_metadata(
+    *,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+    labels: list[str],
+    pull_request_number: int,
+    reviewers: list[str],
+    team_reviewers: list[str],
+) -> None:
+    try:
         if reviewers or team_reviewers:
             await github_client.request_reviewers(
                 github_repository.owner,
                 github_repository.repo,
-                pull_number=pull_request.number,
+                pull_number=pull_request_number,
                 reviewers=reviewers,
                 team_reviewers=team_reviewers,
             )
@@ -1059,13 +1199,13 @@ async def _create_pull_request(
             await github_client.add_labels(
                 github_repository.owner,
                 github_repository.repo,
-                issue_number=pull_request.number,
+                issue_number=pull_request_number,
                 labels=labels,
             )
-        return pull_request
     except GithubClientError as error:
         raise SubmitPullRequestResolutionError(
-            f"Could not create a pull request for branch {head_branch!r}: {error}"
+            f"Could not synchronize metadata for pull request #{pull_request_number}: "
+            f"{error}"
         ) from error
 
 
@@ -1101,10 +1241,10 @@ async def _sync_stack_comments(
     revisions: tuple[SubmittedRevision, ...],
     state: ReviewState,
     state_changes: dict[str, CachedChange],
+    state_store: ReviewStateStore,
     trunk_branch: str,
 ) -> None:
-    semaphore = asyncio.Semaphore(_GITHUB_INSPECTION_CONCURRENCY)
-    tasks: list[asyncio.Task[tuple[str, CachedChange, GithubIssueComment | None]]] = []
+    pending: list[PendingStackCommentSync] = []
     for index, revision in enumerate(revisions):
         if revision.pull_request_number is None:
             continue
@@ -1121,50 +1261,72 @@ async def _sync_stack_comments(
             previous=revisions[index - 1] if index > 0 else None,
             trunk_branch=trunk_branch,
         )
-        tasks.append(
-            asyncio.create_task(
-                _sync_stack_comment_with_semaphore(
-                    cached_change=cached_change,
-                    change_id=revision.change_id,
-                    comment_body=comment_body,
-                    dry_run=dry_run,
-                    github_client=github_client,
-                    github_repository=github_repository,
-                    pull_request_number=revision.pull_request_number,
-                    semaphore=semaphore,
-                )
+        pending.append(
+            PendingStackCommentSync(
+                cached_change=cached_change,
+                change_id=revision.change_id,
+                comment_body=comment_body,
+                pull_request_number=revision.pull_request_number,
             )
         )
-    if not tasks:
+    if not pending:
         return
-    for change_id, cached_change, comment in await asyncio.gather(*tasks):
-        if not dry_run and comment is not None:
-            state_changes[change_id] = cached_change.model_copy(
-                update={"stack_comment_id": comment.id}
-            )
-
-
-async def _sync_stack_comment_with_semaphore(
-    *,
-    cached_change: CachedChange,
-    change_id: str,
-    comment_body: str,
-    dry_run: bool,
-    github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
-    pull_request_number: int,
-    semaphore: asyncio.Semaphore,
-) -> tuple[str, CachedChange, GithubIssueComment | None]:
-    async with semaphore:
-        comment = await _upsert_stack_comment(
-            cached_change=cached_change,
-            comment_body=comment_body,
+    await _run_bounded_submit_tasks(
+        concurrency=_GITHUB_INSPECTION_CONCURRENCY,
+        items=tuple(pending),
+        run_item=lambda pending_sync: _sync_stack_comment_task(
             dry_run=dry_run,
             github_client=github_client,
             github_repository=github_repository,
-            pull_request_number=pull_request_number,
-        )
-    return change_id, cached_change, comment
+            pending_sync=pending_sync,
+        ),
+        on_success=lambda _index, result: _record_stack_comment_success(
+            dry_run=dry_run,
+            result=result,
+            state=state,
+            state_changes=state_changes,
+            state_store=state_store,
+        ),
+    )
+
+
+def _record_stack_comment_success(
+    *,
+    dry_run: bool,
+    result: tuple[str, CachedChange, GithubIssueComment | None],
+    state: ReviewState,
+    state_changes: dict[str, CachedChange],
+    state_store: ReviewStateStore,
+) -> None:
+    change_id, cached_change, comment = result
+    if comment is not None:
+        updated_change = cached_change.model_copy(update={"stack_comment_id": comment.id})
+        if state_changes.get(change_id) != updated_change:
+            state_changes[change_id] = updated_change
+            _save_submit_state_checkpoint(
+                dry_run=dry_run,
+                state=state,
+                state_changes=state_changes,
+                state_store=state_store,
+            )
+
+
+async def _sync_stack_comment_task(
+    *,
+    dry_run: bool,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+    pending_sync: PendingStackCommentSync,
+) -> tuple[str, CachedChange, GithubIssueComment | None]:
+    comment = await _upsert_stack_comment(
+        cached_change=pending_sync.cached_change,
+        comment_body=pending_sync.comment_body,
+        dry_run=dry_run,
+        github_client=github_client,
+        github_repository=github_repository,
+        pull_request_number=pending_sync.pull_request_number,
+    )
+    return pending_sync.change_id, pending_sync.cached_change, comment
 
 
 async def _upsert_stack_comment(

@@ -746,11 +746,14 @@ Implemented in the first vertical cut:
   bookmark path, while still handling untracked remote-bookmark lease updates
   conservatively one branch at a time
 - once remote review branches are in place, submit now syncs PR create/update
-  work with bounded concurrency and checkpoints sparse review state after each
-  completed PR sync instead of waiting for the whole stack to finish
+  work with bounded concurrency, stops launching new PR work after the first
+  failure, drains already-started tasks, checkpoints each successful in-flight
+  PR sync, and reconciles configured reviewers and labels when PR creation or
+  cache checkpointing failed partway through so reruns can converge instead of
+  getting stuck half-finished
 - submit-side stack-comment inspection and upsert planning now run with
-  bounded concurrency so reviewer-facing metadata regeneration no longer waits
-  for one PR comment list request at a time
+  bounded concurrency, stop launching new work after the first failure, and
+  checkpoint successful in-flight comment updates before surfacing the error
 - the fake GitHub server now implements the GraphQL head-ref lookup path so
   the default integration suite exercises the same batched submit discovery
   flow as the real client
