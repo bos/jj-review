@@ -6,6 +6,7 @@ import asyncio
 import os
 import subprocess
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -150,11 +151,24 @@ class BookmarkStateReader(Protocol):
         """Return bookmark state keyed by bookmark name."""
 
 
+class PrivateCommitFinder(Protocol):
+    """Subset of the jj client interface needed for git.private-commits checks."""
+
+    def find_private_commits(
+        self,
+        revisions: tuple[Any, ...],
+    ) -> tuple[Any, ...]:
+        """Return the revisions blocked by the repo's private-commit policy."""
+
+
 def run_submit(
     *,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     dry_run: bool = False,
+    on_prepared: Callable[[str, GitRemote, bool], None] | None = None,
+    on_revision: Callable[[SubmittedRevision], None] | None = None,
+    on_trunk_resolved: Callable[[str, str, bool], None] | None = None,
     repo_root: Path,
     revset: str | None,
 ) -> SubmitResult:
@@ -168,6 +182,9 @@ def run_submit(
             change_overrides=change_overrides,
             config=config,
             dry_run=dry_run,
+            on_prepared=on_prepared,
+            on_revision=on_revision,
+            on_trunk_resolved=on_trunk_resolved,
             repo_root=repo_root,
             revset=revset,
             state_dir=state_dir,
@@ -181,6 +198,9 @@ async def _run_submit_async(
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     dry_run: bool,
+    on_prepared: Callable[[str, GitRemote, bool], None] | None,
+    on_revision: Callable[[SubmittedRevision], None] | None,
+    on_trunk_resolved: Callable[[str, str, bool], None] | None,
     repo_root: Path,
     revset: str | None,
     state_dir: Path | None,
@@ -190,6 +210,8 @@ async def _run_submit_async(
     stack = client.discover_review_stack(revset)
     remotes = client.list_git_remotes()
     remote = select_submit_remote(config, remotes)
+    if on_prepared is not None:
+        on_prepared(stack.selected_revset, remote, bool(stack.revisions))
     state = state_store.load()
     discovered_bookmarks = _discover_bookmarks_for_revisions(
         bookmark_states=client.list_bookmark_states(),
@@ -216,6 +238,8 @@ async def _run_submit_async(
             )
             if len(remote_bookmarks) == 1:
                 trunk_branch = remote_bookmarks[0]
+        if on_trunk_resolved is not None:
+            on_trunk_resolved(stack.trunk.subject, trunk_branch or stack.trunk.subject, False)
         return SubmitResult(
             dry_run=dry_run,
             remote=remote,
@@ -294,6 +318,8 @@ async def _run_submit_async(
                 remote=remote,
                 stack=stack,
             )
+            if on_trunk_resolved is not None:
+                on_trunk_resolved(stack.trunk.subject, trunk_branch, True)
 
             revisions: list[SubmittedRevision] = []
             for index, (resolution, revision) in enumerate(
@@ -364,27 +390,28 @@ async def _run_submit_async(
                     team_reviewers=config.team_reviewers,
                 )
 
-                revisions.append(
-                    SubmittedRevision(
-                        bookmark=resolution.bookmark,
-                        bookmark_source=resolution.source,
-                        change_id=revision.change_id,
-                        local_action=local_action,
-                        pull_request_action=pull_request_result.action,
-                        pull_request_number=(
-                            pull_request_result.pull_request.number
-                            if pull_request_result.pull_request is not None
-                            else None
-                        ),
-                        pull_request_url=(
-                            pull_request_result.pull_request.html_url
-                            if pull_request_result.pull_request is not None
-                            else None
-                        ),
-                        remote_action=remote_action,
-                        subject=revision.subject,
-                    )
+                submitted_revision = SubmittedRevision(
+                    bookmark=resolution.bookmark,
+                    bookmark_source=resolution.source,
+                    change_id=revision.change_id,
+                    local_action=local_action,
+                    pull_request_action=pull_request_result.action,
+                    pull_request_number=(
+                        pull_request_result.pull_request.number
+                        if pull_request_result.pull_request is not None
+                        else None
+                    ),
+                    pull_request_url=(
+                        pull_request_result.pull_request.html_url
+                        if pull_request_result.pull_request is not None
+                        else None
+                    ),
+                    remote_action=remote_action,
+                    subject=revision.subject,
                 )
+                revisions.append(submitted_revision)
+                if on_revision is not None:
+                    on_revision(submitted_revision)
 
                 if not dry_run:
                     # Incremental cache save after this revision.
@@ -608,7 +635,7 @@ def _should_update_untracked_remote_with_git(
 
 
 def _preflight_private_commits(
-    client: JjClient,
+    client: PrivateCommitFinder,
     revisions: tuple[Any, ...],
 ) -> None:
     private = client.find_private_commits(revisions)

@@ -277,6 +277,57 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
     ) in captured.out
 
 
+def test_main_submit_uses_streamed_callbacks_without_duplicate_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+
+    revision = SimpleNamespace(
+        bookmark="review/feature-abcdefgh",
+        bookmark_source="generated",
+        change_id="abcdefghijkl",
+        local_action="created",
+        pull_request_action="created",
+        pull_request_number=None,
+        remote_action="pushed",
+        subject="feature 1",
+    )
+
+    def fake_run_submit(**kwargs):
+        kwargs["on_prepared"]("@", SimpleNamespace(name="origin"), True)
+        kwargs["on_trunk_resolved"]("base", "main", True)
+        kwargs["on_revision"](revision)
+        return SimpleNamespace(
+            dry_run=True,
+            remote=SimpleNamespace(name="origin"),
+            revisions=(revision,),
+            selected_revset="@",
+            trunk_branch="main",
+            trunk_subject="base",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+
+    exit_code = main(["submit", "--dry-run", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out.count("Selected revset: @") == 1
+    assert captured.out.count("Selected remote: origin") == 1
+    assert captured.out.count("Trunk: base -> main") == 1
+    assert captured.out.count("Dry run: no local, remote, or GitHub changes applied.") == 1
+    assert captured.out.count("Planned review bookmarks:") == 1
+    assert (
+        captured.out.count(
+            "- feature 1 [abcdefgh] -> review/feature-abcdefgh "
+            "(generated, local created, pushed, PR create)"
+        )
+        == 1
+    )
+
+
 def test_main_cleanup_passes_apply_to_prepare_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

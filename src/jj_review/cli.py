@@ -584,31 +584,72 @@ def _revision_pull_request_number(revision) -> int | None:
 
 def _submit_handler(args: Namespace) -> int:
     context = bootstrap_context(args)
-    result = run_submit(
-        change_overrides=context.config.change,
-        config=context.config.repo,
-        dry_run=bool(args.dry_run),
-        repo_root=context.repo_root,
-        revset=args.revset,
-    )
-    print(f"Selected revset: {result.selected_revset}")
-    print(f"Selected remote: {result.remote.name}")
-    print(f"Trunk: {result.trunk_subject} -> {result.trunk_branch}")
-    if not result.revisions:
-        print("No reviewable commits between the selected revision and `trunk()`.")
-        return 0
+    emitted_prepared = False
+    emitted_revisions = False
+    emitted_section_header = False
+    emitted_trunk = False
 
-    if result.dry_run:
-        print("Dry run: no local, remote, or GitHub changes applied.")
-        print("Planned review bookmarks:")
-    else:
-        print("Projected review bookmarks:")
-    for revision in result.revisions:
+    def emit_prepared(selected_revset: str, remote, has_revisions: bool) -> None:
+        del has_revisions
+        nonlocal emitted_prepared
+        print(f"Selected revset: {selected_revset}")
+        print(f"Selected remote: {remote.name}")
+        emitted_prepared = True
+
+    def emit_trunk(trunk_subject: str, trunk_branch: str, has_revisions: bool) -> None:
+        nonlocal emitted_section_header, emitted_trunk
+        print(f"Trunk: {trunk_subject} -> {trunk_branch}")
+        emitted_trunk = True
+        if not has_revisions:
+            return
+        if args.dry_run:
+            print("Dry run: no local, remote, or GitHub changes applied.")
+            print("Planned review bookmarks:")
+        else:
+            print("Projected review bookmarks:")
+        emitted_section_header = True
+
+    def emit_revision(revision) -> None:
+        nonlocal emitted_revisions
         print(
             f"- {revision.subject} [{_display_change_id(revision.change_id)}] -> "
             f"{revision.bookmark} "
             f"({_format_submit_projection_details(revision)})"
         )
+        emitted_revisions = True
+
+    result = run_submit(
+        change_overrides=context.config.change,
+        config=context.config.repo,
+        dry_run=bool(args.dry_run),
+        on_prepared=emit_prepared,
+        on_revision=emit_revision,
+        on_trunk_resolved=emit_trunk,
+        repo_root=context.repo_root,
+        revset=args.revset,
+    )
+    if not emitted_prepared:
+        print(f"Selected revset: {result.selected_revset}")
+        print(f"Selected remote: {result.remote.name}")
+    if not emitted_trunk:
+        print(f"Trunk: {result.trunk_subject} -> {result.trunk_branch}")
+    if not result.revisions:
+        print("No reviewable commits between the selected revision and `trunk()`.")
+        return 0
+
+    if not emitted_section_header:
+        if result.dry_run:
+            print("Dry run: no local, remote, or GitHub changes applied.")
+            print("Planned review bookmarks:")
+        else:
+            print("Projected review bookmarks:")
+    if not emitted_revisions:
+        for revision in result.revisions:
+            print(
+                f"- {revision.subject} [{_display_change_id(revision.change_id)}] -> "
+                f"{revision.bookmark} "
+                f"({_format_submit_projection_details(revision)})"
+            )
     return 0
 
 
