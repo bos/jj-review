@@ -147,7 +147,7 @@ def test_submit_batches_pull_request_discovery_with_graphql(
 
     monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
 
-    assert _main(repo, config_path, "submit") == 0
+    assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
     state = ReviewStateStore.for_repo(repo).load()
 
@@ -180,7 +180,7 @@ def test_submit_batches_ordinary_pushes(
     monkeypatch.setattr(JjClient, "push_bookmarks", tracking_push_bookmarks)
     monkeypatch.setattr(JjClient, "push_bookmark", fail_push_bookmark)
 
-    assert _main(repo, config_path, "submit") == 0
+    assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
     state = ReviewStateStore.for_repo(repo).load()
 
@@ -228,10 +228,51 @@ def test_submit_limits_stack_comment_github_inspection_concurrency(
     monkeypatch.setattr("jj_review.commands.submit._GITHUB_INSPECTION_CONCURRENCY", 2)
     monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
 
-    assert _main(repo, config_path, "submit") == 0
+    assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
 
     assert max_in_flight == 2
+
+
+def test_submit_reports_repository_error_before_batched_pr_discovery(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+    batch_lookup_called = False
+
+    class MissingRepositoryClient(GithubClient):
+        async def get_repository(self, owner: str, repo: str):
+            raise GithubClientError("GitHub request failed: 404 Not Found", status_code=404)
+
+        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
+            nonlocal batch_lookup_called
+            batch_lookup_called = True
+            return await super().get_pull_requests_by_head_refs(
+                owner,
+                repo,
+                head_refs=head_refs,
+            )
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return MissingRepositoryClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
+
+    exit_code = _main(repo, config_path, "submit", "--current")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Could not load GitHub repository octo-org/stacked-review" in captured.err
+    assert not batch_lookup_called
 
 
 def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
@@ -269,7 +310,7 @@ def test_submit_dry_run_keeps_revision_output_grouped(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    exit_code = _main(repo, config_path, "submit", "--dry-run")
+    exit_code = _main(repo, config_path, "submit", "--current", "--dry-run")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -1979,6 +2020,15 @@ def test_submit_incremental_cache_save_after_first_revision(
     # Change 2 was not reached before failure
     change2 = state.changes.get(change_id_2)
     assert change2 is None or change2.pr_number is None
+    pushed_review_refs = {
+        ref: target
+        for ref, target in _remote_refs(fake_repo.git_dir).items()
+        if ref.startswith("refs/heads/review/")
+    }
+    assert len(pushed_review_refs) == 2
+    assert set(pushed_review_refs.values()) == {
+        revision.commit_id for revision in stack.revisions
+    }
 
 
 def test_submit_writes_and_deletes_intent_file_on_success(
@@ -2044,6 +2094,15 @@ def test_submit_leaves_intent_file_on_failure(
     capsys.readouterr()
 
     assert exit_code != 0
+    pushed_review_refs = {
+        ref: target
+        for ref, target in _remote_refs(fake_repo.git_dir).items()
+        if ref.startswith("refs/heads/review/")
+    }
+    assert len(pushed_review_refs) == 2
+    assert set(pushed_review_refs.values()) == {
+        revision.commit_id for revision in stack.revisions
+    }
     state_dir = resolve_state_path(repo).parent
     intent_files = list(state_dir.glob("incomplete-*.toml"))
     assert len(intent_files) == 1

@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import pytest
 
 from jj_review.cli import main
-from jj_review.commands.submit import SubmitProgressEvent
 from jj_review.config import CONFIG_DIRNAME, CONFIG_FILENAME
 from jj_review.jj import UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState
@@ -332,7 +331,7 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
     assert "  -> review/feature-abcdefgh [pushed] [PR #n created]" in captured.out
 
 
-def test_main_submit_uses_streamed_callbacks_without_duplicate_output(
+def test_main_submit_prints_final_output_without_duplicate_lines(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -353,41 +352,6 @@ def test_main_submit_uses_streamed_callbacks_without_duplicate_output(
     def fake_run_submit(**kwargs):
         kwargs["on_prepared"]("@", SimpleNamespace(name="origin"), True)
         kwargs["on_trunk_resolved"]("base", "main", True)
-        kwargs["on_progress"](
-            SubmitProgressEvent(
-                change_id="abcdefghijkl",
-                kind="revision_started",
-                subject="feature 1",
-            )
-        )
-        kwargs["on_progress"](
-            SubmitProgressEvent(
-                change_id="abcdefghijkl",
-                kind="bookmark_ready",
-                bookmark="review/feature-abcdefgh",
-            )
-        )
-        kwargs["on_progress"](
-            SubmitProgressEvent(change_id="abcdefghijkl", kind="push_started")
-        )
-        kwargs["on_progress"](
-            SubmitProgressEvent(change_id="abcdefghijkl", kind="push_finished")
-        )
-        kwargs["on_progress"](
-            SubmitProgressEvent(
-                change_id="abcdefghijkl",
-                kind="pr_started",
-                pull_request_action="created",
-            )
-        )
-        kwargs["on_progress"](
-            SubmitProgressEvent(
-                change_id="abcdefghijkl",
-                kind="pr_finished",
-                pull_request_action="created",
-                pull_request_number=None,
-            )
-        )
         return SimpleNamespace(
             dry_run=True,
             remote=SimpleNamespace(name="origin"),
@@ -412,7 +376,7 @@ def test_main_submit_uses_streamed_callbacks_without_duplicate_output(
     assert captured.out.count("  -> review/feature-abcdefgh [pushed] [PR #n created]") == 1
 
 
-def test_main_time_output_keeps_one_prefix_for_incremental_line(
+def test_main_time_output_prefixes_submit_summary_lines(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -433,41 +397,6 @@ def test_main_time_output_keeps_one_prefix_for_incremental_line(
     def fake_run_submit(**kwargs):
         kwargs["on_prepared"]("@", SimpleNamespace(name="origin"), True)
         kwargs["on_trunk_resolved"]("base", "main", True)
-        kwargs["on_progress"](
-            SubmitProgressEvent(
-                change_id="abcdefghijkl",
-                kind="revision_started",
-                subject="feature 1",
-            )
-        )
-        kwargs["on_progress"](
-            SubmitProgressEvent(
-                change_id="abcdefghijkl",
-                kind="bookmark_ready",
-                bookmark="review/feature-abcdefgh",
-            )
-        )
-        kwargs["on_progress"](
-            SubmitProgressEvent(change_id="abcdefghijkl", kind="push_started")
-        )
-        kwargs["on_progress"](
-            SubmitProgressEvent(change_id="abcdefghijkl", kind="push_finished")
-        )
-        kwargs["on_progress"](
-            SubmitProgressEvent(
-                change_id="abcdefghijkl",
-                kind="pr_started",
-                pull_request_action="created",
-            )
-        )
-        kwargs["on_progress"](
-            SubmitProgressEvent(
-                change_id="abcdefghijkl",
-                kind="pr_finished",
-                pull_request_action="created",
-                pull_request_number=7,
-            )
-        )
         return SimpleNamespace(
             dry_run=False,
             remote=SimpleNamespace(name="origin"),
@@ -483,12 +412,12 @@ def test_main_time_output_keeps_one_prefix_for_incremental_line(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    progress_line = next(
+    summary_line = next(
         line
         for line in captured.out.splitlines()
         if "review/feature-abcdefgh [pushed] [PR #7 created]" in line
     )
-    assert progress_line.count("[") == 3
+    assert summary_line.count("[") == 3
 
 
 def test_main_cleanup_passes_apply_to_prepare_cleanup(

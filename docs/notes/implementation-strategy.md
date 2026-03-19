@@ -594,9 +594,8 @@ Implemented in a follow-up:
   actions, push actions, and PR actions through the normal submit path while
   skipping local, remote, GitHub, cache, and intent-file mutations
 - the submit CLI now prints the selected revset and remote promptly, then
-  streams one two-line progress block per revision so bookmark, push, and PR
-  progress can unfold in place instead of buffering the whole plan behind one
-  final render
+  renders the final ordered review summary once the submit phases complete,
+  instead of trying to stream per-revision mutation progress inline
 
 Done when:
 
@@ -746,6 +745,9 @@ Implemented in the first vertical cut:
   remote push when the selected review branches can use the normal tracked
   bookmark path, while still handling untracked remote-bookmark lease updates
   conservatively one branch at a time
+- once remote review branches are in place, submit now syncs PR create/update
+  work with bounded concurrency and checkpoints sparse review state after each
+  completed PR sync instead of waiting for the whole stack to finish
 - submit-side stack-comment inspection and upsert planning now run with
   bounded concurrency so reviewer-facing metadata regeneration no longer waits
   for one PR comment list request at a time
@@ -757,6 +759,7 @@ Deliver:
 
 - batched submit PR discovery
 - batched ordinary submit pushes
+- bounded-concurrency submit PR sync
 - bounded-concurrency submit stack-comment inspection
 
 Done when:

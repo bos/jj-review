@@ -143,6 +143,7 @@ class PullRequestSyncResult:
     """Result of creating, reusing, or updating one pull request."""
 
     action: PullRequestAction
+    cached_change: CachedChange | None
     pull_request: GithubPullRequest | None
 
 
@@ -160,27 +161,12 @@ class PreparedSubmitRevision:
     revision: Any
 
 
-SubmitProgressKind = Literal[
-    "bookmark_ready",
-    "pr_finished",
-    "pr_started",
-    "push_finished",
-    "push_started",
-    "push_up_to_date",
-    "revision_started",
-]
-
-
 @dataclass(frozen=True, slots=True)
-class SubmitProgressEvent:
-    """One incremental progress event emitted while processing a revision."""
+class SubmittedPullRequestSync:
+    """One completed PR sync plus its cache update."""
 
-    change_id: str
-    kind: SubmitProgressKind
-    bookmark: str | None = None
-    pull_request_action: PullRequestAction | None = None
-    pull_request_number: int | None = None
-    subject: str | None = None
+    cached_change: CachedChange | None
+    submitted_revision: SubmittedRevision
 
 
 class BookmarkStateReader(Protocol):
@@ -206,7 +192,6 @@ def run_submit(
     config: RepoConfig,
     dry_run: bool = False,
     on_prepared: Callable[[str, GitRemote, bool], None] | None = None,
-    on_progress: Callable[[SubmitProgressEvent], None] | None = None,
     on_trunk_resolved: Callable[[str, str, bool], None] | None = None,
     repo_root: Path,
     revset: str | None,
@@ -222,7 +207,6 @@ def run_submit(
             config=config,
             dry_run=dry_run,
             on_prepared=on_prepared,
-            on_progress=on_progress,
             on_trunk_resolved=on_trunk_resolved,
             repo_root=repo_root,
             revset=revset,
@@ -238,7 +222,6 @@ async def _run_submit_async(
     config: RepoConfig,
     dry_run: bool,
     on_prepared: Callable[[str, GitRemote, bool], None] | None,
-    on_progress: Callable[[SubmitProgressEvent], None] | None,
     on_trunk_resolved: Callable[[str, str, bool], None] | None,
     repo_root: Path,
     revset: str | None,
@@ -344,20 +327,12 @@ async def _run_submit_async(
         intent_path = write_intent(state_dir, intent)
 
     succeeded = False
+    submitted_revisions: tuple[SubmittedRevision, ...] = ()
     try:
         async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
-            github_repository_state, discovered_pull_requests = await asyncio.gather(
-                _get_github_repository(
-                    github_client,
-                    github_repository=github_repository,
-                ),
-                _discover_pull_requests_by_bookmark(
-                    github_client=github_client,
-                    github_repository=github_repository,
-                    bookmarks=tuple(
-                        resolution.bookmark for resolution in bookmark_result.resolutions
-                    ),
-                ),
+            github_repository_state = await _get_github_repository(
+                github_client,
+                github_repository=github_repository,
             )
             trunk_branch = resolve_trunk_branch(
                 client=client,
@@ -365,6 +340,13 @@ async def _run_submit_async(
                 github_repository_state=github_repository_state,
                 remote=remote,
                 stack=stack,
+            )
+            discovered_pull_requests = await _discover_pull_requests_by_bookmark(
+                github_client=github_client,
+                github_repository=github_repository,
+                bookmarks=tuple(
+                    resolution.bookmark for resolution in bookmark_result.resolutions
+                ),
             )
             if on_trunk_resolved is not None:
                 on_trunk_resolved(stack.trunk.subject, trunk_branch, True)
@@ -431,95 +413,26 @@ async def _run_submit_async(
                 prepared_revisions=tuple(prepared_revisions),
                 remote=remote,
             )
-
-            revisions: list[SubmittedRevision] = []
-            for index, prepared_revision in enumerate(prepared_revisions):
-                if on_progress is not None:
-                    on_progress(
-                        SubmitProgressEvent(
-                            change_id=prepared_revision.change_id,
-                            kind="revision_started",
-                            subject=prepared_revision.revision.subject,
-                        )
-                    )
-                    on_progress(
-                        SubmitProgressEvent(
-                            change_id=prepared_revision.change_id,
-                            kind="bookmark_ready",
-                            bookmark=prepared_revision.bookmark,
-                        )
-                    )
-                    if prepared_revision.remote_action == "up to date":
-                        on_progress(
-                            SubmitProgressEvent(
-                                change_id=prepared_revision.change_id,
-                                kind="push_up_to_date",
-                            )
-                        )
-                    else:
-                        on_progress(
-                            SubmitProgressEvent(
-                                change_id=prepared_revision.change_id,
-                                kind="push_started",
-                            )
-                        )
-                        on_progress(
-                            SubmitProgressEvent(
-                                change_id=prepared_revision.change_id,
-                                kind="push_finished",
-                            )
-                        )
-                base_branch = revisions[index - 1].bookmark if index > 0 else trunk_branch
-                pull_request_result = await _sync_pull_request(
-                    base_branch=base_branch,
-                    bookmark=prepared_revision.bookmark,
-                    change_id=prepared_revision.change_id,
-                    discovered_pull_request=discovered_pull_requests[prepared_revision.bookmark],
-                    github_client=github_client,
-                    github_repository=github_repository,
-                    labels=config.labels,
-                    on_progress=on_progress,
-                    reviewers=config.reviewers,
-                    revision=prepared_revision.revision,
-                    dry_run=dry_run,
-                    state=bookmark_result.state,
-                    state_changes=state_changes,
-                    team_reviewers=config.team_reviewers,
-                )
-
-                submitted_revision = SubmittedRevision(
-                    bookmark=prepared_revision.bookmark,
-                    bookmark_source=prepared_revision.bookmark_source,
-                    change_id=prepared_revision.change_id,
-                    local_action=prepared_revision.local_action,
-                    pull_request_action=pull_request_result.action,
-                    pull_request_number=(
-                        pull_request_result.pull_request.number
-                        if pull_request_result.pull_request is not None
-                        else None
-                    ),
-                    pull_request_url=(
-                        pull_request_result.pull_request.html_url
-                        if pull_request_result.pull_request is not None
-                        else None
-                    ),
-                    remote_action=prepared_revision.remote_action,
-                    subject=prepared_revision.revision.subject,
-                )
-                revisions.append(submitted_revision)
-
-                if not dry_run:
-                    # Incremental cache save after this revision.
-                    _interim_state = bookmark_result.state.model_copy(
-                        update={"changes": dict(state_changes)}
-                    )
-                    state_store.save(_interim_state)
+            submitted_revisions = await _sync_pull_requests(
+                dry_run=dry_run,
+                github_client=github_client,
+                github_repository=github_repository,
+                prepared_revisions=tuple(prepared_revisions),
+                discovered_pull_requests=discovered_pull_requests,
+                labels=config.labels,
+                reviewers=config.reviewers,
+                state=bookmark_result.state,
+                state_changes=state_changes,
+                state_store=state_store,
+                team_reviewers=config.team_reviewers,
+                trunk_branch=trunk_branch,
+            )
 
             await _sync_stack_comments(
                 dry_run=dry_run,
                 github_client=github_client,
                 github_repository=github_repository,
-                revisions=tuple(revisions),
+                revisions=submitted_revisions,
                 state=state,
                 state_changes=state_changes,
                 trunk_branch=trunk_branch,
@@ -534,7 +447,7 @@ async def _run_submit_async(
         return SubmitResult(
             dry_run=dry_run,
             remote=remote,
-            revisions=tuple(revisions),
+            revisions=submitted_revisions,
             selected_revset=stack.selected_revset,
             trunk_branch=trunk_branch,
             trunk_subject=stack.trunk.subject,
@@ -848,6 +761,119 @@ def _sync_remote_bookmarks(
             )
 
 
+async def _sync_pull_requests(
+    *,
+    discovered_pull_requests: dict[str, GithubPullRequest | None],
+    dry_run: bool,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+    labels: list[str],
+    prepared_revisions: tuple[PreparedSubmitRevision, ...],
+    reviewers: list[str],
+    state: ReviewState,
+    state_changes: dict[str, CachedChange],
+    state_store: ReviewStateStore,
+    team_reviewers: list[str],
+    trunk_branch: str,
+) -> tuple[SubmittedRevision, ...]:
+    semaphore = asyncio.Semaphore(_GITHUB_INSPECTION_CONCURRENCY)
+    tasks = tuple(
+        asyncio.create_task(
+            _sync_pull_request_with_semaphore(
+                base_branch=(
+                    prepared_revisions[index - 1].bookmark if index > 0 else trunk_branch
+                ),
+                discovered_pull_request=discovered_pull_requests[prepared_revision.bookmark],
+                dry_run=dry_run,
+                github_client=github_client,
+                github_repository=github_repository,
+                labels=labels,
+                prepared_revision=prepared_revision,
+                reviewers=reviewers,
+                semaphore=semaphore,
+                state=state,
+                team_reviewers=team_reviewers,
+            )
+        )
+        for index, prepared_revision in enumerate(prepared_revisions)
+    )
+    submitted_revisions_by_change_id: dict[str, SubmittedRevision] = {}
+    try:
+        for task in asyncio.as_completed(tasks):
+            submitted = await task
+            submitted_revisions_by_change_id[submitted.submitted_revision.change_id] = (
+                submitted.submitted_revision
+            )
+            if submitted.cached_change is not None:
+                state_changes[submitted.submitted_revision.change_id] = submitted.cached_change
+            if not dry_run:
+                interim_state = state.model_copy(update={"changes": dict(state_changes)})
+                state_store.save(interim_state)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    return tuple(
+        submitted_revisions_by_change_id[prepared_revision.change_id]
+        for prepared_revision in prepared_revisions
+    )
+
+
+async def _sync_pull_request_with_semaphore(
+    *,
+    base_branch: str,
+    discovered_pull_request: GithubPullRequest | None,
+    dry_run: bool,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+    labels: list[str],
+    prepared_revision: PreparedSubmitRevision,
+    reviewers: list[str],
+    semaphore: asyncio.Semaphore,
+    state: ReviewState,
+    team_reviewers: list[str],
+) -> SubmittedPullRequestSync:
+    async with semaphore:
+        pull_request_result = await _sync_pull_request(
+            base_branch=base_branch,
+            bookmark=prepared_revision.bookmark,
+            change_id=prepared_revision.change_id,
+            discovered_pull_request=discovered_pull_request,
+            dry_run=dry_run,
+            github_client=github_client,
+            github_repository=github_repository,
+            labels=labels,
+            reviewers=reviewers,
+            revision=prepared_revision.revision,
+            state=state,
+            team_reviewers=team_reviewers,
+        )
+    return SubmittedPullRequestSync(
+        cached_change=pull_request_result.cached_change,
+        submitted_revision=SubmittedRevision(
+            bookmark=prepared_revision.bookmark,
+            bookmark_source=prepared_revision.bookmark_source,
+            change_id=prepared_revision.change_id,
+            local_action=prepared_revision.local_action,
+            pull_request_action=pull_request_result.action,
+            pull_request_number=(
+                pull_request_result.pull_request.number
+                if pull_request_result.pull_request is not None
+                else None
+            ),
+            pull_request_url=(
+                pull_request_result.pull_request.html_url
+                if pull_request_result.pull_request is not None
+                else None
+            ),
+            remote_action=prepared_revision.remote_action,
+            subject=prepared_revision.revision.subject,
+        ),
+    )
+
+
 async def _sync_pull_request(
     *,
     base_branch: str,
@@ -858,11 +884,9 @@ async def _sync_pull_request(
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     labels: list[str],
-    on_progress: Callable[[SubmitProgressEvent], None] | None,
     reviewers: list[str],
     revision: Any,
     state: ReviewState,
-    state_changes: dict[str, CachedChange],
     team_reviewers: list[str],
 ) -> PullRequestSyncResult:
     cached_change = state.changes.get(change_id)
@@ -875,14 +899,6 @@ async def _sync_pull_request(
     title = revision.subject
     body = _pull_request_body(revision.description)
     if discovered_pull_request is None:
-        if on_progress is not None:
-            on_progress(
-                SubmitProgressEvent(
-                    change_id=change_id,
-                    kind="pr_started",
-                    pull_request_action="created",
-                )
-            )
         pull_request = None
         if not dry_run:
             pull_request = await _create_pull_request(
@@ -906,15 +922,6 @@ async def _sync_pull_request(
         pull_request = discovered_pull_request
         action = "unchanged"
     else:
-        if on_progress is not None:
-            on_progress(
-                SubmitProgressEvent(
-                    change_id=change_id,
-                    kind="pr_started",
-                    pull_request_action="updated",
-                    pull_request_number=discovered_pull_request.number,
-                )
-            )
         pull_request = discovered_pull_request
         if not dry_run:
             pull_request = await _update_pull_request(
@@ -927,26 +934,19 @@ async def _sync_pull_request(
             )
         action = "updated"
 
-    if on_progress is not None:
-        on_progress(
-            SubmitProgressEvent(
-                change_id=change_id,
-                kind="pr_finished",
-                pull_request_action=action,
-                pull_request_number=(
-                    pull_request.number if pull_request is not None else None
-                ),
-            )
-        )
-
+    next_cached_change: CachedChange | None = None
     if pull_request is not None:
-        state_changes[change_id] = _updated_cached_change(
+        next_cached_change = _updated_cached_change(
             bookmark=bookmark,
             cached_change=cached_change,
             commit_id=revision.commit_id,
             pull_request=pull_request,
         )
-    return PullRequestSyncResult(action=action, pull_request=pull_request)
+    return PullRequestSyncResult(
+        action=action,
+        cached_change=next_cached_change,
+        pull_request=pull_request,
+    )
 
 
 async def _discover_pull_request(
