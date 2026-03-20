@@ -328,7 +328,7 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
     assert "Planned review bookmarks:" in captured.out
     assert "- feature 1 [abcdefgh]" in captured.out
-    assert "  -> review/feature-abcdefgh [pushed] [PR #n created]" in captured.out
+    assert "  -> review/feature-abcdefgh [new PR]" in captured.out
 
 
 def test_main_submit_prints_final_output_without_duplicate_lines(
@@ -373,7 +373,7 @@ def test_main_submit_prints_final_output_without_duplicate_lines(
     assert captured.out.count("Dry run: no local, remote, or GitHub changes applied.") == 1
     assert captured.out.count("Planned review bookmarks:") == 1
     assert captured.out.count("- feature 1 [abcdefgh]") == 1
-    assert captured.out.count("  -> review/feature-abcdefgh [pushed] [PR #n created]") == 1
+    assert captured.out.count("  -> review/feature-abcdefgh [new PR]") == 1
 
 
 def test_main_time_output_prefixes_submit_summary_lines(
@@ -415,9 +415,9 @@ def test_main_time_output_prefixes_submit_summary_lines(
     summary_line = next(
         line
         for line in captured.out.splitlines()
-        if "review/feature-abcdefgh [pushed] [PR #7 created]" in line
+        if "review/feature-abcdefgh [PR #7]" in line
     )
-    assert summary_line.count("[") == 3
+    assert summary_line.count("[") == 2
 
 
 def test_main_cleanup_passes_apply_to_prepare_cleanup(

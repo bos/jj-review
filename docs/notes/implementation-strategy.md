@@ -596,6 +596,9 @@ Implemented in a follow-up:
 - the submit CLI now prints the selected revset and remote promptly, then
   renders the final ordered review summary once the submit phases complete,
   instead of trying to stream per-revision mutation progress inline
+- the per-change submit summary now renders created PRs as `[PR #n]` in live
+  output and `[new PR]` in dry-run output, omitting the separate remote push
+  marker because PR creation already implies the review branch was projected
 
 Done when:
 

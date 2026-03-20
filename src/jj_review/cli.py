@@ -721,13 +721,13 @@ def _print_submit_revision(revision) -> None:
 
 
 def _render_submit_revision_suffix(revision) -> str:
-    return (
-        _render_submit_remote_suffix(revision.remote_action)
-        + _render_submit_pr_suffix(
-            action=revision.pull_request_action,
-            pull_request_number=revision.pull_request_number,
-        )
+    pr_suffix = _render_submit_pr_suffix(
+        action=revision.pull_request_action,
+        pull_request_number=revision.pull_request_number,
     )
+    if revision.pull_request_action == "created":
+        return pr_suffix
+    return _render_submit_remote_suffix(revision.remote_action) + pr_suffix
 
 
 def _render_submit_remote_suffix(remote_action: str) -> str:
@@ -739,10 +739,12 @@ def _render_submit_remote_suffix(remote_action: str) -> str:
 def _render_submit_pr_suffix(*, action: str, pull_request_number: int | None) -> str:
     if pull_request_number is None:
         if action == "created":
-            return " [PR #n created]"
+            return " [new PR]"
         if action == "updated":
             return " [PR #n updated]"
         return " [PR unchanged]"
+    if action == "created":
+        return f" [PR #{pull_request_number}]"
     return f" [PR #{pull_request_number} {action}]"
 
 

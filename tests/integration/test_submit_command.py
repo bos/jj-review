@@ -295,7 +295,7 @@ def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
     assert "Planned review bookmarks:" in captured.out
     assert "feature 1 [" in captured.out
     assert "  -> review/" in captured.out
-    assert " [pushed] [PR #n created]" in captured.out
+    assert " [new PR]" in captured.out
     assert fake_repo.pull_requests == {}
     assert _remote_refs(fake_repo.git_dir) == initial_remote_refs
 
@@ -315,18 +315,18 @@ def test_submit_dry_run_keeps_revision_output_grouped(
 
     assert exit_code == 0
     assert "[push [pushed]ed]" not in captured.out
-    assert captured.out.count("[pushed] [PR #n created]") == 2
+    assert captured.out.count("[new PR]") == 2
     lines = captured.out.splitlines()
     feature_1_index = next(
         index for index, line in enumerate(lines) if "- feature 1 [" in line
     )
     assert "  -> review/" in lines[feature_1_index + 1]
-    assert "[pushed] [PR #n created]" in lines[feature_1_index + 1]
+    assert "[new PR]" in lines[feature_1_index + 1]
     feature_2_index = next(
         index for index, line in enumerate(lines) if "- feature 2 [" in line
     )
     assert "  -> review/" in lines[feature_2_index + 1]
-    assert "[pushed] [PR #n created]" in lines[feature_2_index + 1]
+    assert "[new PR]" in lines[feature_2_index + 1]
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert list(resolve_state_path(repo).parent.glob("incomplete-*.toml")) == []
 
@@ -596,7 +596,7 @@ def test_submit_reports_up_to_date_when_remote_bookmark_and_pr_already_match(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "[pushed]" in first_output
+    assert "[PR #1]" in first_output
     assert "[already pushed]" in captured.out
     assert "unchanged" in captured.out
     assert _remote_refs(fake_repo.git_dir) == first_refs
