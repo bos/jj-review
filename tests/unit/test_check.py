@@ -201,6 +201,50 @@ def test_main_runs_pytest_serially_when_requested(
     ]
 
 
+def test_main_adds_coverage_reports_when_requested(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    venv_python = tmp_path / ".venv" / check_script._venv_python_relative_path()
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("", encoding="utf-8")
+    monkeypatch.setattr(check_script, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(check_script, "VENV_PYTHON", venv_python)
+    monkeypatch.setattr(check_script, "ensure_project_environment", lambda: None)
+
+    commands: list[tuple[str, ...]] = []
+
+    def fake_run(
+        command: tuple[str, ...],
+        *,
+        check: bool,
+        cwd: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        assert check is False
+        assert cwd == tmp_path
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(check_script.subprocess, "run", fake_run)
+
+    exit_code = check_script.main(["--coverage", "-n", "1"])
+
+    assert exit_code == 0
+    assert commands == [
+        (str(venv_python), "-m", "ruff", "check"),
+        (str(venv_python), "-m", "pyrefly", "check"),
+        (
+            str(venv_python),
+            "-m",
+            "pytest",
+            "--cov=jj_review",
+            "--cov-branch",
+            "--cov-report=term-missing",
+            "--cov-report=html:htmlcov",
+        ),
+    ]
+
+
 def test_main_rejects_non_positive_pytest_jobs() -> None:
     with pytest.raises(SystemExit, match="2"):
         check_script.main(["--pytest-jobs", "0"])

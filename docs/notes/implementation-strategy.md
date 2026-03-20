@@ -388,6 +388,17 @@ override the default worker count, while `./check.py -n 1` should provide a
 serial escape hatch without changing the environment bootstrap, lint, and
 type-check steps.
 
+Coverage should be available as an explicit local verification mode:
+
+```text
+./check.py --coverage
+```
+
+That mode should keep the same `uv sync --locked`, lint, and type-check steps,
+then run pytest with branch coverage enabled, emit a terminal missing-lines
+report, and write an HTML report to `htmlcov/index.html` for deeper inspection
+of untested code paths.
+
 Live tests should require an explicit flag and explicit credentials.
 
 ## Fake GitHub Server Strategy
@@ -522,6 +533,24 @@ Done when:
 
 - `./check.py` works locally
 - a trivial fake-server integration test passes
+
+### Tooling Follow-Up: Coverage Reporting
+
+Status: complete.
+
+Implemented after the initial scaffold:
+
+- `./check.py --coverage` now reuses the standard local verification flow while
+  running pytest with branch coverage enabled
+- the coverage run emits both a terminal missing-lines summary and an HTML
+  report under `htmlcov/`
+
+Done when:
+
+- coverage-enabled local verification works without bypassing bootstrap, lint,
+  or type checking
+- developers can inspect uncovered lines from the terminal report or the HTML
+  artifact
 
 ### Slice 2: Local Stack Discovery
 

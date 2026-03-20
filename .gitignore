@@ -1,5 +1,7 @@
 __pycache__/
+.coverage
 .claude/
+htmlcov/
 .pytest_cache/
 .ruff_cache/
 .ty_cache/

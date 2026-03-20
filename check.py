@@ -35,12 +35,24 @@ def _parse_pytest_jobs(value: str) -> PytestJobs:
     return parsed
 
 
-def _build_checks(*, pytest_jobs: PytestJobs | None) -> tuple[tuple[str, tuple[str, ...]], ...]:
+def _build_checks(
+    *,
+    pytest_jobs: PytestJobs | None,
+    coverage: bool,
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
     pytest_command: tuple[str, ...] = ("-m", "pytest")
     if pytest_jobs in (None, "auto"):
         pytest_command = (*pytest_command, "-n", "auto")
     elif isinstance(pytest_jobs, int) and pytest_jobs > 1:
         pytest_command = (*pytest_command, "-n", str(pytest_jobs))
+    if coverage:
+        pytest_command = (
+            *pytest_command,
+            "--cov=jj_review",
+            "--cov-branch",
+            "--cov-report=term-missing",
+            "--cov-report=html:htmlcov",
+        )
     return (
         ("ruff", ("-m", "ruff", "check")),
         ("pyrefly", ("-m", "pyrefly", "check")),
@@ -61,6 +73,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="N",
         help="Run pytest with xdist using N workers or 'auto' (default: auto).",
     )
+    parser.add_argument(
+        "--coverage",
+        action="store_true",
+        help=(
+            "Run pytest with branch coverage enabled and emit terminal and "
+            "HTML reports in htmlcov/."
+        ),
+    )
     args = parser.parse_args(argv)
     try:
         pytest_jobs = (
@@ -70,7 +90,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error(str(error))
     ensure_project_environment()
 
-    for name, command in _build_checks(pytest_jobs=pytest_jobs):
+    for name, command in _build_checks(
+        pytest_jobs=pytest_jobs,
+        coverage=args.coverage,
+    ):
         full_command = (str(VENV_PYTHON), *command)
         print(f"==> {name}: {shlex.join(full_command)}", flush=True)
         completed = subprocess.run(
