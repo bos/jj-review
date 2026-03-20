@@ -27,6 +27,7 @@ from jj_review.commands.submit import (
     _github_token_from_gh_cli,
     _preflight_private_commits,
     _remote_is_up_to_date,
+    _repair_interrupted_untracked_remote_bookmarks,
     _resolve_local_action,
     _should_update_untracked_remote_with_git,
     resolve_github_repository,
@@ -34,9 +35,11 @@ from jj_review.commands.submit import (
     select_submit_remote,
 )
 from jj_review.config import RepoConfig
+from jj_review.intent import write_intent
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest, GithubRepository
+from jj_review.models.intent import SubmitIntent
 from jj_review.models.stack import LocalRevision
 
 
@@ -479,6 +482,76 @@ def test_should_update_untracked_remote_with_git_only_for_differing_untracked_re
         RemoteBookmarkState(remote="origin", targets=("abc123",), tracking_targets=()),
         "def456",
     )
+
+
+def test_repair_interrupted_untracked_remote_bookmarks_tracks_matching_remote_targets(
+    tmp_path,
+) -> None:
+    calls: list[tuple[str, str, tuple[str, ...] | str]] = []
+
+    class FakeJjClient:
+        def fetch_remote(self, *, remote: str) -> None:
+            calls.append(("fetch", remote, ""))
+
+        def list_bookmark_states(
+            self,
+            bookmarks: tuple[str, ...] | None = None,
+        ) -> dict[str, BookmarkState]:
+            calls.append(("list", "origin", tuple(bookmarks or ())))
+            return {
+                "review/foo": BookmarkState(
+                    name="review/foo",
+                    local_targets=("abc123",),
+                    remote_targets=(
+                        RemoteBookmarkState(
+                            remote="origin",
+                            targets=("abc123",),
+                            tracking_targets=(),
+                        ),
+                    ),
+                ),
+                "review/bar": BookmarkState(
+                    name="review/bar",
+                    local_targets=("new456",),
+                    remote_targets=(
+                        RemoteBookmarkState(
+                            remote="origin",
+                            targets=("old456",),
+                            tracking_targets=(),
+                        ),
+                    ),
+                ),
+            }
+
+        def track_bookmark(self, *, remote: str, bookmark: str) -> None:
+            calls.append(("track", remote, bookmark))
+
+    write_intent(
+        tmp_path,
+        SubmitIntent(
+            kind="submit",
+            pid=99999999,
+            label="submit on @",
+            display_revset="@",
+            head_change_id="change-b",
+            ordered_change_ids=("change-a", "change-b"),
+            bookmarks={"change-a": "review/foo", "change-b": "review/bar"},
+            bases={},
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    _repair_interrupted_untracked_remote_bookmarks(
+        client=FakeJjClient(),
+        remote=GitRemote(name="origin", url="git@example.com:org/repo.git"),
+        state_dir=tmp_path,
+    )
+
+    assert calls == [
+        ("fetch", "origin", ""),
+        ("list", "origin", ("review/bar", "review/foo")),
+        ("track", "origin", "review/foo"),
+    ]
 
 
 def test_pull_request_linkage_rejects_missing_discovered_pull_request() -> None:

@@ -201,8 +201,41 @@ class PrivateCommitFinder(Protocol):
     def find_private_commits(
         self,
         revisions: tuple[Any, ...],
-        ) -> tuple[Any, ...]:
+    ) -> tuple[Any, ...]:
         """Return the revisions blocked by the repo's private-commit policy."""
+
+
+class RemoteBookmarkSyncer(Protocol):
+    """Subset of the jj client interface needed for remote bookmark projection."""
+
+    def push_bookmarks(self, *, remote: str, bookmarks: tuple[str, ...]) -> None:
+        """Push a batch of bookmarks to the selected remote."""
+
+    def update_untracked_remote_bookmark(
+        self,
+        *,
+        remote: str,
+        bookmark: str,
+        desired_target: str,
+        expected_remote_target: str,
+    ) -> None:
+        """Update an existing untracked remote bookmark without importing it first."""
+
+
+class InterruptedRemoteBookmarkRepairer(Protocol):
+    """Subset of the jj client interface needed for stale remote bookmark repair."""
+
+    def fetch_remote(self, *, remote: str) -> None:
+        """Refresh remembered remote bookmark state for the selected remote."""
+
+    def list_bookmark_states(
+        self,
+        bookmarks: tuple[str, ...] | None = None,
+    ) -> dict[str, BookmarkState]:
+        """Return local and remote state for the requested bookmark names."""
+
+    def track_bookmark(self, *, remote: str, bookmark: str) -> None:
+        """Track an existing remote bookmark locally."""
 
 
 _TaskItemT = TypeVar("_TaskItemT")
@@ -252,9 +285,15 @@ async def _run_submit_async(
     state_store: ReviewStateStore,
 ) -> SubmitResult:
     client = JjClient(repo_root)
-    stack = client.discover_review_stack(revset)
     remotes = client.list_git_remotes()
     remote = select_submit_remote(config, remotes)
+    if not dry_run:
+        _repair_interrupted_untracked_remote_bookmarks(
+            client=client,
+            remote=remote,
+            state_dir=state_dir,
+        )
+    stack = client.discover_review_stack(revset)
     if on_prepared is not None:
         on_prepared(stack.selected_revset, remote, bool(stack.revisions))
     state = state_store.load()
@@ -494,6 +533,50 @@ def _list_stale_submit_intents_without_waiting(
         for loaded in scan_intents(state_dir)
         if loaded.intent.kind == intent.kind and not pid_is_alive(loaded.intent.pid)
     ]
+
+
+def _repair_interrupted_untracked_remote_bookmarks(
+    *,
+    client: InterruptedRemoteBookmarkRepairer,
+    remote: GitRemote,
+    state_dir: Path | None,
+) -> None:
+    if state_dir is None:
+        return
+    stale_submit_intents = [
+        loaded
+        for loaded in scan_intents(state_dir)
+        if loaded.intent.kind == "submit" and not pid_is_alive(loaded.intent.pid)
+    ]
+    if not stale_submit_intents:
+        return
+
+    bookmarks = tuple(
+        sorted(
+            {
+                bookmark
+                for loaded in stale_submit_intents
+                if isinstance(loaded.intent, SubmitIntent)
+                for bookmark in loaded.intent.bookmarks.values()
+            }
+        )
+    )
+    if not bookmarks:
+        return
+
+    client.fetch_remote(remote=remote.name)
+    bookmark_states = client.list_bookmark_states(bookmarks)
+    for bookmark in bookmarks:
+        bookmark_state = bookmark_states.get(bookmark)
+        if bookmark_state is None:
+            continue
+        remote_state = bookmark_state.remote_target(remote.name)
+        if remote_state is None or remote_state.is_tracked:
+            continue
+        local_target = bookmark_state.local_target
+        if local_target is None or remote_state.target != local_target:
+            continue
+        client.track_bookmark(remote=remote.name, bookmark=bookmark)
 
 
 def select_submit_remote(
@@ -754,7 +837,7 @@ async def _discover_pull_requests_by_bookmark(
 
 def _sync_remote_bookmarks(
     *,
-    client: JjClient,
+    client: RemoteBookmarkSyncer,
     dry_run: bool,
     prepared_revisions: tuple[PreparedSubmitRevision, ...],
     remote: GitRemote,

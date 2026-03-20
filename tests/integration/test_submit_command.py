@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 from pathlib import Path
 
@@ -1308,6 +1309,91 @@ def test_submit_updates_existing_untracked_remote_bookmark(
     )
     assert remote_state is not None
     assert remote_state.is_tracked is True
+    assert fake_repo.pull_requests[pr_number].title == "feature 1 renamed"
+
+
+def test_submit_rerun_recovers_after_failure_following_untracked_remote_update(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    cached_change = ReviewStateStore.for_repo(repo).load().changes[change_id]
+    bookmark = cached_change.bookmark
+    pr_number = cached_change.pr_number
+    assert bookmark is not None
+    assert pr_number is not None
+
+    _run(["jj", "bookmark", "forget", bookmark], repo)
+    _run(
+        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 renamed"],
+        repo,
+    )
+
+    original_update_untracked_remote_bookmark = JjClient.update_untracked_remote_bookmark
+
+    def update_untracked_remote_bookmark_then_fail(
+        self,
+        *,
+        remote: str,
+        bookmark: str,
+        desired_target: str,
+        expected_remote_target: str,
+    ) -> None:
+        original_update_untracked_remote_bookmark(
+            self,
+            remote=remote,
+            bookmark=bookmark,
+            desired_target=desired_target,
+            expected_remote_target=expected_remote_target,
+        )
+        raise RuntimeError("Simulated failure after untracked remote update")
+
+    monkeypatch.setattr(
+        "jj_review.commands.submit.JjClient.update_untracked_remote_bookmark",
+        update_untracked_remote_bookmark_then_fail,
+    )
+
+    with pytest.raises(RuntimeError, match="Simulated failure after untracked remote update"):
+        _main(repo, config_path, "submit", change_id)
+    capsys.readouterr()
+
+    bookmark_state = JjClient(repo).get_bookmark_state(bookmark)
+    remote_state = bookmark_state.remote_target("origin")
+    assert remote_state is not None
+    assert remote_state.is_tracked is True
+
+    state_dir = resolve_state_path(repo).parent
+    [intent_path] = state_dir.glob("incomplete-*.toml")
+    intent_text = intent_path.read_text(encoding="utf-8")
+    intent_path.write_text(
+        intent_text.replace(f"pid = {os.getpid()}", "pid = 99999999"),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "jj_review.commands.submit.JjClient.update_untracked_remote_bookmark",
+        original_update_untracked_remote_bookmark,
+    )
+
+    exit_code = _main(repo, config_path, "submit", change_id)
+    captured = capsys.readouterr()
+    rewritten_stack = JjClient(repo).discover_review_stack(change_id)
+
+    assert exit_code == 0
+    assert "updated" in captured.out
+    assert (
+        _read_remote_ref(fake_repo.git_dir, bookmark)
+        == rewritten_stack.revisions[-1].commit_id
+    )
     assert fake_repo.pull_requests[pr_number].title == "feature 1 renamed"
 
 

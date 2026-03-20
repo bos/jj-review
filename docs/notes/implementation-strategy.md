@@ -82,6 +82,11 @@ At a high level, each command should follow the same shape:
 5. Apply mutations in a controlled order.
 6. Persist only minimal local review state and user-authored overrides.
 
+When a stale submit intent is present, submit should refresh remote bookmark
+state before re-resolving the stack and repair any matching untracked review
+bookmarks whose local and remote targets already agree. That keeps reruns
+resumable after an interruption in the untracked-remote update path.
+
 We should keep the code separated along those boundaries so that planning logic
 can be tested without network or subprocess side effects.
 
@@ -375,8 +380,7 @@ The default local verification command should be:
 ```
 
 That script should run `uv sync --locked`, then run `ruff check`, `pyrefly
-check`,
-and `pytest -n auto` by default, with randomized test order so hidden
+check`, and `pytest -n auto` by default, with randomized test order so hidden
 cross-test coupling is more likely to fail fast during normal local runs.
 
 When the full suite gets slow enough to justify it, `./check.py -n 4` should
