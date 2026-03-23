@@ -61,18 +61,6 @@ two changes could theoretically produce the same slug+suffix. The 8-char
 it and fail with a clear diagnostic describing what went wrong and how to
 resolve it (e.g., set an explicit bookmark override for one of the changes).
 
-## Draft PR Support
-
-`submit` now supports creating new draft PRs and publishing existing draft PRs
-on the selected path.
-
-The remaining follow-up is narrower:
-
-- decide whether the product also needs an explicit standalone command to mark
-  existing PRs ready or convert them back to draft outside `submit`
-- decide whether future metadata/config support should let some changes default
-  to draft creation without requiring `submit --draft`
-
 ## Re-Request Review
 
 A future `submit --re-request-review` style option may be worthwhile for the

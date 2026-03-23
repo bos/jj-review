@@ -77,7 +77,16 @@ def build_parser() -> ArgumentParser:
     submit_draft_mode.add_argument(
         "--draft",
         action="store_true",
-        help="Create newly opened pull requests as drafts.",
+        help=(
+            "Create newly opened pull requests as drafts. "
+            "Use `--draft=all` to also return existing published pull requests "
+            "on the selected path to draft."
+        ),
+    )
+    submit_draft_mode.add_argument(
+        "--draft-all",
+        action="store_true",
+        help=SUPPRESS,
     )
     submit_draft_mode.add_argument(
         "--publish",
@@ -236,7 +245,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
 
     parser = build_parser()
-    args = parser.parse_args(argv)
+    try:
+        normalized_argv = _normalize_cli_args(sys.argv[1:] if argv is None else argv)
+    except CliError as error:
+        print(error, file=sys.stderr)
+        return error.exit_code
+    args = parser.parse_args(normalized_argv)
     with _time_output(enabled=getattr(args, "time_output", False)):
         handler = getattr(args, "handler", None)
         if handler is None:
@@ -989,12 +1003,32 @@ def _print_submit_revision(revision) -> None:
     print(f"  -> {revision.bookmark}{_render_submit_revision_suffix(revision)}")
 
 
-def _submit_draft_mode(args: Namespace) -> Literal["default", "draft", "publish"]:
+def _submit_draft_mode(args: Namespace) -> Literal["default", "draft", "draft_all", "publish"]:
+    if getattr(args, "draft_all", False):
+        return "draft_all"
     if getattr(args, "draft", False):
         return "draft"
     if getattr(args, "publish", False):
         return "publish"
     return "default"
+
+
+def _normalize_cli_args(argv: Sequence[str]) -> list[str]:
+    normalized = list(argv)
+    for index, arg in enumerate(normalized):
+        if not arg.startswith("--draft="):
+            continue
+        draft_mode = arg.removeprefix("--draft=")
+        if draft_mode == "new":
+            normalized[index] = "--draft"
+            continue
+        if draft_mode == "all":
+            normalized[index] = "--draft-all"
+            continue
+        raise CliError(
+            f"Invalid value for `--draft`: {draft_mode!r}. Expected `new` or `all`."
+        )
+    return normalized
 
 
 def _parse_comma_separated_flag_values(values: Sequence[str] | None) -> list[str] | None:

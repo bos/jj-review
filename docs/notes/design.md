@@ -362,11 +362,15 @@ Given a selected head revision:
      base
    - create or update the PR for `head bookmark -> base bookmark`
    - draft-state handling should stay conservative:
-     - `submit --draft` creates newly opened PRs as drafts
+     - `submit --draft` or `submit --draft=new` creates newly opened PRs as
+       drafts
+     - `submit --draft=all` also returns already-published PRs on the selected
+       path to draft
      - `submit --publish` marks existing draft PRs on the selected path ready
        for review and creates new PRs as published
      - plain `submit` preserves the draft state of already-open PRs
-     - `submit --draft` must not convert an already-published PR back to draft
+     - plain `submit --draft` must not convert an already-published PR back to
+       draft
 
 This bottom-up ordering matches the dependency order in the stack, and the
 parent relationship is derived from the DAG rather than loaded from side
@@ -670,8 +674,9 @@ not need a saved parent graph.
 
 The tool can stay small. A reasonable surface would be:
 
-- `jj review submit [--draft | --publish] [--reviewer <login[,login...]>]
-  [--team-reviewer <slug[,slug...]>] [--current | <revset>]`
+- `jj review submit [--draft[=new|all] | --publish]
+  [--reviewer <login[,login...]>] [--team-reviewer <slug[,slug...]>]
+  [--current | <revset>]`
 - `jj review status [--fetch] [<revset>]`
 - `jj review relink <pr> [--current | <revset>]`
 - `jj review unlink [--current | <revset>]`
@@ -690,7 +695,7 @@ Target selection should stay explicit:
 
 - `submit` and `relink` require one explicit selector, either `<revset>` or
   `--current`
-- `submit --draft` and `submit --publish` are mutually exclusive
+- `submit --draft[=new|all]` and `submit --publish` are mutually exclusive
 - `submit --reviewers` and `submit --team-reviewers` override configured
   reviewer defaults for that invocation only
 - `unlink`, `close`, and `land` require the same explicit selector when run

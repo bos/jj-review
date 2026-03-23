@@ -381,6 +381,31 @@ class GithubClient:
             _pull_request_payload_from_graphql(raw_pull_request)
         )
 
+    async def convert_pull_request_to_draft(
+        self,
+        *,
+        pull_request_id: str,
+    ) -> GithubPullRequest:
+        payload = await self._graphql_query(
+            _convert_pull_request_to_draft_mutation(),
+            response_name="convert pull request to draft",
+            variables={"pullRequestId": pull_request_id},
+        )
+        result = payload.get("convertPullRequestToDraft")
+        if not isinstance(result, dict):
+            raise GithubClientError(
+                "GitHub convert pull request to draft response was missing mutation data."
+            )
+        raw_pull_request = result.get("pullRequest")
+        if not isinstance(raw_pull_request, dict):
+            raise GithubClientError(
+                "GitHub convert pull request to draft response was missing a pull "
+                "request payload."
+            )
+        return GithubPullRequest.model_validate(
+            _pull_request_payload_from_graphql(raw_pull_request)
+        )
+
     async def close_pull_request(
         self,
         owner: str,
@@ -628,6 +653,18 @@ def _mark_pull_request_ready_for_review_mutation() -> str:
     return (
         "mutation MarkPullRequestReadyForReview($pullRequestId: ID!) {\n"
         "  markPullRequestReadyForReview(input: {pullRequestId: $pullRequestId}) {\n"
+        "    pullRequest {\n"
+        f"{_pull_request_graphql_selection(indent='      ')}\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+
+
+def _convert_pull_request_to_draft_mutation() -> str:
+    return (
+        "mutation ConvertPullRequestToDraft($pullRequestId: ID!) {\n"
+        "  convertPullRequestToDraft(input: {pullRequestId: $pullRequestId}) {\n"
         "    pullRequest {\n"
         f"{_pull_request_graphql_selection(indent='      ')}\n"
         "    }\n"

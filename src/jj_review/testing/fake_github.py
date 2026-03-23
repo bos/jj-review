@@ -349,6 +349,24 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
                     }
                 }
             }
+        if "convertPullRequestToDraft" in query:
+            pull_request_id = _require_graphql_variable(raw_variables, "pullRequestId")
+            pull_request, repository = _find_pull_request_by_node_id(
+                fake_state,
+                pull_request_id,
+            )
+            repository.refresh_pull_request_state(pull_request)
+            pull_request.is_draft = True
+            return {
+                "data": {
+                    "convertPullRequestToDraft": {
+                        "pullRequest": pull_request.to_graphql_payload(
+                            repository=repository,
+                            web_origin=fake_state.web_origin,
+                        )
+                    }
+                }
+            }
         owner = _require_graphql_variable(raw_variables, "owner")
         repo = _require_graphql_variable(raw_variables, "repo")
         repository = _get_repository(fake_state, owner, repo)

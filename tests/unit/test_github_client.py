@@ -393,6 +393,51 @@ def test_github_client_closes_pull_request_via_issue_api() -> None:
     asyncio.run(run_test())
 
 
+def test_github_client_converts_pull_request_to_draft_via_graphql() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/graphql"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["variables"] == {"pullRequestId": "PR_kwDOA7"}
+        assert "convertPullRequestToDraft" in payload["query"]
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "convertPullRequestToDraft": {
+                        "pullRequest": {
+                            "id": "PR_kwDOA7",
+                            "number": 7,
+                            "state": "OPEN",
+                            "isDraft": True,
+                            "mergedAt": None,
+                            "url": "https://github.test/octo-org/stacked-review/pull/7",
+                            "title": "feature",
+                            "body": "body",
+                            "baseRefName": "main",
+                            "headRefName": "review/feature",
+                            "headRepositoryOwner": {"login": "octo-org"},
+                        }
+                    }
+                }
+            },
+            request=request,
+        )
+
+    async def run_test() -> bool:
+        transport = httpx.MockTransport(handler)
+        async with GithubClient(
+            base_url="https://api.github.test",
+            transport=transport,
+        ) as client:
+            pull_request = await client.convert_pull_request_to_draft(
+                pull_request_id="PR_kwDOA7",
+            )
+        return pull_request.is_draft
+
+    assert asyncio.run(run_test()) is True
+
+
 def test_github_client_filters_batched_head_lookup_results_to_repo_owner() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content.decode("utf-8"))

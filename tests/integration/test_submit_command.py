@@ -91,7 +91,7 @@ def test_submit_draft_creates_draft_pull_requests_and_persists_draft_state(
     assert cached_change.pr_state == "open"
 
 
-def test_submit_draft_does_not_convert_published_pull_requests_back_to_draft(
+def test_submit_draft_new_does_not_convert_published_pull_requests_back_to_draft(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -107,11 +107,40 @@ def test_submit_draft_does_not_convert_published_pull_requests_back_to_draft(
     stack = JjClient(repo).discover_review_stack()
     change_id = stack.revisions[-1].change_id
 
-    assert _main(repo, config_path, "submit", "--draft", change_id) == 0
+    assert _main(repo, config_path, "submit", "--draft=new", change_id) == 0
     capsys.readouterr()
 
     assert not fake_repo.pull_requests[1].is_draft
     assert ReviewStateStore.for_repo(repo).load().changes[change_id].pr_is_draft is False
+
+
+def test_submit_draft_all_converts_existing_published_stack_to_draft(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+    assert fake_repo.pull_requests[1].is_draft is False
+    assert fake_repo.pull_requests[2].is_draft is False
+
+    stack = JjClient(repo).discover_review_stack()
+    exit_code = _main(repo, config_path, "submit", "--draft=all", stack.revisions[-1].change_id)
+    captured = capsys.readouterr()
+    refreshed_state = ReviewStateStore.for_repo(repo).load()
+
+    assert exit_code == 0
+    assert "draft PR #1 updated" in captured.out
+    assert "draft PR #2 updated" in captured.out
+    assert fake_repo.pull_requests[1].is_draft
+    assert fake_repo.pull_requests[2].is_draft
+    assert refreshed_state.changes[stack.revisions[0].change_id].pr_is_draft is True
+    assert refreshed_state.changes[stack.revisions[1].change_id].pr_is_draft is True
 
 
 def test_submit_requires_explicit_revision_selection(

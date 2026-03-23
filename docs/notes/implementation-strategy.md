@@ -122,9 +122,9 @@ only: it should render scripts from the argparse surface and should not
 require repository bootstrap, cache state, or GitHub access.
 
 `submit` now also supports explicit draft-state controls at the CLI boundary:
-`--draft` creates newly opened PRs as drafts, `--publish` marks existing draft
-PRs on the selected path ready for review, and rerunning `--draft` must not
-convert already-published PRs back to draft.
+`--draft` / `--draft=new` creates newly opened PRs as drafts, `--draft=all`
+also returns existing published PRs on the selected path to draft, and
+`--publish` marks existing draft PRs on the selected path ready for review.
 
 Command target selection should stay conservative at the CLI boundary:
 
@@ -639,6 +639,9 @@ Implemented in a follow-up:
 - `submit` now also supports `--dry-run`, which resolves the stack, bookmark
   actions, push actions, and PR actions through the normal submit path while
   skipping local, remote, GitHub, cache, and intent-file mutations
+- `submit` now accepts `--draft=all` to return already-published PRs on the
+  selected path to draft while keeping plain `--draft` as the conservative
+  "new PRs only" mode
 - `submit` now accepts `--reviewers` and `--team-reviewers` as one-shot
   overrides for the configured reviewer defaults
 - the submit CLI now prints the selected revset and remote promptly, then

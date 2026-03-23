@@ -66,7 +66,7 @@ async def _round_trip_pull_request_reviews(app: FastAPI) -> tuple[str, str]:
     return reviews[0].user.login, reviews[1].state
 
 
-async def _round_trip_draft_pull_request(app: FastAPI) -> tuple[bool, bool]:
+async def _round_trip_draft_pull_request(app: FastAPI) -> tuple[bool, bool, bool]:
     transport = httpx.ASGITransport(app=app)
     async with GithubClient(base_url="https://api.github.test", transport=transport) as client:
         pull_request = await client.create_pull_request(
@@ -81,7 +81,10 @@ async def _round_trip_draft_pull_request(app: FastAPI) -> tuple[bool, bool]:
         published = await client.mark_pull_request_ready_for_review(
             pull_request_id=pull_request.node_id or "",
         )
-    return pull_request.is_draft, published.is_draft
+        redrafted = await client.convert_pull_request_to_draft(
+            pull_request_id=pull_request.node_id or "",
+        )
+    return pull_request.is_draft, published.is_draft, redrafted.is_draft
 
 
 async def _lookup_pull_requests_by_head_refs(app: FastAPI) -> tuple[int, int]:
@@ -258,10 +261,13 @@ def test_fake_github_draft_pull_requests_round_trip_through_client(tmp_path: Pat
     )
     app = create_app(FakeGithubState.single_repository(fake_repo))
 
-    created_is_draft, published_is_draft = asyncio.run(_round_trip_draft_pull_request(app))
+    created_is_draft, published_is_draft, redrafted_is_draft = asyncio.run(
+        _round_trip_draft_pull_request(app)
+    )
 
     assert created_is_draft is True
     assert published_is_draft is False
+    assert redrafted_is_draft is True
 
 
 def test_fake_github_graphql_head_lookup_round_trips_through_client(tmp_path: Path) -> None:

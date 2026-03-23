@@ -80,7 +80,7 @@ class SubmitStackCommentError(CliError):
 
 LocalBookmarkAction = Literal["created", "moved", "unchanged"]
 PullRequestAction = Literal["created", "unchanged", "updated"]
-SubmitDraftMode = Literal["default", "draft", "publish"]
+SubmitDraftMode = Literal["default", "draft", "draft_all", "publish"]
 RemoteBookmarkAction = Literal["pushed", "up to date"]
 PushOperation = Literal["batch", "git_update", "up_to_date"]
 _DEFAULT_GITHUB_HOST = "github.com"
@@ -1127,7 +1127,7 @@ async def _sync_pull_request(
             pull_request = await _create_pull_request(
                 base_branch=base_branch,
                 body=body,
-                draft=(draft_mode == "draft"),
+                draft=(draft_mode in ("draft", "draft_all")),
                 github_client=github_client,
                 github_repository=github_repository,
                 head_branch=bookmark,
@@ -1157,17 +1157,24 @@ async def _sync_pull_request(
 
     if (
         pull_request is not None
-        and draft_mode == "publish"
         and pull_request.state == "open"
-        and pull_request.is_draft
     ):
-        if not dry_run:
-            pull_request = await _mark_pull_request_ready_for_review(
-                github_client=github_client,
-                github_repository=github_repository,
-                pull_request=pull_request,
-            )
-        action = "updated"
+        if draft_mode == "publish" and pull_request.is_draft:
+            if not dry_run:
+                pull_request = await _mark_pull_request_ready_for_review(
+                    github_client=github_client,
+                    github_repository=github_repository,
+                    pull_request=pull_request,
+                )
+            action = "updated"
+        elif draft_mode == "draft_all" and not pull_request.is_draft:
+            if not dry_run:
+                pull_request = await _convert_pull_request_to_draft(
+                    github_client=github_client,
+                    github_repository=github_repository,
+                    pull_request=pull_request,
+                )
+            action = "updated"
 
     if (
         not dry_run
@@ -1384,6 +1391,28 @@ async def _mark_pull_request_ready_for_review(
     except GithubClientError as error:
         raise SubmitPullRequestResolutionError(
             f"Could not publish draft pull request #{pull_request.number} for "
+            f"{github_repository.full_name}: {error}"
+        ) from error
+
+
+async def _convert_pull_request_to_draft(
+    *,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+    pull_request: GithubPullRequest,
+) -> GithubPullRequest:
+    if pull_request.node_id is None:
+        raise SubmitPullRequestResolutionError(
+            f"Could not return pull request #{pull_request.number} to draft for "
+            f"{github_repository.full_name}: GitHub did not return a node ID."
+        )
+    try:
+        return await github_client.convert_pull_request_to_draft(
+            pull_request_id=pull_request.node_id,
+        )
+    except GithubClientError as error:
+        raise SubmitPullRequestResolutionError(
+            f"Could not return pull request #{pull_request.number} to draft for "
             f"{github_repository.full_name}: {error}"
         ) from error
 
