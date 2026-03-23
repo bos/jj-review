@@ -40,13 +40,18 @@ than coupling it to the remote/GitHub concurrency changes.
 
 ## Ancestor Merged on GitHub
 
-The design doc says "require a local `jj rebase` before changing the PR base"
-when an ancestor PR has merged. We need to flesh out:
+The design doc and post-MVP `land` design now cover the main recovery shape
+for merged ancestors and the division of labor between `land` and
+`cleanup --restack`.
 
-- how the tool detects the mismatch between local parentage and GitHub merge
-  state
-- what the diagnostic looks like
-- whether there are edge cases around partial-stack merges
+The remaining follow-up here is narrower:
+
+- edge cases around partial-stack landing boundaries after an earlier prefix
+  has already landed
+- whether future landing transports impose extra constraints on how descendants
+  are rediscovered and resubmitted
+- any residual diagnostics that are still too subtle once the concrete `land`
+  flow exists
 
 ## Bookmark Naming Collisions
 

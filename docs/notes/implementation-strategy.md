@@ -864,6 +864,50 @@ When we revisit it, it should be planned as a separate slice because merge
 policy, branch protection, and partial-stack semantics materially expand the
 product surface.
 
+The CLI contract should stay consistent with the rest of the tool:
+
+- `jj review land [--apply] [--expect-pr <pr>] [--current | <revset>]`
+- preview by default, with `--apply` required for mutations
+- local-path-first target selection, with `--expect-pr` acting only as an
+  optional guardrail that the operator is landing the intended review
+
+The first implementation decision must be the landing unit. The design doc now
+defines that as the maximal contiguous open prefix of the selected local path
+starting at `trunk()`. The implementation should preserve that exact contract
+instead of accepting arbitrary PR subsets.
+
+The command also needs explicit phase boundaries so retries are idempotent:
+
+1. resolve the selected local path, open-prefix boundary, trunk target, and
+   GitHub linkage
+2. if `--apply` is set, rerun the same planning step and abort if the plan
+   changed materially since preview
+3. perform the transition onto trunk using the chosen transport
+4. only after that succeeds, update sparse review state and apply the exact
+   PR bookkeeping for the landed prefix
+5. leave broader cache pruning and stale-review cleanup to `cleanup`
+
+Error handling should stay specific instead of collapsing everything into one
+generic recovery path:
+
+- linkage problems should point to `status --fetch` / `adopt`
+- local ancestry repair should point to `cleanup --restack`
+- policy or branch-protection failures should stop immediately with no fallback
+- plan invalidation between preview and apply should tell the user to rerun the
+  preview rather than attempting to continue with stale assumptions
+
+Done when:
+
+- preview output clearly identifies the landable prefix, target trunk, and any
+  blocked boundary on the selected path
+- apply reruns planning and refuses to continue when the path, trunk target,
+  or PR/linkage state changed materially
+- the chosen transport respects the design rule that review-only `review/*`
+  branches are not themselves merged directly
+- retries after an interrupted land are idempotent at each phase boundary
+- exact post-landing bookkeeping is limited to the landed prefix, while
+  broader stale-state cleanup remains a separate `cleanup` concern
+
 ## Error Handling Strategy
 
 Errors should be explicit and actionable.

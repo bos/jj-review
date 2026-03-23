@@ -509,11 +509,14 @@ The tool can stay small. A reasonable surface would be:
 - `jj review status [--fetch] [<revset>]`
 - `jj review adopt <pr> [--current | <revset>]`
 - `jj review cleanup [--restack] [--apply] [--current | <revset>]`
+- `jj review land [--apply] [--expect-pr <pr>] [--current | <revset>]`
+  (post-MVP)
 
 Target selection should stay explicit:
 
 - `submit` and `adopt` require one explicit selector, either `<revset>` or
   `--current`
+- `land` should require the same explicit selector when it is introduced
 - `cleanup --restack --apply` likewise requires one explicit selector
 - `status` and `cleanup --restack` preview may still omit both and inspect the
   current path
@@ -665,6 +668,95 @@ when:
 
 It should not stop merely because fetched GitHub merges created extra visible
 revisions or moved review branches to merge commits.
+
+### Landing and Merge Lifecycle
+
+`jj review land` is the terminal operation for a reviewed local stack, but it
+should still stay local-path-first and `jj`-native.
+
+The selected local `jj` path remains the source of truth. `land` must not
+silently repair topology, invent ancestry from GitHub, or treat review
+branches as the canonical landed history.
+
+Its default UX should mirror the preview-first shape already used by
+`cleanup`:
+
+- without `--apply`, it prints the landing plan, the landable review unit, the
+  target trunk, and any exact follow-up bookkeeping it can already prove safe
+- with `--apply`, it reruns the same planning step and stops if the plan has
+  changed materially since preview
+- `--expect-pr <pr>` is an optional guardrail, not the primary selector; it
+  asserts that the selected local path still corresponds to the PR the
+  operator intended to land
+
+The landing unit should be one precise thing: the maximal contiguous open
+prefix of the selected local path starting at `trunk()`.
+
+That means:
+
+- walk the selected local path upward from `trunk()`
+- include consecutive review units whose PRs are still open and whose linkage
+  is unambiguous
+- stop at the first merged, closed-unmerged, missing, or ambiguous review unit
+- if the resulting prefix is empty, report that nothing is currently landable
+  on the selected path
+
+This is intentionally not "the entire selected stack no matter what" and not
+"whatever open PR the operator typed". It keeps the command aligned with the
+local DAG and avoids partial-stack guesses.
+
+This design also needs to respect the recommended GitHub policy above:
+
+- PRs targeting `review/*` are review-only and should not be merged directly
+- `land` should transition the corresponding local prefix onto the trunk
+  branch using a transport that respects repository policy and branch
+  protection
+- the exact transport can stay implementation-defined for now, but the product
+  contract is that `land` merges onto trunk, not into synthetic review bases
+
+That means `land` owns the merge transition for the landed prefix, while
+`review/*` branches remain projected review state rather than merge targets in
+their own right.
+
+Preview output should become invalid if any material planning input changes
+before `--apply`. At minimum, apply should rerun planning and stop if any of
+these changed:
+
+- the selected revset or `--current` resolution
+- the selected path's `change_id`s or `commit_id`s
+- the open-prefix boundary
+- the expected PR, if `--expect-pr` was supplied
+- the trunk target or trunk commit
+- the GitHub PR states or linkage for the landing unit
+
+Recovery guidance should stay case-specific:
+
+- if PR linkage is missing or ambiguous, point the operator to
+  `jj review status --fetch` and `jj review adopt`
+- if the selected path itself needs local ancestry repair after an earlier
+  merge, point the operator to `jj review cleanup --restack`
+- if the selected path has no landable prefix, say so directly and explain
+  whether the user should select a different head, clean up merged ancestors,
+  or repair closed PR state first
+- if repository policy or branch protection blocks the transition onto trunk,
+  surface that as a hard error instead of trying an alternate mutation path
+
+`land` should own only the exact bookkeeping that follows directly from the
+successful landing transition:
+
+- record enough intent and result state to resume idempotently if the command
+  is interrupted
+- update local sparse review state for the landed prefix
+- close or mark landed only the PRs that correspond exactly to the landed
+  prefix, once the trunk transition succeeds
+
+Broader cleanup remains the job of `cleanup`:
+
+- pruning stale cache entries outside the landed prefix
+- deleting stale review branches or stack comments not proven to belong to the
+  just-landed prefix
+- removing fetched off-path artifacts
+- any ambiguous or indirect repair that still needs operator confirmation
 
 ## Suggested Review State Format
 
