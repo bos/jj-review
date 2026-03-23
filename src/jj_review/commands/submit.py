@@ -1190,7 +1190,7 @@ def _select_discovered_pull_request(
     if len(pull_requests) > 1:
         raise SubmitPullRequestResolutionError(
             f"GitHub reports multiple pull requests for head branch {head_label!r}. "
-            "Inspect the linkage with `status --fetch` and repair it with `adopt` "
+            "Inspect the linkage with `status --fetch` and repair it with `relink` "
             "before submitting again."
         )
     if not pull_requests:
@@ -1200,7 +1200,7 @@ def _select_discovered_pull_request(
         raise SubmitPullRequestResolutionError(
             f"GitHub reports pull request #{pull_request.number} for head branch "
             f"{head_label!r} in state {pull_request.state!r}. Inspect the linkage with "
-            "`status --fetch` and repair it with `adopt` before submitting again."
+            "`status --fetch` and repair it with `relink` before submitting again."
         )
     return pull_request
 
@@ -1219,20 +1219,20 @@ def _ensure_pull_request_linkage_is_consistent(
         raise SubmitPullRequestResolutionError(
             f"Cached pull request linkage exists for bookmark {bookmark!r}, but GitHub "
             "no longer reports a PR for that head branch. Inspect the linkage with "
-            "`status --fetch` and repair it with `adopt` before submitting again."
+            "`status --fetch` and repair it with `relink` before submitting again."
         )
     if cached_change.pr_number not in (None, discovered_pull_request.number):
         raise SubmitPullRequestResolutionError(
             f"Cached pull request #{cached_change.pr_number} does not match the PR "
             f"GitHub reports for bookmark {bookmark!r} "
             f"(#{discovered_pull_request.number}). Inspect the linkage with "
-            "`status --fetch` and repair it with `adopt` before submitting again."
+            "`status --fetch` and repair it with `relink` before submitting again."
         )
     if cached_change.pr_url not in (None, discovered_pull_request.html_url):
         raise SubmitPullRequestResolutionError(
             f"Cached pull request URL for bookmark {bookmark!r} does not match "
             "GitHub. Inspect the linkage with `status --fetch` and repair it with "
-            "`adopt` before submitting again."
+            "`relink` before submitting again."
         )
 
 

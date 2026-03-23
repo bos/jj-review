@@ -22,7 +22,7 @@ for product behavior and policy, including:
 
 - the review-unit and stack model
 - bookmark naming and cache semantics
-- submit, status, adopt, and cleanup behavior
+- submit, status, relink, and cleanup behavior
 - current command surface and scope
 - fail-closed behavior when review identity is ambiguous
 
@@ -118,9 +118,10 @@ alias integration should stay thin and optional.
 
 Command target selection should stay conservative at the CLI boundary:
 
-- `submit` and `adopt` should require either an explicit `<revset>` or an
+- `submit` and `relink` should require either an explicit `<revset>` or an
   explicit `--current` opt-in instead of silently defaulting to the current
   workspace path
+- future `close --apply` should require the same explicit selector
 - `cleanup --restack --apply` should require the same explicit selector
 - read-only inspection may stay ergonomic, so `status` and `cleanup --restack`
   preview may still omit a selector and inspect the current path by default
@@ -704,33 +705,33 @@ Implemented in the first vertical cut:
   presenting those cases as healthy output
 - `status` now also prints explicit repair guidance for stale or ambiguous PR
   linkage so operators who bounced between machines can rerun `status --fetch`
-  and use `adopt` intentionally instead of guessing
+  and use `relink` intentionally instead of guessing
 - `status` now also treats remote-resolution and GitHub-target fallback output
   as incomplete inspection, so local-only summaries exit non-zero when live
   inspection could not be completed
 - GitHub client list endpoints now follow pagination links through one shared
-  helper so status and adopt do not silently truncate multi-page remote state
-- `adopt` now resolves one explicit PR number or URL against the configured
+  helper so status and relink do not silently truncate multi-page remote state
+- `relink` now resolves one explicit PR number or URL against the configured
   repository, verifies that the PR is open on a same-repository head branch,
   pins that branch locally for the selected change, and persists the PR
-  linkage so a later submit can update the adopted review intentionally
-- `adopt` now also fails closed on GitHub lookup errors instead of surfacing
+  linkage so a later submit can update the relinked review intentionally
+- `relink` now also fails closed on GitHub lookup errors instead of surfacing
   uncaught transport exceptions through the CLI
-- `adopt` now also refuses to steal an already-bound local review bookmark from
+- `relink` now also refuses to steal an already-bound local review bookmark from
   another revision when sparse cache state is missing or stale
 - slice coverage now exercises `status --fetch` as a real remote-rediscovery
-  path and covers explicit `adopt` failure cases such as missing PRs, closed
+  path and covers explicit `relink` failure cases such as missing PRs, closed
   PRs, cross-repository heads, and missing remote head branches
 
 Deliver:
 
 - `status`
-- explicit `adopt`
+- explicit `relink`
 
 Done when:
 
 - damaged linkage fails closed in `submit`
-- `adopt` can attach an existing PR intentionally
+- `relink` can attach an existing PR intentionally
 
 ### Slice 8: Cleanup
 
@@ -890,7 +891,7 @@ The command also needs explicit phase boundaries so retries are idempotent:
 Error handling should stay specific instead of collapsing everything into one
 generic recovery path:
 
-- linkage problems should point to `status --fetch` / `adopt`
+- linkage problems should point to `status --fetch` / `relink`
 - local ancestry repair should point to `cleanup --restack`
 - policy or branch-protection failures should stop immediately with no fallback
 - plan invalidation between preview and apply should tell the user to rerun the
@@ -951,18 +952,37 @@ Done when:
 Backlog should keep repo-scoped `sync` as a separate question. This slice
 solves explicit import/materialization, not whole-repo refresh policy.
 
-### Future Slice: Unlink and Detached State
+### Future Slice: Close and Unlink
 
-`unlink` should be the explicit inverse of `adopt`, but it should stay
-local-only and one-change-first:
+The normal user-facing "stop review for this path" flow should be `close`,
+while `unlink` remains the low-level repair-oriented inverse of `relink`.
 
+The CLI contract should be:
+
+- `jj review close [--cleanup] [--apply] [--current | <revset>]`
 - `jj review unlink [--current | <revset>]`
-- no stack-wide unlink in the initial slice
-- no GitHub mutations as part of unlink itself
 
-The key design constraint is detached-state precedence. Once a change is
-explicitly unlinked, that detached record must override every other proof of
-ownership:
+The product split should stay explicit:
+
+- `close` operates on the selected local review path and closes the managed
+  open PRs on that path
+- `close --cleanup` performs conservative branch and metadata cleanup after
+  the PR close succeeds
+- `unlink` operates on one selected review unit and records detached state
+  without mutating GitHub
+
+The `close` slice needs clear apply-phase and ownership rules:
+
+- preview by default, with `--apply` required for mutations
+- without `--cleanup`, close PRs and retire active local review state only
+- with `--cleanup`, delete owned remote review branches, forget owned local
+  synthetic review bookmarks, and prune stale managed metadata only when the
+  tool can prove ownership for the selected path
+- fail closed on ambiguous linkage or ambiguous branch ownership instead of
+  guessing what should be deleted
+
+`unlink` keeps the detached-state precedence rule. Once a change is explicitly
+unlinked, that detached record must override every other proof of ownership:
 
 - local synthetic bookmarks
 - cached PR linkage
@@ -980,9 +1000,13 @@ intent versus mere cache:
 
 Done when:
 
+- `close` can preview and then close the managed open PRs for one selected
+  local review path
+- `close --cleanup` can also delete owned review branches and retire owned
+  local review artifacts without crossing ambiguous ownership boundaries
 - unlinking one selected change clears active linkage and records detached state
 - `status --fetch` surfaces detached state without repopulating active linkage
-- `submit` refuses to reuse detached linkage until `adopt` clears it
+- `submit` refuses to reuse detached linkage until `relink` clears it
 - `land` rejects detached changes as not safely landable
 - detached records are pruned only by explicit conservative policy, not merely
   because refresh stopped finding the old PR
@@ -1006,7 +1030,8 @@ We should distinguish between:
 When possible, diagnostics should point to the exact recovery action:
 
 - `jj review status --fetch`
-- `jj review adopt`
+- `jj review relink`
+- `jj review close`
 - `jj rebase`
 - `jj review cleanup`
 - `jj workspace update-stale`

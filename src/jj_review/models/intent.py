@@ -38,8 +38,8 @@ class CleanupRestackIntent:
 
 
 @dataclass(frozen=True, slots=True)
-class AdoptIntent:
-    kind: Literal["adopt"]
+class RelinkIntent:
+    kind: Literal["relink"]
     pid: int
     label: str
     change_id: str
@@ -49,8 +49,8 @@ class AdoptIntent:
 @dataclass(frozen=True, slots=True)
 class LoadedIntent:
     path: Path
-    intent: SubmitIntent | CleanupApplyIntent | CleanupRestackIntent | AdoptIntent
+    intent: SubmitIntent | CleanupApplyIntent | CleanupRestackIntent | RelinkIntent
 
 
-IntentFile = SubmitIntent | CleanupApplyIntent | CleanupRestackIntent | AdoptIntent
+IntentFile = SubmitIntent | CleanupApplyIntent | CleanupRestackIntent | RelinkIntent
 MatchResult = Literal["exact", "superset", "overlap", "disjoint"]

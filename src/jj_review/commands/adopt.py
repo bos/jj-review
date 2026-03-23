@@ -23,7 +23,7 @@ from jj_review.github.client import GithubClientError
 from jj_review.intent import check_same_kind_intent, delete_intent, write_intent
 from jj_review.jj import JjClient
 from jj_review.models.cache import CachedChange, ReviewState
-from jj_review.models.intent import AdoptIntent
+from jj_review.models.intent import RelinkIntent
 
 _PULL_REQUEST_URL_RE = re.compile(
     r"^/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>[0-9]+)/?$"
@@ -31,13 +31,13 @@ _PULL_REQUEST_URL_RE = re.compile(
 _DISPLAY_CHANGE_ID_LENGTH = 8
 
 
-class AdoptResolutionError(CliError):
-    """Raised when `adopt` cannot safely bind a PR to a local change."""
+class RelinkResolutionError(CliError):
+    """Raised when `relink` cannot safely bind a PR to a local change."""
 
 
 @dataclass(frozen=True, slots=True)
-class AdoptResult:
-    """Explicit review adoption result for one local revision."""
+class RelinkResult:
+    """Explicit review relink result for one local revision."""
 
     bookmark: str
     change_id: str
@@ -48,17 +48,17 @@ class AdoptResult:
     subject: str
 
 
-def run_adopt(
+def run_relink(
     *,
     config: RepoConfig,
     pull_request_reference: str,
     repo_root: Path,
     revset: str | None,
-) -> AdoptResult:
-    """Associate an existing pull request with one local reviewable change."""
+) -> RelinkResult:
+    """Reassociate an existing pull request with one local reviewable change."""
 
     return asyncio.run(
-        _run_adopt_async(
+        _run_relink_async(
             config=config,
             pull_request_reference=pull_request_reference,
             repo_root=repo_root,
@@ -67,20 +67,20 @@ def run_adopt(
     )
 
 
-async def _run_adopt_async(
+async def _run_relink_async(
     *,
     config: RepoConfig,
     pull_request_reference: str,
     repo_root: Path,
     revset: str | None,
-) -> AdoptResult:
+) -> RelinkResult:
     client = JjClient(repo_root)
     state_store = ReviewStateStore.for_repo(repo_root)
     state_dir = state_store.require_writable()
 
     stack = client.discover_review_stack(revset)
     if not stack.revisions:
-        raise AdoptResolutionError(
+        raise RelinkResolutionError(
             "No reviewable commits between the selected revision and `trunk()`."
         )
     revision = stack.head
@@ -103,52 +103,52 @@ async def _run_adopt_async(
                 pull_number=pull_request_number,
             )
         except GithubClientError as error:
-            raise AdoptResolutionError(
+            raise RelinkResolutionError(
                 f"Could not load pull request #{pull_request_number}: {error}"
             ) from error
 
     if pull_request.state != "open":
-        raise AdoptResolutionError(
-            f"Pull request #{pull_request.number} is not open; cannot adopt "
+        raise RelinkResolutionError(
+            f"Pull request #{pull_request.number} is not open; cannot relink "
             f"{pull_request.state!r} PRs."
         )
 
     bookmark = pull_request.head.ref
     expected_head_label = f"{github_repository.owner}:{bookmark}"
     if pull_request.head.label != expected_head_label:
-        raise AdoptResolutionError(
+        raise RelinkResolutionError(
             f"Pull request #{pull_request.number} head {pull_request.head.label!r} does not "
-            f"belong to {github_repository.full_name}. Adopt only supports same-repository "
+            f"belong to {github_repository.full_name}. Relink only supports same-repository "
             "review branches."
         )
 
     bookmark_state = client.get_bookmark_state(bookmark)
     if len(bookmark_state.local_targets) > 1:
-        raise AdoptResolutionError(
-            f"Local bookmark {bookmark!r} is conflicted. Resolve it before adopting."
+        raise RelinkResolutionError(
+            f"Local bookmark {bookmark!r} is conflicted. Resolve it before relinking."
         )
     if (
         bookmark_state.local_target is not None
         and bookmark_state.local_target != revision.commit_id
     ):
-        raise AdoptResolutionError(
+        raise RelinkResolutionError(
             f"Local bookmark {bookmark!r} already points to a different revision. "
-            "Move or forget it explicitly before adopting."
+            "Move or forget it explicitly before relinking."
         )
     remote_state = bookmark_state.remote_target(remote.name)
     if remote_state is None or not remote_state.targets:
-        raise AdoptResolutionError(
+        raise RelinkResolutionError(
             f"Remote bookmark {bookmark!r}@{remote.name} does not exist. Fetch "
             "and retry once the PR head branch is visible on the selected remote."
         )
     if len(remote_state.targets) > 1:
-        raise AdoptResolutionError(
+        raise RelinkResolutionError(
             f"Remote bookmark {bookmark!r}@{remote.name} is conflicted. Resolve it before "
-            "adopting."
+            "relinking."
         )
 
     state = state_store.load()
-    _ensure_adoptable_cached_linkage(
+    _ensure_relinkable_cached_linkage(
         bookmark=bookmark,
         change_id=revision.change_id,
         pull_request_number=pull_request.number,
@@ -156,19 +156,19 @@ async def _run_adopt_async(
     )
 
     # Write intent before the first mutation
-    intent = AdoptIntent(
-        kind="adopt",
+    intent = RelinkIntent(
+        kind="relink",
         pid=os.getpid(),
-        label=f"adopt for {revision.change_id[:8]}",
+        label=f"relink for {revision.change_id[:8]}",
         change_id=revision.change_id,
         started_at=datetime.now(UTC).isoformat(),
     )
     stale_intents = check_same_kind_intent(state_dir, intent)
     for loaded in stale_intents:
-        print(f"Warning: a previous adopt was interrupted ({loaded.intent.label})")
+        print(f"Warning: a previous relink was interrupted ({loaded.intent.label})")
     intent_path = write_intent(state_dir, intent)
 
-    _adopt_succeeded = False
+    _relink_succeeded = False
     try:
         client.set_bookmark(bookmark, revision.change_id)
 
@@ -193,8 +193,8 @@ async def _run_adopt_async(
                 }
             )
         )
-        _adopt_succeeded = True
-        return AdoptResult(
+        _relink_succeeded = True
+        return RelinkResult(
             bookmark=bookmark,
             change_id=revision.change_id,
             github_repository=github_repository.full_name,
@@ -204,11 +204,11 @@ async def _run_adopt_async(
             subject=revision.subject,
         )
     finally:
-        if _adopt_succeeded:
+        if _relink_succeeded:
             delete_intent(intent_path)
 
 
-def _ensure_adoptable_cached_linkage(
+def _ensure_relinkable_cached_linkage(
     *,
     bookmark: str,
     change_id: str,
@@ -219,17 +219,17 @@ def _ensure_adoptable_cached_linkage(
         if cached_change_id == change_id:
             continue
         if cached_change.bookmark == bookmark:
-            raise AdoptResolutionError(
+            raise RelinkResolutionError(
                 "Bookmark "
                 f"{bookmark!r} is already cached for change "
                 f"{cached_change_id[:_DISPLAY_CHANGE_ID_LENGTH]}. "
-                "Clear or repair that linkage before adopting it elsewhere."
+                "Clear or repair that linkage before relinking it elsewhere."
             )
         if cached_change.pr_number == pull_request_number:
-            raise AdoptResolutionError(
+            raise RelinkResolutionError(
                 f"Pull request #{pull_request_number} is already cached for change "
                 f"{cached_change_id[:_DISPLAY_CHANGE_ID_LENGTH]}. Clear or repair that linkage "
-                "before adopting it "
+                "before relinking it "
                 "elsewhere."
             )
 
@@ -244,25 +244,28 @@ def _parse_pull_request_reference(
 
     parsed = urlparse(reference)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise AdoptResolutionError(
+        raise RelinkResolutionError(
             f"Pull request reference {reference!r} is not a PR number or URL."
         )
     if parsed.hostname != github_repository.host:
-        raise AdoptResolutionError(
+        raise RelinkResolutionError(
             f"Pull request URL {reference!r} does not match configured host "
             f"{github_repository.host!r}."
         )
     match = _PULL_REQUEST_URL_RE.fullmatch(parsed.path)
     if match is None:
-        raise AdoptResolutionError(
+        raise RelinkResolutionError(
             f"Pull request URL {reference!r} is not a valid pull request URL."
         )
     if (
         match.group("owner") != github_repository.owner
         or match.group("repo") != github_repository.repo
     ):
-        raise AdoptResolutionError(
+        raise RelinkResolutionError(
             f"Pull request URL {reference!r} does not match configured repository "
             f"{github_repository.full_name!r}."
         )
     return int(match.group("number"))
+
+
+run_adopt = run_relink

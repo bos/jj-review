@@ -366,7 +366,7 @@ This bottom-up ordering matches the dependency order in the stack, and the
 parent relationship is derived from the DAG rather than loaded from side
 metadata.
 
-## Recovery and Adoption
+## Recovery and Repair
 
 The tool should be conservative when review identity is unclear.
 
@@ -381,19 +381,20 @@ The recovery surface should be explicit and narrow:
   observations before inspecting GitHub linkage, then reports the selected
   stack and any cached or discoverable PR state without mutating GitHub or
   review bookmarks
-- `jj review adopt <pr> [--current | <revset>]` explicitly associates an
-  existing PR and its same-repository head branch with a specific `jj` change
-  when the user intends that linkage; it should pin that branch locally and
-  persist the PR identity so a later submit can update the adopted review
-  instead of opening a replacement PR
+- `jj review relink <pr> [--current | <revset>]` is an advanced repair-only
+  command that explicitly reassociates an existing PR and its same-repository
+  head branch with a specific `jj` change when the operator intends that
+  linkage; it should pin that branch locally and persist the PR identity so a
+  later submit can update the relinked review instead of opening a replacement
+  PR
 
 Mutating commands should not silently infer that target from the current
 workspace path. The CLI should require an explicit selector for commands that
-submit, adopt, or rewrite one local review path:
+submit, relink, or rewrite one local review path:
 
 - `submit` requires either an explicit `<revset>` or an explicit `--current`
   opt-in
-- `adopt` requires either an explicit `<revset>` or an explicit `--current`
+- `relink` requires either an explicit `<revset>` or an explicit `--current`
   opt-in
 - `cleanup --restack --apply` requires either an explicit `<revset>` or an
   explicit `--current` opt-in
@@ -443,7 +444,7 @@ branch, status should likewise surface that stale linkage inline and exit
 non-zero before it clears the stale cached identity.
 When that inspection finds stale or ambiguous PR linkage, status may also
 print a short repair advisory that points the operator to `status --fetch`
-for refresh and `adopt` for intentional reattachment.
+for refresh and `relink` for intentional reattachment.
 When cached GitHub linkage includes a last-known PR state, status may surface
 that state in the fallback output as cached information rather than implying it
 is live.
@@ -514,7 +515,7 @@ Failure guidance should stay narrow and specific:
 - if the PR head branch is missing, cross-repository, or ambiguous, fail closed
   and explain that the selected review cannot be imported safely
 - if multiple PRs match the same head branch, point the operator to
-  `jj review status --fetch` and `jj review adopt`
+  `jj review status --fetch` and `jj review relink`
 - if the fetched stack shape is unsupported locally, point the operator to
   `jj review cleanup --restack` only when the problem is local ancestry rather
   than remote identity
@@ -528,14 +529,42 @@ Failure guidance should stay narrow and specific:
 command remains a separate future question rather than being folded into
 either command prematurely.
 
-A future slice should also add an explicit inverse of `adopt`:
+A future slice should add a user-facing close command for the common
+"stop reviewing this path" case:
+
+- `jj review close [--cleanup] [--apply] [--current | <revset>]` ends active
+  review for the selected local path
+
+That command should stay local-path-first rather than PR-number-first. Its job
+is to look at the selected local review path, find the managed open PRs on that
+path, and then preview or apply the actions needed to end review for that path.
+
+Without `--cleanup`, `close` should:
+
+- close the managed open PRs for the selected path
+- update local review state so those changes are no longer treated as actively
+  under review
+- leave local and remote review branches in place
+
+With `--cleanup`, `close` should also perform conservative post-close cleanup
+for review artifacts the tool can prove it owns for that path:
+
+- delete owned remote review branches
+- forget owned local synthetic review bookmarks
+- remove stale managed review metadata such as cached stack-comment linkage
+
+That cleanup should stay opt-in instead of implicit because closing PRs is less
+destructive than deleting branches. Preview output should make the difference
+clear so the operator can choose between "close only" and "close and clean up."
+
+A future slice should also keep a repair-oriented inverse of `relink`:
 
 - `jj review unlink [--current | <revset>]` intentionally detaches one selected
   review unit from active PR ownership without mutating GitHub
 
-That command should be one-change-first, not stack-wide by default. Its unit of
-intent should mirror `adopt`: one selected review unit, identified from the
-local DAG.
+`unlink` should remain an advanced repair command, not the normal way to end a
+review. Its unit of intent should mirror `relink`: one selected review unit,
+identified from the local DAG.
 
 `unlink` should clear active linkage fields such as:
 
@@ -558,7 +587,7 @@ Detached state should mean:
   bookmark or a discoverable GitHub PR would normally count as proof
 - `land` must reject detached changes as not safely mergeable through the
   managed review pipeline
-- `adopt` is the explicit way back in; it clears the detached marker and
+- `relink` is the explicit way back in; it clears the detached marker and
   reestablishes active linkage intentionally
 
 By default, `unlink` should be local-only:
@@ -624,8 +653,9 @@ The tool can stay small. A reasonable surface would be:
 
 - `jj review submit [--current | <revset>]`
 - `jj review status [--fetch] [<revset>]`
-- `jj review adopt <pr> [--current | <revset>]`
+- `jj review relink <pr> [--current | <revset>]`
 - `jj review unlink [--current | <revset>]` (future)
+- `jj review close [--cleanup] [--apply] [--current | <revset>]` (future)
 - `jj review cleanup [--restack] [--apply] [--current | <revset>]`
 - `jj review import [--edit] (--pull-request <pr> | --head <bookmark> |
   --current | --revset <revset>)` (future)
@@ -634,9 +664,10 @@ The tool can stay small. A reasonable surface would be:
 
 Target selection should stay explicit:
 
-- `submit` and `adopt` require one explicit selector, either `<revset>` or
+- `submit` and `relink` require one explicit selector, either `<revset>` or
   `--current`
 - `unlink` should require the same explicit selector when it is introduced
+- `close` should require the same explicit selector when it is introduced
 - `import` should require exactly one explicit selector when it is introduced
 - `land` should require the same explicit selector when it is introduced
 - `cleanup --restack --apply` likewise requires one explicit selector
@@ -854,7 +885,7 @@ these changed:
 Recovery guidance should stay case-specific:
 
 - if PR linkage is missing or ambiguous, point the operator to
-  `jj review status --fetch` and `jj review adopt`
+  `jj review status --fetch` and `jj review relink`
 - if the selected path itself needs local ancestry repair after an earlier
   merge, point the operator to `jj review cleanup --restack`
 - if the selected path has no landable prefix, say so directly and explain
@@ -911,7 +942,7 @@ Semantics:
   generate defaults"
 - present entry means "reuse cached generated state if still consistent"
 - `link_state = "detached"` is durable operator intent and suppresses
-  automatic reattachment until the user runs `adopt`
+  automatic reattachment until the user runs `relink`
 - cached `pr_state` and `pr_review_decision` are advisory last-known GitHub
   observations for status rendering, not a source of truth
 - deleting the file must never break the review stack model, though it may

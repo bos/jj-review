@@ -17,7 +17,7 @@ from typing import Any, cast
 
 from jj_review import __version__
 from jj_review.bootstrap import BootstrapError, bootstrap_context
-from jj_review.commands.adopt import run_adopt
+from jj_review.commands.adopt import run_relink
 from jj_review.commands.cleanup import (
     prepare_cleanup,
     prepare_restack,
@@ -81,23 +81,18 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         help="Fetch remote bookmark state before inspecting review status.",
     )
-    adopt_parser = subparsers.add_parser(
-        "adopt",
-        help="Associate an existing pull request with a local change.",
+    _add_relink_parser(
+        subparsers,
+        command="relink",
+        help_text="Advanced repair: reassociate an existing pull request with a local change.",
         parents=[common_options],
     )
-    adopt_parser.add_argument("pull_request", help="Pull request number or URL.")
-    adopt_parser.add_argument(
-        "--current",
-        action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset.",
+    _add_relink_parser(
+        subparsers,
+        command="adopt",
+        help_text=SUPPRESS,
+        parents=[common_options],
     )
-    adopt_parser.add_argument(
-        "revset",
-        nargs="?",
-        help="Revision to associate with the pull request.",
-    )
-    adopt_parser.set_defaults(handler=_adopt_handler)
 
     cleanup_parser = subparsers.add_parser(
         "cleanup",
@@ -160,6 +155,29 @@ def _add_revision_command(
     parser = subparsers.add_parser(command, help=help_text, parents=parents or [])
     parser.add_argument("revset", nargs="?", help="Revision to operate on.")
     parser.set_defaults(handler=handler or _stub_handler(command))
+    return parser
+
+
+def _add_relink_parser(
+    subparsers: _SubParsersAction[ArgumentParser],
+    *,
+    command: str,
+    help_text: str,
+    parents=None,
+) -> ArgumentParser:
+    parser = subparsers.add_parser(command, help=help_text, parents=parents or [])
+    parser.add_argument("pull_request", help="Pull request number or URL.")
+    parser.add_argument(
+        "--current",
+        action="store_true",
+        help="Explicitly operate on the current review path instead of passing a revset.",
+    )
+    parser.add_argument(
+        "revset",
+        nargs="?",
+        help="Revision to reassociate with the pull request.",
+    )
+    parser.set_defaults(handler=_relink_handler)
     return parser
 
 
@@ -593,11 +611,11 @@ def _emit_status_advisories(result) -> None:
             )
     if linkage_revisions:
         next_status = f"jj-review status --fetch {result.selected_revset}"
-        next_adopt = f"jj-review adopt <pr> {result.selected_revset}"
+        next_relink = f"jj-review relink <pr> {result.selected_revset}"
         _print_wrapped_advisory(
             f"Review linkage note: refresh remote and GitHub observations with "
             f"`{next_status}`. If the existing PR should stay attached to one of these "
-            f"changes, repair that linkage intentionally with `{next_adopt}`."
+            f"changes, repair that linkage intentionally with `{next_relink}`."
         )
         for revision in linkage_revisions:
             _print_wrapped_advisory(
@@ -809,14 +827,14 @@ def _render_submit_pr_suffix(*, action: str, pull_request_number: int | None) ->
     return f" [PR #{pull_request_number} {action}]"
 
 
-def _adopt_handler(args: Namespace) -> int:
+def _relink_handler(args: Namespace) -> int:
     context = bootstrap_context(args)
     selected_revset = _resolve_selected_revset(
         args,
-        command_label="adopt",
+        command_label="relink",
         require_explicit=True,
     )
-    result = run_adopt(
+    result = run_relink(
         config=context.config.repo,
         pull_request_reference=args.pull_request,
         repo_root=context.repo_root,
@@ -826,7 +844,7 @@ def _adopt_handler(args: Namespace) -> int:
     print(f"Selected remote: {result.remote_name}")
     print(f"GitHub: {result.github_repository}")
     print(
-        f"Adopted PR #{result.pull_request_number} for {result.subject} "
+        f"Relinked PR #{result.pull_request_number} for {result.subject} "
         f"[{_display_change_id(result.change_id)}] -> {result.bookmark}"
     )
     return 0

@@ -15,12 +15,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from jj_review.models.intent import (
-    AdoptIntent,
     CleanupApplyIntent,
     CleanupRestackIntent,
     IntentFile,
     LoadedIntent,
     MatchResult,
+    RelinkIntent,
     SubmitIntent,
 )
 
@@ -146,9 +146,9 @@ def _parse_intent(data: dict, path: Path) -> LoadedIntent | None:
                 ordered_change_ids=tuple(str(x) for x in data.get("ordered_change_ids", [])),
                 started_at=str(data["started_at"]),
             )
-        elif kind == "adopt":
-            intent = AdoptIntent(
-                kind="adopt",
+        elif kind in {"relink", "adopt"}:
+            intent = RelinkIntent(
+                kind="relink",
                 pid=int(data["pid"]),
                 label=str(data["label"]),
                 change_id=str(data["change_id"]),
@@ -280,7 +280,7 @@ def match_ordered_change_ids(
 def intent_change_ids(intent: IntentFile) -> frozenset[str]:
     if isinstance(intent, SubmitIntent | CleanupRestackIntent):
         return frozenset(intent.ordered_change_ids)
-    if isinstance(intent, AdoptIntent):
+    if isinstance(intent, RelinkIntent):
         return frozenset([intent.change_id])
     return frozenset()
 
@@ -299,10 +299,10 @@ def intent_is_stale(
 
     For intents with change IDs (SubmitIntent, CleanupRestackIntent):
         stale if none of the change IDs resolve in the local repo.
-    For CleanupApplyIntent and AdoptIntent (no useful change IDs):
+    For CleanupApplyIntent and RelinkIntent (no useful change IDs):
         stale if the PID is dead AND the intent is older than 7 days.
     """
-    if isinstance(intent, CleanupApplyIntent | AdoptIntent):
+    if isinstance(intent, CleanupApplyIntent | RelinkIntent):
         if pid_is_alive(intent.pid):
             return False
         if now is None:

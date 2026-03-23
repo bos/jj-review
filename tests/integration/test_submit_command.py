@@ -949,7 +949,7 @@ def test_status_exits_nonzero_when_github_reports_multiple_pull_requests(
     assert "multiple pull requests" in captured.out
     assert "Review linkage note:" in captured.out
     assert "status --fetch" in captured.out
-    assert "adopt <pr>" in captured.out
+    assert "relink <pr>" in captured.out
 
 
 def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
@@ -973,7 +973,7 @@ def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
     assert "multiple `jj-review` stack comments" in captured.out
 
 
-def test_adopt_repairs_existing_pull_request_linkage_for_rewritten_change(
+def test_relink_repairs_existing_pull_request_linkage_for_rewritten_change(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1002,7 +1002,7 @@ def test_adopt_repairs_existing_pull_request_linkage_for_rewritten_change(
     exit_code = _main(
         repo,
         config_path,
-        "adopt",
+        "relink",
         "https://github.test/octo-org/stacked-review/pull/1",
         change_id,
     )
@@ -1010,7 +1010,7 @@ def test_adopt_repairs_existing_pull_request_linkage_for_rewritten_change(
     adopted_state = ReviewStateStore.for_repo(repo).load()
 
     assert exit_code == 0
-    assert "Adopted PR #1" in captured.out
+    assert "Relinked PR #1" in captured.out
     assert adopted_state.changes[change_id].bookmark == manual_bookmark
     assert adopted_state.changes[change_id].pr_number == 1
     assert adopted_state.changes[change_id].pr_state == "open"
@@ -1032,7 +1032,7 @@ def test_adopt_repairs_existing_pull_request_linkage_for_rewritten_change(
     )
 
 
-def test_adopt_reports_missing_pull_request_without_traceback(
+def test_relink_reports_missing_pull_request_without_traceback(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1041,7 +1041,7 @@ def test_adopt_reports_missing_pull_request_without_traceback(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    exit_code = _main(repo, config_path, "adopt", "--current", "999")
+    exit_code = _main(repo, config_path, "relink", "--current", "999")
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -1049,7 +1049,7 @@ def test_adopt_reports_missing_pull_request_without_traceback(
     assert "Traceback" not in captured.err
 
 
-def test_adopt_rejects_existing_local_bookmark_on_different_change(
+def test_relink_rejects_existing_local_bookmark_on_different_change(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1074,7 +1074,7 @@ def test_adopt_rejects_existing_local_bookmark_on_different_change(
         title="manual title",
     )
 
-    exit_code = _main(repo, config_path, "adopt", "1", top_change_id)
+    exit_code = _main(repo, config_path, "relink", "1", top_change_id)
     captured = capsys.readouterr()
     bookmark_state = JjClient(repo).get_bookmark_state(manual_bookmark)
 
@@ -1083,7 +1083,7 @@ def test_adopt_rejects_existing_local_bookmark_on_different_change(
     assert bookmark_state.local_target == bottom_commit_id
 
 
-def test_adopt_rejects_closed_pull_request(
+def test_relink_rejects_closed_pull_request(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1105,14 +1105,14 @@ def test_adopt_rejects_closed_pull_request(
     )
     fake_repo.pull_requests[1].state = "closed"
 
-    exit_code = _main(repo, config_path, "adopt", "1", change_id)
+    exit_code = _main(repo, config_path, "relink", "1", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 1
     assert "is not open" in captured.err
 
 
-def test_adopt_rejects_cross_repository_pull_request_head(
+def test_relink_rejects_cross_repository_pull_request_head(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1134,14 +1134,14 @@ def test_adopt_rejects_cross_repository_pull_request_head(
     )
     fake_repo.pull_requests[1].head_label = f"someone-else:{manual_bookmark}"
 
-    exit_code = _main(repo, config_path, "adopt", "1", change_id)
+    exit_code = _main(repo, config_path, "relink", "1", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 1
     assert "same-repository review branches" in captured.err
 
 
-def test_adopt_rejects_pull_request_with_missing_remote_head_branch(
+def test_relink_rejects_pull_request_with_missing_remote_head_branch(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1178,7 +1178,7 @@ def test_adopt_rejects_pull_request_with_missing_remote_head_branch(
         fake_repo.git_dir.parent,
     )
 
-    exit_code = _main(repo, config_path, "adopt", "1", change_id)
+    exit_code = _main(repo, config_path, "relink", "1", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -1474,7 +1474,7 @@ def test_submit_fails_closed_when_cached_pull_request_is_missing_on_github(
     assert exit_code == 1
     assert "Cached pull request linkage exists" in captured.err
     assert "status --fetch" in captured.err
-    assert "adopt" in captured.err
+    assert "relink" in captured.err
     assert state_store.load() == initial_state
     assert _read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
     assert fake_repo.pull_requests == {}
@@ -1512,7 +1512,7 @@ def test_submit_fails_closed_when_github_reports_multiple_pull_requests(
     assert exit_code == 1
     assert "multiple pull requests" in captured.err
     assert "status --fetch" in captured.err
-    assert "adopt" in captured.err
+    assert "relink" in captured.err
     assert state_store.load() == initial_state
     assert _read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
     assert set(fake_repo.pull_requests) == {1, 2}
@@ -1694,7 +1694,7 @@ def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
     assert ": cached PR #1 (open), no GitHub PR" in captured.out
     assert "Review linkage note:" in captured.out
     assert "status --fetch" in captured.out
-    assert "adopt <pr>" in captured.out
+    assert "relink <pr>" in captured.out
     assert refreshed_state.changes[change_id].pr_number is None
     assert refreshed_state.changes[change_id].pr_state is None
     assert refreshed_state.changes[change_id].pr_url is None
@@ -2825,12 +2825,12 @@ def test_cleanup_apply_leaves_intent_file_on_failure(
     assert data["kind"] == "cleanup-apply"
 
 
-def test_adopt_writes_and_deletes_intent_file_on_success(
+def test_relink_writes_and_deletes_intent_file_on_success(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    """adopt deletes its intent file on success."""
+    """relink deletes its intent file on success."""
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
@@ -2852,7 +2852,7 @@ def test_adopt_writes_and_deletes_intent_file_on_success(
         repo,
     )
 
-    exit_code = _main(repo, config_path, "adopt", "1", change_id)
+    exit_code = _main(repo, config_path, "relink", "1", change_id)
     capsys.readouterr()
 
     assert exit_code == 0

@@ -603,7 +603,7 @@ def test_main_cleanup_renders_planned_and_blocked_actions(
     assert "cleanup --apply" in captured.out
 
 
-def test_main_adopt_requires_explicit_revision_selection(
+def test_main_relink_requires_explicit_revision_selection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -619,14 +619,14 @@ def test_main_adopt_requires_explicit_revision_selection(
     )
     run_called = False
 
-    def fake_run_adopt(**kwargs):
+    def fake_run_relink(**kwargs):
         nonlocal run_called
         run_called = True
-        raise AssertionError("adopt should not run without an explicit selector")
+        raise AssertionError("relink should not run without an explicit selector")
 
-    monkeypatch.setattr("jj_review.cli.run_adopt", fake_run_adopt)
+    monkeypatch.setattr("jj_review.cli.run_relink", fake_run_relink)
 
-    exit_code = main(["adopt", "--repository", str(tmp_path), "123"])
+    exit_code = main(["relink", "--repository", str(tmp_path), "123"])
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -634,7 +634,7 @@ def test_main_adopt_requires_explicit_revision_selection(
     assert "requires an explicit revision selection" in captured.err
 
 
-def test_main_adopt_current_passes_current_path_selection(
+def test_main_relink_current_passes_current_path_selection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -642,7 +642,7 @@ def test_main_adopt_current_passes_current_path_selection(
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     adopt_calls: list[str | None] = []
 
-    def fake_run_adopt(**kwargs):
+    def fake_run_relink(**kwargs):
         adopt_calls.append(kwargs["revset"])
         return SimpleNamespace(
             bookmark="review/feature-abcdefgh",
@@ -654,14 +654,46 @@ def test_main_adopt_current_passes_current_path_selection(
             subject="feature 1",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_adopt", fake_run_adopt)
+    monkeypatch.setattr("jj_review.cli.run_relink", fake_run_relink)
+
+    exit_code = main(["relink", "--current", "--repository", str(tmp_path), "7"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert adopt_calls == [None]
+    assert "Relinked PR #7 for feature 1 [abcdefgh] -> review/feature-abcdefgh" in (
+        captured.out
+    )
+
+
+def test_main_adopt_alias_invokes_relink_handler(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    calls: list[str | None] = []
+
+    def fake_run_relink(**kwargs):
+        calls.append(kwargs["revset"])
+        return SimpleNamespace(
+            bookmark="review/feature-abcdefgh",
+            change_id="abcdefghijkl",
+            github_repository="octo-org/stacked-review",
+            pull_request_number=7,
+            remote_name="origin",
+            selected_revset="@",
+            subject="feature 1",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_relink", fake_run_relink)
 
     exit_code = main(["adopt", "--current", "--repository", str(tmp_path), "7"])
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert adopt_calls == [None]
-    assert "Adopted PR #7 for feature 1 [abcdefgh] -> review/feature-abcdefgh" in (
+    assert calls == [None]
+    assert "Relinked PR #7 for feature 1 [abcdefgh] -> review/feature-abcdefgh" in (
         captured.out
     )
 

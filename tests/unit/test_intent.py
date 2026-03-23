@@ -18,10 +18,10 @@ from jj_review.intent import (
     write_intent,
 )
 from jj_review.models.intent import (
-    AdoptIntent,
     CleanupApplyIntent,
     CleanupRestackIntent,
     LoadedIntent,
+    RelinkIntent,
     SubmitIntent,
 )
 
@@ -69,11 +69,11 @@ def _make_cleanup_restack_intent(
     )
 
 
-def _make_adopt_intent(change_id: str = "cccc", pid: int = 12345) -> AdoptIntent:
-    return AdoptIntent(
-        kind="adopt",
+def _make_relink_intent(change_id: str = "cccc", pid: int = 12345) -> RelinkIntent:
+    return RelinkIntent(
+        kind="relink",
         pid=pid,
-        label="adopt for cccccccc",
+        label="relink for cccccccc",
         change_id=change_id,
         started_at="2026-01-01T00:00:00+00:00",
     )
@@ -128,12 +128,39 @@ def test_cleanup_restack_intent_round_trips(tmp_path: Path) -> None:
     assert results[0].intent == intent
 
 
-def test_adopt_intent_round_trips(tmp_path: Path) -> None:
-    intent = _make_adopt_intent()
+def test_relink_intent_round_trips(tmp_path: Path) -> None:
+    intent = _make_relink_intent()
     write_intent(tmp_path, intent)
     results = scan_intents(tmp_path)
     assert len(results) == 1
     assert results[0].intent == intent
+
+
+def test_scan_intents_accepts_legacy_adopt_kind(tmp_path: Path) -> None:
+    (tmp_path / "incomplete-2026-01-15-10-30.01.toml").write_text(
+        '\n'.join(
+            [
+                'kind = "adopt"',
+                "pid = 12345",
+                'label = "adopt for cccccccc"',
+                'change_id = "cccc"',
+                'started_at = "2026-01-01T00:00:00+00:00"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_intents(tmp_path)
+
+    assert len(results) == 1
+    assert results[0].intent == RelinkIntent(
+        kind="relink",
+        pid=12345,
+        label="adopt for cccccccc",
+        change_id="cccc",
+        started_at="2026-01-01T00:00:00+00:00",
+    )
 
 
 def test_scan_intents_ignores_unparseable_files(tmp_path: Path) -> None:
@@ -293,29 +320,29 @@ def test_cleanup_apply_intent_stale_when_old_and_pid_dead(
     assert intent_is_stale(intent, lambda cid: False, now=eight_days_after) is True
 
 
-def test_adopt_intent_not_stale_when_pid_alive(
+def test_relink_intent_not_stale_when_pid_alive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: True)
-    intent = _make_adopt_intent(pid=12345)
+    intent = _make_relink_intent(pid=12345)
     old_time = datetime(2030, 1, 1, tzinfo=UTC)
     assert intent_is_stale(intent, lambda cid: False, now=old_time) is False
 
 
-def test_adopt_intent_not_stale_when_recent_and_pid_dead(
+def test_relink_intent_not_stale_when_recent_and_pid_dead(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
-    intent = _make_adopt_intent(pid=99999999)
+    intent = _make_relink_intent(pid=99999999)
     one_day_after = datetime(2026, 1, 2, tzinfo=UTC)
     assert intent_is_stale(intent, lambda cid: False, now=one_day_after) is False
 
 
-def test_adopt_intent_stale_when_old_and_pid_dead(
+def test_relink_intent_stale_when_old_and_pid_dead(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
-    intent = _make_adopt_intent(pid=99999999)
+    intent = _make_relink_intent(pid=99999999)
     eight_days_after = datetime(2026, 1, 9, tzinfo=UTC)
     assert intent_is_stale(intent, lambda cid: False, now=eight_days_after) is True
 
