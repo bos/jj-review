@@ -83,6 +83,43 @@ def test_unlink_rejects_change_without_active_review_linkage(
     assert "no active managed review linkage to unlink" in captured.err
 
 
+def test_unlink_accepts_cached_active_linkage_without_live_remote_or_pr(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    state_store = ReviewStateStore.for_repo(repo)
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    bookmark = state_store.load().changes[change_id].bookmark
+    assert bookmark is not None
+
+    _run(["jj", "bookmark", "forget", bookmark], repo)
+    fake_repo.pull_requests.clear()
+    _run(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "update-ref",
+            "-d",
+            f"refs/heads/{bookmark}",
+        ],
+        repo,
+    )
+
+    assert _main(repo, config_path, "unlink", change_id) == 0
+    detached_change = state_store.load().changes[change_id]
+
+    assert detached_change.bookmark == bookmark
+    assert detached_change.link_state == "detached"
+    assert detached_change.pr_number is None
+
+
 def test_status_fetch_reports_detached_state_without_reattaching(
     tmp_path: Path,
     monkeypatch,

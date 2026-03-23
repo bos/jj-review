@@ -38,8 +38,8 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, _fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
@@ -74,8 +74,8 @@ def test_submit_requires_explicit_revision_selection(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, _fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
     exit_code = _main(repo, config_path, "submit")
@@ -93,8 +93,8 @@ def test_submit_creates_stack_comments_for_each_pull_request(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, _fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
@@ -121,8 +121,8 @@ def test_submit_batches_pull_request_discovery_with_graphql(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, _fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     for index in range(4):
         _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
@@ -164,8 +164,8 @@ def test_submit_batches_ordinary_pushes(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, _fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     for index in range(3):
         _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
@@ -197,8 +197,8 @@ def test_submit_limits_stack_comment_github_inspection_concurrency(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, _fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     for index in range(4):
         _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
@@ -241,8 +241,8 @@ def test_submit_reports_repository_error_before_batched_pr_discovery(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, _fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
     app = create_app(FakeGithubState.single_repository(fake_repo))

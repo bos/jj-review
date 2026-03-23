@@ -96,6 +96,7 @@ async def _run_unlink_async(
 
     if not _revision_has_active_review_linkage(
         bookmark=bookmark,
+        cached_change=cached_change,
         prepared_client=prepared.client,
         prepared_revision=prepared_revision,
         status_revision=status_revision,
@@ -149,10 +150,19 @@ def _resolved_unlink_bookmark(*, cached_change, prepared_revision, status_revisi
 def _revision_has_active_review_linkage(
     *,
     bookmark: str | None,
+    cached_change,
     prepared_client,
     prepared_revision,
     status_revision,
 ) -> bool:
+    if cached_change is not None and not cached_change.is_detached and (
+        cached_change.bookmark is not None
+        or cached_change.pr_number is not None
+        or cached_change.pr_url is not None
+        or cached_change.pr_state is not None
+        or cached_change.stack_comment_id is not None
+    ):
+        return True
     if bookmark is not None:
         bookmark_state = prepared_client.get_bookmark_state(bookmark)
         if bookmark_state.local_target == prepared_revision.revision.commit_id:
