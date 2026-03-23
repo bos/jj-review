@@ -6,7 +6,9 @@ import pytest
 
 from jj_review.commands.import_ import (
     ImportResolutionError,
+    _prepared_status_has_discoverable_remote_linkage,
     _resolve_import_bookmark,
+    run_import,
     _validate_bookmark_state,
 )
 from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
@@ -129,3 +131,78 @@ def test_resolve_import_bookmark_rejects_stale_cached_remote_bookmark_target() -
         "selected remote. Refresh with `status --fetch` or repair the stale remote "
         "linkage before importing again."
     )
+
+
+def test_prepared_status_has_discoverable_remote_linkage_from_remote_bookmark() -> None:
+    assert _prepared_status_has_discoverable_remote_linkage(
+        SimpleNamespace(
+            prepared=SimpleNamespace(
+                client=SimpleNamespace(
+                    list_bookmark_states=lambda bookmarks: {
+                        "review/feature-aaaa": BookmarkState(
+                            name="review/feature-aaaa",
+                            remote_targets=(
+                                RemoteBookmarkState(remote="origin", targets=("commit-1",)),
+                            ),
+                        )
+                    }
+                ),
+                remote=SimpleNamespace(name="origin"),
+                status_revisions=(SimpleNamespace(bookmark="review/feature-aaaa"),),
+            )
+        )
+    )
+
+
+def test_run_import_current_rejects_before_github_inspection(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        "jj_review.commands.import_.JjClient",
+        lambda repo_root: object(),
+    )
+    async def fake_resolve_selection(**kwargs):
+        return SimpleNamespace(
+            selector="--current",
+            head_bookmark=None,
+            selected_revset=None,
+        )
+
+    monkeypatch.setattr("jj_review.commands.import_._resolve_selection", fake_resolve_selection)
+    monkeypatch.setattr(
+        "jj_review.commands.import_.prepare_status",
+        lambda **kwargs: SimpleNamespace(
+            prepared=SimpleNamespace(
+                client=SimpleNamespace(list_bookmark_states=lambda bookmarks: {}),
+                remote=SimpleNamespace(name="origin"),
+                remote_error=None,
+                stack=SimpleNamespace(revisions=()),
+                state_store=SimpleNamespace(load=lambda: SimpleNamespace(changes={})),
+                status_revisions=(SimpleNamespace(bookmark="review/feature-aaaa"),),
+            ),
+            github_repository=SimpleNamespace(full_name="octo-org/stacked-review"),
+            selected_revset="@",
+        ),
+    )
+
+    async def fail_stream_status_async(**kwargs):
+        raise AssertionError("GitHub inspection should not run for this failure path.")
+
+    monkeypatch.setattr(
+        "jj_review.commands.import_._stream_status_async",
+        fail_stream_status_async,
+    )
+
+    with pytest.raises(ImportResolutionError) as exc_info:
+        run_import(
+            change_overrides={},
+            config=SimpleNamespace(),
+            current=True,
+            head=None,
+            pull_request_reference=None,
+            repo_root=tmp_path,
+            revset=None,
+        )
+
+    assert "has no discoverable remote review linkage" in str(exc_info.value)

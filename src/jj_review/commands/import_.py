@@ -12,7 +12,6 @@ from urllib.parse import urlparse
 
 from jj_review.commands.review_state import (
     PreparedStatus,
-    StatusResult,
     _stream_status_async,
     prepare_status,
 )
@@ -132,17 +131,17 @@ async def _run_import_async(
         repo_root=repo_root,
         revset=selection.selected_revset,
     )
+    if current and not _prepared_status_has_discoverable_remote_linkage(prepared_status):
+        raise ImportResolutionError(
+            "`import --current` cannot proceed because the current local path has no "
+            "discoverable remote review linkage."
+        )
     status_result = await _stream_status_async(
         persist_cache_updates=False,
         prepared_status=prepared_status,
         on_github_status=None,
         on_revision=None,
     )
-    if current and not _status_has_discoverable_linkage(status_result):
-        raise ImportResolutionError(
-            "`import --current` cannot proceed because the current local path has no "
-            "discoverable remote review linkage."
-        )
 
     prepared = prepared_status.prepared
     bookmark_states = prepared.client.list_bookmark_states()
@@ -599,13 +598,22 @@ def _update_cached_change_from_status(
     return updated_change
 
 
-def _status_has_discoverable_linkage(status_result: StatusResult) -> bool:
-    for revision in status_result.revisions:
-        remote_state = revision.remote_state
+def _prepared_status_has_discoverable_remote_linkage(
+    prepared_status: PreparedStatus,
+) -> bool:
+    prepared = prepared_status.prepared
+    remote = prepared.remote
+    if remote is None:
+        return False
+    bookmark_states = prepared.client.list_bookmark_states(
+        [revision.bookmark for revision in prepared.status_revisions]
+    )
+    for revision in prepared.status_revisions:
+        remote_state = bookmark_states.get(
+            revision.bookmark,
+            BookmarkState(name=revision.bookmark),
+        ).remote_target(remote.name)
         if remote_state is not None and remote_state.targets:
-            return True
-        pull_request_lookup = revision.pull_request_lookup
-        if pull_request_lookup is not None and pull_request_lookup.pull_request is not None:
             return True
     return False
 
