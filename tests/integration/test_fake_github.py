@@ -66,6 +66,24 @@ async def _round_trip_pull_request_reviews(app: FastAPI) -> tuple[str, str]:
     return reviews[0].user.login, reviews[1].state
 
 
+async def _round_trip_draft_pull_request(app: FastAPI) -> tuple[bool, bool]:
+    transport = httpx.ASGITransport(app=app)
+    async with GithubClient(base_url="https://api.github.test", transport=transport) as client:
+        pull_request = await client.create_pull_request(
+            "octo-org",
+            "stacked-review",
+            base="main",
+            body="body",
+            draft=True,
+            head="feature",
+            title="feature",
+        )
+        published = await client.mark_pull_request_ready_for_review(
+            pull_request_id=pull_request.node_id or "",
+        )
+    return pull_request.is_draft, published.is_draft
+
+
 async def _lookup_pull_requests_by_head_refs(app: FastAPI) -> tuple[int, int]:
     transport = httpx.ASGITransport(app=app)
     async with GithubClient(base_url="https://api.github.test", transport=transport) as client:
@@ -185,6 +203,65 @@ def test_fake_github_pull_request_reviews_round_trip_through_client(tmp_path: Pa
 
     assert first_reviewer == "reviewer-1"
     assert second_state == "COMMENTED"
+
+
+def test_fake_github_draft_pull_requests_round_trip_through_client(tmp_path: Path) -> None:
+    fake_repo = initialize_bare_repository(
+        tmp_path,
+        owner="octo-org",
+        name="stacked-review",
+    )
+    worktree = tmp_path / "worktree"
+    subprocess.run(["git", "init", str(worktree)], capture_output=True, check=True, text=True)
+    subprocess.run(
+        ["git", "-C", str(worktree), "config", "user.name", "Test User"],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(worktree), "config", "user.email", "test@example.com"],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    (worktree / "README.md").write_text("base\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(worktree), "add", "README.md"],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(worktree), "commit", "-m", "base"],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(worktree), "remote", "add", "origin", str(fake_repo.git_dir)],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(worktree), "push", "origin", "HEAD:main"],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(worktree), "push", "origin", "HEAD:feature"],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    created_is_draft, published_is_draft = asyncio.run(_round_trip_draft_pull_request(app))
+
+    assert created_is_draft is True
+    assert published_is_draft is False
 
 
 def test_fake_github_graphql_head_lookup_round_trips_through_client(tmp_path: Path) -> None:

@@ -555,6 +555,7 @@ def _persist_status_cache_updates(
                 updated_change = updated_change.model_copy(
                     update={
                         "bookmark": revision.bookmark,
+                        "pr_is_draft": None,
                         "pr_number": None,
                         "pr_review_decision": None,
                         "pr_state": None,
@@ -567,6 +568,7 @@ def _persist_status_cache_updates(
                 updated_change = updated_change.model_copy(
                     update={
                         "bookmark": revision.bookmark,
+                        "pr_is_draft": pull_request.is_draft,
                         "pr_number": pull_request.number,
                         "pr_review_decision": _resolved_review_decision(
                             cached_change=cached_change,

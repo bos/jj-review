@@ -18,6 +18,7 @@ class CachedChange(BaseModel):
     detached_at: str | None = None
     last_submitted_commit_id: str | None = None
     link_state: LinkState = "active"
+    pr_is_draft: bool | None = None
     pr_number: int | None = None
     pr_review_decision: str | None = None
     pr_state: str | None = None

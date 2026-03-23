@@ -361,6 +361,12 @@ Given a selected head revision:
      the old review stack, require a local `jj rebase` before changing the PR
      base
    - create or update the PR for `head bookmark -> base bookmark`
+   - draft-state handling should stay conservative:
+     - `submit --draft` creates newly opened PRs as drafts
+     - `submit --publish` marks existing draft PRs on the selected path ready
+       for review and creates new PRs as published
+     - plain `submit` preserves the draft state of already-open PRs
+     - `submit --draft` must not convert an already-published PR back to draft
 
 This bottom-up ordering matches the dependency order in the stack, and the
 parent relationship is derived from the DAG rather than loaded from side
@@ -432,6 +438,8 @@ for each change rather than dumping cache and transport diagnostics inline.
 When GitHub data is available, that summary should distinguish merged pull
 requests from merely closed ones, and may surface a concise review-decision
 summary such as approval or changes requested for still-open pull requests.
+Open draft pull requests should render distinctly from published open pull
+requests.
 If GitHub is unreachable or misconfigured, status should report that once at the
 repo level and then fall back to conservative per-change summaries derived from
 local cache rather than claiming a PR is absent. Because that output is
@@ -662,7 +670,7 @@ not need a saved parent graph.
 
 The tool can stay small. A reasonable surface would be:
 
-- `jj review submit [--current | <revset>]`
+- `jj review submit [--draft | --publish] [--current | <revset>]`
 - `jj review status [--fetch] [<revset>]`
 - `jj review relink <pr> [--current | <revset>]`
 - `jj review unlink [--current | <revset>]`
@@ -681,6 +689,7 @@ Target selection should stay explicit:
 
 - `submit` and `relink` require one explicit selector, either `<revset>` or
   `--current`
+- `submit --draft` and `submit --publish` are mutually exclusive
 - `unlink`, `close`, and `land` require the same explicit selector when run
 - `import` requires exactly one explicit selector
 - `cleanup --restack --apply` likewise requires one explicit selector

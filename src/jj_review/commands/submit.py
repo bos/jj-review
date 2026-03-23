@@ -80,6 +80,7 @@ class SubmitStackCommentError(CliError):
 
 LocalBookmarkAction = Literal["created", "moved", "unchanged"]
 PullRequestAction = Literal["created", "unchanged", "updated"]
+SubmitDraftMode = Literal["default", "draft", "publish"]
 RemoteBookmarkAction = Literal["pushed", "up to date"]
 PushOperation = Literal["batch", "git_update", "up_to_date"]
 _DEFAULT_GITHUB_HOST = "github.com"
@@ -96,6 +97,7 @@ class SubmittedRevision:
     change_id: str
     local_action: LocalBookmarkAction
     pull_request_action: PullRequestAction
+    pull_request_is_draft: bool | None
     pull_request_number: int | None
     pull_request_url: str | None
     remote_action: RemoteBookmarkAction
@@ -250,6 +252,7 @@ def run_submit(
     *,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
+    draft_mode: SubmitDraftMode = "default",
     dry_run: bool = False,
     on_prepared: Callable[[str, GitRemote, bool], None] | None = None,
     on_trunk_resolved: Callable[[str, str, bool], None] | None = None,
@@ -265,6 +268,7 @@ def run_submit(
         _run_submit_async(
             change_overrides=change_overrides,
             config=config,
+            draft_mode=draft_mode,
             dry_run=dry_run,
             on_prepared=on_prepared,
             on_trunk_resolved=on_trunk_resolved,
@@ -280,6 +284,7 @@ async def _run_submit_async(
     *,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
+    draft_mode: SubmitDraftMode,
     dry_run: bool,
     on_prepared: Callable[[str, GitRemote, bool], None] | None,
     on_trunk_resolved: Callable[[str, str, bool], None] | None,
@@ -484,6 +489,7 @@ async def _run_submit_async(
                 remote=remote,
             )
             submitted_revisions = await _sync_pull_requests(
+                draft_mode=draft_mode,
                 dry_run=dry_run,
                 github_client=github_client,
                 github_repository=github_repository,
@@ -957,6 +963,7 @@ async def _run_bounded_submit_tasks(
 
 async def _sync_pull_requests(
     *,
+    draft_mode: SubmitDraftMode,
     discovered_pull_requests: dict[str, GithubPullRequest | None],
     dry_run: bool,
     github_client: GithubClient,
@@ -982,6 +989,7 @@ async def _sync_pull_requests(
         concurrency=_GITHUB_INSPECTION_CONCURRENCY,
         items=pending,
         run_item=lambda pending_sync: _sync_pull_request_task(
+            draft_mode=draft_mode,
             dry_run=dry_run,
             github_client=github_client,
             github_repository=github_repository,
@@ -1022,6 +1030,7 @@ def _record_pull_request_success(
 
 async def _sync_pull_request_task(
     *,
+    draft_mode: SubmitDraftMode,
     dry_run: bool,
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
@@ -1037,6 +1046,7 @@ async def _sync_pull_request_task(
         bookmark=prepared_revision.bookmark,
         change_id=prepared_revision.change_id,
         discovered_pull_request=pending_sync.discovered_pull_request,
+        draft_mode=draft_mode,
         dry_run=dry_run,
         github_client=github_client,
         github_repository=github_repository,
@@ -1054,6 +1064,11 @@ async def _sync_pull_request_task(
             change_id=prepared_revision.change_id,
             local_action=prepared_revision.local_action,
             pull_request_action=pull_request_result.action,
+            pull_request_is_draft=(
+                pull_request_result.pull_request.is_draft
+                if pull_request_result.pull_request is not None
+                else None
+            ),
             pull_request_number=(
                 pull_request_result.pull_request.number
                 if pull_request_result.pull_request is not None
@@ -1076,6 +1091,7 @@ async def _sync_pull_request(
     bookmark: str,
     change_id: str,
     discovered_pull_request: GithubPullRequest | None,
+    draft_mode: SubmitDraftMode,
     dry_run: bool,
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
@@ -1101,6 +1117,7 @@ async def _sync_pull_request(
             pull_request = await _create_pull_request(
                 base_branch=base_branch,
                 body=body,
+                draft=(draft_mode == "draft"),
                 github_client=github_client,
                 github_repository=github_repository,
                 head_branch=bookmark,
@@ -1125,6 +1142,20 @@ async def _sync_pull_request(
                 github_repository=github_repository,
                 pull_request=discovered_pull_request,
                 title=title,
+            )
+        action = "updated"
+
+    if (
+        pull_request is not None
+        and draft_mode == "publish"
+        and pull_request.state == "open"
+        and pull_request.is_draft
+    ):
+        if not dry_run:
+            pull_request = await _mark_pull_request_ready_for_review(
+                github_client=github_client,
+                github_repository=github_repository,
+                pull_request=pull_request,
             )
         action = "updated"
 
@@ -1271,6 +1302,7 @@ async def _create_pull_request(
     *,
     base_branch: str,
     body: str,
+    draft: bool,
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     head_branch: str,
@@ -1282,6 +1314,7 @@ async def _create_pull_request(
             github_repository.repo,
             base=base_branch,
             body=body,
+            draft=draft,
             head=head_branch,
             title=title,
         )
@@ -1320,6 +1353,28 @@ async def _sync_pull_request_metadata(
         raise SubmitPullRequestResolutionError(
             f"Could not synchronize metadata for pull request #{pull_request_number}: "
             f"{error}"
+        ) from error
+
+
+async def _mark_pull_request_ready_for_review(
+    *,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+    pull_request: GithubPullRequest,
+) -> GithubPullRequest:
+    if pull_request.node_id is None:
+        raise SubmitPullRequestResolutionError(
+            f"Could not publish draft pull request #{pull_request.number} for "
+            f"{github_repository.full_name}: GitHub did not return a node ID."
+        )
+    try:
+        return await github_client.mark_pull_request_ready_for_review(
+            pull_request_id=pull_request.node_id,
+        )
+    except GithubClientError as error:
+        raise SubmitPullRequestResolutionError(
+            f"Could not publish draft pull request #{pull_request.number} for "
+            f"{github_repository.full_name}: {error}"
         ) from error
 
 
@@ -1652,6 +1707,7 @@ def _updated_cached_change(
         return CachedChange(
             bookmark=bookmark,
             last_submitted_commit_id=commit_id,
+            pr_is_draft=pull_request.is_draft,
             pr_number=pull_request.number,
             pr_state=pull_request.state,
             pr_url=pull_request.html_url,
@@ -1660,6 +1716,7 @@ def _updated_cached_change(
         update={
             "bookmark": bookmark,
             "last_submitted_commit_id": commit_id,
+            "pr_is_draft": pull_request.is_draft,
             "pr_number": pull_request.number,
             "pr_state": pull_request.state,
             "pr_url": pull_request.html_url,

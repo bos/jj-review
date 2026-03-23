@@ -1,6 +1,6 @@
 """GitHub API response models."""
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class GithubRepository(BaseModel):
@@ -29,13 +29,15 @@ class GithubBranchRef(BaseModel):
 class GithubPullRequest(BaseModel):
     """Subset of pull request fields used by the client."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     base: GithubBranchRef
     body: str | None = None
     head: GithubBranchRef
     html_url: str
+    is_draft: bool = Field(default=False, alias="draft")
     merged_at: str | None = None
+    node_id: str | None = None
     number: int
     state: str
     title: str

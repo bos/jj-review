@@ -121,6 +121,11 @@ via `jj-review completion <bash|zsh|fish>`. That command is local CLI glue
 only: it should render scripts from the argparse surface and should not
 require repository bootstrap, cache state, or GitHub access.
 
+`submit` now also supports explicit draft-state controls at the CLI boundary:
+`--draft` creates newly opened PRs as drafts, `--publish` marks existing draft
+PRs on the selected path ready for review, and rerunning `--draft` must not
+convert already-published PRs back to draft.
+
 Command target selection should stay conservative at the CLI boundary:
 
 - `submit` and `relink` should require either an explicit `<revset>` or an

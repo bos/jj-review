@@ -69,6 +69,51 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
     assert fake_repo.pull_requests[2].base_ref == first_bookmark
 
 
+def test_submit_draft_creates_draft_pull_requests_and_persists_draft_state(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    exit_code = _main(repo, config_path, "submit", "--draft", "--current")
+    captured = capsys.readouterr()
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    cached_change = ReviewStateStore.for_repo(repo).load().changes[change_id]
+
+    assert exit_code == 0
+    assert "draft PR #1" in captured.out
+    assert fake_repo.pull_requests[1].is_draft
+    assert cached_change.pr_is_draft is True
+    assert cached_change.pr_state == "open"
+
+
+def test_submit_draft_does_not_convert_published_pull_requests_back_to_draft(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+    assert not fake_repo.pull_requests[1].is_draft
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+
+    assert _main(repo, config_path, "submit", "--draft", change_id) == 0
+    capsys.readouterr()
+
+    assert not fake_repo.pull_requests[1].is_draft
+    assert ReviewStateStore.for_repo(repo).load().changes[change_id].pr_is_draft is False
+
+
 def test_submit_requires_explicit_revision_selection(
     tmp_path: Path,
     monkeypatch,
@@ -1943,6 +1988,32 @@ def test_status_refreshes_closed_pull_request_state_in_cache(
     assert refreshed_state.changes[change_id].stack_comment_id is None
 
 
+def test_status_reports_draft_pull_request_state(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--draft", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+
+    exit_code = _main(repo, config_path, "status", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert exit_code == 0
+    assert ": draft PR #1" in captured.out
+    assert refreshed_state.changes[change_id].pr_is_draft is True
+    assert refreshed_state.changes[change_id].pr_state == "open"
+
+
 def test_status_reports_approved_pull_request_state(
     tmp_path: Path,
     monkeypatch,
@@ -2005,6 +2076,32 @@ def test_submit_preserves_cached_review_decision(
     refreshed_state = state_store.load()
     assert refreshed_state.changes[change_id].pr_review_decision == "approved"
     assert refreshed_state.changes[change_id].pr_state == "open"
+
+
+def test_submit_publish_marks_existing_draft_pull_requests_ready_for_review(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--draft", "--current") == 0
+    capsys.readouterr()
+    assert fake_repo.pull_requests[1].is_draft is True
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+
+    exit_code = _main(repo, config_path, "submit", "--publish", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = ReviewStateStore.for_repo(repo).load()
+
+    assert exit_code == 0
+    assert "PR #1 updated" in captured.out
+    assert not fake_repo.pull_requests[1].is_draft
+    assert refreshed_state.changes[change_id].pr_is_draft is False
 
 
 def test_status_preserves_cached_review_decision_when_review_lookup_fails(
@@ -2764,7 +2861,17 @@ def test_submit_checkpoints_successful_in_flight_pull_request_before_failure(
     app = create_app(FakeGithubState.single_repository(fake_repo))
 
     class FailSpecificPullRequestClient(GithubClient):
-        async def create_pull_request(self, owner, repo, *, base, body, head, title):
+        async def create_pull_request(
+            self,
+            owner,
+            repo,
+            *,
+            base,
+            body,
+            draft=False,
+            head,
+            title,
+        ):
             if title == "feature 2":
                 await asyncio.sleep(0.01)
                 raise GithubClientError(
@@ -2778,6 +2885,7 @@ def test_submit_checkpoints_successful_in_flight_pull_request_before_failure(
                 repo,
                 base=base,
                 body=body,
+                draft=draft,
                 head=head,
                 title=title,
             )
@@ -3068,7 +3176,17 @@ def test_submit_leaves_intent_file_on_failure(
     call_count = [0]
 
     class FailOnFirstPRClient(GithubClient):
-        async def create_pull_request(self, owner, repo, *, base, body, head, title):
+        async def create_pull_request(
+            self,
+            owner,
+            repo,
+            *,
+            base,
+            body,
+            draft=False,
+            head,
+            title,
+        ):
             call_count[0] += 1
             if call_count[0] >= 1:
                 raise GithubClientError(
@@ -3079,6 +3197,7 @@ def test_submit_leaves_intent_file_on_failure(
                 repo,
                 base=base,
                 body=body,
+                draft=draft,
                 head=head,
                 title=title,
             )

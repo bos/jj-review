@@ -290,6 +290,13 @@ def test_main_submit_rejects_revset_and_current_together(
     assert "accepts either `<revset>` or `--current`, not both" in captured.err
 
 
+def test_main_submit_rejects_draft_and_publish_together() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        build_parser().parse_args(["submit", "--draft", "--publish", "@"])
+
+    assert exc_info.value.code == 2
+
+
 def test_main_land_requires_explicit_revision_selection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -689,6 +696,35 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
     assert "Planned review bookmarks:" in captured.out
     assert "- feature 1 [abcdefgh]" in captured.out
     assert "  -> review/feature-abcdefgh [new PR]" in captured.out
+
+
+def test_main_submit_passes_draft_mode_to_submit_runner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    draft_modes: list[str] = []
+
+    def fake_run_submit(**kwargs):
+        draft_modes.append(kwargs["draft_mode"])
+        return SimpleNamespace(
+            dry_run=False,
+            remote=SimpleNamespace(name="origin"),
+            revisions=(),
+            selected_revset="@",
+            trunk_branch="main",
+            trunk_subject="base",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+
+    exit_code = main(["submit", "--draft", "--current", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert draft_modes == ["draft"]
+    assert "No reviewable commits" in captured.out
 
 
 def test_main_submit_prints_final_output_without_duplicate_lines(

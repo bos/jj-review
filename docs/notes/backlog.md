@@ -63,10 +63,15 @@ resolve it (e.g., set an explicit bookmark override for one of the changes).
 
 ## Draft PR Support
 
-GitHub has a native draft PR concept (visible but not reviewable or mergeable
-until marked ready). We should eventually support creating PRs as drafts and
-promoting them, but the semantics need to be designed before adding it. Deferred
-for now.
+`submit` now supports creating new draft PRs and publishing existing draft PRs
+on the selected path.
+
+The remaining follow-up is narrower:
+
+- decide whether the product also needs an explicit standalone command to mark
+  existing PRs ready or convert them back to draft outside `submit`
+- decide whether future metadata/config support should let some changes default
+  to draft creation without requiring `submit --draft`
 
 ## Repo-Scoped Sync
 

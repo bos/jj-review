@@ -21,7 +21,9 @@ class FakeGithubPullRequest:
     body: str
     head_label: str
     head_ref: str
+    is_draft: bool
     merged_at: str | None
+    node_id: str
     number: int
     title: str
     labels: list[str] = field(default_factory=list)
@@ -38,9 +40,11 @@ class FakeGithubPullRequest:
         return {
             "base": {"label": f"{repository.full_name}:{self.base_ref}", "ref": self.base_ref},
             "body": self.body,
+            "draft": self.is_draft,
             "head": {"label": self.head_label, "ref": self.head_ref},
             "html_url": f"{web_origin}/{repository.full_name}/pull/{self.number}",
             "merged_at": self.merged_at,
+            "node_id": self.node_id,
             "number": self.number,
             "state": self.state,
             "title": self.title,
@@ -57,6 +61,8 @@ class FakeGithubPullRequest:
             "body": self.body,
             "headRefName": self.head_ref,
             "headRepositoryOwner": {"login": repository.owner},
+            "id": self.node_id,
+            "isDraft": self.is_draft,
             "mergedAt": self.merged_at,
             "number": self.number,
             "state": self.state.upper(),
@@ -143,6 +149,7 @@ class FakeGithubRepository:
         *,
         base_ref: str,
         body: str,
+        draft: bool = False,
         head_ref: str,
         title: str,
     ) -> FakeGithubPullRequest:
@@ -153,12 +160,20 @@ class FakeGithubRepository:
             body=body,
             head_label=f"{self.owner}:{head_ref}",
             head_ref=head_ref,
+            is_draft=draft,
             merged_at=None,
+            node_id=f"PR_kwDO_fake_{number}",
             number=number,
             title=title,
         )
         self.pull_requests[number] = pull_request
         return pull_request
+
+    def find_pull_request_by_node_id(self, node_id: str) -> FakeGithubPullRequest | None:
+        for pull_request in self.pull_requests.values():
+            if pull_request.node_id == node_id:
+                return pull_request
+        return None
 
     def refresh_pull_request_state(self, pull_request: FakeGithubPullRequest) -> None:
         if pull_request.state != "open":
@@ -316,6 +331,24 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
             raw_variables = {}
         if not isinstance(raw_variables, dict):
             raise HTTPException(status_code=422, detail="Expected 'variables' to be an object.")
+        if "markPullRequestReadyForReview" in query:
+            pull_request_id = _require_graphql_variable(raw_variables, "pullRequestId")
+            pull_request, repository = _find_pull_request_by_node_id(
+                fake_state,
+                pull_request_id,
+            )
+            repository.refresh_pull_request_state(pull_request)
+            pull_request.is_draft = False
+            return {
+                "data": {
+                    "markPullRequestReadyForReview": {
+                        "pullRequest": pull_request.to_graphql_payload(
+                            repository=repository,
+                            web_origin=fake_state.web_origin,
+                        )
+                    }
+                }
+            }
         owner = _require_graphql_variable(raw_variables, "owner")
         repo = _require_graphql_variable(raw_variables, "repo")
         repository = _get_repository(fake_state, owner, repo)
@@ -367,11 +400,13 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
         head_ref = _require_string(payload, "head")
         base_ref = _require_string(payload, "base")
         body = _optional_string(payload, "body") or ""
+        draft = _optional_bool(payload, "draft") or False
         _require_branch(repository, head_ref)
         _require_branch(repository, base_ref)
         pull_request = repository.create_pull_request(
             base_ref=base_ref,
             body=body,
+            draft=draft,
             head_ref=head_ref,
             title=title,
         )
@@ -598,6 +633,17 @@ def _get_repository(state: FakeGithubState, owner: str, repo: str) -> FakeGithub
     return repository
 
 
+def _find_pull_request_by_node_id(
+    state: FakeGithubState,
+    node_id: str,
+) -> tuple[FakeGithubPullRequest, FakeGithubRepository]:
+    for repository in state.repositories.values():
+        pull_request = repository.find_pull_request_by_node_id(node_id)
+        if pull_request is not None:
+            return pull_request, repository
+    raise HTTPException(status_code=404, detail="Not Found")
+
+
 def _optional_string(payload: dict[str, object], key: str) -> str | None:
     value = payload.get(key)
     if value is None:
@@ -605,6 +651,15 @@ def _optional_string(payload: dict[str, object], key: str) -> str | None:
     if isinstance(value, str):
         return value
     raise HTTPException(status_code=422, detail=f"Expected {key!r} to be a string.")
+
+
+def _optional_bool(payload: dict[str, object], key: str) -> bool | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    raise HTTPException(status_code=422, detail=f"Expected {key!r} to be a boolean.")
 
 
 def _require_branch(repository: FakeGithubRepository, branch: str) -> None:

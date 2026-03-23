@@ -13,7 +13,7 @@ from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
 from collections.abc import Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from jj_review import __version__
 from jj_review.bootstrap import BootstrapError, bootstrap_context
@@ -72,6 +72,17 @@ def build_parser() -> ArgumentParser:
         "--current",
         action="store_true",
         help="Explicitly operate on the current review path instead of passing a revset.",
+    )
+    submit_draft_mode = submit_parser.add_mutually_exclusive_group()
+    submit_draft_mode.add_argument(
+        "--draft",
+        action="store_true",
+        help="Create newly opened pull requests as drafts.",
+    )
+    submit_draft_mode.add_argument(
+        "--publish",
+        action="store_true",
+        help="Mark existing draft pull requests ready for review on submit.",
     )
     status_parser = _add_revision_command(
         subparsers,
@@ -588,7 +599,11 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
         if lookup is not None and lookup.pull_request is not None:
             pull_request = lookup.pull_request
             if pull_request.state == "open":
-                summary = f"detached PR #{pull_request.number}"
+                summary = _format_pull_request_label(
+                    pull_request.number,
+                    is_draft=getattr(pull_request, "is_draft", False),
+                    prefix="detached ",
+                )
             else:
                 summary = f"detached PR #{pull_request.number} {pull_request.state}"
         elif revision.remote_state is not None and revision.remote_state.targets:
@@ -605,12 +620,17 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
     elif lookup.state == "open":
         if lookup.pull_request is None:
             raise AssertionError("Open pull request lookup must include a pull request.")
-        summary = f"PR #{lookup.pull_request.number}"
+        summary = _format_pull_request_label(
+            lookup.pull_request.number,
+            is_draft=getattr(lookup.pull_request, "is_draft", False),
+        )
         review_decision = _effective_review_decision(
             cached_change=cached_change,
             lookup=lookup,
         )
-        if review_decision == "approved":
+        if getattr(lookup.pull_request, "is_draft", False):
+            pass
+        elif review_decision == "approved":
             summary = f"{summary} approved"
         elif review_decision == "changes_requested":
             summary = f"{summary} changes requested"
@@ -652,17 +672,34 @@ def _format_cached_pull_request_label(cached_change) -> str | None:
     if cached_change is None or cached_change.pr_number is None:
         return None
 
-    label = f"cached PR #{cached_change.pr_number}"
+    label = _format_pull_request_label(
+        cached_change.pr_number,
+        is_draft=bool(cached_change.pr_is_draft) and cached_change.pr_state == "open",
+        prefix="cached ",
+    )
     if cached_change.pr_state is None:
         return label
 
     details = [cached_change.pr_state]
     if (
         cached_change.pr_state == "open"
+        and not cached_change.pr_is_draft
         and cached_change.pr_review_decision is not None
     ):
         details.append(_format_review_decision_label(cached_change.pr_review_decision))
     return f"{label} ({', '.join(details)})"
+
+
+def _format_pull_request_label(
+    pull_request_number: int,
+    *,
+    is_draft: bool,
+    prefix: str = "",
+) -> str:
+    label = f"PR #{pull_request_number}"
+    if is_draft:
+        label = f"draft {label}"
+    return f"{prefix}{label}"
 
 
 def _effective_review_decision(*, cached_change, lookup) -> str | None:
@@ -896,6 +933,7 @@ def _submit_handler(args: Namespace) -> int:
     result = run_submit(
         change_overrides=context.config.change,
         config=context.config.repo,
+        draft_mode=_submit_draft_mode(args),
         dry_run=bool(args.dry_run),
         on_prepared=emit_prepared,
         on_trunk_resolved=emit_trunk,
@@ -927,9 +965,18 @@ def _print_submit_revision(revision) -> None:
     print(f"  -> {revision.bookmark}{_render_submit_revision_suffix(revision)}")
 
 
+def _submit_draft_mode(args: Namespace) -> Literal["default", "draft", "publish"]:
+    if getattr(args, "draft", False):
+        return "draft"
+    if getattr(args, "publish", False):
+        return "publish"
+    return "default"
+
+
 def _render_submit_revision_suffix(revision) -> str:
     pr_suffix = _render_submit_pr_suffix(
         action=revision.pull_request_action,
+        is_draft=getattr(revision, "pull_request_is_draft", None),
         pull_request_number=revision.pull_request_number,
     )
     if revision.pull_request_action == "created":
@@ -943,16 +990,25 @@ def _render_submit_remote_suffix(remote_action: str) -> str:
     return " [pushed]"
 
 
-def _render_submit_pr_suffix(*, action: str, pull_request_number: int | None) -> str:
+def _render_submit_pr_suffix(
+    *,
+    action: str,
+    is_draft: bool | None,
+    pull_request_number: int | None,
+) -> str:
     if pull_request_number is None:
         if action == "created":
             return " [new PR]"
         if action == "updated":
             return " [PR #n updated]"
         return " [PR unchanged]"
+    label = _format_pull_request_label(
+        pull_request_number,
+        is_draft=bool(is_draft),
+    )
     if action == "created":
-        return f" [PR #{pull_request_number}]"
-    return f" [PR #{pull_request_number} {action}]"
+        return f" [{label}]"
+    return f" [{label} {action}]"
 
 
 def _relink_handler(args: Namespace) -> int:

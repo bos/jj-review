@@ -209,13 +209,20 @@ class GithubClient:
         *,
         base: str,
         body: str,
+        draft: bool = False,
         head: str,
         title: str,
     ) -> GithubPullRequest:
         response = await self._request(
             "POST",
             f"/repos/{owner}/{repo}/pulls",
-            json={"base": base, "body": body, "head": head, "title": title},
+            json={
+                "base": base,
+                "body": body,
+                "draft": draft,
+                "head": head,
+                "title": title,
+            },
         )
         return GithubPullRequest.model_validate(self._expect_success(response))
 
@@ -348,6 +355,31 @@ class GithubClient:
             json={"base": base, "body": body, "title": title},
         )
         return GithubPullRequest.model_validate(self._expect_success(response))
+
+    async def mark_pull_request_ready_for_review(
+        self,
+        *,
+        pull_request_id: str,
+    ) -> GithubPullRequest:
+        payload = await self._graphql_query(
+            _mark_pull_request_ready_for_review_mutation(),
+            response_name="mark pull request ready for review",
+            variables={"pullRequestId": pull_request_id},
+        )
+        result = payload.get("markPullRequestReadyForReview")
+        if not isinstance(result, dict):
+            raise GithubClientError(
+                "GitHub mark pull request ready for review response was missing mutation data."
+            )
+        raw_pull_request = result.get("pullRequest")
+        if not isinstance(raw_pull_request, dict):
+            raise GithubClientError(
+                "GitHub mark pull request ready for review response was missing a "
+                "pull request payload."
+            )
+        return GithubPullRequest.model_validate(
+            _pull_request_payload_from_graphql(raw_pull_request)
+        )
 
     async def close_pull_request(
         self,
@@ -557,17 +589,7 @@ def _pull_requests_by_number_query(numbers: Sequence[int]) -> str:
     selections = "\n".join(
         (
             f"      {_pull_request_alias(number)}: pullRequest(number: {number}) {{\n"
-            "        number\n"
-            "        state\n"
-            "        mergedAt\n"
-            "        url\n"
-            "        title\n"
-            "        body\n"
-            "        baseRefName\n"
-            "        headRefName\n"
-            "        headRepositoryOwner {\n"
-            "          login\n"
-            "        }\n"
+            f"{_pull_request_graphql_selection(indent='        ')}\n"
             "      }"
         )
         for number in numbers
@@ -587,17 +609,7 @@ def _pull_requests_by_head_ref_query(aliases: dict[str, str]) -> str:
             f"    {alias}: pullRequests("
             f"first: 2, states: [OPEN, CLOSED], headRefName: {json.dumps(head_ref)}) {{\n"
             "      nodes {\n"
-            "        number\n"
-            "        state\n"
-            "        mergedAt\n"
-            "        url\n"
-            "        title\n"
-            "        body\n"
-            "        baseRefName\n"
-            "        headRefName\n"
-            "        headRepositoryOwner {\n"
-            "          login\n"
-            "        }\n"
+            f"{_pull_request_graphql_selection(indent='        ')}\n"
             "      }\n"
             "    }"
         )
@@ -612,10 +624,42 @@ def _pull_requests_by_head_ref_query(aliases: dict[str, str]) -> str:
     )
 
 
+def _mark_pull_request_ready_for_review_mutation() -> str:
+    return (
+        "mutation MarkPullRequestReadyForReview($pullRequestId: ID!) {\n"
+        "  markPullRequestReadyForReview(input: {pullRequestId: $pullRequestId}) {\n"
+        "    pullRequest {\n"
+        f"{_pull_request_graphql_selection(indent='      ')}\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+
+
+def _pull_request_graphql_selection(*, indent: str) -> str:
+    return "\n".join(
+        [
+            f"{indent}id",
+            f"{indent}number",
+            f"{indent}state",
+            f"{indent}isDraft",
+            f"{indent}mergedAt",
+            f"{indent}url",
+            f"{indent}title",
+            f"{indent}body",
+            f"{indent}baseRefName",
+            f"{indent}headRefName",
+            f"{indent}headRepositoryOwner {{",
+            f"{indent}  login",
+            f"{indent}}}",
+        ]
+    )
+
+
 def _pull_request_payload_from_graphql(raw_pull_request: dict[str, object]) -> dict[str, object]:
     head_ref = raw_pull_request.get("headRefName")
     head_owner = _head_repository_owner_login_from_graphql(raw_pull_request)
-    return {
+    payload = {
         "base": {"ref": raw_pull_request.get("baseRefName")},
         "body": raw_pull_request.get("body"),
         "head": {
@@ -628,6 +672,11 @@ def _pull_request_payload_from_graphql(raw_pull_request: dict[str, object]) -> d
         "state": str(raw_pull_request.get("state", "")).lower(),
         "title": raw_pull_request.get("title"),
     }
+    if "isDraft" in raw_pull_request:
+        payload["draft"] = raw_pull_request.get("isDraft")
+    if "id" in raw_pull_request:
+        payload["node_id"] = raw_pull_request.get("id")
+    return payload
 
 
 def _head_repository_owner_login_from_graphql(raw_pull_request: dict[str, object]) -> str | None:
