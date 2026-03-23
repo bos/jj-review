@@ -66,6 +66,10 @@ class SubmitPullRequestResolutionError(CliError):
     """Raised when `submit` cannot safely resolve a pull request."""
 
 
+class SubmitDetachedChangeError(CliError):
+    """Raised when `submit` hits a change explicitly detached from review."""
+
+
 class SubmitPrivateCommitError(CliError):
     """Raised when the stack contains commits blocked by git.private-commits."""
 
@@ -419,6 +423,10 @@ async def _run_submit_async(
                 stack.revisions,
                 strict=True,
             ):
+                _ensure_change_is_not_detached(
+                    cached_change=bookmark_result.state.changes.get(revision.change_id),
+                    change_id=revision.change_id,
+                )
                 bookmark_state = client.get_bookmark_state(resolution.bookmark)
                 local_action = _resolve_local_action(
                     resolution.bookmark,
@@ -735,7 +743,11 @@ def _bookmark_linkage_is_proven(
     if bookmark_source != "cache":
         return False
     cached_change = state.changes.get(change_id)
-    return cached_change is not None and cached_change.bookmark == bookmark
+    return (
+        cached_change is not None
+        and not cached_change.is_detached
+        and cached_change.bookmark == bookmark
+    )
 
 
 def _should_update_untracked_remote_with_git(
@@ -1077,6 +1089,7 @@ async def _sync_pull_request(
     _ensure_pull_request_linkage_is_consistent(
         bookmark=bookmark,
         cached_change=cached_change,
+        change_id=change_id,
         discovered_pull_request=discovered_pull_request,
     )
 
@@ -1209,8 +1222,13 @@ def _ensure_pull_request_linkage_is_consistent(
     *,
     bookmark: str,
     cached_change: CachedChange | None,
+    change_id: str,
     discovered_pull_request: GithubPullRequest | None,
 ) -> None:
+    _ensure_change_is_not_detached(
+        cached_change=cached_change,
+        change_id=change_id,
+    )
     if cached_change is None or (
         cached_change.pr_number is None and cached_change.pr_url is None
     ):
@@ -1234,6 +1252,19 @@ def _ensure_pull_request_linkage_is_consistent(
             "GitHub. Inspect the linkage with `status --fetch` and repair it with "
             "`relink` before submitting again."
         )
+
+
+def _ensure_change_is_not_detached(
+    *,
+    cached_change: CachedChange | None,
+    change_id: str,
+) -> None:
+    if cached_change is None or not cached_change.is_detached:
+        return
+    raise SubmitDetachedChangeError(
+        f"Change {change_id[:8]} is detached from managed review. Run `relink` to "
+        "reattach it before submitting again."
+    )
 
 
 async def _create_pull_request(

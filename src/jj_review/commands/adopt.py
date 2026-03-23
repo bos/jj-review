@@ -176,6 +176,8 @@ async def _run_relink_async(
         updated_change = (cached_change or CachedChange()).model_copy(
             update={
                 "bookmark": bookmark,
+                "detached_at": None,
+                "link_state": "active",
                 "pr_number": pull_request.number,
                 "pr_review_decision": None,
                 "pr_state": pull_request.state,

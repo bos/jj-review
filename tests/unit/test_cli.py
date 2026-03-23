@@ -20,6 +20,7 @@ def test_main_without_command_prints_help(capsys: pytest.CaptureFixture[str]) ->
     assert "land" in captured.out
     assert "close" in captured.out
     assert "import" in captured.out
+    assert "unlink" in captured.out
     assert "cleanup" in captured.out
 
 
@@ -951,6 +952,65 @@ def test_main_adopt_alias_invokes_relink_handler(
     assert "Relinked PR #7 for feature 1 [abcdefgh] -> review/feature-abcdefgh" in (
         captured.out
     )
+
+
+def test_main_unlink_requires_explicit_revision_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.bootstrap.load_config",
+        lambda **kwargs: SimpleNamespace(
+            change={},
+            logging=SimpleNamespace(level="WARNING"),
+            repo=SimpleNamespace(),
+        ),
+    )
+    run_called = False
+
+    def fake_run_unlink(**kwargs):
+        nonlocal run_called
+        run_called = True
+        raise AssertionError("unlink should not run without an explicit selector")
+
+    monkeypatch.setattr("jj_review.cli.run_unlink", fake_run_unlink)
+
+    exit_code = main(["unlink", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert not run_called
+    assert "requires an explicit revision selection" in captured.err
+
+
+def test_main_unlink_current_passes_current_path_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    calls: list[str | None] = []
+
+    def fake_run_unlink(**kwargs):
+        calls.append(kwargs["revset"])
+        return SimpleNamespace(
+            already_detached=False,
+            bookmark="review/feature-abcdefgh",
+            change_id="abcdefghijkl",
+            selected_revset="@",
+            subject="feature 1",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_unlink", fake_run_unlink)
+
+    exit_code = main(["unlink", "--current", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert calls == [None]
+    assert "Detached managed review state for feature 1 [abcdefgh]" in captured.out
 
 
 def test_main_cleanup_restack_renders_next_step_and_policy_warning(

@@ -35,6 +35,29 @@ def test_review_state_store_round_trips_and_creates_parent_directories(tmp_path:
     assert state_path.exists()
 
 
+def test_review_state_store_round_trips_detached_linkage(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.toml"
+    store = ReviewStateStore(state_path)
+
+    store.save(
+        ReviewState(
+            change={
+                "zvlywqkxtmnpqrstu": CachedChange(
+                    bookmark="review/fix-cache-invalidation-zvlywqkx",
+                    detached_at="2026-03-22T12:34:56+00:00",
+                    link_state="detached",
+                )
+            }
+        )
+    )
+
+    loaded_change = store.load().changes["zvlywqkxtmnpqrstu"]
+
+    assert loaded_change.bookmark == "review/fix-cache-invalidation-zvlywqkx"
+    assert loaded_change.detached_at == "2026-03-22T12:34:56+00:00"
+    assert loaded_change.is_detached is True
+
+
 def test_review_state_store_returns_defaults_when_file_is_missing(tmp_path: Path) -> None:
     state = ReviewStateStore(tmp_path / "missing" / "state.toml").load()
 

@@ -131,6 +131,36 @@ def test_build_land_plan_blocks_expect_pr_mismatch() -> None:
     assert "`--expect-pr 9`" in plan.boundary_action.message
 
 
+def test_build_land_plan_blocks_detached_change() -> None:
+    prepared_status = _prepared_status(("change-1",))
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    link_state="detached",
+                    pull_request=_pull_request(number=7),
+                    pull_request_state="open",
+                    subject="feature 1",
+                ),
+            )
+        ),
+    )
+
+    plan = _build_land_plan(
+        expect_pr_number=None,
+        prepared_status=prepared_status,
+        status_result=status_result,
+        trunk_branch="main",
+    )
+
+    assert plan.blocked is True
+    assert plan.boundary_action is not None
+    assert "detached from managed review" in plan.boundary_action.message
+
+
 def test_build_land_plan_raises_assertion_when_status_revision_is_missing() -> None:
     prepared_status = _prepared_status(("change-1",))
     status_result = cast(StatusResult, SimpleNamespace(revisions=()))
@@ -433,10 +463,12 @@ def _status_revision(
     pull_request: GithubPullRequest,
     pull_request_state: str,
     subject: str,
+    link_state: str = "active",
 ):
     return SimpleNamespace(
         bookmark=f"review/{change_id}",
         change_id=change_id,
+        link_state=link_state,
         local_divergent=False,
         pull_request_lookup=SimpleNamespace(
             message=None,

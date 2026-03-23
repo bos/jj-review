@@ -1024,9 +1024,9 @@ Done when:
 - close reruns skip already-finished PRs and only perform any remaining safe
   cleanup work
 
-### Future Slice: Unlink
+### Unlink
 
-`unlink` remains the low-level repair-oriented inverse of `relink`.
+`unlink` is implemented as the low-level repair-oriented inverse of `relink`.
 
 The CLI contract should be:
 
@@ -1050,6 +1050,26 @@ unlinked, that detached record must override every other proof of ownership:
 
 That means the implementation cannot treat a preserved local bookmark as
 sufficient proof of ownership once detached state exists.
+
+This slice is now in place with the current implementation:
+
+- `unlink` detaches one explicitly selected local review unit without mutating
+  GitHub
+- unlink clears active PR and stack-comment linkage, preserves any known review
+  bookmark, and records durable detached state in the sparse cache
+- rerunning unlink for an already-detached change succeeds as a no-op, while
+  unlinking a never-linked change fails with targeted guidance
+- `status --fetch` surfaces detached review branches and detached PRs without
+  repopulating active cache ownership
+- `import` may restore local bookmark state for detached changes, but it keeps
+  the durable detached marker and does not repopulate active PR ownership
+- `submit` now refuses detached changes until `relink` clears the detached
+  marker, and `relink` reactivates the linkage when it succeeds
+- `land` blocks detached changes as not safely landable through the managed
+  pipeline
+- cleanup treats detached linkage as a valid reason to remove managed stack
+  comments and continues to prune detached markers once their `change_id` no
+  longer resolves locally
 
 Done when:
 

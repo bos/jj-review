@@ -566,6 +566,7 @@ def test_pull_request_linkage_rejects_missing_discovered_pull_request() -> None:
                 pr_number=17,
                 pr_url="https://github.test/octo-org/repo/pull/17",
             ),
+            change_id="change-17",
             discovered_pull_request=None,
         )
 
@@ -578,6 +579,7 @@ def test_pull_request_linkage_rejects_mismatched_pull_request_number() -> None:
         _ensure_pull_request_linkage_is_consistent(
             bookmark="review/foo",
             cached_change=CachedChange(bookmark="review/foo", pr_number=17),
+            change_id="change-17",
             discovered_pull_request=_github_pull_request(number=21),
         )
 

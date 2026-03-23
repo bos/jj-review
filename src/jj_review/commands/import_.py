@@ -521,6 +521,8 @@ def _update_cached_change_from_status(
     status_revision,
 ) -> CachedChange:
     updated_change = cached_change.model_copy(update={"bookmark": bookmark})
+    if cached_change.is_detached:
+        return updated_change
     pull_request_lookup = getattr(status_revision, "pull_request_lookup", None)
     if pull_request_lookup is not None:
         if pull_request_lookup.state == "missing":

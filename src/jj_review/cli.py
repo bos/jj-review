@@ -29,6 +29,7 @@ from jj_review.commands.import_ import run_import
 from jj_review.commands.land import LandResult, run_land
 from jj_review.commands.review_state import prepare_status, stream_status
 from jj_review.commands.submit import run_submit
+from jj_review.commands.unlink import run_unlink
 from jj_review.errors import CliError, CommandNotImplementedError
 from jj_review.intent import intent_change_ids, pid_is_alive
 from jj_review.jj import UnsupportedStackError
@@ -95,6 +96,18 @@ def build_parser() -> ArgumentParser:
         command="adopt",
         help_text=SUPPRESS,
         parents=[common_options],
+    )
+    unlink_parser = _add_revision_command(
+        subparsers,
+        command="unlink",
+        help_text="Advanced repair: detach one local change from managed review ownership.",
+        handler=_unlink_handler,
+        parents=[common_options],
+    )
+    unlink_parser.add_argument(
+        "--current",
+        action="store_true",
+        help="Explicitly operate on the current review path instead of passing a revset.",
     )
     land_parser = _add_revision_command(
         subparsers,
@@ -554,7 +567,18 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
     cached_change = revision.cached_change
     cached_label = _format_cached_pull_request_label(cached_change)
     summary: str
-    if lookup is None:
+    if getattr(revision, "link_state", "active") == "detached":
+        if lookup is not None and lookup.pull_request is not None:
+            pull_request = lookup.pull_request
+            if pull_request.state == "open":
+                summary = f"detached PR #{pull_request.number}"
+            else:
+                summary = f"detached PR #{pull_request.number} {pull_request.state}"
+        elif revision.remote_state is not None and revision.remote_state.targets:
+            summary = "detached review branch"
+        else:
+            summary = "detached"
+    elif lookup is None:
         if github_available:
             summary = "not submitted"
         elif cached_label is not None:
@@ -757,6 +781,8 @@ def _revision_pull_request_number(revision) -> int | None:
 
 
 def _revision_has_linkage_advisory(revision) -> bool:
+    if getattr(revision, "link_state", "active") == "detached":
+        return False
     lookup = revision.pull_request_lookup
     if lookup is None:
         return False
@@ -932,6 +958,39 @@ def _relink_handler(args: Namespace) -> int:
         f"Relinked PR #{result.pull_request_number} for {result.subject} "
         f"[{_display_change_id(result.change_id)}] -> {result.bookmark}"
     )
+    return 0
+
+
+def _unlink_handler(args: Namespace) -> int:
+    context = bootstrap_context(args)
+    selected_revset = _resolve_selected_revset(
+        args,
+        command_label="unlink",
+        require_explicit=True,
+    )
+    result = run_unlink(
+        change_overrides=context.config.change,
+        config=context.config.repo,
+        repo_root=context.repo_root,
+        revset=selected_revset,
+    )
+    print(f"Selected revset: {result.selected_revset}")
+    if result.already_detached:
+        print(
+            f"{result.subject} [{_display_change_id(result.change_id)}] is already detached "
+            "from managed review."
+        )
+        return 0
+    if result.bookmark is None:
+        print(
+            f"Detached managed review state for {result.subject} "
+            f"[{_display_change_id(result.change_id)}]."
+        )
+    else:
+        print(
+            f"Detached managed review state for {result.subject} "
+            f"[{_display_change_id(result.change_id)}], preserving {result.bookmark}."
+        )
     return 0
 
 

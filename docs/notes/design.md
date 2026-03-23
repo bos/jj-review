@@ -563,7 +563,7 @@ heuristics.
 - rerunning `close --cleanup` after an earlier `close` should only perform any
   remaining safe cleanup instead of trying to close the PRs again
 
-A future slice should also keep a repair-oriented inverse of `relink`:
+The repair-oriented inverse of `relink` is `unlink`:
 
 - `jj review unlink [--current | <revset>]` intentionally detaches one selected
   review unit from active PR ownership without mutating GitHub
@@ -589,6 +589,8 @@ Detached state should mean:
 - `status --fetch` may still report discovered remote bookmarks or GitHub PRs
   for the same review branch, but it must label that state as detached instead
   of repopulating active ownership
+- `import` may rematerialize local bookmark state for the selected change, but
+  it must preserve detached linkage instead of restoring active PR ownership
 - when a preserved local bookmark still exists, status should surface it as a
   detached review bookmark rather than an active managed review branch
 - `submit` must refuse to reuse detached linkage automatically, even if a local
@@ -663,7 +665,7 @@ The tool can stay small. A reasonable surface would be:
 - `jj review submit [--current | <revset>]`
 - `jj review status [--fetch] [<revset>]`
 - `jj review relink <pr> [--current | <revset>]`
-- `jj review unlink [--current | <revset>]` (future)
+- `jj review unlink [--current | <revset>]`
 - `jj review close [--cleanup] [--apply] [--current | <revset>]`
 - `jj review cleanup [--restack] [--apply] [--current | <revset>]`
 - `jj review import (--pull-request <pr> | --head <bookmark> | --current |
@@ -674,10 +676,8 @@ Target selection should stay explicit:
 
 - `submit` and `relink` require one explicit selector, either `<revset>` or
   `--current`
-- `unlink` should require the same explicit selector when it is introduced
-- `close` should require the same explicit selector when it is introduced
-- `import` should require exactly one explicit selector when it is introduced
-- `land` should require the same explicit selector when it is introduced
+- `unlink`, `close`, and `land` require the same explicit selector when run
+- `import` requires exactly one explicit selector
 - `cleanup --restack --apply` likewise requires one explicit selector
 - `status` and `cleanup --restack` preview may still omit both and inspect the
   current path

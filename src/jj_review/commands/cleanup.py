@@ -991,6 +991,8 @@ def _should_inspect_stack_comment_cleanup(
 ) -> bool:
     if cached_change.pr_number is None:
         return False
+    if cached_change.is_detached:
+        return True
     if stale_reason is None:
         return True
     if cached_change.stack_comment_id is not None:
@@ -1023,6 +1025,7 @@ async def _plan_stack_comment_cleanup(
 
     if not _pull_request_is_closed_or_detached(
         bookmark=cached_change.bookmark,
+        detached=cached_change.is_detached,
         github_repository=github_repository,
         pull_request=pull_request,
     ):
@@ -1074,9 +1077,12 @@ async def _load_pull_request(
 def _pull_request_is_closed_or_detached(
     *,
     bookmark: str | None,
+    detached: bool,
     github_repository,
     pull_request: GithubPullRequest,
 ) -> bool:
+    if detached:
+        return True
     if pull_request.state == "closed":
         return True
     if bookmark is None:

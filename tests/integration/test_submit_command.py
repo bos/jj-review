@@ -38,8 +38,8 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    repo, _fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
@@ -74,8 +74,8 @@ def test_submit_requires_explicit_revision_selection(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    repo, _fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
     exit_code = _main(repo, config_path, "submit")
@@ -93,8 +93,8 @@ def test_submit_creates_stack_comments_for_each_pull_request(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    repo, _fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
@@ -121,8 +121,8 @@ def test_submit_batches_pull_request_discovery_with_graphql(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    repo, _fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
     for index in range(4):
         _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
@@ -164,8 +164,8 @@ def test_submit_batches_ordinary_pushes(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    repo, _fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
     for index in range(3):
         _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
@@ -197,8 +197,8 @@ def test_submit_limits_stack_comment_github_inspection_concurrency(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    repo, _fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
     for index in range(4):
         _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
@@ -241,8 +241,8 @@ def test_submit_reports_repository_error_before_batched_pr_discovery(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    repo, _fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, _fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
     app = create_app(FakeGithubState.single_repository(fake_repo))
@@ -1184,6 +1184,214 @@ def test_relink_rejects_pull_request_with_missing_remote_head_branch(
 
     assert exit_code == 1
     assert "does not exist" in captured.err
+
+
+def test_unlink_detaches_change_and_preserves_local_bookmark(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    bookmark = state_store.load().changes[change_id].bookmark
+    assert bookmark is not None
+
+    exit_code = _main(repo, config_path, "unlink", change_id)
+    captured = capsys.readouterr()
+    unlinked_change = state_store.load().changes[change_id]
+
+    assert exit_code == 0
+    assert "Detached managed review state" in captured.out
+    assert unlinked_change.bookmark == bookmark
+    assert unlinked_change.detached_at is not None
+    assert unlinked_change.link_state == "detached"
+    assert unlinked_change.pr_number is None
+    assert unlinked_change.pr_review_decision is None
+    assert unlinked_change.pr_state is None
+    assert unlinked_change.pr_url is None
+    assert unlinked_change.stack_comment_id is None
+    assert JjClient(repo).get_bookmark_state(bookmark).local_target is not None
+    assert fake_repo.pull_requests[1].state == "open"
+    assert len(_issue_comments(fake_repo, 1)) == 1
+
+
+def test_unlink_is_idempotent_for_detached_change(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+
+    assert _main(repo, config_path, "unlink", change_id) == 0
+    capsys.readouterr()
+    exit_code = _main(repo, config_path, "unlink", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "already detached from managed review" in captured.out
+
+
+def test_unlink_rejects_change_without_active_review_linkage(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+
+    exit_code = _main(repo, config_path, "unlink", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "no active managed review linkage to unlink" in captured.err
+
+
+def test_status_fetch_surfaces_detached_state_without_repopulating_linkage(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+    assert _main(repo, config_path, "unlink", change_id) == 0
+    capsys.readouterr()
+
+    exit_code = _main(repo, config_path, "status", "--fetch", change_id)
+    captured = capsys.readouterr()
+    detached_change = ReviewStateStore.for_repo(repo).load().changes[change_id]
+
+    assert exit_code == 0
+    assert ": detached PR #1" in captured.out
+    assert detached_change.link_state == "detached"
+    assert detached_change.pr_number is None
+    assert detached_change.pr_state is None
+    assert detached_change.pr_url is None
+    assert detached_change.stack_comment_id is None
+
+
+def test_submit_rejects_detached_change_until_relink(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+    assert _main(repo, config_path, "unlink", change_id) == 0
+    capsys.readouterr()
+
+    exit_code = _main(repo, config_path, "submit", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "detached from managed review" in captured.err
+    assert "relink" in captured.err
+
+
+def test_relink_clears_detached_state(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+    assert _main(repo, config_path, "unlink", change_id) == 0
+    capsys.readouterr()
+
+    exit_code = _main(repo, config_path, "relink", "1", change_id)
+    captured = capsys.readouterr()
+    relinked_change = ReviewStateStore.for_repo(repo).load().changes[change_id]
+
+    assert exit_code == 0
+    assert "Relinked PR #1" in captured.out
+    assert relinked_change.detached_at is None
+    assert relinked_change.link_state == "active"
+    assert relinked_change.pr_number == 1
+    assert relinked_change.pr_state == "open"
+
+
+def test_land_blocks_detached_change(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+    assert _main(repo, config_path, "unlink", change_id) == 0
+    capsys.readouterr()
+
+    exit_code = _main(repo, config_path, "land", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Land blocked:" in captured.out
+    assert "detached from managed review" in captured.out
+
+
+def test_cleanup_apply_prunes_detached_state_for_stale_change(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+    assert _main(repo, config_path, "unlink", change_id) == 0
+    capsys.readouterr()
+    _run(["jj", "abandon", change_id], repo)
+
+    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "remove cached review state" in captured.out
+    assert change_id not in ReviewStateStore.for_repo(repo).load().changes
 
 
 def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(

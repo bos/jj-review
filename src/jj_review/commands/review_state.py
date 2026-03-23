@@ -29,7 +29,7 @@ from jj_review.intent import intent_is_stale, scan_intents
 from jj_review.jj import JjClient
 from jj_review.jj.client import RevsetResolutionError
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
-from jj_review.models.cache import CachedChange, ReviewState
+from jj_review.models.cache import CachedChange, LinkState, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
 from jj_review.models.intent import LoadedIntent
 from jj_review.models.stack import LocalRevision, LocalStack
@@ -70,6 +70,7 @@ class ReviewStatusRevision:
     bookmark_source: BookmarkSource
     cached_change: CachedChange | None
     change_id: str
+    link_state: LinkState
     local_divergent: bool
     pull_request_lookup: PullRequestLookup | None
     remote_state: RemoteBookmarkState | None
@@ -455,6 +456,11 @@ def _build_status_revisions_without_github(
             bookmark_source=revision.bookmark_source,
             cached_change=revision.cached_change,
             change_id=revision.revision.change_id,
+            link_state=(
+                revision.cached_change.link_state
+                if revision.cached_change is not None
+                else "active"
+            ),
             local_divergent=getattr(revision.revision, "divergent", False),
             pull_request_lookup=None,
             remote_state=(
@@ -539,6 +545,10 @@ def _persist_status_cache_updates(
             or prepared.state.changes.get(revision.change_id)
         )
         updated_change = cached_change or CachedChange(bookmark=revision.bookmark)
+        if cached_change is not None and cached_change.is_detached:
+            if updated_change != cached_change:
+                state_changes[revision.change_id] = updated_change
+            continue
         pull_request_lookup = revision.pull_request_lookup
         if pull_request_lookup is not None:
             if pull_request_lookup.state == "missing":
@@ -711,6 +721,11 @@ async def _inspect_revision_with_github(
             bookmark_source=prepared_revision.bookmark_source,
             cached_change=prepared_revision.cached_change,
             change_id=prepared_revision.revision.change_id,
+            link_state=(
+                prepared_revision.cached_change.link_state
+                if prepared_revision.cached_change is not None
+                else "active"
+            ),
             local_divergent=getattr(prepared_revision.revision, "divergent", False),
             pull_request_lookup=pull_request_lookup,
             remote_state=remote_state,
