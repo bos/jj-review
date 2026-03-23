@@ -936,19 +936,19 @@ This slice is now in place with the current implementation:
 - exact post-landing bookkeeping is limited to the landed prefix, while
   broader stale-state cleanup remains a separate `cleanup` concern
 
-### Future Slice: Stack Import
+### Stack Import
 
-Cross-machine bootstrap and remote-stack materialization should stay separate
-from both read-only refresh and local ancestry repair.
+Cross-machine bootstrap and remote-stack materialization are implemented
+separately from both read-only refresh and local ancestry repair.
 
-The CLI contract should be:
+The CLI contract is:
 
 - `jj review import (--pull-request <pr> | --head <bookmark> | --current |
   --revset <revset>)`
 - no overloaded positional selector that could mean either a revset or a PR
 - no implicit workspace motion in the default mode
 
-The product-level split should be:
+The product-level split is:
 
 - `status --fetch` refreshes remote observations and GitHub linkage without
   mutating local review bookmarks or the workspace
@@ -956,14 +956,14 @@ The product-level split should be:
 - `cleanup --restack` remains the local-history repair path after merges or
   other ancestry damage
 
-The implementation needs explicit rules for what `import` may mutate:
+The implementation uses explicit rules for what `import` may mutate:
 
 - refresh cache entries only for the selected stack
 - create or refresh local synthetic review bookmarks only when the target is
   exact and unambiguous
 - do not rewrite commits, restack descendants, or mutate GitHub state
 
-Done when:
+This slice is done when:
 
 - a user can bootstrap an existing review stack on a new machine from an
   explicit PR or review-branch selector

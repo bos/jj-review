@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from jj_review.cli import main
+from jj_review.cli import build_parser, main
 from jj_review.config import CONFIG_DIRNAME, CONFIG_FILENAME
 from jj_review.jj import UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState
@@ -19,6 +19,7 @@ def test_main_without_command_prints_help(capsys: pytest.CaptureFixture[str]) ->
     assert "submit" in captured.out
     assert "land" in captured.out
     assert "close" in captured.out
+    assert "import" in captured.out
     assert "cleanup" in captured.out
 
 
@@ -420,6 +421,20 @@ def test_main_close_renders_planned_output(
         captured.out
     )
     assert "Re-run with `close --apply --cleanup @`" in captured.out
+
+
+def test_main_import_requires_exactly_one_selector() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        build_parser().parse_args(["import"])
+
+    assert exc_info.value.code == 2
+
+
+def test_main_import_rejects_multiple_selectors() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        build_parser().parse_args(["import", "--current", "--revset", "@"])
+
+    assert exc_info.value.code == 2
 
 
 def test_main_land_renders_planned_output(

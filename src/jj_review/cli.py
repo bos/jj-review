@@ -25,6 +25,7 @@ from jj_review.commands.cleanup import (
     stream_restack,
 )
 from jj_review.commands.close import CloseResult, run_close
+from jj_review.commands.import_ import run_import
 from jj_review.commands.land import LandResult, run_land
 from jj_review.commands.review_state import prepare_status, stream_status
 from jj_review.commands.submit import run_submit
@@ -138,6 +139,15 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         help="Explicitly operate on the current review path instead of passing a revset.",
     )
+    _add_import_parser(
+        subparsers,
+        command="import",
+        help_text=(
+            "Materialize sparse local review state for an exact PR, head, "
+            "current path, or explicit revset."
+        ),
+        parents=[common_options],
+    )
 
     cleanup_parser = subparsers.add_parser(
         "cleanup",
@@ -223,6 +233,36 @@ def _add_relink_parser(
         help="Revision to reassociate with the pull request.",
     )
     parser.set_defaults(handler=_relink_handler)
+    return parser
+
+
+def _add_import_parser(
+    subparsers: _SubParsersAction[ArgumentParser],
+    *,
+    command: str,
+    help_text: str,
+    parents=None,
+) -> ArgumentParser:
+    parser = subparsers.add_parser(command, help=help_text, parents=parents or [])
+    selector = parser.add_mutually_exclusive_group(required=True)
+    selector.add_argument(
+        "--pull-request",
+        help="Pull request number or URL.",
+    )
+    selector.add_argument(
+        "--head",
+        help="Review branch name to import.",
+    )
+    selector.add_argument(
+        "--current",
+        action="store_true",
+        help="Import the current review path.",
+    )
+    selector.add_argument(
+        "--revset",
+        help="Explicit revset whose exact stack should be imported.",
+    )
+    parser.set_defaults(handler=_import_handler)
     return parser
 
 
@@ -1060,6 +1100,40 @@ def _close_handler(args: Namespace) -> int:
             "to close the selected path."
         )
     return 1 if result.blocked else 0
+
+
+def _import_handler(args: Namespace) -> int:
+    context = bootstrap_context(args)
+    result = run_import(
+        change_overrides=context.config.change,
+        config=context.config.repo,
+        current=bool(args.current),
+        head=args.head,
+        pull_request_reference=args.pull_request,
+        repo_root=context.repo_root,
+        revset=args.revset,
+    )
+    print(f"Selected selector: {result.selector}")
+    print(f"Selected revset: {result.selected_revset}")
+    if result.remote is None:
+        if result.remote_error is None:
+            print("Selected remote: unavailable")
+        else:
+            print(f"Selected remote: unavailable ({result.remote_error})")
+    else:
+        print(f"Selected remote: {result.remote.name}")
+    if result.github_repository is None:
+        if result.github_error is not None:
+            print(f"GitHub target: unavailable ({result.github_error})")
+    else:
+        print(f"GitHub: {result.github_repository}")
+    if result.actions:
+        print("Imported review state:")
+        for action in result.actions:
+            print(f"- [{action.status}] {action.kind}: {action.message}")
+    else:
+        print("No reviewable commits between the selected revision and `trunk()`.")
+    return 0
 
 
 def _land_handler(args: Namespace) -> int:

@@ -1,0 +1,197 @@
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+import httpx
+
+from jj_review.cache import ReviewStateStore, resolve_state_path
+from jj_review.cli import main
+from jj_review.github.client import GithubClient
+from jj_review.jj import JjClient
+from jj_review.testing.fake_github import (
+    FakeGithubRepository,
+    FakeGithubState,
+    create_app,
+    initialize_bare_repository,
+)
+
+
+def test_import_bootstraps_local_review_state_from_pull_request(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    state_before = ReviewStateStore.for_repo(repo).load()
+    review_bookmarks = sorted(
+        {
+            change.bookmark
+            for change in state_before.changes.values()
+            if change.bookmark is not None and change.bookmark.startswith("review/")
+        }
+    )
+    for bookmark in review_bookmarks:
+        _run(["jj", "bookmark", "forget", bookmark], repo)
+    resolve_state_path(repo).unlink()
+
+    exit_code = _main(repo, config_path, "import", "--pull-request", "2")
+
+    assert exit_code == 0
+    state_after = ReviewStateStore.for_repo(repo).load()
+    bookmarks_after = sorted(
+        {
+            change.bookmark
+            for change in state_after.changes.values()
+            if change.bookmark is not None
+        }
+    )
+    assert bookmarks_after == review_bookmarks
+    bookmark_states = JjClient(repo).list_bookmark_states(review_bookmarks)
+    assert all(
+        bookmark_states[bookmark].local_target is not None for bookmark in review_bookmarks
+    )
+
+
+def test_import_current_requires_discoverable_remote_review_linkage(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    exit_code = _main(repo, config_path, "import", "--current")
+
+    assert exit_code == 1
+
+
+def test_import_head_rejects_ambiguous_pull_request_linkage(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    stack = JjClient(repo).discover_review_stack()
+    top_change_id = stack.revisions[-1].change_id
+    top_bookmark = ReviewStateStore.for_repo(repo).load().changes[top_change_id].bookmark
+    assert top_bookmark is not None
+    fake_repo.create_pull_request(
+        base_ref=fake_repo.pull_requests[2].base_ref,
+        body="duplicate linkage",
+        head_ref=top_bookmark,
+        title="duplicate linkage",
+    )
+
+    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+
+    assert exit_code == 1
+
+
+def _configure_import_environment(
+    monkeypatch,
+    tmp_path: Path,
+    fake_repo: FakeGithubRepository,
+) -> Path:
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
+    config_path = _write_config(tmp_path, fake_repo)
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return GithubClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr(
+        "jj_review.commands.submit._build_github_client",
+        build_github_client,
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.review_state._build_github_client",
+        build_github_client,
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.import_._build_github_client",
+        build_github_client,
+    )
+    return config_path
+
+
+def _init_repo(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
+    repo = tmp_path / "repo"
+    fake_repo = initialize_bare_repository(
+        tmp_path / "remotes",
+        owner="octo-org",
+        name="stacked-review",
+    )
+    _run(["jj", "git", "init", str(repo)], tmp_path)
+    _run(["jj", "config", "set", "--repo", "user.name", "Test User"], repo)
+    _run(["jj", "config", "set", "--repo", "user.email", "test@example.com"], repo)
+    _write_file(repo / "README.md", "base\n")
+    _run(["jj", "commit", "-m", "base"], repo)
+    _run(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
+    _run(["jj", "config", "set", "--repo", 'revset-aliases."trunk()"', "main"], repo)
+    _run(["jj", "git", "remote", "add", "origin", str(fake_repo.git_dir)], repo)
+    _run(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+    return repo, fake_repo
+
+
+def _commit(repo: Path, message: str, filename: str) -> None:
+    _write_file(repo / filename, f"{message}\n")
+    _run(["jj", "commit", "-m", message], repo)
+
+
+def _run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        check=False,
+        cwd=cwd,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise AssertionError(
+            f"{command!r} failed:\nstdout={completed.stdout}\nstderr={completed.stderr}"
+        )
+    return completed
+
+
+def _main(repo: Path, config_path: Path, command: str, *command_args: str) -> int:
+    argv = ["--config", str(config_path), "--repository", str(repo), command]
+    argv.extend(command_args)
+    return main(argv)
+
+
+def _write_config(
+    tmp_path: Path,
+    fake_repo: FakeGithubRepository,
+) -> Path:
+    config_path = tmp_path / "config-home" / "jj-review" / "config.toml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_file(
+        config_path,
+        "\n".join(
+            [
+                "[repo]",
+                'github_host = "github.test"',
+                f'github_owner = "{fake_repo.owner}"',
+                f'github_repo = "{fake_repo.name}"',
+            ]
+        )
+        + "\n",
+    )
+    return config_path
+
+
+def _write_file(path: Path, contents: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(contents, encoding="utf-8")

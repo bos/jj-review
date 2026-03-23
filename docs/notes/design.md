@@ -469,8 +469,7 @@ These commands are not sources of truth either. They are operator-driven ways
 to reattach GitHub state to a `jj`-derived stack after damage, cross-machine
 work, or manual edits on GitHub.
 
-A future slice should add an explicit stack materialization command for the
-cross-machine case:
+The explicit stack materialization command is:
 
 - `jj review import (--pull-request <pr> | --head <bookmark> | --current |
   --revset <revset>)` fetches remote review state, resolves one exact review
@@ -665,7 +664,7 @@ The tool can stay small. A reasonable surface would be:
 - `jj review close [--cleanup] [--apply] [--current | <revset>]`
 - `jj review cleanup [--restack] [--apply] [--current | <revset>]`
 - `jj review import (--pull-request <pr> | --head <bookmark> | --current |
-  --revset <revset>)` (future)
+  --revset <revset>)`
 - `jj review land [--apply] [--expect-pr <pr>] [--current | <revset>]`
 
 Target selection should stay explicit:
