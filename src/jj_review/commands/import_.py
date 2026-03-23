@@ -239,7 +239,7 @@ async def _resolve_remote_head(
         github_repository=github_repository,
         head=head,
     )
-    if len(pull_requests) != 1:
+    if pull_request_reference is not None and len(pull_requests) != 1:
         if not pull_requests:
             raise ImportResolutionError(
                 f"GitHub no longer reports a pull request for head branch "
@@ -252,14 +252,21 @@ async def _resolve_remote_head(
             f"{github_repository.owner}:{head}: {numbers}. Inspect the linkage with "
             "`status --fetch` and repair it with `relink` before importing again."
         )
-
-    pull_request = pull_requests[0]
-    if pull_request.head.label != f"{github_repository.owner}:{head}":
+    if pull_request_reference is None and len(pull_requests) > 1:
+        numbers = ", ".join(str(pull_request.number) for pull_request in pull_requests)
         raise ImportResolutionError(
-            f"Pull request #{pull_request.number} head {pull_request.head.label!r} does "
-            f"not belong to {github_repository.full_name}. Import only supports "
-            "same-repository review branches."
+            f"GitHub reports multiple pull requests for head branch "
+            f"{github_repository.owner}:{head}: {numbers}. Inspect the linkage with "
+            "`status --fetch` and repair it with `relink` before importing again."
         )
+    if len(pull_requests) == 1:
+        pull_request = pull_requests[0]
+        if pull_request.head.label != f"{github_repository.owner}:{head}":
+            raise ImportResolutionError(
+                f"Pull request #{pull_request.number} head {pull_request.head.label!r} does "
+                f"not belong to {github_repository.full_name}. Import only supports "
+                "same-repository review branches."
+            )
 
     remote_state = client.get_bookmark_state(head).remote_target(remote.name)
     selected_revset = _remote_bookmark_commit_id(
@@ -366,12 +373,16 @@ def _materialize_local_state(
     next_changes = dict(current_state.changes)
     bookmark_states = client.list_bookmark_states()
     actions: list[ImportAction] = []
+    selected_remote_name = (
+        prepared.remote.name if prepared.remote is not None else None
+    )
 
     seen_bookmarks: set[str] = set()
     for prepared_revision in prepared.status_revisions:
-        bookmark = bookmark_by_change_id.get(
-            prepared_revision.revision.change_id,
-            prepared_revision.bookmark,
+        bookmark = _resolve_import_bookmark(
+            bookmark_by_change_id=bookmark_by_change_id,
+            prepared_revision=prepared_revision,
+            selected_remote_name=selected_remote_name,
         )
         if bookmark in seen_bookmarks:
             raise ImportResolutionError(
@@ -385,6 +396,7 @@ def _materialize_local_state(
             bookmark=bookmark,
             bookmark_state=bookmark_state,
             desired_commit_id=prepared_revision.revision.commit_id,
+            selected_remote_name=selected_remote_name,
         )
         if bookmark_state.local_target != prepared_revision.revision.commit_id:
             client.set_bookmark(bookmark, prepared_revision.revision.commit_id)
@@ -418,11 +430,11 @@ def _materialize_local_state(
                 )
             )
 
-        cached_change = (
+        existing_change = (
             next_changes.get(prepared_revision.revision.change_id)
             or current_state.changes.get(prepared_revision.revision.change_id)
-            or CachedChange(bookmark=bookmark)
         )
+        cached_change = existing_change or CachedChange(bookmark=bookmark)
         updated_change = _update_cached_change_from_status(
             cached_change=cached_change,
             bookmark=bookmark,
@@ -430,7 +442,7 @@ def _materialize_local_state(
                 status_result.revisions, prepared_revision.revision.change_id
             ),
         )
-        if updated_change != cached_change:
+        if existing_change is None or updated_change != cached_change:
             next_changes[prepared_revision.revision.change_id] = updated_change
 
     next_state = current_state.model_copy(update={"changes": next_changes})
@@ -451,6 +463,7 @@ def _validate_bookmark_state(
     bookmark: str,
     bookmark_state: BookmarkState,
     desired_commit_id: str,
+    selected_remote_name: str | None,
 ) -> None:
     if len(bookmark_state.local_targets) > 1:
         raise ImportResolutionError(
@@ -464,20 +477,21 @@ def _validate_bookmark_state(
             f"Local bookmark {bookmark!r} already points to a different revision. Move "
             "or forget it explicitly before importing."
         )
-    remote_state = None
-    for candidate in bookmark_state.remote_targets:
-        remote_state = candidate
-        if len(candidate.targets) > 1:
-            raise ImportResolutionError(
-                f"Remote bookmark {bookmark!r}@{candidate.remote} is conflicted. Resolve "
-                "it before importing."
-            )
-        if candidate.target is not None and candidate.target != desired_commit_id:
-            raise ImportResolutionError(
-                f"Remote bookmark {bookmark!r}@{candidate.remote} already points to a "
-                "different revision. Import will not overwrite a stale remote identity."
-            )
-    del remote_state
+    if selected_remote_name is None:
+        return
+    remote_state = bookmark_state.remote_target(selected_remote_name)
+    if remote_state is None:
+        return
+    if len(remote_state.targets) > 1:
+        raise ImportResolutionError(
+            f"Remote bookmark {bookmark!r}@{selected_remote_name} is conflicted. Resolve "
+            "it before importing."
+        )
+    if remote_state.target is not None and remote_state.target != desired_commit_id:
+        raise ImportResolutionError(
+            f"Remote bookmark {bookmark!r}@{selected_remote_name} already points to a "
+            "different revision. Import will not overwrite a stale remote identity."
+        )
 
 
 def _find_status_revision(
@@ -558,6 +572,29 @@ def _status_has_discoverable_linkage(status_result: StatusResult) -> bool:
         if pull_request_lookup is not None and pull_request_lookup.pull_request is not None:
             return True
     return False
+
+
+def _resolve_import_bookmark(
+    *,
+    bookmark_by_change_id: dict[str, str],
+    prepared_revision,
+    selected_remote_name: str | None,
+) -> str:
+    bookmark = bookmark_by_change_id.get(
+        prepared_revision.revision.change_id,
+        prepared_revision.bookmark,
+    )
+    if prepared_revision.bookmark_source != "generated":
+        return bookmark
+    if selected_remote_name is not None:
+        bookmark_state = prepared_revision.cached_change
+        del bookmark_state
+    raise ImportResolutionError(
+        "Could not safely import the selected stack because "
+        f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} has no "
+        "discoverable review bookmark on the selected remote. Refresh with "
+        "`status --fetch` or select an exact review branch or pull request."
+    )
 
 
 def _parse_pull_request_reference(

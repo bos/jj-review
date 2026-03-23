@@ -961,6 +961,8 @@ The implementation uses explicit rules for what `import` may mutate:
 - refresh cache entries only for the selected stack
 - create or refresh local synthetic review bookmarks only when the target is
   exact and unambiguous
+- fail closed if any imported revision would require inventing a new generated
+  review bookmark rather than reusing exact remote identity
 - do not rewrite commits, restack descendants, or mutate GitHub state
 
 This slice is done when:

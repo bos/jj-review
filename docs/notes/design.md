@@ -502,6 +502,9 @@ Failure guidance should stay narrow and specific:
   and explain that the selected review cannot be imported safely
 - if multiple PRs match the same head branch, point the operator to
   `jj review status --fetch` and `jj review relink`
+- if any imported revision would need a freshly generated review bookmark
+  instead of exact discovered remote identity, fail closed instead of inventing
+  local review ownership
 - if the fetched stack shape is unsupported locally, point the operator to
   `jj review cleanup --restack` only when the problem is local ancestry rather
   than remote identity

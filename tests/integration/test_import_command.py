@@ -57,6 +57,53 @@ def test_import_bootstraps_local_review_state_from_pull_request(
     )
 
 
+def test_import_head_bootstraps_local_review_state_without_pull_requests(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    state_before = ReviewStateStore.for_repo(repo).load()
+    stack = JjClient(repo).discover_review_stack()
+    top_change_id = stack.revisions[-1].change_id
+    top_bookmark = state_before.changes[top_change_id].bookmark
+    assert top_bookmark is not None
+    review_bookmarks = sorted(
+        {
+            change.bookmark
+            for change in state_before.changes.values()
+            if change.bookmark is not None and change.bookmark.startswith("review/")
+        }
+    )
+    fake_repo.pull_requests.clear()
+    for bookmark in review_bookmarks:
+        _run(["jj", "bookmark", "forget", bookmark], repo)
+    resolve_state_path(repo).unlink()
+
+    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+
+    assert exit_code == 0
+    state_after = ReviewStateStore.for_repo(repo).load()
+    assert sorted(
+        {
+            change.bookmark
+            for change in state_after.changes.values()
+            if change.bookmark is not None
+        }
+    ) == review_bookmarks
+    assert all(change.pr_number is None for change in state_after.changes.values())
+    assert all(change.pr_state is None for change in state_after.changes.values())
+    assert all(change.stack_comment_id is None for change in state_after.changes.values())
+    bookmark_states = JjClient(repo).list_bookmark_states(review_bookmarks)
+    assert all(
+        bookmark_states[bookmark].local_target is not None for bookmark in review_bookmarks
+    )
+
+
 def test_import_current_requires_discoverable_remote_review_linkage(
     tmp_path: Path,
     monkeypatch,
@@ -94,6 +141,52 @@ def test_import_head_rejects_ambiguous_pull_request_linkage(
     exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
 
     assert exit_code == 1
+
+
+def test_import_fails_closed_when_stack_would_need_generated_bookmarks(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    state_before = ReviewStateStore.for_repo(repo).load()
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    top_change_id = stack.revisions[-1].change_id
+    bottom_bookmark = state_before.changes[bottom_change_id].bookmark
+    top_bookmark = state_before.changes[top_change_id].bookmark
+    assert bottom_bookmark is not None
+    assert top_bookmark is not None
+
+    for bookmark in (bottom_bookmark, top_bookmark):
+        _run(["jj", "bookmark", "forget", bookmark], repo)
+    resolve_state_path(repo).unlink()
+    _run(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "update-ref",
+            "-d",
+            f"refs/heads/{bottom_bookmark}",
+        ],
+        repo,
+    )
+
+    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "has no discoverable review bookmark on the selected remote" in captured.err
+    assert ReviewStateStore.for_repo(repo).load().changes == {}
+    bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, top_bookmark))
+    assert bookmark_states[bottom_bookmark].local_target is None
+    assert bookmark_states[top_bookmark].local_target is None
 
 
 def _configure_import_environment(
