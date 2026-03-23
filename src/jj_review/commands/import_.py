@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 from jj_review.commands.review_state import (
     PreparedStatus,
@@ -29,6 +31,9 @@ from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubPullRequest
 
 _DISPLAY_CHANGE_ID_LENGTH = 8
+_PULL_REQUEST_URL_RE = re.compile(
+    r"^/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>[0-9]+)/?$"
+)
 ImportActionStatus = Literal["applied"]
 
 
@@ -562,8 +567,27 @@ def _parse_pull_request_reference(
 ) -> int:
     if reference.isdigit():
         return int(reference)
-    raise ImportResolutionError(
-        f"Pull request reference {reference!r} is not a PR number."
-        if "/" not in reference
-        else f"Pull request URL {reference!r} is not supported by `import` yet."
-    )
+    parsed = urlparse(reference)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ImportResolutionError(
+            f"Pull request reference {reference!r} is not a PR number or URL."
+        )
+    if parsed.hostname != github_repository.host:
+        raise ImportResolutionError(
+            f"Pull request URL {reference!r} does not match configured host "
+            f"{github_repository.host!r}."
+        )
+    match = _PULL_REQUEST_URL_RE.fullmatch(parsed.path)
+    if match is None:
+        raise ImportResolutionError(
+            f"Pull request URL {reference!r} is not a valid pull request URL."
+        )
+    if (
+        match.group("owner") != github_repository.owner
+        or match.group("repo") != github_repository.repo
+    ):
+        raise ImportResolutionError(
+            f"Pull request URL {reference!r} does not match configured repository "
+            f"{github_repository.full_name!r}."
+        )
+    return int(match.group("number"))
