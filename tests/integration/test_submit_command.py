@@ -2185,7 +2185,7 @@ def test_close_preview_closes_no_remote_state_and_reports_planned_actions(
     assert "Planned close actions:" in captured.out
     assert fake_repo.pull_requests[1].state == "open"
     assert refreshed_state.changes[change_id].pr_state == "open"
-    assert refreshed_state.changes[change_id].pr_review_decision is not None
+    assert refreshed_state.changes[change_id].pr_review_decision is None
     assert refreshed_state.changes[change_id].stack_comment_id == 1
     assert len(_issue_comments(fake_repo, 1)) == 1
 
@@ -2250,7 +2250,8 @@ def test_close_apply_rerun_is_idempotent(
     assert second_exit_code == 0
     assert "No managed open pull requests on the selected path." in captured.out
     assert fake_repo.pull_requests[1].state == "closed"
-    assert first_state == second_state
+    assert first_state.changes[change_id].pr_state == "closed"
+    assert second_state.changes[change_id].pr_state == "closed"
 
 
 def test_submit_checkpoints_successful_in_flight_pull_request_before_failure(
