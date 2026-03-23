@@ -131,6 +131,36 @@ def test_import_reports_up_to_date_when_selected_stack_is_already_materialized(
     assert "No reviewable commits" not in captured.out
 
 
+def test_import_reports_github_inspection_progress(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    state_before = ReviewStateStore.for_repo(repo).load()
+    review_bookmarks = sorted(
+        {
+            change.bookmark
+            for change in state_before.changes.values()
+            if change.bookmark is not None and change.bookmark.startswith("review/")
+        }
+    )
+    for bookmark in review_bookmarks:
+        _run(["jj", "bookmark", "forget", bookmark], repo)
+    resolve_state_path(repo).unlink()
+
+    exit_code = _main(repo, config_path, "import", "--pull-request", "2")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Inspecting GitHub review state..." in captured.out
+
+
 def test_import_current_requires_discoverable_remote_review_linkage(
     tmp_path: Path,
     monkeypatch,

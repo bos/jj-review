@@ -986,6 +986,8 @@ This slice is done when:
   state before waiting on GitHub inspection
 - import distinguishes a missing cached remote bookmark from a stale cached
   bookmark target so the repair path is easier to diagnose
+- import prints a brief progress note before live GitHub inspection so deep
+  stacks do not look hung while status resolution is in flight
 - stale local cache state is refreshed only when fetched linkage for the exact
   selected stack is unambiguous; otherwise import fails closed with targeted
   conflict guidance

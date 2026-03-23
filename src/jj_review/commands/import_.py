@@ -136,6 +136,7 @@ async def _run_import_async(
             "`import --current` cannot proceed because the current local path has no "
             "discoverable remote review linkage."
         )
+    print("Inspecting GitHub review state...")
     status_result = await _stream_status_async(
         persist_cache_updates=False,
         prepared_status=prepared_status,
