@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -8,9 +9,11 @@ from jj_review.commands.import_ import (
     ImportResolutionError,
     _prepared_status_has_discoverable_remote_linkage,
     _resolve_import_bookmark,
-    run_import,
     _validate_bookmark_state,
+    run_import,
 )
+from jj_review.commands.review_state import PreparedStatus
+from jj_review.config import RepoConfig
 from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
 
 
@@ -135,21 +138,27 @@ def test_resolve_import_bookmark_rejects_stale_cached_remote_bookmark_target() -
 
 def test_prepared_status_has_discoverable_remote_linkage_from_remote_bookmark() -> None:
     assert _prepared_status_has_discoverable_remote_linkage(
-        SimpleNamespace(
-            prepared=SimpleNamespace(
-                client=SimpleNamespace(
-                    list_bookmark_states=lambda bookmarks: {
-                        "review/feature-aaaa": BookmarkState(
-                            name="review/feature-aaaa",
-                            remote_targets=(
-                                RemoteBookmarkState(remote="origin", targets=("commit-1",)),
-                            ),
-                        )
-                    }
-                ),
-                remote=SimpleNamespace(name="origin"),
-                status_revisions=(SimpleNamespace(bookmark="review/feature-aaaa"),),
-            )
+        cast(
+            PreparedStatus,
+            SimpleNamespace(
+                prepared=SimpleNamespace(
+                    client=SimpleNamespace(
+                        list_bookmark_states=lambda bookmarks: {
+                            "review/feature-aaaa": BookmarkState(
+                                name="review/feature-aaaa",
+                                remote_targets=(
+                                    RemoteBookmarkState(
+                                        remote="origin",
+                                        targets=("commit-1",),
+                                    ),
+                                ),
+                            )
+                        }
+                    ),
+                    remote=SimpleNamespace(name="origin"),
+                    status_revisions=(SimpleNamespace(bookmark="review/feature-aaaa"),),
+                )
+            ),
         )
     )
 
@@ -197,7 +206,7 @@ def test_run_import_current_rejects_before_github_inspection(
     with pytest.raises(ImportResolutionError) as exc_info:
         run_import(
             change_overrides={},
-            config=SimpleNamespace(),
+            config=RepoConfig(),
             current=True,
             head=None,
             pull_request_reference=None,

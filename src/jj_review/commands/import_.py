@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from jj_review.commands.review_state import (
     PreparedStatus,
+    StatusResult,
     _stream_status_async,
     prepare_status,
 )
