@@ -1194,7 +1194,10 @@ def _import_handler(args: Namespace) -> int:
         for action in result.actions:
             print(f"- [{action.status}] {action.kind}: {action.message}")
     else:
-        print("No reviewable commits between the selected revision and `trunk()`.")
+        if result.reviewable_revision_count:
+            print("Review state is already up to date for the selected stack.")
+        else:
+            print("No reviewable commits between the selected revision and `trunk()`.")
     return 0
 
 

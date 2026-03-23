@@ -60,6 +60,7 @@ class ImportResult:
     github_repository: str | None
     remote: GitRemote | None
     remote_error: str | None
+    reviewable_revision_count: int
     selected_revset: str
     selector: str
 
@@ -173,6 +174,7 @@ async def _run_import_async(
         else None,
         remote=prepared_status.prepared.remote,
         remote_error=prepared_status.prepared.remote_error,
+        reviewable_revision_count=len(prepared_status.prepared.status_revisions),
         selected_revset=prepared_status.selected_revset,
         selector=selection.selector,
     )

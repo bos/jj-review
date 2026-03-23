@@ -105,6 +105,32 @@ def test_import_head_bootstraps_local_review_state_without_pull_requests(
     )
 
 
+def test_import_reports_up_to_date_when_selected_stack_is_already_materialized(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    top_change_id = stack.revisions[-1].change_id
+    top_bookmark = ReviewStateStore.for_repo(repo).load().changes[top_change_id].bookmark
+    assert top_bookmark is not None
+
+    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Review state is already up to date for the selected stack." in captured.out
+    assert "No reviewable commits" not in captured.out
+
+
 def test_import_current_requires_discoverable_remote_review_linkage(
     tmp_path: Path,
     monkeypatch,

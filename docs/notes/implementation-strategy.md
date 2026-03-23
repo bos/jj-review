@@ -976,6 +976,8 @@ This slice is done when:
   without inventing topology from cache
 - bookmark ownership conflicts, ambiguous PR linkage, and unsupported stack
   shapes fail with targeted recovery guidance
+- rerunning `import` on an already-materialized stack reports that the local
+  review state is already up to date instead of claiming the stack is empty
 - `--current` import failures are explicit when the current local path has no
   discoverable remote review linkage
 - stale local cache state is refreshed only when fetched linkage for the exact
