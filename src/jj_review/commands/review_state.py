@@ -132,6 +132,8 @@ def run_status(
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     fetch_remote_state: bool = False,
+    persist_bookmarks: bool = True,
+    persist_cache_updates: bool = True,
     repo_root: Path,
     revset: str | None,
 ) -> StatusResult:
@@ -141,10 +143,14 @@ def run_status(
         change_overrides=change_overrides,
         config=config,
         fetch_remote_state=fetch_remote_state,
+        persist_bookmarks=persist_bookmarks,
         repo_root=repo_root,
         revset=revset,
     )
-    return stream_status(prepared_status=prepared_status)
+    return stream_status(
+        persist_cache_updates=persist_cache_updates,
+        prepared_status=prepared_status,
+    )
 
 
 def prepare_status(
@@ -152,6 +158,7 @@ def prepare_status(
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     fetch_remote_state: bool = False,
+    persist_bookmarks: bool = True,
     repo_root: Path,
     revset: str | None,
 ) -> PreparedStatus:
@@ -160,7 +167,7 @@ def prepare_status(
     prepared = _prepare_stack(
         change_overrides=change_overrides,
         config=config,
-        persist_bookmarks=True,
+        persist_bookmarks=persist_bookmarks,
         refresh_remote_state=fetch_remote_state,
         repo_root=repo_root,
         require_remote=False,
@@ -207,6 +214,7 @@ def prepare_status(
 
 def stream_status(
     *,
+    persist_cache_updates: bool = True,
     prepared_status: PreparedStatus,
     on_github_status: Callable[[str | None, str | None], None] | None = None,
     on_revision: Callable[[ReviewStatusRevision, bool], None] | None = None,
@@ -217,6 +225,7 @@ def stream_status(
         _stream_status_async(
             on_github_status=on_github_status,
             on_revision=on_revision,
+            persist_cache_updates=persist_cache_updates,
             prepared_status=prepared_status,
         )
     )
@@ -226,6 +235,7 @@ async def _stream_status_async(
     *,
     on_github_status: Callable[[str | None, str | None], None] | None,
     on_revision: Callable[[ReviewStatusRevision, bool], None] | None,
+    persist_cache_updates: bool = True,
     prepared_status: PreparedStatus,
 ) -> StatusResult:
     prepared = prepared_status.prepared
@@ -337,7 +347,8 @@ async def _stream_status_async(
 
     if not github_status_reported:
         emit_github_status(None)
-    _persist_status_cache_updates(prepared=prepared, revisions=tuple(revisions))
+    if persist_cache_updates:
+        _persist_status_cache_updates(prepared=prepared, revisions=tuple(revisions))
     return StatusResult(
         github_error=None,
         github_repository=github_repository.full_name,

@@ -105,7 +105,8 @@ def prepare_close(
         prepared_status=prepare_status(
             change_overrides=change_overrides,
             config=config,
-            fetch_remote_state=True,
+            fetch_remote_state=apply,
+            persist_bookmarks=False,
             repo_root=repo_root,
             revset=revset,
         ),
@@ -120,7 +121,10 @@ def stream_close(
 ) -> CloseResult:
     """Inspect GitHub state for prepared close inputs and optionally stream actions."""
 
-    status_result = stream_status(prepared_status=prepared_close.prepared_status)
+    status_result = stream_status(
+        persist_cache_updates=False,
+        prepared_status=prepared_close.prepared_status,
+    )
     return asyncio.run(
         _stream_close_async(
             on_action=on_action,
@@ -142,8 +146,12 @@ async def _stream_close_async(
     github_repository = prepared_status.github_repository
 
     actions: list[CloseAction] = []
+    blocked = False
 
     def record_action(action: CloseAction) -> None:
+        nonlocal blocked
+        if action.status == "blocked":
+            blocked = True
         actions.append(action)
         if on_action is not None:
             on_action(action)
@@ -224,9 +232,6 @@ async def _stream_close_async(
                     revision.cached_change
                     or current_state.changes.get(revision.change_id)
                 )
-                if cached_change is None:
-                    continue
-
                 lookup = revision.pull_request_lookup
                 if lookup is None:
                     continue
@@ -241,7 +246,7 @@ async def _stream_close_async(
                     )
                     return CloseResult(
                         actions=tuple(actions),
-                        applied=False,
+                        applied=prepared_close.apply,
                         blocked=True,
                         cleanup=prepared_close.cleanup,
                         github_error=status_result.github_error,
@@ -250,6 +255,39 @@ async def _stream_close_async(
                         remote_error=prepared.remote_error,
                         selected_revset=prepared_status.selected_revset,
                     )
+                if lookup.state == "missing":
+                    if _has_active_cached_linkage(cached_change):
+                        record_action(
+                            CloseAction(
+                                kind="close",
+                                message=(
+                                    f"cannot close {_revision_label(revision)} because "
+                                    "GitHub no longer reports a pull request for its "
+                                    "review branch; run `status --fetch` or `relink` "
+                                    "before retrying"
+                                ),
+                                status="blocked",
+                            )
+                        )
+                        return CloseResult(
+                            actions=tuple(actions),
+                            applied=prepared_close.apply,
+                            blocked=True,
+                            cleanup=prepared_close.cleanup,
+                            github_error=status_result.github_error,
+                            github_repository=github_repository.full_name,
+                            remote=remote,
+                            remote_error=prepared.remote_error,
+                            selected_revset=prepared_status.selected_revset,
+                        )
+                    continue
+
+                cached_change = _close_cached_change(
+                    cached_change=cached_change,
+                    revision=revision,
+                )
+                if cached_change is None:
+                    continue
 
                 revision_label = _revision_label(revision)
                 if lookup.state == "open" and lookup.pull_request is not None:
@@ -306,10 +344,11 @@ async def _stream_close_async(
                         )
                     continue
 
+                if lookup.state != "closed":
+                    continue
+
                 pr_state = "merged" if (
-                    lookup.state == "closed"
-                    and lookup.pull_request is not None
-                    and lookup.pull_request.merged_at is not None
+                    lookup.pull_request is not None and lookup.pull_request.merged_at is not None
                 ) else "closed"
                 if cached_change.pr_state == "merged":
                     pr_state = "merged"
@@ -354,7 +393,7 @@ async def _stream_close_async(
         return CloseResult(
             actions=tuple(actions),
             applied=prepared_close.apply,
-            blocked=False,
+            blocked=blocked,
             cleanup=prepared_close.cleanup,
             github_error=status_result.github_error,
             github_repository=github_repository.full_name,
@@ -581,6 +620,47 @@ def _retire_cached_change(
     if cleanup:
         updates["stack_comment_id"] = None
     return cached_change.model_copy(update=updates)
+
+
+def _close_cached_change(
+    *,
+    cached_change: CachedChange | None,
+    revision,
+) -> CachedChange | None:
+    if cached_change is not None:
+        return cached_change
+
+    lookup = revision.pull_request_lookup
+    if lookup is None or lookup.pull_request is None:
+        return None
+
+    return CachedChange(
+        bookmark=revision.bookmark,
+        pr_number=lookup.pull_request.number,
+        pr_review_decision=getattr(lookup, "review_decision", None),
+        pr_state=lookup.pull_request.state,
+        pr_url=lookup.pull_request.html_url,
+        stack_comment_id=(
+            revision.stack_comment_lookup.comment.id
+            if revision.stack_comment_lookup is not None
+            and revision.stack_comment_lookup.state == "present"
+            and revision.stack_comment_lookup.comment is not None
+            else None
+        ),
+    )
+
+
+def _has_active_cached_linkage(cached_change: CachedChange | None) -> bool:
+    if cached_change is None:
+        return False
+    return any(
+        (
+            cached_change.pr_number is not None,
+            cached_change.pr_state == "open",
+            cached_change.pr_url is not None,
+            cached_change.stack_comment_id is not None,
+        )
+    )
 
 
 def _revision_label(revision) -> str:
