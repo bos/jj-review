@@ -326,12 +326,16 @@ async def _stream_land_async(*, prepared_land: PreparedLand, status_result) -> L
                 print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
 
         execution_plan = plan
-        if resume_intent is not None and _remote_trunk_matches_commit(
-            client=prepared.client,
-            remote_name=remote.name,
-            trunk_branch=trunk_branch,
-            commit_id=resume_intent.intent.landed_commit_id,
-        ):
+        trunk_transition_already_succeeded = (
+            resume_intent is not None
+            and _remote_trunk_matches_commit(
+                client=prepared.client,
+                remote_name=remote.name,
+                trunk_branch=trunk_branch,
+                commit_id=resume_intent.intent.landed_commit_id,
+            )
+        )
+        if trunk_transition_already_succeeded and resume_intent is not None:
             execution_plan = _resume_land_plan(
                 intent=resume_intent.intent,
                 trunk_branch=trunk_branch,
@@ -341,7 +345,7 @@ async def _stream_land_async(*, prepared_land: PreparedLand, status_result) -> L
                 selected_revset=status_result.selected_revset,
                 total_change_count=len(resume_intent.intent.ordered_change_ids),
             )
-        elif resume_intent is None:
+        else:
             _require_matching_land_preview(
                 current_snapshot=preview_snapshot,
                 selected_revset=status_result.selected_revset,
@@ -719,6 +723,7 @@ def _write_land_preview(state_dir: Path, snapshot: _LandPreviewSnapshot) -> None
     path = _land_preview_path(state_dir)
     payload = json.dumps(asdict(snapshot), indent=2, sort_keys=True) + "\n"
     try:
+        state_dir.mkdir(parents=True, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(dir=state_dir, suffix=".json.tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as file:
@@ -727,8 +732,10 @@ def _write_land_preview(state_dir: Path, snapshot: _LandPreviewSnapshot) -> None
         except Exception:
             Path(tmp_path).unlink(missing_ok=True)
             raise
-    except OSError:
-        return
+    except OSError as error:
+        raise LandError(
+            f"Could not write saved land preview {path}: {error}"
+        ) from error
 
 
 def _load_land_preview(state_dir: Path) -> _LandPreviewSnapshot | None:

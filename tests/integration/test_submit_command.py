@@ -3007,6 +3007,54 @@ def test_land_restores_local_trunk_bookmark_when_push_fails(
     monkeypatch.setattr(JjClient, "push_bookmark", original_push_bookmark)
 
 
+def test_land_rejects_pre_push_resume_when_plan_changed_since_preview(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    for index in range(2):
+        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+    assert _main(repo, config_path, "land", "--current") == 0
+    capsys.readouterr()
+
+    push_calls = 0
+    original_push_bookmark = JjClient.push_bookmark
+
+    def fail_first_push_bookmark(self, *, remote: str, bookmark: str) -> None:
+        nonlocal push_calls
+        push_calls += 1
+        if push_calls == 1:
+            raise JjCommandError("simulated trunk push failure")
+        original_push_bookmark(self, remote=remote, bookmark=bookmark)
+
+    monkeypatch.setattr(JjClient, "push_bookmark", fail_first_push_bookmark)
+
+    first_exit_code = _main(repo, config_path, "land", "--current", "--apply")
+    first_run = capsys.readouterr()
+
+    assert first_exit_code == 1
+    assert "simulated trunk push failure" in first_run.err
+    [intent_path] = resolve_state_path(repo).parent.glob("incomplete-*.toml")
+    intent_text = intent_path.read_text(encoding="utf-8")
+    intent_path.write_text(
+        intent_text.replace(f"pid = {os.getpid()}", "pid = 99999999"),
+        encoding="utf-8",
+    )
+
+    fake_repo.pull_requests[2].state = "closed"
+
+    second_exit_code = _main(repo, config_path, "land", "--current", "--apply")
+    second_run = capsys.readouterr()
+
+    assert second_exit_code == 1
+    assert "changed since the saved preview" in second_run.err
+
+
 def test_land_resumes_after_trunk_push_interruption(
     tmp_path: Path,
     monkeypatch,
@@ -3083,6 +3131,30 @@ def test_land_resumes_after_trunk_push_interruption(
     assert state.changes[first_change_id].pr_state == "merged"
     assert state.changes[second_change_id].pr_state == "merged"
     assert list(resolve_state_path(repo).parent.glob("incomplete-*.toml")) == []
+
+
+def test_land_preview_reports_saved_preview_write_failure(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    def fail_preview_write(*args, **kwargs):
+        raise OSError("simulated preview write failure")
+
+    monkeypatch.setattr("jj_review.commands.land.tempfile.mkstemp", fail_preview_write)
+
+    exit_code = _main(repo, config_path, "land", "--current")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Could not write saved land preview" in captured.err
 
 
 def _configure_submit_environment(

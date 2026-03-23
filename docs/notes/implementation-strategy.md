@@ -908,6 +908,9 @@ This slice is now in place with the current implementation:
 - `land --apply` now requires a matching saved preview unless it is resuming an
   interrupted apply from a recorded intent, so material plan drift is rejected
   before any new mutation starts
+- interrupted applies that failed before the trunk transition still go back
+  through saved-preview validation on rerun, so same-path PR-state drift cannot
+  silently bypass preview invalidation
 - land now constructs the landed trunk history locally in `jj`, preserving the
   landed prefix as multiple commits, then updates trunk with a leased push
 - if the trunk push fails, the local trunk bookmark is restored before the
@@ -926,6 +929,8 @@ This slice is now in place with the current implementation:
 - interrupted applies now resume from persisted land intent data, including the
   already-landed trunk target and per-PR completion checkpoints, so reruns can
   finish post-push bookkeeping without rediscovering the original prefix
+- preview-state write failures are surfaced immediately instead of degrading
+  into a later confusing “run preview first” apply error
 - exact post-landing bookkeeping is limited to the landed prefix, while
   broader stale-state cleanup remains a separate `cleanup` concern
 
