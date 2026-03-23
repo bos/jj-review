@@ -226,7 +226,9 @@ async def _stream_close_async(
                 print(f"Note: a previous close was interrupted ({loaded.intent.label})")
             intent_path = write_intent(prepared_close.state_dir, intent)
 
-        async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+        async with _build_github_client(
+            base_url=github_repository.api_base_url
+        ) as github_client:
             for revision in status_result.revisions:
                 cached_change = (
                     revision.cached_change
@@ -255,13 +257,14 @@ async def _stream_close_async(
                         remote_error=prepared.remote_error,
                         selected_revset=prepared_status.selected_revset,
                     )
+                revision_label = _revision_label(revision)
                 if lookup.state == "missing":
                     if _has_active_cached_linkage(cached_change):
                         record_action(
                             CloseAction(
                                 kind="close",
                                 message=(
-                                    f"cannot close {_revision_label(revision)} because "
+                                    f"cannot close {revision_label} because "
                                     "GitHub no longer reports a pull request for its "
                                     "review branch; run `status --fetch` or `relink` "
                                     "before retrying"
@@ -280,6 +283,37 @@ async def _stream_close_async(
                             remote_error=prepared.remote_error,
                             selected_revset=prepared_status.selected_revset,
                         )
+                    if not prepared_close.cleanup or cached_change is None:
+                        continue
+
+                    updated_change = _retire_cached_change(
+                        cached_change,
+                        cleanup=True,
+                        pr_state=cached_change.pr_state or "closed",
+                    )
+                    if updated_change != cached_change:
+                        next_changes[revision.change_id] = updated_change
+                        record_action(
+                            CloseAction(
+                                kind="cache",
+                                message=f"retire active review state for {revision_label}",
+                                status="applied" if prepared_close.apply else "planned",
+                            )
+                        )
+                    await _cleanup_revision(
+                        apply=prepared_close.apply,
+                        bookmark_state=prepared.client.get_bookmark_state(revision.bookmark),
+                        cached_change=updated_change,
+                        github_client=github_client,
+                        github_repository=github_repository,
+                        next_changes=next_changes,
+                        record_action=record_action,
+                        jj_client=prepared.client,
+                        remote_name=remote.name if remote is not None else None,
+                        commit_id=commit_ids_by_change_id.get(revision.change_id),
+                        revision=revision,
+                        revision_label=revision_label,
+                    )
                     continue
 
                 cached_change = _close_cached_change(
@@ -288,8 +322,6 @@ async def _stream_close_async(
                 )
                 if cached_change is None:
                     continue
-
-                revision_label = _revision_label(revision)
                 if lookup.state == "open" and lookup.pull_request is not None:
                     record_action(
                         CloseAction(
@@ -423,6 +455,10 @@ async def _cleanup_revision(
     revision_label: str,
 ) -> None:
     bookmark = cached_change.bookmark
+    local_forget_planned = False
+    remote_delete_planned = False
+    local_conflict = False
+    remote_conflict = False
 
     if bookmark is not None and bookmark.startswith("review/"):
         local_target = bookmark_state.local_target
@@ -437,8 +473,8 @@ async def _cleanup_revision(
                     status="blocked",
                 )
             )
-            return
-        if commit_id is not None and local_target is not None and local_target != commit_id:
+            local_conflict = True
+        elif commit_id is not None and local_target is not None and local_target != commit_id:
             record_action(
                 CloseAction(
                     kind="local bookmark",
@@ -449,17 +485,9 @@ async def _cleanup_revision(
                     status="blocked",
                 )
             )
-            return
-        if commit_id is not None and local_target == commit_id:
-            record_action(
-                CloseAction(
-                    kind="local bookmark",
-                    message=f"forget local review bookmark {bookmark}",
-                    status="applied" if apply else "planned",
-                )
-            )
-            if apply:
-                jj_client.forget_bookmark(bookmark)
+            local_conflict = True
+        elif commit_id is not None and local_target == commit_id:
+            local_forget_planned = True
 
         remote_state = (
             bookmark_state.remote_target(remote_name)
@@ -478,8 +506,8 @@ async def _cleanup_revision(
                         status="blocked",
                     )
                 )
-                return
-            if remote_state.target != commit_id:
+                remote_conflict = True
+            elif remote_state.target != commit_id:
                 record_action(
                     CloseAction(
                         kind="remote branch",
@@ -490,7 +518,16 @@ async def _cleanup_revision(
                         status="blocked",
                     )
                 )
-                return
+                remote_conflict = True
+            else:
+                remote_delete_planned = True
+
+        if local_conflict:
+            remote_delete_planned = False
+        if remote_conflict:
+            local_forget_planned = False
+
+        if remote_delete_planned:
             record_action(
                 CloseAction(
                     kind="remote branch",
@@ -499,11 +536,24 @@ async def _cleanup_revision(
                 )
             )
             if apply:
+                if remote_name is None or commit_id is None:
+                    raise AssertionError("Planned remote branch deletion requires a target.")
                 jj_client.delete_remote_bookmark(
                     remote=remote_name,
                     bookmark=bookmark,
                     expected_remote_target=commit_id,
                 )
+
+        if local_forget_planned:
+            record_action(
+                CloseAction(
+                    kind="local bookmark",
+                    message=f"forget local review bookmark {bookmark}",
+                    status="applied" if apply else "planned",
+                )
+            )
+            if apply:
+                jj_client.forget_bookmark(bookmark)
 
     if cached_change.pr_number is None:
         return
@@ -555,6 +605,15 @@ async def _find_managed_stack_comment(
             issue_number=pull_request_number,
         )
     except GithubClientError as error:
+        if error.status_code == 404 and cached_stack_comment_id is not None:
+            return (
+                GithubIssueComment(
+                    body="",
+                    html_url="",
+                    id=cached_stack_comment_id,
+                ),
+                None,
+            )
         return (
             None,
             CloseAction(
@@ -617,8 +676,6 @@ def _retire_cached_change(
         "pr_review_decision": None,
         "pr_state": pr_state,
     }
-    if cleanup:
-        updates["stack_comment_id"] = None
     return cached_change.model_copy(update=updates)
 
 
@@ -653,14 +710,7 @@ def _close_cached_change(
 def _has_active_cached_linkage(cached_change: CachedChange | None) -> bool:
     if cached_change is None:
         return False
-    return any(
-        (
-            cached_change.pr_number is not None,
-            cached_change.pr_state == "open",
-            cached_change.pr_url is not None,
-            cached_change.stack_comment_id is not None,
-        )
-    )
+    return cached_change.pr_state == "open"
 
 
 def _revision_label(revision) -> str:

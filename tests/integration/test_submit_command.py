@@ -2206,6 +2206,39 @@ def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
     bookmark = ReviewStateStore.for_repo(repo).load().changes[change_id].bookmark
     assert bookmark is not None
     state_store = ReviewStateStore.for_repo(repo)
+    action_order: list[str] = []
+    original_delete_remote_bookmark = JjClient.delete_remote_bookmark
+    original_forget_bookmark = JjClient.forget_bookmark
+
+    def tracking_delete_remote_bookmark(
+        self,
+        *,
+        remote: str,
+        bookmark: str,
+        expected_remote_target: str,
+    ) -> None:
+        action_order.append("remote")
+        return original_delete_remote_bookmark(
+            self,
+            remote=remote,
+            bookmark=bookmark,
+            expected_remote_target=expected_remote_target,
+        )
+
+    def tracking_forget_bookmark(self, bookmark: str) -> None:
+        action_order.append("local")
+        return original_forget_bookmark(self, bookmark)
+
+    monkeypatch.setattr(
+        JjClient,
+        "delete_remote_bookmark",
+        tracking_delete_remote_bookmark,
+    )
+    monkeypatch.setattr(
+        JjClient,
+        "forget_bookmark",
+        tracking_forget_bookmark,
+    )
 
     exit_code = _main(repo, config_path, "close", "--apply", "--cleanup", change_id)
     captured = capsys.readouterr()
@@ -2219,6 +2252,7 @@ def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
     assert _issue_comments(fake_repo, 1) == []
     assert bookmark not in _remote_refs(fake_repo.git_dir)
     assert JjClient(repo).get_bookmark_state(bookmark).local_target is None
+    assert action_order == ["remote", "local"]
 
 
 def test_close_apply_rerun_is_idempotent(
@@ -2240,6 +2274,7 @@ def test_close_apply_rerun_is_idempotent(
     first_exit_code = _main(repo, config_path, "close", "--apply", change_id)
     capsys.readouterr()
     first_state = state_store.load()
+    del fake_repo.pull_requests[1]
 
     second_exit_code = _main(repo, config_path, "close", "--apply", change_id)
     captured = capsys.readouterr()
@@ -2248,9 +2283,44 @@ def test_close_apply_rerun_is_idempotent(
     assert first_exit_code == 0
     assert second_exit_code == 0
     assert "No managed open pull requests on the selected path." in captured.out
-    assert fake_repo.pull_requests[1].state == "closed"
     assert first_state.changes[change_id].pr_state == "closed"
     assert second_state.changes[change_id].pr_state == "closed"
+    assert 1 not in fake_repo.pull_requests
+
+
+def test_close_apply_cleanup_rerun_completes_after_prior_close_when_pr_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    bookmark = state_store.load().changes[change_id].bookmark
+    assert bookmark is not None
+
+    assert _main(repo, config_path, "close", "--apply", change_id) == 0
+    capsys.readouterr()
+    del fake_repo.pull_requests[1]
+
+    exit_code = _main(repo, config_path, "close", "--apply", "--cleanup", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert exit_code == 0
+    assert "Applied close actions:" in captured.out
+    assert refreshed_state.changes[change_id].pr_state == "closed"
+    assert refreshed_state.changes[change_id].stack_comment_id is None
+    assert _issue_comments(fake_repo, 1) == []
+    assert bookmark not in _remote_refs(fake_repo.git_dir)
+    assert JjClient(repo).get_bookmark_state(bookmark).local_target is None
 
 
 def test_close_apply_blocks_when_github_no_longer_reports_the_cached_pull_request(
@@ -2277,6 +2347,37 @@ def test_close_apply_blocks_when_github_no_longer_reports_the_cached_pull_reques
     assert exit_code == 1
     assert "GitHub no longer reports a pull request" in captured.out
     assert state_store.load() == initial_state
+
+
+def test_close_apply_cleanup_keeps_comment_cleanup_after_bookmark_block(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    bookmark = ReviewStateStore.for_repo(repo).load().changes[change_id].bookmark
+    assert bookmark is not None
+    initial_remote_target = _read_remote_ref(fake_repo.git_dir, bookmark)
+    _run(["jj", "bookmark", "move", "--allow-backwards", bookmark, "--to", "main"], repo)
+
+    exit_code = _main(repo, config_path, "close", "--apply", "--cleanup", change_id)
+    captured = capsys.readouterr()
+    local_target = JjClient(repo).get_bookmark_state(bookmark).local_target
+
+    assert exit_code == 1
+    assert "Close blocked:" in captured.out
+    assert _issue_comments(fake_repo, 1) == []
+    assert local_target == _read_remote_ref(fake_repo.git_dir, "main")
+    assert _read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
+    assert fake_repo.pull_requests[1].state == "closed"
 
 
 def test_close_apply_closes_discovered_pull_request_after_sparse_state_loss(
@@ -2320,6 +2421,18 @@ def test_close_apply_cleanup_exits_nonzero_when_cleanup_is_blocked(
 
     stack = JjClient(repo).discover_review_stack()
     change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    cached_change = state_store.load().changes[change_id]
+    state_store.save(
+        state_store.load().model_copy(
+            update={
+                "changes": {
+                    **state_store.load().changes,
+                    change_id: cached_change.model_copy(update={"stack_comment_id": None}),
+                }
+            }
+        )
+    )
     fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=1)
 
     exit_code = _main(repo, config_path, "close", "--apply", "--cleanup", change_id)
