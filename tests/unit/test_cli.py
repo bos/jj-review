@@ -511,6 +511,36 @@ def test_main_import_renders_up_to_date_output(
     assert "No reviewable commits" not in captured.out
 
 
+def test_main_import_renders_unavailable_github_line(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+
+    def fake_run_import(**kwargs):
+        return SimpleNamespace(
+            actions=(),
+            github_error=None,
+            github_repository=None,
+            remote=None,
+            remote_error=None,
+            reviewable_revision_count=0,
+            selected_revset="@",
+            selector="--current",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_import", fake_run_import)
+
+    exit_code = main(["import", "--repository", str(tmp_path), "--current"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Selected remote: unavailable" in captured.out
+    assert "GitHub: unavailable" in captured.out
+    assert "GitHub target:" not in captured.out
+
+
 def test_main_land_renders_planned_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

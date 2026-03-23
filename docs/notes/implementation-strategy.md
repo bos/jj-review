@@ -978,6 +978,8 @@ This slice is done when:
   shapes fail with targeted recovery guidance
 - rerunning `import` on an already-materialized stack reports that the local
   review state is already up to date instead of claiming the stack is empty
+- import output always reports GitHub availability explicitly, even when no
+  selected remote or repository target is available
 - `--current` import failures are explicit when the current local path has no
   discoverable remote review linkage
 - stale local cache state is refreshed only when fetched linkage for the exact

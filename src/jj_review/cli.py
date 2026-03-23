@@ -1185,8 +1185,10 @@ def _import_handler(args: Namespace) -> int:
     else:
         print(f"Selected remote: {result.remote.name}")
     if result.github_repository is None:
-        if result.github_error is not None:
-            print(f"GitHub target: unavailable ({result.github_error})")
+        if result.github_error is None:
+            print("GitHub: unavailable")
+        else:
+            print(f"GitHub: unavailable ({result.github_error})")
     else:
         print(f"GitHub: {result.github_repository}")
     if result.actions:
