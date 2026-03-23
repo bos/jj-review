@@ -342,6 +342,7 @@ def test_main_land_renders_planned_output(
             ),
             applied=False,
             blocked=False,
+            expect_pr_number=7,
             follow_up=None,
             github_repository="octo-org/stacked-review",
             remote_name="origin",
@@ -369,7 +370,54 @@ def test_main_land_renders_planned_output(
     assert "GitHub: octo-org/stacked-review" in captured.out
     assert "Planned land actions:" in captured.out
     assert "- [planned] trunk: push main to feature 1 [aaaaaaaa]" in captured.out
-    assert "Re-run with `land --apply @-`" in captured.out
+    assert "Re-run with `land --apply --expect-pr 7 @-`" in captured.out
+
+
+def test_main_land_renders_blocked_output_without_apply_hint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+
+    def fake_run_land(**kwargs):
+        return SimpleNamespace(
+            actions=(
+                SimpleNamespace(
+                    kind="guardrail",
+                    message="`--expect-pr 7` did not match the selected landable prefix.",
+                    status="blocked",
+                ),
+            ),
+            applied=False,
+            blocked=True,
+            expect_pr_number=7,
+            follow_up=None,
+            github_repository="octo-org/stacked-review",
+            remote_name="origin",
+            selected_revset="@-",
+            trunk_branch="main",
+            trunk_subject="base",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_land", fake_run_land)
+
+    exit_code = main(
+        [
+            "land",
+            "--repository",
+            str(tmp_path),
+            "--expect-pr",
+            "7",
+            "@-",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Land blocked:" in captured.out
+    assert "- [blocked] guardrail:" in captured.out
+    assert "Re-run with `land --apply" not in captured.out
 
 
 def test_main_submit_passes_dry_run_and_renders_planned_output(

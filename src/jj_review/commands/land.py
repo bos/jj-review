@@ -7,16 +7,18 @@ import json
 import os
 import re
 import tempfile
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 from urllib.parse import urlparse
 
 from jj_review.commands.review_state import (
     PreparedStatus,
     ReviewStatusRevision,
+    StatusResult,
     prepare_status,
     stream_status,
 )
@@ -36,8 +38,10 @@ from jj_review.intent import (
     retire_superseded_intents,
     write_intent,
 )
+from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.cache import CachedChange
-from jj_review.models.intent import LandIntent
+from jj_review.models.github import GithubPullRequest
+from jj_review.models.intent import LandIntent, LoadedIntent
 
 LandActionStatus = Literal["applied", "blocked", "planned"]
 _PULL_REQUEST_URL_RE = re.compile(
@@ -65,6 +69,7 @@ class LandResult:
     actions: tuple[LandAction, ...]
     applied: bool
     blocked: bool
+    expect_pr_number: int | None
     follow_up: str | None
     github_repository: str
     remote_name: str
@@ -131,6 +136,29 @@ class _ResumeLandIntent:
     intent: LandIntent
     path: Path
     mode: Literal["exact-path", "tail-after-landed-prefix"]
+
+
+class _BookmarkStateReader(Protocol):
+    """Subset of the jj client interface needed for trunk bookmark inspection."""
+
+    def get_bookmark_state(self, bookmark: str) -> BookmarkState:
+        """Return local and remote state for the named bookmark."""
+
+
+class _BookmarkRestorer(Protocol):
+    """Subset of the jj client interface needed for local trunk restoration."""
+
+    def forget_bookmark(self, bookmark: str) -> None:
+        """Forget a local bookmark."""
+
+    def set_bookmark(
+        self,
+        bookmark: str,
+        revision: str,
+        *,
+        allow_backwards: bool = False,
+    ) -> None:
+        """Create or move a local bookmark."""
 
 
 def run_land(
@@ -281,7 +309,8 @@ async def _stream_land_async(*, prepared_land: PreparedLand, status_result) -> L
                 actions=preview_actions,
                 applied=False,
                 blocked=plan.blocked,
-                follow_up=follow_up,
+                expect_pr_number=prepared_land.expect_pr_number,
+                follow_up=None if plan.blocked else follow_up,
                 github_repository=github_repository.full_name,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
@@ -367,6 +396,7 @@ async def _stream_land_async(*, prepared_land: PreparedLand, status_result) -> L
                 ),
                 applied=True,
                 blocked=False,
+                expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=follow_up,
                 github_repository=github_repository.full_name,
                 remote_name=remote.name,
@@ -377,15 +407,14 @@ async def _stream_land_async(*, prepared_land: PreparedLand, status_result) -> L
 
         if not execution_plan.push_trunk and not execution_plan.landed_revisions:
             raise AssertionError("Resume execution without remaining work must be handled above.")
-        if execution_plan.blocked or (
-            execution_plan.push_trunk and not execution_plan.landed_revisions
-        ):
+        if execution_plan.blocked:
             preview_actions = _planned_land_actions(plan=execution_plan)
             return LandResult(
                 actions=preview_actions,
                 applied=False,
                 blocked=execution_plan.blocked,
-                follow_up=follow_up,
+                expect_pr_number=prepared_land.expect_pr_number,
+                follow_up=None,
                 github_repository=github_repository.full_name,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
@@ -421,7 +450,7 @@ async def _stream_land_async(*, prepared_land: PreparedLand, status_result) -> L
                         execution_plan.landed_revisions[-1].commit_id,
                     )
                     prepared.client.push_bookmark(remote=remote.name, bookmark=trunk_branch)
-                except Exception:
+                except BaseException:
                     _restore_local_trunk_bookmark(
                         client=prepared.client,
                         original_target=original_trunk_target,
@@ -440,6 +469,11 @@ async def _stream_land_async(*, prepared_land: PreparedLand, status_result) -> L
                     )
                 )
             for landed_revision in execution_plan.landed_revisions:
+                print(
+                    f"Finalizing PR #{landed_revision.pull_request_number} for "
+                    f"{landed_revision.subject} "
+                    f"[{_short_change_id(landed_revision.change_id)}]..."
+                )
                 final_pull_request = await _finalize_landed_pull_request(
                     cached_change=state_changes.get(landed_revision.change_id),
                     github_client=github_client,
@@ -482,6 +516,7 @@ async def _stream_land_async(*, prepared_land: PreparedLand, status_result) -> L
                 actions=tuple(actions),
                 applied=True,
                 blocked=False,
+                expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=follow_up,
                 github_repository=github_repository.full_name,
                 remote_name=remote.name,
@@ -515,22 +550,27 @@ def _build_land_plan(
     *,
     expect_pr_number: int | None,
     prepared_status: PreparedStatus,
-    status_result,
+    status_result: StatusResult,
     trunk_branch: str,
 ) -> _LandPlan:
     revisions_by_change_id = {
         revision.change_id: revision for revision in status_result.revisions
     }
-    path_revisions = tuple(
-        revisions_by_change_id[prepared_revision.revision.change_id]
-        for prepared_revision in prepared_status.prepared.status_revisions
-    )
+    path_revisions: list[ReviewStatusRevision] = []
+    for prepared_revision in prepared_status.prepared.status_revisions:
+        change_id = prepared_revision.revision.change_id
+        revision = revisions_by_change_id.get(change_id)
+        if revision is None:
+            raise AssertionError(
+                f"Prepared land revision {change_id!r} is missing from the status result."
+            )
+        path_revisions.append(revision)
 
     landed_revisions: list[_LandRevision] = []
     boundary_action: LandAction | None = None
     for prepared_revision, revision in zip(
         prepared_status.prepared.status_revisions,
-        path_revisions,
+        tuple(path_revisions),
         strict=True,
     ):
         boundary_message = _land_boundary_message(
@@ -644,6 +684,9 @@ def _land_boundary_message(*, prepared_revision, revision: ReviewStatusRevision)
 
 
 def _planned_land_actions(*, plan: _LandPlan) -> tuple[LandAction, ...]:
+    if plan.blocked:
+        return () if plan.boundary_action is None else (plan.boundary_action,)
+
     actions: list[LandAction] = []
     if plan.push_trunk and plan.landed_revisions:
         actions.append(
@@ -815,7 +858,7 @@ def _find_resume_land_intent(
     *,
     expect_pr_number: int | None,
     prepared_status: PreparedStatus,
-    stale_intents,
+    stale_intents: Sequence[LoadedIntent],
     trunk_branch: str,
 ) -> _ResumeLandIntent | None:
     current_change_ids = _ordered_change_ids(prepared_status)
@@ -855,7 +898,7 @@ def _find_resume_land_intent(
 
 def _remote_trunk_matches_commit(
     *,
-    client,
+    client: _BookmarkStateReader,
     remote_name: str,
     trunk_branch: str,
     commit_id: str,
@@ -900,7 +943,7 @@ def _resume_land_plan(*, intent: LandIntent, trunk_branch: str) -> _LandPlan:
 
 def _restore_local_trunk_bookmark(
     *,
-    client,
+    client: _BookmarkRestorer,
     original_target: str | None,
     trunk_branch: str,
 ) -> None:
@@ -926,7 +969,7 @@ def _follow_up_message(
 
 def _ensure_trunk_branch_matches_selected_trunk(
     *,
-    client,
+    client: _BookmarkStateReader,
     remote_name: str,
     trunk_branch: str,
     trunk_commit_id: str,
@@ -939,8 +982,8 @@ def _ensure_trunk_branch_matches_selected_trunk(
     local_target = bookmark_state.local_target
     if local_target is not None and local_target != trunk_commit_id:
         raise LandError(
-            f"Local trunk bookmark {trunk_branch!r} no longer matches `trunk()`. Refresh the "
-            "local trunk state before retrying."
+            f"Local trunk bookmark {trunk_branch!r} no longer matches `trunk()`. Refresh or "
+            "restore the local trunk state before retrying."
         )
 
     remote_state = bookmark_state.remote_target(remote_name)
@@ -968,7 +1011,7 @@ async def _finalize_landed_pull_request(
     github_repository: ResolvedGithubRepository,
     landed_revision: _LandRevision,
     trunk_branch: str,
-):
+) -> GithubPullRequest:
     try:
         pull_request = await github_client.get_pull_request(
             github_repository.owner,
@@ -1032,7 +1075,7 @@ def _updated_landed_change(
     bookmark: str,
     cached_change: CachedChange | None,
     commit_id: str,
-    pull_request,
+    pull_request: GithubPullRequest,
 ) -> CachedChange:
     pr_state = pull_request.state
     if pull_request.merged_at is not None:

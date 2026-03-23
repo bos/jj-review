@@ -913,9 +913,9 @@ This slice is now in place with the current implementation:
   silently bypass preview invalidation
 - land now constructs the landed trunk history locally in `jj`, preserving the
   landed prefix as multiple commits, then updates trunk with a leased push
-- if the trunk push fails, the local trunk bookmark is restored before the
-  command exits so a rejected remote update does not silently rewrite local
-  trunk state
+- if the trunk push fails or is interrupted after the local bookmark move, the
+  local trunk bookmark is restored before the command exits so a rejected
+  remote update does not silently rewrite local trunk state
 - the local-trunk-first landing path is intentional, so trunk protection and
   trunk checks gate the push while `review/*` protection only prevents direct
   review-branch merges

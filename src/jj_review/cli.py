@@ -24,7 +24,7 @@ from jj_review.commands.cleanup import (
     stream_cleanup,
     stream_restack,
 )
-from jj_review.commands.land import run_land
+from jj_review.commands.land import LandResult, run_land
 from jj_review.commands.review_state import prepare_status, stream_status
 from jj_review.commands.submit import run_submit
 from jj_review.errors import CliError, CommandNotImplementedError
@@ -1006,16 +1006,33 @@ def _land_handler(args: Namespace) -> int:
     print(f"GitHub: {result.github_repository}")
     print(f"Trunk: {result.trunk_subject} -> {result.trunk_branch}")
     if result.actions:
-        header = "Applied land actions:" if result.applied else "Planned land actions:"
+        if result.applied:
+            header = "Applied land actions:"
+        elif result.blocked:
+            header = "Land blocked:"
+        else:
+            header = "Planned land actions:"
         print(header)
         for action in result.actions:
             print(f"- [{action.status}] {action.kind}: {action.message}")
     if result.follow_up is not None:
         print(result.follow_up)
     if not result.applied and not result.blocked:
-        suffix = f" {result.selected_revset}" if result.selected_revset else ""
-        print(f"Re-run with `land --apply{suffix}` to update trunk and finalize the prefix.")
+        print(
+            "Re-run with "
+            f"`{_format_land_apply_command(result)}` "
+            "to update trunk and finalize the prefix."
+        )
     return 1 if result.blocked else 0
+
+
+def _format_land_apply_command(result: LandResult) -> str:
+    parts = ["land", "--apply"]
+    if result.expect_pr_number is not None:
+        parts.extend(("--expect-pr", str(result.expect_pr_number)))
+    if result.selected_revset:
+        parts.append(result.selected_revset)
+    return " ".join(parts)
 
 
 def _stub_handler(command: str):

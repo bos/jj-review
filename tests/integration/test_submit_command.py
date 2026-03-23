@@ -2905,6 +2905,8 @@ def test_land_previews_and_applies_trunk_open_prefix(
     applied = capsys.readouterr()
 
     assert apply_exit_code == 0
+    assert "Finalizing PR #1 for feature 1" in applied.out
+    assert "Finalizing PR #2 for feature 2" in applied.out
     assert "Applied land actions:" in applied.out
     assert "cleanup --restack @-" in applied.out
     assert "submit @-" in applied.out
@@ -3005,6 +3007,39 @@ def test_land_restores_local_trunk_bookmark_when_push_fails(
     assert JjClient(repo).get_bookmark_state("main").local_target == trunk_before
     assert _read_remote_ref(fake_repo.git_dir, "main") == remote_before
     monkeypatch.setattr(JjClient, "push_bookmark", original_push_bookmark)
+
+
+def test_land_restores_local_trunk_bookmark_when_push_is_interrupted(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    for index in range(2):
+        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+    assert _main(repo, config_path, "land", "--current") == 0
+    capsys.readouterr()
+
+    client = JjClient(repo)
+    trunk_before = client.get_bookmark_state("main").local_target
+    remote_before = _read_remote_ref(fake_repo.git_dir, "main")
+
+    def interrupt_push_bookmark(self, *, remote: str, bookmark: str) -> None:
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(JjClient, "push_bookmark", interrupt_push_bookmark)
+
+    exit_code = _main(repo, config_path, "land", "--current", "--apply")
+    captured = capsys.readouterr()
+
+    assert exit_code == 130
+    assert "Interrupted." in captured.err
+    assert JjClient(repo).get_bookmark_state("main").local_target == trunk_before
+    assert _read_remote_ref(fake_repo.git_dir, "main") == remote_before
 
 
 def test_land_rejects_pre_push_resume_when_plan_changed_since_preview(
