@@ -67,3 +67,17 @@ GitHub has a native draft PR concept (visible but not reviewable or mergeable
 until marked ready). We should eventually support creating PRs as drafts and
 promoting them, but the semantics need to be designed before adding it. Deferred
 from MVP.
+
+## Repo-Scoped Sync
+
+The post-MVP `import` design covers explicit stack materialization for one
+selected review stack, and `status --fetch` remains the read-only refresh
+primitive.
+
+The remaining open question is whether the product should also grow a
+repo-scoped `sync` command that:
+
+- refreshes remote review observations across more than one selected stack
+- decides when local bookmark materialization should happen automatically
+- coordinates with `cleanup --restack` without turning refresh into implicit
+  history repair

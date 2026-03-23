@@ -908,6 +908,49 @@ Done when:
 - exact post-landing bookkeeping is limited to the landed prefix, while
   broader stale-state cleanup remains a separate `cleanup` concern
 
+### Post-MVP: Stack Import
+
+Cross-machine bootstrap and remote-stack materialization should stay separate
+from both read-only refresh and local ancestry repair.
+
+The CLI contract should be:
+
+- `jj review import [--edit] (--pull-request <pr> | --head <bookmark> |
+  --current | --revset <revset>)`
+- no overloaded positional selector that could mean either a revset or a PR
+- no implicit workspace motion in the default mode
+
+The product-level split should be:
+
+- `status --fetch` refreshes remote observations and GitHub linkage without
+  mutating local review bookmarks or the workspace
+- `import` materializes sparse local review state for one exact stack
+- `cleanup --restack` remains the local-history repair path after merges or
+  other ancestry damage
+
+The implementation needs explicit rules for what `import` may mutate:
+
+- refresh cache entries only for the selected stack
+- create or refresh local synthetic review bookmarks only when the target is
+  exact and unambiguous
+- if `--edit` is requested, apply one explicit `jj`-native workspace
+  transition rule and fail closed on dirty or stale workspaces
+- do not rewrite commits, restack descendants, or mutate GitHub state
+
+Done when:
+
+- a user can bootstrap an existing review stack on a new machine from an
+  explicit PR or review-branch selector
+- remote-only review branches can be materialized into sparse local state
+  without inventing topology from cache
+- bookmark ownership conflicts, ambiguous PR linkage, and unsupported stack
+  shapes fail with targeted recovery guidance
+- `--edit` behavior is precise, testable, and blocked on dirty or stale
+  workspaces instead of guessing what the operator meant
+
+Backlog should keep repo-scoped `sync` as a separate question. This slice
+solves explicit import/materialization, not whole-repo refresh policy.
+
 ## Error Handling Strategy
 
 Errors should be explicit and actionable.

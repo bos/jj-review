@@ -464,6 +464,66 @@ These commands are not sources of truth either. They are operator-driven ways
 to reattach GitHub state to a `jj`-derived stack after damage, cross-machine
 work, or manual edits on GitHub.
 
+Post-MVP, the tool should add an explicit stack materialization command for
+the cross-machine case:
+
+- `jj review import [--edit] (--pull-request <pr> | --head <bookmark> |
+  --current | --revset <revset>)` fetches remote review state, resolves one
+  exact review stack, and materializes sparse local review state for that
+  stack without mutating GitHub
+
+The selector should stay explicit and collision-free. In particular, the
+command should not overload a bare positional argument to mean either a revset
+or a PR number.
+
+Its default job is local materialization, not workspace motion:
+
+- fetch remote bookmark observations as needed
+- resolve the selected stack from a PR head branch, a specific review branch,
+  or an explicitly selected local path
+- refresh sparse cache entries only for that exact stack
+- create or refresh local synthetic review bookmarks only when the target is
+  exact, same-repository, and unambiguous
+
+Its default job is not:
+
+- rewriting commits
+- restacking descendants
+- opening, closing, or mutating PRs
+- deleting local history
+
+If the user wants to start editing from the imported head, they should opt in
+explicitly with `--edit`. That mode should follow `jj`-native workspace rules:
+
+- it should require a clean, non-stale workspace before moving anything
+- it should use one precise workspace transition rule when implemented, rather
+  than implicitly choosing between `jj edit`, `jj new`, or another operation
+- if the workspace is dirty or stale, it should fail closed and point the user
+  to plain `jj` repair commands instead of moving the workspace underneath
+  local edits
+
+This keeps the command honest: `import` materializes sparse local review state;
+`--edit` is the explicit "focus this workspace on the imported stack" step.
+
+Failure guidance should stay narrow and specific:
+
+- if the PR head branch is missing, cross-repository, or ambiguous, fail closed
+  and explain that the selected review cannot be imported safely
+- if multiple PRs match the same head branch, point the operator to
+  `jj review status --fetch` and `jj review adopt`
+- if the fetched stack shape is unsupported locally, point the operator to
+  `jj review cleanup --restack` only when the problem is local ancestry rather
+  than remote identity
+- if a local bookmark already points somewhere else, stop and require an
+  explicit repair step instead of stealing ownership silently
+- if `--edit` was requested and the workspace is stale, point the user to
+  `jj workspace update-stale`
+
+`jj review status --fetch` should remain the read-only refresh path, while
+`jj review import` is the explicit materialization path. A repo-scoped `sync`
+command remains a separate post-MVP question rather than being folded into
+either command prematurely.
+
 ## Rewrite Behavior
 
 This design behaves well under normal `jj` rewrite-heavy workflows:
@@ -509,6 +569,8 @@ The tool can stay small. A reasonable surface would be:
 - `jj review status [--fetch] [<revset>]`
 - `jj review adopt <pr> [--current | <revset>]`
 - `jj review cleanup [--restack] [--apply] [--current | <revset>]`
+- `jj review import [--edit] (--pull-request <pr> | --head <bookmark> |
+  --current | --revset <revset>)` (post-MVP)
 - `jj review land [--apply] [--expect-pr <pr>] [--current | <revset>]`
   (post-MVP)
 
@@ -516,6 +578,7 @@ Target selection should stay explicit:
 
 - `submit` and `adopt` require one explicit selector, either `<revset>` or
   `--current`
+- `import` should require exactly one explicit selector when it is introduced
 - `land` should require the same explicit selector when it is introduced
 - `cleanup --restack --apply` likewise requires one explicit selector
 - `status` and `cleanup --restack` preview may still omit both and inspect the
