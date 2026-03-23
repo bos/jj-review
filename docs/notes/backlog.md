@@ -73,6 +73,20 @@ The remaining follow-up is narrower:
 - decide whether future metadata/config support should let some changes default
   to draft creation without requiring `submit --draft`
 
+## Re-Request Review
+
+A future `submit --re-request-review` style option may be worthwhile for the
+"addressed feedback, please look again" workflow.
+
+The feature concept is straightforward, but the source of truth for "who
+should be re-requested" is not. Possible inputs include the current requested
+reviewer list on GitHub, prior review authors, or tool-configured reviewers,
+and each choice has surprising edge cases once reviewers are added, removed,
+or changed outside `jj-review`.
+
+Design separately before implementing so the eventual UX is explicit about
+which reviewer set it uses and when notifications are sent.
+
 ## Repo-Scoped Sync
 
 A future `import` design covers explicit stack materialization for one
