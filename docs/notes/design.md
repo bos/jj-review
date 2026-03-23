@@ -877,6 +877,9 @@ This design also needs to respect the recommended GitHub policy above:
   repository policy and branch protection
 - `land` merges onto trunk, not into synthetic review bases, and it does not
   delegate the history shape to GitHub's PR merge UI
+- that bypass is intentional: trunk branch protection and required checks gate
+  landing, while `review/*` protection exists to block accidental direct merges
+  into review branches rather than to act as the landing gate
 
 That means `land` owns the merge transition for the landed prefix, while
 `review/*` branches remain projected review state rather than merge targets in
@@ -915,6 +918,9 @@ successful landing transition:
 - update local sparse review state for the landed prefix
 - close or mark landed only the PRs that correspond exactly to the landed
   prefix, once the trunk transition succeeds
+- apply that PR finalization bottom-to-top through the landed prefix so the
+  GitHub-side state changes follow the same stack order as submission and
+  landing
 - if there are surviving descendants above the landed prefix, tell the
   operator to repair local ancestry with `jj review cleanup --restack` and
   then rerun `submit`; `land` should not silently retarget or restack those

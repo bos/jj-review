@@ -240,6 +240,11 @@ It should know how to:
 - manage reviewer-facing stack metadata
 - perform any endpoint-specific pagination or retry behavior
 
+When endpoint semantics allow it, the client and command layers should prefer
+batched or bounded-parallel GitHub work over one-request-per-item serial loops.
+Ordering constraints should still be explicit at the command layer when the
+visible result needs a specific sequence.
+
 It should not decide stack topology or branch naming policy.
 
 ### Config and Review State
@@ -906,10 +911,16 @@ Done when:
   or PR/linkage state changed materially
 - land now constructs the landed trunk history locally in `jj`, preserving the
   landed prefix as multiple commits, then updates trunk with a leased push
+- the local-trunk-first landing path is intentional, so trunk protection and
+  trunk checks gate the push while `review/*` protection only prevents direct
+  review-branch merges
 - review-only `review/*` branches are not themselves merged directly
 - surviving descendants above the landed prefix are left for follow-up
   `cleanup --restack` and `submit`, rather than being silently retargeted or
   restacked during `land`
+- post-land PR finalization for the landed prefix happens bottom-to-top, even
+  if surrounding GitHub lookups or other independent work use batching or
+  bounded parallelism
 - retries after an interrupted land are idempotent at each phase boundary
 - exact post-landing bookkeeping is limited to the landed prefix, while
   broader stale-state cleanup remains a separate `cleanup` concern
