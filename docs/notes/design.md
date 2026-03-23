@@ -333,9 +333,17 @@ Given a selected head revision:
 5. Query GitHub for the PR state of those review branches.
    - if cached linkage and GitHub-discovered linkage disagree, stop and require
      an explicit recovery flow instead of silently creating a replacement PR
-   - for now, derive the PR title from the commit subject and the PR body
-     from the remaining commit description; generated stack metadata is added
-     later and is not part of this slice
+   - by default, derive the PR title from the commit subject and the PR body
+     from the remaining commit description
+   - `submit --describe-with <helper>` may replace that default mapping by
+     invoking the helper once per review unit as `helper --pr <change_id>`
+   - the same helper may also be invoked once per selected stack as
+     `helper --stack <selected-revset>`; that output is prepended to the
+     managed reviewer-facing stack comment when the selected path contains
+     more than one review unit, and does not become a separate source of
+     truth for topology
+   - helper output must be structured and fail closed; invalid helper output
+     should abort submit before remote or GitHub mutation
 6. Treat merged ancestors as no longer reviewable. For each remaining change
    from bottom to top:
    - ensure the local bookmark points at the current visible commit for that change
@@ -375,6 +383,15 @@ Given a selected head revision:
 This bottom-up ordering matches the dependency order in the stack, and the
 parent relationship is derived from the DAG rather than loaded from side
 metadata.
+
+For a selected path with exactly one review unit, submit should behave like a
+plain PR projection:
+
+- no stack-specific helper invocation
+- no reviewer-facing stack comment
+
+There is no meaningful stack metadata to project when the selected review path
+contains only one PR.
 
 ## Recovery and Repair
 
@@ -1025,8 +1042,9 @@ The current design intentionally rejects:
 
 ## Open Questions
 
-1. Should the tool eventually support PR title/body templates beyond the raw
-   commit description mapping used today?
+1. Should the tool eventually pass richer structured context to
+   `--describe-with` helpers, or should the helper interface stay limited to
+   `--pr <revset>` / `--stack <revset>` and JSON stdout?
 2. Should abandoned or split PRs be auto-closed, or only surfaced as cleanup
    suggestions?
 

@@ -644,6 +644,13 @@ Implemented in a follow-up:
   "new PRs only" mode
 - `submit` now accepts `--reviewers` and `--team-reviewers` as one-shot
   overrides for the configured reviewer defaults
+- `submit` now accepts `-d` / `--describe-with` to invoke one external helper
+  as `helper --pr <change_id>` for each pull request and `helper --stack
+  <selected-revset>` once for stack-comment prose; the helper returns JSON
+  `title` / `body` fields and invalid helper output aborts submit before any
+  local, remote, or GitHub mutation
+- stack helper invocation is skipped when the selected path contains only one
+  review unit, because no stack comment will be created in that case
 - the submit CLI now prints the selected revset and remote promptly, then
   renders the final ordered review summary once the submit phases complete,
   instead of trying to stream per-revision mutation progress inline
@@ -671,6 +678,21 @@ Implemented with one dedicated PR comment per review unit, marked so `submit`
 can rediscover it when cached comment IDs are missing. The comment body is
 regenerated from the current submitted stack on every run and is never used as
 the source of truth for topology.
+
+Single-review-unit submits are treated as plain PRs rather than stacks: they
+skip the managed stack comment entirely, and `--describe-with` does not invoke
+the stack helper for that case.
+
+The same managed comment now also accepts an optional generated stack-summary
+prefix from `submit --describe-with`; that prose is rendered ahead of the
+standard previous/current/next navigation block so the product still owns only
+one managed reviewer-facing comment per PR.
+
+The repo now also includes three no-dependency example helpers in `scripts/`:
+
+- `describe_with_prompt.py` for interactive local entry on a TTY
+- `describe_with_claude.py` for Claude Code
+- `describe_with_codex.py` for Codex CLI
 
 Done when:
 

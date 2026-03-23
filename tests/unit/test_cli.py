@@ -822,6 +822,44 @@ def test_main_submit_passes_reviewer_overrides_to_submit_runner(
     assert "No reviewable commits" in captured.out
 
 
+def test_main_submit_passes_describe_with_to_submit_runner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    describe_with_calls: list[str | None] = []
+
+    def fake_run_submit(**kwargs):
+        describe_with_calls.append(kwargs["describe_with"])
+        return SimpleNamespace(
+            dry_run=False,
+            remote=SimpleNamespace(name="origin"),
+            revisions=(),
+            selected_revset="@",
+            trunk_branch="main",
+            trunk_subject="base",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+
+    exit_code = main(
+        [
+            "submit",
+            "-d",
+            "scripts/describe_with_codex.py",
+            "--current",
+            "--repository",
+            str(tmp_path),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert describe_with_calls == ["scripts/describe_with_codex.py"]
+    assert "No reviewable commits" in captured.out
+
+
 def test_main_submit_prints_final_output_without_duplicate_lines(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

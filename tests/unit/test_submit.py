@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from jj_review.bookmarks import ResolvedBookmark
 from jj_review.commands.submit import (
+    GeneratedDescription,
     SubmitBookmarkCollisionError,
     SubmitBookmarkConflictError,
     SubmitBookmarkResolutionError,
+    SubmitDescriptionCommandError,
     SubmitGithubResolutionError,
     SubmitPrivateCommitError,
     SubmitPullRequestResolutionError,
@@ -27,8 +31,11 @@ from jj_review.commands.submit import (
     _github_token_from_gh_cli,
     _preflight_private_commits,
     _remote_is_up_to_date,
+    _render_generated_stack_description,
     _repair_interrupted_untracked_remote_bookmarks,
+    _resolve_generated_descriptions,
     _resolve_local_action,
+    _run_description_command,
     _should_update_untracked_remote_with_git,
     resolve_github_repository,
     resolve_trunk_branch,
@@ -229,6 +236,88 @@ def test_github_token_for_base_url_prefers_environment_over_gh_cli(
     monkeypatch.setattr("jj_review.commands.submit.subprocess.run", fail_if_called)
 
     assert _github_token_for_base_url("https://api.github.com") == "github-token"
+
+
+def test_run_description_command_returns_title_and_body(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def fake_run(command, *, capture_output, check, cwd, text):
+        assert command == ["helper", "--pr", "abc123"]
+        assert capture_output is True
+        assert check is False
+        assert cwd == tmp_path
+        assert text is True
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout='{"title":"generated title","body":"generated body"}\n',
+            stderr="",
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit.subprocess.run", fake_run)
+
+    assert _run_description_command(
+        command="helper",
+        kind="pr",
+        repo_root=tmp_path,
+        revset="abc123",
+    ) == GeneratedDescription(title="generated title", body="generated body")
+
+
+def test_run_description_command_rejects_invalid_json(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def fake_run(command, *, capture_output, check, cwd, text):
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout="not json\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit.subprocess.run", fake_run)
+
+    with pytest.raises(SubmitDescriptionCommandError, match="invalid JSON"):
+        _run_description_command(
+            command="helper",
+            kind="stack",
+            repo_root=tmp_path,
+            revset="@",
+        )
+
+
+def test_resolve_generated_descriptions_uses_default_commit_mapping(tmp_path: Path) -> None:
+    revisions = (
+        _make_revision(
+            commit_id="head",
+            change_id="head-change",
+            description="feature\n\nbody line\n",
+        ),
+    )
+
+    descriptions, stack_description = _resolve_generated_descriptions(
+        describe_with=None,
+        repo_root=tmp_path,
+        revisions=revisions,
+        selected_revset="@",
+    )
+
+    assert descriptions == {
+        "head-change": GeneratedDescription(title="feature", body="body line")
+    }
+    assert stack_description is None
+
+
+def test_render_generated_stack_description_omits_empty_fields() -> None:
+    assert _render_generated_stack_description(None) == []
+    assert _render_generated_stack_description(
+        GeneratedDescription(title="stack title", body="")
+    ) == ["## stack title"]
+    assert _render_generated_stack_description(
+        GeneratedDescription(title="", body="stack body")
+    ) == ["stack body"]
 
 
 def test_resolve_trunk_branch_prefers_configured_branch() -> None:

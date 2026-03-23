@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 from collections import defaultdict
@@ -76,6 +77,10 @@ class SubmitPrivateCommitError(CliError):
 
 class SubmitStackCommentError(CliError):
     """Raised when `submit` cannot create or update stack metadata comments."""
+
+
+class SubmitDescriptionCommandError(CliError):
+    """Raised when `submit` cannot generate metadata through a helper command."""
 
 
 LocalBookmarkAction = Literal["created", "moved", "unchanged"]
@@ -154,6 +159,14 @@ class PullRequestSyncResult:
 
 
 @dataclass(frozen=True, slots=True)
+class GeneratedDescription:
+    """Generated title/body pair for a pull request or stack summary."""
+
+    body: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedSubmitRevision:
     """Local submit state gathered before remote and GitHub mutation."""
 
@@ -181,6 +194,7 @@ class PendingPullRequestSync:
 
     base_branch: str
     discovered_pull_request: GithubPullRequest | None
+    generated_description: GeneratedDescription
     prepared_revision: PreparedSubmitRevision
 
 
@@ -252,6 +266,7 @@ def run_submit(
     *,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
+    describe_with: str | None = None,
     draft_mode: SubmitDraftMode = "default",
     dry_run: bool = False,
     on_prepared: Callable[[str, GitRemote, bool], None] | None = None,
@@ -270,6 +285,7 @@ def run_submit(
         _run_submit_async(
             change_overrides=change_overrides,
             config=config,
+            describe_with=describe_with,
             draft_mode=draft_mode,
             dry_run=dry_run,
             on_prepared=on_prepared,
@@ -288,6 +304,7 @@ async def _run_submit_async(
     *,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
+    describe_with: str | None,
     draft_mode: SubmitDraftMode,
     dry_run: bool,
     on_prepared: Callable[[str, GitRemote, bool], None] | None,
@@ -324,6 +341,15 @@ async def _run_submit_async(
     ).pin_revisions(stack.revisions)
     _ensure_unique_bookmarks(bookmark_result.resolutions)
     _preflight_private_commits(client, stack.revisions)
+    (
+        generated_pull_request_descriptions,
+        generated_stack_description,
+    ) = _resolve_generated_descriptions(
+        describe_with=describe_with,
+        repo_root=repo_root,
+        selected_revset=stack.selected_revset,
+        revisions=stack.revisions,
+    )
 
     if not stack.revisions:
         if bookmark_result.changed and not dry_run:
@@ -512,10 +538,12 @@ async def _run_submit_async(
                 state_store=state_store,
                 team_reviewers=resolved_team_reviewers,
                 trunk_branch=trunk_branch,
+                generated_descriptions=generated_pull_request_descriptions,
             )
 
             await _sync_stack_comments(
                 dry_run=dry_run,
+                generated_stack_description=generated_stack_description,
                 github_client=github_client,
                 github_repository=github_repository,
                 revisions=submitted_revisions,
@@ -909,6 +937,108 @@ def _save_submit_state_checkpoint(
     state_store.save(interim_state)
 
 
+def _resolve_generated_descriptions(
+    *,
+    describe_with: str | None,
+    repo_root: Path,
+    revisions: tuple[Any, ...],
+    selected_revset: str,
+) -> tuple[dict[str, GeneratedDescription], GeneratedDescription | None]:
+    if describe_with is None:
+        return (
+            {
+                revision.change_id: GeneratedDescription(
+                    body=_pull_request_body(revision.description),
+                    title=revision.subject,
+                )
+                for revision in revisions
+            },
+            None,
+        )
+
+    generated_descriptions = {
+        revision.change_id: _run_description_command(
+            command=describe_with,
+            kind="pr",
+            repo_root=repo_root,
+            revset=revision.change_id,
+        )
+        for revision in revisions
+    }
+    generated_stack_description = None
+    if len(revisions) > 1:
+        generated_stack_description = _run_description_command(
+            command=describe_with,
+            kind="stack",
+            repo_root=repo_root,
+            revset=selected_revset,
+        )
+    return generated_descriptions, generated_stack_description
+
+
+def _run_description_command(
+    *,
+    command: str,
+    kind: Literal["pr", "stack"],
+    repo_root: Path,
+    revset: str,
+) -> GeneratedDescription:
+    try:
+        completed = subprocess.run(
+            [command, f"--{kind}", revset],
+            capture_output=True,
+            check=False,
+            cwd=repo_root,
+            text=True,
+        )
+    except FileNotFoundError as error:
+        raise SubmitDescriptionCommandError(
+            f"Describe helper {command!r} was not found."
+        ) from error
+    except OSError as error:
+        raise SubmitDescriptionCommandError(
+            f"Could not run describe helper {command!r}: {error}"
+        ) from error
+
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip()
+        if not detail:
+            detail = f"exit status {completed.returncode}"
+        raise SubmitDescriptionCommandError(
+            f"Describe helper {command!r} failed for --{kind} {revset!r}: {detail}"
+        )
+
+    output = completed.stdout.strip()
+    if not output:
+        raise SubmitDescriptionCommandError(
+            f"Describe helper {command!r} produced no JSON for --{kind} {revset!r}."
+        )
+
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as error:
+        raise SubmitDescriptionCommandError(
+            f"Describe helper {command!r} returned invalid JSON for --{kind} "
+            f"{revset!r}: {error}"
+        ) from error
+
+    if not isinstance(payload, dict):
+        raise SubmitDescriptionCommandError(
+            f"Describe helper {command!r} must return a JSON object for --{kind} "
+            f"{revset!r}."
+        )
+
+    title = payload.get("title")
+    body = payload.get("body")
+    if not isinstance(title, str) or not isinstance(body, str):
+        raise SubmitDescriptionCommandError(
+            f"Describe helper {command!r} must return string `title` and `body` "
+            f"fields for --{kind} {revset!r}."
+        )
+
+    return GeneratedDescription(body=body, title=title)
+
+
 async def _run_bounded_submit_tasks(
     *,
     concurrency: int,
@@ -976,6 +1106,7 @@ async def _sync_pull_requests(
     draft_mode: SubmitDraftMode,
     discovered_pull_requests: dict[str, GithubPullRequest | None],
     dry_run: bool,
+    generated_descriptions: dict[str, GeneratedDescription],
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     labels: list[str],
@@ -991,6 +1122,7 @@ async def _sync_pull_requests(
         PendingPullRequestSync(
             base_branch=prepared_revisions[index - 1].bookmark if index > 0 else trunk_branch,
             discovered_pull_request=discovered_pull_requests[prepared_revision.bookmark],
+            generated_description=generated_descriptions[prepared_revision.change_id],
             prepared_revision=prepared_revision,
         )
         for index, prepared_revision in enumerate(prepared_revisions)
@@ -1058,6 +1190,7 @@ async def _sync_pull_request_task(
         discovered_pull_request=pending_sync.discovered_pull_request,
         draft_mode=draft_mode,
         dry_run=dry_run,
+        generated_description=pending_sync.generated_description,
         github_client=github_client,
         github_repository=github_repository,
         labels=labels,
@@ -1103,6 +1236,7 @@ async def _sync_pull_request(
     discovered_pull_request: GithubPullRequest | None,
     draft_mode: SubmitDraftMode,
     dry_run: bool,
+    generated_description: GeneratedDescription,
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     labels: list[str],
@@ -1119,8 +1253,8 @@ async def _sync_pull_request(
         discovered_pull_request=discovered_pull_request,
     )
 
-    title = revision.subject
-    body = _pull_request_body(revision.description)
+    title = generated_description.title
+    body = generated_description.body
     if discovered_pull_request is None:
         pull_request = None
         if not dry_run:
@@ -1444,6 +1578,7 @@ async def _update_pull_request(
 async def _sync_stack_comments(
     *,
     dry_run: bool,
+    generated_stack_description: GeneratedDescription | None,
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     revisions: tuple[SubmittedRevision, ...],
@@ -1452,6 +1587,9 @@ async def _sync_stack_comments(
     state_store: ReviewStateStore,
     trunk_branch: str,
 ) -> None:
+    if len(revisions) <= 1:
+        return
+
     pending: list[PendingStackCommentSync] = []
     for index, revision in enumerate(revisions):
         if revision.pull_request_number is None:
@@ -1467,6 +1605,7 @@ async def _sync_stack_comments(
             current=revision,
             next_revision=revisions[index + 1] if index + 1 < len(revisions) else None,
             previous=revisions[index - 1] if index > 0 else None,
+            stack_description=generated_stack_description,
             trunk_branch=trunk_branch,
         )
         pending.append(
@@ -1686,11 +1825,16 @@ def _render_stack_comment(
     current: SubmittedRevision,
     next_revision: SubmittedRevision | None,
     previous: SubmittedRevision | None,
+    stack_description: GeneratedDescription | None,
     trunk_branch: str,
 ) -> str:
-    return "\n".join(
+    lines = [_STACK_COMMENT_MARKER]
+    description_lines = _render_generated_stack_description(stack_description)
+    if description_lines:
+        lines.extend(description_lines)
+        lines.extend(("", "---"))
+    lines.extend(
         [
-            _STACK_COMMENT_MARKER,
             "This pull request is part of a stack managed by `jj-review`.",
             "",
             f"Previous: {_render_stack_neighbor(previous, fallback=f'trunk `{trunk_branch}`')}",
@@ -1698,6 +1842,23 @@ def _render_stack_comment(
             f"Next: {_render_stack_neighbor(next_revision, fallback='none')}",
         ]
     )
+    return "\n".join(lines)
+
+
+def _render_generated_stack_description(
+    stack_description: GeneratedDescription | None,
+) -> list[str]:
+    if stack_description is None:
+        return []
+
+    lines: list[str] = []
+    if stack_description.title:
+        lines.append(f"## {stack_description.title}")
+    if stack_description.body:
+        if lines:
+            lines.append("")
+        lines.extend(stack_description.body.splitlines())
+    return lines
 
 
 def _render_stack_neighbor(

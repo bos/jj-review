@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+# Tested with Codex CLI 0.116.0.
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+PROMPT_TEMPLATE = """\
+{task}
+
+Return JSON with exactly two string fields:
+- `title`: a one-line title
+- `body`: GitHub-flavored Markdown
+
+- Do not mention AI.
+- Do not wrap the JSON in code fences.
+- Keep the title concise, specific, and informative.
+- Prefer reviewer-useful summaries over diff narration.
+- Explain what changed, why it changed, risks, and testing when known.
+{extra_guidance}
+
+Use the source control context below:
+{context}
+"""
+
+SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "body": {"type": "string"},
+    },
+    "required": ["title", "body"],
+    "additionalProperties": False,
+}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Generate jj-review metadata with Codex CLI. Prints JSON with "
+            "string `title` and `body` fields."
+        )
+    )
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--pr", metavar="REVSET", help="Generate metadata for one PR revset.")
+    group.add_argument(
+        "--stack",
+        metavar="REVSET",
+        help="Generate metadata for one stack revset.",
+    )
+    return parser.parse_args()
+
+
+def run_jj(*args: str) -> str:
+    completed = subprocess.run(
+        ["jj", *args],
+        capture_output=True,
+        check=False,
+        cwd=Path.cwd(),
+        text=True,
+    )
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip() or "unknown jj failure"
+        raise SystemExit(detail)
+    return completed.stdout
+
+
+def build_context(mode: str, revset: str) -> str:
+    if mode == "pr":
+        return run_jj("show", "--git", "-r", revset).strip()
+    return run_jj(
+        "log",
+        "-p",
+        "--git",
+        "-r",
+        f"trunk()::{revset} & visible() & mutable()",
+        "--no-graph",
+    ).strip()
+
+
+def stack_commit_count(revset: str) -> int:
+    return int(
+        run_jj(
+            "log",
+            "--count",
+            "-r",
+            f"trunk()::{revset} & visible() & mutable()",
+        ).strip()
+    )
+
+
+def build_prompt(mode: str, revset: str, context: str) -> str:
+    if mode == "pr":
+        task = "Write a GitHub pull request title and body for a human reviewer."
+        extra_guidance = (
+            "- Optimize for a reviewer who wants to understand one change quickly."
+        )
+    else:
+        task = "Write a GitHub stack summary for a human reviewer."
+        commit_count = stack_commit_count(revset)
+        if commit_count == 1:
+            extra_guidance = "\n".join(
+                [
+                    "- This stack contains exactly one commit.",
+                    "- Describe that one change directly.",
+                    "- Do not invent a broader series or mention multiple commits.",
+                    "- The body will appear above an existing stack-navigation comment.",
+                ]
+            )
+        else:
+            extra_guidance = "\n".join(
+                [
+                    f"- This stack contains {commit_count} commits.",
+                    "- Summarize the series as a whole, not just the top commit.",
+                    "- Explain how the changes in the stack fit together.",
+                    "- The body will appear above an existing stack-navigation comment.",
+                ]
+            )
+    return PROMPT_TEMPLATE.format(
+        context=context or "(no source control context available)",
+        extra_guidance=extra_guidance,
+        task=task,
+    )
+
+
+def main() -> int:
+    args = parse_args()
+    mode = "pr" if args.pr is not None else "stack"
+    revset = args.pr if args.pr is not None else args.stack
+    if revset is None:
+        raise AssertionError("argparse should guarantee a revset.")
+
+    prompt = build_prompt(mode, revset, build_context(mode, revset))
+    codex_bin = os.environ.get("JJ_REVIEW_CODEX_BIN", "codex")
+    with tempfile.TemporaryDirectory(prefix="jj-review-codex-") as tempdir:
+        tempdir_path = Path(tempdir)
+        schema_path = tempdir_path / "schema.json"
+        output_path = tempdir_path / "output.json"
+        schema_path.write_text(json.dumps(SCHEMA), encoding="utf-8")
+
+        completed = subprocess.run(
+            [
+                codex_bin,
+                "-a",
+                "never",
+                "-s",
+                "read-only",
+                "exec",
+                "-C",
+                str(Path.cwd()),
+                "--output-schema",
+                str(schema_path),
+                "--color",
+                "never",
+                "-o",
+                str(output_path),
+                prompt,
+            ],
+            capture_output=True,
+            check=False,
+            cwd=Path.cwd(),
+            text=True,
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout).strip() or "Codex failed"
+            print(detail, file=sys.stderr)
+            return completed.returncode or 1
+
+        try:
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            print("Codex did not write an output file.", file=sys.stderr)
+            return 1
+
+    if not isinstance(payload, dict) or not all(
+        isinstance(payload.get(field), str) for field in ("title", "body")
+    ):
+        print(
+            "Codex did not return a JSON object with string title/body fields.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(json.dumps({"title": payload["title"], "body": payload["body"]}))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

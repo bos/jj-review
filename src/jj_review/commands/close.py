@@ -609,7 +609,9 @@ async def _find_managed_stack_comment(
             issue_number=pull_request_number,
         )
     except GithubClientError as error:
-        if error.status_code == 404 and cached_stack_comment_id is not None:
+        if error.status_code == 404:
+            if cached_stack_comment_id is None:
+                return None, None
             try:
                 cached_comment = await github_client.get_issue_comment(
                     github_repository.owner,

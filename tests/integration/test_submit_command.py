@@ -190,6 +190,147 @@ def test_submit_creates_stack_comments_for_each_pull_request(
     assert {change.stack_comment_id for change in state.changes.values()} == {1, 2}
 
 
+def test_submit_skips_stack_comment_for_single_commit_stack(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state = ReviewStateStore.for_repo(repo).load()
+
+    assert _issue_comments(fake_repo, 1) == []
+    assert state.changes[change_id].stack_comment_id is None
+
+
+def test_submit_describe_with_generates_pull_request_and_stack_metadata(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+    helper = tmp_path / "describe.py"
+    helper.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import json",
+                "import sys",
+                "",
+                "kind, revset = sys.argv[1], sys.argv[2]",
+                "if kind == '--pr':",
+                "    payload = {",
+                "        'title': f'AI {revset[:8]}',",
+                "        'body': f'Generated body for {revset}',",
+                "    }",
+                "elif kind == '--stack':",
+                "    payload = {",
+                "        'title': 'Generated stack summary',",
+                "        'body': f'Generated stack body for {revset}',",
+                "    }",
+                "else:",
+                "    raise SystemExit(f'unexpected args: {sys.argv[1:]}')",
+                "print(json.dumps(payload))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    helper.chmod(0o755)
+
+    exit_code = _main(
+        repo,
+        config_path,
+        "submit",
+        "--current",
+        "--describe-with",
+        str(helper),
+    )
+    captured = capsys.readouterr()
+    stack = JjClient(repo).discover_review_stack()
+
+    assert exit_code == 0
+    assert "Projected review bookmarks:" in captured.out
+    assert fake_repo.pull_requests[1].title == f"AI {stack.revisions[0].change_id[:8]}"
+    assert fake_repo.pull_requests[1].body == (
+        f"Generated body for {stack.revisions[0].change_id}"
+    )
+    assert fake_repo.pull_requests[2].title == f"AI {stack.revisions[1].change_id[:8]}"
+    assert fake_repo.pull_requests[2].body == (
+        f"Generated body for {stack.revisions[1].change_id}"
+    )
+    assert "## Generated stack summary" in _issue_comments(fake_repo, 1)[0].body
+    assert (
+        f"Generated stack body for {stack.selected_revset}"
+        in _issue_comments(fake_repo, 1)[0].body
+    )
+    assert "This pull request is part of a stack managed by `jj-review`." in (
+        _issue_comments(fake_repo, 1)[0].body
+    )
+
+
+def test_submit_describe_with_skips_stack_helper_for_single_commit_stack(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    helper = tmp_path / "describe.py"
+    log_path = tmp_path / "helper.log"
+    helper.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import json",
+                "import pathlib",
+                "import sys",
+                "",
+                f"log_path = pathlib.Path({str(log_path)!r})",
+                "log_path.write_text(",
+                "    log_path.read_text() + ' '.join(sys.argv[1:]) + '\\n' if log_path.exists()",
+                "    else ' '.join(sys.argv[1:]) + '\\n'",
+                ")",
+                "kind, revset = sys.argv[1], sys.argv[2]",
+                "if kind != '--pr':",
+                "    raise SystemExit(f'unexpected args: {sys.argv[1:]}')",
+                "print(json.dumps({'title': f'AI {revset[:8]}', 'body': f'Body {revset}'}))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    helper.chmod(0o755)
+
+    assert _main(
+        repo,
+        config_path,
+        "submit",
+        "--current",
+        "--describe-with",
+        str(helper),
+    ) == 0
+    capsys.readouterr()
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state = ReviewStateStore.for_repo(repo).load()
+
+    assert fake_repo.pull_requests[1].title == f"AI {change_id[:8]}"
+    assert log_path.read_text(encoding="utf-8").splitlines() == [f"--pr {change_id}"]
+    assert _issue_comments(fake_repo, 1) == []
+    assert state.changes[change_id].stack_comment_id is None
+
+
 def test_submit_batches_pull_request_discovery_with_graphql(
     tmp_path: Path,
     monkeypatch,
@@ -539,6 +680,7 @@ def test_submit_rejects_cached_stack_comment_id_for_non_stack_comment(
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
@@ -547,14 +689,14 @@ def test_submit_rejects_cached_stack_comment_id_for_non_stack_comment(
     change_id = stack.revisions[-1].change_id
     state_store = ReviewStateStore.for_repo(repo)
     initial_state = state_store.load()
-    fake_repo.create_issue_comment(body="manual note", issue_number=1)
+    manual_comment = fake_repo.create_issue_comment(body="manual note", issue_number=2)
     state_store.save(
         initial_state.model_copy(
             update={
                 "changes": {
                     **initial_state.changes,
                     change_id: initial_state.changes[change_id].model_copy(
-                        update={"stack_comment_id": 2}
+                        update={"stack_comment_id": manual_comment.id}
                     ),
                 }
             }
@@ -566,7 +708,7 @@ def test_submit_rejects_cached_stack_comment_id_for_non_stack_comment(
 
     assert exit_code == 1
     assert "is not managed by `jj-review`" in captured.err
-    assert fake_repo.issue_comments[1][1].body == "manual note"
+    assert manual_comment in _issue_comments(fake_repo, 2)
 
 
 def test_submit_rejects_ambiguous_discovered_stack_comments(
@@ -577,6 +719,7 @@ def test_submit_rejects_ambiguous_discovered_stack_comments(
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
@@ -585,7 +728,7 @@ def test_submit_rejects_ambiguous_discovered_stack_comments(
     change_id = stack.revisions[-1].change_id
     state_store = ReviewStateStore.for_repo(repo)
     initial_state = state_store.load()
-    fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=1)
+    fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=2)
     state_store.save(
         initial_state.model_copy(
             update={
@@ -614,6 +757,7 @@ def test_submit_reports_stack_comment_update_failures_without_traceback(
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
@@ -1035,11 +1179,12 @@ def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
 
-    fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=1)
+    fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=2)
 
     exit_code = _main(repo, config_path, "status")
     captured = capsys.readouterr()
@@ -1294,7 +1439,7 @@ def test_unlink_detaches_change_and_preserves_local_bookmark(
     assert unlinked_change.stack_comment_id is None
     assert JjClient(repo).get_bookmark_state(bookmark).local_target is not None
     assert fake_repo.pull_requests[1].state == "open"
-    assert len(_issue_comments(fake_repo, 1)) == 1
+    assert _issue_comments(fake_repo, 1) == []
 
 
 def test_unlink_is_idempotent_for_detached_change(
@@ -1476,6 +1621,7 @@ def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
@@ -1507,9 +1653,9 @@ def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
 
     assert exit_code == 0
     assert "GitHub: octo-org/stacked-review" in captured.out
-    assert ": PR #1" in captured.out
-    assert refreshed_state.changes[change_id].pr_number == 1
-    assert refreshed_state.changes[change_id].stack_comment_id == 1
+    assert ": PR #2" in captured.out
+    assert refreshed_state.changes[change_id].pr_number == 2
+    assert refreshed_state.changes[change_id].stack_comment_id == 2
 
 
 def test_submit_updates_existing_pull_request_after_change_rewrite(
@@ -1965,7 +2111,7 @@ def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
     state_store = ReviewStateStore.for_repo(repo)
     initial_state = state_store.load()
     assert initial_state.changes[change_id].pr_number == 1
-    assert initial_state.changes[change_id].stack_comment_id == 1
+    assert initial_state.changes[change_id].stack_comment_id is None
 
     del fake_repo.pull_requests[1]
 
@@ -2402,6 +2548,7 @@ def test_cleanup_apply_deletes_managed_stack_comment_for_closed_pull_request(
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
@@ -2409,19 +2556,19 @@ def test_cleanup_apply_deletes_managed_stack_comment_for_closed_pull_request(
     stack = JjClient(repo).discover_review_stack()
     change_id = stack.revisions[-1].change_id
     state_store = ReviewStateStore.for_repo(repo)
-    fake_repo.pull_requests[1].state = "closed"
+    fake_repo.pull_requests[2].state = "closed"
 
     exit_code = _main(repo, config_path, "cleanup", "--apply")
     captured = capsys.readouterr()
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert "[applied] stack comment: delete managed stack comment #1 from PR #1" in (
+    assert "[applied] stack comment: delete managed stack comment #2 from PR #2" in (
         captured.out
     )
-    assert refreshed_state.changes[change_id].pr_number == 1
+    assert refreshed_state.changes[change_id].pr_number == 2
     assert refreshed_state.changes[change_id].stack_comment_id is None
-    assert _issue_comments(fake_repo, 1) == []
+    assert _issue_comments(fake_repo, 2) == []
 
 
 def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing(
@@ -2432,6 +2579,7 @@ def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
@@ -2440,7 +2588,7 @@ def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing
     change_id = stack.revisions[-1].change_id
     state_store = ReviewStateStore.for_repo(repo)
     initial_state = state_store.load()
-    fake_repo.pull_requests[1].state = "closed"
+    fake_repo.pull_requests[2].state = "closed"
     state_store.save(
         initial_state.model_copy(
             update={
@@ -2459,11 +2607,11 @@ def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert "[applied] stack comment: delete managed stack comment #1 from PR #1" in (
+    assert "[applied] stack comment: delete managed stack comment #2 from PR #2" in (
         captured.out
     )
     assert refreshed_state.changes[change_id].stack_comment_id is None
-    assert _issue_comments(fake_repo, 1) == []
+    assert _issue_comments(fake_repo, 2) == []
 
 
 def test_close_apply_closes_pull_request_and_retires_active_state(
@@ -2491,8 +2639,8 @@ def test_close_apply_closes_pull_request_and_retires_active_state(
     assert fake_repo.pull_requests[1].state == "closed"
     assert refreshed_state.changes[change_id].pr_state == "closed"
     assert refreshed_state.changes[change_id].pr_review_decision is None
-    assert refreshed_state.changes[change_id].stack_comment_id == 1
-    assert len(_issue_comments(fake_repo, 1)) == 1
+    assert refreshed_state.changes[change_id].stack_comment_id is None
+    assert _issue_comments(fake_repo, 1) == []
 
 
 def test_close_preview_closes_no_remote_state_and_reports_planned_actions(
@@ -2520,7 +2668,7 @@ def test_close_preview_closes_no_remote_state_and_reports_planned_actions(
     assert "Planned close actions:" in captured.out
     assert fake_repo.pull_requests[1].state == "open"
     assert refreshed_state == initial_state
-    assert len(_issue_comments(fake_repo, 1)) == 1
+    assert _issue_comments(fake_repo, 1) == []
 
 
 def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
@@ -2844,6 +2992,7 @@ def test_close_apply_cleanup_exits_nonzero_when_cleanup_is_blocked(
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
@@ -2862,7 +3011,7 @@ def test_close_apply_cleanup_exits_nonzero_when_cleanup_is_blocked(
             }
         )
     )
-    fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=1)
+    fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=2)
 
     exit_code = _main(repo, config_path, "close", "--apply", "--cleanup", change_id)
     captured = capsys.readouterr()
@@ -2870,7 +3019,7 @@ def test_close_apply_cleanup_exits_nonzero_when_cleanup_is_blocked(
     assert exit_code == 1
     assert "Close blocked:" in captured.out
     assert "[blocked] stack comment:" in captured.out
-    assert fake_repo.pull_requests[1].state == "closed"
+    assert fake_repo.pull_requests[2].state == "closed"
 
 
 def test_submit_checkpoints_successful_in_flight_pull_request_before_failure(

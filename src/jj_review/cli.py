@@ -73,6 +73,15 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         help="Explicitly operate on the current review path instead of passing a revset.",
     )
+    submit_parser.add_argument(
+        "-d",
+        "--describe-with",
+        help=(
+            "Executable to invoke as `helper --pr <revset>` for each PR and "
+            "`helper --stack <revset>` for stack-comment prose. The helper must "
+            "print JSON with string `title` and `body` fields."
+        ),
+    )
     submit_draft_mode = submit_parser.add_mutually_exclusive_group()
     submit_draft_mode.add_argument(
         "--draft",
@@ -969,6 +978,7 @@ def _submit_handler(args: Namespace) -> int:
     result = run_submit(
         change_overrides=context.config.change,
         config=context.config.repo,
+        describe_with=getattr(args, "describe_with", None),
         draft_mode=_submit_draft_mode(args),
         dry_run=bool(args.dry_run),
         on_prepared=emit_prepared,
