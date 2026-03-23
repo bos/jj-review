@@ -71,6 +71,14 @@ class _Selection:
     selected_revset: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class _PlannedMaterialization:
+    bookmark: str
+    track_remote: bool
+    update_local_bookmark: bool
+    update_local_target: str
+
+
 def run_import(
     *,
     change_overrides: dict[str, ChangeConfig],
@@ -385,6 +393,7 @@ def _materialize_local_state(
     selected_remote_name = (
         prepared.remote.name if prepared.remote is not None else None
     )
+    planned_materializations: list[_PlannedMaterialization] = []
 
     seen_bookmarks: set[str] = set()
     for prepared_revision in prepared.status_revisions:
@@ -408,37 +417,17 @@ def _materialize_local_state(
             desired_commit_id=prepared_revision.revision.commit_id,
             selected_remote_name=selected_remote_name,
         )
-        if bookmark_state.local_target != prepared_revision.revision.commit_id:
-            client.set_bookmark(bookmark, prepared_revision.revision.commit_id)
-            actions.append(
-                ImportAction(
-                    kind="bookmark",
-                    message=(
-                        f"set local review bookmark {bookmark} -> "
-                        f"{prepared_revision.revision.commit_id[:_DISPLAY_CHANGE_ID_LENGTH]}"
-                    ),
-                    status="applied",
-                )
-            )
         remote_state = (
             bookmark_state.remote_target(prepared.remote.name)
             if prepared.remote is not None
             else None
         )
-        if (
+        track_remote = (
             prepared.remote is not None
             and remote_state is not None
             and remote_state.target == prepared_revision.revision.commit_id
             and not remote_state.is_tracked
-        ):
-            client.track_bookmark(remote=prepared.remote.name, bookmark=bookmark)
-            actions.append(
-                ImportAction(
-                    kind="bookmark tracking",
-                    message=f"track remote review branch {bookmark}@{prepared.remote.name}",
-                    status="applied",
-                )
-            )
+        )
 
         existing_change = (
             next_changes.get(prepared_revision.revision.change_id)
@@ -454,6 +443,41 @@ def _materialize_local_state(
         )
         if existing_change is None or updated_change != cached_change:
             next_changes[prepared_revision.revision.change_id] = updated_change
+        planned_materializations.append(
+            _PlannedMaterialization(
+                bookmark=bookmark,
+                track_remote=track_remote,
+                update_local_bookmark=(
+                    bookmark_state.local_target != prepared_revision.revision.commit_id
+                ),
+                update_local_target=prepared_revision.revision.commit_id,
+            )
+        )
+
+    for planned in planned_materializations:
+        if planned.update_local_bookmark:
+            client.set_bookmark(planned.bookmark, planned.update_local_target)
+            actions.append(
+                ImportAction(
+                    kind="bookmark",
+                    message=(
+                        f"set local review bookmark {planned.bookmark} -> "
+                        f"{planned.update_local_target[:_DISPLAY_CHANGE_ID_LENGTH]}"
+                    ),
+                    status="applied",
+                )
+            )
+        if planned.track_remote:
+            if prepared.remote is None:
+                raise AssertionError("Tracking requires a selected remote.")
+            client.track_bookmark(remote=prepared.remote.name, bookmark=planned.bookmark)
+            actions.append(
+                ImportAction(
+                    kind="bookmark tracking",
+                    message=f"track remote review branch {planned.bookmark}@{prepared.remote.name}",
+                    status="applied",
+                )
+            )
 
     next_state = current_state.model_copy(update={"changes": next_changes})
     if next_state != current_state:

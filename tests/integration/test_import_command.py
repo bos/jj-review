@@ -233,6 +233,41 @@ def test_import_fails_closed_when_cached_bookmark_is_missing_on_selected_remote(
     assert bookmark_states[top_bookmark].local_target is None
 
 
+def test_import_fails_closed_without_partial_local_bookmark_updates(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    state_before = ReviewStateStore.for_repo(repo).load()
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    top_change_id = stack.revisions[-1].change_id
+    bottom_bookmark = state_before.changes[bottom_change_id].bookmark
+    top_bookmark = state_before.changes[top_change_id].bookmark
+    assert bottom_bookmark is not None
+    assert top_bookmark is not None
+
+    for bookmark in (bottom_bookmark, top_bookmark):
+        _run(["jj", "bookmark", "forget", bookmark], repo)
+    main_target = JjClient(repo).resolve_revision("main").commit_id
+    _run(["jj", "bookmark", "set", top_bookmark, "--revision", "main"], repo)
+
+    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "already points to a different revision" in captured.err
+    bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, top_bookmark))
+    assert bookmark_states[bottom_bookmark].local_target is None
+    assert bookmark_states[top_bookmark].local_target == main_target
+
+
 def test_import_prefers_exact_remote_bookmarks_over_stale_cached_names(
     tmp_path: Path,
     monkeypatch,
