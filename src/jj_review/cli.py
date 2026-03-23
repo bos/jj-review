@@ -548,6 +548,11 @@ def _emit_status_advisories(result) -> None:
         if getattr(revision, "local_divergent", False)
         and not _revision_has_merged_pull_request(revision)
     ]
+    linkage_revisions = [
+        revision
+        for revision in result.revisions
+        if _revision_has_linkage_advisory(revision)
+    ]
     policy_warnings = [
         revision
         for revision in cleanup_revisions
@@ -557,7 +562,12 @@ def _emit_status_advisories(result) -> None:
             and revision.pull_request_lookup.pull_request.base.ref.startswith("review/")
         )
     ]
-    if not cleanup_revisions and not divergent_revisions and not policy_warnings:
+    if (
+        not cleanup_revisions
+        and not divergent_revisions
+        and not linkage_revisions
+        and not policy_warnings
+    ):
         return
 
     print()
@@ -580,6 +590,18 @@ def _emit_status_advisories(result) -> None:
             _print_wrapped_advisory(
                 f"{_status_revision_label(revision)}: {pull_request_label} is merged, "
                 "and later local changes are still based on it"
+            )
+    if linkage_revisions:
+        next_status = f"jj-review status --fetch {result.selected_revset}"
+        next_adopt = f"jj-review adopt <pr> {result.selected_revset}"
+        _print_wrapped_advisory(
+            f"Review linkage note: refresh remote and GitHub observations with "
+            f"`{next_status}`. If the existing PR should stay attached to one of these "
+            f"changes, repair that linkage intentionally with `{next_adopt}`."
+        )
+        for revision in linkage_revisions:
+            _print_wrapped_advisory(
+                f"{_status_revision_label(revision)}: {_describe_linkage_advisory(revision)}"
             )
     for revision in policy_warnings:
         base_ref = revision.pull_request_lookup.pull_request.base.ref
@@ -629,6 +651,45 @@ def _revision_pull_request_number(revision) -> int | None:
     if lookup is None or lookup.pull_request is None:
         return None
     return lookup.pull_request.number
+
+
+def _revision_has_linkage_advisory(revision) -> bool:
+    lookup = revision.pull_request_lookup
+    if lookup is None:
+        return False
+    if lookup.state == "ambiguous":
+        return True
+    if lookup.state == "missing":
+        cached_change = revision.cached_change
+        return cached_change is not None and (
+            cached_change.pr_number is not None or cached_change.pr_url is not None
+        )
+    if lookup.state == "closed":
+        pull_request = lookup.pull_request
+        return pull_request is not None and pull_request.state != "merged"
+    return False
+
+
+def _describe_linkage_advisory(revision) -> str:
+    lookup = revision.pull_request_lookup
+    if lookup is None:
+        raise AssertionError("Linkage advisory requires a pull request lookup.")
+    if lookup.state == "ambiguous":
+        return lookup.message or "GitHub reports ambiguous pull request linkage"
+    if lookup.state == "missing":
+        cached_label = _format_cached_pull_request_label(revision.cached_change)
+        if cached_label is None:
+            return "GitHub no longer reports a pull request for this review branch"
+        return f"{cached_label} is no longer present on GitHub for this review branch"
+    if lookup.state == "closed":
+        pull_request = lookup.pull_request
+        if pull_request is None:
+            raise AssertionError("Closed pull request advisory requires a pull request.")
+        return (
+            f"PR #{pull_request.number} is {pull_request.state}; submit will not reuse a "
+            "closed review automatically"
+        )
+    raise AssertionError(f"Unexpected linkage advisory state: {lookup.state}")
 
 
 def _resolve_selected_revset(

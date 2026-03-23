@@ -437,6 +437,9 @@ non-zero rather than silently treating the stack as healthy.
 If cached PR linkage existed but GitHub now reports no PR for that review
 branch, status should likewise surface that stale linkage inline and exit
 non-zero before it clears the stale cached identity.
+When that inspection finds stale or ambiguous PR linkage, status may also
+print a short repair advisory that points the operator to `status --fetch`
+for refresh and `adopt` for intentional reattachment.
 When cached GitHub linkage includes a last-known PR state, status may surface
 that state in the fallback output as cached information rather than implying it
 is live.

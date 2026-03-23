@@ -702,6 +702,9 @@ Implemented in the first vertical cut:
 - `status` now treats ambiguous GitHub PR linkage and ambiguous managed stack
   comments as incomplete inspection, so the command exits non-zero instead of
   presenting those cases as healthy output
+- `status` now also prints explicit repair guidance for stale or ambiguous PR
+  linkage so operators who bounced between machines can rerun `status --fetch`
+  and use `adopt` intentionally instead of guessing
 - `status` now also treats remote-resolution and GitHub-target fallback output
   as incomplete inspection, so local-only summaries exit non-zero when live
   inspection could not be completed
