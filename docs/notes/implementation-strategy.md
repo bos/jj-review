@@ -632,16 +632,15 @@ Deliver:
 - PR creation
 - PR updates
 - trunk branch resolution
-
-Deferred pending config/design work:
-
-- reviewer and label assignment
+- assign configured reviewers and labels
 
 Implemented in a follow-up:
 
 - `submit` now also supports `--dry-run`, which resolves the stack, bookmark
   actions, push actions, and PR actions through the normal submit path while
   skipping local, remote, GitHub, cache, and intent-file mutations
+- `submit` now accepts `--reviewers` and `--team-reviewers` as one-shot
+  overrides for the configured reviewer defaults
 - the submit CLI now prints the selected revset and remote promptly, then
   renders the final ordered review summary once the submit phases complete,
   instead of trying to stream per-revision mutation progress inline

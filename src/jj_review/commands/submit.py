@@ -258,6 +258,8 @@ def run_submit(
     on_trunk_resolved: Callable[[str, str, bool], None] | None = None,
     repo_root: Path,
     revset: str | None,
+    reviewers: list[str] | None = None,
+    team_reviewers: list[str] | None = None,
 ) -> SubmitResult:
     """Project the selected local stack to synthetic review bookmarks and PRs."""
 
@@ -274,8 +276,10 @@ def run_submit(
             on_trunk_resolved=on_trunk_resolved,
             repo_root=repo_root,
             revset=revset,
+            reviewers=reviewers,
             state_dir=state_dir,
             state_store=state_store,
+            team_reviewers=team_reviewers,
         )
     )
 
@@ -290,8 +294,10 @@ async def _run_submit_async(
     on_trunk_resolved: Callable[[str, str, bool], None] | None,
     repo_root: Path,
     revset: str | None,
+    reviewers: list[str] | None,
     state_dir: Path | None,
     state_store: ReviewStateStore,
+    team_reviewers: list[str] | None,
 ) -> SubmitResult:
     client = JjClient(repo_root)
     remotes = client.list_git_remotes()
@@ -343,6 +349,10 @@ async def _run_submit_async(
         )
 
     github_repository = resolve_github_repository(config, remote)
+    resolved_reviewers = config.reviewers if reviewers is None else reviewers
+    resolved_team_reviewers = (
+        config.team_reviewers if team_reviewers is None else team_reviewers
+    )
     state_changes = dict(bookmark_result.state.changes)
 
     # Build the intent before any mutation, using info already in hand
@@ -496,11 +506,11 @@ async def _run_submit_async(
                 prepared_revisions=tuple(prepared_revisions),
                 discovered_pull_requests=discovered_pull_requests,
                 labels=config.labels,
-                reviewers=config.reviewers,
+                reviewers=resolved_reviewers,
                 state=bookmark_result.state,
                 state_changes=state_changes,
                 state_store=state_store,
-                team_reviewers=config.team_reviewers,
+                team_reviewers=resolved_team_reviewers,
                 trunk_branch=trunk_branch,
             )
 

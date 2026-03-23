@@ -3056,6 +3056,54 @@ def test_submit_unchanged_rerun_skips_pull_request_metadata_writes(
     assert metadata_write_calls == []
 
 
+def test_submit_cli_reviewers_override_configured_reviewers(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
+    config_path = _write_config(
+        tmp_path,
+        fake_repo,
+        extra_lines=[
+            'reviewers = ["config-user"]',
+            'team_reviewers = ["config-team"]',
+        ],
+    )
+    _commit(repo, "feature 1", "feature-1.txt")
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return GithubClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
+
+    exit_code = _main(
+        repo,
+        config_path,
+        "submit",
+        "--reviewers",
+        "alice,bob",
+        "--team-reviewers",
+        "platform",
+        "--reviewers",
+        "carol,bob",
+        "--team-reviewers",
+        "infra,platform",
+        "--current",
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "PR #1" in captured.out
+    assert fake_repo.pull_requests[1].requested_reviewers == ["alice", "bob", "carol"]
+    assert fake_repo.pull_requests[1].requested_team_reviewers == ["platform", "infra"]
+
+
 def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
     tmp_path: Path,
     monkeypatch,

@@ -84,6 +84,24 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         help="Mark existing draft pull requests ready for review on submit.",
     )
+    submit_parser.add_argument(
+        "--reviewers",
+        dest="reviewers",
+        action="append",
+        help=(
+            "Comma-separated GitHub usernames to request on submitted pull requests. "
+            "Repeat to add more. Overrides configured reviewers."
+        ),
+    )
+    submit_parser.add_argument(
+        "--team-reviewers",
+        dest="team_reviewers",
+        action="append",
+        help=(
+            "Comma-separated GitHub team slugs to request on submitted pull requests. "
+            "Repeat to add more. Overrides configured team reviewers."
+        ),
+    )
     status_parser = _add_revision_command(
         subparsers,
         command="status",
@@ -906,6 +924,10 @@ def _submit_handler(args: Namespace) -> int:
         command_label="submit",
         require_explicit=True,
     )
+    reviewers = _parse_comma_separated_flag_values(getattr(args, "reviewers", None))
+    team_reviewers = _parse_comma_separated_flag_values(
+        getattr(args, "team_reviewers", None)
+    )
     emitted_prepared = False
     emitted_section_header = False
     emitted_trunk = False
@@ -939,6 +961,8 @@ def _submit_handler(args: Namespace) -> int:
         on_trunk_resolved=emit_trunk,
         repo_root=context.repo_root,
         revset=selected_revset,
+        reviewers=reviewers,
+        team_reviewers=team_reviewers,
     )
     if not emitted_prepared:
         print(f"Selected revset: {result.selected_revset}")
@@ -971,6 +995,22 @@ def _submit_draft_mode(args: Namespace) -> Literal["default", "draft", "publish"
     if getattr(args, "publish", False):
         return "publish"
     return "default"
+
+
+def _parse_comma_separated_flag_values(values: Sequence[str] | None) -> list[str] | None:
+    if values is None:
+        return None
+
+    parsed_values: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        for item in value.split(","):
+            normalized = item.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            parsed_values.append(normalized)
+    return parsed_values
 
 
 def _render_submit_revision_suffix(revision) -> str:

@@ -670,7 +670,8 @@ not need a saved parent graph.
 
 The tool can stay small. A reasonable surface would be:
 
-- `jj review submit [--draft | --publish] [--current | <revset>]`
+- `jj review submit [--draft | --publish] [--reviewer <login[,login...]>]
+  [--team-reviewer <slug[,slug...]>] [--current | <revset>]`
 - `jj review status [--fetch] [<revset>]`
 - `jj review relink <pr> [--current | <revset>]`
 - `jj review unlink [--current | <revset>]`
@@ -690,6 +691,8 @@ Target selection should stay explicit:
 - `submit` and `relink` require one explicit selector, either `<revset>` or
   `--current`
 - `submit --draft` and `submit --publish` are mutually exclusive
+- `submit --reviewers` and `submit --team-reviewers` override configured
+  reviewer defaults for that invocation only
 - `unlink`, `close`, and `land` require the same explicit selector when run
 - `import` requires exactly one explicit selector
 - `cleanup --restack --apply` likewise requires one explicit selector
