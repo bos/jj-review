@@ -189,6 +189,128 @@ def test_import_fails_closed_when_stack_would_need_generated_bookmarks(
     assert bookmark_states[top_bookmark].local_target is None
 
 
+def test_import_fails_closed_when_cached_bookmark_is_missing_on_selected_remote(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    state_before = ReviewStateStore.for_repo(repo).load()
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    top_change_id = stack.revisions[-1].change_id
+    bottom_bookmark = state_before.changes[bottom_change_id].bookmark
+    top_bookmark = state_before.changes[top_change_id].bookmark
+    assert bottom_bookmark is not None
+    assert top_bookmark is not None
+
+    for bookmark in (bottom_bookmark, top_bookmark):
+        _run(["jj", "bookmark", "forget", bookmark], repo)
+    _run(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "update-ref",
+            "-d",
+            f"refs/heads/{bottom_bookmark}",
+        ],
+        repo,
+    )
+
+    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "has no discoverable review bookmark on the selected remote" in captured.err
+    bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, top_bookmark))
+    assert bookmark_states[bottom_bookmark].local_target is None
+    assert bookmark_states[top_bookmark].local_target is None
+
+
+def test_import_prefers_exact_remote_bookmarks_over_stale_cached_names(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    state_store = ReviewStateStore.for_repo(repo)
+    state_before = state_store.load()
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    top_change_id = stack.revisions[-1].change_id
+    bottom_bookmark = state_before.changes[bottom_change_id].bookmark
+    top_bookmark = state_before.changes[top_change_id].bookmark
+    assert bottom_bookmark is not None
+    assert top_bookmark is not None
+
+    stale_bookmark = f"review/stale-name-{bottom_change_id[:8]}"
+    state_store.save(
+        state_before.model_copy(
+            update={
+                "changes": {
+                    **state_before.changes,
+                    bottom_change_id: state_before.changes[bottom_change_id].model_copy(
+                        update={"bookmark": stale_bookmark}
+                    ),
+                }
+            }
+        )
+    )
+    for bookmark in (bottom_bookmark, top_bookmark):
+        _run(["jj", "bookmark", "forget", bookmark], repo)
+
+    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+
+    assert exit_code == 0
+    state_after = state_store.load()
+    assert state_after.changes[bottom_change_id].bookmark == bottom_bookmark
+    bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, stale_bookmark))
+    assert bookmark_states[bottom_bookmark].local_target is not None
+    assert bookmark_states[stale_bookmark].local_target is None
+
+
+def test_import_current_rejects_cache_only_linkage(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    state_before = ReviewStateStore.for_repo(repo).load()
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    bookmark = state_before.changes[change_id].bookmark
+    assert bookmark is not None
+
+    _run(["jj", "bookmark", "forget", bookmark], repo)
+    fake_repo.pull_requests.clear()
+    _run(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "update-ref",
+            "-d",
+            f"refs/heads/{bookmark}",
+        ],
+        repo,
+    )
+
+    assert _main(repo, config_path, "import", "--current") == 1
+
+
 def _configure_import_environment(
     monkeypatch,
     tmp_path: Path,

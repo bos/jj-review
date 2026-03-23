@@ -19,6 +19,7 @@ from jj_review.commands.review_state import (
 from jj_review.commands.submit import (
     ResolvedGithubRepository,
     _build_github_client,
+    _discover_bookmarks_for_revisions,
     resolve_github_repository,
     select_submit_remote,
 )
@@ -134,10 +135,17 @@ async def _run_import_async(
             "discoverable remote review linkage."
         )
 
-    bookmark_by_change_id = {
-        revision.revision.change_id: revision.bookmark
-        for revision in prepared_status.prepared.status_revisions
-    }
+    prepared = prepared_status.prepared
+    bookmark_states = prepared.client.list_bookmark_states()
+    bookmark_by_change_id: dict[str, str] = {}
+    if prepared.remote is not None:
+        bookmark_by_change_id.update(
+            _discover_bookmarks_for_revisions(
+                bookmark_states=bookmark_states,
+                remote_name=prepared.remote.name,
+                revisions=prepared.stack.revisions,
+            )
+        )
     if selection.head_bookmark is not None and prepared_status.prepared.status_revisions:
         head_revision = prepared_status.prepared.status_revisions[-1]
         bookmark_by_change_id[head_revision.revision.change_id] = selection.head_bookmark
@@ -147,6 +155,7 @@ async def _run_import_async(
         prepared_status=prepared_status,
         status_result=status_result,
         bookmark_by_change_id=bookmark_by_change_id,
+        bookmark_states=bookmark_states,
     )
     return ImportResult(
         actions=actions,
@@ -366,12 +375,12 @@ def _materialize_local_state(
     prepared_status: PreparedStatus,
     status_result: StatusResult,
     bookmark_by_change_id: dict[str, str],
+    bookmark_states: dict[str, BookmarkState],
 ) -> tuple[ImportAction, ...]:
     prepared = prepared_status.prepared
     state_store = prepared.state_store
     current_state = state_store.load()
     next_changes = dict(current_state.changes)
-    bookmark_states = client.list_bookmark_states()
     actions: list[ImportAction] = []
     selected_remote_name = (
         prepared.remote.name if prepared.remote is not None else None
@@ -381,6 +390,7 @@ def _materialize_local_state(
     for prepared_revision in prepared.status_revisions:
         bookmark = _resolve_import_bookmark(
             bookmark_by_change_id=bookmark_by_change_id,
+            bookmark_states=bookmark_states,
             prepared_revision=prepared_revision,
             selected_remote_name=selected_remote_name,
         )
@@ -560,11 +570,6 @@ def _update_cached_change_from_status(
 
 def _status_has_discoverable_linkage(status_result: StatusResult) -> bool:
     for revision in status_result.revisions:
-        cached_change = revision.cached_change
-        if cached_change is not None and (
-            cached_change.pr_number is not None or cached_change.pr_url is not None
-        ):
-            return True
         remote_state = revision.remote_state
         if remote_state is not None and remote_state.targets:
             return True
@@ -577,6 +582,7 @@ def _status_has_discoverable_linkage(status_result: StatusResult) -> bool:
 def _resolve_import_bookmark(
     *,
     bookmark_by_change_id: dict[str, str],
+    bookmark_states: dict[str, BookmarkState],
     prepared_revision,
     selected_remote_name: str | None,
 ) -> str:
@@ -584,17 +590,25 @@ def _resolve_import_bookmark(
         prepared_revision.revision.change_id,
         prepared_revision.bookmark,
     )
-    if prepared_revision.bookmark_source != "generated":
+    if prepared_revision.bookmark_source == "generated":
+        raise ImportResolutionError(
+            "Could not safely import the selected stack because "
+            f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} has no "
+            "discoverable review bookmark on the selected remote. Refresh with "
+            "`status --fetch` or select an exact review branch or pull request."
+        )
+    if selected_remote_name is None:
         return bookmark
-    if selected_remote_name is not None:
-        bookmark_state = prepared_revision.cached_change
-        del bookmark_state
-    raise ImportResolutionError(
-        "Could not safely import the selected stack because "
-        f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} has no "
-        "discoverable review bookmark on the selected remote. Refresh with "
-        "`status --fetch` or select an exact review branch or pull request."
-    )
+    bookmark_state = bookmark_states.get(bookmark, BookmarkState(name=bookmark))
+    remote_state = bookmark_state.remote_target(selected_remote_name)
+    if remote_state is None or remote_state.target != prepared_revision.revision.commit_id:
+        raise ImportResolutionError(
+            "Could not safely import the selected stack because "
+            f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} has no "
+            "discoverable review bookmark on the selected remote. Refresh with "
+            "`status --fetch` or select an exact review branch or pull request."
+        )
+    return bookmark
 
 
 def _parse_pull_request_reference(
