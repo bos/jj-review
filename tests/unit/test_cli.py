@@ -22,6 +22,7 @@ def test_main_without_command_prints_help(capsys: pytest.CaptureFixture[str]) ->
     assert "import" in captured.out
     assert "unlink" in captured.out
     assert "cleanup" in captured.out
+    assert "completion" in captured.out
 
 
 def test_main_time_output_prefixes_help_lines(capsys: pytest.CaptureFixture[str]) -> None:

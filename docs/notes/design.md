@@ -671,6 +671,11 @@ The tool can stay small. A reasonable surface would be:
 - `jj review import (--pull-request <pr> | --head <bookmark> | --current |
   --revset <revset>)`
 - `jj review land [--apply] [--expect-pr <pr>] [--current | <revset>]`
+- `jj review completion <bash|zsh|fish>`
+
+The standalone executable may also expose `completion` as auxiliary CLI glue
+that prints shell completion scripts. It is not a review-state command and
+does not inspect the repository, local cache, or GitHub.
 
 Target selection should stay explicit:
 

@@ -30,6 +30,7 @@ from jj_review.commands.land import LandResult, run_land
 from jj_review.commands.review_state import prepare_status, stream_status
 from jj_review.commands.submit import run_submit
 from jj_review.commands.unlink import run_unlink
+from jj_review.completion import emit_shell_completion
 from jj_review.errors import CliError, CommandNotImplementedError
 from jj_review.intent import intent_change_ids, pid_is_alive
 from jj_review.jj import UnsupportedStackError
@@ -188,6 +189,17 @@ def build_parser() -> ArgumentParser:
         help="Revision whose stack should be inspected or restacked.",
     )
     cleanup_parser.set_defaults(handler=_cleanup_handler)
+
+    completion_parser = subparsers.add_parser(
+        "completion",
+        help="Print a shell completion script for bash, zsh, or fish.",
+    )
+    completion_parser.add_argument(
+        "shell",
+        choices=("bash", "zsh", "fish"),
+        help="Shell to generate completion support for.",
+    )
+    completion_parser.set_defaults(handler=_completion_handler)
     return parser
 
 
@@ -306,6 +318,11 @@ def _build_common_options_parser() -> ArgumentParser:
         help="Prefix each printed line with elapsed seconds since process start.",
     )
     return parser
+
+
+def _completion_handler(args: Namespace) -> int:
+    print(emit_shell_completion(build_parser(), args.shell), end="")
+    return 0
 
 
 @contextmanager

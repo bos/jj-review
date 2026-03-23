@@ -116,6 +116,11 @@ For development workflows, the package may also be invoked as
 Tests and packaging should target the standalone executable directly. Any `jj`
 alias integration should stay thin and optional.
 
+The standalone executable may also provide auxiliary shell-completion output
+via `jj-review completion <bash|zsh|fish>`. That command is local CLI glue
+only: it should render scripts from the argparse surface and should not
+require repository bootstrap, cache state, or GitHub access.
+
 Command target selection should stay conservative at the CLI boundary:
 
 - `submit` and `relink` should require either an explicit `<revset>` or an
