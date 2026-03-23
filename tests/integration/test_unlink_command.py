@@ -238,6 +238,40 @@ def test_import_preserves_detached_state(
     assert imported_change.pr_number is None
 
 
+def test_cleanup_deletes_managed_comment_for_detached_pull_request(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    state_store = ReviewStateStore.for_repo(repo)
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    bookmark = state_store.load().changes[change_id].bookmark
+    assert bookmark is not None
+    assert _issue_comments(fake_repo, 1)
+
+    assert _main(repo, config_path, "unlink", change_id) == 0
+    capsys.readouterr()
+
+    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "[applied] stack comment: delete managed stack comment #1 from PR #1" in (
+        captured.out
+    )
+    detached_change = state_store.load().changes[change_id]
+    assert detached_change.link_state == "detached"
+    assert detached_change.pr_number is None
+    assert detached_change.stack_comment_id is None
+    assert _issue_comments(fake_repo, 1) == []
+
+
 def _configure_environment(
     monkeypatch,
     tmp_path: Path,
@@ -288,6 +322,10 @@ def _init_repo(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
 def _commit(repo: Path, message: str, filename: str) -> None:
     _write_file(repo / filename, f"{message}\n")
     _run(["jj", "commit", "-m", message], repo)
+
+
+def _issue_comments(fake_repo: FakeGithubRepository, issue_number: int):
+    return fake_repo.issue_comments.get(issue_number, [])
 
 
 def _run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:

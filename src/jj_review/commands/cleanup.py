@@ -828,6 +828,7 @@ def _create_stack_comment_cleanup_tasks(
         prepared_change.change_id: asyncio.create_task(
             _plan_stack_comment_cleanup_with_semaphore(
                 cached_change=prepared_change.cached_change,
+                bookmark_state=prepared_change.bookmark_state,
                 github_client=github_client,
                 github_repository=github_repository,
                 semaphore=semaphore,
@@ -841,6 +842,7 @@ def _create_stack_comment_cleanup_tasks(
 async def _plan_stack_comment_cleanup_with_semaphore(
     *,
     cached_change: CachedChange,
+    bookmark_state: BookmarkState,
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     semaphore: asyncio.Semaphore,
@@ -848,6 +850,7 @@ async def _plan_stack_comment_cleanup_with_semaphore(
     async with semaphore:
         return await _plan_stack_comment_cleanup(
             cached_change=cached_change,
+            bookmark_state=bookmark_state,
             github_client=github_client,
             github_repository=github_repository,
         )
@@ -990,7 +993,7 @@ def _should_inspect_stack_comment_cleanup(
     stale_reason: str | None,
 ) -> bool:
     if cached_change.pr_number is None:
-        return False
+        return cached_change.is_detached and cached_change.bookmark is not None
     if cached_change.is_detached:
         return True
     if stale_reason is None:
@@ -1009,16 +1012,27 @@ def _should_inspect_stack_comment_cleanup(
 async def _plan_stack_comment_cleanup(
     *,
     cached_change: CachedChange,
+    bookmark_state: BookmarkState,
     github_client: GithubClient,
     github_repository,
 ) -> StackCommentCleanupPlan | None:
-    if cached_change.pr_number is None:
+    pull_request_number = cached_change.pr_number
+    if pull_request_number is None and cached_change.is_detached:
+        pull_request_number = await _resolve_detached_pull_request_number(
+            bookmark_state=bookmark_state,
+            github_client=github_client,
+            github_repository=github_repository,
+        )
+        if isinstance(pull_request_number, CleanupAction):
+            return StackCommentCleanupPlan(action=pull_request_number)
+
+    if pull_request_number is None:
         return None
 
     pull_request = await _load_pull_request(
-        cached_change=cached_change,
         github_client=github_client,
         github_repository=github_repository,
+        pull_request_number=pull_request_number,
     )
     if pull_request is None:
         return None
@@ -1035,6 +1049,7 @@ async def _plan_stack_comment_cleanup(
         cached_change=cached_change,
         github_client=github_client,
         github_repository=github_repository,
+        pull_request_number=pull_request_number,
     )
     if isinstance(managed_comment, CleanupAction):
         return StackCommentCleanupPlan(action=managed_comment)
@@ -1046,7 +1061,7 @@ async def _plan_stack_comment_cleanup(
             kind="stack comment",
             message=(
                 "delete managed stack comment "
-                f"#{managed_comment.id} from PR #{cached_change.pr_number}"
+                f"#{managed_comment.id} from PR #{pull_request_number}"
             ),
             status="planned",
         ),
@@ -1056,21 +1071,21 @@ async def _plan_stack_comment_cleanup(
 
 async def _load_pull_request(
     *,
-    cached_change: CachedChange,
     github_client: GithubClient,
     github_repository,
+    pull_request_number: int,
 ) -> GithubPullRequest | None:
     try:
         return await github_client.get_pull_request(
             github_repository.owner,
             github_repository.repo,
-            pull_number=cached_change.pr_number or 0,
+            pull_number=pull_request_number,
         )
     except GithubClientError as error:
         if error.status_code == 404:
             return None
         raise CleanupError(
-            f"Could not load pull request #{cached_change.pr_number}: {error}"
+            f"Could not load pull request #{pull_request_number}: {error}"
         ) from error
 
 
@@ -1098,11 +1113,12 @@ async def _resolve_managed_stack_comment(
     cached_change: CachedChange,
     github_client: GithubClient,
     github_repository,
+    pull_request_number: int,
 ) -> GithubIssueComment | CleanupAction | None:
     comments = await _list_issue_comments(
         github_client=github_client,
         github_repository=github_repository,
-        pull_request_number=cached_change.pr_number or 0,
+        pull_request_number=pull_request_number,
     )
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
@@ -1134,13 +1150,49 @@ async def _resolve_managed_stack_comment(
             kind="stack comment",
             message=(
                 "cannot delete managed stack comments because GitHub reports "
-                f"multiple candidates on PR #{cached_change.pr_number}"
+                f"multiple candidates on PR #{pull_request_number}"
             ),
             status="blocked",
         )
     if not managed_comments:
         return None
     return managed_comments[0]
+
+
+async def _resolve_detached_pull_request_number(
+    *,
+    bookmark_state: BookmarkState,
+    github_client: GithubClient,
+    github_repository,
+) -> int | CleanupAction | None:
+    if bookmark_state.name == "":
+        return None
+
+    try:
+        pull_requests = await github_client.list_pull_requests(
+            github_repository.owner,
+            github_repository.repo,
+            head=f"{github_repository.owner}:{bookmark_state.name}",
+            state="all",
+        )
+    except GithubClientError as error:
+        raise CleanupError(
+            f"Could not list pull requests for detached bookmark {bookmark_state.name!r}: "
+            f"{error}"
+        ) from error
+
+    if not pull_requests:
+        return None
+    if len(pull_requests) > 1:
+        return CleanupAction(
+            kind="stack comment",
+            message=(
+                "cannot delete managed stack comment because GitHub reports multiple "
+                f"pull requests for detached bookmark {bookmark_state.name!r}"
+            ),
+            status="blocked",
+        )
+    return pull_requests[0].number
 
 
 async def _list_issue_comments(
