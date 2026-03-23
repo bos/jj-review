@@ -2490,7 +2490,7 @@ def test_close_apply_rerun_is_idempotent(
 
     assert first_exit_code == 0
     assert second_exit_code == 0
-    assert "No managed open pull requests on the selected path." in captured.out
+    assert "No close actions were needed for the selected path." in captured.out
     assert first_state.changes[change_id].pr_state == "closed"
     assert second_state.changes[change_id].pr_state == "closed"
     assert 1 not in fake_repo.pull_requests
@@ -2555,6 +2555,101 @@ def test_close_apply_blocks_when_github_no_longer_reports_the_cached_pull_reques
     assert exit_code == 1
     assert "GitHub no longer reports a pull request" in captured.out
     assert state_store.load() == initial_state
+
+
+def test_close_apply_checkpoints_prior_progress_before_later_block(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    first_change_id = stack.revisions[0].change_id
+    head_change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    state_dir = resolve_state_path(repo).parent
+    initial_state = state_store.load()
+    first_bookmark = initial_state.changes[first_change_id].bookmark
+    head_pr_number = initial_state.changes[head_change_id].pr_number
+    assert first_bookmark is not None
+    assert head_pr_number is not None
+
+    fake_repo.create_pull_request(
+        base_ref="main",
+        body="duplicate",
+        head_ref=first_bookmark,
+        title="feature 1 duplicate",
+    )
+
+    first_exit_code = _main(repo, config_path, "close", "--apply", head_change_id)
+    first_run = capsys.readouterr()
+    checkpointed_state = state_store.load()
+
+    second_exit_code = _main(repo, config_path, "close", "--apply", head_change_id)
+    second_run = capsys.readouterr()
+
+    assert first_exit_code == 1
+    assert second_exit_code == 1
+    assert "Close blocked:" in first_run.out
+    assert checkpointed_state.changes[first_change_id].pr_state == "open"
+    assert checkpointed_state.changes[head_change_id].pr_state == "closed"
+    assert fake_repo.pull_requests[1].state == "open"
+    assert fake_repo.pull_requests[2].state == "closed"
+    assert list(state_dir.glob("incomplete-*.toml")) == []
+    assert "previous close was interrupted" not in second_run.out
+    assert f"close PR #{head_pr_number}" not in second_run.out
+
+
+def test_close_apply_cleanup_rechecks_cached_comment_ownership_when_pr_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+
+    assert _main(repo, config_path, "close", "--apply", change_id) == 0
+    capsys.readouterr()
+
+    manual_comment = fake_repo.create_issue_comment(body="manual note", issue_number=1)
+    state = state_store.load()
+    cached_change = state.changes[change_id]
+    state_store.save(
+        state.model_copy(
+            update={
+                "changes": {
+                    **state.changes,
+                    change_id: cached_change.model_copy(
+                        update={"stack_comment_id": manual_comment.id}
+                    ),
+                }
+            }
+        )
+    )
+    del fake_repo.pull_requests[1]
+
+    exit_code = _main(repo, config_path, "close", "--apply", "--cleanup", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "cannot delete cached stack comment" in captured.out
+    assert "not managed by `jj-review`" in captured.out
+    assert manual_comment in _issue_comments(fake_repo, 1)
 
 
 def test_close_apply_cleanup_keeps_comment_cleanup_after_bookmark_block(

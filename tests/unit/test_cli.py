@@ -424,6 +424,39 @@ def test_main_close_renders_planned_output(
     assert "Re-run with `close --apply --cleanup @`" in captured.out
 
 
+def test_main_close_renders_apply_noop_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+
+    def fake_run_close(**kwargs):
+        assert kwargs["apply"] is True
+        assert kwargs["cleanup"] is False
+        assert kwargs["revset"] == "@"
+        return SimpleNamespace(
+            actions=(),
+            applied=True,
+            blocked=False,
+            cleanup=False,
+            github_error=None,
+            github_repository="octo-org/stacked-review",
+            remote=SimpleNamespace(name="origin"),
+            remote_error=None,
+            selected_revset="@",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_close", fake_run_close)
+
+    exit_code = main(["close", "--apply", "--repository", str(tmp_path), "@"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "No close actions were needed for the selected path." in captured.out
+    assert "No managed open pull requests" not in captured.out
+
+
 def test_main_import_requires_exactly_one_selector() -> None:
     with pytest.raises(SystemExit) as exc_info:
         build_parser().parse_args(["import"])

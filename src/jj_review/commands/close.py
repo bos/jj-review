@@ -200,10 +200,21 @@ async def _stream_close_async(
         for prepared_revision in prepared_status.prepared.status_revisions
     }
 
+    def save_progress() -> None:
+        if prepared_close.apply and next_changes != current_state.changes:
+            state_store.save(current_state.model_copy(update={"changes": next_changes}))
+
+    completed = False
+
+    def complete_result(result: CloseResult) -> CloseResult:
+        nonlocal completed
+        save_progress()
+        completed = True
+        return result
+
     intent: CloseIntent | None = None
     intent_path: Path | None = None
     stale_intents = []
-    succeeded = False
     try:
         if prepared_close.apply and prepared_close.state_dir is not None:
             ordered_change_ids = tuple(
@@ -246,16 +257,18 @@ async def _stream_close_async(
                             status="blocked",
                         )
                     )
-                    return CloseResult(
-                        actions=tuple(actions),
-                        applied=prepared_close.apply,
-                        blocked=True,
-                        cleanup=prepared_close.cleanup,
-                        github_error=status_result.github_error,
-                        github_repository=github_repository.full_name,
-                        remote=remote,
-                        remote_error=prepared.remote_error,
-                        selected_revset=prepared_status.selected_revset,
+                    return complete_result(
+                        CloseResult(
+                            actions=tuple(actions),
+                            applied=prepared_close.apply,
+                            blocked=True,
+                            cleanup=prepared_close.cleanup,
+                            github_error=status_result.github_error,
+                            github_repository=github_repository.full_name,
+                            remote=remote,
+                            remote_error=prepared.remote_error,
+                            selected_revset=prepared_status.selected_revset,
+                        )
                     )
                 revision_label = _revision_label(revision)
                 if lookup.state == "missing":
@@ -272,23 +285,24 @@ async def _stream_close_async(
                                 status="blocked",
                             )
                         )
-                        return CloseResult(
-                            actions=tuple(actions),
-                            applied=prepared_close.apply,
-                            blocked=True,
-                            cleanup=prepared_close.cleanup,
-                            github_error=status_result.github_error,
-                            github_repository=github_repository.full_name,
-                            remote=remote,
-                            remote_error=prepared.remote_error,
-                            selected_revset=prepared_status.selected_revset,
+                        return complete_result(
+                            CloseResult(
+                                actions=tuple(actions),
+                                applied=prepared_close.apply,
+                                blocked=True,
+                                cleanup=prepared_close.cleanup,
+                                github_error=status_result.github_error,
+                                github_repository=github_repository.full_name,
+                                remote=remote,
+                                remote_error=prepared.remote_error,
+                                selected_revset=prepared_status.selected_revset,
+                            )
                         )
                     if not prepared_close.cleanup or cached_change is None:
                         continue
 
                     updated_change = _retire_cached_change(
                         cached_change,
-                        cleanup=True,
                         pr_state=cached_change.pr_state or "closed",
                     )
                     if updated_change != cached_change:
@@ -340,11 +354,7 @@ async def _stream_close_async(
                             pull_number=lookup.pull_request.number,
                         )
 
-                    updated_change = _retire_cached_change(
-                        cached_change,
-                        cleanup=prepared_close.cleanup,
-                        pr_state="closed",
-                    )
+                    updated_change = _retire_cached_change(cached_change, pr_state="closed")
                     if updated_change != cached_change:
                         next_changes[revision.change_id] = updated_change
                         record_action(
@@ -385,11 +395,7 @@ async def _stream_close_async(
                 if cached_change.pr_state == "merged":
                     pr_state = "merged"
 
-                updated_change = _retire_cached_change(
-                    cached_change,
-                    cleanup=prepared_close.cleanup,
-                    pr_state=pr_state,
-                )
+                updated_change = _retire_cached_change(cached_change, pr_state=pr_state)
                 if updated_change != cached_change:
                     next_changes[revision.change_id] = updated_change
                     record_action(
@@ -418,23 +424,21 @@ async def _stream_close_async(
                         revision_label=revision_label,
                     )
 
-        if prepared_close.apply and next_changes != current_state.changes:
-            state_store.save(current_state.model_copy(update={"changes": next_changes}))
-
-        succeeded = True
-        return CloseResult(
-            actions=tuple(actions),
-            applied=prepared_close.apply,
-            blocked=blocked,
-            cleanup=prepared_close.cleanup,
-            github_error=status_result.github_error,
-            github_repository=github_repository.full_name,
-            remote=remote,
-            remote_error=prepared.remote_error,
-            selected_revset=prepared_status.selected_revset,
+        return complete_result(
+            CloseResult(
+                actions=tuple(actions),
+                applied=prepared_close.apply,
+                blocked=blocked,
+                cleanup=prepared_close.cleanup,
+                github_error=status_result.github_error,
+                github_repository=github_repository.full_name,
+                remote=remote,
+                remote_error=prepared.remote_error,
+                selected_revset=prepared_status.selected_revset,
+            )
         )
     finally:
-        if succeeded and intent_path is not None and intent is not None:
+        if completed and intent_path is not None and intent is not None:
             retire_superseded_intents(stale_intents, intent)
             delete_intent(intent_path)
 
@@ -606,14 +610,39 @@ async def _find_managed_stack_comment(
         )
     except GithubClientError as error:
         if error.status_code == 404 and cached_stack_comment_id is not None:
-            return (
-                GithubIssueComment(
-                    body="",
-                    html_url="",
-                    id=cached_stack_comment_id,
-                ),
-                None,
-            )
+            try:
+                cached_comment = await github_client.get_issue_comment(
+                    github_repository.owner,
+                    github_repository.repo,
+                    comment_id=cached_stack_comment_id,
+                )
+            except GithubClientError as cached_comment_error:
+                if cached_comment_error.status_code == 404:
+                    return None, None
+                return (
+                    None,
+                    CloseAction(
+                        kind="stack comment",
+                        message=(
+                            "cannot inspect cached stack comment "
+                            f"#{cached_stack_comment_id}: {cached_comment_error}"
+                        ),
+                        status="blocked",
+                    ),
+                )
+            if _STACK_COMMENT_MARKER not in cached_comment.body:
+                return (
+                    None,
+                    CloseAction(
+                        kind="stack comment",
+                        message=(
+                            f"cannot delete cached stack comment #{cached_stack_comment_id} "
+                            "because it is not managed by `jj-review`"
+                        ),
+                        status="blocked",
+                    ),
+                )
+            return cached_comment, None
         return (
             None,
             CloseAction(
@@ -669,9 +698,11 @@ async def _find_managed_stack_comment(
 def _retire_cached_change(
     cached_change: CachedChange,
     *,
-    cleanup: bool,
     pr_state: str,
 ) -> CachedChange:
+    # Closed changes remain "active" unless they were explicitly detached. The cache still
+    # needs the last known review identity so later cleanup or status refresh can reason
+    # about the already-closed path without reattaching it.
     updates: dict[str, object] = {
         "pr_review_decision": None,
         "pr_state": pr_state,

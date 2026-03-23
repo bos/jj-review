@@ -275,6 +275,19 @@ class GithubClient:
         )
         return GithubIssueComment.model_validate(self._expect_success(response))
 
+    async def get_issue_comment(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        comment_id: int,
+    ) -> GithubIssueComment:
+        response = await self._request(
+            "GET",
+            f"/repos/{owner}/{repo}/issues/comments/{comment_id}",
+        )
+        return GithubIssueComment.model_validate(self._expect_success(response))
+
     async def delete_issue_comment(
         self,
         owner: str,

@@ -1015,6 +1015,11 @@ The `close` slice needs clear apply-phase and ownership rules:
   synthetic review bookmarks, delete owned managed stack comments, and prune
   stale managed metadata only when the tool can prove ownership for the
   selected path on the configured target remote
+- controlled blocked exits retire their close intent instead of leaving a
+  stale "interrupted" notice behind, while still checkpointing any earlier
+  cache updates that already succeeded on the same path
+- when a PR has already disappeared, cached stack-comment cleanup must
+  re-check comment ownership by comment ID before deleting anything
 - fail closed on ambiguous linkage or ambiguous branch ownership instead of
   guessing what should be deleted
 - reruns should be idempotent, so a second `close` or `close --cleanup`

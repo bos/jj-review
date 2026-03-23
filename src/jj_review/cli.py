@@ -1151,7 +1151,10 @@ def _close_handler(args: Namespace) -> int:
         for action in result.actions:
             print(f"- [{action.status}] {action.kind}: {action.message}")
     else:
-        print("No managed open pull requests on the selected path.")
+        if result.applied:
+            print("No close actions were needed for the selected path.")
+        else:
+            print("No managed open pull requests on the selected path.")
 
     if not result.applied and not result.blocked and result.actions:
         print(

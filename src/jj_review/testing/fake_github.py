@@ -256,6 +256,13 @@ class FakeGithubRepository:
                     return comment
         return None
 
+    def get_issue_comment(self, *, comment_id: int) -> FakeGithubIssueComment | None:
+        for comments in self.issue_comments.values():
+            for comment in comments:
+                if comment.id == comment_id:
+                    return comment
+        return None
+
     def delete_issue_comment(self, *, comment_id: int) -> bool:
         for issue_number, comments in self.issue_comments.items():
             for index, comment in enumerate(comments):
@@ -514,6 +521,18 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
             body=_require_string(payload, "body"),
             comment_id=comment_id,
         )
+        if comment is None:
+            raise HTTPException(status_code=404, detail="Not Found")
+        return comment.to_payload(repository=repository, web_origin=fake_state.web_origin)
+
+    @app.get("/repos/{owner}/{repo}/issues/comments/{comment_id}")
+    async def get_issue_comment(
+        owner: str,
+        repo: str,
+        comment_id: int,
+    ) -> dict[str, object]:
+        repository = _get_repository(fake_state, owner, repo)
+        comment = repository.get_issue_comment(comment_id=comment_id)
         if comment is None:
             raise HTTPException(status_code=404, detail="Not Found")
         return comment.to_payload(repository=repository, web_origin=fake_state.web_origin)
