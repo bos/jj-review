@@ -94,7 +94,7 @@ can be tested without network or subprocess side effects.
 
 The product command surface should follow the design doc.
 
-`land` now ships as a separate post-MVP slice layered on top of the stable
+`land` now ships as a separate slice layered on top of the stable
 submit/status/relink/cleanup lifecycle.
 
 The tool itself should ship as a standalone executable, for example
