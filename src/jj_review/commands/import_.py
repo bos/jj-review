@@ -586,17 +586,18 @@ def _resolve_import_bookmark(
     prepared_revision,
     selected_remote_name: str | None,
 ) -> str:
-    bookmark = bookmark_by_change_id.get(
-        prepared_revision.revision.change_id,
-        prepared_revision.bookmark,
-    )
-    if prepared_revision.bookmark_source == "generated":
-        raise ImportResolutionError(
-            "Could not safely import the selected stack because "
-            f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} has no "
-            "discoverable review bookmark on the selected remote. Refresh with "
-            "`status --fetch` or select an exact review branch or pull request."
-        )
+    exact_bookmark = bookmark_by_change_id.get(prepared_revision.revision.change_id)
+    if exact_bookmark is not None:
+        bookmark = exact_bookmark
+    else:
+        bookmark = prepared_revision.bookmark
+        if prepared_revision.bookmark_source == "generated":
+            raise ImportResolutionError(
+                "Could not safely import the selected stack because "
+                f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} has no "
+                "discoverable review bookmark on the selected remote. Refresh with "
+                "`status --fetch` or select an exact review branch or pull request."
+            )
     if selected_remote_name is None:
         return bookmark
     bookmark_state = bookmark_states.get(bookmark, BookmarkState(name=bookmark))

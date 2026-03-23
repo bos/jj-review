@@ -311,6 +311,74 @@ def test_import_current_rejects_cache_only_linkage(
     assert _main(repo, config_path, "import", "--current") == 1
 
 
+def test_import_head_accepts_exact_custom_remote_branch_name(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    state_before = ReviewStateStore.for_repo(repo).load()
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    top_change_id = stack.revisions[-1].change_id
+    bottom_bookmark = state_before.changes[bottom_change_id].bookmark
+    top_bookmark = state_before.changes[top_change_id].bookmark
+    assert bottom_bookmark is not None
+    assert top_bookmark is not None
+
+    custom_head = "custom/pr-head"
+    top_target = _run(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "rev-parse",
+            f"refs/heads/{top_bookmark}",
+        ],
+        repo,
+    ).stdout.strip()
+    _run(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "update-ref",
+            f"refs/heads/{custom_head}",
+            top_target,
+        ],
+        repo,
+    )
+    _run(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "update-ref",
+            "-d",
+            f"refs/heads/{top_bookmark}",
+        ],
+        repo,
+    )
+    fake_repo.pull_requests.clear()
+    for bookmark in (bottom_bookmark, top_bookmark):
+        _run(["jj", "bookmark", "forget", bookmark], repo)
+    resolve_state_path(repo).unlink()
+
+    exit_code = _main(repo, config_path, "import", "--head", custom_head)
+
+    assert exit_code == 0
+    state_after = ReviewStateStore.for_repo(repo).load()
+    assert state_after.changes[bottom_change_id].bookmark == bottom_bookmark
+    assert state_after.changes[top_change_id].bookmark == custom_head
+    bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, custom_head))
+    assert bookmark_states[bottom_bookmark].local_target is not None
+    assert bookmark_states[custom_head].local_target is not None
+
+
 def _configure_import_environment(
     monkeypatch,
     tmp_path: Path,
