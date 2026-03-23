@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -16,6 +17,7 @@ from jj_review.commands.land import (
     _remote_trunk_matches_commit,
     _require_matching_land_preview,
     _restore_local_trunk_bookmark,
+    _resume_land_plan,
     _updated_landed_change,
     _write_land_preview,
 )
@@ -319,9 +321,15 @@ def test_remote_trunk_matches_commit_requires_matching_remote_and_local_state() 
 
 
 def test_require_matching_land_preview_requires_saved_preview(tmp_path: Path) -> None:
-    with pytest.raises(LandError, match="requires a saved preview"):
+    with pytest.raises(
+        LandError,
+        match=r"requires a saved preview\. Run `land --expect-pr 5 @-` first\.",
+    ):
         _require_matching_land_preview(
-            current_snapshot=_preview_snapshot(landed_commit_ids=("commit-1",)),
+            current_snapshot=_preview_snapshot(
+                expect_pr_number=5,
+                landed_commit_ids=("commit-1",),
+            ),
             selected_revset="@-",
             state_dir=tmp_path,
         )
@@ -331,13 +339,17 @@ def test_require_matching_land_preview_rejects_changed_preview(tmp_path: Path) -
     _write_land_preview(
         tmp_path,
         _preview_snapshot(
+            expect_pr_number=5,
             landed_change_ids=("change-1",),
             landed_commit_ids=("commit-1",),
             landed_pull_request_numbers=(7,),
         ),
     )
 
-    with pytest.raises(LandError, match="changed since the saved preview"):
+    with pytest.raises(
+        LandError,
+        match=r"changed since the saved preview\. Run `land --expect-pr 5 @-` again",
+    ):
         _require_matching_land_preview(
             current_snapshot=_preview_snapshot(
                 landed_change_ids=("change-1", "change-2"),
@@ -347,6 +359,45 @@ def test_require_matching_land_preview_rejects_changed_preview(tmp_path: Path) -
             selected_revset="@-",
             state_dir=tmp_path,
         )
+
+
+def test_resume_land_plan_skips_completed_change_ids() -> None:
+    intent = cast(
+        LandIntent,
+        _loaded_land_intent(
+            ordered_change_ids=("change-1", "change-2"),
+            ordered_commit_ids=("commit-1", "commit-2"),
+            landed_change_ids=("change-1", "change-2"),
+            completed_change_ids=("change-1",),
+        ).intent,
+    )
+    plan = _resume_land_plan(
+        intent=intent,
+        trunk_branch="main",
+    )
+
+    assert plan.blocked is False
+    assert plan.push_trunk is False
+    assert [revision.change_id for revision in plan.landed_revisions] == ["change-2"]
+    assert [revision.pull_request_number for revision in plan.landed_revisions] == [2]
+
+
+def test_resume_land_plan_rejects_incomplete_intent_data() -> None:
+    intent = cast(
+        LandIntent,
+        _loaded_land_intent(
+            ordered_change_ids=("change-1", "change-2"),
+            ordered_commit_ids=("commit-1", "commit-2"),
+            landed_change_ids=("change-1", "change-2"),
+        ).intent,
+    )
+    broken_intent = dataclass_replace(
+        intent,
+        landed_subjects={"change-1": "feature 1"},
+    )
+
+    with pytest.raises(LandError, match="Interrupted land intent"):
+        _resume_land_plan(intent=broken_intent, trunk_branch="main")
 
 
 def test_restore_local_trunk_bookmark_resets_existing_target() -> None:
@@ -446,6 +497,7 @@ def _loaded_land_intent(
     ordered_change_ids: tuple[str, ...],
     ordered_commit_ids: tuple[str, ...],
     landed_change_ids: tuple[str, ...],
+    completed_change_ids: tuple[str, ...] = (),
     expected_pr_number: int | None = None,
     trunk_branch: str = "main",
 ) -> LoadedIntent:
@@ -477,7 +529,7 @@ def _loaded_land_intent(
                 change_id: f"feature {index + 1}"
                 for index, change_id in enumerate(ordered_change_ids)
             },
-            completed_change_ids=(),
+            completed_change_ids=completed_change_ids,
             trunk_branch=trunk_branch,
             trunk_commit_id="trunk-commit",
             landed_commit_id=ordered_commit_ids[len(landed_change_ids) - 1]
@@ -491,13 +543,14 @@ def _loaded_land_intent(
 
 def _preview_snapshot(
     *,
+    expect_pr_number: int | None = None,
     landed_change_ids: tuple[str, ...] = (),
     landed_commit_ids: tuple[str, ...] = (),
     landed_pull_request_numbers: tuple[int, ...] = (),
 ) -> _LandPreviewSnapshot:
     return _LandPreviewSnapshot(
         boundary_message=None,
-        expect_pr_number=None,
+        expect_pr_number=expect_pr_number,
         github_repository="octo-org/stacked-review",
         landed_change_ids=landed_change_ids,
         landed_commit_ids=landed_commit_ids,

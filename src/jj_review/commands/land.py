@@ -19,6 +19,7 @@ from jj_review.commands.review_state import (
     PreparedStatus,
     ReviewStatusRevision,
     StatusResult,
+    _PreparedRevision,
     prepare_status,
     stream_status,
 )
@@ -242,7 +243,11 @@ def stream_land(*, prepared_land: PreparedLand) -> LandResult:
     )
 
 
-async def _stream_land_async(*, prepared_land: PreparedLand, status_result) -> LandResult:
+async def _stream_land_async(
+    *,
+    prepared_land: PreparedLand,
+    status_result: StatusResult,
+) -> LandResult:
     prepared_status = prepared_land.prepared_status
     prepared = prepared_status.prepared
     if status_result.github_error is not None:
@@ -630,7 +635,11 @@ def _build_land_plan(
     )
 
 
-def _land_boundary_message(*, prepared_revision, revision: ReviewStatusRevision) -> str | None:
+def _land_boundary_message(
+    *,
+    prepared_revision: _PreparedRevision,
+    revision: ReviewStatusRevision,
+) -> str | None:
     if revision.local_divergent:
         return (
             f"stop before {revision.subject} [{_short_change_id(revision.change_id)}] because "
@@ -772,7 +781,7 @@ def _write_land_preview(state_dir: Path, snapshot: _LandPreviewSnapshot) -> None
             with os.fdopen(fd, "w", encoding="utf-8") as file:
                 file.write(payload)
             Path(tmp_path).replace(path)
-        except Exception:
+        except BaseException:
             Path(tmp_path).unlink(missing_ok=True)
             raise
     except OSError as error:
@@ -842,7 +851,14 @@ def _require_matching_land_preview(
     state_dir: Path,
 ) -> None:
     saved_preview = _load_land_preview(state_dir)
-    preview_command = f"land {selected_revset}".strip()
+    preview_command = _format_land_preview_command(
+        expect_pr_number=(
+            current_snapshot.expect_pr_number
+            if saved_preview is None
+            else saved_preview.expect_pr_number
+        ),
+        selected_revset=selected_revset,
+    )
     if saved_preview is None:
         raise LandError(
             f"`land --apply` requires a saved preview. Run `{preview_command}` first."
@@ -852,6 +868,15 @@ def _require_matching_land_preview(
             "The landing plan changed since the saved preview. "
             f"Run `{preview_command}` again before `land --apply`."
         )
+
+
+def _format_land_preview_command(*, expect_pr_number: int | None, selected_revset: str) -> str:
+    parts = ["land"]
+    if expect_pr_number is not None:
+        parts.extend(("--expect-pr", str(expect_pr_number)))
+    if selected_revset:
+        parts.append(selected_revset)
+    return " ".join(parts)
 
 
 def _find_resume_land_intent(

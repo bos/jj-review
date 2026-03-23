@@ -931,6 +931,8 @@ This slice is now in place with the current implementation:
   finish post-push bookkeeping without rediscovering the original prefix
 - preview-state write failures are surfaced immediately instead of degrading
   into a later confusing “run preview first” apply error
+- preview/apply recovery guidance preserves a saved `--expect-pr` guardrail in
+  the rerun hint, so plan-invalidation retries do not silently drop it
 - exact post-landing bookkeeping is limited to the landed prefix, while
   broader stale-state cleanup remains a separate `cleanup` concern
 
