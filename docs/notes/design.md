@@ -472,16 +472,16 @@ work, or manual edits on GitHub.
 A future slice should add an explicit stack materialization command for the
 cross-machine case:
 
-- `jj review import [--edit] (--pull-request <pr> | --head <bookmark> |
-  --current | --revset <revset>)` fetches remote review state, resolves one
-  exact review stack, and materializes sparse local review state for that
-  stack without mutating GitHub
+- `jj review import (--pull-request <pr> | --head <bookmark> | --current |
+  --revset <revset>)` fetches remote review state, resolves one exact review
+  stack, and materializes sparse local review state for that stack without
+  mutating GitHub
 
 The selector should stay explicit and collision-free. In particular, the
 command should not overload a bare positional argument to mean either a revset
 or a PR number.
 
-Its default job is local materialization, not workspace motion:
+Its job is local materialization, not workspace motion:
 
 - fetch remote bookmark observations as needed
 - resolve the selected stack from a PR head branch, a specific review branch,
@@ -497,19 +497,6 @@ Its default job is not:
 - opening, closing, or mutating PRs
 - deleting local history
 
-If the user wants to start editing from the imported head, they should opt in
-explicitly with `--edit`. That mode should follow `jj`-native workspace rules:
-
-- it should require a clean, non-stale workspace before moving anything
-- it should use one precise workspace transition rule when implemented, rather
-  than implicitly choosing between `jj edit`, `jj new`, or another operation
-- if the workspace is dirty or stale, it should fail closed and point the user
-  to plain `jj` repair commands instead of moving the workspace underneath
-  local edits
-
-This keeps the command honest: `import` materializes sparse local review state;
-`--edit` is the explicit "focus this workspace on the imported stack" step.
-
 Failure guidance should stay narrow and specific:
 
 - if the PR head branch is missing, cross-repository, or ambiguous, fail closed
@@ -519,10 +506,15 @@ Failure guidance should stay narrow and specific:
 - if the fetched stack shape is unsupported locally, point the operator to
   `jj review cleanup --restack` only when the problem is local ancestry rather
   than remote identity
-- if a local bookmark already points somewhere else, stop and require an
-  explicit repair step instead of stealing ownership silently
-- if `--edit` was requested and the workspace is stale, point the user to
-  `jj workspace update-stale`
+- if `--current` was selected but the current local path has no discoverable
+  remote review linkage, say so explicitly instead of silently doing nothing
+- if a local bookmark already points somewhere else, stop and explain the exact
+  bookmark-ownership conflict and the safe repair steps instead of stealing
+  ownership silently
+- if stale local sparse state disagrees with freshly fetched linkage for the
+  selected stack, fetched linkage wins only when it is exact and unambiguous;
+  otherwise import should fail closed and surface the conflicting local and
+  remote identities instead of partially overwriting state
 
 `jj review status --fetch` should remain the read-only refresh path, while
 `jj review import` is the explicit materialization path. A repo-scoped `sync`
@@ -544,18 +536,31 @@ Without `--cleanup`, `close` should:
 - close the managed open PRs for the selected path
 - update local review state so those changes are no longer treated as actively
   under review
+- skip already-merged or already-closed PRs on that path instead of treating
+  them as new close targets
 - leave local and remote review branches in place
 
 With `--cleanup`, `close` should also perform conservative post-close cleanup
 for review artifacts the tool can prove it owns for that path:
 
-- delete owned remote review branches
+- delete owned remote review branches on the configured target remote only
 - forget owned local synthetic review bookmarks
+- delete managed stack comments that belong to the closed path
 - remove stale managed review metadata such as cached stack-comment linkage
 
 That cleanup should stay opt-in instead of implicit because closing PRs is less
 destructive than deleting branches. Preview output should make the difference
 clear so the operator can choose between "close only" and "close and clean up."
+If ownership cannot be proven from exact local and remote review identity,
+`--cleanup` should refuse the deletion rather than falling back to branch-name
+heuristics.
+
+`close` should also be idempotent:
+
+- rerunning `close` on an already-closed path should succeed as a no-op or
+  with a concise "nothing to close" summary
+- rerunning `close --cleanup` after an earlier `close` should only perform any
+  remaining safe cleanup instead of trying to close the PRs again
 
 A future slice should also keep a repair-oriented inverse of `relink`:
 
@@ -583,6 +588,8 @@ Detached state should mean:
 - `status --fetch` may still report discovered remote bookmarks or GitHub PRs
   for the same review branch, but it must label that state as detached instead
   of repopulating active ownership
+- when a preserved local bookmark still exists, status should surface it as a
+  detached review bookmark rather than an active managed review branch
 - `submit` must refuse to reuse detached linkage automatically, even if a local
   bookmark or a discoverable GitHub PR would normally count as proof
 - `land` must reject detached changes as not safely mergeable through the
@@ -603,12 +610,13 @@ rule is part of the product contract, not an implementation detail.
 `unlink` should also be idempotent:
 
 - unlinking an already-detached change should succeed as a no-op
-- unlinking a currently unlinked change may still leave it detached, but should
-  not invent a new active linkage failure mode
+- unlinking a change with no active review linkage should fail with a targeted
+  diagnostic instead of creating a new detached marker for a never-linked
+  change
 
 Broader cleanup remains with `cleanup`. Detached records should not expire just
-because a remote PR disappeared; pruning them is a separate conservative policy
-decision.
+because a remote PR disappeared, but cleanup should prune detached markers
+whose `change_id` no longer resolves anywhere in visible history.
 
 ## Rewrite Behavior
 
@@ -657,8 +665,8 @@ The tool can stay small. A reasonable surface would be:
 - `jj review unlink [--current | <revset>]` (future)
 - `jj review close [--cleanup] [--apply] [--current | <revset>]` (future)
 - `jj review cleanup [--restack] [--apply] [--current | <revset>]`
-- `jj review import [--edit] (--pull-request <pr> | --head <bookmark> |
-  --current | --revset <revset>)` (future)
+- `jj review import (--pull-request <pr> | --head <bookmark> | --current |
+  --revset <revset>)` (future)
 - `jj review land [--apply] [--expect-pr <pr>] [--current | <revset>]`
   (future)
 
@@ -861,11 +869,14 @@ local DAG and avoids partial-stack guesses.
 This design also needs to respect the recommended GitHub policy above:
 
 - PRs targeting `review/*` are review-only and should not be merged directly
-- `land` should transition the corresponding local prefix onto the trunk
-  branch using a transport that respects repository policy and branch
-  protection
-- the exact transport can stay implementation-defined for now, but the product
-  contract is that `land` merges onto trunk, not into synthetic review bases
+- `land` should replay the corresponding local prefix onto the trunk branch
+  locally in `jj`, preserving the landed prefix as a stack of commits rather
+  than collapsing it into one squashed trunk result
+- after producing that local landed result, it should update the trunk branch
+  by pushing the new trunk tip with an optimistic lease that still respects
+  repository policy and branch protection
+- `land` merges onto trunk, not into synthetic review bases, and it does not
+  delegate the history shape to GitHub's PR merge UI
 
 That means `land` owns the merge transition for the landed prefix, while
 `review/*` branches remain projected review state rather than merge targets in
@@ -886,6 +897,8 @@ Recovery guidance should stay case-specific:
 
 - if PR linkage is missing or ambiguous, point the operator to
   `jj review status --fetch` and `jj review relink`
+- if the open-prefix scan stops at a closed-but-unmerged PR, say so directly
+  and tell the operator to close or clean up that review path before retrying
 - if the selected path itself needs local ancestry repair after an earlier
   merge, point the operator to `jj review cleanup --restack`
 - if the selected path has no landable prefix, say so directly and explain
@@ -902,6 +915,10 @@ successful landing transition:
 - update local sparse review state for the landed prefix
 - close or mark landed only the PRs that correspond exactly to the landed
   prefix, once the trunk transition succeeds
+- if there are surviving descendants above the landed prefix, tell the
+  operator to repair local ancestry with `jj review cleanup --restack` and
+  then rerun `submit`; `land` should not silently retarget or restack those
+  surviving descendants itself
 
 Broader cleanup remains the job of `cleanup`:
 
@@ -941,6 +958,9 @@ Semantics:
 - missing entry means "reuse any discoverable bookmark or PR state, otherwise
   generate defaults"
 - present entry means "reuse cached generated state if still consistent"
+- if the machine-written state file is unreadable or partially written, treat
+  it as missing cache state for recovery purposes, warn once, and fall back to
+  rediscovery where the command can do so safely
 - `link_state = "detached"` is durable operator intent and suppresses
   automatic reattachment until the user runs `relink`
 - cached `pr_state` and `pr_review_decision` are advisory last-known GitHub

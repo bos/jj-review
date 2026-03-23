@@ -883,7 +883,8 @@ The command also needs explicit phase boundaries so retries are idempotent:
    GitHub linkage
 2. if `--apply` is set, rerun the same planning step and abort if the plan
    changed materially since preview
-3. perform the transition onto trunk using the chosen transport
+3. replay the landable prefix onto trunk locally in `jj`, preserving it as a
+   stack of commits, then push the resulting trunk tip with a lease
 4. only after that succeeds, update sparse review state and apply the exact
    PR bookkeeping for the landed prefix
 5. leave broader cache pruning and stale-review cleanup to `cleanup`
@@ -903,8 +904,12 @@ Done when:
   blocked boundary on the selected path
 - apply reruns planning and refuses to continue when the path, trunk target,
   or PR/linkage state changed materially
-- the chosen transport respects the design rule that review-only `review/*`
-  branches are not themselves merged directly
+- land now constructs the landed trunk history locally in `jj`, preserving the
+  landed prefix as multiple commits, then updates trunk with a leased push
+- review-only `review/*` branches are not themselves merged directly
+- surviving descendants above the landed prefix are left for follow-up
+  `cleanup --restack` and `submit`, rather than being silently retargeted or
+  restacked during `land`
 - retries after an interrupted land are idempotent at each phase boundary
 - exact post-landing bookkeeping is limited to the landed prefix, while
   broader stale-state cleanup remains a separate `cleanup` concern
@@ -916,8 +921,8 @@ from both read-only refresh and local ancestry repair.
 
 The CLI contract should be:
 
-- `jj review import [--edit] (--pull-request <pr> | --head <bookmark> |
-  --current | --revset <revset>)`
+- `jj review import (--pull-request <pr> | --head <bookmark> | --current |
+  --revset <revset>)`
 - no overloaded positional selector that could mean either a revset or a PR
 - no implicit workspace motion in the default mode
 
@@ -934,8 +939,6 @@ The implementation needs explicit rules for what `import` may mutate:
 - refresh cache entries only for the selected stack
 - create or refresh local synthetic review bookmarks only when the target is
   exact and unambiguous
-- if `--edit` is requested, apply one explicit `jj`-native workspace
-  transition rule and fail closed on dirty or stale workspaces
 - do not rewrite commits, restack descendants, or mutate GitHub state
 
 Done when:
@@ -946,8 +949,11 @@ Done when:
   without inventing topology from cache
 - bookmark ownership conflicts, ambiguous PR linkage, and unsupported stack
   shapes fail with targeted recovery guidance
-- `--edit` behavior is precise, testable, and blocked on dirty or stale
-  workspaces instead of guessing what the operator meant
+- `--current` import failures are explicit when the current local path has no
+  discoverable remote review linkage
+- stale local cache state is refreshed only when fetched linkage for the exact
+  selected stack is unambiguous; otherwise import fails closed with targeted
+  conflict guidance
 
 Backlog should keep repo-scoped `sync` as a separate question. This slice
 solves explicit import/materialization, not whole-repo refresh policy.
@@ -974,12 +980,16 @@ The product split should stay explicit:
 The `close` slice needs clear apply-phase and ownership rules:
 
 - preview by default, with `--apply` required for mutations
-- without `--cleanup`, close PRs and retire active local review state only
+- without `--cleanup`, close open PRs and retire active local review state
+  only, while skipping already-merged or already-closed PRs on the path
 - with `--cleanup`, delete owned remote review branches, forget owned local
-  synthetic review bookmarks, and prune stale managed metadata only when the
-  tool can prove ownership for the selected path
+  synthetic review bookmarks, delete owned managed stack comments, and prune
+  stale managed metadata only when the tool can prove ownership for the
+  selected path on the configured target remote
 - fail closed on ambiguous linkage or ambiguous branch ownership instead of
   guessing what should be deleted
+- reruns should be idempotent, so a second `close` or `close --cleanup`
+  performs only the remaining safe work
 
 `unlink` keeps the detached-state precedence rule. Once a change is explicitly
 unlinked, that detached record must override every other proof of ownership:
@@ -997,6 +1007,8 @@ intent versus mere cache:
 - clearing cached PR fields is not enough
 - unlink writes a durable detached marker for the selected change
 - rerunning unlink is idempotent and should succeed as a no-op
+- unlinking a change with no active review linkage should fail instead of
+  creating detached state for a never-linked change
 
 Done when:
 
@@ -1004,12 +1016,16 @@ Done when:
   local review path
 - `close --cleanup` can also delete owned review branches and retire owned
   local review artifacts without crossing ambiguous ownership boundaries
+- close reruns skip already-finished PRs and only perform any remaining safe
+  cleanup work
 - unlinking one selected change clears active linkage and records detached state
 - `status --fetch` surfaces detached state without repopulating active linkage
+- `status` reports preserved local bookmarks as detached review bookmarks when
+  detached state still exists
 - `submit` refuses to reuse detached linkage until `relink` clears it
 - `land` rejects detached changes as not safely landable
-- detached records are pruned only by explicit conservative policy, not merely
-  because refresh stopped finding the old PR
+- cleanup prunes detached markers whose `change_id` no longer resolves in
+  visible history
 
 ## Error Handling Strategy
 
@@ -1035,6 +1051,10 @@ When possible, diagnostics should point to the exact recovery action:
 - `jj rebase`
 - `jj review cleanup`
 - `jj workspace update-stale`
+
+Unreadable or partially written machine-written review state should be treated
+as missing cache state with one warning, then commands should fall back to
+rediscovery where the design allows that to happen safely.
 
 ## Observability
 
