@@ -11,6 +11,10 @@ import sys
 import tempfile
 from pathlib import Path
 
+CODEX_MODEL = "gpt-5.4-mini"
+MAX_PR_CONTEXT_BYTES = 900_000
+STACK_INPUT_ENV = "JJ_REVIEW_STACK_INPUT_FILE"
+
 PROMPT_TEMPLATE = """\
 {task}
 
@@ -25,7 +29,7 @@ Return JSON with exactly two string fields:
 - Explain what changed, why it changed, risks, and testing when known.
 {extra_guidance}
 
-Use the source control context below:
+Use the review context below:
 {context}
 """
 
@@ -38,7 +42,6 @@ SCHEMA = {
     "required": ["title", "body"],
     "additionalProperties": False,
 }
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -73,15 +76,118 @@ def run_jj(*args: str) -> str:
 
 def build_context(mode: str, revset: str) -> str:
     if mode == "pr":
-        return run_jj("show", "--git", "-r", revset).strip()
-    return run_jj(
+        return build_pr_context(revset)
+    return build_stack_context(revset)
+
+
+def build_pr_context(revset: str) -> str:
+    raw_context = run_jj("show", "--git", "-r", revset).strip()
+    return truncate_context(raw_context, max_bytes=MAX_PR_CONTEXT_BYTES)
+
+
+def build_stack_context(revset: str) -> str:
+    generated_context = generated_stack_context()
+    if generated_context is not None:
+        return generated_context
+    return local_stack_context(revset)
+
+
+def generated_stack_context() -> str | None:
+    input_path = os.environ.get(STACK_INPUT_ENV)
+    if not input_path:
+        return None
+    try:
+        payload = json.loads(Path(input_path).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    revisions = payload.get("revisions")
+    if not isinstance(revisions, list):
+        return None
+
+    lines = ["Generated pull request descriptions for this stack, bottom to top:"]
+    for index, revision in enumerate(revisions, start=1):
+        if not isinstance(revision, dict):
+            return None
+        title = revision.get("title")
+        body = revision.get("body")
+        diffstat = revision.get("diffstat")
+        if not isinstance(title, str) or not isinstance(body, str):
+            return None
+        lines.extend([f"{index}. {title}"])
+        if body.strip():
+            lines.extend(["", body.strip()])
+        if isinstance(diffstat, str) and diffstat.strip():
+            lines.extend(["", "Diffstat:", diffstat.strip()])
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def local_stack_context(revset: str) -> str:
+    revisions = stack_revisions(revset)
+    lines = ["Source-control summaries for this stack, bottom to top:"]
+    for index, revision in enumerate(revisions, start=1):
+        lines.append(f"{index}. {revision['title']}")
+        if revision["body"]:
+            lines.extend(["", revision["body"]])
+        if revision["diffstat"]:
+            lines.extend(["", "Diffstat:", revision["diffstat"]])
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def stack_revisions(revset: str) -> list[dict[str, str]]:
+    entries = run_jj(
         "log",
-        "-p",
-        "--git",
         "-r",
         f"trunk()::{revset} & visible() & mutable()",
         "--no-graph",
-    ).strip()
+        "-T",
+        'change_id ++ "\\0" ++ description ++ "\\u0001"',
+    ).split("\u0001")
+    revisions: list[dict[str, str]] = []
+    for entry in reversed(entries):
+        if not entry:
+            continue
+        change_id, _, description = entry.partition("\0")
+        normalized_description = description.strip()
+        if not normalized_description:
+            title = change_id[:8]
+            body = ""
+        else:
+            lines = normalized_description.splitlines()
+            title = lines[0].strip() or change_id[:8]
+            body = "\n".join(line.rstrip() for line in lines[1:]).strip()
+        revisions.append(
+            {
+                "body": body,
+                "diffstat": diffstat_for_revision(change_id),
+                "title": title,
+            }
+        )
+    return revisions
+
+
+def diffstat_for_revision(revset: str) -> str:
+    lines = run_jj("show", "--stat", "-r", revset).rstrip().splitlines()
+    diffstat_lines: list[str] = []
+    for line in reversed(lines):
+        if not line.strip():
+            if diffstat_lines:
+                break
+            continue
+        diffstat_lines.append(line)
+    return "\n".join(reversed(diffstat_lines))
+
+
+def truncate_context(text: str, *, max_bytes: int) -> str:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    truncated = encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip()
+    return (
+        f"[review context truncated to the first {max_bytes} bytes; original size "
+        f"{len(encoded)} bytes]\n\n{truncated}"
+    )
 
 
 def stack_commit_count(revset: str) -> int:
@@ -149,6 +255,8 @@ def main() -> int:
                 codex_bin,
                 "-a",
                 "never",
+                "--model",
+                CODEX_MODEL,
                 "-s",
                 "read-only",
                 "exec",
@@ -160,11 +268,12 @@ def main() -> int:
                 "never",
                 "-o",
                 str(output_path),
-                prompt,
+                "-",
             ],
             capture_output=True,
             check=False,
             cwd=Path.cwd(),
+            input=prompt,
             text=True,
         )
         if completed.returncode != 0:

@@ -224,8 +224,11 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
             [
                 "#!/usr/bin/env python3",
                 "import json",
+                "import os",
+                "from pathlib import Path",
                 "import sys",
                 "",
+                "stack_input_env = 'JJ_REVIEW_STACK_INPUT_FILE'",
                 "kind, revset = sys.argv[1], sys.argv[2]",
                 "if kind == '--pr':",
                 "    payload = {",
@@ -233,9 +236,17 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
                 "        'body': f'Generated body for {revset}',",
                 "    }",
                 "elif kind == '--stack':",
+                "    stack_input = json.loads(",
+                "        Path(os.environ[stack_input_env]).read_text(encoding='utf-8')",
+                "    )",
+                "    revisions = stack_input['revisions']",
                 "    payload = {",
                 "        'title': 'Generated stack summary',",
-                "        'body': f'Generated stack body for {revset}',",
+                "        'body': (",
+                "            f\"Generated stack body for {revset}: \"",
+                "            f\"{revisions[0]['title']} -> {revisions[1]['title']} | \"",
+                "            f\"{revisions[0]['diffstat'].splitlines()[0]}\"",
+                "        ),",
                 "    }",
                 "else:",
                 "    raise SystemExit(f'unexpected args: {sys.argv[1:]}')",
@@ -270,7 +281,9 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
     )
     assert "## Generated stack summary" in _issue_comments(fake_repo, 1)[0].body
     assert (
-        f"Generated stack body for {stack.selected_revset}"
+        f"Generated stack body for {stack.selected_revset}: "
+        f"AI {stack.revisions[0].change_id[:8]} -> AI {stack.revisions[1].change_id[:8]} | "
+        "feature-1.txt"
         in _issue_comments(fake_repo, 1)[0].body
     )
     assert "This pull request is part of a stack managed by `jj-review`." in (
@@ -329,6 +342,45 @@ def test_submit_describe_with_skips_stack_helper_for_single_commit_stack(
     assert log_path.read_text(encoding="utf-8").splitlines() == [f"--pr {change_id}"]
     assert _issue_comments(fake_repo, 1) == []
     assert state.changes[change_id].stack_comment_id is None
+
+
+def test_submit_describe_with_failure_aborts_before_mutation(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    helper = tmp_path / "describe.py"
+    helper.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "print('not json')",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    helper.chmod(0o755)
+
+    exit_code = _main(
+        repo,
+        config_path,
+        "submit",
+        "--current",
+        "--describe-with",
+        str(helper),
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "returned invalid JSON" in captured.err
+    assert ReviewStateStore.for_repo(repo).load().changes == {}
+    assert set(_remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
+    assert fake_repo.pull_requests == {}
+    assert _issue_comments(fake_repo, 1) == []
 
 
 def test_submit_batches_pull_request_discovery_with_graphql(

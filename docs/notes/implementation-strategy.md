@@ -688,6 +688,12 @@ prefix from `submit --describe-with`; that prose is rendered ahead of the
 standard previous/current/next navigation block so the product still owns only
 one managed reviewer-facing comment per PR.
 
+When `submit` invokes a stack helper, it now also writes a temporary input file
+with the already-generated PR title/body pairs plus compact per-PR diffstat
+context and points the helper at that file via `JJ_REVIEW_STACK_INPUT_FILE`.
+That lets example helpers summarize the stack from reviewer-facing PR metadata
+instead of replaying the full raw stack patch into the model.
+
 The repo now also includes three no-dependency example helpers in `scripts/`:
 
 - `describe_with_prompt.py` for interactive local entry on a TTY

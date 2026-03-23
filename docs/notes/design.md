@@ -342,6 +342,10 @@ Given a selected head revision:
      managed reviewer-facing stack comment when the selected path contains
      more than one review unit, and does not become a separate source of
      truth for topology
+   - for stack helpers, submit may also provide a temporary helper-owned input
+     file describing the generated per-PR title/body pairs and compact diffstat
+     context for the selected stack, so helpers can summarize the stack from
+     reviewer-facing PR metadata instead of raw full-patch history
    - helper output must be structured and fail closed; invalid helper output
      should abort submit before remote or GitHub mutation
 6. Treat merged ancestors as no longer reviewable. For each remaining change

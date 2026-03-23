@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import subprocess
+import tempfile
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
@@ -90,6 +91,7 @@ RemoteBookmarkAction = Literal["pushed", "up to date"]
 PushOperation = Literal["batch", "git_update", "up_to_date"]
 _DEFAULT_GITHUB_HOST = "github.com"
 _GITHUB_INSPECTION_CONCURRENCY = 4
+_DESCRIBE_WITH_STACK_INPUT_ENV = "JJ_REVIEW_STACK_INPUT_FILE"
 _STACK_COMMENT_MARKER = "<!-- jj-review-stack -->"
 
 
@@ -967,18 +969,82 @@ def _resolve_generated_descriptions(
     }
     generated_stack_description = None
     if len(revisions) > 1:
-        generated_stack_description = _run_description_command(
-            command=describe_with,
-            kind="stack",
+        stack_input = _build_stack_description_input(
+            generated_descriptions=generated_descriptions,
             repo_root=repo_root,
-            revset=selected_revset,
+            revisions=revisions,
         )
+        with tempfile.TemporaryDirectory(prefix="jj-review-describe-with-") as tempdir:
+            stack_input_path = Path(tempdir) / "stack-input.json"
+            stack_input_path.write_text(json.dumps(stack_input), encoding="utf-8")
+            generated_stack_description = _run_description_command(
+                command=describe_with,
+                extra_env={
+                    _DESCRIBE_WITH_STACK_INPUT_ENV: str(stack_input_path),
+                },
+                kind="stack",
+                repo_root=repo_root,
+                revset=selected_revset,
+            )
     return generated_descriptions, generated_stack_description
+
+
+def _build_stack_description_input(
+    *,
+    generated_descriptions: dict[str, GeneratedDescription],
+    repo_root: Path,
+    revisions: tuple[Any, ...],
+) -> dict[str, Any]:
+    return {
+        "revisions": [
+            {
+                "body": generated_descriptions[revision.change_id].body,
+                "change_id": revision.change_id,
+                "diffstat": _describe_with_diffstat(
+                    repo_root=repo_root,
+                    revset=revision.change_id,
+                ),
+                "title": generated_descriptions[revision.change_id].title,
+            }
+            for revision in revisions
+        ]
+    }
+
+
+def _describe_with_diffstat(*, repo_root: Path, revset: str) -> str:
+    try:
+        completed = subprocess.run(
+            ["jj", "show", "--stat", "-r", revset],
+            capture_output=True,
+            check=False,
+            cwd=repo_root,
+            text=True,
+        )
+    except OSError as error:
+        raise SubmitDescriptionCommandError(
+            f"Could not collect diffstat for --stack {revset!r}: {error}"
+        ) from error
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout).strip() or "unknown jj failure"
+        raise SubmitDescriptionCommandError(
+            f"Could not collect diffstat for --stack {revset!r}: {detail}"
+        )
+
+    lines = completed.stdout.rstrip().splitlines()
+    diffstat_lines: list[str] = []
+    for line in reversed(lines):
+        if not line.strip():
+            if diffstat_lines:
+                break
+            continue
+        diffstat_lines.append(line)
+    return "\n".join(reversed(diffstat_lines))
 
 
 def _run_description_command(
     *,
     command: str,
+    extra_env: dict[str, str] | None = None,
     kind: Literal["pr", "stack"],
     repo_root: Path,
     revset: str,
@@ -989,6 +1055,14 @@ def _run_description_command(
             capture_output=True,
             check=False,
             cwd=repo_root,
+            env=(
+                None
+                if extra_env is None
+                else {
+                    **os.environ,
+                    **extra_env,
+                }
+            ),
             text=True,
         )
     except FileNotFoundError as error:

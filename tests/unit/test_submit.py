@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -242,11 +243,12 @@ def test_run_description_command_returns_title_and_body(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    def fake_run(command, *, capture_output, check, cwd, text):
+    def fake_run(command, *, capture_output, check, cwd, env, text):
         assert command == ["helper", "--pr", "abc123"]
         assert capture_output is True
         assert check is False
         assert cwd == tmp_path
+        assert env is None
         assert text is True
         return subprocess.CompletedProcess(
             command,
@@ -269,7 +271,7 @@ def test_run_description_command_rejects_invalid_json(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    def fake_run(command, *, capture_output, check, cwd, text):
+    def fake_run(command, *, capture_output, check, cwd, env, text):
         return subprocess.CompletedProcess(
             command,
             0,
@@ -286,6 +288,31 @@ def test_run_description_command_rejects_invalid_json(
             repo_root=tmp_path,
             revset="@",
         )
+
+
+def test_run_description_command_passes_extra_env(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def fake_run(command, *, capture_output, check, cwd, env, text):
+        assert env is not None
+        assert env["JJ_REVIEW_STACK_INPUT_FILE"] == "/tmp/stack-input.json"
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout='{"title":"generated title","body":"generated body"}\n',
+            stderr="",
+        )
+
+    monkeypatch.setattr("jj_review.commands.submit.subprocess.run", fake_run)
+
+    assert _run_description_command(
+        command="helper",
+        extra_env={"JJ_REVIEW_STACK_INPUT_FILE": "/tmp/stack-input.json"},
+        kind="stack",
+        repo_root=tmp_path,
+        revset="@",
+    ) == GeneratedDescription(title="generated title", body="generated body")
 
 
 def test_resolve_generated_descriptions_uses_default_commit_mapping(tmp_path: Path) -> None:
@@ -308,6 +335,78 @@ def test_resolve_generated_descriptions_uses_default_commit_mapping(tmp_path: Pa
         "head-change": GeneratedDescription(title="feature", body="body line")
     }
     assert stack_description is None
+
+
+def test_resolve_generated_descriptions_passes_generated_pr_data_to_stack_helper(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    revisions = (
+        _make_revision(
+            commit_id="bottom",
+            change_id="bottom-change",
+            description="bottom feature\n\nbottom body\n",
+        ),
+        _make_revision(
+            commit_id="top",
+            change_id="top-change",
+            description="top feature\n\ntop body\n",
+        ),
+    )
+    seen_stack_payload: dict[str, object] | None = None
+
+    def fake_run_description_command(*, command, extra_env=None, kind, repo_root, revset):
+        nonlocal seen_stack_payload
+        assert command == "helper"
+        assert repo_root == tmp_path
+        if kind == "pr":
+            return GeneratedDescription(title=f"AI {revset}", body=f"Body {revset}")
+        assert extra_env is not None
+        stack_input_path = extra_env["JJ_REVIEW_STACK_INPUT_FILE"]
+        seen_stack_payload = json.loads(Path(stack_input_path).read_text(encoding="utf-8"))
+        return GeneratedDescription(title="stack title", body="stack body")
+
+    def fake_diffstat(*, repo_root: Path, revset: str) -> str:
+        assert repo_root == tmp_path
+        return f"diffstat {revset}"
+
+    monkeypatch.setattr(
+        "jj_review.commands.submit._run_description_command",
+        fake_run_description_command,
+    )
+    monkeypatch.setattr("jj_review.commands.submit._describe_with_diffstat", fake_diffstat)
+
+    descriptions, stack_description = _resolve_generated_descriptions(
+        describe_with="helper",
+        repo_root=tmp_path,
+        revisions=revisions,
+        selected_revset="@",
+    )
+
+    assert descriptions == {
+        "bottom-change": GeneratedDescription(
+            title="AI bottom-change",
+            body="Body bottom-change",
+        ),
+        "top-change": GeneratedDescription(title="AI top-change", body="Body top-change"),
+    }
+    assert stack_description == GeneratedDescription(title="stack title", body="stack body")
+    assert seen_stack_payload == {
+        "revisions": [
+            {
+                "body": "Body bottom-change",
+                "change_id": "bottom-change",
+                "diffstat": "diffstat bottom-change",
+                "title": "AI bottom-change",
+            },
+            {
+                "body": "Body top-change",
+                "change_id": "top-change",
+                "diffstat": "diffstat top-change",
+                "title": "AI top-change",
+            },
+        ]
+    }
 
 
 def test_render_generated_stack_description_omits_empty_fields() -> None:
