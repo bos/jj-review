@@ -21,7 +21,7 @@ mutable text such as the commit subject.
 The result is a tool that behaves like a natural extension of `jj` instead of a
 parallel stack manager.
 
-For an MVP, the tool can be almost stateless.
+For a first implementation, the tool can be almost stateless.
 
 ## Recommended GitHub Policy
 
@@ -108,9 +108,11 @@ rewrite.
 
 ### Review Stack
 
-A review stack is a linear chain of review units from a selected head back to `trunk()`.
+A review stack is a linear chain of review units from a selected head back to
+`trunk()`.
 
-For an MVP, the tool should support only linear stacks. Reject or require manual intervention for:
+For now, the tool should support only linear stacks. Reject or require manual
+intervention for:
 
 - merge commits
 - divergent changes
@@ -185,7 +187,7 @@ does not give GitHub a base branch name. For GitHub operations, the tool must
 resolve the trunk base to one concrete remote bookmark on the selected remote,
 such as `main@origin`.
 
-For the MVP, require one of:
+For now, require one of:
 
 - an explicit repo override such as `trunk_branch = "main"`
 - or an unambiguous remote bookmark on the selected remote whose target is
@@ -203,7 +205,7 @@ That matches `jj`'s model: one repository can have multiple workspaces, each
 with its own working copy, while sharing the same commit graph, bookmark view,
 and operation history.
 
-For the MVP:
+For now:
 
 - machine-written review state should be shared across workspaces for the same
   repo
@@ -238,6 +240,8 @@ If the tool stores any machine-written local state, it should be limited to:
 - cached PR number and URL
 - cached stack-comment identifier, if the tool uses a dedicated PR comment
 - last known PR state, only as a cache
+- a durable detached-linkage marker for a change the operator explicitly
+  unlinked, because that is user intent the tool must not silently undo
 
 Even PR linkage can often be rediscovered by asking GitHub for the PR whose
 head branch matches the synthetic bookmark name.
@@ -248,14 +252,14 @@ mixed into machine-written review state. Those include:
 - repo defaults such as preferred remote, trunk branch, or GitHub owner/repo
   override
 - explicit bookmark-name override for a specific change
-- per-change user preferences (future extension point; no MVP examples yet)
+- per-change user preferences (future extension point; no current examples yet)
 
 ### Reviewer-Facing Stack Metadata
 
 The tool should also maintain a reviewer-facing description of the stack on
 GitHub, but that description must not be the source of truth.
 
-For the MVP, that can be either:
+For now, that can be either:
 
 - a small stack section in each PR body
 - or a dedicated bot comment on each PR
@@ -293,7 +297,7 @@ Instead, split storage into two locations:
 - machine-written review state in
   `~/.local/state/jj-review/repos/<repo-id>/state.toml`
 
-For the MVP, repo-specific config should live in the main user config file via
+For now, repo-specific config should live in the main user config file via
 path-based conditional matching rather than a separate repo-local config file.
 
 For machine-written review state, reuse `jj`'s repo config identity:
@@ -329,7 +333,7 @@ Given a selected head revision:
 5. Query GitHub for the PR state of those review branches.
    - if cached linkage and GitHub-discovered linkage disagree, stop and require
      an explicit recovery flow instead of silently creating a replacement PR
-   - for the MVP, derive the PR title from the commit subject and the PR body
+   - for now, derive the PR title from the commit subject and the PR body
      from the remaining commit description; generated stack metadata is added
      later and is not part of this slice
 6. Treat merged ancestors as no longer reviewable. For each remaining change
@@ -371,7 +375,7 @@ branch and PR, it should fail with a targeted diagnostic instead of guessing.
 In particular, it should not automatically open a new PR just because cached
 linkage, bookmark state, or GitHub state is missing or damaged.
 
-For the MVP, the recovery surface should be explicit and narrow:
+The recovery surface should be explicit and narrow:
 
 - `jj review status --fetch [<revset>]` refreshes remembered remote-branch
   observations before inspecting GitHub linkage, then reports the selected
@@ -464,8 +468,8 @@ These commands are not sources of truth either. They are operator-driven ways
 to reattach GitHub state to a `jj`-derived stack after damage, cross-machine
 work, or manual edits on GitHub.
 
-Post-MVP, the tool should add an explicit stack materialization command for
-the cross-machine case:
+A future slice should add an explicit stack materialization command for the
+cross-machine case:
 
 - `jj review import [--edit] (--pull-request <pr> | --head <bookmark> |
   --current | --revset <revset>)` fetches remote review state, resolves one
@@ -521,8 +525,61 @@ Failure guidance should stay narrow and specific:
 
 `jj review status --fetch` should remain the read-only refresh path, while
 `jj review import` is the explicit materialization path. A repo-scoped `sync`
-command remains a separate post-MVP question rather than being folded into
+command remains a separate future question rather than being folded into
 either command prematurely.
+
+A future slice should also add an explicit inverse of `adopt`:
+
+- `jj review unlink [--current | <revset>]` intentionally detaches one selected
+  review unit from active PR ownership without mutating GitHub
+
+That command should be one-change-first, not stack-wide by default. Its unit of
+intent should mirror `adopt`: one selected review unit, identified from the
+local DAG.
+
+`unlink` should clear active linkage fields such as:
+
+- `pr_number`
+- `pr_url`
+- `pr_state`
+- `pr_review_decision`
+- `stack_comment_id`
+
+It should then write a durable detached-linkage marker for that change. That
+record matters because a plain cache clear would otherwise be undone
+immediately by later rediscovery.
+
+Detached state should mean:
+
+- `status --fetch` may still report discovered remote bookmarks or GitHub PRs
+  for the same review branch, but it must label that state as detached instead
+  of repopulating active ownership
+- `submit` must refuse to reuse detached linkage automatically, even if a local
+  bookmark or a discoverable GitHub PR would normally count as proof
+- `land` must reject detached changes as not safely mergeable through the
+  managed review pipeline
+- `adopt` is the explicit way back in; it clears the detached marker and
+  reestablishes active linkage intentionally
+
+By default, `unlink` should be local-only:
+
+- no closing PRs
+- no deleting review branches
+- no deleting stack comments on GitHub
+
+It may preserve the local bookmark, but once the detached marker exists that
+bookmark must no longer count as proof of active ownership. That precedence
+rule is part of the product contract, not an implementation detail.
+
+`unlink` should also be idempotent:
+
+- unlinking an already-detached change should succeed as a no-op
+- unlinking a currently unlinked change may still leave it detached, but should
+  not invent a new active linkage failure mode
+
+Broader cleanup remains with `cleanup`. Detached records should not expire just
+because a remote PR disappeared; pruning them is a separate conservative policy
+decision.
 
 ## Rewrite Behavior
 
@@ -568,16 +625,18 @@ The tool can stay small. A reasonable surface would be:
 - `jj review submit [--current | <revset>]`
 - `jj review status [--fetch] [<revset>]`
 - `jj review adopt <pr> [--current | <revset>]`
+- `jj review unlink [--current | <revset>]` (future)
 - `jj review cleanup [--restack] [--apply] [--current | <revset>]`
 - `jj review import [--edit] (--pull-request <pr> | --head <bookmark> |
-  --current | --revset <revset>)` (post-MVP)
+  --current | --revset <revset>)` (future)
 - `jj review land [--apply] [--expect-pr <pr>] [--current | <revset>]`
-  (post-MVP)
+  (future)
 
 Target selection should stay explicit:
 
 - `submit` and `adopt` require one explicit selector, either `<revset>` or
   `--current`
+- `unlink` should require the same explicit selector when it is introduced
 - `import` should require exactly one explicit selector when it is introduced
 - `land` should require the same explicit selector when it is introduced
 - `cleanup --restack --apply` likewise requires one explicit selector
@@ -651,7 +710,7 @@ repo, remember that `GIT_DIR` may need to point at `.jj/repo/store/git`.
   stale, such as after the corresponding PR is closed or the change has been
   abandoned
 
-For the MVP, cleanup should prefer reporting planned actions before mutating
+For now, cleanup should prefer reporting planned actions before mutating
 remote state. Deleting open PRs or deleting review branches for ambiguous cases
 should require explicit user intent rather than happening automatically.
 
@@ -830,6 +889,8 @@ version = 1
 
 [change."<full-change-id>"]
 bookmark = "review/fix-cache-invalidation-ypvmkkuo"
+detached_at = "2026-03-22T12:34:56+00:00"
+link_state = "active"
 pr_number = 123
 pr_review_decision = "approved"
 pr_state = "open"
@@ -849,6 +910,8 @@ Semantics:
 - missing entry means "reuse any discoverable bookmark or PR state, otherwise
   generate defaults"
 - present entry means "reuse cached generated state if still consistent"
+- `link_state = "detached"` is durable operator intent and suppresses
+  automatic reattachment until the user runs `adopt`
 - cached `pr_state` and `pr_review_decision` are advisory last-known GitHub
   observations for status rendering, not a source of truth
 - deleting the file must never break the review stack model, though it may
@@ -864,9 +927,9 @@ User-authored per-change overrides such as `bookmark_override` belong in
 config, not in the machine-written state file. Additional per-change
 preferences are a future extension point.
 
-## MVP Boundary
+## Current Boundary
 
-The MVP should intentionally support only:
+The current design intentionally supports only:
 
 - one remote
 - one GitHub repo target
@@ -874,7 +937,7 @@ The MVP should intentionally support only:
 - visible mutable changes
 - one PR per reviewable change
 
-The MVP should intentionally reject:
+The current design intentionally rejects:
 
 - merge commits inside the review chain
 - divergent changes
@@ -884,7 +947,7 @@ The MVP should intentionally reject:
 ## Open Questions
 
 1. Should the tool eventually support PR title/body templates beyond the raw
-   commit description mapping used for the MVP?
+   commit description mapping used today?
 2. Should abandoned or split PRs be auto-closed, or only surfaced as cleanup
    suggestions?
 

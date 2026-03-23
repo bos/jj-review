@@ -24,7 +24,7 @@ to the intent file implementation.
 
 The submit algorithm walks bottom-to-top creating/updating PRs sequentially.
 For deep stacks this means many API round trips. We need to decide whether to
-batch or parallelize GitHub API calls. Acceptable to stay serial for the MVP.
+batch or parallelize GitHub API calls. Acceptable to stay serial for now.
 
 The GitHub client already implements retry-with-backoff for 429 and 403
 rate-limit responses, reading `Retry-After` and `X-RateLimit-Reset` headers
@@ -40,8 +40,8 @@ than coupling it to the remote/GitHub concurrency changes.
 
 ## Ancestor Merged on GitHub
 
-The design doc and post-MVP `land` design now cover the main recovery shape
-for merged ancestors and the division of labor between `land` and
+The design doc and future `land` design now cover the main recovery shape for
+merged ancestors and the division of labor between `land` and
 `cleanup --restack`.
 
 The remaining follow-up here is narrower:
@@ -55,22 +55,22 @@ The remaining follow-up here is narrower:
 
 ## Bookmark Naming Collisions
 
-The MVP rejects bookmark naming collisions from user overrides, but two changes
-could theoretically produce the same slug+suffix. The 8-char `change_id` suffix
-makes this extremely unlikely, but the tool should detect it and fail with a
-clear diagnostic describing what went wrong and how to resolve it (e.g., set an
-explicit bookmark override for one of the changes).
+The current design rejects bookmark naming collisions from user overrides, but
+two changes could theoretically produce the same slug+suffix. The 8-char
+`change_id` suffix makes this extremely unlikely, but the tool should detect
+it and fail with a clear diagnostic describing what went wrong and how to
+resolve it (e.g., set an explicit bookmark override for one of the changes).
 
 ## Draft PR Support
 
 GitHub has a native draft PR concept (visible but not reviewable or mergeable
 until marked ready). We should eventually support creating PRs as drafts and
 promoting them, but the semantics need to be designed before adding it. Deferred
-from MVP.
+for now.
 
 ## Repo-Scoped Sync
 
-The post-MVP `import` design covers explicit stack materialization for one
+A future `import` design covers explicit stack materialization for one
 selected review stack, and `status --fetch` remains the read-only refresh
 primitive.
 

@@ -23,7 +23,7 @@ for product behavior and policy, including:
 - the review-unit and stack model
 - bookmark naming and cache semantics
 - submit, status, adopt, and cleanup behavior
-- MVP command surface and scope
+- current command surface and scope
 - fail-closed behavior when review identity is ambiguous
 
 This document focuses on implementation choices that follow from that design:
@@ -52,7 +52,7 @@ logical, self-contained, well-described stacked commits.
 
 ## Goals
 
-1. Build a useful MVP quickly without painting ourselves into a corner.
+1. Build a useful tool quickly without painting ourselves into a corner.
 2. Keep the `jj` DAG as the source of truth for stack topology.
 3. Keep GitHub integration narrow, explicit, and easy to inspect in tests.
 4. Prefer end-to-end feature slices over large batches of infrastructure work.
@@ -62,7 +62,7 @@ logical, self-contained, well-described stacked commits.
 
 ## Non-Goals
 
-Product-level MVP scope follows the design doc. Additional implementation
+Product-level scope follows the design doc. Additional implementation
 non-goals for the first pass:
 
 - support for non-GitHub forges
@@ -246,7 +246,7 @@ It should not decide stack topology or branch naming policy.
 The design doc now distinguishes user-authored config from machine-written
 review state.
 
-For the MVP:
+For now:
 
 - config should live in `~/.config/jj-review/config.toml`
 - repo-specific config should be expressed in that file with path-based
@@ -291,7 +291,7 @@ dicts or stringly typed intermediate state through the command layer.
 
 ## Default Repo Resolution
 
-For the MVP, the common case should be zero-config. The tool should prefer
+For now, the common case should be zero-config. The tool should prefer
 repo-derived defaults and only require explicit configuration when the repo is
 ambiguous. This section extends the design doc's trunk-resolution requirement
 into a full repository-resolution order.
@@ -328,7 +328,7 @@ new assumption.
 
 ## Authentication
 
-For the MVP, the tool should resolve GitHub credentials in this order:
+For now, the tool should resolve GitHub credentials in this order:
 
 - `GH_TOKEN`, if set
 - `GITHUB_TOKEN`, if set
@@ -515,7 +515,7 @@ rather than:
 
 ## Delivery Plan
 
-We should implement the MVP in vertical slices.
+We should implement the tool in vertical slices.
 
 ### Slice 1: Project Scaffold
 
@@ -857,9 +857,9 @@ Done when:
 - tests cover the common fetched-merge case, safe survivor restacking, and the
   refusal cases that still require human intervention
 
-### Post-MVP: Landing
+### Future Slice: Landing
 
-`land` is deferred until after the MVP review lifecycle is stable end-to-end.
+`land` is deferred until the review lifecycle is stable end-to-end.
 When we revisit it, it should be planned as a separate slice because merge
 policy, branch protection, and partial-stack semantics materially expand the
 product surface.
@@ -908,7 +908,7 @@ Done when:
 - exact post-landing bookkeeping is limited to the landed prefix, while
   broader stale-state cleanup remains a separate `cleanup` concern
 
-### Post-MVP: Stack Import
+### Future Slice: Stack Import
 
 Cross-machine bootstrap and remote-stack materialization should stay separate
 from both read-only refresh and local ancestry repair.
@@ -950,6 +950,42 @@ Done when:
 
 Backlog should keep repo-scoped `sync` as a separate question. This slice
 solves explicit import/materialization, not whole-repo refresh policy.
+
+### Future Slice: Unlink and Detached State
+
+`unlink` should be the explicit inverse of `adopt`, but it should stay
+local-only and one-change-first:
+
+- `jj review unlink [--current | <revset>]`
+- no stack-wide unlink in the initial slice
+- no GitHub mutations as part of unlink itself
+
+The key design constraint is detached-state precedence. Once a change is
+explicitly unlinked, that detached record must override every other proof of
+ownership:
+
+- local synthetic bookmarks
+- cached PR linkage
+- discoverable GitHub linkage for the same head branch
+
+That means the implementation cannot treat a preserved local bookmark as
+sufficient proof of ownership once detached state exists.
+
+The state model also needs to stay explicit about what is durable operator
+intent versus mere cache:
+
+- clearing cached PR fields is not enough
+- unlink writes a durable detached marker for the selected change
+- rerunning unlink is idempotent and should succeed as a no-op
+
+Done when:
+
+- unlinking one selected change clears active linkage and records detached state
+- `status --fetch` surfaces detached state without repopulating active linkage
+- `submit` refuses to reuse detached linkage until `adopt` clears it
+- `land` rejects detached changes as not safely landable
+- detached records are pruned only by explicit conservative policy, not merely
+  because refresh stopped finding the old PR
 
 ## Error Handling Strategy
 
