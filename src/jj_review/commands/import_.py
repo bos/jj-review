@@ -474,7 +474,10 @@ def _materialize_local_state(
             actions.append(
                 ImportAction(
                     kind="bookmark tracking",
-                    message=f"track remote review branch {planned.bookmark}@{prepared.remote.name}",
+                    message=(
+                        f"track remote review branch {planned.bookmark}"
+                        f"@{prepared.remote.name}"
+                    ),
                     status="applied",
                 )
             )
@@ -614,6 +617,8 @@ def _resolve_import_bookmark(
 ) -> str:
     exact_bookmark = bookmark_by_change_id.get(prepared_revision.revision.change_id)
     if exact_bookmark is not None:
+        if selected_remote_name is None:
+            return exact_bookmark
         bookmark = exact_bookmark
     else:
         bookmark = prepared_revision.bookmark

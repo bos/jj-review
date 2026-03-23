@@ -963,6 +963,9 @@ The implementation uses explicit rules for what `import` may mutate:
   exact and unambiguous
 - fail closed if any imported revision would require inventing a new generated
   review bookmark rather than reusing exact remote identity
+- `--revset` imports without a selected remote fail closed when the selected
+  stack would need generated bookmark identity; only exact cached or discovered
+  bookmark names may be materialized
 - do not rewrite commits, restack descendants, or mutate GitHub state
 
 This slice is done when:
@@ -978,6 +981,8 @@ This slice is done when:
 - stale local cache state is refreshed only when fetched linkage for the exact
   selected stack is unambiguous; otherwise import fails closed with targeted
   conflict guidance
+- `import --revset` does not synthesize review bookmark names when no remote is
+  selected
 
 Backlog should keep repo-scoped `sync` as a separate question. This slice
 solves explicit import/materialization, not whole-repo refresh policy.

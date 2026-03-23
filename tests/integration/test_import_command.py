@@ -7,6 +7,7 @@ import httpx
 
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.cli import main
+from jj_review.errors import CliError
 from jj_review.github.client import GithubClient
 from jj_review.jj import JjClient
 from jj_review.testing.fake_github import (
@@ -344,6 +345,49 @@ def test_import_current_rejects_cache_only_linkage(
     )
 
     assert _main(repo, config_path, "import", "--current") == 1
+
+
+def test_import_revset_rejects_generated_bookmarks_without_selected_remote(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    state_before = ReviewStateStore.for_repo(repo).load()
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    top_change_id = stack.revisions[-1].change_id
+    bottom_bookmark = state_before.changes[bottom_change_id].bookmark
+    top_bookmark = state_before.changes[top_change_id].bookmark
+    assert bottom_bookmark is not None
+    assert top_bookmark is not None
+
+    for bookmark in (bottom_bookmark, top_bookmark):
+        _run(["jj", "bookmark", "forget", bookmark], repo)
+    resolve_state_path(repo).unlink()
+
+    def _no_selected_remote(*args, **kwargs):
+        raise CliError("No submit remote configured.")
+
+    monkeypatch.setattr(
+        "jj_review.commands.review_state.select_submit_remote",
+        _no_selected_remote,
+    )
+
+    exit_code = _main(repo, config_path, "import", "--revset", top_change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "has no discoverable review bookmark on the selected remote" in captured.err
+    assert ReviewStateStore.for_repo(repo).load().changes == {}
+    bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, top_bookmark))
+    assert bookmark_states[bottom_bookmark].local_target is None
+    assert bookmark_states[top_bookmark].local_target is None
 
 
 def test_import_head_accepts_exact_custom_remote_branch_name(
