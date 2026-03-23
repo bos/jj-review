@@ -118,6 +118,30 @@ def test_import_current_requires_discoverable_remote_review_linkage(
     assert exit_code == 1
 
 
+def test_import_revset_fails_closed_without_remote_bookmark_identity(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo_without_remote(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+
+    exit_code = _main(repo, config_path, "import", "--revset", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "has no discoverable review bookmark on the selected remote" in captured.err
+    assert ReviewStateStore.for_repo(repo).load().changes == {}
+    assert not {
+        bookmark
+        for bookmark in JjClient(repo).list_bookmark_states()
+        if bookmark.startswith("review/")
+    }
+
+
 def test_import_head_rejects_ambiguous_pull_request_linkage(
     tmp_path: Path,
     monkeypatch,
@@ -504,6 +528,23 @@ def _init_repo(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
     _run(["jj", "config", "set", "--repo", 'revset-aliases."trunk()"', "main"], repo)
     _run(["jj", "git", "remote", "add", "origin", str(fake_repo.git_dir)], repo)
     _run(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+    return repo, fake_repo
+
+
+def _init_repo_without_remote(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
+    repo = tmp_path / "repo"
+    fake_repo = initialize_bare_repository(
+        tmp_path / "remotes",
+        owner="octo-org",
+        name="stacked-review",
+    )
+    _run(["jj", "git", "init", str(repo)], tmp_path)
+    _run(["jj", "config", "set", "--repo", "user.name", "Test User"], repo)
+    _run(["jj", "config", "set", "--repo", "user.email", "test@example.com"], repo)
+    _write_file(repo / "README.md", "base\n")
+    _run(["jj", "commit", "-m", "base"], repo)
+    _run(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
+    _run(["jj", "config", "set", "--repo", 'revset-aliases."trunk()"', "main"], repo)
     return repo, fake_repo
 
 
