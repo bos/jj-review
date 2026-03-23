@@ -70,3 +70,62 @@ def test_resolve_import_bookmark_rejects_generated_bookmark_without_selected_rem
         "has no discoverable review bookmark on the selected remote"
         in str(exc_info.value)
     )
+
+
+def test_resolve_import_bookmark_rejects_missing_cached_remote_bookmark() -> None:
+    with pytest.raises(ImportResolutionError) as exc_info:
+        _resolve_import_bookmark(
+            bookmark_by_change_id={"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "review/feature-aaaa"},
+            bookmark_states={
+                "review/feature-aaaa": BookmarkState(name="review/feature-aaaa")
+            },
+            prepared_revision=SimpleNamespace(
+                bookmark="review/feature-aaaa",
+                bookmark_source="cached",
+                revision=SimpleNamespace(
+                    change_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    commit_id="commit-1",
+                ),
+            ),
+            selected_remote_name="origin",
+        )
+
+    assert (
+        str(exc_info.value)
+        == "Could not safely import the selected stack because cached review bookmark "
+        "'review/feature-aaaa' for aaaaaaaa is not present on the selected remote. "
+        "Refresh with `status --fetch` or select an exact review branch or pull "
+        "request."
+    )
+
+
+def test_resolve_import_bookmark_rejects_stale_cached_remote_bookmark_target() -> None:
+    with pytest.raises(ImportResolutionError) as exc_info:
+        _resolve_import_bookmark(
+            bookmark_by_change_id={"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "review/feature-aaaa"},
+            bookmark_states={
+                "review/feature-aaaa": BookmarkState(
+                    name="review/feature-aaaa",
+                    remote_targets=(
+                        RemoteBookmarkState(remote="origin", targets=("other-commit",)),
+                    ),
+                )
+            },
+            prepared_revision=SimpleNamespace(
+                bookmark="review/feature-aaaa",
+                bookmark_source="cached",
+                revision=SimpleNamespace(
+                    change_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    commit_id="commit-1",
+                ),
+            ),
+            selected_remote_name="origin",
+        )
+
+    assert (
+        str(exc_info.value)
+        == "Could not safely import the selected stack because cached review bookmark "
+        "'review/feature-aaaa' for aaaaaaaa points to a different revision on the "
+        "selected remote. Refresh with `status --fetch` or repair the stale remote "
+        "linkage before importing again."
+    )

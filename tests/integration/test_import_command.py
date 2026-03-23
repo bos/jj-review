@@ -278,7 +278,8 @@ def test_import_fails_closed_when_cached_bookmark_is_missing_on_selected_remote(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "has no discoverable review bookmark on the selected remote" in captured.err
+    assert "cached review bookmark" in captured.err
+    assert "is not present on the selected remote" in captured.err
     bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, top_bookmark))
     assert bookmark_states[bottom_bookmark].local_target is None
     assert bookmark_states[top_bookmark].local_target is None

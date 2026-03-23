@@ -635,12 +635,22 @@ def _resolve_import_bookmark(
         return bookmark
     bookmark_state = bookmark_states.get(bookmark, BookmarkState(name=bookmark))
     remote_state = bookmark_state.remote_target(selected_remote_name)
-    if remote_state is None or remote_state.target != prepared_revision.revision.commit_id:
+    if remote_state is None or remote_state.target is None:
         raise ImportResolutionError(
             "Could not safely import the selected stack because "
-            f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} has no "
-            "discoverable review bookmark on the selected remote. Refresh with "
-            "`status --fetch` or select an exact review branch or pull request."
+            f"cached review bookmark {bookmark!r} for "
+            f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} is not "
+            "present on the selected remote. Refresh with `status --fetch` or "
+            "select an exact review branch or pull request."
+        )
+    if remote_state.target != prepared_revision.revision.commit_id:
+        raise ImportResolutionError(
+            "Could not safely import the selected stack because "
+            f"cached review bookmark {bookmark!r} for "
+            f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} points "
+            "to a different revision on the selected remote. Refresh with "
+            "`status --fetch` or repair the stale remote linkage before importing "
+            "again."
         )
     return bookmark
 

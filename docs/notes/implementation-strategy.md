@@ -982,6 +982,8 @@ This slice is done when:
   selected remote or repository target is available
 - `--current` import failures are explicit when the current local path has no
   discoverable remote review linkage
+- import distinguishes a missing cached remote bookmark from a stale cached
+  bookmark target so the repair path is easier to diagnose
 - stale local cache state is refreshed only when fetched linkage for the exact
   selected stack is unambiguous; otherwise import fails closed with targeted
   conflict guidance
