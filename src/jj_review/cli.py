@@ -24,6 +24,7 @@ from jj_review.commands.cleanup import (
     stream_cleanup,
     stream_restack,
 )
+from jj_review.commands.close import CloseResult, run_close
 from jj_review.commands.land import LandResult, run_land
 from jj_review.commands.review_state import prepare_status, stream_status
 from jj_review.commands.submit import run_submit
@@ -111,6 +112,28 @@ def build_parser() -> ArgumentParser:
         help="Assert that the selected landable prefix ends at this pull request.",
     )
     land_parser.add_argument(
+        "--current",
+        action="store_true",
+        help="Explicitly operate on the current review path instead of passing a revset.",
+    )
+    close_parser = _add_revision_command(
+        subparsers,
+        command="close",
+        help_text="Preview or close the managed review path for a stack.",
+        handler=_close_handler,
+        parents=[common_options],
+    )
+    close_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply the close plan instead of only previewing it.",
+    )
+    close_parser.add_argument(
+        "--cleanup",
+        action="store_true",
+        help="Also clean up owned review branches and managed metadata.",
+    )
+    close_parser.add_argument(
         "--current",
         action="store_true",
         help="Explicitly operate on the current review path instead of passing a revset.",
@@ -986,6 +1009,59 @@ def _cleanup_handler(args: Namespace) -> int:
     return 0
 
 
+def _close_handler(args: Namespace) -> int:
+    context = bootstrap_context(args)
+    selected_revset = _resolve_selected_revset(
+        args,
+        command_label="close --cleanup --apply" if args.apply and args.cleanup else (
+            "close --cleanup" if args.cleanup else "close --apply" if args.apply else "close"
+        ),
+        require_explicit=True,
+    )
+    result = run_close(
+        apply=bool(args.apply),
+        cleanup=bool(args.cleanup),
+        change_overrides=context.config.change,
+        config=context.config.repo,
+        repo_root=context.repo_root,
+        revset=selected_revset,
+    )
+    print(f"Selected revset: {result.selected_revset}")
+    if result.remote is None:
+        if result.remote_error is None:
+            print("Selected remote: unavailable")
+        else:
+            print(f"Selected remote: unavailable ({result.remote_error})")
+    else:
+        print(f"Selected remote: {result.remote.name}")
+
+    if result.github_repository is None:
+        if result.github_error is not None:
+            print(f"GitHub target: unavailable ({result.github_error})")
+    else:
+        print(f"GitHub: {result.github_repository}")
+
+    if result.actions:
+        if result.blocked:
+            header = "Close blocked:"
+        elif result.applied:
+            header = "Applied close actions:"
+        else:
+            header = "Planned close actions:"
+        print(header)
+        for action in result.actions:
+            print(f"- [{action.status}] {action.kind}: {action.message}")
+    else:
+        print("No managed open pull requests on the selected path.")
+
+    if not result.applied and not result.blocked and result.actions:
+        print(
+            f"Re-run with `{_format_close_apply_command(result)}` "
+            "to close the selected path."
+        )
+    return 1 if result.blocked else 0
+
+
 def _land_handler(args: Namespace) -> int:
     context = bootstrap_context(args)
     selected_revset = _resolve_selected_revset(
@@ -1030,6 +1106,15 @@ def _format_land_apply_command(result: LandResult) -> str:
     parts = ["land", "--apply"]
     if result.expect_pr_number is not None:
         parts.extend(("--expect-pr", str(result.expect_pr_number)))
+    if result.selected_revset:
+        parts.append(result.selected_revset)
+    return " ".join(parts)
+
+
+def _format_close_apply_command(result: CloseResult) -> str:
+    parts = ["close", "--apply"]
+    if result.cleanup:
+        parts.append("--cleanup")
     if result.selected_revset:
         parts.append(result.selected_revset)
     return " ".join(parts)

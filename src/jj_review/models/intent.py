@@ -38,6 +38,17 @@ class CleanupRestackIntent:
 
 
 @dataclass(frozen=True, slots=True)
+class CloseIntent:
+    kind: Literal["close"]
+    pid: int
+    label: str
+    display_revset: str
+    ordered_change_ids: tuple[str, ...]
+    cleanup: bool
+    started_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class RelinkIntent:
     kind: Literal["relink"]
     pid: int
@@ -70,8 +81,22 @@ class LandIntent:
 @dataclass(frozen=True, slots=True)
 class LoadedIntent:
     path: Path
-    intent: SubmitIntent | CleanupApplyIntent | CleanupRestackIntent | RelinkIntent | LandIntent
+    intent: (
+        SubmitIntent
+        | CleanupApplyIntent
+        | CleanupRestackIntent
+        | CloseIntent
+        | RelinkIntent
+        | LandIntent
+    )
 
 
-IntentFile = SubmitIntent | CleanupApplyIntent | CleanupRestackIntent | RelinkIntent | LandIntent
+IntentFile = (
+    SubmitIntent
+    | CleanupApplyIntent
+    | CleanupRestackIntent
+    | CloseIntent
+    | RelinkIntent
+    | LandIntent
+)
 MatchResult = Literal["exact", "superset", "overlap", "disjoint"]

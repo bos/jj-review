@@ -20,6 +20,7 @@ from jj_review.intent import (
 from jj_review.models.intent import (
     CleanupApplyIntent,
     CleanupRestackIntent,
+    CloseIntent,
     LandIntent,
     LoadedIntent,
     RelinkIntent,
@@ -66,6 +67,22 @@ def _make_cleanup_restack_intent(
         label="cleanup --restack on @",
         display_revset="@",
         ordered_change_ids=ordered_change_ids,
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+
+
+def _make_close_intent(
+    ordered_change_ids: tuple[str, ...] = ("aaaa", "bbbb"),
+    cleanup: bool = False,
+    pid: int = 12345,
+) -> CloseIntent:
+    return CloseIntent(
+        kind="close",
+        pid=pid,
+        label="close on @",
+        display_revset="@",
+        ordered_change_ids=ordered_change_ids,
+        cleanup=cleanup,
         started_at="2026-01-01T00:00:00+00:00",
     )
 
@@ -161,6 +178,14 @@ def test_cleanup_apply_intent_round_trips(tmp_path: Path) -> None:
 
 def test_cleanup_restack_intent_round_trips(tmp_path: Path) -> None:
     intent = _make_cleanup_restack_intent()
+    write_intent(tmp_path, intent)
+    results = scan_intents(tmp_path)
+    assert len(results) == 1
+    assert results[0].intent == intent
+
+
+def test_close_intent_round_trips(tmp_path: Path) -> None:
+    intent = _make_close_intent(cleanup=True)
     write_intent(tmp_path, intent)
     results = scan_intents(tmp_path)
     assert len(results) == 1

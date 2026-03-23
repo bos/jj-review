@@ -17,6 +17,7 @@ from pathlib import Path
 from jj_review.models.intent import (
     CleanupApplyIntent,
     CleanupRestackIntent,
+    CloseIntent,
     IntentFile,
     LandIntent,
     LoadedIntent,
@@ -157,6 +158,16 @@ def _parse_intent(data: dict, path: Path) -> LoadedIntent | None:
                 label=str(data.get("label", data["display_revset"])),
                 display_revset=str(data["display_revset"]),
                 ordered_change_ids=tuple(str(x) for x in data.get("ordered_change_ids", [])),
+                started_at=str(data["started_at"]),
+            )
+        elif kind == "close":
+            intent = CloseIntent(
+                kind="close",
+                pid=int(data["pid"]),
+                label=str(data["label"]),
+                display_revset=str(data["display_revset"]),
+                ordered_change_ids=tuple(str(x) for x in data.get("ordered_change_ids", [])),
+                cleanup=bool(data["cleanup"]),
                 started_at=str(data["started_at"]),
             )
         elif kind in {"relink", "adopt"}:
@@ -332,6 +343,8 @@ def match_ordered_change_ids(
 def intent_change_ids(intent: IntentFile) -> frozenset[str]:
     if isinstance(intent, SubmitIntent | CleanupRestackIntent | LandIntent):
         return frozenset(intent.ordered_change_ids)
+    if isinstance(intent, CloseIntent):
+        return frozenset(intent.ordered_change_ids)
     if isinstance(intent, RelinkIntent):
         return frozenset([intent.change_id])
     return frozenset()
@@ -382,7 +395,10 @@ def retire_superseded_intents(
     new_intent: IntentFile,
 ) -> None:
     """Auto-retire stale intents that are exact matches or strict ordered subsets."""
-    if not isinstance(new_intent, SubmitIntent | CleanupRestackIntent | LandIntent):
+    if not isinstance(
+        new_intent,
+        SubmitIntent | CleanupRestackIntent | CloseIntent | LandIntent,
+    ):
         return
     new_ids = new_intent.ordered_change_ids
     for loaded in stale_intents:

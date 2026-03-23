@@ -521,8 +521,7 @@ Failure guidance should stay narrow and specific:
 command remains a separate future question rather than being folded into
 either command prematurely.
 
-A future slice should add a user-facing close command for the common
-"stop reviewing this path" case:
+The user-facing "stop reviewing this path" command is `close`:
 
 - `jj review close [--cleanup] [--apply] [--current | <revset>]` ends active
   review for the selected local path
@@ -663,7 +662,7 @@ The tool can stay small. A reasonable surface would be:
 - `jj review status [--fetch] [<revset>]`
 - `jj review relink <pr> [--current | <revset>]`
 - `jj review unlink [--current | <revset>]` (future)
-- `jj review close [--cleanup] [--apply] [--current | <revset>]` (future)
+- `jj review close [--cleanup] [--apply] [--current | <revset>]`
 - `jj review cleanup [--restack] [--apply] [--current | <revset>]`
 - `jj review import (--pull-request <pr> | --head <bookmark> | --current |
   --revset <revset>)` (future)

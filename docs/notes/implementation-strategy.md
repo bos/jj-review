@@ -980,15 +980,17 @@ Done when:
 Backlog should keep repo-scoped `sync` as a separate question. This slice
 solves explicit import/materialization, not whole-repo refresh policy.
 
-### Future Slice: Close and Unlink
+### Close
 
-The normal user-facing "stop review for this path" flow should be `close`,
-while `unlink` remains the low-level repair-oriented inverse of `relink`.
+`close` is implemented. The normal user-facing "stop review for this path"
+flow closes the managed open PRs for the selected local path, and
+`close --cleanup` extends that with conservative cleanup of owned review
+branches, local synthetic bookmarks, managed stack comments, and stale cache
+entries when ownership is provable.
 
-The CLI contract should be:
+The CLI contract is:
 
 - `jj review close [--cleanup] [--apply] [--current | <revset>]`
-- `jj review unlink [--current | <revset>]`
 
 The product split should stay explicit:
 
@@ -996,8 +998,6 @@ The product split should stay explicit:
   open PRs on that path
 - `close --cleanup` performs conservative branch and metadata cleanup after
   the PR close succeeds
-- `unlink` operates on one selected review unit and records detached state
-  without mutating GitHub
 
 The `close` slice needs clear apply-phase and ownership rules:
 
@@ -1013,6 +1013,32 @@ The `close` slice needs clear apply-phase and ownership rules:
 - reruns should be idempotent, so a second `close` or `close --cleanup`
   performs only the remaining safe work
 
+Done when:
+
+- `close` can preview and then close the managed open PRs for one selected
+  local review path
+- `close --cleanup` can also delete owned review branches and retire owned
+  local review artifacts without crossing ambiguous ownership boundaries
+- close reruns skip already-finished PRs and only perform any remaining safe
+  cleanup work
+
+### Future Slice: Unlink
+
+`unlink` remains the low-level repair-oriented inverse of `relink`.
+
+The CLI contract should be:
+
+- `jj review unlink [--current | <revset>]`
+
+The state model needs to stay explicit about what is durable operator intent
+versus mere cache:
+
+- clearing cached PR fields is not enough
+- unlink writes a durable detached marker for the selected change
+- rerunning unlink is idempotent and should succeed as a no-op
+- unlinking a change with no active review linkage should fail instead of
+  creating detached state for a never-linked change
+
 `unlink` keeps the detached-state precedence rule. Once a change is explicitly
 unlinked, that detached record must override every other proof of ownership:
 
@@ -1023,23 +1049,8 @@ unlinked, that detached record must override every other proof of ownership:
 That means the implementation cannot treat a preserved local bookmark as
 sufficient proof of ownership once detached state exists.
 
-The state model also needs to stay explicit about what is durable operator
-intent versus mere cache:
-
-- clearing cached PR fields is not enough
-- unlink writes a durable detached marker for the selected change
-- rerunning unlink is idempotent and should succeed as a no-op
-- unlinking a change with no active review linkage should fail instead of
-  creating detached state for a never-linked change
-
 Done when:
 
-- `close` can preview and then close the managed open PRs for one selected
-  local review path
-- `close --cleanup` can also delete owned review branches and retire owned
-  local review artifacts without crossing ambiguous ownership boundaries
-- close reruns skip already-finished PRs and only perform any remaining safe
-  cleanup work
 - unlinking one selected change clears active linkage and records detached state
 - `status --fetch` surfaces detached state without repopulating active linkage
 - `status` reports preserved local bookmarks as detached review bookmarks when

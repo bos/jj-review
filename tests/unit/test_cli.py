@@ -18,6 +18,7 @@ def test_main_without_command_prints_help(capsys: pytest.CaptureFixture[str]) ->
     assert exit_code == 0
     assert "submit" in captured.out
     assert "land" in captured.out
+    assert "close" in captured.out
     assert "cleanup" in captured.out
 
 
@@ -315,6 +316,110 @@ def test_main_land_requires_explicit_revision_selection(
     assert exit_code == 1
     assert not run_called
     assert "requires an explicit revision selection" in captured.err
+
+
+def test_main_close_requires_explicit_revision_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.bootstrap.load_config",
+        lambda **kwargs: SimpleNamespace(
+            change={},
+            logging=SimpleNamespace(level="WARNING"),
+            repo=SimpleNamespace(),
+        ),
+    )
+    run_called = False
+
+    def fake_run_close(**kwargs):
+        nonlocal run_called
+        run_called = True
+        raise AssertionError("close should not run without an explicit selector")
+
+    monkeypatch.setattr("jj_review.cli.run_close", fake_run_close)
+
+    exit_code = main(["close", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert not run_called
+    assert "requires an explicit revision selection" in captured.err
+
+
+def test_main_close_rejects_revset_and_current_together(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.bootstrap.load_config",
+        lambda **kwargs: SimpleNamespace(
+            change={},
+            logging=SimpleNamespace(level="WARNING"),
+            repo=SimpleNamespace(),
+        ),
+    )
+
+    exit_code = main(["close", "--current", "--repository", str(tmp_path), "@"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "accepts either `<revset>` or `--current`, not both" in captured.err
+
+
+def test_main_close_renders_planned_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+
+    def fake_run_close(**kwargs):
+        assert kwargs["apply"] is False
+        assert kwargs["cleanup"] is True
+        assert kwargs["revset"] == "@"
+        return SimpleNamespace(
+            actions=(
+                SimpleNamespace(
+                    kind="pull request",
+                    message="close PR #7 for feature 1 [aaaaaaaa]",
+                    status="planned",
+                ),
+                SimpleNamespace(
+                    kind="cache",
+                    message="retire active review state for feature 1 [aaaaaaaa]",
+                    status="planned",
+                ),
+            ),
+            applied=False,
+            blocked=False,
+            cleanup=True,
+            github_error=None,
+            github_repository="octo-org/stacked-review",
+            remote=SimpleNamespace(name="origin"),
+            remote_error=None,
+            selected_revset="@",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_close", fake_run_close)
+
+    exit_code = main(["close", "--cleanup", "--repository", str(tmp_path), "@"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Selected revset: @" in captured.out
+    assert "Selected remote: origin" in captured.out
+    assert "GitHub: octo-org/stacked-review" in captured.out
+    assert "Planned close actions:" in captured.out
+    assert "- [planned] pull request: close PR #7 for feature 1 [aaaaaaaa]" in captured.out
+    assert "- [planned] cache: retire active review state for feature 1 [aaaaaaaa]" in (
+        captured.out
+    )
+    assert "Re-run with `close --apply --cleanup @`" in captured.out
 
 
 def test_main_land_renders_planned_output(

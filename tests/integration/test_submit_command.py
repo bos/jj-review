@@ -2132,6 +2132,127 @@ def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing
     assert _issue_comments(fake_repo, 1) == []
 
 
+def test_close_apply_closes_pull_request_and_retires_active_state(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+
+    exit_code = _main(repo, config_path, "close", "--apply", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert exit_code == 0
+    assert "Applied close actions:" in captured.out
+    assert fake_repo.pull_requests[1].state == "closed"
+    assert refreshed_state.changes[change_id].pr_state == "closed"
+    assert refreshed_state.changes[change_id].pr_review_decision is None
+    assert refreshed_state.changes[change_id].stack_comment_id == 1
+    assert len(_issue_comments(fake_repo, 1)) == 1
+
+
+def test_close_preview_closes_no_remote_state_and_reports_planned_actions(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+
+    exit_code = _main(repo, config_path, "close", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert exit_code == 0
+    assert "Planned close actions:" in captured.out
+    assert fake_repo.pull_requests[1].state == "open"
+    assert refreshed_state.changes[change_id].pr_state == "open"
+    assert refreshed_state.changes[change_id].pr_review_decision is not None
+    assert refreshed_state.changes[change_id].stack_comment_id == 1
+    assert len(_issue_comments(fake_repo, 1)) == 1
+
+
+def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    bookmark = ReviewStateStore.for_repo(repo).load().changes[change_id].bookmark
+    assert bookmark is not None
+    state_store = ReviewStateStore.for_repo(repo)
+
+    exit_code = _main(repo, config_path, "close", "--apply", "--cleanup", change_id)
+    captured = capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert exit_code == 0
+    assert "Applied close actions:" in captured.out
+    assert fake_repo.pull_requests[1].state == "closed"
+    assert refreshed_state.changes[change_id].pr_state == "closed"
+    assert refreshed_state.changes[change_id].stack_comment_id is None
+    assert _issue_comments(fake_repo, 1) == []
+    assert bookmark not in _remote_refs(fake_repo.git_dir)
+    assert JjClient(repo).get_bookmark_state(bookmark).local_target is None
+
+
+def test_close_apply_rerun_is_idempotent(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+
+    first_exit_code = _main(repo, config_path, "close", "--apply", change_id)
+    capsys.readouterr()
+    first_state = state_store.load()
+
+    second_exit_code = _main(repo, config_path, "close", "--apply", change_id)
+    captured = capsys.readouterr()
+    second_state = state_store.load()
+
+    assert first_exit_code == 0
+    assert second_exit_code == 0
+    assert "No managed open pull requests on the selected path." in captured.out
+    assert fake_repo.pull_requests[1].state == "closed"
+    assert first_state == second_state
+
+
 def test_submit_checkpoints_successful_in_flight_pull_request_before_failure(
     tmp_path: Path,
     monkeypatch,
@@ -3209,6 +3330,7 @@ def _configure_submit_environment(
 
     monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
     monkeypatch.setattr("jj_review.commands.adopt._build_github_client", build_github_client)
+    monkeypatch.setattr("jj_review.commands.close._build_github_client", build_github_client)
     monkeypatch.setattr("jj_review.commands.cleanup._build_github_client", build_github_client)
     monkeypatch.setattr("jj_review.commands.land._build_github_client", build_github_client)
     monkeypatch.setattr(
