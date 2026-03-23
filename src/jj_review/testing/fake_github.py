@@ -6,6 +6,7 @@ import json
 import re
 import subprocess
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -159,6 +160,47 @@ class FakeGithubRepository:
         self.pull_requests[number] = pull_request
         return pull_request
 
+    def refresh_pull_request_state(self, pull_request: FakeGithubPullRequest) -> None:
+        if pull_request.state != "open":
+            return
+        base_commit = self.ref_target(pull_request.base_ref)
+        head_commit = self.ref_target(pull_request.head_ref)
+        if base_commit is None or head_commit is None:
+            return
+        if not self.is_ancestor(head_commit, base_commit):
+            return
+        pull_request.state = "closed"
+        if pull_request.merged_at is None:
+            pull_request.merged_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+    def ref_target(self, branch: str) -> str | None:
+        completed = subprocess.run(
+            ["git", "--git-dir", str(self.git_dir), "rev-parse", f"refs/heads/{branch}"],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        if completed.returncode != 0:
+            return None
+        return completed.stdout.strip() or None
+
+    def is_ancestor(self, ancestor_commit: str, descendant_commit: str) -> bool:
+        completed = subprocess.run(
+            [
+                "git",
+                "--git-dir",
+                str(self.git_dir),
+                "merge-base",
+                "--is-ancestor",
+                ancestor_commit,
+                descendant_commit,
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        return completed.returncode == 0
+
     def list_pull_request_reviews(self, pull_number: int) -> list[FakeGithubPullRequestReview]:
         self._require_issue_number(pull_number)
         return list(self.pull_request_reviews.get(pull_number, ()))
@@ -290,6 +332,8 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
         repository = _get_repository(fake_state, owner, repo)
         requested_state = state or "open"
         pull_requests = list(repository.pull_requests.values())
+        for pull_request in pull_requests:
+            repository.refresh_pull_request_state(pull_request)
         if head is not None:
             pull_requests = [
                 candidate for candidate in pull_requests if candidate.head_label == head
@@ -336,6 +380,7 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
         pull_request = repository.pull_requests.get(pull_number)
         if pull_request is None:
             raise HTTPException(status_code=404, detail="Not Found")
+        repository.refresh_pull_request_state(pull_request)
         return pull_request.to_payload(repository=repository, web_origin=fake_state.web_origin)
 
     @app.patch("/repos/{owner}/{repo}/pulls/{pull_number}")
@@ -349,6 +394,7 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
         pull_request = repository.pull_requests.get(pull_number)
         if pull_request is None:
             raise HTTPException(status_code=404, detail="Not Found")
+        repository.refresh_pull_request_state(pull_request)
         if "title" in payload:
             pull_request.title = _require_string(payload, "title")
         if "body" in payload:
@@ -356,6 +402,26 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
         if "base" in payload:
             pull_request.base_ref = _require_string(payload, "base")
             _require_branch(repository, pull_request.base_ref)
+        repository.refresh_pull_request_state(pull_request)
+        return pull_request.to_payload(repository=repository, web_origin=fake_state.web_origin)
+
+    @app.patch("/repos/{owner}/{repo}/issues/{issue_number}")
+    async def update_issue(
+        owner: str,
+        repo: str,
+        issue_number: int,
+        payload: Annotated[dict[str, object], Body(...)],
+    ) -> dict[str, object]:
+        repository = _get_repository(fake_state, owner, repo)
+        pull_request = repository.pull_requests.get(issue_number)
+        if pull_request is None:
+            raise HTTPException(status_code=404, detail="Not Found")
+        state = _require_string(payload, "state")
+        if state not in {"open", "closed"}:
+            raise HTTPException(status_code=422, detail="Unsupported issue state.")
+        pull_request.state = state
+        if state == "closed":
+            repository.refresh_pull_request_state(pull_request)
         return pull_request.to_payload(repository=repository, web_origin=fake_state.web_origin)
 
     @app.post(
@@ -576,7 +642,8 @@ def _graphql_repository_payload(
         alias = match.group("alias")
         head_ref = json.loads(match.group("head_ref"))
         matching_pull_requests = [
-            pull_request.to_graphql_payload(
+            _graphql_pull_request_payload(
+                pull_request=pull_request,
                 repository=repository,
                 web_origin=web_origin,
             )
@@ -588,3 +655,16 @@ def _graphql_repository_payload(
         ]
         payload[alias] = {"nodes": matching_pull_requests[:2]}
     return payload
+
+
+def _graphql_pull_request_payload(
+    *,
+    pull_request: FakeGithubPullRequest,
+    repository: FakeGithubRepository,
+    web_origin: str,
+) -> dict[str, object]:
+    repository.refresh_pull_request_state(pull_request)
+    return pull_request.to_graphql_payload(
+        repository=repository,
+        web_origin=web_origin,
+    )

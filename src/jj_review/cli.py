@@ -24,6 +24,7 @@ from jj_review.commands.cleanup import (
     stream_cleanup,
     stream_restack,
 )
+from jj_review.commands.land import run_land
 from jj_review.commands.review_state import prepare_status, stream_status
 from jj_review.commands.submit import run_submit
 from jj_review.errors import CliError, CommandNotImplementedError
@@ -92,6 +93,27 @@ def build_parser() -> ArgumentParser:
         command="adopt",
         help_text=SUPPRESS,
         parents=[common_options],
+    )
+    land_parser = _add_revision_command(
+        subparsers,
+        command="land",
+        help_text="Preview or land the trunk-open review prefix for a stack.",
+        handler=_land_handler,
+        parents=[common_options],
+    )
+    land_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply the landing plan instead of only previewing it.",
+    )
+    land_parser.add_argument(
+        "--expect-pr",
+        help="Assert that the selected landable prefix ends at this pull request.",
+    )
+    land_parser.add_argument(
+        "--current",
+        action="store_true",
+        help="Explicitly operate on the current review path instead of passing a revset.",
     )
 
     cleanup_parser = subparsers.add_parser(
@@ -962,6 +984,38 @@ def _cleanup_handler(args: Namespace) -> int:
     if not result.applied:
         print("Re-run with `cleanup --apply` to perform safe actions.")
     return 0
+
+
+def _land_handler(args: Namespace) -> int:
+    context = bootstrap_context(args)
+    selected_revset = _resolve_selected_revset(
+        args,
+        command_label="land",
+        require_explicit=True,
+    )
+    result = run_land(
+        apply=bool(args.apply),
+        change_overrides=context.config.change,
+        config=context.config.repo,
+        expect_pr_reference=args.expect_pr,
+        repo_root=context.repo_root,
+        revset=selected_revset,
+    )
+    print(f"Selected revset: {result.selected_revset}")
+    print(f"Selected remote: {result.remote_name}")
+    print(f"GitHub: {result.github_repository}")
+    print(f"Trunk: {result.trunk_subject} -> {result.trunk_branch}")
+    if result.actions:
+        header = "Applied land actions:" if result.applied else "Planned land actions:"
+        print(header)
+        for action in result.actions:
+            print(f"- [{action.status}] {action.kind}: {action.message}")
+    if result.follow_up is not None:
+        print(result.follow_up)
+    if not result.applied and not result.blocked:
+        suffix = f" {result.selected_revset}" if result.selected_revset else ""
+        print(f"Re-run with `land --apply{suffix}` to update trunk and finalize the prefix.")
+    return 1 if result.blocked else 0
 
 
 def _stub_handler(command: str):

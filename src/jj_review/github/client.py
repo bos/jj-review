@@ -336,6 +336,20 @@ class GithubClient:
         )
         return GithubPullRequest.model_validate(self._expect_success(response))
 
+    async def close_pull_request(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        pull_number: int,
+    ) -> None:
+        response = await self._request(
+            "PATCH",
+            f"/repos/{owner}/{repo}/issues/{pull_number}",
+            json={"state": "closed"},
+        )
+        self._expect_success(response)
+
     async def _request(
         self,
         method: str,

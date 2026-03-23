@@ -354,10 +354,25 @@ class JjClient:
                 states.setdefault(bookmark, BookmarkState(name=bookmark))
         return states
 
-    def set_bookmark(self, bookmark: str, revision: str) -> None:
+    def set_bookmark(
+        self,
+        bookmark: str,
+        revision: str,
+        *,
+        allow_backwards: bool = False,
+    ) -> None:
         """Create or move a local bookmark to the supplied revision."""
 
-        self._run_jj(("bookmark", "set", bookmark, "-r", revision))
+        command = ["bookmark", "set"]
+        if allow_backwards:
+            command.append("--allow-backwards")
+        command.extend((bookmark, "-r", revision))
+        self._run_jj(command)
+
+    def forget_bookmark(self, bookmark: str) -> None:
+        """Forget a local bookmark without scheduling a remote deletion."""
+
+        self._run_jj(("bookmark", "forget", bookmark))
 
     def push_bookmark(self, *, remote: str, bookmark: str) -> None:
         """Push one bookmark to the selected remote."""

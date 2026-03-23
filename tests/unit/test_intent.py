@@ -20,6 +20,7 @@ from jj_review.intent import (
 from jj_review.models.intent import (
     CleanupApplyIntent,
     CleanupRestackIntent,
+    LandIntent,
     LoadedIntent,
     RelinkIntent,
     SubmitIntent,
@@ -79,6 +80,44 @@ def _make_relink_intent(change_id: str = "cccc", pid: int = 12345) -> RelinkInte
     )
 
 
+def _make_land_intent(
+    ordered_change_ids: tuple[str, ...] = ("aaaa", "bbbb", "cccc"),
+    landed_change_ids: tuple[str, ...] = ("aaaa", "bbbb"),
+    pid: int = 12345,
+) -> LandIntent:
+    return LandIntent(
+        kind="land",
+        pid=pid,
+        label="land on @",
+        display_revset="@",
+        ordered_change_ids=ordered_change_ids,
+        ordered_commit_ids=("commit-aaaa", "commit-bbbb", "commit-cccc"),
+        landed_change_ids=landed_change_ids,
+        landed_bookmarks={
+            "aaaa": "review/feature-1-aaaa",
+            "bbbb": "review/feature-2-bbbb",
+        },
+        landed_commit_ids={
+            "aaaa": "commit-aaaa",
+            "bbbb": "commit-bbbb",
+        },
+        landed_pull_request_numbers={
+            "aaaa": 1,
+            "bbbb": 2,
+        },
+        landed_subjects={
+            "aaaa": "feature 1",
+            "bbbb": "feature 2",
+        },
+        completed_change_ids=("aaaa",),
+        trunk_branch="main",
+        trunk_commit_id="trunk-commit",
+        landed_commit_id="landed-commit",
+        expected_pr_number=2,
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Naming
 # ---------------------------------------------------------------------------
@@ -130,6 +169,14 @@ def test_cleanup_restack_intent_round_trips(tmp_path: Path) -> None:
 
 def test_relink_intent_round_trips(tmp_path: Path) -> None:
     intent = _make_relink_intent()
+    write_intent(tmp_path, intent)
+    results = scan_intents(tmp_path)
+    assert len(results) == 1
+    assert results[0].intent == intent
+
+
+def test_land_intent_round_trips(tmp_path: Path) -> None:
+    intent = _make_land_intent()
     write_intent(tmp_path, intent)
     results = scan_intents(tmp_path)
     assert len(results) == 1

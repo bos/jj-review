@@ -375,6 +375,24 @@ def test_github_client_batches_pull_request_lookup_by_head_ref_with_graphql() ->
     )
 
 
+def test_github_client_closes_pull_request_via_issue_api() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "PATCH"
+        assert request.url.path == "/repos/octo-org/stacked-review/issues/7"
+        assert json.loads(request.content.decode("utf-8")) == {"state": "closed"}
+        return httpx.Response(200, json={"state": "closed"}, request=request)
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+        async with GithubClient(
+            base_url="https://api.github.test",
+            transport=transport,
+        ) as client:
+            await client.close_pull_request("octo-org", "stacked-review", pull_number=7)
+
+    asyncio.run(run_test())
+
+
 def test_github_client_filters_batched_head_lookup_results_to_repo_owner() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content.decode("utf-8"))

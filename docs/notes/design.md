@@ -668,7 +668,6 @@ The tool can stay small. A reasonable surface would be:
 - `jj review import (--pull-request <pr> | --head <bookmark> | --current |
   --revset <revset>)` (future)
 - `jj review land [--apply] [--expect-pr <pr>] [--current | <revset>]`
-  (future)
 
 Target selection should stay explicit:
 

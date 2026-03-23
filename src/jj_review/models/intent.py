@@ -47,10 +47,31 @@ class RelinkIntent:
 
 
 @dataclass(frozen=True, slots=True)
+class LandIntent:
+    kind: Literal["land"]
+    pid: int
+    label: str
+    display_revset: str
+    ordered_change_ids: tuple[str, ...]
+    ordered_commit_ids: tuple[str, ...]
+    landed_change_ids: tuple[str, ...]
+    landed_bookmarks: dict[str, str]
+    landed_commit_ids: dict[str, str]
+    landed_pull_request_numbers: dict[str, int]
+    landed_subjects: dict[str, str]
+    completed_change_ids: tuple[str, ...]
+    trunk_branch: str
+    trunk_commit_id: str
+    landed_commit_id: str
+    expected_pr_number: int | None
+    started_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class LoadedIntent:
     path: Path
-    intent: SubmitIntent | CleanupApplyIntent | CleanupRestackIntent | RelinkIntent
+    intent: SubmitIntent | CleanupApplyIntent | CleanupRestackIntent | RelinkIntent | LandIntent
 
 
-IntentFile = SubmitIntent | CleanupApplyIntent | CleanupRestackIntent | RelinkIntent
+IntentFile = SubmitIntent | CleanupApplyIntent | CleanupRestackIntent | RelinkIntent | LandIntent
 MatchResult = Literal["exact", "superset", "overlap", "disjoint"]

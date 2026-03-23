@@ -18,6 +18,7 @@ from jj_review.models.intent import (
     CleanupApplyIntent,
     CleanupRestackIntent,
     IntentFile,
+    LandIntent,
     LoadedIntent,
     MatchResult,
     RelinkIntent,
@@ -91,23 +92,35 @@ def _render_intent_value(value) -> str:
 
 def write_intent(state_dir: Path, intent: IntentFile) -> Path:
     """Write an intent file atomically. Returns the path of the created file."""
-    data = dataclasses.asdict(intent)
-    rendered = _render_intent_toml(data)
     state_dir.mkdir(parents=True, exist_ok=True)
     dest = _intent_filename(state_dir, datetime.now(UTC))
-    fd, tmp_path_str = tempfile.mkstemp(dir=state_dir, suffix=".toml.tmp")
+    _write_intent_file(dest, intent)
+    logger.debug("Wrote intent file %s", dest.name)
+    return dest
+
+
+def replace_intent(path: Path, intent: IntentFile) -> None:
+    """Rewrite an existing intent file atomically."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_intent_file(path, intent)
+    logger.debug("Updated intent file %s", path.name)
+
+
+def _write_intent_file(path: Path, intent: IntentFile) -> None:
+    data = dataclasses.asdict(intent)
+    rendered = _render_intent_toml(data)
+    fd, tmp_path_str = tempfile.mkstemp(dir=path.parent, suffix=".toml.tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(rendered)
-        Path(tmp_path_str).replace(dest)
+        Path(tmp_path_str).replace(path)
     except Exception:
         try:
             os.unlink(tmp_path_str)
         except OSError:
             pass
         raise
-    logger.debug("Wrote intent file %s", dest.name)
-    return dest
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +165,45 @@ def _parse_intent(data: dict, path: Path) -> LoadedIntent | None:
                 pid=int(data["pid"]),
                 label=str(data["label"]),
                 change_id=str(data["change_id"]),
+                started_at=str(data["started_at"]),
+            )
+        elif kind == "land":
+            expected_pr_number = data.get("expected_pr_number")
+            intent = LandIntent(
+                kind="land",
+                pid=int(data["pid"]),
+                label=str(data["label"]),
+                display_revset=str(data["display_revset"]),
+                ordered_change_ids=tuple(str(x) for x in data.get("ordered_change_ids", [])),
+                ordered_commit_ids=tuple(str(x) for x in data.get("ordered_commit_ids", [])),
+                landed_change_ids=tuple(str(x) for x in data.get("landed_change_ids", [])),
+                landed_bookmarks={
+                    str(key): str(value)
+                    for key, value in dict(data.get("landed_bookmarks", {})).items()
+                },
+                landed_commit_ids={
+                    str(key): str(value)
+                    for key, value in dict(data.get("landed_commit_ids", {})).items()
+                },
+                landed_pull_request_numbers={
+                    str(key): int(value)
+                    for key, value in dict(
+                        data.get("landed_pull_request_numbers", {})
+                    ).items()
+                },
+                landed_subjects={
+                    str(key): str(value)
+                    for key, value in dict(data.get("landed_subjects", {})).items()
+                },
+                completed_change_ids=tuple(
+                    str(x) for x in data.get("completed_change_ids", [])
+                ),
+                trunk_branch=str(data["trunk_branch"]),
+                trunk_commit_id=str(data["trunk_commit_id"]),
+                landed_commit_id=str(data["landed_commit_id"]),
+                expected_pr_number=(
+                    None if expected_pr_number is None else int(expected_pr_number)
+                ),
                 started_at=str(data["started_at"]),
             )
         else:
@@ -278,7 +330,7 @@ def match_ordered_change_ids(
 # ---------------------------------------------------------------------------
 
 def intent_change_ids(intent: IntentFile) -> frozenset[str]:
-    if isinstance(intent, SubmitIntent | CleanupRestackIntent):
+    if isinstance(intent, SubmitIntent | CleanupRestackIntent | LandIntent):
         return frozenset(intent.ordered_change_ids)
     if isinstance(intent, RelinkIntent):
         return frozenset([intent.change_id])
@@ -330,7 +382,7 @@ def retire_superseded_intents(
     new_intent: IntentFile,
 ) -> None:
     """Auto-retire stale intents that are exact matches or strict ordered subsets."""
-    if not isinstance(new_intent, SubmitIntent | CleanupRestackIntent):
+    if not isinstance(new_intent, SubmitIntent | CleanupRestackIntent | LandIntent):
         return
     new_ids = new_intent.ordered_change_ids
     for loaded in stale_intents:

@@ -94,8 +94,8 @@ can be tested without network or subprocess side effects.
 
 The product command surface should follow the design doc.
 
-`land` is explicitly deferred until after the initial review lifecycle is
-stable.
+`land` now ships as a separate post-MVP slice layered on top of the stable
+submit/status/relink/cleanup lifecycle.
 
 The tool itself should ship as a standalone executable, for example
 `jj-review`.
@@ -863,12 +863,10 @@ Done when:
 - tests cover the common fetched-merge case, safe survivor restacking, and the
   refusal cases that still require human intervention
 
-### Future Slice: Landing
+### Landing
 
-`land` is deferred until the review lifecycle is stable end-to-end.
-When we revisit it, it should be planned as a separate slice because merge
-policy, branch protection, and partial-stack semantics materially expand the
-product surface.
+`land` is now implemented as its own slice because merge policy, branch
+protection, and partial-stack semantics materially expand the product surface.
 
 The CLI contract should stay consistent with the rest of the tool:
 
@@ -903,14 +901,18 @@ generic recovery path:
 - plan invalidation between preview and apply should tell the user to rerun the
   preview rather than attempting to continue with stale assumptions
 
-Done when:
+This slice is now in place with the current implementation:
 
 - preview output clearly identifies the landable prefix, target trunk, and any
   blocked boundary on the selected path
-- apply reruns planning and refuses to continue when the path, trunk target,
-  or PR/linkage state changed materially
+- `land --apply` now requires a matching saved preview unless it is resuming an
+  interrupted apply from a recorded intent, so material plan drift is rejected
+  before any new mutation starts
 - land now constructs the landed trunk history locally in `jj`, preserving the
   landed prefix as multiple commits, then updates trunk with a leased push
+- if the trunk push fails, the local trunk bookmark is restored before the
+  command exits so a rejected remote update does not silently rewrite local
+  trunk state
 - the local-trunk-first landing path is intentional, so trunk protection and
   trunk checks gate the push while `review/*` protection only prevents direct
   review-branch merges
@@ -921,7 +923,9 @@ Done when:
 - post-land PR finalization for the landed prefix happens bottom-to-top, even
   if surrounding GitHub lookups or other independent work use batching or
   bounded parallelism
-- retries after an interrupted land are idempotent at each phase boundary
+- interrupted applies now resume from persisted land intent data, including the
+  already-landed trunk target and per-PR completion checkpoints, so reruns can
+  finish post-push bookkeeping without rediscovering the original prefix
 - exact post-landing bookkeeping is limited to the landed prefix, while
   broader stale-state cleanup remains a separate `cleanup` concern
 

@@ -17,6 +17,7 @@ def test_main_without_command_prints_help(capsys: pytest.CaptureFixture[str]) ->
 
     assert exit_code == 0
     assert "submit" in captured.out
+    assert "land" in captured.out
     assert "cleanup" in captured.out
 
 
@@ -283,6 +284,92 @@ def test_main_submit_rejects_revset_and_current_together(
 
     assert exit_code == 1
     assert "accepts either `<revset>` or `--current`, not both" in captured.err
+
+
+def test_main_land_requires_explicit_revision_selection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.bootstrap.load_config",
+        lambda **kwargs: SimpleNamespace(
+            change={},
+            logging=SimpleNamespace(level="WARNING"),
+            repo=SimpleNamespace(),
+        ),
+    )
+    run_called = False
+
+    def fake_run_land(**kwargs):
+        nonlocal run_called
+        run_called = True
+        raise AssertionError("land should not run without an explicit selector")
+
+    monkeypatch.setattr("jj_review.cli.run_land", fake_run_land)
+
+    exit_code = main(["land", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert not run_called
+    assert "requires an explicit revision selection" in captured.err
+
+
+def test_main_land_renders_planned_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+
+    def fake_run_land(**kwargs):
+        assert kwargs["expect_pr_reference"] == "7"
+        assert kwargs["revset"] == "@-"
+        return SimpleNamespace(
+            actions=(
+                SimpleNamespace(
+                    kind="trunk",
+                    message="push main to feature 1 [aaaaaaaa]",
+                    status="planned",
+                ),
+                SimpleNamespace(
+                    kind="pull request",
+                    message="finalize PR #7 for feature 1 [aaaaaaaa]",
+                    status="planned",
+                ),
+            ),
+            applied=False,
+            blocked=False,
+            follow_up=None,
+            github_repository="octo-org/stacked-review",
+            remote_name="origin",
+            selected_revset="@-",
+            trunk_branch="main",
+            trunk_subject="base",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_land", fake_run_land)
+
+    exit_code = main(
+        [
+            "land",
+            "--repository",
+            str(tmp_path),
+            "--expect-pr",
+            "7",
+            "@-",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Selected revset: @-" in captured.out
+    assert "GitHub: octo-org/stacked-review" in captured.out
+    assert "Planned land actions:" in captured.out
+    assert "- [planned] trunk: push main to feature 1 [aaaaaaaa]" in captured.out
+    assert "Re-run with `land --apply @-`" in captured.out
 
 
 def test_main_submit_passes_dry_run_and_renders_planned_output(
