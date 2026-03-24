@@ -393,6 +393,8 @@ plain PR projection:
 
 - no stack-specific helper invocation
 - no reviewer-facing stack comment
+- after a successful live submit, print the URL of the top of the stack so the
+  operator can open the projected stack in a browser
 
 There is no meaningful stack metadata to project when the selected review path
 contains only one PR.

@@ -48,10 +48,13 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
     stack = JjClient(repo).discover_review_stack()
     state = ReviewStateStore.for_repo(repo).load()
     first_bookmark = state.changes[stack.revisions[0].change_id].bookmark
+    top_pr_url = state.changes[stack.revisions[-1].change_id].pr_url
 
     assert exit_code == 0
     assert "Selected remote: origin" in captured.out
     assert "Trunk: base -> main" in captured.out
+    assert top_pr_url is not None
+    assert f"Top of stack: {top_pr_url}" in captured.out
     assert len(fake_repo.pull_requests) == 2
     for index, revision in enumerate(stack.revisions, start=1):
         cached_change = state.changes[revision.change_id]

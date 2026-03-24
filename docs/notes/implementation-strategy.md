@@ -186,6 +186,9 @@ The CLI layer should be thin. It should:
 - for inspection-style commands such as `status` and `cleanup`, print resolved
   local context promptly and stream per-item results as remote inspection
   completes rather than buffering the full command behind one aggregate result
+- for successful live `submit` runs, print the top-of-stack URL after the
+  projected bookmark summary so the operator can jump straight to the stack in
+  a browser
 
 It should not contain stack planning logic.
 

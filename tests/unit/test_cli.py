@@ -697,6 +697,7 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
                     local_action="created",
                     pull_request_action="created",
                     pull_request_number=None,
+                    pull_request_url=None,
                     remote_action="pushed",
                     subject="feature 1",
                 ),
@@ -718,6 +719,7 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
     assert "Planned review bookmarks:" in captured.out
     assert "- feature 1 [abcdefgh]" in captured.out
     assert "  -> review/feature-abcdefgh [new PR]" in captured.out
+    assert "Top of stack:" not in captured.out
 
 
 def test_main_submit_passes_draft_mode_to_submit_runner(
@@ -874,6 +876,7 @@ def test_main_submit_prints_final_output_without_duplicate_lines(
         local_action="created",
         pull_request_action="created",
         pull_request_number=None,
+        pull_request_url=None,
         remote_action="pushed",
         subject="feature 1",
     )
@@ -903,6 +906,49 @@ def test_main_submit_prints_final_output_without_duplicate_lines(
     assert captured.out.count("Planned review bookmarks:") == 1
     assert captured.out.count("- feature 1 [abcdefgh]") == 1
     assert captured.out.count("  -> review/feature-abcdefgh [new PR]") == 1
+    assert "Top of stack:" not in captured.out
+
+
+def test_main_submit_prints_top_pull_request_url_at_end(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+
+    revision = SimpleNamespace(
+        bookmark="review/feature-abcdefgh",
+        bookmark_source="generated",
+        change_id="abcdefghijkl",
+        local_action="created",
+        pull_request_action="created",
+        pull_request_number=7,
+        pull_request_url="https://github.test/example/repo/pull/7",
+        remote_action="pushed",
+        subject="feature 1",
+    )
+
+    def fake_run_submit(**kwargs):
+        kwargs["on_prepared"]("@", SimpleNamespace(name="origin"), True)
+        kwargs["on_trunk_resolved"]("base", "main", True)
+        return SimpleNamespace(
+            dry_run=False,
+            remote=SimpleNamespace(name="origin"),
+            revisions=(revision,),
+            selected_revset="@",
+            trunk_branch="main",
+            trunk_subject="base",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+
+    exit_code = main(["submit", "--current", "--repository", str(tmp_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out.rstrip().endswith(
+        "Top of stack: https://github.test/example/repo/pull/7"
+    )
 
 
 def test_main_time_output_prefixes_submit_summary_lines(
@@ -919,6 +965,7 @@ def test_main_time_output_prefixes_submit_summary_lines(
         local_action="created",
         pull_request_action="created",
         pull_request_number=7,
+        pull_request_url="https://github.test/example/repo/pull/7",
         remote_action="pushed",
         subject="feature 1",
     )
@@ -946,7 +993,13 @@ def test_main_time_output_prefixes_submit_summary_lines(
         for line in captured.out.splitlines()
         if "review/feature-abcdefgh [PR #7]" in line
     )
+    top_pr_line = next(
+        line
+        for line in captured.out.splitlines()
+        if "Top of stack: https://github.test/example/repo/pull/7" in line
+    )
     assert summary_line.count("[") == 2
+    assert top_pr_line.count("[") == 1
 
 
 def test_main_cleanup_passes_apply_to_prepare_cleanup(

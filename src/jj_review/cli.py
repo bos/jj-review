@@ -1005,6 +1005,10 @@ def _submit_handler(args: Namespace) -> int:
             print("Projected review bookmarks:")
     for revision in result.revisions:
         _print_submit_revision(revision)
+    if not result.dry_run:
+        top_pull_request_url = result.revisions[-1].pull_request_url
+        if top_pull_request_url is not None:
+            print(f"Top of stack: {top_pull_request_url}")
     return 0
 
 
