@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import jj_review.cli as cli_module
 from jj_review.cli import _find_subcommand_parser, build_parser, main
 from jj_review.config import CONFIG_DIRNAME, CONFIG_FILENAME
 from jj_review.jj import UnsupportedStackError
@@ -32,9 +33,9 @@ def test_main_help_all_prints_hidden_commands(capsys: pytest.CaptureFixture[str]
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "relink" in captured.out
-    assert "unlink" in captured.out
-    assert "completion" in captured.out
+    assert "Reconnect an existing pull request to a local change" in captured.out
+    assert "Stop managing one local change as part of review" in captured.out
+    assert "Print shell completion setup for bash, zsh, or fish" in captured.out
     assert "--repository" in captured.out
     assert "--config" in captured.out
     assert "--debug" in captured.out
@@ -49,8 +50,82 @@ def test_main_help_command_prints_subcommand_help(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "usage: jj-review submit" in captured.out
+    assert "Usage: jj-review submit" in captured.out
+    assert "Positional Arguments:" in captured.out
+    assert "Options:" in captured.out
+    assert "\nusage:" not in captured.out
+    assert "\npositional arguments:" not in captured.out
+    assert "\noptions:" not in captured.out
+    assert "Create or update the GitHub pull requests for the selected stack of changes" in (
+        captured.out
+    )
     assert "--current" in captured.out
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        (
+            "submit",
+            "Create or update the GitHub pull requests for the selected stack of changes",
+        ),
+        (
+            "status",
+            "This reports the pull requests and GitHub branches jj-review is using",
+        ),
+        (
+            "land",
+            "Without `--apply`, this command only shows what would be landed",
+        ),
+        (
+            "close",
+            "By default this shows what would be closed; with `--apply`, it closes "
+            "those pull requests",
+        ),
+        (
+            "cleanup",
+            "Find stale jj-review branches and local records left behind by earlier "
+            "review work",
+        ),
+        (
+            "import",
+            "Recreate jj-review's local records for an existing review stack without "
+            "changing your commits",
+        ),
+        (
+            "relink",
+            "Use this to repair a missing or wrong local link between a change and its "
+            "pull request",
+        ),
+        (
+            "unlink",
+            "Later jj-review commands will ignore that change unless you link it again",
+        ),
+        (
+            "completion",
+            "This only prints local shell setup text and does not inspect the "
+            "repository or GitHub",
+        ),
+        (
+            "help",
+            "Use `--all` to also show the advanced repair commands and hidden global "
+            "options",
+        ),
+        (
+            "adopt",
+            "Reconnect an existing GitHub pull request to the selected local change",
+        ),
+    ],
+)
+def test_subcommand_help_includes_a_command_description(
+    command: str,
+    expected: str,
+) -> None:
+    parser = _find_subcommand_parser(build_parser(), command)
+
+    assert parser is not None
+    normalized_help = " ".join(parser.format_help().split())
+    assert expected in normalized_help
 
 
 def test_top_level_help_uses_updated_command_summaries(
@@ -60,10 +135,26 @@ def test_top_level_help_uses_updated_command_summaries(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Create or update GitHub pull requests for a jj stack" in captured.out
-    assert "Show GitHub pull request status for a stack" in captured.out
+    assert "Send a jj stack to GitHub for review" in captured.out
+    assert "Check the review status of a jj stack" in captured.out
     assert "Land the merge-ready part of a stack" in captured.out
-    assert "Clean up stale review branches and comments" in captured.out
+    assert "Stop reviewing a jj stack on GitHub" in captured.out
+    assert "Clean up stale review state for a jj stack" in captured.out
+    assert "Import an existing review stack into local jj-review state" in captured.out
+    assert "Show help for this command or another command" in captured.out
+
+
+def test_top_level_help_describes_what_jj_review_is_for(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main([])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    normalized = " ".join(captured.out.split())
+    assert "jj-review lets you review a local jj stack on GitHub" in normalized
+    assert "submit changes for review" in normalized
+    assert "land reviewed changes" in normalized
 
 
 def test_default_top_level_help_hides_advanced_global_options(
@@ -89,10 +180,11 @@ def test_help_output_omits_trailing_periods_in_command_and_option_descriptions()
     assert submit_parser is not None
     submit_help = submit_parser.format_help()
 
-    assert "Create or update GitHub pull requests for a jj stack." not in top_level_help
-    assert "Show GitHub pull request status for a stack." not in top_level_help
+    assert "Send a jj stack to GitHub for review." not in top_level_help
+    assert "Check the review status of a jj stack." not in top_level_help
     assert "Land the merge-ready part of a stack." not in top_level_help
-    assert "Clean up stale review branches and comments." not in top_level_help
+    assert "Stop reviewing a jj stack on GitHub." not in top_level_help
+    assert "Clean up stale review state for a jj stack." not in top_level_help
     assert "Workspace path to operate on; defaults to the current directory." not in (
         top_level_help
     )
@@ -136,6 +228,34 @@ def test_top_level_help_uses_title_case_options_heading(
     assert exit_code == 0
     assert "\nOptions:\n" in captured.out
     assert "\noptions:\n" not in captured.out
+
+
+def test_top_level_help_width_uses_terminal_width_when_tty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_module.sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: False)
+    monkeypatch.setattr(
+        cli_module.shutil,
+        "get_terminal_size",
+        lambda fallback: cli_module.shutil.os.terminal_size((100, 24)),
+    )
+
+    assert cli_module._top_level_help_width() == 100
+
+
+def test_top_level_help_width_falls_back_to_80_when_not_tty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli_module.sys.stdout, "isatty", lambda: False)
+    monkeypatch.setattr(cli_module.sys.stderr, "isatty", lambda: False)
+    monkeypatch.setattr(
+        cli_module.shutil,
+        "get_terminal_size",
+        lambda fallback: cli_module.shutil.os.terminal_size((120, 24)),
+    )
+
+    assert cli_module._top_level_help_width() == 80
 
 
 def test_help_command_with_invalid_option_shows_usage_without_traceback() -> None:
@@ -355,7 +475,9 @@ def test_main_status_reports_targeted_divergent_stack_error(
     def raise_unsupported_stack(**kwargs):
         raise UnsupportedStackError(
             "Unsupported stack shape at nznokxmvrnysowwwkktpmroswxqsozqq: "
-            "divergent changes are not supported."
+            "divergent changes are not supported.",
+            change_id="nznokxmvrnysowwwkktpmroswxqsozqq",
+            reason="divergent_change",
         )
 
     monkeypatch.setattr("jj_review.cli.prepare_status", raise_unsupported_stack)
@@ -368,6 +490,15 @@ def test_main_status_reports_targeted_divergent_stack_error(
     assert "Unsupported stack shape at nznokxmvrnysowwwkktpmroswxqsozqq" in captured.err
     assert "jj log -r 'change_id(nznokxmvrnysowwwkktpmroswxqsozqq)'" in captured.err
     assert "`status --fetch` or another fetch imports remote bookmark updates" in captured.err
+
+
+def test_describe_status_preparation_error_falls_back_without_structured_context() -> None:
+    error = UnsupportedStackError(
+        "Unsupported stack shape at nznokxmvrnysowwwkktpmroswxqsozqq: "
+        "divergent changes are not supported."
+    )
+
+    assert "jj log -r" not in cli_module._describe_status_preparation_error(error)
 
 
 def test_main_submit_requires_explicit_revision_selection(
@@ -1948,7 +2079,7 @@ def test_python_m_jj_review_prints_help() -> None:
     )
 
     assert completed.returncode == 0
-    assert "JJ-native stacked GitHub review tooling" in completed.stdout
+    assert "jj-review lets you review a local jj stack on GitHub" in completed.stdout
 
 
 def test_importing_package_main_module_does_not_exit() -> None:

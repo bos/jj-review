@@ -129,7 +129,9 @@ as `--repository`, `--config`, `--debug`, and `--time-output`. An explicit
 `jj-review help --all` mode can expose the full command surface without
 changing how the actual parser accepts commands. Command summaries and option
 descriptions in help output should read as concise fragments rather than full
-sentences, and should omit trailing periods.
+sentences, and should omit trailing periods. Each subcommand help page should
+also start with a short descriptive paragraph explaining what the command does
+and whether it only inspects state or may mutate review state.
 
 `submit` now also supports explicit draft-state controls at the CLI boundary:
 `--draft` / `--draft=new` creates newly opened PRs as drafts, `--draft=all`

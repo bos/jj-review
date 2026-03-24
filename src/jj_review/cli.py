@@ -5,11 +5,11 @@ from __future__ import annotations
 import builtins
 import io
 import logging
-import re
+import shutil
 import sys
 import textwrap
 import time
-from argparse import SUPPRESS, ArgumentParser, Namespace, _SubParsersAction
+from argparse import SUPPRESS, ArgumentParser, HelpFormatter, Namespace, _SubParsersAction
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -38,30 +38,88 @@ from jj_review.jj import UnsupportedStackError
 
 logger = logging.getLogger(__name__)
 _DISPLAY_CHANGE_ID_LENGTH = 8
-_UNSUPPORTED_STACK_CHANGE_RE = re.compile(r"^Unsupported stack shape at (\w+): (.+)$")
 _TOP_LEVEL_HELP_WIDTH = 80
 _TOP_LEVEL_HELP_USAGE = "jj-review [-h] [--version] <command> ..."
 _TOP_LEVEL_HELP_USAGE_ALL = (
     "jj-review [-h] [--repository REPOSITORY] [--config CONFIG] [--debug] "
     "[--time-output] [--version] <command> ..."
 )
+_TOP_LEVEL_HELP_DESCRIPTION = """
+jj-review lets you review a local jj stack on GitHub as stacked pull requests.
+
+Use it to submit changes for review, inspect pull request status, land
+reviewed changes, and clean up stale review state.
+"""
 _TOP_LEVEL_HIDDEN_OPTION_STRINGS = frozenset(
     {"--repository", "--config", "--debug", "--time-output"}
 )
 
-_SUBMIT_HELP = "Create or update GitHub pull requests for a jj stack"
-_STATUS_HELP = "Show GitHub pull request status for a stack"
+_SUBMIT_HELP = "Send a jj stack to GitHub for review"
+_STATUS_HELP = "Check the review status of a jj stack"
 _LAND_HELP = "Land the merge-ready part of a stack"
-_CLOSE_HELP = "Close the managed review path for a stack"
-_CLEANUP_HELP = "Clean up stale review branches and comments"
-_IMPORT_HELP = (
-    "Materialize sparse local review state for an exact PR, head, current path, "
-    "or explicit revset"
-)
-_RELINK_HELP = "Reassociate an existing pull request with a local change"
-_UNLINK_HELP = "Detach one local change from managed review ownership"
-_COMPLETION_HELP = "Print a shell completion script for bash, zsh, or fish"
-_HELP_HELP = "Show top-level help or help for a specific command"
+_CLOSE_HELP = "Stop reviewing a jj stack on GitHub"
+_CLEANUP_HELP = "Clean up stale review state for a jj stack"
+_IMPORT_HELP = "Import an existing review stack into local jj-review state"
+_RELINK_HELP = "Reconnect an existing pull request to a local change"
+_UNLINK_HELP = "Stop managing one local change as part of review"
+_COMPLETION_HELP = "Print shell completion setup for bash, zsh, or fish"
+_HELP_HELP = "Show help for this command or another command"
+_SUBMIT_DESCRIPTION = """
+Create or update the GitHub pull requests for the selected stack of changes.
+This pushes or updates the GitHub branches for that stack, then opens or
+refreshes one pull request per change from bottom to top.
+"""
+_STATUS_DESCRIPTION = """
+Show how the selected jj stack currently appears on GitHub. This reports the
+pull requests and GitHub branches jj-review is using for each change without
+changing anything.
+"""
+_LAND_DESCRIPTION = """
+Land the consecutive changes above `trunk()` whose pull requests are still
+open. Landing moves those changes onto `trunk()`, pushes the new trunk tip to
+the remote trunk branch, and closes their pull requests. Without `--apply`,
+this command only shows what would be landed. With `--apply`, it performs the
+landing. If later changes remain above that point, run `cleanup --restack` and
+then `submit` to keep those remaining changes under review.
+"""
+_CLOSE_DESCRIPTION = """
+Close the GitHub pull requests for the selected stack. By default this shows
+what would be closed; with `--apply`, it closes those pull requests, and
+`--cleanup` also removes jj-review's GitHub branches and local bookkeeping for
+them.
+"""
+_CLEANUP_DESCRIPTION = """
+Find stale jj-review branches and local records left behind by earlier review
+work. With `--apply`, this removes the safe ones, and with `--restack` it can
+also restack local descendants after earlier pull requests were merged.
+"""
+_IMPORT_DESCRIPTION = """
+Recreate jj-review's local records for an existing review stack without
+changing your commits. Select exactly one pull request, GitHub branch, current
+path, or explicit revset to import.
+"""
+_RELINK_DESCRIPTION = """
+Reconnect an existing GitHub pull request to the selected local change. Use
+this to repair a missing or wrong local link between a change and its pull
+request.
+"""
+_ADOPT_DESCRIPTION = """
+Alias for `relink`. Reconnect an existing GitHub pull request to the selected
+local change.
+"""
+_UNLINK_DESCRIPTION = """
+Stop tracking one local change with jj-review while leaving the rest of the
+stack alone. Later jj-review commands will ignore that change unless you link
+it again.
+"""
+_COMPLETION_DESCRIPTION = """
+Print the shell completion script for bash, zsh, or fish. This only prints
+local shell setup text and does not inspect the repository or GitHub.
+"""
+_HELP_DESCRIPTION = """
+Show top-level help or the detailed help for one command. Use `--all` to also
+show the advanced repair commands and hidden global options.
+"""
 
 
 @dataclass(frozen=True)
@@ -116,15 +174,30 @@ class _TopLevelArgumentParser(ArgumentParser):
         return _format_top_level_usage(include_hidden=False) + "\n"
 
 
+class _TitleCaseHelpFormatter(HelpFormatter):
+    """Help formatter that title-cases the usage heading."""
+
+    def add_usage(self, usage, actions, groups, prefix=None):
+        return super().add_usage(usage, actions, groups, prefix="Usage: ")
+
+
+class _CommandArgumentParser(ArgumentParser):
+    """ArgumentParser with title-cased built-in help headings."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("formatter_class", _TitleCaseHelpFormatter)
+        super().__init__(*args, **kwargs)
+        _normalize_argument_section_titles(self)
+
+
 def build_parser() -> ArgumentParser:
     """Build the top-level CLI parser and subcommands."""
 
-    common_options = _build_common_options_parser()
     parser = _TopLevelArgumentParser(
         prog="jj-review",
-        description="JJ-native stacked GitHub review tooling",
-        parents=[common_options],
+        description=_normalized_help_text(_TOP_LEVEL_HELP_DESCRIPTION),
     )
+    _add_common_options(parser)
     _normalize_help_action_text(parser)
     parser.add_argument(
         "--version",
@@ -133,13 +206,16 @@ def build_parser() -> ArgumentParser:
         help="Show program's version number and exit",
     )
 
-    subparsers = parser.add_subparsers(dest="command", parser_class=ArgumentParser)
+    subparsers = parser.add_subparsers(
+        dest="command",
+        parser_class=_CommandArgumentParser,
+    )
     submit_parser = _add_revision_command(
         subparsers,
         command="submit",
         help_text=_SUBMIT_HELP,
+        description_text=_SUBMIT_DESCRIPTION,
         handler=_submit_handler,
-        parents=[common_options],
     )
     submit_parser.add_argument(
         "--dry-run",
@@ -154,20 +230,24 @@ def build_parser() -> ArgumentParser:
     submit_parser.add_argument(
         "-d",
         "--describe-with",
-        help=(
-            "Executable to invoke as `helper --pr <revset>` for each PR and "
-            "`helper --stack <revset>` for stack-comment prose; the helper must "
-            "print JSON with string `title` and `body` fields"
+        help=_normalized_help_text(
+            """
+            Executable to invoke as `helper --pr <revset>` for each PR and
+            `helper --stack <revset>` for stack-comment prose; the helper must
+            print JSON with string `title` and `body` fields
+            """
         ),
     )
     submit_draft_mode = submit_parser.add_mutually_exclusive_group()
     submit_draft_mode.add_argument(
         "--draft",
         action="store_true",
-        help=(
-            "Create newly opened pull requests as drafts; use `--draft=all` to "
-            "also return existing published pull requests on the selected path "
-            "to draft"
+        help=_normalized_help_text(
+            """
+            Create newly opened pull requests as drafts; use `--draft=all` to
+            also return existing published pull requests on the selected path
+            to draft
+            """
         ),
     )
     submit_draft_mode.add_argument(
@@ -184,26 +264,30 @@ def build_parser() -> ArgumentParser:
         "--reviewers",
         dest="reviewers",
         action="append",
-        help=(
-            "Comma-separated GitHub usernames to request on submitted pull "
-            "requests; repeat to add more; overrides configured reviewers"
+        help=_normalized_help_text(
+            """
+            Comma-separated GitHub usernames to request on submitted pull
+            requests; repeat to add more; overrides configured reviewers
+            """
         ),
     )
     submit_parser.add_argument(
         "--team-reviewers",
         dest="team_reviewers",
         action="append",
-        help=(
-            "Comma-separated GitHub team slugs to request on submitted pull "
-            "requests; repeat to add more; overrides configured team reviewers"
+        help=_normalized_help_text(
+            """
+            Comma-separated GitHub team slugs to request on submitted pull
+            requests; repeat to add more; overrides configured team reviewers
+            """
         ),
     )
     status_parser = _add_revision_command(
         subparsers,
         command="status",
         help_text=_STATUS_HELP,
+        description_text=_STATUS_DESCRIPTION,
         handler=_status_handler,
-        parents=[common_options],
     )
     status_parser.add_argument(
         "-f",
@@ -215,20 +299,20 @@ def build_parser() -> ArgumentParser:
         subparsers,
         command="relink",
         help_text=_RELINK_HELP,
-        parents=[common_options],
+        description_text=_RELINK_DESCRIPTION,
     )
     _add_relink_parser(
         subparsers,
         command="adopt",
         help_text=SUPPRESS,
-        parents=[common_options],
+        description_text=_ADOPT_DESCRIPTION,
     )
     unlink_parser = _add_revision_command(
         subparsers,
         command="unlink",
         help_text=_UNLINK_HELP,
+        description_text=_UNLINK_DESCRIPTION,
         handler=_unlink_handler,
-        parents=[common_options],
     )
     unlink_parser.add_argument(
         "--current",
@@ -239,8 +323,8 @@ def build_parser() -> ArgumentParser:
         subparsers,
         command="land",
         help_text=_LAND_HELP,
+        description_text=_LAND_DESCRIPTION,
         handler=_land_handler,
-        parents=[common_options],
     )
     land_parser.add_argument(
         "--apply",
@@ -260,8 +344,8 @@ def build_parser() -> ArgumentParser:
         subparsers,
         command="close",
         help_text=_CLOSE_HELP,
+        description_text=_CLOSE_DESCRIPTION,
         handler=_close_handler,
-        parents=[common_options],
     )
     close_parser.add_argument(
         "--apply",
@@ -282,14 +366,15 @@ def build_parser() -> ArgumentParser:
         subparsers,
         command="import",
         help_text=_IMPORT_HELP,
-        parents=[common_options],
+        description_text=_IMPORT_DESCRIPTION,
     )
 
     cleanup_parser = subparsers.add_parser(
         "cleanup",
         help=_CLEANUP_HELP,
-        parents=[common_options],
+        description=_normalized_help_text(_CLEANUP_DESCRIPTION),
     )
+    _add_common_options(cleanup_parser)
     _normalize_help_action_text(cleanup_parser)
     cleanup_parser.add_argument(
         "--apply",
@@ -316,6 +401,7 @@ def build_parser() -> ArgumentParser:
     completion_parser = subparsers.add_parser(
         "completion",
         help=_COMPLETION_HELP,
+        description=_normalized_help_text(_COMPLETION_DESCRIPTION),
     )
     _normalize_help_action_text(completion_parser)
     completion_parser.add_argument(
@@ -327,6 +413,7 @@ def build_parser() -> ArgumentParser:
     help_parser = subparsers.add_parser(
         "help",
         help=_HELP_HELP,
+        description=_normalized_help_text(_HELP_DESCRIPTION),
     )
     _normalize_help_action_text(help_parser)
     help_parser.add_argument(
@@ -344,35 +431,43 @@ def build_parser() -> ArgumentParser:
 
 
 def _format_top_level_help(parser: ArgumentParser, *, include_hidden: bool) -> str:
+    width = _top_level_help_width()
     sections: list[str] = [
-        _format_top_level_usage(include_hidden=include_hidden),
-        parser.description or "",
+        _format_top_level_usage(include_hidden=include_hidden, width=width),
+        _format_top_level_description(parser.description or "", width=width),
     ]
     for title, entries in _TOP_LEVEL_HELP_GROUPS:
         visible_entries = [entry for entry in entries if include_hidden or not entry.hidden]
         if not visible_entries:
             continue
-        sections.append(_format_help_command_section(title, visible_entries))
+        sections.append(_format_help_command_section(title, visible_entries, width=width))
 
     if not include_hidden:
         sections.append(
             textwrap.fill(
-                "Run `jj-review help --all` to show advanced repair and shell "
-                "integration commands.",
-                width=_TOP_LEVEL_HELP_WIDTH,
+                "Run `jj-review help --all` to show advanced commands and "
+                "options.",
+                width=width,
                 break_long_words=False,
                 break_on_hyphens=False,
             )
         )
 
-    sections.append(_format_help_option_section(parser, include_hidden=include_hidden))
+    sections.append(
+        _format_help_option_section(
+            parser,
+            include_hidden=include_hidden,
+            width=width,
+        )
+    )
     return "\n\n".join(section for section in sections if section).rstrip() + "\n"
 
 
-def _format_top_level_usage(*, include_hidden: bool) -> str:
+def _format_top_level_usage(*, include_hidden: bool, width: int | None = None) -> str:
+    effective_width = _top_level_help_width() if width is None else width
     return textwrap.fill(
         _TOP_LEVEL_HELP_USAGE_ALL if include_hidden else _TOP_LEVEL_HELP_USAGE,
-        width=_TOP_LEVEL_HELP_WIDTH,
+        width=effective_width,
         initial_indent="usage: ",
         subsequent_indent="       ",
         break_long_words=False,
@@ -380,7 +475,31 @@ def _format_top_level_usage(*, include_hidden: bool) -> str:
     )
 
 
-def _format_help_command_section(title: str, entries: Sequence[_HelpCommand]) -> str:
+def _format_top_level_description(description: str, *, width: int | None = None) -> str:
+    normalized_description = _normalized_help_text(description)
+    if not normalized_description:
+        return ""
+
+    effective_width = _top_level_help_width() if width is None else width
+    paragraphs = [
+        textwrap.fill(
+            paragraph,
+            width=effective_width,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+        for paragraph in normalized_description.split("\n\n")
+    ]
+    return "\n\n".join(paragraphs)
+
+
+def _format_help_command_section(
+    title: str,
+    entries: Sequence[_HelpCommand],
+    *,
+    width: int | None = None,
+) -> str:
+    effective_width = _top_level_help_width() if width is None else width
     label_width = max(len(entry.name) for entry in entries) + 2
     lines = [f"{title}:"]
     for entry in entries:
@@ -388,7 +507,7 @@ def _format_help_command_section(title: str, entries: Sequence[_HelpCommand]) ->
         lines.append(
             textwrap.fill(
                 entry.summary,
-                width=_TOP_LEVEL_HELP_WIDTH,
+                width=effective_width,
                 initial_indent=initial_indent,
                 subsequent_indent=" " * len(initial_indent),
                 break_long_words=False,
@@ -398,7 +517,13 @@ def _format_help_command_section(title: str, entries: Sequence[_HelpCommand]) ->
     return "\n".join(lines)
 
 
-def _format_help_option_section(parser: ArgumentParser, *, include_hidden: bool) -> str:
+def _format_help_option_section(
+    parser: ArgumentParser,
+    *,
+    include_hidden: bool,
+    width: int | None = None,
+) -> str:
+    effective_width = _top_level_help_width() if width is None else width
     actions = [
         action
         for action in parser._actions
@@ -419,7 +544,7 @@ def _format_help_option_section(parser: ArgumentParser, *, include_hidden: bool)
         lines.append(
             textwrap.fill(
                 action.help or "",
-                width=_TOP_LEVEL_HELP_WIDTH,
+                width=effective_width,
                 initial_indent=initial_indent,
                 subsequent_indent=" " * len(initial_indent),
                 break_long_words=False,
@@ -434,6 +559,18 @@ def _format_option_label(action) -> str:
         return ", ".join(action.option_strings)
     metavar = action.metavar or action.dest.upper()
     return ", ".join(f"{option} {metavar}" for option in action.option_strings)
+
+
+def _normalized_help_text(text: str) -> str:
+    return textwrap.dedent(text).strip()
+
+
+def _top_level_help_width() -> int:
+    if not any(stream.isatty() for stream in (sys.stdout, sys.stderr)):
+        return _TOP_LEVEL_HELP_WIDTH
+
+    columns = shutil.get_terminal_size(fallback=(_TOP_LEVEL_HELP_WIDTH, 24)).columns
+    return columns if columns > 0 else _TOP_LEVEL_HELP_WIDTH
 
 
 def _help_handler(args: Namespace) -> int:
@@ -488,29 +625,39 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 130
 
 
-def _add_revision_command(
-    subparsers: _SubParsersAction[ArgumentParser],
+def _add_revision_command[SubparserT: ArgumentParser](
+    subparsers: _SubParsersAction[SubparserT],
     *,
     command: str,
     help_text: str,
+    description_text: str,
     handler=None,
-    parents=None,
-) -> ArgumentParser:
-    parser = subparsers.add_parser(command, help=help_text, parents=parents or [])
+) -> SubparserT:
+    parser = subparsers.add_parser(
+        command,
+        help=help_text,
+        description=_normalized_help_text(description_text),
+    )
+    _add_common_options(parser)
     _normalize_help_action_text(parser)
     parser.add_argument("revset", nargs="?", help="Revision to operate on")
     parser.set_defaults(handler=handler or _stub_handler(command))
     return parser
 
 
-def _add_relink_parser(
-    subparsers: _SubParsersAction[ArgumentParser],
+def _add_relink_parser[SubparserT: ArgumentParser](
+    subparsers: _SubParsersAction[SubparserT],
     *,
     command: str,
     help_text: str,
-    parents=None,
-) -> ArgumentParser:
-    parser = subparsers.add_parser(command, help=help_text, parents=parents or [])
+    description_text: str,
+) -> SubparserT:
+    parser = subparsers.add_parser(
+        command,
+        help=help_text,
+        description=_normalized_help_text(description_text),
+    )
+    _add_common_options(parser)
     _normalize_help_action_text(parser)
     parser.add_argument("pull_request", help="Pull request number or URL")
     parser.add_argument(
@@ -527,14 +674,19 @@ def _add_relink_parser(
     return parser
 
 
-def _add_import_parser(
-    subparsers: _SubParsersAction[ArgumentParser],
+def _add_import_parser[SubparserT: ArgumentParser](
+    subparsers: _SubParsersAction[SubparserT],
     *,
     command: str,
     help_text: str,
-    parents=None,
-) -> ArgumentParser:
-    parser = subparsers.add_parser(command, help=help_text, parents=parents or [])
+    description_text: str,
+) -> SubparserT:
+    parser = subparsers.add_parser(
+        command,
+        help=help_text,
+        description=_normalized_help_text(description_text),
+    )
+    _add_common_options(parser)
     _normalize_help_action_text(parser)
     selector = parser.add_mutually_exclusive_group(required=True)
     selector.add_argument(
@@ -558,8 +710,7 @@ def _add_import_parser(
     return parser
 
 
-def _build_common_options_parser() -> ArgumentParser:
-    parser = ArgumentParser(add_help=False)
+def _add_common_options(parser: ArgumentParser) -> None:
     parser.add_argument(
         "--repository",
         type=Path,
@@ -584,7 +735,6 @@ def _build_common_options_parser() -> ArgumentParser:
         default=SUPPRESS,
         help="Prefix each printed line with elapsed seconds since process start",
     )
-    return parser
 
 
 def _normalize_help_action_text(parser: ArgumentParser) -> None:
@@ -592,6 +742,11 @@ def _normalize_help_action_text(parser: ArgumentParser) -> None:
         if action.option_strings == ["-h", "--help"]:
             action.help = "Show help"
             return
+
+
+def _normalize_argument_section_titles(parser: ArgumentParser) -> None:
+    parser._positionals.title = "Positional Arguments"
+    parser._optionals.title = "Options"
 
 
 def _completion_handler(args: Namespace) -> int:
@@ -775,26 +930,18 @@ def _status_handler(args: Namespace) -> int:
 
 
 def _describe_status_preparation_error(error: UnsupportedStackError) -> str:
-    message = str(error)
-    match = _UNSUPPORTED_STACK_CHANGE_RE.match(message)
-    if match is None:
+    if error.reason == "divergent_change" and error.change_id is not None:
         return (
             "Could not inspect review status because local history no longer forms a "
-            f"supported linear stack. {message}"
-        )
-
-    change_id, reason = match.groups()
-    if reason == "divergent changes are not supported.":
-        return (
-            "Could not inspect review status because local history no longer forms a "
-            f"supported linear stack. {message} Inspect the divergent revisions with "
-            f"`jj log -r 'change_id({change_id})'` and reconcile them before retrying. "
+            f"supported linear stack. {error} Inspect the divergent revisions with "
+            f"`jj log -r 'change_id({error.change_id})'` and reconcile them before "
+            "retrying. "
             "This can happen after `status --fetch` or another fetch imports remote "
             "bookmark updates for merged PRs."
         )
     return (
         "Could not inspect review status because local history no longer forms a "
-        f"supported linear stack. {message}"
+        f"supported linear stack. {error}"
     )
 
 
