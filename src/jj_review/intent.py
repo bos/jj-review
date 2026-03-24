@@ -170,7 +170,7 @@ def _parse_intent(data: dict, path: Path) -> LoadedIntent | None:
                 cleanup=bool(data["cleanup"]),
                 started_at=str(data["started_at"]),
             )
-        elif kind in {"relink", "adopt"}:
+        elif kind == "relink":
             intent = RelinkIntent(
                 kind="relink",
                 pid=int(data["pid"]),

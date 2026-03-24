@@ -720,7 +720,7 @@ Done when:
 - tests prove the stack metadata is regenerated from current `jj` state
 - tests prove stack metadata is not used as topology source
 
-### Slice 7: Status and Adopt
+### Slice 7: Status and Relink
 
 Status: done.
 
@@ -998,8 +998,8 @@ separately from both read-only refresh and local ancestry repair.
 
 The CLI contract is:
 
-- `jj review import (--pull-request <pr> | --head <bookmark> | --current |
-  --revset <revset>)`
+- `jj review import [--fetch] (--pull-request <pr> | --head <bookmark> |
+  --current | --revset <revset>)`
 - no overloaded positional selector that could mean either a revset or a PR
 - no implicit workspace motion in the default mode
 
@@ -1013,6 +1013,11 @@ The product-level split is:
 
 The implementation uses explicit rules for what `import` may mutate:
 
+- without `--fetch`, use only locally available commits and remembered review
+  linkage for the selected stack
+- with `--fetch`, refresh remote bookmark state and, for `--pull-request` and
+  `--head`, fetch only the review branches needed for the selected stack so an
+  existing reviewed stack can be bootstrapped on a new machine
 - refresh cache entries only for the selected stack
 - create or refresh local synthetic review bookmarks only when the target is
   exact and unambiguous
@@ -1022,13 +1027,16 @@ The implementation uses explicit rules for what `import` may mutate:
   stack would need generated bookmark identity; only exact cached or discovered
   bookmark names may be materialized
 - do not rewrite commits, restack descendants, or mutate GitHub state
+- do not update the current workspace to the fetched tip automatically
+- when `--fetch` imports a remote-selected stack, print the fetched tip commit
+  so the operator can `jj new` from there if desired
 
 This slice is done when:
 
 - a user can bootstrap an existing review stack on a new machine from an
-  explicit PR or review-branch selector
+  explicit PR or review-branch selector with `--fetch`
 - remote-only review branches can be materialized into sparse local state
-  without inventing topology from cache
+  with `--fetch` and without inventing topology from cache
 - bookmark ownership conflicts, ambiguous PR linkage, and unsupported stack
   shapes fail with targeted recovery guidance
 - rerunning `import` on an already-materialized stack reports that the local
@@ -1048,6 +1056,9 @@ This slice is done when:
   conflict guidance
 - `import --revset` does not synthesize review bookmark names when no remote is
   selected
+- remote-selected import without `--fetch` fails with targeted guidance to
+  rerun with `import --fetch` when the necessary review branch is not already
+  present locally
 
 Backlog should keep repo-scoped `sync` as a separate question. This slice
 solves explicit import/materialization, not whole-repo refresh policy.

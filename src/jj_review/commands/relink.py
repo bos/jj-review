@@ -155,7 +155,6 @@ async def _run_relink_async(
         state=state,
     )
 
-    # Write intent before the first mutation
     intent = RelinkIntent(
         kind="relink",
         pid=os.getpid(),
@@ -168,7 +167,7 @@ async def _run_relink_async(
         print(f"Warning: a previous relink was interrupted ({loaded.intent.label})")
     intent_path = write_intent(state_dir, intent)
 
-    _relink_succeeded = False
+    relink_succeeded = False
     try:
         client.set_bookmark(bookmark, revision.change_id)
 
@@ -195,7 +194,7 @@ async def _run_relink_async(
                 }
             )
         )
-        _relink_succeeded = True
+        relink_succeeded = True
         return RelinkResult(
             bookmark=bookmark,
             change_id=revision.change_id,
@@ -203,11 +202,39 @@ async def _run_relink_async(
             pull_request_number=pull_request.number,
             remote_name=remote.name,
             selected_revset=selected_revset,
-            subject=revision.subject,
+            subject=revision.description,
         )
     finally:
-        if _relink_succeeded:
+        if relink_succeeded:
             delete_intent(intent_path)
+
+
+def _parse_pull_request_reference(
+    *,
+    reference: str,
+    github_repository: ResolvedGithubRepository,
+) -> int:
+    if reference.isdigit():
+        return int(reference)
+    parsed = urlparse(reference)
+    if parsed.scheme not in {"http", "https"} or parsed.netloc != github_repository.host:
+        raise RelinkResolutionError(
+            f"`{reference}` is not a pull request number or URL for "
+            f"{github_repository.full_name}."
+        )
+    match = _PULL_REQUEST_URL_RE.match(parsed.path)
+    if match is None:
+        raise RelinkResolutionError(
+            f"`{reference}` is not a pull request number or URL for "
+            f"{github_repository.full_name}."
+        )
+    owner = match.group("owner")
+    repo = match.group("repo")
+    if owner != github_repository.owner or repo != github_repository.repo:
+        raise RelinkResolutionError(
+            f"`{reference}` does not belong to {github_repository.full_name}."
+        )
+    return int(match.group("number"))
 
 
 def _ensure_relinkable_cached_linkage(
@@ -220,54 +247,20 @@ def _ensure_relinkable_cached_linkage(
     for cached_change_id, cached_change in state.changes.items():
         if cached_change_id == change_id:
             continue
-        if cached_change.bookmark == bookmark:
+        if cached_change.bookmark == bookmark and cached_change.link_state != "detached":
             raise RelinkResolutionError(
-                "Bookmark "
-                f"{bookmark!r} is already cached for change "
-                f"{cached_change_id[:_DISPLAY_CHANGE_ID_LENGTH]}. "
-                "Clear or repair that linkage before relinking it elsewhere."
+                f"Bookmark {bookmark!r} is already linked to "
+                f"{_short_change_id(cached_change_id)} in local state."
             )
-        if cached_change.pr_number == pull_request_number:
+        if (
+            cached_change.pr_number == pull_request_number
+            and cached_change.link_state != "detached"
+        ):
             raise RelinkResolutionError(
-                f"Pull request #{pull_request_number} is already cached for change "
-                f"{cached_change_id[:_DISPLAY_CHANGE_ID_LENGTH]}. Clear or repair that linkage "
-                "before relinking it "
-                "elsewhere."
+                f"PR #{pull_request_number} is already linked to "
+                f"{_short_change_id(cached_change_id)} in local state."
             )
 
 
-def _parse_pull_request_reference(
-    *,
-    reference: str,
-    github_repository: ResolvedGithubRepository,
-) -> int:
-    if reference.isdigit():
-        return int(reference)
-
-    parsed = urlparse(reference)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise RelinkResolutionError(
-            f"Pull request reference {reference!r} is not a PR number or URL."
-        )
-    if parsed.hostname != github_repository.host:
-        raise RelinkResolutionError(
-            f"Pull request URL {reference!r} does not match configured host "
-            f"{github_repository.host!r}."
-        )
-    match = _PULL_REQUEST_URL_RE.fullmatch(parsed.path)
-    if match is None:
-        raise RelinkResolutionError(
-            f"Pull request URL {reference!r} is not a valid pull request URL."
-        )
-    if (
-        match.group("owner") != github_repository.owner
-        or match.group("repo") != github_repository.repo
-    ):
-        raise RelinkResolutionError(
-            f"Pull request URL {reference!r} does not match configured repository "
-            f"{github_repository.full_name!r}."
-        )
-    return int(match.group("number"))
-
-
-run_adopt = run_relink
+def _short_change_id(change_id: str) -> str:
+    return change_id[:_DISPLAY_CHANGE_ID_LENGTH]

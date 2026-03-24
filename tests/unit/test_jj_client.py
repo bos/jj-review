@@ -173,8 +173,11 @@ def test_discover_review_stack_rejects_divergent_changes() -> None:
     }
 
     client = JjClient(Path("/repo"), runner=_runner(responses))
-    with pytest.raises(UnsupportedStackError, match="divergent changes are not supported"):
+    with pytest.raises(UnsupportedStackError, match="divergent changes are not supported") as exc:
         client.discover_review_stack("divergent")
+
+    assert exc.value.change_id == "div-change"
+    assert exc.value.reason == "divergent_change"
 
 
 def test_discover_review_stack_allows_divergent_ancestor_for_inspection() -> None:
@@ -546,6 +549,58 @@ def test_delete_remote_bookmark_pushes_with_lease_and_fetches() -> None:
         ),
         ("jj", "git", "fetch", "--remote", "origin"),
     ]
+
+
+def test_fetch_remote_can_limit_to_selected_branches() -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        commands.append(tuple(command))
+        assert cwd == Path("/repo")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    client = JjClient(Path("/repo"), runner=run)
+    client.fetch_remote(remote="origin", branches=("review/foo", "review/bar"))
+
+    assert commands == [
+        (
+            "jj",
+            "git",
+            "fetch",
+            "--remote",
+            "origin",
+            "--branch",
+            "review/foo",
+            "--branch",
+            "review/bar",
+        )
+    ]
+
+
+def test_list_remote_branches_returns_matching_branch_heads() -> None:
+    responses: dict[tuple[str, ...], str] = {
+        (
+            "git",
+            "ls-remote",
+            "--refs",
+            "origin",
+            "refs/heads/review/*-aaaaaaaa",
+            "refs/heads/review/*-bbbbbbbb",
+        ): (
+            "abc123\trefs/heads/review/feature-aaaaaaaa\n"
+            "def456\trefs/heads/review/parent-bbbbbbbb\n"
+        ),
+    }
+
+    branches = JjClient(Path("/repo"), runner=_runner(responses)).list_remote_branches(
+        remote="origin",
+        patterns=("refs/heads/review/*-aaaaaaaa", "refs/heads/review/*-bbbbbbbb"),
+    )
+
+    assert branches == {
+        "review/feature-aaaaaaaa": "abc123",
+        "review/parent-bbbbbbbb": "def456",
+    }
 
 
 def test_list_bookmark_states_treats_null_targets_as_deleted() -> None:

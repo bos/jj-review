@@ -11,8 +11,7 @@ def test_bash_completion_lists_visible_commands_but_not_hidden_alias() -> None:
         'printf "%s" "submit status relink unlink land close import cleanup '
         'completion help"' in script
     )
-    assert 'adopt) printf "%s" "-h --help --repository --config --debug ' in script
-    assert 'printf "%s" "submit status relink adopt unlink' not in script
+    assert 'printf "%s" "submit status relink unlink land close import cleanup ' in script
 
 
 def test_bash_completion_includes_value_handling() -> None:

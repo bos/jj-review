@@ -21,6 +21,7 @@ from jj_review.testing.fake_github import (
 def test_import_bootstraps_local_review_state_from_pull_request(
     tmp_path: Path,
     monkeypatch,
+    capsys,
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
@@ -39,10 +40,13 @@ def test_import_bootstraps_local_review_state_from_pull_request(
     for bookmark in review_bookmarks:
         _run(["jj", "bookmark", "forget", bookmark], repo)
     resolve_state_path(repo).unlink()
+    capsys.readouterr()
 
-    exit_code = _main(repo, config_path, "import", "--pull-request", "2")
+    exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
+    captured = capsys.readouterr()
 
     assert exit_code == 0
+    assert "Fetched tip commit:" in captured.out
     state_after = ReviewStateStore.for_repo(repo).load()
     bookmarks_after = sorted(
         {
@@ -85,7 +89,7 @@ def test_import_head_bootstraps_local_review_state_without_pull_requests(
         _run(["jj", "bookmark", "forget", bookmark], repo)
     resolve_state_path(repo).unlink()
 
-    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+    exit_code = _main(repo, config_path, "import", "--fetch", "--head", top_bookmark)
 
     assert exit_code == 0
     state_after = ReviewStateStore.for_repo(repo).load()
@@ -123,7 +127,7 @@ def test_import_reports_up_to_date_when_selected_stack_is_already_materialized(
     top_bookmark = ReviewStateStore.for_repo(repo).load().changes[top_change_id].bookmark
     assert top_bookmark is not None
 
-    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+    exit_code = _main(repo, config_path, "import", "--fetch", "--head", top_bookmark)
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -154,7 +158,7 @@ def test_import_reports_github_inspection_progress(
         _run(["jj", "bookmark", "forget", bookmark], repo)
     resolve_state_path(repo).unlink()
 
-    exit_code = _main(repo, config_path, "import", "--pull-request", "2")
+    exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -219,7 +223,7 @@ def test_import_head_rejects_ambiguous_pull_request_linkage(
         title="duplicate linkage",
     )
 
-    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+    exit_code = _main(repo, config_path, "import", "--fetch", "--head", top_bookmark)
 
     assert exit_code == 1
 
@@ -259,11 +263,12 @@ def test_import_fails_closed_when_stack_would_need_generated_bookmarks(
         repo,
     )
 
-    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+    exit_code = _main(repo, config_path, "import", "--fetch", "--head", top_bookmark)
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "has no discoverable review bookmark on the selected remote" in captured.err
+    assert "cached review bookmark" in captured.err
+    assert "is not present on the selected remote" in captured.err
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, top_bookmark))
     assert bookmark_states[bottom_bookmark].local_target is None
@@ -304,7 +309,7 @@ def test_import_fails_closed_when_cached_bookmark_is_missing_on_selected_remote(
         repo,
     )
 
-    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+    exit_code = _main(repo, config_path, "import", "--fetch", "--head", top_bookmark)
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -425,7 +430,7 @@ def test_import_current_rejects_cache_only_linkage(
         repo,
     )
 
-    assert _main(repo, config_path, "import", "--current") == 1
+    assert _main(repo, config_path, "import", "--fetch", "--current") == 1
 
 
 def test_import_revset_rejects_generated_bookmarks_without_selected_remote(
@@ -528,7 +533,7 @@ def test_import_head_accepts_exact_custom_remote_branch_name(
         _run(["jj", "bookmark", "forget", bookmark], repo)
     resolve_state_path(repo).unlink()
 
-    exit_code = _main(repo, config_path, "import", "--head", custom_head)
+    exit_code = _main(repo, config_path, "import", "--fetch", "--head", custom_head)
 
     assert exit_code == 0
     state_after = ReviewStateStore.for_repo(repo).load()

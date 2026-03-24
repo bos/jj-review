@@ -770,7 +770,7 @@ def _ensure_remote_can_be_updated(
     raise SubmitRemoteBookmarkOwnershipError(
         f"Remote bookmark {bookmark!r}@{remote} already exists and points elsewhere. "
         "Submit will not take over an existing remote branch unless its linkage is "
-        "already proven by local state, cached state, or explicit adoption."
+        "already proven by local state, cached state, or explicit relinking."
     )
 
 

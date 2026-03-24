@@ -1270,7 +1270,7 @@ def test_relink_repairs_existing_pull_request_linkage_for_rewritten_change(
     )
     _run(["jj", "bookmark", "forget", manual_bookmark], repo)
     _run(
-        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 adopted"],
+        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 relinked"],
         repo,
     )
 
@@ -1282,14 +1282,14 @@ def test_relink_repairs_existing_pull_request_linkage_for_rewritten_change(
         change_id,
     )
     captured = capsys.readouterr()
-    adopted_state = ReviewStateStore.for_repo(repo).load()
+    relinked_state = ReviewStateStore.for_repo(repo).load()
 
     assert exit_code == 0
     assert "Relinked PR #1" in captured.out
-    assert adopted_state.changes[change_id].bookmark == manual_bookmark
-    assert adopted_state.changes[change_id].pr_number == 1
-    assert adopted_state.changes[change_id].pr_state == "open"
-    assert adopted_state.changes[change_id].pr_url == (
+    assert relinked_state.changes[change_id].bookmark == manual_bookmark
+    assert relinked_state.changes[change_id].pr_number == 1
+    assert relinked_state.changes[change_id].pr_state == "open"
+    assert relinked_state.changes[change_id].pr_url == (
         "https://github.test/octo-org/stacked-review/pull/1"
     )
 
@@ -1300,7 +1300,7 @@ def test_relink_repairs_existing_pull_request_linkage_for_rewritten_change(
     assert exit_code == 0
     assert "PR #1 updated" in captured.out
     assert set(fake_repo.pull_requests) == {1}
-    assert fake_repo.pull_requests[1].title == "feature 1 adopted"
+    assert fake_repo.pull_requests[1].title == "feature 1 relinked"
     assert (
         _read_remote_ref(fake_repo.git_dir, manual_bookmark)
         == rewritten_stack.revisions[-1].commit_id
@@ -1438,7 +1438,7 @@ def test_relink_rejects_pull_request_with_missing_remote_head_branch(
     )
     _run(["jj", "bookmark", "forget", manual_bookmark], repo)
     _run(
-        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 adopted"],
+        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 relinked"],
         repo,
     )
     _run(
@@ -3864,7 +3864,7 @@ def test_relink_writes_and_deletes_intent_file_on_success(
     )
     _run(["jj", "bookmark", "forget", manual_bookmark], repo)
     _run(
-        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 adopted"],
+        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 relinked"],
         repo,
     )
 
@@ -4223,7 +4223,7 @@ def _configure_submit_environment(
         )
 
     monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
-    monkeypatch.setattr("jj_review.commands.adopt._build_github_client", build_github_client)
+    monkeypatch.setattr("jj_review.commands.relink._build_github_client", build_github_client)
     monkeypatch.setattr("jj_review.commands.close._build_github_client", build_github_client)
     monkeypatch.setattr("jj_review.commands.cleanup._build_github_client", build_github_client)
     monkeypatch.setattr("jj_review.commands.land._build_github_client", build_github_client)

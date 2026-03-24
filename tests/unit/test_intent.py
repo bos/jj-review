@@ -208,33 +208,6 @@ def test_land_intent_round_trips(tmp_path: Path) -> None:
     assert results[0].intent == intent
 
 
-def test_scan_intents_accepts_legacy_adopt_kind(tmp_path: Path) -> None:
-    (tmp_path / "incomplete-2026-01-15-10-30.01.toml").write_text(
-        '\n'.join(
-            [
-                'kind = "adopt"',
-                "pid = 12345",
-                'label = "adopt for cccccccc"',
-                'change_id = "cccc"',
-                'started_at = "2026-01-01T00:00:00+00:00"',
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    results = scan_intents(tmp_path)
-
-    assert len(results) == 1
-    assert results[0].intent == RelinkIntent(
-        kind="relink",
-        pid=12345,
-        label="adopt for cccccccc",
-        change_id="cccc",
-        started_at="2026-01-01T00:00:00+00:00",
-    )
-
-
 def test_scan_intents_ignores_unparseable_files(tmp_path: Path) -> None:
     bad = tmp_path / "incomplete-2026-01-15-10-30.01.toml"
     bad.write_text("not valid toml ][", encoding="utf-8")

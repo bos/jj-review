@@ -8,7 +8,7 @@ import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from jj_review.errors import CliError
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
@@ -32,8 +32,46 @@ class RevsetResolutionError(CliError):
     """Raised when a revset does not resolve to exactly one visible revision."""
 
 
+type UnsupportedStackReason = Literal[
+    "divergent_change",
+    "empty_working_copy",
+    "head_misses_only_reviewable_child",
+    "hidden_commit",
+    "immutable_commit",
+    "merge_commit",
+    "multiple_reviewable_children",
+    "reached_root_before_trunk",
+    "trunk_resolved_to_root",
+]
+
+
 class UnsupportedStackError(CliError):
     """Raised when local history cannot be treated as a linear review stack."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        change_id: str | None = None,
+        reason: UnsupportedStackReason | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.change_id = change_id
+        self.reason = reason
+
+    @classmethod
+    def stack_shape(
+        cls,
+        change_id: str,
+        detail: str,
+        *,
+        reason: UnsupportedStackReason,
+    ) -> UnsupportedStackError:
+        return cls(
+            f"Unsupported stack shape at {change_id}: {detail}",
+            change_id=change_id,
+            reason=reason,
+        )
 
 
 class StaleWorkspaceError(CliError):
@@ -75,7 +113,8 @@ class JjClient:
             if head.current_working_copy and head.empty:
                 raise UnsupportedStackError(
                     "Selected revision resolves to the empty working-copy commit. "
-                    "Select a concrete change instead."
+                    "Select a concrete change instead.",
+                    reason="empty_working_copy",
                 )
 
         if head.commit_id == trunk.commit_id:
@@ -135,17 +174,20 @@ class JjClient:
                     )
                 ]
                 if len(reviewable_children) > 1:
-                    raise UnsupportedStackError(
-                        f"Unsupported stack shape at {current.change_id}: multiple "
-                        "reviewable children require separate PR chains."
+                    raise UnsupportedStackError.stack_shape(
+                        current.change_id,
+                        "multiple reviewable children require separate PR chains.",
+                        reason="multiple_reviewable_children",
                     )
                 child_matches_path = any(
                     child.commit_id == child_in_path.commit_id for child in reviewable_children
                 )
                 if not child_matches_path:
-                    raise UnsupportedStackError(
-                        f"Unsupported stack shape at {current.change_id}: selected head does "
-                        "not follow the only reviewable child of this ancestor."
+                    raise UnsupportedStackError.stack_shape(
+                        current.change_id,
+                        "selected head does not follow the only reviewable child "
+                        "of this ancestor.",
+                        reason="head_misses_only_reviewable_child",
                     )
 
             stack_head_first.append(current)
@@ -209,7 +251,8 @@ class JjClient:
         if len(trunk.parents) == 0:
             raise UnsupportedStackError(
                 "`trunk()` resolved to the root commit. Configure a concrete trunk bookmark "
-                "before discovering a review stack."
+                "before discovering a review stack.",
+                reason="trunk_resolved_to_root",
             )
         return trunk
 
@@ -395,10 +438,43 @@ class JjClient:
             command.extend(["--bookmark", bookmark])
         self._run_jj(command)
 
-    def fetch_remote(self, *, remote: str) -> None:
+    def fetch_remote(
+        self,
+        *,
+        remote: str,
+        branches: Sequence[str] | None = None,
+    ) -> None:
         """Refresh remembered remote bookmark state for the selected remote."""
 
-        self._run_jj(("git", "fetch", "--remote", remote))
+        command = ["git", "fetch", "--remote", remote]
+        if branches:
+            for branch in branches:
+                command.extend(["--branch", branch])
+        self._run_jj(command)
+
+    def list_remote_branches(
+        self,
+        *,
+        remote: str,
+        patterns: Sequence[str],
+    ) -> dict[str, str]:
+        """List matching remote branch heads without importing unrelated bookmark state."""
+
+        if not patterns:
+            return {}
+        stdout = self._run_git(("ls-remote", "--refs", remote, *patterns))
+        branches: dict[str, str] = {}
+        for line in stdout.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            commit_id, separator, ref = stripped.partition("\t")
+            if not separator or not commit_id or not ref.startswith("refs/heads/"):
+                raise JjCommandError(
+                    f"`git ls-remote` output has unexpected format: {line!r}"
+                )
+            branches[ref.removeprefix("refs/heads/")] = commit_id
+        return branches
 
     def track_bookmark(self, *, remote: str, bookmark: str) -> None:
         """Track an existing remote bookmark locally."""
@@ -511,29 +587,34 @@ class JjClient:
         # is always immutable in jj and "reached root before trunk()" is more
         # actionable than "immutable commit".
         if len(revision.parents) == 0:
-            raise UnsupportedStackError(
-                f"Unsupported stack shape at {revision.change_id}: stack reached the root "
-                "commit before `trunk()`."
+            raise UnsupportedStackError.stack_shape(
+                revision.change_id,
+                "stack reached the root commit before `trunk()`.",
+                reason="reached_root_before_trunk",
             )
         if revision.hidden:
-            raise UnsupportedStackError(
-                f"Unsupported stack shape at {revision.change_id}: hidden commits are not "
-                "reviewable."
+            raise UnsupportedStackError.stack_shape(
+                revision.change_id,
+                "hidden commits are not reviewable.",
+                reason="hidden_commit",
             )
         if revision.immutable and not allow_immutable:
-            raise UnsupportedStackError(
-                f"Unsupported stack shape at {revision.change_id}: immutable commits are not "
-                "reviewable."
+            raise UnsupportedStackError.stack_shape(
+                revision.change_id,
+                "immutable commits are not reviewable.",
+                reason="immutable_commit",
             )
         if revision.divergent and not allow_divergent:
-            raise UnsupportedStackError(
-                f"Unsupported stack shape at {revision.change_id}: divergent changes are not "
-                "supported."
+            raise UnsupportedStackError.stack_shape(
+                revision.change_id,
+                "divergent changes are not supported.",
+                reason="divergent_change",
             )
         if len(revision.parents) > 1:
-            raise UnsupportedStackError(
-                f"Unsupported stack shape at {revision.change_id}: merge commits are not "
-                "supported."
+            raise UnsupportedStackError.stack_shape(
+                revision.change_id,
+                "merge commits are not supported.",
+                reason="merge_commit",
             )
 
 

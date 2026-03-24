@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import cast
 
@@ -7,14 +9,22 @@ import pytest
 
 from jj_review.commands.import_ import (
     ImportResolutionError,
+    _fetch_selected_stack_bookmarks,
     _prepared_status_has_discoverable_remote_linkage,
     _resolve_import_bookmark,
+    _resolve_remote_head,
     _validate_bookmark_state,
     run_import,
 )
 from jj_review.commands.review_state import PreparedStatus
 from jj_review.config import RepoConfig
-from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
+from jj_review.jj import JjClient
+from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
+
+
+@dataclass(frozen=True)
+class _RevisionForImportTest:
+    change_id: str
 
 
 def test_validate_bookmark_state_ignores_other_remote_conflicts() -> None:
@@ -163,6 +173,152 @@ def test_prepared_status_has_discoverable_remote_linkage_from_remote_bookmark() 
     )
 
 
+def test_resolve_remote_head_requires_fetch_when_remote_bookmark_is_not_remembered(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_list_pull_requests_by_head(**kwargs):
+        return ()
+
+    monkeypatch.setattr(
+        "jj_review.commands.import_.resolve_github_repository",
+        lambda config, remote: SimpleNamespace(
+            api_base_url="https://github.test/api/v3",
+            full_name="octo-org/stacked-review",
+            host="github.test",
+            owner="octo-org",
+            repo="stacked-review",
+        ),
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.import_._list_pull_requests_by_head",
+        fake_list_pull_requests_by_head,
+    )
+
+    with pytest.raises(ImportResolutionError) as exc_info:
+        asyncio.run(
+            _resolve_remote_head(
+                client=cast(
+                    JjClient,
+                    SimpleNamespace(
+                        list_git_remotes=lambda: (
+                            SimpleNamespace(
+                                name="origin",
+                                url="https://example.test/repo.git",
+                            ),
+                        ),
+                        get_bookmark_state=lambda bookmark: BookmarkState(name=bookmark),
+                    ),
+                ),
+                config=RepoConfig(),
+                fetch=False,
+                head="review/feature-aaaaaaaa",
+            )
+        )
+
+    assert "Re-run `import --fetch`" in str(exc_info.value)
+
+
+def test_resolve_remote_head_fetches_selected_branch_when_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fetch_calls: list[tuple[str, tuple[str, ...] | None]] = []
+
+    async def fake_list_pull_requests_by_head(**kwargs):
+        return ()
+
+    monkeypatch.setattr(
+        "jj_review.commands.import_.resolve_github_repository",
+        lambda config, remote: SimpleNamespace(
+            api_base_url="https://github.test/api/v3",
+            full_name="octo-org/stacked-review",
+            host="github.test",
+            owner="octo-org",
+            repo="stacked-review",
+        ),
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.import_._list_pull_requests_by_head",
+        fake_list_pull_requests_by_head,
+    )
+
+    selection = asyncio.run(
+        _resolve_remote_head(
+            client=cast(
+                JjClient,
+                SimpleNamespace(
+                    list_git_remotes=lambda: (
+                        SimpleNamespace(name="origin", url="https://example.test/repo.git"),
+                    ),
+                    fetch_remote=lambda *, remote, branches=None: fetch_calls.append(
+                        (remote, tuple(branches) if branches is not None else None)
+                    ),
+                    get_bookmark_state=lambda bookmark: BookmarkState(
+                        name=bookmark,
+                        remote_targets=(
+                            RemoteBookmarkState(remote="origin", targets=("commit-2",)),
+                        ),
+                    ),
+                ),
+            ),
+            config=RepoConfig(),
+            fetch=True,
+            head="review/feature-aaaaaaaa",
+        )
+    )
+
+    assert fetch_calls == [("origin", ("review/feature-aaaaaaaa",))]
+    assert selection.fetched_tip_commit == "commit-2"
+
+
+def test_fetch_selected_stack_bookmarks_fetches_only_missing_exact_stack_branches() -> None:
+    fetch_calls: list[tuple[str, tuple[str, ...] | None]] = []
+    bookmark_state_calls = 0
+
+    def list_bookmark_states(bookmarks=None):
+        nonlocal bookmark_state_calls
+        bookmark_state_calls += 1
+        if bookmark_state_calls == 1:
+            return {
+                "review/custom-head": BookmarkState(
+                    name="review/custom-head",
+                    remote_targets=(
+                        RemoteBookmarkState(remote="origin", targets=("commit-2",)),
+                    ),
+                ),
+                "review/parent-bbbbbbbb": BookmarkState(name="review/parent-bbbbbbbb"),
+            }
+        return {}
+
+    fetched = _fetch_selected_stack_bookmarks(
+        client=cast(
+            JjClient,
+            SimpleNamespace(
+                fetch_remote=lambda *, remote, branches=None: fetch_calls.append(
+                    (remote, tuple(branches) if branches is not None else None)
+                ),
+                list_bookmark_states=list_bookmark_states,
+                list_remote_branches=lambda *, remote, patterns: {
+                    "review/custom-head": "commit-2",
+                    "review/parent-bbbbbbbb": "commit-1",
+                    "review/head-aaaaaaaa": "commit-2",
+                },
+            ),
+        ),
+        explicit_head_bookmark="review/custom-head",
+        remote=GitRemote(name="origin", url="https://example.test/repo.git"),
+        revisions=(
+            _RevisionForImportTest(change_id="bbbbbbbbbbbbbbbb"),
+            _RevisionForImportTest(change_id="aaaaaaaaaaaaaaaa"),
+        ),
+    )
+
+    assert fetched == {
+        "review/custom-head": "commit-2",
+        "review/parent-bbbbbbbb": "commit-1",
+    }
+    assert fetch_calls == [("origin", ("review/parent-bbbbbbbb",))]
+
+
 def test_run_import_current_rejects_before_github_inspection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
@@ -208,6 +364,7 @@ def test_run_import_current_rejects_before_github_inspection(
             change_overrides={},
             config=RepoConfig(),
             current=True,
+            fetch=False,
             head=None,
             pull_request_reference=None,
             repo_root=tmp_path,

@@ -289,7 +289,7 @@ def _configure_environment(
         )
 
     monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
-    monkeypatch.setattr("jj_review.commands.adopt._build_github_client", build_github_client)
+    monkeypatch.setattr("jj_review.commands.relink._build_github_client", build_github_client)
     monkeypatch.setattr("jj_review.commands.close._build_github_client", build_github_client)
     monkeypatch.setattr("jj_review.commands.cleanup._build_github_client", build_github_client)
     monkeypatch.setattr("jj_review.commands.import_._build_github_client", build_github_client)

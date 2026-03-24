@@ -7,7 +7,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 from urllib.parse import urlparse
 
 from jj_review.commands.review_state import (
@@ -18,6 +18,7 @@ from jj_review.commands.review_state import (
 )
 from jj_review.commands.submit import (
     ResolvedGithubRepository,
+    _bookmark_matches_generated_change_id,
     _build_github_client,
     _discover_bookmarks_for_revisions,
     resolve_github_repository,
@@ -56,6 +57,7 @@ class ImportResult:
     """Rendered import result for the selected repository."""
 
     actions: tuple[ImportAction, ...]
+    fetched_tip_commit: str | None
     github_error: str | None
     github_repository: str | None
     remote: GitRemote | None
@@ -67,6 +69,7 @@ class ImportResult:
 
 @dataclass(frozen=True, slots=True)
 class _Selection:
+    fetched_tip_commit: str | None
     selector: str
     head_bookmark: str | None
     selected_revset: str | None
@@ -80,11 +83,17 @@ class _PlannedMaterialization:
     update_local_target: str
 
 
+class _RevisionWithChangeId(Protocol):
+    @property
+    def change_id(self) -> str: ...
+
+
 def run_import(
     *,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     current: bool,
+    fetch: bool,
     head: str | None,
     pull_request_reference: str | None,
     repo_root: Path,
@@ -97,6 +106,7 @@ def run_import(
             change_overrides=change_overrides,
             config=config,
             current=current,
+            fetch=fetch,
             head=head,
             pull_request_reference=pull_request_reference,
             repo_root=repo_root,
@@ -110,6 +120,7 @@ async def _run_import_async(
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     current: bool,
+    fetch: bool,
     head: str | None,
     pull_request_reference: str | None,
     repo_root: Path,
@@ -120,14 +131,25 @@ async def _run_import_async(
         client=client,
         config=config,
         current=current,
+        fetch=fetch,
         head=head,
         pull_request_reference=pull_request_reference,
         revset=revset,
     )
+    if (
+        not fetch
+        and selection.head_bookmark is not None
+        and selection.selected_revset is not None
+        and not client.query_revisions(selection.selected_revset, limit=1)
+    ):
+        raise ImportResolutionError(
+            f"Review branch {selection.head_bookmark!r} is not present locally. Re-run "
+            "`import --fetch` to fetch that stack before importing."
+        )
     prepared_status = prepare_status(
         change_overrides=change_overrides,
         config=config,
-        fetch_remote_state=True,
+        fetch_remote_state=fetch and selection.head_bookmark is None,
         persist_bookmarks=False,
         repo_root=repo_root,
         revset=selection.selected_revset,
@@ -147,6 +169,23 @@ async def _run_import_async(
 
     prepared = prepared_status.prepared
     bookmark_states = prepared.client.list_bookmark_states()
+    authoritative_remote_targets: dict[str, str] = {}
+    if fetch and selection.head_bookmark is not None and prepared.remote is not None:
+        authoritative_remote_targets = _fetch_selected_stack_bookmarks(
+            client=prepared.client,
+            explicit_head_bookmark=selection.head_bookmark,
+            remote=prepared.remote,
+            revisions=prepared.stack.revisions,
+        )
+        bookmark_states = _apply_authoritative_remote_targets(
+            bookmark_states=prepared.client.list_bookmark_states(),
+            authoritative_remote_targets=authoritative_remote_targets,
+            remote_name=prepared.remote.name,
+            relevant_bookmarks={
+                prepared_revision.bookmark
+                for prepared_revision in prepared.status_revisions
+            },
+        )
     bookmark_by_change_id: dict[str, str] = {}
     if prepared.remote is not None:
         bookmark_by_change_id.update(
@@ -169,6 +208,7 @@ async def _run_import_async(
     )
     return ImportResult(
         actions=actions,
+        fetched_tip_commit=selection.fetched_tip_commit,
         github_error=status_result.github_error,
         github_repository=prepared_status.github_repository.full_name
         if prepared_status.github_repository is not None
@@ -186,6 +226,7 @@ async def _resolve_selection(
     client: JjClient,
     config: RepoConfig,
     current: bool,
+    fetch: bool,
     head: str | None,
     pull_request_reference: str | None,
     revset: str | None,
@@ -208,12 +249,14 @@ async def _resolve_selection(
 
     if current:
         return _Selection(
+            fetched_tip_commit=None,
             selector="--current",
             head_bookmark=None,
             selected_revset=None,
         )
     if revset is not None:
         return _Selection(
+            fetched_tip_commit=None,
             selector=f"--revset {revset}",
             head_bookmark=None,
             selected_revset=revset,
@@ -222,12 +265,14 @@ async def _resolve_selection(
         return await _resolve_remote_head(
             client=client,
             config=config,
+            fetch=fetch,
             pull_request_reference=pull_request_reference,
         )
     if head is not None:
         return await _resolve_remote_head(
             client=client,
             config=config,
+            fetch=fetch,
             head=head,
         )
     raise AssertionError("One selector is always required.")
@@ -237,12 +282,12 @@ async def _resolve_remote_head(
     *,
     client: JjClient,
     config: RepoConfig,
+    fetch: bool,
     head: str | None = None,
     pull_request_reference: str | None = None,
 ) -> _Selection:
     remotes = client.list_git_remotes()
     remote = select_submit_remote(config, remotes)
-    client.fetch_remote(remote=remote.name)
     github_repository = resolve_github_repository(config, remote)
 
     if pull_request_reference is not None:
@@ -254,6 +299,8 @@ async def _resolve_remote_head(
 
     if head is None:
         raise AssertionError("A remote head bookmark must be selected.")
+    if fetch:
+        client.fetch_remote(remote=remote.name, branches=(head,))
 
     pull_requests = await _list_pull_requests_by_head(
         github_repository=github_repository,
@@ -290,11 +337,13 @@ async def _resolve_remote_head(
 
     remote_state = client.get_bookmark_state(head).remote_target(remote.name)
     selected_revset = _remote_bookmark_commit_id(
+        fetch=fetch,
         remote=remote,
         remote_state=remote_state,
         head=head,
     )
     return _Selection(
+        fetched_tip_commit=selected_revset if fetch else None,
         selector=(
             f"--pull-request {pull_request_reference}"
             if pull_request_reference is not None
@@ -303,6 +352,121 @@ async def _resolve_remote_head(
         head_bookmark=head,
         selected_revset=selected_revset,
     )
+
+
+def _fetch_selected_stack_bookmarks(
+    *,
+    client: JjClient,
+    explicit_head_bookmark: str,
+    remote: GitRemote,
+    revisions: Sequence[_RevisionWithChangeId],
+) -> dict[str, str]:
+    head_change_id = revisions[-1].change_id if revisions else None
+    patterns = tuple(
+        sorted({
+            f"refs/heads/{explicit_head_bookmark}",
+            *(
+                "refs/heads/review/*-"
+                f"{revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]}"
+                for revision in revisions
+            ),
+        })
+    )
+    remote_branches = client.list_remote_branches(remote=remote.name, patterns=patterns)
+    if explicit_head_bookmark not in remote_branches:
+        raise ImportResolutionError(
+            f"Remote bookmark {explicit_head_bookmark!r}@{remote.name} does not exist. "
+            "Fetch and retry once the review branch is visible on the selected remote."
+        )
+    selected_branch_targets = {
+        explicit_head_bookmark: remote_branches[explicit_head_bookmark],
+    }
+    for revision in revisions:
+        change_id = revision.change_id
+        if change_id == head_change_id:
+            continue
+        candidates = sorted(
+            name
+            for name in remote_branches
+            if _bookmark_matches_generated_change_id(name, change_id)
+        )
+        if len(candidates) > 1:
+            raise ImportResolutionError(
+                "Could not safely import the selected stack because "
+                f"{change_id[:_DISPLAY_CHANGE_ID_LENGTH]} matches multiple remote review "
+                f"branches on {remote.name}: {', '.join(candidates)}."
+            )
+        if len(candidates) == 1:
+            selected_branch_targets[candidates[0]] = remote_branches[candidates[0]]
+
+    bookmark_states = client.list_bookmark_states(tuple(sorted(selected_branch_targets)))
+    branches_to_fetch = tuple(
+        bookmark
+        for bookmark, target in sorted(selected_branch_targets.items())
+        if (
+            (
+                remote_state := bookmark_states.get(
+                    bookmark,
+                    BookmarkState(name=bookmark),
+                ).remote_target(remote.name)
+            )
+            is None
+            or remote_state.target != target
+        )
+    )
+    if branches_to_fetch:
+        client.fetch_remote(remote=remote.name, branches=branches_to_fetch)
+    return selected_branch_targets
+
+
+def _apply_authoritative_remote_targets(
+    *,
+    bookmark_states: dict[str, BookmarkState],
+    authoritative_remote_targets: dict[str, str],
+    remote_name: str,
+    relevant_bookmarks: set[str],
+) -> dict[str, BookmarkState]:
+    if not authoritative_remote_targets:
+        return bookmark_states
+
+    updated_states = dict(bookmark_states)
+    for bookmark in sorted(relevant_bookmarks | set(authoritative_remote_targets)):
+        bookmark_state = updated_states.get(bookmark, BookmarkState(name=bookmark))
+        existing_remote_state = bookmark_state.remote_target(remote_name)
+        other_remote_targets = tuple(
+            remote_state
+            for remote_state in bookmark_state.remote_targets
+            if remote_state.remote != remote_name
+        )
+        authoritative_target = authoritative_remote_targets.get(bookmark)
+        if authoritative_target is None:
+            updated_states[bookmark] = bookmark_state.model_copy(
+                update={"remote_targets": other_remote_targets}
+            )
+            continue
+        if (
+            existing_remote_state is not None
+            and existing_remote_state.target == authoritative_target
+        ):
+            updated_states[bookmark] = bookmark_state
+            continue
+        updated_states[bookmark] = bookmark_state.model_copy(
+            update={
+                "remote_targets": other_remote_targets
+                + (
+                    RemoteBookmarkState(
+                        remote=remote_name,
+                        targets=(authoritative_target,),
+                        tracking_targets=(
+                            ()
+                            if existing_remote_state is None
+                            else existing_remote_state.tracking_targets
+                        ),
+                    ),
+                )
+            }
+        )
+    return updated_states
 
 
 async def _load_pull_request(
@@ -357,11 +521,18 @@ async def _list_pull_requests_by_head(
 
 def _remote_bookmark_commit_id(
     *,
+    fetch: bool,
     remote: GitRemote,
     remote_state: RemoteBookmarkState | None,
     head: str,
 ) -> str:
     if remote_state is None or not remote_state.targets:
+        if not fetch:
+            raise ImportResolutionError(
+                f"Remote bookmark {head!r}@{remote.name} is not available in remembered "
+                "local remote state. Re-run `import --fetch` to fetch that review branch "
+                "before importing."
+            )
         raise ImportResolutionError(
             f"Remote bookmark {head!r}@{remote.name} does not exist. Fetch and retry once "
             "the review branch is visible on the selected remote."

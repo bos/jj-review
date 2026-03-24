@@ -40,7 +40,6 @@ def test_main_help_all_prints_hidden_commands(capsys: pytest.CaptureFixture[str]
     assert "--config" in captured.out
     assert "--debug" in captured.out
     assert "--time-output" in captured.out
-    assert "adopt" not in captured.out
 
 
 def test_main_help_command_prints_subcommand_help(
@@ -79,8 +78,7 @@ def test_main_help_command_prints_subcommand_help(
         ),
         (
             "close",
-            "By default this shows what would be closed; with `--apply`, it closes "
-            "those pull requests",
+            "Without `--apply`, this command shows what would be closed",
         ),
         (
             "cleanup",
@@ -89,8 +87,8 @@ def test_main_help_command_prints_subcommand_help(
         ),
         (
             "import",
-            "Recreate jj-review's local records for an existing review stack without "
-            "changing your commits",
+            "Without `--fetch`, this uses the selected stack only if its commits "
+            "and review linkage are already available locally",
         ),
         (
             "relink",
@@ -110,10 +108,6 @@ def test_main_help_command_prints_subcommand_help(
             "help",
             "Use `--all` to also show the advanced repair commands and hidden global "
             "options",
-        ),
-        (
-            "adopt",
-            "Reconnect an existing GitHub pull request to the selected local change",
         ),
     ],
 )
@@ -774,9 +768,11 @@ def test_main_import_renders_up_to_date_output(
 
     def fake_run_import(**kwargs):
         assert kwargs["current"] is False
+        assert kwargs["fetch"] is False
         assert kwargs["head"] == "review/feature-aaaaaaaa"
         return SimpleNamespace(
             actions=(),
+            fetched_tip_commit=None,
             github_error=None,
             github_repository="octo-org/stacked-review",
             remote=SimpleNamespace(name="origin"),
@@ -813,8 +809,10 @@ def test_main_import_renders_unavailable_github_line(
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
 
     def fake_run_import(**kwargs):
+        assert kwargs["fetch"] is False
         return SimpleNamespace(
             actions=(),
+            fetched_tip_commit=None,
             github_error=None,
             github_repository=None,
             remote=None,
@@ -833,6 +831,45 @@ def test_main_import_renders_unavailable_github_line(
     assert "Selected remote: unavailable" in captured.out
     assert "GitHub: unavailable" in captured.out
     assert "GitHub target:" not in captured.out
+
+
+def test_main_import_fetch_renders_fetched_tip_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+
+    def fake_run_import(**kwargs):
+        assert kwargs["fetch"] is True
+        return SimpleNamespace(
+            actions=(),
+            fetched_tip_commit="commit-2",
+            github_error=None,
+            github_repository="octo-org/stacked-review",
+            remote=SimpleNamespace(name="origin"),
+            remote_error=None,
+            reviewable_revision_count=2,
+            selected_revset="commit-2",
+            selector="--pull-request 2",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_import", fake_run_import)
+
+    exit_code = main(
+        [
+            "import",
+            "--repository",
+            str(tmp_path),
+            "--fetch",
+            "--pull-request",
+            "2",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Fetched tip commit: commit-2" in captured.out
 
 
 def test_main_land_renders_planned_output(
@@ -1486,10 +1523,10 @@ def test_main_relink_current_passes_current_path_selection(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
-    adopt_calls: list[str | None] = []
+    relink_calls: list[str | None] = []
 
     def fake_run_relink(**kwargs):
-        adopt_calls.append(kwargs["revset"])
+        relink_calls.append(kwargs["revset"])
         return SimpleNamespace(
             bookmark="review/feature-abcdefgh",
             change_id="abcdefghijkl",
@@ -1506,39 +1543,7 @@ def test_main_relink_current_passes_current_path_selection(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert adopt_calls == [None]
-    assert "Relinked PR #7 for feature 1 [abcdefgh] -> review/feature-abcdefgh" in (
-        captured.out
-    )
-
-
-def test_main_adopt_alias_invokes_relink_handler(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
-    calls: list[str | None] = []
-
-    def fake_run_relink(**kwargs):
-        calls.append(kwargs["revset"])
-        return SimpleNamespace(
-            bookmark="review/feature-abcdefgh",
-            change_id="abcdefghijkl",
-            github_repository="octo-org/stacked-review",
-            pull_request_number=7,
-            remote_name="origin",
-            selected_revset="@",
-            subject="feature 1",
-        )
-
-    monkeypatch.setattr("jj_review.cli.run_relink", fake_run_relink)
-
-    exit_code = main(["adopt", "--current", "--repository", str(tmp_path), "7"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert calls == [None]
+    assert relink_calls == [None]
     assert "Relinked PR #7 for feature 1 [abcdefgh] -> review/feature-abcdefgh" in (
         captured.out
     )

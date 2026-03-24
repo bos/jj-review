@@ -18,7 +18,6 @@ from typing import Any, Literal, cast
 
 from jj_review import __version__
 from jj_review.bootstrap import BootstrapError, bootstrap_context
-from jj_review.commands.adopt import run_relink
 from jj_review.commands.cleanup import (
     prepare_cleanup,
     prepare_restack,
@@ -28,6 +27,7 @@ from jj_review.commands.cleanup import (
 from jj_review.commands.close import CloseResult, run_close
 from jj_review.commands.import_ import run_import
 from jj_review.commands.land import LandResult, run_land
+from jj_review.commands.relink import run_relink
 from jj_review.commands.review_state import prepare_status, stream_status
 from jj_review.commands.submit import run_submit
 from jj_review.commands.unlink import run_unlink
@@ -77,16 +77,19 @@ changing anything.
 _LAND_DESCRIPTION = """
 Land the consecutive changes above `trunk()` whose pull requests are still
 open. Landing moves those changes onto `trunk()`, pushes the new trunk tip to
-the remote trunk branch, and closes their pull requests. Without `--apply`,
-this command only shows what would be landed. With `--apply`, it performs the
-landing. If later changes remain above that point, run `cleanup --restack` and
-then `submit` to keep those remaining changes under review.
+the remote trunk branch, and closes their pull requests.
+
+Without `--apply`, this command only shows what would be landed. With `--apply`,
+it performs the landing.
+
+If later changes remain above that point, run `cleanup --restack` and then
+`submit` to keep those remaining changes under review.
 """
 _CLOSE_DESCRIPTION = """
-Close the GitHub pull requests for the selected stack. By default this shows
-what would be closed; with `--apply`, it closes those pull requests, and
-`--cleanup` also removes jj-review's GitHub branches and local bookkeeping for
-them.
+Close the GitHub pull requests for the selected stack. Without `--apply`, this
+command shows what would be closed. With `--apply`, it closes those pull
+requests, and `--cleanup` also removes jj-review's GitHub branches and any local
+bookmarks for them.
 """
 _CLEANUP_DESCRIPTION = """
 Find stale jj-review branches and local records left behind by earlier review
@@ -94,18 +97,17 @@ work. With `--apply`, this removes the safe ones, and with `--restack` it can
 also restack local descendants after earlier pull requests were merged.
 """
 _IMPORT_DESCRIPTION = """
-Recreate jj-review's local records for an existing review stack without
-changing your commits. Select exactly one pull request, GitHub branch, current
-path, or explicit revset to import.
+Import one existing reviewed stack into local jj-review state. Without
+`--fetch`, this uses the selected stack only if its commits and review linkage
+are already available locally. With `--fetch`, it fetches the selected pull
+request or review branch first so the stack can be imported into a repo that
+does not have it yet. Import does not rewrite commits, restack changes, or
+change GitHub.
 """
 _RELINK_DESCRIPTION = """
 Reconnect an existing GitHub pull request to the selected local change. Use
 this to repair a missing or wrong local link between a change and its pull
 request.
-"""
-_ADOPT_DESCRIPTION = """
-Alias for `relink`. Reconnect an existing GitHub pull request to the selected
-local change.
 """
 _UNLINK_DESCRIPTION = """
 Stop tracking one local change with jj-review while leaving the rest of the
@@ -300,12 +302,6 @@ def build_parser() -> ArgumentParser:
         command="relink",
         help_text=_RELINK_HELP,
         description_text=_RELINK_DESCRIPTION,
-    )
-    _add_relink_parser(
-        subparsers,
-        command="adopt",
-        help_text=SUPPRESS,
-        description_text=_ADOPT_DESCRIPTION,
     )
     unlink_parser = _add_revision_command(
         subparsers,
@@ -705,6 +701,17 @@ def _add_import_parser[SubparserT: ArgumentParser](
     selector.add_argument(
         "--revset",
         help="Explicit revset whose exact stack should be imported",
+    )
+    parser.add_argument(
+        "--fetch",
+        action="store_true",
+        help=_normalized_help_text(
+            """
+            Refresh the selected stack's remote bookmark state and, for
+            `--pull-request` or `--head`, fetch only the review branches needed
+            to materialize that stack
+            """
+        ),
     )
     parser.set_defaults(handler=_import_handler)
     return parser
@@ -1700,6 +1707,7 @@ def _import_handler(args: Namespace) -> int:
         change_overrides=context.config.change,
         config=context.config.repo,
         current=bool(args.current),
+        fetch=bool(args.fetch),
         head=args.head,
         pull_request_reference=args.pull_request,
         repo_root=context.repo_root,
@@ -1707,6 +1715,8 @@ def _import_handler(args: Namespace) -> int:
     )
     print(f"Selected selector: {result.selector}")
     print(f"Selected revset: {result.selected_revset}")
+    if result.fetched_tip_commit is not None:
+        print(f"Fetched tip commit: {result.fetched_tip_commit}")
     if result.remote is None:
         if result.remote_error is None:
             print("Selected remote: unavailable")

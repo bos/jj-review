@@ -506,10 +506,10 @@ work, or manual edits on GitHub.
 
 The explicit stack materialization command is:
 
-- `jj review import (--pull-request <pr> | --head <bookmark> | --current |
-  --revset <revset>)` fetches remote review state, resolves one exact review
-  stack, and materializes sparse local review state for that stack without
-  mutating GitHub
+- `jj review import [--fetch] (--pull-request <pr> | --head <bookmark> |
+  --current | --revset <revset>)` resolves one exact review stack and
+  materializes sparse local review state for that stack without mutating
+  GitHub
 
 The selector should stay explicit and collision-free. In particular, the
 command should not overload a bare positional argument to mean either a revset
@@ -517,24 +517,35 @@ or a PR number.
 
 Its job is local materialization, not workspace motion:
 
-- fetch remote bookmark observations as needed
+- without `--fetch`, use only commits and review linkage that are already
+  available locally
 - resolve the selected stack from a PR head branch, a specific review branch,
   or an explicitly selected local path
+- with `--fetch`, refresh remote bookmark observations and, for an explicit PR
+  or review-branch selector, fetch only the review branches needed for the
+  selected stack so a reviewed stack that exists only on the remote can still
+  be materialized into local review state
 - refresh sparse cache entries only for that exact stack
 - create or refresh local synthetic review bookmarks only when the target is
   exact, same-repository, and unambiguous
+- when `--fetch` pulls in a remote-selected stack, report the fetched tip
+  commit instead of changing the user's workspace automatically
 
 Its default job is not:
 
 - rewriting commits
 - restacking descendants
+- checking out the fetched stack into the current workspace
 - opening, closing, or mutating PRs
 - deleting local history
 
 Failure guidance should stay narrow and specific:
 
-- if the PR head branch is missing, cross-repository, or ambiguous, fail closed
-  and explain that the selected review cannot be imported safely
+- if the PR head branch is missing from remembered local remote state, point
+  the operator to `import --fetch` instead of silently refreshing it
+- if the PR head branch is missing on the remote, cross-repository, or
+  ambiguous, fail closed and explain that the selected review cannot be
+  imported safely
 - if multiple PRs match the same head branch, point the operator to
   `jj review status --fetch` and `jj review relink`
 - if any imported revision would need a freshly generated review bookmark
@@ -705,8 +716,8 @@ The tool can stay small. A reasonable surface would be:
 - `jj review unlink [--current | <revset>]`
 - `jj review close [--cleanup] [--apply] [--current | <revset>]`
 - `jj review cleanup [--restack] [--apply] [--current | <revset>]`
-- `jj review import (--pull-request <pr> | --head <bookmark> | --current |
-  --revset <revset>)`
+- `jj review import [--fetch] (--pull-request <pr> | --head <bookmark> |
+  --current | --revset <revset>)`
 - `jj review land [--apply] [--expect-pr <pr>] [--current | <revset>]`
 - `jj review completion <bash|zsh|fish>`
 
