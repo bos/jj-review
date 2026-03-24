@@ -714,6 +714,14 @@ The standalone executable may also expose `completion` as auxiliary CLI glue
 that prints shell completion scripts. It is not a review-state command and
 does not inspect the repository, local cache, or GitHub.
 
+Top-level help should group commands by intent so the common workflow remains
+easy to scan. `jj review --help` and `jj review help` should foreground the core
+review lifecycle (`submit`, `status`, `land`, `close`) plus adjacent support
+commands such as `cleanup` and `import`. Advanced repair commands such as
+`relink` and `unlink`, along with shell-integration glue such as `completion`,
+may stay hidden from default top-level help and appear only in an explicit
+extended view such as `jj review help --all`.
+
 Target selection should stay explicit:
 
 - `submit` and `relink` require one explicit selector, either `<revset>` or

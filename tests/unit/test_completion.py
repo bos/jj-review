@@ -9,7 +9,7 @@ def test_bash_completion_lists_visible_commands_but_not_hidden_alias() -> None:
 
     assert (
         'printf "%s" "submit status relink unlink land close import cleanup '
-        'completion"' in script
+        'completion help"' in script
     )
     assert 'adopt) printf "%s" "-h --help --repository --config --debug ' in script
     assert 'printf "%s" "submit status relink adopt unlink' not in script
@@ -37,6 +37,7 @@ def test_fish_completion_emits_shell_lines() -> None:
 
     assert "complete -c jj-review -f" in script
     assert "complete -c jj-review -n '__fish_use_subcommand' -a 'completion'" in script
+    assert "complete -c jj-review -n '__fish_use_subcommand' -a 'help'" in script
     assert (
         "complete -c jj-review -n '__fish_seen_subcommand_from completion' -a "
         "'bash zsh fish'" in script

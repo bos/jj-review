@@ -20,9 +20,39 @@ def test_main_without_command_prints_help(capsys: pytest.CaptureFixture[str]) ->
     assert "land" in captured.out
     assert "close" in captured.out
     assert "import" in captured.out
-    assert "unlink" in captured.out
     assert "cleanup" in captured.out
+    assert "help" in captured.out
+    assert "unlink" not in captured.out
+    assert "relink" not in captured.out
+    assert "completion" not in captured.out
+
+
+def test_main_help_all_prints_hidden_commands(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["help", "--all"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "relink" in captured.out
+    assert "unlink" in captured.out
     assert "completion" in captured.out
+    assert "adopt" not in captured.out
+
+
+def test_main_help_command_prints_subcommand_help(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["help", "submit"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "usage: jj-review submit" in captured.out
+    assert "--current" in captured.out
+
+
+def test_build_parser_help_hides_suppressed_alias() -> None:
+    rendered = build_parser().format_help()
+
+    assert "==SUPPRESS==" not in rendered
 
 
 def test_main_time_output_prefixes_help_lines(capsys: pytest.CaptureFixture[str]) -> None:
