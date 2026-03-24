@@ -40,9 +40,13 @@ logger = logging.getLogger(__name__)
 _DISPLAY_CHANGE_ID_LENGTH = 8
 _UNSUPPORTED_STACK_CHANGE_RE = re.compile(r"^Unsupported stack shape at (\w+): (.+)$")
 _TOP_LEVEL_HELP_WIDTH = 80
-_TOP_LEVEL_HELP_USAGE = (
+_TOP_LEVEL_HELP_USAGE = "jj-review [-h] [--version] <command> ..."
+_TOP_LEVEL_HELP_USAGE_ALL = (
     "jj-review [-h] [--repository REPOSITORY] [--config CONFIG] [--debug] "
     "[--time-output] [--version] <command> ..."
+)
+_TOP_LEVEL_HIDDEN_OPTION_STRINGS = frozenset(
+    {"--repository", "--config", "--debug", "--time-output"}
 )
 
 _SUBMIT_HELP = "Create or update GitHub pull requests for a jj stack"
@@ -54,8 +58,8 @@ _IMPORT_HELP = (
     "Materialize sparse local review state for an exact PR, head, current path, "
     "or explicit revset"
 )
-_RELINK_HELP = "Advanced repair: reassociate an existing pull request with a local change"
-_UNLINK_HELP = "Advanced repair: detach one local change from managed review ownership"
+_RELINK_HELP = "Reassociate an existing pull request with a local change"
+_UNLINK_HELP = "Detach one local change from managed review ownership"
 _COMPLETION_HELP = "Print a shell completion script for bash, zsh, or fish"
 _HELP_HELP = "Show top-level help or help for a specific command"
 
@@ -92,7 +96,7 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
         ),
     ),
     (
-        "Shell integration",
+        "Configuration",
         (_HelpCommand("completion", _COMPLETION_HELP, hidden=True),),
     ),
     (
@@ -109,7 +113,7 @@ class _TopLevelArgumentParser(ArgumentParser):
         return _format_top_level_help(self, include_hidden=False)
 
     def format_usage(self) -> str:
-        return _format_top_level_usage()
+        return _format_top_level_usage(include_hidden=False) + "\n"
 
 
 def build_parser() -> ArgumentParser:
@@ -340,7 +344,10 @@ def build_parser() -> ArgumentParser:
 
 
 def _format_top_level_help(parser: ArgumentParser, *, include_hidden: bool) -> str:
-    sections: list[str] = [_format_top_level_usage(), parser.description or ""]
+    sections: list[str] = [
+        _format_top_level_usage(include_hidden=include_hidden),
+        parser.description or "",
+    ]
     for title, entries in _TOP_LEVEL_HELP_GROUPS:
         visible_entries = [entry for entry in entries if include_hidden or not entry.hidden]
         if not visible_entries:
@@ -358,13 +365,13 @@ def _format_top_level_help(parser: ArgumentParser, *, include_hidden: bool) -> s
             )
         )
 
-    sections.append(_format_help_option_section(parser))
+    sections.append(_format_help_option_section(parser, include_hidden=include_hidden))
     return "\n\n".join(section for section in sections if section).rstrip() + "\n"
 
 
-def _format_top_level_usage() -> str:
+def _format_top_level_usage(*, include_hidden: bool) -> str:
     return textwrap.fill(
-        _TOP_LEVEL_HELP_USAGE,
+        _TOP_LEVEL_HELP_USAGE_ALL if include_hidden else _TOP_LEVEL_HELP_USAGE,
         width=_TOP_LEVEL_HELP_WIDTH,
         initial_indent="usage: ",
         subsequent_indent="       ",
@@ -391,14 +398,21 @@ def _format_help_command_section(title: str, entries: Sequence[_HelpCommand]) ->
     return "\n".join(lines)
 
 
-def _format_help_option_section(parser: ArgumentParser) -> str:
+def _format_help_option_section(parser: ArgumentParser, *, include_hidden: bool) -> str:
     actions = [
         action
         for action in parser._actions
-        if action.option_strings and action.help is not SUPPRESS
+        if action.option_strings
+        and action.help is not SUPPRESS
+        and (
+            include_hidden
+            or not any(
+                option in _TOP_LEVEL_HIDDEN_OPTION_STRINGS for option in action.option_strings
+            )
+        )
     ]
     label_width = max(len(_format_option_label(action)) for action in actions) + 2
-    lines = ["options:"]
+    lines = ["Options:"]
     for action in actions:
         label = _format_option_label(action)
         initial_indent = f"  {label.ljust(label_width)}"
@@ -556,7 +570,7 @@ def _build_common_options_parser() -> ArgumentParser:
         "--config",
         type=Path,
         default=SUPPRESS,
-        help="Explicit path to a TOML config file",
+        help="Use this config file",
     )
     parser.add_argument(
         "--debug",
@@ -572,10 +586,11 @@ def _build_common_options_parser() -> ArgumentParser:
     )
     return parser
 
+
 def _normalize_help_action_text(parser: ArgumentParser) -> None:
     for action in parser._actions:
         if action.option_strings == ["-h", "--help"]:
-            action.help = "Show this help message and exit"
+            action.help = "Show help"
             return
 
 

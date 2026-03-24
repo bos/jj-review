@@ -35,6 +35,10 @@ def test_main_help_all_prints_hidden_commands(capsys: pytest.CaptureFixture[str]
     assert "relink" in captured.out
     assert "unlink" in captured.out
     assert "completion" in captured.out
+    assert "--repository" in captured.out
+    assert "--config" in captured.out
+    assert "--debug" in captured.out
+    assert "--time-output" in captured.out
     assert "adopt" not in captured.out
 
 
@@ -62,6 +66,23 @@ def test_top_level_help_uses_updated_command_summaries(
     assert "Clean up stale review branches and comments" in captured.out
 
 
+def test_default_top_level_help_hides_advanced_global_options(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main([])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "--repository" not in captured.out
+    assert "--config" not in captured.out
+    assert "--debug" not in captured.out
+    assert "--time-output" not in captured.out
+    assert "[--repository REPOSITORY]" not in captured.out
+    assert "[--config CONFIG]" not in captured.out
+    assert "[--debug]" not in captured.out
+    assert "[--time-output]" not in captured.out
+
+
 def test_help_output_omits_trailing_periods_in_command_and_option_descriptions() -> None:
     top_level_help = build_parser().format_help()
     submit_parser = _find_subcommand_parser(build_parser(), "submit")
@@ -75,6 +96,7 @@ def test_help_output_omits_trailing_periods_in_command_and_option_descriptions()
     assert "Workspace path to operate on; defaults to the current directory." not in (
         top_level_help
     )
+    assert "Explicit path to a TOML config file." not in top_level_help
     assert "Enable debug logging." not in top_level_help
     assert (
         "Print the submit plan without mutating local, remote, or GitHub state."
@@ -93,12 +115,41 @@ def test_help_output_uses_uppercase_help_and_version_descriptions() -> None:
     assert submit_parser is not None
     submit_help = submit_parser.format_help()
 
-    assert "Show this help message and exit" in top_level_help
+    assert "Show help" in top_level_help
     assert "Show program's version number and exit" in top_level_help
-    assert "show this help message and exit" not in top_level_help
+    assert "show help" not in top_level_help
     assert "show program's version number and exit" not in top_level_help
-    assert "Show this help message and exit" in submit_help
-    assert "show this help message and exit" not in submit_help
+    assert "--repository" not in top_level_help
+    assert "--config" not in top_level_help
+    assert "--debug" not in top_level_help
+    assert "--time-output" not in top_level_help
+    assert "Show help" in submit_help
+    assert "show help" not in submit_help
+
+
+def test_top_level_help_uses_title_case_options_heading(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["help", "--all"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "\nOptions:\n" in captured.out
+    assert "\noptions:\n" not in captured.out
+
+
+def test_help_command_with_invalid_option_shows_usage_without_traceback() -> None:
+    completed = subprocess.run(
+        [sys.executable, "-m", "jj_review", "help", "--version"],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert completed.returncode == 2
+    assert "usage: jj-review" in completed.stderr
+    assert "unrecognized arguments: --version" in completed.stderr
+    assert "Traceback" not in completed.stderr
 
 
 def test_build_parser_help_hides_suppressed_alias() -> None:
