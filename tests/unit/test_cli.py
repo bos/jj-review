@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from jj_review.cli import build_parser, main
+from jj_review.cli import _find_subcommand_parser, build_parser, main
 from jj_review.config import CONFIG_DIRNAME, CONFIG_FILENAME
 from jj_review.jj import UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState
@@ -47,6 +47,58 @@ def test_main_help_command_prints_subcommand_help(
     assert exit_code == 0
     assert "usage: jj-review submit" in captured.out
     assert "--current" in captured.out
+
+
+def test_top_level_help_uses_updated_command_summaries(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main([])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Create or update GitHub pull requests for a jj stack" in captured.out
+    assert "Show GitHub pull request status for a stack" in captured.out
+    assert "Land the merge-ready part of a stack" in captured.out
+    assert "Clean up stale review branches and comments" in captured.out
+
+
+def test_help_output_omits_trailing_periods_in_command_and_option_descriptions() -> None:
+    top_level_help = build_parser().format_help()
+    submit_parser = _find_subcommand_parser(build_parser(), "submit")
+    assert submit_parser is not None
+    submit_help = submit_parser.format_help()
+
+    assert "Create or update GitHub pull requests for a jj stack." not in top_level_help
+    assert "Show GitHub pull request status for a stack." not in top_level_help
+    assert "Land the merge-ready part of a stack." not in top_level_help
+    assert "Clean up stale review branches and comments." not in top_level_help
+    assert "Workspace path to operate on; defaults to the current directory." not in (
+        top_level_help
+    )
+    assert "Enable debug logging." not in top_level_help
+    assert (
+        "Print the submit plan without mutating local, remote, or GitHub state."
+        not in submit_help
+    )
+    assert (
+        "Explicitly operate on the current review path instead of passing a revset."
+        not in submit_help
+    )
+
+
+def test_help_output_uses_uppercase_help_and_version_descriptions() -> None:
+    top_level_help = build_parser().format_help()
+    submit_parser = _find_subcommand_parser(build_parser(), "submit")
+
+    assert submit_parser is not None
+    submit_help = submit_parser.format_help()
+
+    assert "Show this help message and exit" in top_level_help
+    assert "Show program's version number and exit" in top_level_help
+    assert "show this help message and exit" not in top_level_help
+    assert "show program's version number and exit" not in top_level_help
+    assert "Show this help message and exit" in submit_help
+    assert "show this help message and exit" not in submit_help
 
 
 def test_build_parser_help_hides_suppressed_alias() -> None:

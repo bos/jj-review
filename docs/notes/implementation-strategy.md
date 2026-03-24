@@ -125,7 +125,9 @@ Top-level help should be curated rather than a flat dump of every subcommand.
 Default `jj-review --help` and `jj-review help` output should group commands by
 theme and keep advanced repair or shell-integration commands out of the default
 view. An explicit `jj-review help --all` mode can expose the full command
-surface without changing how the actual parser accepts commands.
+surface without changing how the actual parser accepts commands. Command
+summaries and option descriptions in help output should read as concise
+fragments rather than full sentences, and should omit trailing periods.
 
 `submit` now also supports explicit draft-state controls at the CLI boundary:
 `--draft` / `--draft=new` creates newly opened PRs as drafts, `--draft=all`

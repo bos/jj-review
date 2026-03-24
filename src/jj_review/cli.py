@@ -45,19 +45,19 @@ _TOP_LEVEL_HELP_USAGE = (
     "[--time-output] [--version] <command> ..."
 )
 
-_SUBMIT_HELP = "Project a local jj stack onto GitHub pull requests."
-_STATUS_HELP = "Show cached and remote review state for a stack."
-_LAND_HELP = "Preview or land the trunk-open review prefix for a stack."
-_CLOSE_HELP = "Preview or close the managed review path for a stack."
-_CLEANUP_HELP = "Report or apply conservative review cleanup actions."
+_SUBMIT_HELP = "Create or update GitHub pull requests for a jj stack"
+_STATUS_HELP = "Show GitHub pull request status for a stack"
+_LAND_HELP = "Land the merge-ready part of a stack"
+_CLOSE_HELP = "Close the managed review path for a stack"
+_CLEANUP_HELP = "Clean up stale review branches and comments"
 _IMPORT_HELP = (
     "Materialize sparse local review state for an exact PR, head, current path, "
-    "or explicit revset."
+    "or explicit revset"
 )
-_RELINK_HELP = "Advanced repair: reassociate an existing pull request with a local change."
-_UNLINK_HELP = "Advanced repair: detach one local change from managed review ownership."
-_COMPLETION_HELP = "Print a shell completion script for bash, zsh, or fish."
-_HELP_HELP = "Show top-level help or help for a specific command."
+_RELINK_HELP = "Advanced repair: reassociate an existing pull request with a local change"
+_UNLINK_HELP = "Advanced repair: detach one local change from managed review ownership"
+_COMPLETION_HELP = "Print a shell completion script for bash, zsh, or fish"
+_HELP_HELP = "Show top-level help or help for a specific command"
 
 
 @dataclass(frozen=True)
@@ -118,13 +118,15 @@ def build_parser() -> ArgumentParser:
     common_options = _build_common_options_parser()
     parser = _TopLevelArgumentParser(
         prog="jj-review",
-        description="JJ-native stacked GitHub review tooling.",
+        description="JJ-native stacked GitHub review tooling",
         parents=[common_options],
     )
+    _normalize_help_action_text(parser)
     parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
+        help="Show program's version number and exit",
     )
 
     subparsers = parser.add_subparsers(dest="command", parser_class=ArgumentParser)
@@ -138,20 +140,20 @@ def build_parser() -> ArgumentParser:
     submit_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the submit plan without mutating local, remote, or GitHub state.",
+        help="Print the submit plan without mutating local, remote, or GitHub state",
     )
     submit_parser.add_argument(
         "--current",
         action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset.",
+        help="Explicitly operate on the current review path instead of passing a revset",
     )
     submit_parser.add_argument(
         "-d",
         "--describe-with",
         help=(
             "Executable to invoke as `helper --pr <revset>` for each PR and "
-            "`helper --stack <revset>` for stack-comment prose. The helper must "
-            "print JSON with string `title` and `body` fields."
+            "`helper --stack <revset>` for stack-comment prose; the helper must "
+            "print JSON with string `title` and `body` fields"
         ),
     )
     submit_draft_mode = submit_parser.add_mutually_exclusive_group()
@@ -159,9 +161,9 @@ def build_parser() -> ArgumentParser:
         "--draft",
         action="store_true",
         help=(
-            "Create newly opened pull requests as drafts. "
-            "Use `--draft=all` to also return existing published pull requests "
-            "on the selected path to draft."
+            "Create newly opened pull requests as drafts; use `--draft=all` to "
+            "also return existing published pull requests on the selected path "
+            "to draft"
         ),
     )
     submit_draft_mode.add_argument(
@@ -172,15 +174,15 @@ def build_parser() -> ArgumentParser:
     submit_draft_mode.add_argument(
         "--publish",
         action="store_true",
-        help="Mark existing draft pull requests ready for review on submit.",
+        help="Mark existing draft pull requests ready for review on submit",
     )
     submit_parser.add_argument(
         "--reviewers",
         dest="reviewers",
         action="append",
         help=(
-            "Comma-separated GitHub usernames to request on submitted pull requests. "
-            "Repeat to add more. Overrides configured reviewers."
+            "Comma-separated GitHub usernames to request on submitted pull "
+            "requests; repeat to add more; overrides configured reviewers"
         ),
     )
     submit_parser.add_argument(
@@ -188,8 +190,8 @@ def build_parser() -> ArgumentParser:
         dest="team_reviewers",
         action="append",
         help=(
-            "Comma-separated GitHub team slugs to request on submitted pull requests. "
-            "Repeat to add more. Overrides configured team reviewers."
+            "Comma-separated GitHub team slugs to request on submitted pull "
+            "requests; repeat to add more; overrides configured team reviewers"
         ),
     )
     status_parser = _add_revision_command(
@@ -203,7 +205,7 @@ def build_parser() -> ArgumentParser:
         "-f",
         "--fetch",
         action="store_true",
-        help="Fetch remote bookmark state before inspecting review status.",
+        help="Fetch remote bookmark state before inspecting review status",
     )
     _add_relink_parser(
         subparsers,
@@ -227,7 +229,7 @@ def build_parser() -> ArgumentParser:
     unlink_parser.add_argument(
         "--current",
         action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset.",
+        help="Explicitly operate on the current review path instead of passing a revset",
     )
     land_parser = _add_revision_command(
         subparsers,
@@ -239,16 +241,16 @@ def build_parser() -> ArgumentParser:
     land_parser.add_argument(
         "--apply",
         action="store_true",
-        help="Apply the landing plan instead of only previewing it.",
+        help="Apply the landing plan instead of only previewing it",
     )
     land_parser.add_argument(
         "--expect-pr",
-        help="Assert that the selected landable prefix ends at this pull request.",
+        help="Assert that the selected landable prefix ends at this pull request",
     )
     land_parser.add_argument(
         "--current",
         action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset.",
+        help="Explicitly operate on the current review path instead of passing a revset",
     )
     close_parser = _add_revision_command(
         subparsers,
@@ -260,17 +262,17 @@ def build_parser() -> ArgumentParser:
     close_parser.add_argument(
         "--apply",
         action="store_true",
-        help="Apply the close plan instead of only previewing it.",
+        help="Apply the close plan instead of only previewing it",
     )
     close_parser.add_argument(
         "--cleanup",
         action="store_true",
-        help="Also clean up owned review branches and managed metadata.",
+        help="Also clean up owned review branches and managed metadata",
     )
     close_parser.add_argument(
         "--current",
         action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset.",
+        help="Explicitly operate on the current review path instead of passing a revset",
     )
     _add_import_parser(
         subparsers,
@@ -284,25 +286,26 @@ def build_parser() -> ArgumentParser:
         help=_CLEANUP_HELP,
         parents=[common_options],
     )
+    _normalize_help_action_text(cleanup_parser)
     cleanup_parser.add_argument(
         "--apply",
         action="store_true",
-        help="Apply safe cleanup actions instead of only reporting them.",
+        help="Apply safe cleanup actions instead of only reporting them",
     )
     cleanup_parser.add_argument(
         "--restack",
         action="store_true",
-        help="Preview or apply a local restack for merged review units on the selected path.",
+        help="Preview or apply a local restack for merged review units on the selected path",
     )
     cleanup_parser.add_argument(
         "--current",
         action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset.",
+        help="Explicitly operate on the current review path instead of passing a revset",
     )
     cleanup_parser.add_argument(
         "revset",
         nargs="?",
-        help="Revision whose stack should be inspected or restacked.",
+        help="Revision whose stack should be inspected or restacked",
     )
     cleanup_parser.set_defaults(handler=_cleanup_handler)
 
@@ -310,25 +313,27 @@ def build_parser() -> ArgumentParser:
         "completion",
         help=_COMPLETION_HELP,
     )
+    _normalize_help_action_text(completion_parser)
     completion_parser.add_argument(
         "shell",
         choices=("bash", "zsh", "fish"),
-        help="Shell to generate completion support for.",
+        help="Shell to generate completion support for",
     )
     completion_parser.set_defaults(handler=_completion_handler)
     help_parser = subparsers.add_parser(
         "help",
         help=_HELP_HELP,
     )
+    _normalize_help_action_text(help_parser)
     help_parser.add_argument(
         "--all",
         action="store_true",
-        help="Include advanced repair and shell integration commands.",
+        help="Include advanced repair and shell integration commands",
     )
     help_parser.add_argument(
         "command",
         nargs="?",
-        help="Command to describe.",
+        help="Command to describe",
     )
     help_parser.set_defaults(handler=_help_handler)
     return parser
@@ -478,7 +483,8 @@ def _add_revision_command(
     parents=None,
 ) -> ArgumentParser:
     parser = subparsers.add_parser(command, help=help_text, parents=parents or [])
-    parser.add_argument("revset", nargs="?", help="Revision to operate on.")
+    _normalize_help_action_text(parser)
+    parser.add_argument("revset", nargs="?", help="Revision to operate on")
     parser.set_defaults(handler=handler or _stub_handler(command))
     return parser
 
@@ -491,16 +497,17 @@ def _add_relink_parser(
     parents=None,
 ) -> ArgumentParser:
     parser = subparsers.add_parser(command, help=help_text, parents=parents or [])
-    parser.add_argument("pull_request", help="Pull request number or URL.")
+    _normalize_help_action_text(parser)
+    parser.add_argument("pull_request", help="Pull request number or URL")
     parser.add_argument(
         "--current",
         action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset.",
+        help="Explicitly operate on the current review path instead of passing a revset",
     )
     parser.add_argument(
         "revset",
         nargs="?",
-        help="Revision to reassociate with the pull request.",
+        help="Revision to reassociate with the pull request",
     )
     parser.set_defaults(handler=_relink_handler)
     return parser
@@ -514,23 +521,24 @@ def _add_import_parser(
     parents=None,
 ) -> ArgumentParser:
     parser = subparsers.add_parser(command, help=help_text, parents=parents or [])
+    _normalize_help_action_text(parser)
     selector = parser.add_mutually_exclusive_group(required=True)
     selector.add_argument(
         "--pull-request",
-        help="Pull request number or URL.",
+        help="Pull request number or URL",
     )
     selector.add_argument(
         "--head",
-        help="Review branch name to import.",
+        help="Review branch name to import",
     )
     selector.add_argument(
         "--current",
         action="store_true",
-        help="Import the current review path.",
+        help="Import the current review path",
     )
     selector.add_argument(
         "--revset",
-        help="Explicit revset whose exact stack should be imported.",
+        help="Explicit revset whose exact stack should be imported",
     )
     parser.set_defaults(handler=_import_handler)
     return parser
@@ -542,27 +550,33 @@ def _build_common_options_parser() -> ArgumentParser:
         "--repository",
         type=Path,
         default=SUPPRESS,
-        help="Workspace path to operate on. Defaults to the current directory.",
+        help="Workspace path to operate on; defaults to the current directory",
     )
     parser.add_argument(
         "--config",
         type=Path,
         default=SUPPRESS,
-        help="Explicit path to a TOML config file.",
+        help="Explicit path to a TOML config file",
     )
     parser.add_argument(
         "--debug",
         action="store_true",
         default=SUPPRESS,
-        help="Enable debug logging.",
+        help="Enable debug logging",
     )
     parser.add_argument(
         "--time-output",
         action="store_true",
         default=SUPPRESS,
-        help="Prefix each printed line with elapsed seconds since process start.",
+        help="Prefix each printed line with elapsed seconds since process start",
     )
     return parser
+
+def _normalize_help_action_text(parser: ArgumentParser) -> None:
+    for action in parser._actions:
+        if action.option_strings == ["-h", "--help"]:
+            action.help = "Show this help message and exit"
+            return
 
 
 def _completion_handler(args: Namespace) -> int:
