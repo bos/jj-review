@@ -19,7 +19,14 @@ from jj_review.testing.fake_github import (
     FakeGithubRepository,
     FakeGithubState,
     create_app,
-    initialize_bare_repository,
+)
+from jj_review.testing.integration_helpers import (
+    commit_file,
+    configure_fake_github_environment,
+    init_fake_github_repo,
+    run_command,
+    write_fake_github_config,
+    write_file,
 )
 
 
@@ -4212,50 +4219,27 @@ def _configure_submit_environment(
     tmp_path: Path,
     fake_repo: FakeGithubRepository,
 ) -> Path:
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    config_path = _write_config(tmp_path, fake_repo)
-    app = create_app(FakeGithubState.single_repository(fake_repo))
-
-    def build_github_client(*, base_url: str) -> GithubClient:
-        return GithubClient(
-            base_url=base_url,
-            transport=httpx.ASGITransport(app=app),
-        )
-
-    monkeypatch.setattr("jj_review.commands.submit._build_github_client", build_github_client)
-    monkeypatch.setattr("jj_review.commands.relink._build_github_client", build_github_client)
-    monkeypatch.setattr("jj_review.commands.close._build_github_client", build_github_client)
-    monkeypatch.setattr("jj_review.commands.cleanup._build_github_client", build_github_client)
-    monkeypatch.setattr("jj_review.commands.land._build_github_client", build_github_client)
-    monkeypatch.setattr(
-        "jj_review.commands.review_state._build_github_client",
-        build_github_client,
+    return configure_fake_github_environment(
+        command_modules=(
+            "jj_review.commands.submit",
+            "jj_review.commands.relink",
+            "jj_review.commands.close",
+            "jj_review.commands.cleanup",
+            "jj_review.commands.land",
+            "jj_review.commands.review_state",
+        ),
+        fake_repo=fake_repo,
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
     )
-    return config_path
 
 
 def _init_repo(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
-    repo = tmp_path / "repo"
-    fake_repo = initialize_bare_repository(
-        tmp_path / "remotes",
-        owner="octo-org",
-        name="stacked-review",
-    )
-    _run(["jj", "git", "init", str(repo)], tmp_path)
-    _run(["jj", "config", "set", "--repo", "user.name", "Test User"], repo)
-    _run(["jj", "config", "set", "--repo", "user.email", "test@example.com"], repo)
-    _write_file(repo / "README.md", "base\n")
-    _run(["jj", "commit", "-m", "base"], repo)
-    _run(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
-    _run(["jj", "config", "set", "--repo", 'revset-aliases."trunk()"', "main"], repo)
-    _run(["jj", "git", "remote", "add", "origin", str(fake_repo.git_dir)], repo)
-    _run(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
-    return repo, fake_repo
+    return init_fake_github_repo(tmp_path)
 
 
 def _commit(repo: Path, message: str, filename: str) -> None:
-    _write_file(repo / filename, f"{message}\n")
-    _run(["jj", "commit", "-m", message], repo)
+    commit_file(repo, message, filename)
 
 
 def _issue_comments(fake_repo: FakeGithubRepository, issue_number: int):
@@ -4263,7 +4247,7 @@ def _issue_comments(fake_repo: FakeGithubRepository, issue_number: int):
 
 
 def _read_remote_ref(remote: Path, bookmark: str) -> str:
-    completed = _run(
+    completed = run_command(
         ["git", "--git-dir", str(remote), "rev-parse", f"refs/heads/{bookmark}"],
         remote.parent,
     )
@@ -4291,19 +4275,8 @@ def _remote_refs(remote: Path) -> dict[str, str]:
     return refs
 
 
-def _run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        check=False,
-        cwd=cwd,
-        text=True,
-    )
-    if completed.returncode != 0:
-        raise AssertionError(
-            f"{command!r} failed:\nstdout={completed.stdout}\nstderr={completed.stderr}"
-        )
-    return completed
+def _run(command: list[str], cwd: Path):
+    return run_command(command, cwd)
 
 
 def _main(repo: Path, config_path: Path, command: str, *command_args: str) -> int:
@@ -4318,21 +4291,12 @@ def _write_config(
     *,
     extra_lines: list[str] | None = None,
 ) -> Path:
-    config_path = tmp_path / "config-home" / "jj-review" / "config.toml"
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [
-        "[repo]",
-        'github_host = "github.test"',
-        f'github_owner = "{fake_repo.owner}"',
-        f'github_repo = "{fake_repo.name}"',
-    ]
-    if extra_lines:
-        lines.append("")
-        lines.extend(extra_lines)
-    _write_file(config_path, "\n".join(lines) + "\n")
-    return config_path
+    return write_fake_github_config(
+        tmp_path,
+        fake_repo,
+        extra_lines=extra_lines,
+    )
 
 
 def _write_file(path: Path, contents: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(contents, encoding="utf-8")
+    write_file(path, contents)
