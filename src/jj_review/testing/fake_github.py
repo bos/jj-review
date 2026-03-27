@@ -310,6 +310,15 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
     """Create a FastAPI app that serves the configured fake GitHub state."""
 
     app = FastAPI(docs_url=None, redoc_url=None, title="fake-github")
+    _register_repository_routes(app, fake_state)
+    _register_graphql_routes(app, fake_state)
+    _register_pull_request_routes(app, fake_state)
+    _register_issue_comment_routes(app, fake_state)
+    return app
+
+
+def _register_repository_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
+    """Register repository metadata routes on the fake GitHub app."""
 
     @app.get("/repos/{owner}/{repo}")
     async def get_repository(owner: str, repo: str) -> dict[str, object]:
@@ -320,6 +329,10 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
             api_origin=fake_state.api_origin,
             web_origin=fake_state.web_origin,
         )
+
+
+def _register_graphql_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
+    """Register GraphQL routes on the fake GitHub app."""
 
     @app.post("/graphql")
     async def graphql(
@@ -379,6 +392,10 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
                 )
             }
         }
+
+
+def _register_pull_request_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
+    """Register pull-request, issue, label, and review routes."""
 
     @app.get("/repos/{owner}/{repo}/pulls")
     async def list_pull_requests(
@@ -535,6 +552,10 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
             for review in sorted(reviews, key=lambda candidate: candidate.id)
         ]
 
+
+def _register_issue_comment_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
+    """Register issue comment routes on the fake GitHub app."""
+
     @app.get("/repos/{owner}/{repo}/issues/{issue_number}/comments")
     async def list_issue_comments(
         owner: str,
@@ -605,8 +626,6 @@ def create_app(fake_state: FakeGithubState) -> FastAPI:
         if not deleted:
             raise HTTPException(status_code=404, detail="Not Found")
         return Response(status_code=204)
-
-    return app
 
 
 def initialize_bare_repository(
