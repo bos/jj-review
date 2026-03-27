@@ -134,15 +134,10 @@ class GithubClient:
                 variables={"owner": owner, "repo": repo},
                 response_name="pull request batch lookup",
             )
-            repository = payload.get("repository")
-            if repository is None:
-                raise GithubClientError(
-                    "GitHub pull request batch lookup response was missing repository data."
-                )
-            if not isinstance(repository, dict):
-                raise GithubClientError(
-                    "GitHub pull request batch lookup response had invalid repository data."
-                )
+            repository = _graphql_repository_payload(
+                payload,
+                response_name="pull request batch lookup",
+            )
             for number in chunk:
                 alias = _pull_request_alias(number)
                 raw_pull_request = repository.get(alias)
@@ -182,15 +177,10 @@ class GithubClient:
                 variables={"owner": owner, "repo": repo},
                 response_name="pull request head lookup",
             )
-            repository = payload.get("repository")
-            if repository is None:
-                raise GithubClientError(
-                    "GitHub pull request head lookup response was missing repository data."
-                )
-            if not isinstance(repository, dict):
-                raise GithubClientError(
-                    "GitHub pull request head lookup response had invalid repository data."
-                )
+            repository = _graphql_repository_payload(
+                payload,
+                response_name="pull request head lookup",
+            )
             for alias, head_ref in aliases.items():
                 connection = repository.get(alias)
                 expected_head_label = f"{owner}:{head_ref}"
@@ -366,19 +356,14 @@ class GithubClient:
             response_name="mark pull request ready for review",
             variables={"pullRequestId": pull_request_id},
         )
-        result = payload.get("markPullRequestReadyForReview")
-        if not isinstance(result, dict):
-            raise GithubClientError(
-                "GitHub mark pull request ready for review response was missing mutation data."
-            )
-        raw_pull_request = result.get("pullRequest")
-        if not isinstance(raw_pull_request, dict):
-            raise GithubClientError(
-                "GitHub mark pull request ready for review response was missing a "
-                "pull request payload."
-            )
         return GithubPullRequest.model_validate(
-            _pull_request_payload_from_graphql(raw_pull_request)
+            _pull_request_payload_from_graphql(
+                _graphql_mutation_pull_request_payload(
+                    payload,
+                    mutation_name="markPullRequestReadyForReview",
+                    response_name="mark pull request ready for review",
+                )
+            )
         )
 
     async def convert_pull_request_to_draft(
@@ -391,19 +376,14 @@ class GithubClient:
             response_name="convert pull request to draft",
             variables={"pullRequestId": pull_request_id},
         )
-        result = payload.get("convertPullRequestToDraft")
-        if not isinstance(result, dict):
-            raise GithubClientError(
-                "GitHub convert pull request to draft response was missing mutation data."
-            )
-        raw_pull_request = result.get("pullRequest")
-        if not isinstance(raw_pull_request, dict):
-            raise GithubClientError(
-                "GitHub convert pull request to draft response was missing a pull "
-                "request payload."
-            )
         return GithubPullRequest.model_validate(
-            _pull_request_payload_from_graphql(raw_pull_request)
+            _pull_request_payload_from_graphql(
+                _graphql_mutation_pull_request_payload(
+                    payload,
+                    mutation_name="convertPullRequestToDraft",
+                    response_name="convert pull request to draft",
+                )
+            )
         )
 
     async def close_pull_request(
@@ -594,6 +574,42 @@ def _seconds_until_rate_limit_reset(value: str | None) -> float | None:
         return max(float(value) - time.time(), 0.0)
     except ValueError:
         return None
+
+
+def _graphql_repository_payload(
+    payload: dict[str, object],
+    *,
+    response_name: str,
+) -> dict[str, object]:
+    repository = payload.get("repository")
+    if repository is None:
+        raise GithubClientError(
+            f"GitHub {response_name} response was missing repository data."
+        )
+    if not isinstance(repository, dict):
+        raise GithubClientError(
+            f"GitHub {response_name} response had invalid repository data."
+        )
+    return repository
+
+
+def _graphql_mutation_pull_request_payload(
+    payload: dict[str, object],
+    *,
+    mutation_name: str,
+    response_name: str,
+) -> dict[str, object]:
+    result = payload.get(mutation_name)
+    if not isinstance(result, dict):
+        raise GithubClientError(
+            f"GitHub {response_name} response was missing mutation data."
+        )
+    raw_pull_request = result.get("pullRequest")
+    if not isinstance(raw_pull_request, dict):
+        raise GithubClientError(
+            f"GitHub {response_name} response was missing a pull request payload."
+        )
+    return raw_pull_request
 
 
 def _chunked[ChunkValue](
