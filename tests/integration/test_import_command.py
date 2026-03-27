@@ -6,8 +6,9 @@ from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.cli import main
 from jj_review.errors import CliError
 from jj_review.jj import JjClient
-from jj_review.testing.fake_github import FakeGithubRepository
-from jj_review.testing.integration_helpers import (
+
+from ..support.fake_github import FakeGithubRepository
+from ..support.integration_helpers import (
     commit_file,
     configure_fake_github_environment,
     init_fake_github_repo,

@@ -6,7 +6,8 @@ from pathlib import Path
 import httpx
 
 from jj_review.github.client import GithubClient
-from jj_review.testing.fake_github import (
+
+from .fake_github import (
     FakeGithubRepository,
     FakeGithubState,
     create_app,

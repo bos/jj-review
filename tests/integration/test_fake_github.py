@@ -8,7 +8,8 @@ import httpx
 from fastapi import FastAPI
 
 from jj_review.github.client import GithubClient
-from jj_review.testing.fake_github import (
+
+from ..support.fake_github import (
     FakeGithubState,
     create_app,
     initialize_bare_repository,

@@ -15,12 +15,13 @@ from jj_review.intent import write_intent
 from jj_review.jj import JjClient
 from jj_review.jj.client import JjCommandError
 from jj_review.models.intent import SubmitIntent
-from jj_review.testing.fake_github import (
+
+from ..support.fake_github import (
     FakeGithubRepository,
     FakeGithubState,
     create_app,
 )
-from jj_review.testing.integration_helpers import (
+from ..support.integration_helpers import (
     commit_file,
     configure_fake_github_environment,
     init_fake_github_repo,

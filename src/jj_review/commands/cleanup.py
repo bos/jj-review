@@ -999,7 +999,7 @@ def _cache_action(
 ) -> CleanupAction:
     return CleanupAction(
         kind="cache",
-        message=f"remove cached review state for {change_id[:8]} ({reason})",
+        message=f"remove cached review state for {_short_change_id(change_id)} ({reason})",
         status=status,
     )
 

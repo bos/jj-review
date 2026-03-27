@@ -46,5 +46,8 @@ target-version = "py313"
 [tool.ruff.lint]
 select = ["B", "E", "F", "I", "UP"]
 
+[tool.pyrefly]
+search_path = ["src", "."]
+
 [tool.uv]
 default-groups = ["dev"]
