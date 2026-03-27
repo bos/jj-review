@@ -290,15 +290,9 @@ def handle_cleanup_command(
             print(render_restack_action(action=action))
 
         try:
-            _, result = run_restack_command(
-                apply=apply,
-                change_overrides=context.config.change,
-                config=context.config.repo,
+            result = stream_restack(
                 on_action=emit_action,
-                prepare_restack_fn=lambda **kwargs: prepared_restack,
-                repo_root=context.repo_root,
-                revset=selected_revset,
-                stream_restack_fn=stream_restack,
+                prepared_restack=prepared_restack,
             )
         except UnsupportedStackError as error:
             raise CliError(describe_status_preparation_error(error)) from error
@@ -599,35 +593,6 @@ def stream_restack(
         if _restack_succeeded and restack_intent_path is not None and _restack_intent is not None:
             retire_superseded_intents(restack_stale_intents, _restack_intent)
             delete_intent(restack_intent_path)
-
-
-def run_restack_command(
-    *,
-    apply: bool,
-    change_overrides: dict[str, ChangeConfig],
-    config: RepoConfig,
-    on_action: Callable[[CleanupAction], None] | None = None,
-    prepare_restack_fn: Callable[..., PreparedRestack] | None = None,
-    repo_root: Path,
-    revset: str | None,
-    stream_restack_fn: Callable[..., RestackResult] | None = None,
-) -> tuple[PreparedRestack, RestackResult]:
-    """Prepare and run restack while allowing the CLI to inject test seams."""
-
-    prepare_fn = prepare_restack if prepare_restack_fn is None else prepare_restack_fn
-    stream_fn = stream_restack if stream_restack_fn is None else stream_restack_fn
-    prepared_restack = prepare_fn(
-        apply=apply,
-        change_overrides=change_overrides,
-        config=config,
-        repo_root=repo_root,
-        revset=revset,
-    )
-    result = stream_fn(
-        on_action=on_action,
-        prepared_restack=prepared_restack,
-    )
-    return prepared_restack, result
 
 
 def _resolve_restack_path_revisions(
