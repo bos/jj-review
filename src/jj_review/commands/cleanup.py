@@ -1,4 +1,9 @@
-"""Conservative cleanup of stale local and remote jj-review data."""
+"""Find stale jj-review remote branches and saved local data left behind by
+earlier review work.
+
+With `--apply`, this removes the safe ones, and with `--restack` it can also
+restack local descendants after earlier pull requests were merged.
+"""
 
 from __future__ import annotations
 
@@ -40,6 +45,8 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
 from jj_review.models.intent import CleanupApplyIntent, CleanupRestackIntent, LoadedIntent
+
+HELP = "Clean up stale jj-review data for a jj stack"
 
 CleanupActionStatus = Literal["applied", "blocked", "planned"]
 _GITHUB_INSPECTION_CONCURRENCY = 4

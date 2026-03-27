@@ -131,7 +131,7 @@ def test_top_level_help_uses_updated_command_summaries(
     assert exit_code == 0
     assert "Send a jj stack to GitHub for review" in captured.out
     assert "Check the review status of a jj stack" in captured.out
-    assert "Land the merge-ready part of a stack" in captured.out
+    assert "Land the ready prefix of a stack" in captured.out
     assert "Stop reviewing a jj stack on GitHub" in captured.out
     assert "Clean up stale jj-review data for a jj stack" in captured.out
     assert "Set up local jj-review tracking for an existing stack" in captured.out
@@ -148,7 +148,7 @@ def test_top_level_help_describes_what_jj_review_is_for(
     normalized = " ".join(captured.out.split())
     assert "jj-review lets you review a local jj stack on GitHub" in normalized
     assert "submit changes for review" in normalized
-    assert "land reviewed changes" in normalized
+    assert "land ready changes" in normalized
 
 
 def test_default_top_level_help_hides_advanced_global_options(
@@ -176,7 +176,7 @@ def test_help_output_omits_trailing_periods_in_command_and_option_descriptions()
 
     assert "Send a jj stack to GitHub for review." not in top_level_help
     assert "Check the review status of a jj stack." not in top_level_help
-    assert "Land the merge-ready part of a stack." not in top_level_help
+    assert "Land the ready prefix of a stack." not in top_level_help
     assert "Stop reviewing a jj stack on GitHub." not in top_level_help
     assert "Clean up stale jj-review data for a jj stack." not in top_level_help
     assert "Workspace path to operate on; defaults to the current directory." not in (
@@ -882,6 +882,7 @@ def test_main_land_renders_planned_output(
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
 
     def fake_run_land(**kwargs):
+        assert kwargs["bypass_readiness"] is False
         assert kwargs["expect_pr_reference"] == "7"
         assert kwargs["revset"] == "@-"
         return SimpleNamespace(
@@ -898,6 +899,7 @@ def test_main_land_renders_planned_output(
                 ),
             ),
             applied=False,
+            bypass_readiness=False,
             blocked=False,
             expect_pr_number=7,
             follow_up=None,
@@ -938,6 +940,7 @@ def test_main_land_renders_blocked_output_without_apply_hint(
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
 
     def fake_run_land(**kwargs):
+        assert kwargs["bypass_readiness"] is False
         return SimpleNamespace(
             actions=(
                 SimpleNamespace(
@@ -950,6 +953,7 @@ def test_main_land_renders_blocked_output_without_apply_hint(
                 ),
             ),
             applied=False,
+            bypass_readiness=False,
             blocked=True,
             expect_pr_number=7,
             follow_up=None,
@@ -978,6 +982,44 @@ def test_main_land_renders_blocked_output_without_apply_hint(
     assert "Land blocked:" in captured.out
     assert "- [blocked] guardrail:" in captured.out
     assert "Re-run with `land --apply" not in captured.out
+
+
+def test_main_land_passes_bypass_readiness_and_renders_apply_hint(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+
+    def fake_run_land(**kwargs):
+        assert kwargs["bypass_readiness"] is True
+        return SimpleNamespace(
+            actions=(),
+            applied=False,
+            bypass_readiness=True,
+            blocked=False,
+            expect_pr_number=7,
+            follow_up=None,
+            github_repository="octo-org/stacked-review",
+            remote_name="origin",
+            selected_revset="@-",
+            trunk_branch="main",
+            trunk_subject="base",
+        )
+
+    monkeypatch.setattr("jj_review.cli.run_land", fake_run_land)
+
+    exit_code = main(
+        [
+            "land",
+            "--repository",
+            str(tmp_path),
+            "--bypass-readiness",
+            "--expect-pr",
+            "7",
+            "@-",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Re-run with `land --apply --bypass-readiness --expect-pr 7 @-`" in captured.out
 
 
 def test_main_submit_passes_dry_run_and_renders_planned_output(

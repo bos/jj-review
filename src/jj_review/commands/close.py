@@ -1,4 +1,9 @@
-"""Close review tracking state for a selected local stack."""
+"""Close the GitHub pull requests for the selected stack.
+
+Without `--apply`, this command shows what would be closed. With `--apply`, it
+closes those pull requests, and `--cleanup` also removes jj-review's GitHub
+branches and any local bookmarks for them.
+"""
 
 from __future__ import annotations
 
@@ -26,6 +31,8 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubIssueComment
 from jj_review.models.intent import CloseIntent
+
+HELP = "Stop reviewing a jj stack on GitHub"
 
 CloseActionStatus = Literal["applied", "blocked", "planned"]
 

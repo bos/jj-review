@@ -18,6 +18,30 @@ from typing import Literal, cast
 
 from jj_review import __version__
 from jj_review.bootstrap import BootstrapError, bootstrap_context
+from jj_review.commands import (
+    cleanup as cleanup_command,
+)
+from jj_review.commands import (
+    close as close_command,
+)
+from jj_review.commands import (
+    import_ as import_command,
+)
+from jj_review.commands import (
+    land as land_command,
+)
+from jj_review.commands import (
+    relink as relink_command,
+)
+from jj_review.commands import (
+    review_state as status_command,
+)
+from jj_review.commands import (
+    submit as submit_command,
+)
+from jj_review.commands import (
+    unlink as unlink_command,
+)
 from jj_review.commands.cleanup import (
     prepare_cleanup,
     prepare_restack,
@@ -48,73 +72,13 @@ _TOP_LEVEL_HELP_DESCRIPTION = """
 jj-review lets you review a local jj stack on GitHub as stacked pull requests.
 
 Use it to submit changes for review, inspect pull request status, land
-reviewed changes, and clean up stale jj-review data.
+ready changes, and clean up stale jj-review data.
 """
 _TOP_LEVEL_HIDDEN_OPTION_STRINGS = frozenset(
     {"--repository", "--config", "--debug", "--time-output"}
 )
-
-_SUBMIT_HELP = "Send a jj stack to GitHub for review"
-_STATUS_HELP = "Check the review status of a jj stack"
-_LAND_HELP = "Land the merge-ready part of a stack"
-_CLOSE_HELP = "Stop reviewing a jj stack on GitHub"
-_CLEANUP_HELP = "Clean up stale jj-review data for a jj stack"
-_IMPORT_HELP = "Set up local jj-review tracking for an existing stack"
-_RELINK_HELP = "Reconnect an existing pull request to a local change"
-_UNLINK_HELP = "Stop managing one local change as part of review"
 _COMPLETION_HELP = "Print shell completion setup for bash, zsh, or fish"
 _HELP_HELP = "Show help for this command or another command"
-_SUBMIT_DESCRIPTION = """
-Create or update the GitHub pull requests for the selected stack of changes.
-This pushes or updates the GitHub branches for that stack, then opens or
-refreshes one pull request per change from bottom to top.
-"""
-_STATUS_DESCRIPTION = """
-Show how the selected jj stack currently appears on GitHub. This reports the
-pull requests and GitHub branches jj-review is using for each change without
-changing anything.
-"""
-_LAND_DESCRIPTION = """
-Land the consecutive changes above `trunk()` whose pull requests are still
-open. Landing moves those changes onto `trunk()`, pushes the new trunk tip to
-the remote trunk branch, and closes their pull requests.
-
-Without `--apply`, this command only shows what would be landed. With `--apply`,
-it performs the landing.
-
-If later changes remain above that point, run `cleanup --restack` and then
-`submit` to keep those remaining changes under review.
-"""
-_CLOSE_DESCRIPTION = """
-Close the GitHub pull requests for the selected stack. Without `--apply`, this
-command shows what would be closed. With `--apply`, it closes those pull
-requests, and `--cleanup` also removes jj-review's GitHub branches and any local
-bookmarks for them.
-"""
-_CLEANUP_DESCRIPTION = """
-Find stale jj-review remote branches and saved local data left behind by
-earlier review work. With `--apply`, this removes the safe ones, and with
-`--restack` it can also restack local descendants after earlier pull requests
-were merged.
-"""
-_IMPORT_DESCRIPTION = """
-Set up local jj-review tracking for one existing reviewed stack. Without
-`--fetch`, this uses the selected stack only if its commits and matching pull
-request or branch are already available locally. With `--fetch`, it fetches the
-selected pull request or branch first so the stack can be set up in a repo that
-does not have it yet. Import does not rewrite commits, restack changes, or
-change GitHub.
-"""
-_RELINK_DESCRIPTION = """
-Reconnect an existing GitHub pull request to the selected local change. Use
-this to repair a missing or wrong local link between a change and its pull
-request.
-"""
-_UNLINK_DESCRIPTION = """
-Stop tracking one local change with jj-review while leaving the rest of the
-stack alone. Later jj-review commands will ignore that change unless you link
-it again.
-"""
 _COMPLETION_DESCRIPTION = """
 Print the shell completion script for bash, zsh, or fish. This only prints
 local shell setup text and does not inspect the repository or GitHub.
@@ -136,24 +100,24 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
     (
         "Core commands",
         (
-            _HelpCommand("submit", _SUBMIT_HELP),
-            _HelpCommand("status", _STATUS_HELP),
-            _HelpCommand("land", _LAND_HELP),
-            _HelpCommand("close", _CLOSE_HELP),
+            _HelpCommand("submit", submit_command.HELP.strip()),
+            _HelpCommand("status", status_command.HELP.strip()),
+            _HelpCommand("land", land_command.HELP.strip()),
+            _HelpCommand("close", close_command.HELP.strip()),
         ),
     ),
     (
         "Support commands",
         (
-            _HelpCommand("cleanup", _CLEANUP_HELP),
-            _HelpCommand("import", _IMPORT_HELP),
+            _HelpCommand("cleanup", cleanup_command.HELP.strip()),
+            _HelpCommand("import", import_command.HELP.strip()),
         ),
     ),
     (
         "Advanced repair",
         (
-            _HelpCommand("relink", _RELINK_HELP, hidden=True),
-            _HelpCommand("unlink", _UNLINK_HELP, hidden=True),
+            _HelpCommand("relink", relink_command.HELP.strip(), hidden=True),
+            _HelpCommand("unlink", unlink_command.HELP.strip(), hidden=True),
         ),
     ),
     (
@@ -216,8 +180,8 @@ def build_parser() -> ArgumentParser:
     submit_parser = _add_revision_command(
         subparsers,
         command="submit",
-        help_text=_SUBMIT_HELP,
-        description_text=_SUBMIT_DESCRIPTION,
+        help_text=_normalized_help_text(submit_command.HELP),
+        description_text=submit_command.__doc__ or "",
         handler=_submit_handler,
     )
     submit_parser.add_argument(
@@ -288,8 +252,8 @@ def build_parser() -> ArgumentParser:
     status_parser = _add_revision_command(
         subparsers,
         command="status",
-        help_text=_STATUS_HELP,
-        description_text=_STATUS_DESCRIPTION,
+        help_text=_normalized_help_text(status_command.HELP),
+        description_text=status_command.__doc__ or "",
         handler=_status_handler,
     )
     status_parser.add_argument(
@@ -301,14 +265,14 @@ def build_parser() -> ArgumentParser:
     _add_relink_parser(
         subparsers,
         command="relink",
-        help_text=_RELINK_HELP,
-        description_text=_RELINK_DESCRIPTION,
+        help_text=_normalized_help_text(relink_command.HELP),
+        description_text=relink_command.__doc__ or "",
     )
     unlink_parser = _add_revision_command(
         subparsers,
         command="unlink",
-        help_text=_UNLINK_HELP,
-        description_text=_UNLINK_DESCRIPTION,
+        help_text=_normalized_help_text(unlink_command.HELP),
+        description_text=unlink_command.__doc__ or "",
         handler=_unlink_handler,
     )
     unlink_parser.add_argument(
@@ -319,8 +283,8 @@ def build_parser() -> ArgumentParser:
     land_parser = _add_revision_command(
         subparsers,
         command="land",
-        help_text=_LAND_HELP,
-        description_text=_LAND_DESCRIPTION,
+        help_text=_normalized_help_text(land_command.HELP),
+        description_text=land_command.__doc__ or "",
         handler=_land_handler,
     )
     land_parser.add_argument(
@@ -333,6 +297,14 @@ def build_parser() -> ArgumentParser:
         help="Assert that the changes that can be landed now end at this pull request",
     )
     land_parser.add_argument(
+        "--bypass-readiness",
+        action="store_true",
+        help=(
+            "Ignore draft and review-decision readiness gates while keeping "
+            "normal safety checks"
+        ),
+    )
+    land_parser.add_argument(
         "--current",
         action="store_true",
         help="Explicitly operate on the current stack instead of passing a revset",
@@ -340,8 +312,8 @@ def build_parser() -> ArgumentParser:
     close_parser = _add_revision_command(
         subparsers,
         command="close",
-        help_text=_CLOSE_HELP,
-        description_text=_CLOSE_DESCRIPTION,
+        help_text=_normalized_help_text(close_command.HELP),
+        description_text=close_command.__doc__ or "",
         handler=_close_handler,
     )
     close_parser.add_argument(
@@ -362,14 +334,14 @@ def build_parser() -> ArgumentParser:
     _add_import_parser(
         subparsers,
         command="import",
-        help_text=_IMPORT_HELP,
-        description_text=_IMPORT_DESCRIPTION,
+        help_text=_normalized_help_text(import_command.HELP),
+        description_text=import_command.__doc__ or "",
     )
 
     cleanup_parser = subparsers.add_parser(
         "cleanup",
-        help=_CLEANUP_HELP,
-        description=_normalized_help_text(_CLEANUP_DESCRIPTION),
+        help=_normalized_help_text(cleanup_command.HELP),
+        description=_normalized_help_text(cleanup_command.__doc__ or ""),
     )
     _add_common_options(cleanup_parser)
     _normalize_help_action_text(cleanup_parser)
@@ -1747,6 +1719,7 @@ def _land_handler(args: Namespace) -> int:
     )
     result = run_land(
         apply=bool(args.apply),
+        bypass_readiness=bool(args.bypass_readiness),
         change_overrides=context.config.change,
         config=context.config.repo,
         expect_pr_reference=args.expect_pr,
@@ -1780,6 +1753,8 @@ def _land_handler(args: Namespace) -> int:
 
 def _format_land_apply_command(result: LandResult) -> str:
     parts = ["land", "--apply"]
+    if result.bypass_readiness:
+        parts.append("--bypass-readiness")
     if result.expect_pr_number is not None:
         parts.extend(("--expect-pr", str(result.expect_pr_number)))
     if result.selected_revset:

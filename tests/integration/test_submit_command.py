@@ -695,6 +695,7 @@ def test_submit_rediscovers_and_regenerates_stack_comments_when_cache_is_missing
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
+    _approve_pull_requests(fake_repo, 1, 2)
 
     stack = JjClient(repo).discover_review_stack()
     top_change_id = stack.revisions[-1].change_id
@@ -3948,6 +3949,7 @@ def test_land_previews_and_applies_trunk_open_prefix(
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
+    _approve_pull_requests(fake_repo, 1, 2)
 
     stack = JjClient(repo).discover_review_stack()
     state_store = ReviewStateStore.for_repo(repo)
@@ -4002,6 +4004,64 @@ def test_land_previews_and_applies_trunk_open_prefix(
     assert landed_state.changes[change_id_3].pr_state == "closed"
 
 
+def test_land_blocks_unapproved_prefix_by_default(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    exit_code = _main(repo, config_path, "land", "--current")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Land blocked:" in captured.out
+    assert "PR #1 is not approved" in captured.out
+
+
+def test_land_bypass_readiness_previews_and_applies_unapproved_change(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+    stack = JjClient(repo).discover_review_stack()
+
+    preview_exit_code = _main(repo, config_path, "land", "--bypass-readiness", "--current")
+    preview = capsys.readouterr()
+
+    assert preview_exit_code == 0
+    assert "Planned land actions:" in preview.out
+    assert "push main to feature 1" in preview.out
+    assert "Re-run with `land --apply --bypass-readiness @-`" in preview.out
+
+    apply_exit_code = _main(
+        repo,
+        config_path,
+        "land",
+        "--bypass-readiness",
+        "--current",
+        "--apply",
+    )
+    applied = capsys.readouterr()
+
+    assert apply_exit_code == 0
+    assert "Applied land actions:" in applied.out
+    assert fake_repo.pull_requests[1].state == "closed"
+    assert fake_repo.pull_requests[1].merged_at is not None
+    assert _read_remote_ref(fake_repo.git_dir, "main") == stack.revisions[0].commit_id
+
+
 def test_land_apply_requires_saved_preview(
     tmp_path: Path,
     monkeypatch,
@@ -4033,6 +4093,7 @@ def test_land_apply_rejects_changed_plan_since_preview(
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
+    _approve_pull_requests(fake_repo, 1, 2)
 
     assert _main(repo, config_path, "land", "--current") == 0
     capsys.readouterr()
@@ -4060,6 +4121,7 @@ def test_land_restores_local_trunk_bookmark_when_push_fails(
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
+    _approve_pull_requests(fake_repo, 1, 2)
     assert _main(repo, config_path, "land", "--current") == 0
     capsys.readouterr()
 
@@ -4095,6 +4157,7 @@ def test_land_restores_local_trunk_bookmark_when_push_is_interrupted(
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
+    _approve_pull_requests(fake_repo, 1, 2)
     assert _main(repo, config_path, "land", "--current") == 0
     capsys.readouterr()
 
@@ -4128,6 +4191,7 @@ def test_land_rejects_pre_push_resume_when_plan_changed_since_preview(
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
+    _approve_pull_requests(fake_repo, 1, 2)
     assert _main(repo, config_path, "land", "--current") == 0
     capsys.readouterr()
 
@@ -4176,6 +4240,7 @@ def test_land_resumes_after_trunk_push_interruption(
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
+    _approve_pull_requests(fake_repo, 1, 2)
     assert _main(repo, config_path, "land", "--current") == 0
     capsys.readouterr()
     submitted_stack = JjClient(repo).discover_review_stack()
@@ -4292,6 +4357,15 @@ def _init_repo(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
 
 def _commit(repo: Path, message: str, filename: str) -> None:
     commit_file(repo, message, filename)
+
+
+def _approve_pull_requests(fake_repo: FakeGithubRepository, *pull_numbers: int) -> None:
+    for pull_number in pull_numbers:
+        fake_repo.create_pull_request_review(
+            pull_number=pull_number,
+            reviewer_login=f"reviewer-{pull_number}",
+            state="APPROVED",
+        )
 
 
 def _issue_comments(fake_repo: FakeGithubRepository, issue_number: int):

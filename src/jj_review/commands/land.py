@@ -1,4 +1,16 @@
-"""Land command support for moving the changes that can be landed now onto trunk."""
+"""Land the consecutive changes above `trunk()` that are ready to land now.
+
+By default, `land` requires each pull request in that prefix to be open, not
+draft, approved, and free of outstanding changes requested. Use
+`--bypass-readiness` to ignore those readiness gates while still enforcing the
+normal safety checks.
+
+Without `--apply`, this command only shows what would be landed. With `--apply`,
+it performs the landing.
+
+If later changes remain above that point, run `cleanup --restack` and then
+`submit` to keep those remaining changes under review.
+"""
 
 from __future__ import annotations
 
@@ -46,6 +58,8 @@ from jj_review.pull_request_references import (
     parse_pull_request_url,
 )
 
+HELP = "Land the ready prefix of a stack"
+
 LandActionStatus = Literal["applied", "blocked", "planned"]
 
 
@@ -68,6 +82,7 @@ class LandResult:
 
     actions: tuple[LandAction, ...]
     applied: bool
+    bypass_readiness: bool
     blocked: bool
     expect_pr_number: int | None
     follow_up: str | None
@@ -83,6 +98,7 @@ class PreparedLand:
     """Locally prepared land inputs before GitHub planning and apply."""
 
     apply: bool
+    bypass_readiness: bool
     config: RepoConfig
     expect_pr_number: int | None
     prepared_status: PreparedStatus
@@ -115,6 +131,7 @@ class _LandPlan:
 class _LandPreviewSnapshot:
     """Saved preview fingerprint used to validate `land --apply`."""
 
+    bypass_readiness: bool
     boundary_message: str | None
     expect_pr_number: int | None
     github_repository: str
@@ -164,6 +181,7 @@ class _BookmarkRestorer(Protocol):
 def run_land(
     *,
     apply: bool,
+    bypass_readiness: bool,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     expect_pr_reference: str | None,
@@ -174,6 +192,7 @@ def run_land(
 
     prepared_land = prepare_land(
         apply=apply,
+        bypass_readiness=bypass_readiness,
         change_overrides=change_overrides,
         config=config,
         expect_pr_reference=expect_pr_reference,
@@ -186,6 +205,7 @@ def run_land(
 def prepare_land(
     *,
     apply: bool,
+    bypass_readiness: bool,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     expect_pr_reference: str | None,
@@ -223,6 +243,7 @@ def prepare_land(
     )
     return PreparedLand(
         apply=apply,
+        bypass_readiness=bypass_readiness,
         config=config,
         expect_pr_number=expect_pr_number,
         prepared_status=prepared_status,
@@ -279,18 +300,21 @@ async def _stream_land_async(
             trunk_commit_id=prepared.stack.trunk.commit_id,
         )
         plan = _build_land_plan(
+            bypass_readiness=prepared_land.bypass_readiness,
             expect_pr_number=prepared_land.expect_pr_number,
             prepared_status=prepared_status,
             status_result=status_result,
             trunk_branch=trunk_branch,
         )
         provisional_land_intent = _build_land_intent(
+            bypass_readiness=prepared_land.bypass_readiness,
             expect_pr_number=prepared_land.expect_pr_number,
             landed_revisions=plan.landed_revisions,
             prepared_status=prepared_status,
             trunk_branch=trunk_branch,
         )
         preview_snapshot = _build_land_preview_snapshot(
+            bypass_readiness=prepared_land.bypass_readiness,
             expect_pr_number=prepared_land.expect_pr_number,
             github_repository=github_repository.full_name,
             plan=plan,
@@ -312,6 +336,7 @@ async def _stream_land_async(
             return LandResult(
                 actions=preview_actions,
                 applied=False,
+                bypass_readiness=prepared_land.bypass_readiness,
                 blocked=plan.blocked,
                 expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=None if plan.blocked else follow_up,
@@ -327,6 +352,7 @@ async def _stream_land_async(
             raise AssertionError("Apply mode requires a writable state directory.")
         stale_intents = check_same_kind_intent(state_dir, provisional_land_intent)
         resume_intent = _find_resume_land_intent(
+            bypass_readiness=prepared_land.bypass_readiness,
             expect_pr_number=prepared_land.expect_pr_number,
             prepared_status=prepared_status,
             stale_intents=stale_intents,
@@ -399,6 +425,7 @@ async def _stream_land_async(
                     ),
                 ),
                 applied=True,
+                bypass_readiness=prepared_land.bypass_readiness,
                 blocked=False,
                 expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=follow_up,
@@ -416,6 +443,7 @@ async def _stream_land_async(
             return LandResult(
                 actions=preview_actions,
                 applied=False,
+                bypass_readiness=prepared_land.bypass_readiness,
                 blocked=execution_plan.blocked,
                 expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=None,
@@ -432,6 +460,7 @@ async def _stream_land_async(
             resume_intent.intent
             if resume_intent is not None
             else _build_land_intent(
+                bypass_readiness=prepared_land.bypass_readiness,
                 expect_pr_number=prepared_land.expect_pr_number,
                 landed_revisions=execution_plan.landed_revisions,
                 prepared_status=prepared_status,
@@ -519,6 +548,7 @@ async def _stream_land_async(
             return LandResult(
                 actions=tuple(actions),
                 applied=True,
+                bypass_readiness=prepared_land.bypass_readiness,
                 blocked=False,
                 expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=follow_up,
@@ -552,6 +582,7 @@ async def _get_github_repository(
 
 def _build_land_plan(
     *,
+    bypass_readiness: bool,
     expect_pr_number: int | None,
     prepared_status: PreparedStatus,
     status_result: StatusResult,
@@ -561,7 +592,10 @@ def _build_land_plan(
         prepared_status=prepared_status,
         status_result=status_result,
     )
-    landed_revisions, boundary_action = _collect_landable_prefix(path_revisions=path_revisions)
+    landed_revisions, boundary_action = _collect_landable_prefix(
+        bypass_readiness=bypass_readiness,
+        path_revisions=path_revisions,
+    )
 
     if expect_pr_number is not None:
         actual_pr_number = (
@@ -586,7 +620,7 @@ def _build_land_plan(
     if not landed_revisions and boundary_action is None:
         boundary_action = LandAction(
             kind="boundary",
-            message="No reviewable commits between the selected revision and `trunk()`.",
+            message="No changes on the selected stack are ready to land.",
             status="blocked",
         )
     return _LandPlan(
@@ -620,11 +654,13 @@ def _resolve_land_path_revisions(
 
 def _collect_landable_prefix(
     *,
+    bypass_readiness: bool,
     path_revisions: tuple[tuple[_PreparedRevision, ReviewStatusRevision], ...],
 ) -> tuple[tuple[_LandRevision, ...], LandAction | None]:
     landed_revisions: list[_LandRevision] = []
     for prepared_revision, revision in path_revisions:
         boundary_message = _land_boundary_message(
+            bypass_readiness=bypass_readiness,
             prepared_revision=prepared_revision,
             revision=revision,
         )
@@ -651,6 +687,7 @@ def _collect_landable_prefix(
 
 def _land_boundary_message(
     *,
+    bypass_readiness: bool,
     prepared_revision: _PreparedRevision,
     revision: ReviewStatusRevision,
 ) -> str | None:
@@ -678,6 +715,36 @@ def _land_boundary_message(
             "GitHub pull request state is unavailable"
         )
     if pull_request_lookup.state == "open":
+        pull_request = pull_request_lookup.pull_request
+        if pull_request is None:
+            raise AssertionError("Open land boundary requires a pull request payload.")
+        if pull_request_lookup.review_decision_error is not None:
+            detail = pull_request_lookup.review_decision_error
+            return (
+                f"stop before {revision.subject} [{_short_change_id(revision.change_id)}] "
+                f"because {detail}"
+            )
+        if pull_request.is_draft:
+            if bypass_readiness:
+                return None
+            return (
+                f"stop before {revision.subject} [{_short_change_id(revision.change_id)}] "
+                f"because PR #{pull_request.number} is still a draft"
+            )
+        if pull_request_lookup.review_decision == "changes_requested":
+            if bypass_readiness:
+                return None
+            return (
+                f"stop before {revision.subject} [{_short_change_id(revision.change_id)}] "
+                f"because PR #{pull_request.number} has changes requested"
+            )
+        if pull_request_lookup.review_decision != "approved":
+            if bypass_readiness:
+                return None
+            return (
+                f"stop before {revision.subject} [{_short_change_id(revision.change_id)}] "
+                f"because PR #{pull_request.number} is not approved"
+            )
         return None
     if pull_request_lookup.state == "missing":
         return (
@@ -760,6 +827,7 @@ def _ordered_commit_ids(prepared_status: PreparedStatus) -> tuple[str, ...]:
 
 def _build_land_preview_snapshot(
     *,
+    bypass_readiness: bool,
     expect_pr_number: int | None,
     github_repository: str,
     plan: _LandPlan,
@@ -767,6 +835,7 @@ def _build_land_preview_snapshot(
     remote_name: str,
 ) -> _LandPreviewSnapshot:
     return _LandPreviewSnapshot(
+        bypass_readiness=bypass_readiness,
         boundary_message=(
             plan.boundary_action.message if plan.boundary_action is not None else None
         ),
@@ -826,6 +895,7 @@ def _load_land_preview(state_dir: Path) -> _LandPreviewSnapshot | None:
         raise LandError(f"Saved land preview {path} is invalid. Re-run `land` to refresh it.")
     try:
         return _LandPreviewSnapshot(
+            bypass_readiness=bool(payload.get("bypass_readiness", False)),
             boundary_message=(
                 None
                 if payload.get("boundary_message") is None
@@ -871,6 +941,11 @@ def _require_matching_land_preview(
 ) -> None:
     saved_preview = _load_land_preview(state_dir)
     preview_command = _format_land_preview_command(
+        bypass_readiness=(
+            current_snapshot.bypass_readiness
+            if saved_preview is None
+            else saved_preview.bypass_readiness
+        ),
         expect_pr_number=(
             current_snapshot.expect_pr_number
             if saved_preview is None
@@ -889,8 +964,15 @@ def _require_matching_land_preview(
         )
 
 
-def _format_land_preview_command(*, expect_pr_number: int | None, selected_revset: str) -> str:
+def _format_land_preview_command(
+    *,
+    bypass_readiness: bool,
+    expect_pr_number: int | None,
+    selected_revset: str,
+) -> str:
     parts = ["land"]
+    if bypass_readiness:
+        parts.append("--bypass-readiness")
     if expect_pr_number is not None:
         parts.extend(("--expect-pr", str(expect_pr_number)))
     if selected_revset:
@@ -900,6 +982,7 @@ def _format_land_preview_command(*, expect_pr_number: int | None, selected_revse
 
 def _find_resume_land_intent(
     *,
+    bypass_readiness: bool,
     expect_pr_number: int | None,
     prepared_status: PreparedStatus,
     stale_intents: Sequence[LoadedIntent],
@@ -913,6 +996,8 @@ def _find_resume_land_intent(
             continue
         intent = loaded.intent
         if intent.display_revset != prepared_status.selected_revset:
+            continue
+        if intent.bypass_readiness != bypass_readiness:
             continue
         if intent.expected_pr_number != expect_pr_number or intent.trunk_branch != trunk_branch:
             continue
@@ -1148,6 +1233,7 @@ def _updated_landed_change(
 
 def _build_land_intent(
     *,
+    bypass_readiness: bool,
     expect_pr_number: int | None,
     landed_revisions: tuple[_LandRevision, ...],
     prepared_status: PreparedStatus,
@@ -1165,6 +1251,7 @@ def _build_land_intent(
         kind="land",
         pid=os.getpid(),
         label=f"land on {prepared_status.selected_revset}",
+        bypass_readiness=bypass_readiness,
         display_revset=prepared_status.selected_revset,
         ordered_change_ids=ordered_change_ids,
         ordered_commit_ids=ordered_commit_ids,

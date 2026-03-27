@@ -31,7 +31,7 @@ from jj_review.models.github import GithubBranchRef, GithubPullRequest
 from jj_review.models.intent import LandIntent, LoadedIntent
 
 
-def test_build_land_plan_uses_maximal_open_prefix() -> None:
+def test_build_land_plan_uses_maximal_ready_prefix() -> None:
     prepared_status = cast(
         PreparedStatus,
         SimpleNamespace(
@@ -66,6 +66,7 @@ def test_build_land_plan_uses_maximal_open_prefix() -> None:
                     commit_id="commit-2",
                     pull_request=_pull_request(number=2),
                     pull_request_state="open",
+                    review_decision="approved",
                     subject="feature 2",
                 ),
                 _status_revision(
@@ -73,6 +74,7 @@ def test_build_land_plan_uses_maximal_open_prefix() -> None:
                     commit_id="commit-1",
                     pull_request=_pull_request(number=1),
                     pull_request_state="open",
+                    review_decision="approved",
                     subject="feature 1",
                 ),
             )
@@ -80,6 +82,7 @@ def test_build_land_plan_uses_maximal_open_prefix() -> None:
     )
 
     plan = _build_land_plan(
+        bypass_readiness=False,
         expect_pr_number=None,
         prepared_status=prepared_status,
         status_result=status_result,
@@ -122,6 +125,7 @@ def test_build_land_plan_blocks_expect_pr_mismatch() -> None:
     )
 
     plan = _build_land_plan(
+        bypass_readiness=False,
         expect_pr_number=9,
         prepared_status=prepared_status,
         status_result=status_result,
@@ -152,6 +156,7 @@ def test_build_land_plan_blocks_unlinked_change() -> None:
     )
 
     plan = _build_land_plan(
+        bypass_readiness=False,
         expect_pr_number=None,
         prepared_status=prepared_status,
         status_result=status_result,
@@ -172,6 +177,7 @@ def test_build_land_plan_raises_assertion_when_status_revision_is_missing() -> N
         match="Prepared land revision 'change-1' is missing from the status result.",
     ):
         _build_land_plan(
+            bypass_readiness=False,
             expect_pr_number=None,
             prepared_status=prepared_status,
             status_result=status_result,
@@ -229,6 +235,7 @@ def test_collect_landable_prefix_marks_boundary_after_open_prefix() -> None:
                     commit_id="commit-1",
                     pull_request=_pull_request(number=1),
                     pull_request_state="open",
+                    review_decision="approved",
                     subject="feature 1",
                 ),
             )
@@ -239,12 +246,183 @@ def test_collect_landable_prefix_marks_boundary_after_open_prefix() -> None:
         status_result=status_result,
     )
 
-    landed_revisions, boundary_action = _collect_landable_prefix(path_revisions=path_revisions)
+    landed_revisions, boundary_action = _collect_landable_prefix(
+        bypass_readiness=False,
+        path_revisions=path_revisions,
+    )
 
     assert [revision.pull_request_number for revision in landed_revisions] == [1]
     assert boundary_action is not None
     assert boundary_action.status == "planned"
     assert "stop before feature 2" in boundary_action.message
+
+
+def test_build_land_plan_blocks_unapproved_open_change() -> None:
+    prepared_status = _prepared_status(("change-1",))
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    pull_request=_pull_request(number=7),
+                    pull_request_state="open",
+                    subject="feature 1",
+                ),
+            )
+        ),
+    )
+
+    plan = _build_land_plan(
+        bypass_readiness=False,
+        expect_pr_number=None,
+        prepared_status=prepared_status,
+        status_result=status_result,
+        trunk_branch="main",
+    )
+
+    assert plan.blocked is True
+    assert plan.boundary_action is not None
+    assert "PR #7 is not approved" in plan.boundary_action.message
+
+
+def test_build_land_plan_blocks_draft_change() -> None:
+    prepared_status = _prepared_status(("change-1",))
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    pull_request=_pull_request(number=7, draft=True),
+                    pull_request_state="open",
+                    review_decision="approved",
+                    subject="feature 1",
+                ),
+            )
+        ),
+    )
+
+    plan = _build_land_plan(
+        bypass_readiness=False,
+        expect_pr_number=None,
+        prepared_status=prepared_status,
+        status_result=status_result,
+        trunk_branch="main",
+    )
+
+    assert plan.blocked is True
+    assert plan.boundary_action is not None
+    assert "PR #7 is still a draft" in plan.boundary_action.message
+
+
+def test_build_land_plan_blocks_changes_requested() -> None:
+    prepared_status = _prepared_status(("change-1",))
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    pull_request=_pull_request(number=7),
+                    pull_request_state="open",
+                    review_decision="changes_requested",
+                    subject="feature 1",
+                ),
+            )
+        ),
+    )
+
+    plan = _build_land_plan(
+        bypass_readiness=False,
+        expect_pr_number=None,
+        prepared_status=prepared_status,
+        status_result=status_result,
+        trunk_branch="main",
+    )
+
+    assert plan.blocked is True
+    assert plan.boundary_action is not None
+    assert "PR #7 has changes requested" in plan.boundary_action.message
+
+
+def test_build_land_plan_keeps_review_decision_lookup_errors_blocking() -> None:
+    prepared_status = _prepared_status(("change-1",))
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    pull_request=_pull_request(number=7),
+                    pull_request_state="open",
+                    review_decision_error="review decision lookup failed",
+                    subject="feature 1",
+                ),
+            )
+        ),
+    )
+
+    plan = _build_land_plan(
+        bypass_readiness=True,
+        expect_pr_number=None,
+        prepared_status=prepared_status,
+        status_result=status_result,
+        trunk_branch="main",
+    )
+
+    assert plan.blocked is True
+    assert plan.boundary_action is not None
+    assert "review decision lookup failed" in plan.boundary_action.message
+
+
+def test_build_land_plan_bypass_readiness_uses_maximal_open_prefix() -> None:
+    prepared_status = _prepared_status(("change-1", "change-2", "change-3"))
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-3",
+                    commit_id="commit-3",
+                    pull_request=_pull_request(number=3, state="closed"),
+                    pull_request_state="closed",
+                    subject="feature 3",
+                ),
+                _status_revision(
+                    change_id="change-2",
+                    commit_id="commit-2",
+                    pull_request=_pull_request(number=2, draft=True),
+                    pull_request_state="open",
+                    subject="feature 2",
+                ),
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    pull_request=_pull_request(number=1),
+                    pull_request_state="open",
+                    subject="feature 1",
+                ),
+            )
+        ),
+    )
+
+    plan = _build_land_plan(
+        bypass_readiness=True,
+        expect_pr_number=None,
+        prepared_status=prepared_status,
+        status_result=status_result,
+        trunk_branch="main",
+    )
+
+    assert plan.blocked is False
+    assert [revision.pull_request_number for revision in plan.landed_revisions] == [1, 2]
+    assert plan.boundary_action is not None
+    assert "stop before feature 3" in plan.boundary_action.message
 
 
 def test_planned_land_actions_omit_mutations_when_plan_is_blocked() -> None:
@@ -265,6 +443,7 @@ def test_planned_land_actions_omit_mutations_when_plan_is_blocked() -> None:
     )
 
     plan = _build_land_plan(
+        bypass_readiness=False,
         expect_pr_number=9,
         prepared_status=prepared_status,
         status_result=status_result,
@@ -339,6 +518,7 @@ def test_find_resume_land_intent_matches_exact_path() -> None:
     )
 
     result = _find_resume_land_intent(
+        bypass_readiness=False,
         expect_pr_number=None,
         prepared_status=prepared_status,
         stale_intents=(loaded_intent,),
@@ -361,6 +541,7 @@ def test_find_resume_land_intent_matches_tail_after_landed_prefix() -> None:
     )
 
     result = _find_resume_land_intent(
+        bypass_readiness=False,
         expect_pr_number=None,
         prepared_status=prepared_status,
         stale_intents=(loaded_intent,),
@@ -382,6 +563,7 @@ def test_find_resume_land_intent_returns_none_for_mismatch() -> None:
     )
 
     result = _find_resume_land_intent(
+        bypass_readiness=False,
         expect_pr_number=9,
         prepared_status=prepared_status,
         stale_intents=(loaded_intent,),
@@ -427,6 +609,7 @@ def test_require_matching_land_preview_requires_saved_preview(tmp_path: Path) ->
     ):
         _require_matching_land_preview(
             current_snapshot=_preview_snapshot(
+                bypass_readiness=False,
                 expect_pr_number=5,
                 landed_commit_ids=("commit-1",),
             ),
@@ -439,6 +622,7 @@ def test_require_matching_land_preview_rejects_changed_preview(tmp_path: Path) -
     _write_land_preview(
         tmp_path,
         _preview_snapshot(
+            bypass_readiness=False,
             expect_pr_number=5,
             landed_change_ids=("change-1",),
             landed_commit_ids=("commit-1",),
@@ -452,9 +636,39 @@ def test_require_matching_land_preview_rejects_changed_preview(tmp_path: Path) -
     ):
         _require_matching_land_preview(
             current_snapshot=_preview_snapshot(
+                bypass_readiness=False,
                 landed_change_ids=("change-1", "change-2"),
                 landed_commit_ids=("commit-1", "commit-2"),
                 landed_pull_request_numbers=(7, 8),
+            ),
+            selected_revset="@-",
+            state_dir=tmp_path,
+        )
+
+
+def test_require_matching_land_preview_rejects_bypass_change(tmp_path: Path) -> None:
+    _write_land_preview(
+        tmp_path,
+        _preview_snapshot(
+            bypass_readiness=False,
+            expect_pr_number=5,
+            landed_change_ids=("change-1",),
+            landed_commit_ids=("commit-1",),
+            landed_pull_request_numbers=(7,),
+        ),
+    )
+
+    with pytest.raises(
+        LandError,
+        match=r"Run `land --expect-pr 5 @-` again before `land --apply`\.",
+    ):
+        _require_matching_land_preview(
+            current_snapshot=_preview_snapshot(
+                bypass_readiness=True,
+                expect_pr_number=5,
+                landed_change_ids=("change-1",),
+                landed_commit_ids=("commit-1",),
+                landed_pull_request_numbers=(7,),
             ),
             selected_revset="@-",
             state_dir=tmp_path,
@@ -532,6 +746,8 @@ def _status_revision(
     commit_id: str,
     pull_request: GithubPullRequest,
     pull_request_state: str,
+    review_decision: str | None = None,
+    review_decision_error: str | None = None,
     subject: str,
     link_state: str = "active",
 ):
@@ -543,6 +759,8 @@ def _status_revision(
         pull_request_lookup=SimpleNamespace(
             message=None,
             pull_request=pull_request,
+            review_decision=review_decision,
+            review_decision_error=review_decision_error,
             state=pull_request_state,
         ),
         remote_state=RemoteBookmarkState(remote="origin", targets=(commit_id,)),
@@ -550,11 +768,17 @@ def _status_revision(
     )
 
 
-def _pull_request(*, number: int, state: str = "open") -> GithubPullRequest:
+def _pull_request(
+    *,
+    number: int,
+    state: str = "open",
+    draft: bool = False,
+) -> GithubPullRequest:
     merged_at = "2026-03-22T12:00:00Z" if state == "merged" else None
     pr_state = "closed" if state == "merged" else state
     return GithubPullRequest(
         base=GithubBranchRef(ref="main"),
+        draft=draft,
         head=GithubBranchRef(ref=f"review/{number}"),
         html_url=f"https://github.test/octo-org/stacked-review/pull/{number}",
         merged_at=merged_at,
@@ -596,6 +820,7 @@ def _prepared_status(
 
 def _loaded_land_intent(
     *,
+    bypass_readiness: bool = False,
     ordered_change_ids: tuple[str, ...],
     ordered_commit_ids: tuple[str, ...],
     landed_change_ids: tuple[str, ...],
@@ -609,6 +834,7 @@ def _loaded_land_intent(
             kind="land",
             pid=123,
             label="land on @-",
+            bypass_readiness=bypass_readiness,
             display_revset="@-",
             ordered_change_ids=ordered_change_ids,
             ordered_commit_ids=ordered_commit_ids,
@@ -645,12 +871,14 @@ def _loaded_land_intent(
 
 def _preview_snapshot(
     *,
+    bypass_readiness: bool = False,
     expect_pr_number: int | None = None,
     landed_change_ids: tuple[str, ...] = (),
     landed_commit_ids: tuple[str, ...] = (),
     landed_pull_request_numbers: tuple[int, ...] = (),
 ) -> _LandPreviewSnapshot:
     return _LandPreviewSnapshot(
+        bypass_readiness=bypass_readiness,
         boundary_message=None,
         expect_pr_number=expect_pr_number,
         github_repository="octo-org/stacked-review",

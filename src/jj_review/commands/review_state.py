@@ -1,4 +1,8 @@
-"""Shared review-state inspection for `status`."""
+"""Show how the selected jj stack currently appears on GitHub.
+
+This reports the pull requests and GitHub branches jj-review is using for each
+change without changing anything.
+"""
 
 from __future__ import annotations
 
@@ -36,6 +40,8 @@ from jj_review.models.stack import LocalRevision, LocalStack
 
 logger = logging.getLogger(__name__)
 _GITHUB_INSPECTION_CONCURRENCY = 4
+
+HELP = "Check the review status of a jj stack"
 
 PullRequestLookupState = Literal["ambiguous", "closed", "error", "missing", "open"]
 StackCommentLookupState = Literal["ambiguous", "error", "missing", "present"]

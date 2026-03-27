@@ -1,4 +1,8 @@
-"""Unlink one selected change from jj-review tracking without mutating GitHub."""
+"""Stop tracking one local change with jj-review while leaving the rest of the
+stack alone.
+
+Later jj-review commands will ignore that change unless you link it again.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +15,8 @@ from jj_review.commands.review_state import _stream_status_async, prepare_status
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.models.cache import CachedChange
+
+HELP = "Stop managing one local change as part of review"
 
 
 class UnlinkError(CliError):

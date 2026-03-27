@@ -1,4 +1,8 @@
-"""Explicit PR-link repair for existing pull request branches."""
+"""Reconnect an existing GitHub pull request to the selected local change.
+
+Use this to repair a missing or wrong local link between a change and its pull
+request.
+"""
 
 from __future__ import annotations
 
@@ -26,6 +30,8 @@ from jj_review.pull_request_references import (
     parse_pull_request_number,
     parse_pull_request_url,
 )
+
+HELP = "Reconnect an existing pull request to a local change"
 
 _DISPLAY_CHANGE_ID_LENGTH = 8
 

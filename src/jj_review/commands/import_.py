@@ -1,4 +1,11 @@
-"""Set up saved local jj-review data for an exact stack selector."""
+"""Set up local jj-review tracking for one existing reviewed stack.
+
+Without `--fetch`, this uses the selected stack only if its commits and
+matching pull request or branch are already available locally. With `--fetch`,
+it fetches the selected pull request or branch first so the stack can be set up
+in a repo that does not have it yet. Import does not rewrite commits, restack
+changes, or change GitHub.
+"""
 
 from __future__ import annotations
 
@@ -33,6 +40,8 @@ from jj_review.pull_request_references import (
     parse_pull_request_number,
     parse_pull_request_url,
 )
+
+HELP = "Set up local jj-review tracking for an existing stack"
 
 _DISPLAY_CHANGE_ID_LENGTH = 8
 ImportActionStatus = Literal["applied"]

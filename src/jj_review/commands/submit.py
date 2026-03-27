@@ -1,4 +1,8 @@
-"""Submit command support for syncing remote bookmarks and pull requests."""
+"""Create or update the GitHub pull requests for the selected stack of changes.
+
+This pushes or updates the GitHub branches for that stack, then opens or
+refreshes one pull request per change from bottom to top.
+"""
 
 from __future__ import annotations
 
@@ -34,6 +38,8 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkS
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest, GithubRepository
 from jj_review.models.intent import LoadedIntent, SubmitIntent
+
+HELP = "Send a jj stack to GitHub for review"
 
 
 class SubmitRemoteResolutionError(CliError):

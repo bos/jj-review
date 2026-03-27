@@ -108,6 +108,7 @@ def _make_land_intent(
         kind="land",
         pid=pid,
         label="land on @",
+        bypass_readiness=False,
         display_revset="@",
         ordered_change_ids=ordered_change_ids,
         ordered_commit_ids=("commit-aaaa", "commit-bbbb", "commit-cccc"),

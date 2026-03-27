@@ -930,10 +930,20 @@ The landing unit should be one precise thing: the consecutive changes from
 That means:
 
 - walk the selected local stack upward from `trunk()`
-- include consecutive changes whose PRs are still open and whose link
-  is unambiguous
-- stop at the first merged, closed-unmerged, missing, or ambiguous change
+- by default, include consecutive changes whose PRs are still open, not draft,
+  approved, and whose link is unambiguous
+- stop at the first merged, closed-unmerged, missing, ambiguous, draft,
+  changes-requested, or not-yet-approved change
   - if none of those changes can be landed, report that directly
+
+`land` may also offer an explicit readiness-bypass flag for operators who want
+to preview or apply the open prefix anyway, but that bypass must stay narrow:
+
+- it may bypass readiness gates such as draft or review-decision state
+- it must not bypass ambiguous or missing PR linkage
+- it must not bypass remote/local commit mismatch checks
+- it must not bypass preview invalidation, trunk push protection, or other
+  integrity checks
 
 This is intentionally not "the entire selected stack no matter what" and not
 "whatever open PR the operator typed". It keeps the command aligned with the
@@ -975,6 +985,8 @@ Recovery guidance should stay case-specific:
   `jj review status --fetch` and `jj review relink`
 - if the landing scan stops at a closed-but-unmerged PR, say so directly
   and tell the operator to close or clean up that stack before retrying
+- if the landing scan stops at a draft, unapproved, or changes-requested PR,
+  say so directly without suggesting an override flag in the failure output
 - if the selected stack itself needs local ancestry repair after an earlier
   merge, point the operator to `jj review cleanup --restack`
 - if the selected stack has no changes that can be landed now, say so directly

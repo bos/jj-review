@@ -62,6 +62,7 @@ class LandIntent:
     kind: Literal["land"]
     pid: int
     label: str
+    bypass_readiness: bool
     display_revset: str
     ordered_change_ids: tuple[str, ...]
     ordered_commit_ids: tuple[str, ...]

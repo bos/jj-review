@@ -939,6 +939,13 @@ defines that as the consecutive changes from `trunk()` that can be landed now.
 The implementation should preserve that exact contract instead of accepting
 arbitrary PR subsets.
 
+The default landing boundary is now readiness-based instead of merely
+open-PR-based. In the first readiness slice, that means the prefix stops at the
+first PR that is draft, unapproved, or has changes requested, while still
+failing closed on ambiguous linkage or stale pushed state. A narrow
+`--bypass-readiness` flag may ignore only those readiness gates; it must not
+skip preview validation, linkage safety, or trunk push policy.
+
 The command also needs explicit phase boundaries so retries are idempotent:
 
 1. resolve the selected local stack, the first change that blocks landing,
@@ -966,6 +973,15 @@ This slice is now in place with the current implementation:
 
 - preview output clearly identifies the changes that can be landed now, the
   target trunk, and the first change that blocks landing on the selected stack
+- default `land` selection now uses the ready prefix rather than the merely
+  open prefix, so draft, unapproved, and changes-requested PRs block the
+  landing boundary just like closed or ambiguous PR state already did
+- `land --bypass-readiness` may still select the open prefix for exceptional
+  cases, but only by bypassing readiness checks; linkage, stale-submit, saved
+  preview, and trunk-protection checks still fail closed
+- blocked `land` output does not advertise `--bypass-readiness`; operators may
+  discover that override from help, but normal failure guidance stays focused
+  on the blocking state itself
 - `land --apply` now requires a matching saved preview unless it is resuming an
   interrupted apply from a recorded intent, so material plan drift is rejected
   before any new mutation starts

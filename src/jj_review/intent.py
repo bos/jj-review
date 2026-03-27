@@ -190,6 +190,7 @@ def _parse_intent(data: dict, path: Path) -> LoadedIntent | None:
                 kind="land",
                 pid=int(data["pid"]),
                 label=str(data["label"]),
+                bypass_readiness=bool(data.get("bypass_readiness", False)),
                 display_revset=str(data["display_revset"]),
                 ordered_change_ids=tuple(str(x) for x in data.get("ordered_change_ids", [])),
                 ordered_commit_ids=tuple(str(x) for x in data.get("ordered_commit_ids", [])),
