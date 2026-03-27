@@ -806,12 +806,6 @@ def _time_output(*, enabled: bool):
         yield
     finally:
         builtins.print = original_print  # noqa: B010
-
-
-def _prefix_rendered_lines(rendered: str, *, prefix: str) -> str:
-    return "".join(f"{prefix}{line}" for line in rendered.splitlines(keepends=True))
-
-
 def _prefix_rendered_output(
     rendered: str,
     *,

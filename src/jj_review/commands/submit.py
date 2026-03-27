@@ -1426,31 +1426,6 @@ def _should_sync_pull_request_metadata(
     if cached_change is None:
         return True
     return cached_change.pr_number is None and cached_change.pr_url is None
-
-
-async def _discover_pull_request(
-    *,
-    github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
-    head_label: str,
-) -> GithubPullRequest | None:
-    try:
-        pull_requests = await github_client.list_pull_requests(
-            github_repository.owner,
-            github_repository.repo,
-            head=head_label,
-        )
-    except GithubClientError as error:
-        raise SubmitPullRequestResolutionError(
-            f"Could not list pull requests for head {head_label!r}: {error}"
-        ) from error
-
-    return _select_discovered_pull_request(
-        head_label=head_label,
-        pull_requests=pull_requests,
-    )
-
-
 def _select_discovered_pull_request(
     *,
     head_label: str,
