@@ -22,6 +22,7 @@ from jj_review.commands.cleanup import (
     _stream_cleanup_async,
     stream_restack,
 )
+from jj_review.github.client import GithubClient
 from jj_review.github_resolution import ResolvedGithubRepository
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
@@ -93,7 +94,10 @@ def test_resolve_stack_summary_comment_blocks_multiple_candidates() -> None:
     result = asyncio.run(
         _resolve_stack_summary_comment(
             cached_change=CachedChange(stack_comment_id=None),
-            github_client=SimpleNamespace(list_issue_comments=fake_list_issue_comments),
+            github_client=cast(
+                GithubClient,
+                SimpleNamespace(list_issue_comments=fake_list_issue_comments),
+            ),
             github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
             pull_request_number=7,
         )
@@ -113,7 +117,10 @@ def test_resolve_unlinked_pull_request_number_blocks_multiple_pull_requests() ->
     result = asyncio.run(
         _resolve_unlinked_pull_request_number(
             bookmark_state=BookmarkState(name="review/feature-aaaaaaaa"),
-            github_client=SimpleNamespace(list_pull_requests=_fake_list_pull_requests),
+            github_client=cast(
+                GithubClient,
+                SimpleNamespace(list_pull_requests=_fake_list_pull_requests),
+            ),
             github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
         )
     )

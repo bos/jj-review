@@ -18,6 +18,7 @@ from jj_review.commands.import_ import (
 )
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
+from jj_review.github_resolution import ResolvedGithubRepository
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
@@ -272,11 +273,10 @@ def test_parse_pull_request_reference_accepts_matching_url() -> None:
     assert (
         _parse_pull_request_reference(
             reference="https://github.test/octo-org/stacked-review/pull/17",
-            github_repository=SimpleNamespace(
+            github_repository=ResolvedGithubRepository(
                 host="github.test",
                 owner="octo-org",
                 repo="stacked-review",
-                full_name="octo-org/stacked-review",
             ),
         )
         == 17
@@ -287,11 +287,10 @@ def test_parse_pull_request_reference_rejects_wrong_repository() -> None:
     with pytest.raises(CliError, match="does not match configured repository"):
         _parse_pull_request_reference(
             reference="https://github.test/other-org/stacked-review/pull/17",
-            github_repository=SimpleNamespace(
+            github_repository=ResolvedGithubRepository(
                 host="github.test",
                 owner="octo-org",
                 repo="stacked-review",
-                full_name="octo-org/stacked-review",
             ),
         )
 

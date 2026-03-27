@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import cast
 
 from jj_review.commands.close import CloseAction, _cleanup_revision
+from jj_review.github.client import GithubClient
+from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
 from jj_review.models.cache import CachedChange
 
@@ -147,9 +150,9 @@ async def _run_cleanup_revision(*, bookmark_state: BookmarkState) -> _CleanupRes
         apply=True,
         bookmark_state=bookmark_state,
         cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
-        github_client=SimpleNamespace(),
+        github_client=cast(GithubClient, SimpleNamespace()),
         github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
-        jj_client=jj_client,
+        jj_client=cast(JjClient, jj_client),
         remote_name="origin",
         commit_id="commit-1",
         next_changes={},
