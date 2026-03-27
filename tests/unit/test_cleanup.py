@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
@@ -237,6 +238,74 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
     )
 
     asyncio.run(exercise_cleanup())
+
+
+def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
+    monkeypatch,
+) -> None:
+    state = ReviewState.model_validate(
+        {
+            "change": {
+                "stale-change": CachedChange(
+                    bookmark="review/feature-stale",
+                ).model_dump(exclude_none=True),
+                "live-change": CachedChange(
+                    bookmark="review/feature-live",
+                ).model_dump(exclude_none=True),
+            }
+        }
+    )
+    saved_states: list[ReviewState] = []
+    prepared_cleanup = PreparedCleanup(
+        apply=True,
+        bookmark_states={},
+        github_repository=None,
+        github_repository_error="GitHub unavailable",
+        jj_client=cast(JjClient, SimpleNamespace()),
+        remote=None,
+        remote_error=None,
+        state=state,
+        state_dir=Path("/tmp"),
+        state_store=cast(ReviewStateStore, SimpleNamespace(save=saved_states.append)),
+    )
+
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup._stale_change_reason",
+        lambda **kwargs: (
+            "local change is no longer reviewable"
+            if kwargs["change_id"] == "stale-change"
+            else None
+        ),
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.check_same_kind_intent",
+        lambda *args, **kwargs: (),
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.write_intent",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.delete_intent",
+        lambda *args, **kwargs: None,
+    )
+
+    result = asyncio.run(
+        _stream_cleanup_async(
+            on_action=None,
+            prepared_cleanup=prepared_cleanup,
+        )
+    )
+
+    assert [action.message for action in result.actions] == [
+        "remove cached review state for stale-ch (local change is no longer reviewable)"
+    ]
+    assert [sorted(saved_state.changes) for saved_state in saved_states] == [
+        ["live-change"],
+        ["live-change"],
+    ]
+    assert result.github_error == "GitHub unavailable"
+    assert result.github_repository is None
 
 
 def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(

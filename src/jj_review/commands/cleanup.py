@@ -635,7 +635,6 @@ async def _stream_cleanup_async(
     actions: list[CleanupAction] = []
     apply = prepared_cleanup.apply
     remote = prepared_cleanup.remote
-    jj_client = prepared_cleanup.jj_client
 
     def record_action(action: CleanupAction) -> None:
         actions.append(action)
@@ -656,53 +655,18 @@ async def _stream_cleanup_async(
             print(f"Note: a previous cleanup was interrupted ({_loaded.intent.label})")
         intent_path = write_intent(prepared_cleanup.state_dir, _intent)
 
-    _cleanup_succeeded = False
+        _cleanup_succeeded = False
     try:
         if prepared_cleanup.github_repository is None:
-            for change_id, cached_change in prepared_cleanup.state.changes.items():
-                prepared_change = _prepare_cleanup_change(
-                    cached_change=cached_change,
-                    change_id=change_id,
-                    prepared_cleanup=prepared_cleanup,
-                )
-                stale_reason = prepared_change.stale_reason
-                if stale_reason is None:
-                    continue
-                record_action(
-                    _cache_action(
-                        change_id=change_id,
-                        reason=stale_reason,
-                        status="applied" if apply else "planned",
-                    )
-                )
-                if apply:
-                    next_changes.pop(change_id, None)
-
-                remote_plan = _plan_remote_branch_cleanup(
-                    bookmark_state=prepared_change.bookmark_state,
-                    cached_change=cached_change,
-                    remote=remote,
-                )
-                if remote_plan is not None:
-                    _process_remote_branch_cleanup(
-                        apply=apply,
-                        cached_change=cached_change,
-                        jj_client=jj_client,
-                        record_action=record_action,
-                        remote=remote,
-                        remote_plan=remote_plan,
-                    )
-
-                if apply:
-                    interim = prepared_cleanup.state.model_copy(
-                        update={"changes": dict(next_changes)}
-                    )
-                    prepared_cleanup.state_store.save(interim)
-
-            if apply and next_changes != prepared_cleanup.state.changes:
-                prepared_cleanup.state_store.save(
-                    prepared_cleanup.state.model_copy(update={"changes": next_changes})
-                )
+            _run_local_cleanup_pass(
+                next_changes=next_changes,
+                prepared_cleanup=prepared_cleanup,
+                record_action=record_action,
+            )
+            _save_cleanup_state_if_changed(
+                next_changes=next_changes,
+                prepared_cleanup=prepared_cleanup,
+            )
 
             _cleanup_succeeded = True
             return CleanupResult(
@@ -716,49 +680,11 @@ async def _stream_cleanup_async(
 
         github_repository = prepared_cleanup.github_repository
         async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
-            prepared_changes: list[PreparedCleanupChange] = []
-            for change_id, cached_change in prepared_cleanup.state.changes.items():
-                prepared_change = _prepare_cleanup_change(
-                    cached_change=cached_change,
-                    change_id=change_id,
-                    prepared_cleanup=prepared_cleanup,
-                )
-                prepared_changes.append(prepared_change)
-
-                stale_reason = prepared_change.stale_reason
-                if stale_reason is None:
-                    continue
-
-                record_action(
-                    _cache_action(
-                        change_id=change_id,
-                        reason=stale_reason,
-                        status="applied" if apply else "planned",
-                    )
-                )
-                if apply:
-                    next_changes.pop(change_id, None)
-
-                remote_plan = _plan_remote_branch_cleanup(
-                    bookmark_state=prepared_change.bookmark_state,
-                    cached_change=cached_change,
-                    remote=remote,
-                )
-                if remote_plan is not None:
-                    _process_remote_branch_cleanup(
-                        apply=apply,
-                        cached_change=cached_change,
-                        jj_client=jj_client,
-                        record_action=record_action,
-                        remote=remote,
-                        remote_plan=remote_plan,
-                    )
-
-                if apply:
-                    interim = prepared_cleanup.state.model_copy(
-                        update={"changes": dict(next_changes)}
-                    )
-                    prepared_cleanup.state_store.save(interim)
+            prepared_changes = _run_local_cleanup_pass(
+                next_changes=next_changes,
+                prepared_cleanup=prepared_cleanup,
+                record_action=record_action,
+            )
 
             comment_plan_tasks = _create_stack_comment_cleanup_tasks(
                 github_client=github_client,
@@ -796,10 +722,10 @@ async def _stream_cleanup_async(
                         )
                     record_action(comment_action)
                     if apply:
-                        interim = prepared_cleanup.state.model_copy(
-                            update={"changes": dict(next_changes)}
+                        _save_cleanup_state(
+                            next_changes=next_changes,
+                            prepared_cleanup=prepared_cleanup,
                         )
-                        prepared_cleanup.state_store.save(interim)
             finally:
                 for task in comment_plan_tasks.values():
                     if not task.done():
@@ -807,10 +733,10 @@ async def _stream_cleanup_async(
                 if comment_plan_tasks:
                     await asyncio.gather(*comment_plan_tasks.values(), return_exceptions=True)
 
-        if apply and next_changes != prepared_cleanup.state.changes:
-            prepared_cleanup.state_store.save(
-                prepared_cleanup.state.model_copy(update={"changes": next_changes})
-            )
+        _save_cleanup_state_if_changed(
+            next_changes=next_changes,
+            prepared_cleanup=prepared_cleanup,
+        )
 
         _cleanup_succeeded = True
         return CleanupResult(
@@ -852,6 +778,94 @@ def _prepare_cleanup_change(
         ),
         stale_reason=stale_reason,
     )
+
+
+def _run_local_cleanup_pass(
+    *,
+    next_changes: dict[str, CachedChange],
+    prepared_cleanup: PreparedCleanup,
+    record_action: Callable[[CleanupAction], None],
+) -> tuple[PreparedCleanupChange, ...]:
+    prepared_changes: list[PreparedCleanupChange] = []
+    for change_id, cached_change in prepared_cleanup.state.changes.items():
+        prepared_change = _prepare_cleanup_change(
+            cached_change=cached_change,
+            change_id=change_id,
+            prepared_cleanup=prepared_cleanup,
+        )
+        prepared_changes.append(prepared_change)
+        _process_stale_cleanup_change(
+            next_changes=next_changes,
+            prepared_change=prepared_change,
+            prepared_cleanup=prepared_cleanup,
+            record_action=record_action,
+        )
+    return tuple(prepared_changes)
+
+
+def _process_stale_cleanup_change(
+    *,
+    next_changes: dict[str, CachedChange],
+    prepared_change: PreparedCleanupChange,
+    prepared_cleanup: PreparedCleanup,
+    record_action: Callable[[CleanupAction], None],
+) -> None:
+    stale_reason = prepared_change.stale_reason
+    if stale_reason is None:
+        return
+
+    record_action(
+        _cache_action(
+            change_id=prepared_change.change_id,
+            reason=stale_reason,
+            status="applied" if prepared_cleanup.apply else "planned",
+        )
+    )
+    if prepared_cleanup.apply:
+        next_changes.pop(prepared_change.change_id, None)
+
+    remote_plan = _plan_remote_branch_cleanup(
+        bookmark_state=prepared_change.bookmark_state,
+        cached_change=prepared_change.cached_change,
+        remote=prepared_cleanup.remote,
+    )
+    if remote_plan is not None:
+        _process_remote_branch_cleanup(
+            apply=prepared_cleanup.apply,
+            cached_change=prepared_change.cached_change,
+            jj_client=prepared_cleanup.jj_client,
+            record_action=record_action,
+            remote=prepared_cleanup.remote,
+            remote_plan=remote_plan,
+        )
+
+    if prepared_cleanup.apply:
+        _save_cleanup_state(
+            next_changes=next_changes,
+            prepared_cleanup=prepared_cleanup,
+        )
+
+
+def _save_cleanup_state(
+    *,
+    next_changes: dict[str, CachedChange],
+    prepared_cleanup: PreparedCleanup,
+) -> None:
+    prepared_cleanup.state_store.save(
+        prepared_cleanup.state.model_copy(update={"changes": dict(next_changes)})
+    )
+
+
+def _save_cleanup_state_if_changed(
+    *,
+    next_changes: dict[str, CachedChange],
+    prepared_cleanup: PreparedCleanup,
+) -> None:
+    if prepared_cleanup.apply and next_changes != prepared_cleanup.state.changes:
+        _save_cleanup_state(
+            next_changes=next_changes,
+            prepared_cleanup=prepared_cleanup,
+        )
 
 
 def _create_stack_comment_cleanup_tasks(
