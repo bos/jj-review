@@ -22,16 +22,16 @@ from jj_review.commands.review_state import (
     prepare_status,
     stream_status,
 )
-from jj_review.commands.submit import (
-    _STACK_COMMENT_MARKER,
+from jj_review.commands.submit import _STACK_COMMENT_MARKER
+from jj_review.config import ChangeConfig, RepoConfig
+from jj_review.errors import CliError
+from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.github_resolution import (
     ResolvedGithubRepository,
     _build_github_client,
     resolve_github_repository,
     select_submit_remote,
 )
-from jj_review.config import ChangeConfig, RepoConfig
-from jj_review.errors import CliError
-from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.intent import (
     check_same_kind_intent,
     delete_intent,

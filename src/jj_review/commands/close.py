@@ -17,9 +17,10 @@ from typing import Literal
 
 from jj_review.cache import ReviewStateStore
 from jj_review.commands.review_state import PreparedStatus, prepare_status, stream_status
-from jj_review.commands.submit import _STACK_COMMENT_MARKER, _build_github_client
+from jj_review.commands.submit import _STACK_COMMENT_MARKER
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.github_resolution import _build_github_client
 from jj_review.intent import (
     check_same_kind_intent,
     delete_intent,

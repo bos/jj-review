@@ -22,16 +22,18 @@ from jj_review.commands.review_state import (
     prepare_status,
 )
 from jj_review.commands.submit import (
-    ResolvedGithubRepository,
     _bookmark_matches_generated_change_id,
-    _build_github_client,
     _discover_bookmarks_for_revisions,
-    resolve_github_repository,
-    select_submit_remote,
 )
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClientError
+from jj_review.github_resolution import (
+    ResolvedGithubRepository,
+    _build_github_client,
+    resolve_github_repository,
+    select_submit_remote,
+)
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange

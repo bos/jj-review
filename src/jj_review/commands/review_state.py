@@ -18,17 +18,19 @@ from jj_review.bookmarks import BookmarkResolver, BookmarkSource
 from jj_review.cache import ReviewStateStore
 from jj_review.commands.submit import (
     _STACK_COMMENT_MARKER,
-    ResolvedGithubRepository,
-    _build_github_client,
     _discover_bookmarks_for_revisions,
     _ensure_unique_bookmarks,
-    _github_token_from_env,
-    resolve_github_repository,
-    select_submit_remote,
 )
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.github_resolution import (
+    ResolvedGithubRepository,
+    _build_github_client,
+    _github_token_from_env,
+    resolve_github_repository,
+    select_submit_remote,
+)
 from jj_review.intent import intent_is_stale, scan_intents
 from jj_review.jj import JjClient
 from jj_review.jj.client import RevsetResolutionError

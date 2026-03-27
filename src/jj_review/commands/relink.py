@@ -13,15 +13,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from jj_review.cache import ReviewStateStore
-from jj_review.commands.submit import (
+from jj_review.config import RepoConfig
+from jj_review.errors import CliError
+from jj_review.github.client import GithubClientError
+from jj_review.github_resolution import (
     ResolvedGithubRepository,
     _build_github_client,
     resolve_github_repository,
     select_submit_remote,
 )
-from jj_review.config import RepoConfig
-from jj_review.errors import CliError
-from jj_review.github.client import GithubClientError
 from jj_review.intent import check_same_kind_intent, delete_intent, write_intent
 from jj_review.jj import JjClient
 from jj_review.models.cache import CachedChange, ReviewState
