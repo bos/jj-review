@@ -189,7 +189,7 @@ def test_help_output_omits_trailing_periods_in_command_and_option_descriptions()
         not in submit_help
     )
     assert (
-        "Explicitly operate on the current review path instead of passing a revset."
+        "Explicitly operate on the current stack instead of passing a revset."
         not in submit_help
     )
 
@@ -741,7 +741,7 @@ def test_main_close_renders_apply_noop_output(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "No close actions were needed for the selected path." in captured.out
+    assert "No close actions were needed for the selected stack." in captured.out
     assert "No managed open pull requests" not in captured.out
 
 
@@ -1384,7 +1384,7 @@ def test_main_cleanup_restack_passes_apply_and_revset_to_prepare_restack(
     assert exit_code == 0
     assert prepare_calls == [(True, "@-")]
     assert "Selected revset: @-" in captured.out
-    assert "No merged changes on the selected path need restacking." in captured.out
+    assert "No merged changes on the selected stack need restacking." in captured.out
 
 
 def test_main_cleanup_restack_apply_requires_explicit_revision_selection(

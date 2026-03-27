@@ -102,7 +102,7 @@ class _LandRevision:
 
 @dataclass(frozen=True, slots=True)
 class _LandPlan:
-    """Resolved landing plan for the selected path."""
+    """Resolved landing plan for the selected stack."""
 
     blocked: bool
     boundary_action: LandAction | None
@@ -131,7 +131,7 @@ class _LandPreviewSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class _ResumeLandIntent:
-    """A stale land intent that still matches the current selected path."""
+    """A stale land intent that still matches the current selected stack."""
 
     intent: LandIntent
     path: Path
@@ -170,7 +170,7 @@ def run_land(
     repo_root: Path,
     revset: str | None,
 ) -> LandResult:
-    """Preview or apply the landable prefix on the selected local path."""
+    """Preview or apply the landable prefix on the selected local stack."""
 
     prepared_land = prepare_land(
         apply=apply,

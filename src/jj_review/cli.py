@@ -227,7 +227,7 @@ def build_parser() -> ArgumentParser:
     submit_parser.add_argument(
         "--current",
         action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset",
+        help="Explicitly operate on the current stack instead of passing a revset",
     )
     submit_parser.add_argument(
         "-d",
@@ -247,7 +247,7 @@ def build_parser() -> ArgumentParser:
         help=_normalized_help_text(
             """
             Create newly opened pull requests as drafts; use `--draft=all` to
-            also return existing published pull requests on the selected path
+            also return existing published pull requests on the selected stack
             to draft
             """
         ),
@@ -313,7 +313,7 @@ def build_parser() -> ArgumentParser:
     unlink_parser.add_argument(
         "--current",
         action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset",
+        help="Explicitly operate on the current stack instead of passing a revset",
     )
     land_parser = _add_revision_command(
         subparsers,
@@ -334,7 +334,7 @@ def build_parser() -> ArgumentParser:
     land_parser.add_argument(
         "--current",
         action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset",
+        help="Explicitly operate on the current stack instead of passing a revset",
     )
     close_parser = _add_revision_command(
         subparsers,
@@ -356,7 +356,7 @@ def build_parser() -> ArgumentParser:
     close_parser.add_argument(
         "--current",
         action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset",
+        help="Explicitly operate on the current stack instead of passing a revset",
     )
     _add_import_parser(
         subparsers,
@@ -380,12 +380,12 @@ def build_parser() -> ArgumentParser:
     cleanup_parser.add_argument(
         "--restack",
         action="store_true",
-        help="Preview or apply a local restack for merged changes on the selected path",
+        help="Preview or apply a local restack for merged changes on the selected stack",
     )
     cleanup_parser.add_argument(
         "--current",
         action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset",
+        help="Explicitly operate on the current stack instead of passing a revset",
     )
     cleanup_parser.add_argument(
         "revset",
@@ -659,7 +659,7 @@ def _add_relink_parser[SubparserT: ArgumentParser](
     parser.add_argument(
         "--current",
         action="store_true",
-        help="Explicitly operate on the current review path instead of passing a revset",
+        help="Explicitly operate on the current stack instead of passing a revset",
     )
     parser.add_argument(
         "revset",
@@ -696,7 +696,7 @@ def _add_import_parser[SubparserT: ArgumentParser](
     selector.add_argument(
         "--current",
         action="store_true",
-        help="Import the current review path",
+        help="Import the current stack",
     )
     selector.add_argument(
         "--revset",
@@ -1581,7 +1581,7 @@ def _cleanup_handler(args: Namespace) -> int:
             prepared_restack=prepared_restack,
         )
         if not result.actions:
-            print("No merged changes on the selected path need restacking.")
+            print("No merged changes on the selected stack need restacking.")
             return 0
         if not result.applied:
             print(
@@ -1683,14 +1683,14 @@ def _close_handler(args: Namespace) -> int:
             print(f"- [{action.status}] {action.kind}: {action.message}")
     else:
         if result.applied:
-            print("No close actions were needed for the selected path.")
+            print("No close actions were needed for the selected stack.")
         else:
-            print("No managed open pull requests on the selected path.")
+            print("No managed open pull requests on the selected stack.")
 
     if not result.applied and not result.blocked and result.actions:
         print(
             f"Re-run with `{_format_close_apply_command(result)}` "
-            "to close the selected path."
+            "to close the selected stack."
         )
     return 1 if result.blocked else 0
 

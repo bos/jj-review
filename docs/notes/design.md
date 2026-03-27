@@ -319,7 +319,7 @@ persisted repo state rather than writing a fallback file into the working tree.
 Given a selected head revision:
 
 1. Resolve the selected head revision. When the operator explicitly asks to
-   use the current path, default to `@-` if `@` is the empty working-copy
+   use the current stack, default to `@-` if `@` is the empty working-copy
    commit, else `@`.
 2. Walk parents back toward `trunk()`, building a linear chain of visible mutable changes.
 3. Reject ambiguous shapes instead of inventing metadata to patch around them.
@@ -340,7 +340,7 @@ Given a selected head revision:
      invoking the helper once per change as `helper --pr <change_id>`
    - the same helper may also be invoked once per selected stack as
      `helper --stack <selected-revset>`; that output is prepended to the
-     reviewer-facing stack comment when the selected path contains
+     reviewer-facing stack comment when the selected stack contains
      more than one change, and does not become a separate source of
      truth for topology
    - for stack helpers, submit may also provide a temporary helper-owned input
@@ -379,7 +379,7 @@ Given a selected head revision:
        drafts
      - `submit --draft=all` also returns already-published PRs on the selected
        path to draft
-     - `submit --publish` marks existing draft PRs on the selected path ready
+     - `submit --publish` marks existing draft PRs on the selected stack ready
        for review and creates new PRs as published
      - plain `submit` preserves the draft state of already-open PRs
      - plain `submit --draft` must not convert an already-published PR back to
@@ -389,7 +389,7 @@ This bottom-up ordering matches the dependency order in the stack, and the
 parent relationship is derived from the DAG rather than loaded from side
 metadata.
 
-For a selected path with exactly one change, submit should behave like a
+For a selected stack with exactly one change, submit should behave like a
 plain PR submit flow:
 
 - no stack-specific helper invocation
@@ -397,7 +397,7 @@ plain PR submit flow:
 - after a successful live submit, print the URL of the top of the stack so the
   operator can open it in a browser
 
-There is no meaningful stack metadata to add when the selected review path
+There is no meaningful stack metadata to add when the selected stack
 contains only one PR.
 
 ## Recovery and Repair
@@ -424,7 +424,7 @@ The recovery surface should be explicit and narrow:
 
 Mutating commands should not silently infer that target from the current
 workspace path. The CLI should require an explicit selector for commands that
-submit, relink, or rewrite one local review path:
+submit, relink, or rewrite one local stack:
 
 - `submit` requires either an explicit `<revset>` or an explicit `--current`
   opt-in
@@ -435,9 +435,9 @@ submit, relink, or rewrite one local review path:
 
 Read-only inspection may remain ergonomic:
 
-- `status` may omit `<revset>` and inspect the current path by default
+- `status` may omit `<revset>` and inspect the current stack by default
 - `cleanup --restack` without `--apply` may omit `<revset>` and preview the
-  current path by default
+  current stack by default
 
 `jj review status [<revset>]` should show the selected local stack, pinned or
 discovered review bookmarks, and any cached or discoverable GitHub PR link for
@@ -454,7 +454,7 @@ forms one supported review stack. Instead, it should discover the selected
 commit-parent path, tolerate immutable or divergent off-path copies created by
 fetching merged PR branches, and report the path revision for each logical
 change.
-If a merged pull request still appears on the selected local path, status
+If a merged pull request still appears on the selected local stack, status
 should continue and surface that row as cleanup needed rather than treating the
 stack as broken. If refresh reveals that the selected history itself no longer
 has any supported linear walk, status should fail closed with a targeted local
@@ -490,7 +490,7 @@ GitHub now reports that no PR exists for the review branch.
 
 When status reports `cleanup needed`, it should explain why in plain language:
 
-- the merged PR still appears on the selected local path
+- the merged PR still appears on the selected local stack
 - descendant submit operations will continue to follow that old local ancestry
   until the user repairs it
 - the next command to run is `jj review cleanup --restack [<revset>]`, with a
@@ -521,7 +521,7 @@ Its job is local state import, not workspace motion:
 - without `--fetch`, use only commits and review link that are already
   available locally
 - resolve the selected stack from a PR head branch, a specific review branch,
-  or an explicitly selected local path
+  or an explicitly selected local stack
 - with `--fetch`, refresh remote bookmark observations and, for an explicit PR
   or review-branch selector, fetch only the review branches needed for the
   selected stack so a reviewed stack that exists only on the remote can still
@@ -573,15 +573,15 @@ either command prematurely.
 The user-facing "stop reviewing this path" command is `close`:
 
 - `jj review close [--cleanup] [--apply] [--current | <revset>]` ends active
-  review for the selected local path
+  review for the selected local stack
 
 That command should stay local-path-first rather than PR-number-first. Its job
-is to look at the selected local review path, find the managed open PRs on that
+is to look at the selected local stack, find the managed open PRs on that
 path, and then preview or apply the actions needed to end review for that path.
 
 Without `--cleanup`, `close` should:
 
-- close the managed open PRs for the selected path
+- close the managed open PRs for the selected stack
 - update local review state so those changes are no longer treated as actively
   under review
 - skip already-merged or already-closed PRs on that path instead of treating
@@ -685,7 +685,7 @@ This design behaves well under normal `jj` rewrite-heavy workflows:
 - Ancestor merged on GitHub: merged ancestors stop acting as review bases.
   Descendants should target the nearest remaining open ancestor PR, or trunk if
   none remain. `cleanup --restack` should perform that local rewrite
-  explicitly, using the selected local path as the source of truth for which
+  explicitly, using the selected local stack as the source of truth for which
   logical changes survive.
 
 This is exactly the kind of rewrite-heavy flow the `jj` model is good at.
@@ -747,7 +747,7 @@ Target selection should stay explicit:
 - `import` requires exactly one explicit selector
 - `cleanup --restack --apply` likewise requires one explicit selector
 - `status` and `cleanup --restack` preview may still omit both and inspect the
-  current path
+  current stack
 - passing both `<revset>` and `--current` is an error
 
 Notably absent:
@@ -844,12 +844,12 @@ Its job is to restore one active local linear stack from three inputs:
 
 It should not treat every fetched remote branch tip as local ancestry that must
 be preserved. GitHub is authoritative about PR outcomes and remote branch tips,
-but the selected local path remains authoritative about which logical changes
+but the selected local stack remains authoritative about which logical changes
 are still part of the user's active stack.
 
 The algorithm should be:
 
-1. Discover the selected local path from the requested head back toward
+1. Discover the selected local stack from the requested head back toward
    `trunk()`, tolerating immutable or divergent off-path revisions created by
    fetching merged PR branches.
 2. For each logical change on that path, classify its PR state as open,
@@ -858,7 +858,7 @@ The algorithm should be:
    path changes are survivors. Closed-unmerged path changes are not rewritten
    automatically.
 4. For each survivor, compute its desired new parent in logical order:
-   - the nearest earlier survivor on the selected path, if any
+   - the nearest earlier survivor on the selected stack, if any
    - otherwise the current `trunk()`
 5. Rebase each survivor segment whose current parent is a merged path change
    onto that desired new parent, but allow default `--apply` to perform only
@@ -884,10 +884,10 @@ This keeps the local result as close to linear as possible:
   they no longer define the active stack
 
 `cleanup --restack` should fail closed only when it cannot prove what the
-selected path means. In particular, it should stop with a targeted diagnostic
+selected stack means. In particular, it should stop with a targeted diagnostic
 when:
 
-- the selected path itself is not a supported linear walk
+- the selected stack itself is not a supported linear walk
 - a path change has ambiguous PR link
 - a merged path change has local edits since its last submit and removing it
   would discard unpublished work
@@ -914,20 +914,20 @@ Its default UX should mirror the preview-first shape already used by
 - with `--apply`, it reruns the same planning step and stops if the plan has
   changed materially since preview
 - `--expect-pr <pr>` is an optional guardrail, not the primary selector; it
-  asserts that the selected local path still corresponds to the PR the
+  asserts that the selected local stack still corresponds to the PR the
   operator intended to land
 
 The landing unit should be one precise thing: the maximal contiguous open
-prefix of the selected local path starting at `trunk()`.
+prefix of the selected local stack starting at `trunk()`.
 
 That means:
 
-- walk the selected local path upward from `trunk()`
+- walk the selected local stack upward from `trunk()`
 - include consecutive changes whose PRs are still open and whose link
   is unambiguous
 - stop at the first merged, closed-unmerged, missing, or ambiguous change
   - if the resulting prefix is empty, report that nothing is currently landable
-  on the selected path
+  on the selected stack
 
 This is intentionally not "the entire selected stack no matter what" and not
 "whatever open PR the operator typed". It keeps the command aligned with the
@@ -957,7 +957,7 @@ before `--apply`. At minimum, apply should rerun planning and stop if any of
 these changed:
 
 - the selected revset or `--current` resolution
-- the selected path's `change_id`s or `commit_id`s
+- the selected stack's `change_id`s or `commit_id`s
 - the open-prefix boundary
 - the expected PR, if `--expect-pr` was supplied
 - the trunk target or trunk commit
@@ -968,10 +968,10 @@ Recovery guidance should stay case-specific:
 - if PR link is missing or ambiguous, point the operator to
   `jj review status --fetch` and `jj review relink`
 - if the open-prefix scan stops at a closed-but-unmerged PR, say so directly
-  and tell the operator to close or clean up that review path before retrying
-- if the selected path itself needs local ancestry repair after an earlier
+  and tell the operator to close or clean up that stack before retrying
+- if the selected stack itself needs local ancestry repair after an earlier
   merge, point the operator to `jj review cleanup --restack`
-- if the selected path has no landable prefix, say so directly and explain
+- if the selected stack has no landable prefix, say so directly and explain
   whether the user should select a different head, clean up merged ancestors,
   or repair closed PR state first
 - if repository policy or branch protection blocks the transition onto trunk,

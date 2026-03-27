@@ -2876,7 +2876,7 @@ def test_close_apply_rerun_is_idempotent(
 
     assert first_exit_code == 0
     assert second_exit_code == 0
-    assert "No close actions were needed for the selected path." in captured.out
+    assert "No close actions were needed for the selected stack." in captured.out
     assert first_state.changes[change_id].pr_state == "closed"
     assert second_state.changes[change_id].pr_state == "closed"
     assert 1 not in fake_repo.pull_requests

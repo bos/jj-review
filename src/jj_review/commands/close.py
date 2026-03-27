@@ -1,4 +1,4 @@
-"""Close review tracking state for a selected local path."""
+"""Close review tracking state for a selected local stack."""
 
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ def run_close(
     repo_root: Path,
     revset: str | None,
 ) -> CloseResult:
-    """Preview or apply close actions for the selected local review path."""
+    """Preview or apply close actions for the selected local stack."""
 
     prepared_close = prepare_close(
         apply=apply,

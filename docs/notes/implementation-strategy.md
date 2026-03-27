@@ -135,8 +135,8 @@ and whether it only inspects state or may mutate review state.
 
 `submit` now also supports explicit draft-state controls at the CLI boundary:
 `--draft` / `--draft=new` creates newly opened PRs as drafts, `--draft=all`
-also returns existing published PRs on the selected path to draft, and
-`--publish` marks existing draft PRs on the selected path ready for review.
+also returns existing published PRs on the selected stack to draft, and
+`--publish` marks existing draft PRs on the selected stack ready for review.
 
 Command target selection should stay conservative at the CLI boundary:
 
@@ -146,7 +146,7 @@ Command target selection should stay conservative at the CLI boundary:
 - future `close --apply` should require the same explicit selector
 - `cleanup --restack --apply` should require the same explicit selector
 - read-only inspection may stay ergonomic, so `status` and `cleanup --restack`
-  preview may still omit a selector and inspect the current path by default
+  preview may still omit a selector and inspect the current stack by default
 - the lower-level `jj` adapter may keep its existing current-path resolution
   helper so the CLI can opt into that behavior intentionally via `--current`
 
@@ -655,7 +655,7 @@ Implemented in a follow-up:
   actions, push actions, and PR actions through the normal submit path while
   skipping local, remote, GitHub, cache, and intent-file mutations
 - `submit` now accepts `--draft=all` to return already-published PRs on the
-  selected path to draft while keeping plain `--draft` as the conservative
+  selected stack to draft while keeping plain `--draft` as the conservative
   "new PRs only" mode
 - `submit` now accepts `--reviewers` and `--team-reviewers` as one-shot
   overrides for the configured reviewer defaults
@@ -664,7 +664,7 @@ Implemented in a follow-up:
   <selected-revset>` once for stack-comment prose; the helper returns JSON
   `title` / `body` fields and invalid helper output aborts submit before any
   local, remote, or GitHub mutation
-- stack helper invocation is skipped when the selected path contains only one
+- stack helper invocation is skipped when the selected stack contains only one
   change, because no stack comment will be created in that case
 - the submit CLI now prints the selected revset and remote promptly, then
   renders the final ordered review summary once the submit phases complete,
@@ -880,7 +880,7 @@ Deliver:
 
 - persist each change's last submitted local `commit_id` in sparse review
   state on successful `submit`
-- teach `status` and `status --fetch` to inspect the selected local path even
+- teach `status` and `status --fetch` to inspect the selected local stack even
   after fetching merged PR branches has created immutable or divergent off-path
   revisions
 - render merged path changes as cleanup needed instead of treating normal
@@ -896,7 +896,7 @@ Deliver:
   destination is `trunk()`
 - require `--allow-nontrunk-rebase` or manual `jj rebase` before restacking
   surviving descendants onto another surviving local review base
-- keep using the selected local path rather than fetched branch-tip commits for
+- keep using the selected local stack rather than fetched branch-tip commits for
   merged non-trunk PRs
 - leave merged or off-path artifacts alone unless some later cleanup pass can
   prove they are stale and removable
@@ -904,7 +904,7 @@ Deliver:
 Done when:
 
 - merge commit, squash merge, and rebase merge all show a usable status view
-  after fetch because inspection follows the selected local path instead of
+  after fetch because inspection follows the selected local stack instead of
   failing on fetched branch artifacts
 - the default status output tells the operator what `cleanup needed` means and
   what command to run next instead of making them infer the repair flow
@@ -913,7 +913,7 @@ Done when:
   blocking non-trunk survivor rebases unless the operator opts in explicitly
 - fetched branch-tip commits for merged non-trunk PRs are treated as fetched
   remote review state, not as the canonical continuation of the local stack
-- automatic local rewrites fail closed only when the selected path or PR
+- automatic local rewrites fail closed only when the selected stack or PR
   link is truly ambiguous, or when removing a merged path change would
   discard unpublished local edits
 - tests cover the common fetched-merge case, safe survivor restacking, and the
@@ -932,13 +932,13 @@ The CLI contract should stay consistent with the rest of the tool:
   optional guardrail that the operator is landing the intended review
 
 The first implementation decision must be the landing unit. The design doc now
-defines that as the maximal contiguous open prefix of the selected local path
+defines that as the maximal contiguous open prefix of the selected local stack
 starting at `trunk()`. The implementation should preserve that exact contract
 instead of accepting arbitrary PR subsets.
 
 The command also needs explicit phase boundaries so retries are idempotent:
 
-1. resolve the selected local path, open-prefix boundary, trunk target, and
+1. resolve the selected local stack, open-prefix boundary, trunk target, and
    GitHub PR link
 2. if `--apply` is set, rerun the same planning step and abort if the plan
    changed materially since preview
@@ -960,7 +960,7 @@ generic recovery path:
 This slice is now in place with the current implementation:
 
 - preview output clearly identifies the landable prefix, target trunk, and any
-  blocked boundary on the selected path
+  blocked boundary on the selected stack
 - `land --apply` now requires a matching saved preview unless it is resuming an
   interrupted apply from a recorded intent, so material plan drift is rejected
   before any new mutation starts
@@ -1067,7 +1067,7 @@ solves explicit import/materialization, not whole-repo refresh policy.
 ### Close
 
 `close` is implemented. The normal user-facing "stop review for this path"
-flow closes the managed open PRs for the selected local path, and
+flow closes the managed open PRs for the selected local stack, and
 `close --cleanup` extends that with conservative cleanup of owned review
 branches, local review bookmarks, stack summary comments, and stale cache
 entries when ownership is provable.
@@ -1078,7 +1078,7 @@ The CLI contract is:
 
 The product split should stay explicit:
 
-- `close` operates on the selected local review path and closes the managed
+- `close` operates on the selected local stack and closes the managed
   open PRs on that path
 - `close --cleanup` performs conservative branch and metadata cleanup after
   the PR close succeeds
@@ -1091,7 +1091,7 @@ The `close` slice needs clear apply-phase and ownership rules:
 - with `--cleanup`, delete owned remote review branches, forget owned local
   review bookmarks, delete owned stack summary comments, and prune
   stale managed metadata only when the tool can prove ownership for the
-  selected path on the configured target remote
+  selected stack on the configured target remote
 - controlled blocked exits retire their close intent instead of leaving a
   stale "interrupted" notice behind, while still checkpointing any earlier
   cache updates that already succeeded on the same path
@@ -1105,7 +1105,7 @@ The `close` slice needs clear apply-phase and ownership rules:
 Done when:
 
 - `close` can preview and then close the managed open PRs for one selected
-  local review path
+  local stack
 - `close --cleanup` can also delete owned review branches and retire owned
   local review artifacts without crossing ambiguous ownership boundaries
 - close reruns skip already-finished PRs and only perform any remaining safe
