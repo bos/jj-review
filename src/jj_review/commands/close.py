@@ -688,7 +688,7 @@ async def _cleanup_revision(
     if cached_change.pr_number is None:
         return
 
-    comment, comment_error = await _find_managed_stack_comment(
+    comment, comment_error = await _find_stack_summary_comment(
         github_client=github_client,
         github_repository=github_repository,
         pull_request_number=cached_change.pr_number,
@@ -702,7 +702,7 @@ async def _cleanup_revision(
             CloseAction(
                 kind="stack comment",
                 message=(
-                    f"delete managed stack comment #{comment.id} from PR "
+                    f"delete stack summary comment #{comment.id} from PR "
                     f"#{cached_change.pr_number}"
                 ),
                 status="applied" if apply else "planned",
@@ -721,7 +721,7 @@ async def _cleanup_revision(
         )
 
 
-async def _find_managed_stack_comment(
+async def _find_stack_summary_comment(
     *,
     cached_stack_comment_id: int | None,
     github_client: GithubClient,
@@ -776,7 +776,7 @@ async def _find_managed_stack_comment(
             CloseAction(
                 kind="stack comment",
                 message=(
-                    f"cannot inspect managed stack comments for PR #{pull_request_number}: "
+                    f"cannot inspect stack summary comments for PR #{pull_request_number}: "
                     f"{error}"
                 ),
                 status="blocked",
@@ -803,24 +803,24 @@ async def _find_managed_stack_comment(
                 )
             return cached_comment, None
 
-    managed_comments = [
+    stack_summary_comments = [
         comment for comment in comments if _STACK_COMMENT_MARKER in comment.body
     ]
-    if len(managed_comments) > 1:
+    if len(stack_summary_comments) > 1:
         return (
             None,
             CloseAction(
                 kind="stack comment",
                 message=(
-                    "cannot delete managed stack comments because GitHub reports "
+                    "cannot delete stack summary comments because GitHub reports "
                     f"multiple candidates on PR #{pull_request_number}"
                 ),
                 status="blocked",
             ),
         )
-    if not managed_comments:
+    if not stack_summary_comments:
         return None, None
-    return managed_comments[0], None
+    return stack_summary_comments[0], None
 
 
 def _retire_cached_change(

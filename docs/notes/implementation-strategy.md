@@ -695,10 +695,11 @@ regenerated from the current submitted stack on every run and is never used as
 the source of truth for topology.
 
 Single-review-unit submits are treated as plain PRs rather than stacks: they
-skip the managed stack comment entirely, and `--describe-with` does not invoke
+skip the stack summary comment entirely, and `--describe-with` does not invoke
 the stack helper for that case.
 
-The same managed comment now also accepts an optional generated stack-summary
+The same stack summary comment now also accepts an optional generated
+stack-summary
 prefix from `submit --describe-with`; that prose is rendered ahead of the
 standard previous/current/next navigation block so the product still owns only
 one reviewer-facing comment per PR.
@@ -760,7 +761,7 @@ Implemented in the first vertical cut:
 - `status` now also distinguishes merged PRs from merely closed ones and
   derives a lightweight review decision for open PRs from GitHub reviews so
   the stack summary can show approval and change-request state
-- `status` now treats ambiguous GitHub PR link and ambiguous managed stack
+- `status` now treats ambiguous GitHub PR link and ambiguous stack summary
   comments as incomplete inspection, so the command exits non-zero instead of
   presenting those cases as healthy output
 - `status` now also prints explicit repair guidance for stale or ambiguous PR
@@ -800,16 +801,16 @@ Status: done.
 Implemented in the first vertical cut:
 
 - `cleanup` now reports repo-scoped sparse-state cleanup actions before it
-  mutates anything, including stale cached change records, removable managed
-  stack comments on stale PRs, and stale remote review branches
+  mutates anything, including stale cached change records, removable stack
+  summary comments on stale PRs, and stale remote review branches
 - `cleanup --apply` now performs the safe subset of those actions: it prunes
   cached change entries that no longer resolve to supported local review
-  stacks, deletes only managed stack comments on closed or unlinked PRs, and
+  stacks, deletes only stack summary comments on closed or unlinked PRs, and
   deletes stale remote review branches only when the remote branch is
   unambiguous and no local bookmark still owns it
 - stale cache entries now avoid extra GitHub stack-comment inspection unless
   local sparse state suggests comment cleanup could still produce an action,
-  such as a cached managed comment, a cached closed PR, or a missing remote
+  such as a cached stack summary comment, a cached closed PR, or a missing remote
   review branch that suggests the PR may now be unlinked
 - cleanup now overlaps the remaining GitHub stack-comment inspection with
   bounded concurrency while still applying any resulting mutations in the
@@ -1068,7 +1069,7 @@ solves explicit import/materialization, not whole-repo refresh policy.
 `close` is implemented. The normal user-facing "stop review for this path"
 flow closes the managed open PRs for the selected local path, and
 `close --cleanup` extends that with conservative cleanup of owned review
-branches, local review bookmarks, managed stack comments, and stale cache
+branches, local review bookmarks, stack summary comments, and stale cache
 entries when ownership is provable.
 
 The CLI contract is:
@@ -1088,7 +1089,7 @@ The `close` slice needs clear apply-phase and ownership rules:
 - without `--cleanup`, close open PRs and retire active local review state
   only, while skipping already-merged or already-closed PRs on the path
 - with `--cleanup`, delete owned remote review branches, forget owned local
-  review bookmarks, delete owned managed stack comments, and prune
+  review bookmarks, delete owned stack summary comments, and prune
   stale managed metadata only when the tool can prove ownership for the
   selected path on the configured target remote
 - controlled blocked exits retire their close intent instead of leaving a
@@ -1153,7 +1154,7 @@ This slice is now in place with the current implementation:
   marker, and `relink` reactivates the link when it succeeds
 - `land` blocks unlinked changes as not safely landable through the managed
   pipeline
-- cleanup treats unlinked state as a valid reason to remove managed stack
+- cleanup treats unlinked state as a valid reason to remove stack summary
   comments and continues to prune unlinked markers once their `change_id` no
   longer resolves locally
 

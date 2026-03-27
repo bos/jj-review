@@ -1165,27 +1165,27 @@ async def _plan_stack_comment_cleanup(
     ):
         return None
 
-    managed_comment = await _resolve_managed_stack_comment(
+    stack_summary_comment = await _resolve_stack_summary_comment(
         cached_change=cached_change,
         github_client=github_client,
         github_repository=github_repository,
         pull_request_number=pull_request_number,
     )
-    if isinstance(managed_comment, CleanupAction):
-        return StackCommentCleanupPlan(action=managed_comment)
-    if managed_comment is None:
+    if isinstance(stack_summary_comment, CleanupAction):
+        return StackCommentCleanupPlan(action=stack_summary_comment)
+    if stack_summary_comment is None:
         return None
 
     return StackCommentCleanupPlan(
         action=CleanupAction(
             kind="stack comment",
             message=(
-                "delete managed stack comment "
-                f"#{managed_comment.id} from PR #{pull_request_number}"
+                "delete stack summary comment "
+                f"#{stack_summary_comment.id} from PR #{pull_request_number}"
             ),
             status="planned",
         ),
-        comment_id=managed_comment.id,
+        comment_id=stack_summary_comment.id,
     )
 
 
@@ -1228,7 +1228,7 @@ def _pull_request_is_closed_or_unlinked(
     )
 
 
-async def _resolve_managed_stack_comment(
+async def _resolve_stack_summary_comment(
     *,
     cached_change: CachedChange,
     github_client: GithubClient,
@@ -1262,21 +1262,21 @@ async def _resolve_managed_stack_comment(
                 )
             return cached_comment
 
-    managed_comments = [
+    stack_summary_comments = [
         comment for comment in comments if _STACK_COMMENT_MARKER in comment.body
     ]
-    if len(managed_comments) > 1:
+    if len(stack_summary_comments) > 1:
         return CleanupAction(
             kind="stack comment",
             message=(
-                "cannot delete managed stack comments because GitHub reports "
+                "cannot delete stack summary comments because GitHub reports "
                 f"multiple candidates on PR #{pull_request_number}"
             ),
             status="blocked",
         )
-    if not managed_comments:
+    if not stack_summary_comments:
         return None
-    return managed_comments[0]
+    return stack_summary_comments[0]
 
 
 async def _resolve_unlinked_pull_request_number(
@@ -1307,7 +1307,7 @@ async def _resolve_unlinked_pull_request_number(
         return CleanupAction(
             kind="stack comment",
             message=(
-                "cannot delete managed stack comment because GitHub reports multiple "
+                "cannot delete stack summary comment because GitHub reports multiple "
                 f"pull requests for unlinked bookmark {bookmark_state.name!r}"
             ),
             status="blocked",

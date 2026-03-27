@@ -2626,7 +2626,7 @@ def test_cleanup_apply_deletes_managed_stack_comment_for_closed_pull_request(
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert "[applied] stack comment: delete managed stack comment #2 from PR #2" in (
+    assert "[applied] stack comment: delete stack summary comment #2 from PR #2" in (
         captured.out
     )
     assert refreshed_state.changes[change_id].pr_number == 2
@@ -2670,7 +2670,7 @@ def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert "[applied] stack comment: delete managed stack comment #2 from PR #2" in (
+    assert "[applied] stack comment: delete stack summary comment #2 from PR #2" in (
         captured.out
     )
     assert refreshed_state.changes[change_id].stack_comment_id is None

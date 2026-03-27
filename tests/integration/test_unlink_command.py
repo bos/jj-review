@@ -236,7 +236,7 @@ def test_import_preserves_unlinked_state(
     assert imported_change.pr_number is None
 
 
-def test_cleanup_deletes_managed_comment_for_unlinked_pull_request(
+def test_cleanup_deletes_stack_summary_comment_for_unlinked_pull_request(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -261,7 +261,7 @@ def test_cleanup_deletes_managed_comment_for_unlinked_pull_request(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "[applied] stack comment: delete managed stack comment #2 from PR #2" in (
+    assert "[applied] stack comment: delete stack summary comment #2 from PR #2" in (
         captured.out
     )
     unlinked_change = state_store.load().changes[change_id]

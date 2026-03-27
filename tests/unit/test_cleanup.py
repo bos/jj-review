@@ -286,7 +286,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
         return StackCommentCleanupPlan(
             action=CleanupAction(
                 kind="stack comment",
-                message="delete managed stack comment #12 from PR #1",
+                message="delete stack summary comment #12 from PR #1",
                 status="planned",
             ),
             comment_id=12,
@@ -335,7 +335,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     assert result.actions == (
         CleanupAction(
             kind="stack comment",
-            message="delete managed stack comment #12 from PR #1",
+            message="delete stack summary comment #12 from PR #1",
             status="applied",
         ),
     )

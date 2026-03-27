@@ -593,7 +593,7 @@ for review artifacts the tool can prove it owns for that path:
 
 - delete owned remote review branches on the configured target remote only
 - forget owned local review bookmarks
-- delete managed stack comments that belong to the closed path
+- delete stack summary comments that belong to the closed path
 - remove stale review tracking metadata such as cached stack-comment link
 
 That cleanup should stay opt-in instead of implicit because closing PRs is less
