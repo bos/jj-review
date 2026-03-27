@@ -168,7 +168,20 @@ def build_parser() -> ArgumentParser:
         command="submit",
         help_text=_normalized_help_text(submit_command.HELP),
         description_text=submit_command.__doc__ or "",
-        handler=submit_command.handle_submit_command,
+        handler=lambda args: submit_command.handle_submit_command(
+            config_path=args.config,
+            current=args.current,
+            debug=args.debug,
+            describe_with=args.describe_with,
+            draft=args.draft,
+            draft_all=args.draft_all,
+            dry_run=args.dry_run,
+            publish=args.publish,
+            repository=args.repository,
+            reviewers=args.reviewers,
+            revset=args.revset,
+            team_reviewers=args.team_reviewers,
+        ),
     )
     submit_parser.add_argument(
         "--dry-run",

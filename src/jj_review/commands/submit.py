@@ -11,8 +11,7 @@ import json
 import os
 import subprocess
 import tempfile
-from argparse import Namespace
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -290,26 +289,38 @@ def run_submit(
     )
 
 
-def handle_submit_command(args: Namespace) -> int:
+def handle_submit_command(
+    *,
+    config_path: Path | None,
+    current: bool,
+    debug: bool,
+    describe_with: str | None,
+    draft: bool,
+    draft_all: bool,
+    dry_run: bool,
+    publish: bool,
+    repository: Path | None,
+    reviewers: Sequence[str] | None,
+    revset: str | None,
+    team_reviewers: Sequence[str] | None,
+) -> int:
     """CLI entrypoint for `submit`."""
 
     from jj_review.bootstrap import bootstrap_context
 
     context = bootstrap_context(
-        repository=args.repository,
-        config_path=args.config,
-        debug=args.debug,
+        repository=repository,
+        config_path=config_path,
+        debug=debug,
     )
     selected_revset = resolve_selected_revset(
         command_label="submit",
-        current=args.current,
+        current=current,
         require_explicit=True,
-        revset=args.revset,
+        revset=revset,
     )
-    reviewers = parse_comma_separated_flag_values(getattr(args, "reviewers", None))
-    team_reviewers = parse_comma_separated_flag_values(
-        getattr(args, "team_reviewers", None)
-    )
+    reviewer_list = parse_comma_separated_flag_values(reviewers)
+    team_reviewer_list = parse_comma_separated_flag_values(team_reviewers)
     emitted_prepared = False
     emitted_section_header = False
     emitted_trunk = False
@@ -327,7 +338,7 @@ def handle_submit_command(args: Namespace) -> int:
         emitted_trunk = True
         if not has_revisions:
             return
-        if args.dry_run:
+        if dry_run:
             print("Dry run: no local, remote, or GitHub changes applied.")
             print("Planned bookmarks:")
         else:
@@ -337,15 +348,19 @@ def handle_submit_command(args: Namespace) -> int:
     result = run_submit(
         change_overrides=context.config.change,
         config=context.config.repo,
-        describe_with=getattr(args, "describe_with", None),
-        draft_mode=_submit_draft_mode(args),
-        dry_run=bool(args.dry_run),
+        describe_with=describe_with,
+        draft_mode=_submit_draft_mode(
+            draft=draft,
+            draft_all=draft_all,
+            publish=publish,
+        ),
+        dry_run=dry_run,
         on_prepared=emit_prepared,
         on_trunk_resolved=emit_trunk,
         repo_root=context.repo_root,
         revset=selected_revset,
-        reviewers=reviewers,
-        team_reviewers=team_reviewers,
+        reviewers=reviewer_list,
+        team_reviewers=team_reviewer_list,
     )
     if not emitted_prepared:
         print(f"Selected revset: {result.selected_revset}")
@@ -378,12 +393,17 @@ def _print_submit_revision(revision) -> None:
     print(f"  -> {revision.bookmark}{_render_submit_revision_suffix(revision)}")
 
 
-def _submit_draft_mode(args: Namespace) -> SubmitDraftMode:
-    if getattr(args, "draft_all", False):
+def _submit_draft_mode(
+    *,
+    draft: bool,
+    draft_all: bool,
+    publish: bool,
+) -> SubmitDraftMode:
+    if draft_all:
         return "draft_all"
-    if getattr(args, "draft", False):
+    if draft:
         return "draft"
-    if getattr(args, "publish", False):
+    if publish:
         return "publish"
     return "default"
 
