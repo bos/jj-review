@@ -222,9 +222,10 @@ def handle_land_command(args: Namespace) -> int:
         expect_pr_reference=args.expect_pr,
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
-            args,
             command_label="land",
+            current=args.current,
             require_explicit=True,
+            revset=args.revset,
         ),
     )
     print(f"Selected revset: {result.selected_revset}")

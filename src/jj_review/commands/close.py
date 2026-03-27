@@ -113,7 +113,6 @@ def handle_close_command(args: Namespace) -> int:
         config=context.config.repo,
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
-            args,
             command_label=(
                 "close --cleanup --apply"
                 if args.apply and args.cleanup
@@ -123,7 +122,9 @@ def handle_close_command(args: Namespace) -> int:
                     else "close --apply" if args.apply else "close"
                 )
             ),
+            current=args.current,
             require_explicit=True,
+            revset=args.revset,
         ),
     )
     print(f"Selected revset: {result.selected_revset}")

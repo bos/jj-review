@@ -301,9 +301,10 @@ def handle_submit_command(args: Namespace) -> int:
         debug=args.debug,
     )
     selected_revset = resolve_selected_revset(
-        args,
         command_label="submit",
+        current=args.current,
         require_explicit=True,
+        revset=args.revset,
     )
     reviewers = parse_comma_separated_flag_values(getattr(args, "reviewers", None))
     team_reviewers = parse_comma_separated_flag_values(

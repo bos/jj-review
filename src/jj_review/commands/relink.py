@@ -89,9 +89,10 @@ def handle_relink_command(args: Namespace) -> int:
         pull_request_reference=args.pull_request,
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
-            args,
             command_label="relink",
+            current=args.current,
             require_explicit=True,
+            revset=args.revset,
         ),
     )
     print(f"Selected revset: {result.selected_revset}")

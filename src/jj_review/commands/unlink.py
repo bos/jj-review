@@ -71,9 +71,10 @@ def handle_unlink_command(args: Namespace) -> int:
         config=context.config.repo,
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
-            args,
             command_label="unlink",
+            current=args.current,
             require_explicit=True,
+            revset=args.revset,
         ),
     )
     print(f"Selected revset: {result.selected_revset}")

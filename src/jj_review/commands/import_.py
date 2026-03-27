@@ -146,9 +146,10 @@ def handle_import_command(args: Namespace) -> int:
         pull_request_reference=args.pull_request,
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
-            args,
             command_label="import",
+            current=args.current,
             require_explicit=False,
+            revset=args.revset,
         ),
     )
     print(f"Selected selector: {result.selector}")

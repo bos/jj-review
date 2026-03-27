@@ -2,23 +2,20 @@
 
 from __future__ import annotations
 
-from argparse import Namespace
 from collections.abc import Sequence
-from typing import cast
 
 from jj_review.errors import CliError
 
 
 def resolve_selected_revset(
-    args: Namespace,
     *,
     command_label: str,
+    current: bool,
     require_explicit: bool,
+    revset: str | None,
 ) -> str | None:
     """Resolve `<revset>` versus `--current` for revision-oriented commands."""
 
-    revset = getattr(args, "revset", None)
-    current = bool(getattr(args, "current", False))
     if current and revset is not None:
         raise CliError(
             f"`{command_label}` accepts either `<revset>` or `--current`, not both."
@@ -26,7 +23,7 @@ def resolve_selected_revset(
     if current:
         return None
     if revset is not None:
-        return cast(str, revset)
+        return revset
     if require_explicit:
         raise CliError(
             f"`{command_label}` requires an explicit revision selection; "

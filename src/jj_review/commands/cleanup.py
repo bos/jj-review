@@ -254,9 +254,10 @@ def handle_cleanup_command(args: Namespace) -> int:
     )
     if args.restack:
         selected_revset = resolve_selected_revset(
-            args,
             command_label="cleanup --restack --apply" if args.apply else "cleanup --restack",
+            current=args.current,
             require_explicit=bool(args.apply),
+            revset=args.revset,
         )
         try:
             prepared_restack = prepare_restack(
