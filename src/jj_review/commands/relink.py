@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlparse
 
 from jj_review.cache import ReviewStateStore
 from jj_review.commands.submit import (
@@ -24,10 +22,11 @@ from jj_review.intent import check_same_kind_intent, delete_intent, write_intent
 from jj_review.jj import JjClient
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.intent import RelinkIntent
-
-_PULL_REQUEST_URL_RE = re.compile(
-    r"^/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>[0-9]+)/?$"
+from jj_review.pull_request_references import (
+    parse_pull_request_number,
+    parse_pull_request_url,
 )
+
 _DISPLAY_CHANGE_ID_LENGTH = 8
 
 
@@ -214,27 +213,23 @@ def _parse_pull_request_reference(
     reference: str,
     github_repository: ResolvedGithubRepository,
 ) -> int:
-    if reference.isdigit():
-        return int(reference)
-    parsed = urlparse(reference)
-    if parsed.scheme not in {"http", "https"} or parsed.netloc != github_repository.host:
+    parsed = parse_pull_request_number(reference)
+    if parsed is not None:
+        return parsed
+    pull_request_url = parse_pull_request_url(reference)
+    if pull_request_url is None or pull_request_url.host != github_repository.host:
         raise RelinkResolutionError(
             f"`{reference}` is not a pull request number or URL for "
             f"{github_repository.full_name}."
         )
-    match = _PULL_REQUEST_URL_RE.match(parsed.path)
-    if match is None:
-        raise RelinkResolutionError(
-            f"`{reference}` is not a pull request number or URL for "
-            f"{github_repository.full_name}."
-        )
-    owner = match.group("owner")
-    repo = match.group("repo")
-    if owner != github_repository.owner or repo != github_repository.repo:
+    if (
+        pull_request_url.owner != github_repository.owner
+        or pull_request_url.repo != github_repository.repo
+    ):
         raise RelinkResolutionError(
             f"`{reference}` does not belong to {github_repository.full_name}."
         )
-    return int(match.group("number"))
+    return pull_request_url.number
 
 
 def _ensure_relinkable_cached_linkage(

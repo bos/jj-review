@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 import tempfile
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
@@ -13,7 +12,6 @@ from dataclasses import replace as dataclass_replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
-from urllib.parse import urlparse
 
 from jj_review.commands.review_state import (
     PreparedStatus,
@@ -43,11 +41,12 @@ from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubPullRequest
 from jj_review.models.intent import LandIntent, LoadedIntent
+from jj_review.pull_request_references import (
+    parse_pull_request_number,
+    parse_pull_request_url,
+)
 
 LandActionStatus = Literal["applied", "blocked", "planned"]
-_PULL_REQUEST_URL_RE = re.compile(
-    r"^/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>[0-9]+)/?$"
-)
 
 
 class LandError(CliError):
@@ -1190,22 +1189,18 @@ def _parse_pull_request_reference(
     reference: str,
     github_repository: ResolvedGithubRepository,
 ) -> int:
-    try:
-        return int(reference)
-    except ValueError:
-        pass
-
-    parsed = urlparse(reference)
-    match = _PULL_REQUEST_URL_RE.match(parsed.path)
+    parsed = parse_pull_request_number(reference)
+    if parsed is not None:
+        return parsed
+    pull_request_url = parse_pull_request_url(reference)
     if (
-        match is None
-        or parsed.scheme not in {"http", "https"}
-        or parsed.netloc != github_repository.host
-        or match.group("owner") != github_repository.owner
-        or match.group("repo") != github_repository.repo
+        pull_request_url is None
+        or pull_request_url.host != github_repository.host
+        or pull_request_url.owner != github_repository.owner
+        or pull_request_url.repo != github_repository.repo
     ):
         raise LandError(
             f"`--expect-pr` must be a pull request number or a URL for "
             f"{github_repository.full_name}."
         )
-    return int(match.group("number"))
+    return pull_request_url.number

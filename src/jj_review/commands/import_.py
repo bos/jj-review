@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
-from urllib.parse import urlparse
 
 from jj_review.commands.review_state import (
     PreparedStatus,
@@ -31,11 +29,12 @@ from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubPullRequest
+from jj_review.pull_request_references import (
+    parse_pull_request_number,
+    parse_pull_request_url,
+)
 
 _DISPLAY_CHANGE_ID_LENGTH = 8
-_PULL_REQUEST_URL_RE = re.compile(
-    r"^/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>[0-9]+)/?$"
-)
 ImportActionStatus = Literal["applied"]
 
 
@@ -841,29 +840,25 @@ def _parse_pull_request_reference(
     reference: str,
     github_repository: ResolvedGithubRepository,
 ) -> int:
-    if reference.isdigit():
-        return int(reference)
-    parsed = urlparse(reference)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    parsed = parse_pull_request_number(reference)
+    if parsed is not None:
+        return parsed
+    pull_request_url = parse_pull_request_url(reference)
+    if pull_request_url is None:
         raise ImportResolutionError(
             f"Pull request reference {reference!r} is not a PR number or URL."
         )
-    if parsed.hostname != github_repository.host:
+    if pull_request_url.host != github_repository.host:
         raise ImportResolutionError(
             f"Pull request URL {reference!r} does not match configured host "
             f"{github_repository.host!r}."
         )
-    match = _PULL_REQUEST_URL_RE.fullmatch(parsed.path)
-    if match is None:
-        raise ImportResolutionError(
-            f"Pull request URL {reference!r} is not a valid pull request URL."
-        )
     if (
-        match.group("owner") != github_repository.owner
-        or match.group("repo") != github_repository.repo
+        pull_request_url.owner != github_repository.owner
+        or pull_request_url.repo != github_repository.repo
     ):
         raise ImportResolutionError(
             f"Pull request URL {reference!r} does not match configured repository "
             f"{github_repository.full_name!r}."
         )
-    return int(match.group("number"))
+    return pull_request_url.number
