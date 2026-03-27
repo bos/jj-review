@@ -73,28 +73,6 @@ class PreparedClose:
     state_dir: Path | None
 
 
-def run_close(
-    *,
-    apply: bool,
-    cleanup: bool,
-    change_overrides: dict[str, ChangeConfig],
-    config: RepoConfig,
-    repo_root: Path,
-    revset: str | None,
-) -> CloseResult:
-    """Preview or apply close actions for the selected local stack."""
-
-    prepared_close = prepare_close(
-        apply=apply,
-        change_overrides=change_overrides,
-        cleanup=cleanup,
-        config=config,
-        repo_root=repo_root,
-        revset=revset,
-    )
-    return stream_close(prepared_close=prepared_close)
-
-
 def handle_close_command(
     *,
     apply: bool,
@@ -114,7 +92,7 @@ def handle_close_command(
         config_path=config_path,
         debug=debug,
     )
-    result = run_close(
+    prepared_close = prepare_close(
         apply=apply,
         cleanup=cleanup,
         change_overrides=context.config.change,
@@ -133,6 +111,7 @@ def handle_close_command(
             revset=revset,
         ),
     )
+    result = stream_close(prepared_close=prepared_close)
     print(f"Selected revset: {result.selected_revset}")
     if result.remote is None:
         if result.remote_error is None:

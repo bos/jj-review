@@ -627,12 +627,12 @@ def test_main_close_requires_explicit_revision_selection(
     )
     run_called = False
 
-    def fake_run_close(**kwargs):
+    def fake_prepare_close(**kwargs):
         nonlocal run_called
         run_called = True
         raise AssertionError("close should not run without an explicit selector")
 
-    monkeypatch.setattr("jj_review.commands.close.run_close", fake_run_close)
+    monkeypatch.setattr("jj_review.commands.close.prepare_close", fake_prepare_close)
 
     exit_code = main(["close", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -671,10 +671,13 @@ def test_main_close_renders_planned_output(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
 
-    def fake_run_close(**kwargs):
+    def fake_prepare_close(**kwargs):
         assert kwargs["apply"] is False
         assert kwargs["cleanup"] is True
         assert kwargs["revset"] == "@"
+        return SimpleNamespace()
+
+    def fake_stream_close(**kwargs):
         return SimpleNamespace(
             actions=(
                 SimpleNamespace(
@@ -698,7 +701,8 @@ def test_main_close_renders_planned_output(
             selected_revset="@",
         )
 
-    monkeypatch.setattr("jj_review.commands.close.run_close", fake_run_close)
+    monkeypatch.setattr("jj_review.commands.close.prepare_close", fake_prepare_close)
+    monkeypatch.setattr("jj_review.commands.close.stream_close", fake_stream_close)
 
     exit_code = main(["close", "--cleanup", "--repository", str(tmp_path), "@"])
     captured = capsys.readouterr()
@@ -722,10 +726,13 @@ def test_main_close_renders_apply_noop_output(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
 
-    def fake_run_close(**kwargs):
+    def fake_prepare_close(**kwargs):
         assert kwargs["apply"] is True
         assert kwargs["cleanup"] is False
         assert kwargs["revset"] == "@"
+        return SimpleNamespace()
+
+    def fake_stream_close(**kwargs):
         return SimpleNamespace(
             actions=(),
             applied=True,
@@ -738,7 +745,8 @@ def test_main_close_renders_apply_noop_output(
             selected_revset="@",
         )
 
-    monkeypatch.setattr("jj_review.commands.close.run_close", fake_run_close)
+    monkeypatch.setattr("jj_review.commands.close.prepare_close", fake_prepare_close)
+    monkeypatch.setattr("jj_review.commands.close.stream_close", fake_stream_close)
 
     exit_code = main(["close", "--apply", "--repository", str(tmp_path), "@"])
     captured = capsys.readouterr()
