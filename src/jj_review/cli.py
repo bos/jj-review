@@ -15,32 +15,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-from jj_review import __version__
+from jj_review import __version__, commands
 from jj_review.bootstrap import BootstrapError, bootstrap_context
-from jj_review.commands import (
-    cleanup as cleanup_command,
-)
-from jj_review.commands import (
-    close as close_command,
-)
-from jj_review.commands import (
-    import_ as import_command,
-)
-from jj_review.commands import (
-    land as land_command,
-)
-from jj_review.commands import (
-    relink as relink_command,
-)
-from jj_review.commands import (
-    review_state as status_command,
-)
-from jj_review.commands import (
-    submit as submit_command,
-)
-from jj_review.commands import (
-    unlink as unlink_command,
-)
 from jj_review.completion import emit_shell_completion
 from jj_review.errors import CliError, CommandNotImplementedError
 
@@ -71,7 +47,7 @@ Show top-level help or the detailed help for one command. Use `--all` to also
 show the advanced repair commands and hidden global options.
 """
 
-_describe_status_preparation_error = status_command.describe_status_preparation_error
+_describe_status_preparation_error = commands.review_state.describe_status_preparation_error
 
 
 @dataclass(frozen=True)
@@ -85,24 +61,24 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
     (
         "Core commands",
         (
-            _HelpCommand("submit", submit_command.HELP.strip()),
-            _HelpCommand("status", status_command.HELP.strip()),
-            _HelpCommand("land", land_command.HELP.strip()),
-            _HelpCommand("close", close_command.HELP.strip()),
+            _HelpCommand("submit", commands.submit.HELP.strip()),
+            _HelpCommand("status", commands.review_state.HELP.strip()),
+            _HelpCommand("land", commands.land.HELP.strip()),
+            _HelpCommand("close", commands.close.HELP.strip()),
         ),
     ),
     (
         "Support commands",
         (
-            _HelpCommand("cleanup", cleanup_command.HELP.strip()),
-            _HelpCommand("import", import_command.HELP.strip()),
+            _HelpCommand("cleanup", commands.cleanup.HELP.strip()),
+            _HelpCommand("import", commands.import_.HELP.strip()),
         ),
     ),
     (
         "Advanced repair",
         (
-            _HelpCommand("relink", relink_command.HELP.strip(), hidden=True),
-            _HelpCommand("unlink", unlink_command.HELP.strip(), hidden=True),
+            _HelpCommand("relink", commands.relink.HELP.strip(), hidden=True),
+            _HelpCommand("unlink", commands.unlink.HELP.strip(), hidden=True),
         ),
     ),
     (
@@ -166,9 +142,9 @@ def build_parser() -> ArgumentParser:
     submit_parser = _add_revision_command(
         subparsers,
         command="submit",
-        help_text=_normalized_help_text(submit_command.HELP),
-        description_text=submit_command.__doc__ or "",
-        handler=lambda args: submit_command.handle_submit_command(
+        help_text=_normalized_help_text(commands.submit.HELP),
+        description_text=commands.submit.__doc__ or "",
+        handler=lambda args: commands.submit.handle_submit_command(
             config_path=args.config,
             current=args.current,
             debug=args.debug,
@@ -251,9 +227,9 @@ def build_parser() -> ArgumentParser:
     status_parser = _add_revision_command(
         subparsers,
         command="status",
-        help_text=_normalized_help_text(status_command.HELP),
-        description_text=status_command.__doc__ or "",
-        handler=lambda args: status_command.handle_status_command(
+        help_text=_normalized_help_text(commands.review_state.HELP),
+        description_text=commands.review_state.__doc__ or "",
+        handler=lambda args: commands.review_state.handle_status_command(
             config_path=args.config,
             debug=args.debug,
             fetch=args.fetch,
@@ -270,9 +246,9 @@ def build_parser() -> ArgumentParser:
     _add_relink_parser(
         subparsers,
         command="relink",
-        help_text=_normalized_help_text(relink_command.HELP),
-        description_text=relink_command.__doc__ or "",
-        handler=lambda args: relink_command.handle_relink_command(
+        help_text=_normalized_help_text(commands.relink.HELP),
+        description_text=commands.relink.__doc__ or "",
+        handler=lambda args: commands.relink.handle_relink_command(
             config_path=args.config,
             current=args.current,
             debug=args.debug,
@@ -284,9 +260,9 @@ def build_parser() -> ArgumentParser:
     unlink_parser = _add_revision_command(
         subparsers,
         command="unlink",
-        help_text=_normalized_help_text(unlink_command.HELP),
-        description_text=unlink_command.__doc__ or "",
-        handler=lambda args: unlink_command.handle_unlink_command(
+        help_text=_normalized_help_text(commands.unlink.HELP),
+        description_text=commands.unlink.__doc__ or "",
+        handler=lambda args: commands.unlink.handle_unlink_command(
             config_path=args.config,
             current=args.current,
             debug=args.debug,
@@ -302,9 +278,9 @@ def build_parser() -> ArgumentParser:
     land_parser = _add_revision_command(
         subparsers,
         command="land",
-        help_text=_normalized_help_text(land_command.HELP),
-        description_text=land_command.__doc__ or "",
-        handler=lambda args: land_command.handle_land_command(
+        help_text=_normalized_help_text(commands.land.HELP),
+        description_text=commands.land.__doc__ or "",
+        handler=lambda args: commands.land.handle_land_command(
             apply=args.apply,
             bypass_readiness=args.bypass_readiness,
             config_path=args.config,
@@ -340,9 +316,9 @@ def build_parser() -> ArgumentParser:
     close_parser = _add_revision_command(
         subparsers,
         command="close",
-        help_text=_normalized_help_text(close_command.HELP),
-        description_text=close_command.__doc__ or "",
-        handler=lambda args: close_command.handle_close_command(
+        help_text=_normalized_help_text(commands.close.HELP),
+        description_text=commands.close.__doc__ or "",
+        handler=lambda args: commands.close.handle_close_command(
             apply=args.apply,
             cleanup=args.cleanup,
             config_path=args.config,
@@ -370,9 +346,9 @@ def build_parser() -> ArgumentParser:
     _add_import_parser(
         subparsers,
         command="import",
-        help_text=_normalized_help_text(import_command.HELP),
-        description_text=import_command.__doc__ or "",
-        handler=lambda args: import_command.handle_import_command(
+        help_text=_normalized_help_text(commands.import_.HELP),
+        description_text=commands.import_.__doc__ or "",
+        handler=lambda args: commands.import_.handle_import_command(
             config_path=args.config,
             current=args.current,
             debug=args.debug,
@@ -386,8 +362,8 @@ def build_parser() -> ArgumentParser:
 
     cleanup_parser = subparsers.add_parser(
         "cleanup",
-        help=_normalized_help_text(cleanup_command.HELP),
-        description=_normalized_help_text(cleanup_command.__doc__ or ""),
+        help=_normalized_help_text(commands.cleanup.HELP),
+        description=_normalized_help_text(commands.cleanup.__doc__ or ""),
     )
     _add_common_options(cleanup_parser)
     _normalize_help_action_text(cleanup_parser)
@@ -412,7 +388,7 @@ def build_parser() -> ArgumentParser:
         help="Revision whose stack should be inspected or restacked",
     )
     cleanup_parser.set_defaults(
-        handler=lambda args: cleanup_command.handle_cleanup_command(
+        handler=lambda args: commands.cleanup.handle_cleanup_command(
             apply=args.apply,
             config_path=args.config,
             current=args.current,
