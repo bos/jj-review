@@ -323,13 +323,9 @@ def handle_cleanup_command(
             header_printed = True
         print(render_cleanup_action(action=action))
 
-    _, result = run_cleanup_command(
-        apply=apply,
-        config=context.config.repo,
+    result = stream_cleanup(
         on_action=emit_action,
-        prepare_cleanup_fn=lambda **kwargs: prepared_cleanup,
-        repo_root=context.repo_root,
-        stream_cleanup_fn=stream_cleanup,
+        prepared_cleanup=prepared_cleanup,
     )
     for line in render_cleanup_postamble(result=result):
         print(line)
@@ -603,31 +599,6 @@ def stream_restack(
         if _restack_succeeded and restack_intent_path is not None and _restack_intent is not None:
             retire_superseded_intents(restack_stale_intents, _restack_intent)
             delete_intent(restack_intent_path)
-
-
-def run_cleanup_command(
-    *,
-    apply: bool,
-    config: RepoConfig,
-    on_action: Callable[[CleanupAction], None] | None = None,
-    prepare_cleanup_fn: Callable[..., PreparedCleanup] | None = None,
-    repo_root: Path,
-    stream_cleanup_fn: Callable[..., CleanupResult] | None = None,
-) -> tuple[PreparedCleanup, CleanupResult]:
-    """Prepare and run cleanup while allowing the CLI to inject test seams."""
-
-    prepare_fn = prepare_cleanup if prepare_cleanup_fn is None else prepare_cleanup_fn
-    stream_fn = stream_cleanup if stream_cleanup_fn is None else stream_cleanup_fn
-    prepared_cleanup = prepare_fn(
-        apply=apply,
-        config=config,
-        repo_root=repo_root,
-    )
-    result = stream_fn(
-        on_action=on_action,
-        prepared_cleanup=prepared_cleanup,
-    )
-    return prepared_cleanup, result
 
 
 def run_restack_command(
