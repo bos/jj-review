@@ -1,7 +1,19 @@
 from __future__ import annotations
 
-from jj_review.bookmarks import BookmarkResolver, generate_bookmark_name
+from types import SimpleNamespace
+
+import pytest
+
+from jj_review.bookmarks import (
+    BookmarkResolver,
+    ResolvedBookmark,
+    _discover_bookmarks_for_revisions,
+    _ensure_unique_bookmarks,
+    generate_bookmark_name,
+)
 from jj_review.config import ChangeConfig
+from jj_review.errors import CliError
+from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision
 
@@ -101,6 +113,71 @@ def test_bookmark_resolver_reuses_discovered_bookmark_when_cache_is_missing() ->
         result.state.changes["zvlywqkxtmnpqrstu"].bookmark
         == "review/fix-cache-invalidation-zvlywqkx"
     )
+
+
+def test_discover_bookmarks_for_revisions_reuses_unique_matching_remote_bookmark() -> None:
+    bookmarks = _discover_bookmarks_for_revisions(
+        bookmark_states={
+            "review/original-title-zvlywqkx": BookmarkState(
+                name="review/original-title-zvlywqkx",
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("abc123",)),),
+            ),
+        },
+        remote_name="origin",
+        revisions=(
+            SimpleNamespace(change_id="zvlywqkxtmnpqrstu"),
+        ),
+    )
+
+    assert bookmarks == {"zvlywqkxtmnpqrstu": "review/original-title-zvlywqkx"}
+
+
+def test_discover_bookmarks_for_revisions_rejects_ambiguous_matches() -> None:
+    with pytest.raises(
+        CliError,
+        match="multiple existing bookmarks match",
+    ):
+        _discover_bookmarks_for_revisions(
+            bookmark_states={
+                "review/first-zvlywqkx": BookmarkState(
+                    name="review/first-zvlywqkx",
+                    remote_targets=(
+                        RemoteBookmarkState(remote="origin", targets=("abc123",)),
+                    ),
+                ),
+                "review/second-zvlywqkx": BookmarkState(
+                    name="review/second-zvlywqkx",
+                    remote_targets=(
+                        RemoteBookmarkState(remote="origin", targets=("def456",)),
+                    ),
+                ),
+            },
+            remote_name="origin",
+            revisions=(
+                SimpleNamespace(change_id="zvlywqkxtmnpqrstu"),
+            ),
+        )
+
+
+def test_ensure_unique_bookmarks_rejects_duplicate_names() -> None:
+    resolutions = (
+        ResolvedBookmark(
+            bookmark="review/shared-name",
+            change_id="change-a",
+            source="override",
+        ),
+        ResolvedBookmark(
+            bookmark="review/shared-name",
+            change_id="change-b",
+            source="cache",
+        ),
+    )
+
+    with pytest.raises(
+        CliError,
+        match="multiple changes to the same bookmark",
+    ):
+        _ensure_unique_bookmarks(resolutions)
 
 
 def _revision(*, change_id: str, description: str) -> LocalRevision:
