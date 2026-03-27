@@ -47,9 +47,6 @@ Show top-level help or the detailed help for one command. Use `--all` to also
 show the advanced repair commands and hidden global options.
 """
 
-_describe_status_preparation_error = commands.review_state.describe_status_preparation_error
-
-
 @dataclass(frozen=True)
 class _HelpCommand:
     name: str

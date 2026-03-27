@@ -503,7 +503,9 @@ def test_describe_status_preparation_error_falls_back_without_structured_context
         "divergent changes are not supported."
     )
 
-    assert "jj log -r" not in cli_module._describe_status_preparation_error(error)
+    assert "jj log -r" not in cli_module.commands.review_state.describe_status_preparation_error(
+        error
+    )
 
 
 def test_main_submit_requires_explicit_revision_selection(
