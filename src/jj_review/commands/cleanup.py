@@ -685,53 +685,14 @@ async def _stream_cleanup_async(
                 prepared_cleanup=prepared_cleanup,
                 record_action=record_action,
             )
-
-            comment_plan_tasks = _create_stack_comment_cleanup_tasks(
+            await _run_stack_comment_cleanup_pass(
                 github_client=github_client,
                 github_repository=github_repository,
-                prepared_changes=tuple(prepared_changes),
+                next_changes=next_changes,
+                prepared_changes=prepared_changes,
+                prepared_cleanup=prepared_cleanup,
+                record_action=record_action,
             )
-            try:
-                for prepared_change in prepared_changes:
-                    change_id = prepared_change.change_id
-                    if not prepared_change.inspect_stack_comment:
-                        continue
-
-                    comment_plan = await comment_plan_tasks[change_id]
-                    if comment_plan is None:
-                        continue
-                    comment_action = comment_plan.action
-                    if (
-                        apply
-                        and comment_action.status == "planned"
-                        and comment_plan.comment_id is not None
-                    ):
-                        await _delete_issue_comment(
-                            comment_id=comment_plan.comment_id,
-                            github_client=github_client,
-                            github_repository=github_repository,
-                        )
-                        if change_id in next_changes:
-                            next_changes[change_id] = next_changes[change_id].model_copy(
-                                update={"stack_comment_id": None}
-                            )
-                        comment_action = CleanupAction(
-                            kind=comment_plan.action.kind,
-                            message=comment_plan.action.message,
-                            status="applied",
-                        )
-                    record_action(comment_action)
-                    if apply:
-                        _save_cleanup_state(
-                            next_changes=next_changes,
-                            prepared_cleanup=prepared_cleanup,
-                        )
-            finally:
-                for task in comment_plan_tasks.values():
-                    if not task.done():
-                        task.cancel()
-                if comment_plan_tasks:
-                    await asyncio.gather(*comment_plan_tasks.values(), return_exceptions=True)
 
         _save_cleanup_state_if_changed(
             next_changes=next_changes,
@@ -888,6 +849,83 @@ def _create_stack_comment_cleanup_tasks(
         for prepared_change in prepared_changes
         if prepared_change.inspect_stack_comment
     }
+
+
+async def _run_stack_comment_cleanup_pass(
+    *,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+    next_changes: dict[str, CachedChange],
+    prepared_changes: tuple[PreparedCleanupChange, ...],
+    prepared_cleanup: PreparedCleanup,
+    record_action: Callable[[CleanupAction], None],
+) -> None:
+    comment_plan_tasks = _create_stack_comment_cleanup_tasks(
+        github_client=github_client,
+        github_repository=github_repository,
+        prepared_changes=prepared_changes,
+    )
+    try:
+        for prepared_change in prepared_changes:
+            if not prepared_change.inspect_stack_comment:
+                continue
+
+            comment_plan = await comment_plan_tasks[prepared_change.change_id]
+            if comment_plan is None:
+                continue
+            await _apply_stack_comment_cleanup_action(
+                comment_plan=comment_plan,
+                change_id=prepared_change.change_id,
+                github_client=github_client,
+                github_repository=github_repository,
+                next_changes=next_changes,
+                prepared_cleanup=prepared_cleanup,
+                record_action=record_action,
+            )
+    finally:
+        for task in comment_plan_tasks.values():
+            if not task.done():
+                task.cancel()
+        if comment_plan_tasks:
+            await asyncio.gather(*comment_plan_tasks.values(), return_exceptions=True)
+
+
+async def _apply_stack_comment_cleanup_action(
+    *,
+    comment_plan: StackCommentCleanupPlan,
+    change_id: str,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+    next_changes: dict[str, CachedChange],
+    prepared_cleanup: PreparedCleanup,
+    record_action: Callable[[CleanupAction], None],
+) -> None:
+    comment_action = comment_plan.action
+    if (
+        prepared_cleanup.apply
+        and comment_action.status == "planned"
+        and comment_plan.comment_id is not None
+    ):
+        await _delete_issue_comment(
+            comment_id=comment_plan.comment_id,
+            github_client=github_client,
+            github_repository=github_repository,
+        )
+        if change_id in next_changes:
+            next_changes[change_id] = next_changes[change_id].model_copy(
+                update={"stack_comment_id": None}
+            )
+        comment_action = CleanupAction(
+            kind=comment_plan.action.kind,
+            message=comment_plan.action.message,
+            status="applied",
+        )
+    record_action(comment_action)
+    if prepared_cleanup.apply:
+        _save_cleanup_state(
+            next_changes=next_changes,
+            prepared_cleanup=prepared_cleanup,
+        )
 
 
 async def _plan_stack_comment_cleanup_with_semaphore(

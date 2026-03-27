@@ -11,6 +11,7 @@ from jj_review.commands.cleanup import (
     PreparedCleanup,
     PreparedRestack,
     RemoteBranchCleanupPlan,
+    StackCommentCleanupPlan,
     _plan_remote_branch_cleanup,
     _plan_restack_operations,
     _process_remote_branch_cleanup,
@@ -238,6 +239,110 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
     )
 
     asyncio.run(exercise_cleanup())
+
+
+def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
+    monkeypatch,
+) -> None:
+    state = ReviewState.model_validate(
+        {
+            "change": {
+                "change-1": CachedChange(
+                    bookmark="review/feature-1",
+                    pr_number=1,
+                    pr_state="closed",
+                    stack_comment_id=12,
+                ).model_dump(exclude_none=True),
+            }
+        }
+    )
+    saved_states: list[ReviewState] = []
+    deleted_comment_ids: list[int] = []
+    prepared_cleanup = PreparedCleanup(
+        apply=True,
+        bookmark_states={},
+        github_repository=ResolvedGithubRepository(
+            host="github.com",
+            owner="octo-org",
+            repo="stacked-review",
+        ),
+        github_repository_error=None,
+        jj_client=cast(JjClient, SimpleNamespace()),
+        remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
+        remote_error=None,
+        state=state,
+        state_dir=Path("/tmp"),
+        state_store=cast(ReviewStateStore, SimpleNamespace(save=saved_states.append)),
+    )
+
+    class FakeGithubClientContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    async def fake_plan_stack_comment_cleanup(**kwargs):
+        return StackCommentCleanupPlan(
+            action=CleanupAction(
+                kind="stack comment",
+                message="delete managed stack comment #12 from PR #1",
+                status="planned",
+            ),
+            comment_id=12,
+        )
+
+    async def fake_delete_issue_comment(**kwargs):
+        deleted_comment_ids.append(kwargs["comment_id"])
+
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup._build_github_client",
+        lambda **kwargs: FakeGithubClientContext(),
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup._stale_change_reason",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup._plan_stack_comment_cleanup",
+        fake_plan_stack_comment_cleanup,
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup._delete_issue_comment",
+        fake_delete_issue_comment,
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.check_same_kind_intent",
+        lambda *args, **kwargs: (),
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.write_intent",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.delete_intent",
+        lambda *args, **kwargs: None,
+    )
+
+    result = asyncio.run(
+        _stream_cleanup_async(
+            on_action=None,
+            prepared_cleanup=prepared_cleanup,
+        )
+    )
+
+    assert deleted_comment_ids == [12]
+    assert result.actions == (
+        CleanupAction(
+            kind="stack comment",
+            message="delete managed stack comment #12 from PR #1",
+            status="applied",
+        ),
+    )
+    assert [saved_state.changes["change-1"].stack_comment_id for saved_state in saved_states] == [
+        None,
+        None,
+    ]
 
 
 def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
