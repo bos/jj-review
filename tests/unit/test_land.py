@@ -10,12 +10,14 @@ import pytest
 from jj_review.commands.land import (
     LandError,
     _build_land_plan,
+    _collect_landable_prefix,
     _find_resume_land_intent,
     _LandPreviewSnapshot,
     _parse_pull_request_reference,
     _planned_land_actions,
     _remote_trunk_matches_commit,
     _require_matching_land_preview,
+    _resolve_land_path_revisions,
     _restore_local_trunk_bookmark,
     _resume_land_plan,
     _updated_landed_change,
@@ -175,6 +177,74 @@ def test_build_land_plan_raises_assertion_when_status_revision_is_missing() -> N
             status_result=status_result,
             trunk_branch="main",
         )
+
+
+def test_resolve_land_path_revisions_preserves_selected_path_order() -> None:
+    prepared_status = _prepared_status(("change-1", "change-2"))
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-2",
+                    commit_id="commit-2",
+                    pull_request=_pull_request(number=2),
+                    pull_request_state="open",
+                    subject="feature 2",
+                ),
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    pull_request=_pull_request(number=1),
+                    pull_request_state="open",
+                    subject="feature 1",
+                ),
+            )
+        ),
+    )
+
+    path_revisions = _resolve_land_path_revisions(
+        prepared_status=prepared_status,
+        status_result=status_result,
+    )
+
+    assert [revision.change_id for _, revision in path_revisions] == ["change-1", "change-2"]
+
+
+def test_collect_landable_prefix_marks_boundary_after_open_prefix() -> None:
+    prepared_status = _prepared_status(("change-1", "change-2"))
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-2",
+                    commit_id="commit-2",
+                    pull_request=_pull_request(number=2, state="closed"),
+                    pull_request_state="closed",
+                    subject="feature 2",
+                ),
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    pull_request=_pull_request(number=1),
+                    pull_request_state="open",
+                    subject="feature 1",
+                ),
+            )
+        ),
+    )
+    path_revisions = _resolve_land_path_revisions(
+        prepared_status=prepared_status,
+        status_result=status_result,
+    )
+
+    landed_revisions, boundary_action = _collect_landable_prefix(path_revisions=path_revisions)
+
+    assert [revision.pull_request_number for revision in landed_revisions] == [1]
+    assert boundary_action is not None
+    assert boundary_action.status == "planned"
+    assert "stop before feature 2" in boundary_action.message
 
 
 def test_planned_land_actions_omit_mutations_when_plan_is_blocked() -> None:

@@ -557,52 +557,16 @@ def _build_land_plan(
     status_result: StatusResult,
     trunk_branch: str,
 ) -> _LandPlan:
-    revisions_by_change_id = {
-        revision.change_id: revision for revision in status_result.revisions
-    }
-    path_revisions: list[ReviewStatusRevision] = []
-    for prepared_revision in prepared_status.prepared.status_revisions:
-        change_id = prepared_revision.revision.change_id
-        revision = revisions_by_change_id.get(change_id)
-        if revision is None:
-            raise AssertionError(
-                f"Prepared land revision {change_id!r} is missing from the status result."
-            )
-        path_revisions.append(revision)
-
-    landed_revisions: list[_LandRevision] = []
-    boundary_action: LandAction | None = None
-    for prepared_revision, revision in zip(
-        prepared_status.prepared.status_revisions,
-        tuple(path_revisions),
-        strict=True,
-    ):
-        boundary_message = _land_boundary_message(
-            prepared_revision=prepared_revision,
-            revision=revision,
-        )
-        if boundary_message is not None:
-            boundary_action = LandAction(
-                kind="boundary",
-                message=boundary_message,
-                status="blocked" if not landed_revisions else "planned",
-            )
-            break
-        pull_request_lookup = revision.pull_request_lookup
-        if pull_request_lookup is None or pull_request_lookup.pull_request is None:
-            raise AssertionError("Landable revisions require resolved pull requests.")
-        landed_revisions.append(
-            _LandRevision(
-                bookmark=revision.bookmark,
-                change_id=revision.change_id,
-                commit_id=prepared_revision.revision.commit_id,
-                pull_request_number=pull_request_lookup.pull_request.number,
-                subject=revision.subject,
-            )
-        )
+    path_revisions = _resolve_land_path_revisions(
+        prepared_status=prepared_status,
+        status_result=status_result,
+    )
+    landed_revisions, boundary_action = _collect_landable_prefix(path_revisions=path_revisions)
 
     if expect_pr_number is not None:
-        actual_pr_number = landed_revisions[-1].pull_request_number if landed_revisions else None
+        actual_pr_number = (
+            landed_revisions[-1].pull_request_number if landed_revisions else None
+        )
         if actual_pr_number != expect_pr_number:
             return _LandPlan(
                 blocked=True,
@@ -632,6 +596,57 @@ def _build_land_plan(
         push_trunk=True,
         trunk_branch=trunk_branch,
     )
+
+
+def _resolve_land_path_revisions(
+    *,
+    prepared_status: PreparedStatus,
+    status_result: StatusResult,
+) -> tuple[tuple[_PreparedRevision, ReviewStatusRevision], ...]:
+    revisions_by_change_id = {
+        revision.change_id: revision for revision in status_result.revisions
+    }
+    path_revisions: list[tuple[_PreparedRevision, ReviewStatusRevision]] = []
+    for prepared_revision in prepared_status.prepared.status_revisions:
+        change_id = prepared_revision.revision.change_id
+        revision = revisions_by_change_id.get(change_id)
+        if revision is None:
+            raise AssertionError(
+                f"Prepared land revision {change_id!r} is missing from the status result."
+            )
+        path_revisions.append((prepared_revision, revision))
+    return tuple(path_revisions)
+
+
+def _collect_landable_prefix(
+    *,
+    path_revisions: tuple[tuple[_PreparedRevision, ReviewStatusRevision], ...],
+) -> tuple[tuple[_LandRevision, ...], LandAction | None]:
+    landed_revisions: list[_LandRevision] = []
+    for prepared_revision, revision in path_revisions:
+        boundary_message = _land_boundary_message(
+            prepared_revision=prepared_revision,
+            revision=revision,
+        )
+        if boundary_message is not None:
+            return tuple(landed_revisions), LandAction(
+                kind="boundary",
+                message=boundary_message,
+                status="blocked" if not landed_revisions else "planned",
+            )
+        pull_request_lookup = revision.pull_request_lookup
+        if pull_request_lookup is None or pull_request_lookup.pull_request is None:
+            raise AssertionError("Landable revisions require resolved pull requests.")
+        landed_revisions.append(
+            _LandRevision(
+                bookmark=revision.bookmark,
+                change_id=revision.change_id,
+                commit_id=prepared_revision.revision.commit_id,
+                pull_request_number=pull_request_lookup.pull_request.number,
+                subject=revision.subject,
+            )
+        )
+    return tuple(landed_revisions), None
 
 
 def _land_boundary_message(
