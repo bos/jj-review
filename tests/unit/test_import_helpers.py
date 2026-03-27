@@ -10,7 +10,7 @@ import pytest
 from jj_review.commands.import_ import (
     ImportResolutionError,
     _fetch_selected_stack_bookmarks,
-    _prepared_status_has_discoverable_remote_linkage,
+    _prepared_status_has_discoverable_remote_link,
     _resolve_import_bookmark,
     _resolve_remote_head,
     _validate_bookmark_state,
@@ -142,12 +142,12 @@ def test_resolve_import_bookmark_rejects_stale_cached_remote_bookmark_target() -
         == "Could not safely import the selected stack because cached review bookmark "
         "'review/feature-aaaa' for aaaaaaaa points to a different revision on the "
         "selected remote. Refresh with `status --fetch` or repair the stale remote "
-        "linkage before importing again."
+        "link before importing again."
     )
 
 
-def test_prepared_status_has_discoverable_remote_linkage_from_remote_bookmark() -> None:
-    assert _prepared_status_has_discoverable_remote_linkage(
+def test_prepared_status_has_discoverable_remote_link_from_remote_bookmark() -> None:
+    assert _prepared_status_has_discoverable_remote_link(
         cast(
             PreparedStatus,
             SimpleNamespace(
@@ -371,4 +371,4 @@ def test_run_import_current_rejects_before_github_inspection(
             revset=None,
         )
 
-    assert "has no discoverable remote review linkage" in str(exc_info.value)
+    assert "has no discoverable remote review link" in str(exc_info.value)

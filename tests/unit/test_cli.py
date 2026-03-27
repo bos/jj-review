@@ -88,7 +88,7 @@ def test_main_help_command_prints_subcommand_help(
         (
             "import",
             "Without `--fetch`, this uses the selected stack only if its commits "
-            "and review linkage are already available locally",
+            "and review link are already available locally",
         ),
         (
             "relink",

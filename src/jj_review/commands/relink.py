@@ -1,4 +1,4 @@
-"""Explicit PR-linkage repair for existing review branches."""
+"""Explicit PR-link repair for existing review branches."""
 
 from __future__ import annotations
 
@@ -147,7 +147,7 @@ async def _run_relink_async(
         )
 
     state = state_store.load()
-    _ensure_relinkable_cached_linkage(
+    _ensure_relinkable_cached_link(
         bookmark=bookmark,
         change_id=revision.change_id,
         pull_request_number=pull_request.number,
@@ -232,7 +232,7 @@ def _parse_pull_request_reference(
     return pull_request_url.number
 
 
-def _ensure_relinkable_cached_linkage(
+def _ensure_relinkable_cached_link(
     *,
     bookmark: str,
     change_id: str,

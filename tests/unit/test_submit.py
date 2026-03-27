@@ -20,10 +20,10 @@ from jj_review.commands.submit import (
     SubmitRemoteBookmarkConflictError,
     SubmitRemoteBookmarkOwnershipError,
     SubmitRemoteResolutionError,
-    _bookmark_linkage_is_proven,
+    _bookmark_link_is_proven,
     _build_github_client,
     _discover_bookmarks_for_revisions,
-    _ensure_pull_request_linkage_is_consistent,
+    _ensure_pull_request_link_is_consistent,
     _ensure_remote_can_be_updated,
     _ensure_unique_bookmarks,
     _github_hostname_from_api_base_url,
@@ -521,8 +521,8 @@ def test_remote_is_up_to_date_when_untracked_remote_target_matches() -> None:
     assert _remote_is_up_to_date(remote_state, "abc123") is True
 
 
-def test_bookmark_linkage_is_proven_by_existing_local_bookmark() -> None:
-    assert _bookmark_linkage_is_proven(
+def test_bookmark_link_is_proven_by_existing_local_bookmark() -> None:
+    assert _bookmark_link_is_proven(
         bookmark="review/foo",
         bookmark_source="generated",
         bookmark_state=BookmarkState(name="review/foo", local_targets=("abc123",)),
@@ -531,8 +531,8 @@ def test_bookmark_linkage_is_proven_by_existing_local_bookmark() -> None:
     )
 
 
-def test_bookmark_linkage_is_proven_by_cached_bookmark() -> None:
-    assert _bookmark_linkage_is_proven(
+def test_bookmark_link_is_proven_by_cached_bookmark() -> None:
+    assert _bookmark_link_is_proven(
         bookmark="review/foo",
         bookmark_source="cache",
         bookmark_state=BookmarkState(name="review/foo"),
@@ -541,8 +541,8 @@ def test_bookmark_linkage_is_proven_by_cached_bookmark() -> None:
     )
 
 
-def test_bookmark_linkage_is_proven_by_discovered_bookmark() -> None:
-    assert _bookmark_linkage_is_proven(
+def test_bookmark_link_is_proven_by_discovered_bookmark() -> None:
+    assert _bookmark_link_is_proven(
         bookmark="review/foo",
         bookmark_source="discovered",
         bookmark_state=BookmarkState(name="review/foo"),
@@ -551,8 +551,8 @@ def test_bookmark_linkage_is_proven_by_discovered_bookmark() -> None:
     )
 
 
-def test_bookmark_linkage_is_not_proven_by_newly_generated_name() -> None:
-    assert not _bookmark_linkage_is_proven(
+def test_bookmark_link_is_not_proven_by_newly_generated_name() -> None:
+    assert not _bookmark_link_is_proven(
         bookmark="review/foo",
         bookmark_source="generated",
         bookmark_state=BookmarkState(name="review/foo"),
@@ -742,12 +742,12 @@ def test_repair_interrupted_untracked_remote_bookmarks_tracks_matching_remote_ta
     ]
 
 
-def test_pull_request_linkage_rejects_missing_discovered_pull_request() -> None:
+def test_pull_request_link_rejects_missing_discovered_pull_request() -> None:
     with pytest.raises(
         SubmitPullRequestResolutionError,
-        match="Cached pull request linkage exists",
+        match="Cached pull request link exists",
     ):
-        _ensure_pull_request_linkage_is_consistent(
+        _ensure_pull_request_link_is_consistent(
             bookmark="review/foo",
             cached_change=CachedChange(
                 bookmark="review/foo",
@@ -759,12 +759,12 @@ def test_pull_request_linkage_rejects_missing_discovered_pull_request() -> None:
         )
 
 
-def test_pull_request_linkage_rejects_mismatched_pull_request_number() -> None:
+def test_pull_request_link_rejects_mismatched_pull_request_number() -> None:
     with pytest.raises(
         SubmitPullRequestResolutionError,
         match="Cached pull request #17 does not match",
     ):
-        _ensure_pull_request_linkage_is_consistent(
+        _ensure_pull_request_link_is_consistent(
             bookmark="review/foo",
             cached_change=CachedChange(bookmark="review/foo", pr_number=17),
             change_id="change-17",

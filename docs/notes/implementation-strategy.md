@@ -310,7 +310,7 @@ Important model families:
 Important persisted records should mirror the design doc's minimal review
 state:
 
-- per-change pinned bookmark and GitHub linkage
+- per-change pinned bookmark and GitHub PR link
 - per-change reviewer-facing stack comment identifier, if used
 
 Repo defaults used for resolution belong in config, not in machine-written
@@ -727,7 +727,7 @@ Status: done.
 Implemented in the first vertical cut:
 
 - `status` now reports local bookmark resolution together with any discoverable
-  remote and GitHub linkage, while still falling back to local-only output when
+  remote and GitHub PR link, while still falling back to local-only output when
   the repo is not configured well enough for remote inspection
 - `status` now prints the selected revset and remote immediately from local
   state, then streams per-change summaries in display order once GitHub
@@ -740,7 +740,7 @@ Implemented in the first vertical cut:
   bookmark name when one can be resolved
 - the CLI now supports `--time-output` as a global debugging aid that prefixes
   printed lines with elapsed time from process start
-- `status` now inspects per-change GitHub linkage with bounded concurrency on
+- `status` now inspects per-change GitHub PR link with bounded concurrency on
   one shared client with bounded concurrency
 - `status` now derives repo-level GitHub availability from the first real PR
   lookup instead of blocking on a separate repository probe before streaming
@@ -751,20 +751,20 @@ Implemented in the first vertical cut:
 - submit and `status` now persist each change's last-known PR state, and
   `status` uses that cached state to render more informative offline fallback
   summaries
-- successful live `status` runs now refresh sparse cached PR linkage too, so a
+- successful live `status` runs now refresh sparse cached PR link too, so a
   later offline run can still show last-known review identity for previously
   inspected changes
 - that `status` cache refresh is now bidirectional: live observations update
-  open and closed PR state, and clear cached PR linkage when GitHub reports
+  open and closed PR state, and clear cached PR link when GitHub reports
   that the review branch no longer has a PR
 - `status` now also distinguishes merged PRs from merely closed ones and
   derives a lightweight review decision for open PRs from GitHub reviews so
   the stack summary can show approval and change-request state
-- `status` now treats ambiguous GitHub PR linkage and ambiguous managed stack
+- `status` now treats ambiguous GitHub PR link and ambiguous managed stack
   comments as incomplete inspection, so the command exits non-zero instead of
   presenting those cases as healthy output
 - `status` now also prints explicit repair guidance for stale or ambiguous PR
-  linkage so operators who bounced between machines can rerun `status --fetch`
+  link so operators who bounced between machines can rerun `status --fetch`
   and use `relink` intentionally instead of guessing
 - `status` now also treats remote-resolution and GitHub-target fallback output
   as incomplete inspection, so local-only summaries exit non-zero when live
@@ -774,7 +774,7 @@ Implemented in the first vertical cut:
 - `relink` now resolves one explicit PR number or URL against the configured
   repository, verifies that the PR is open on a same-repository head branch,
   pins that branch locally for the selected change, and persists the PR
-  linkage so a later submit can update the relinked review intentionally
+  link so a later submit can update the relinked review intentionally
 - `relink` now also fails closed on GitHub lookup errors instead of surfacing
   uncaught transport exceptions through the CLI
 - `relink` now also refuses to steal an already-bound local review bookmark from
@@ -790,7 +790,7 @@ Deliver:
 
 Done when:
 
-- damaged linkage fails closed in `submit`
+- damaged link fails closed in `submit`
 - `relink` can attach an existing PR intentionally
 
 ### Slice 8: Cleanup
@@ -868,7 +868,7 @@ Deliver:
 Done when:
 
 - submit no longer performs one PR lookup request per review unit
-- submit preserves fail-closed PR linkage checks under batched discovery
+- submit preserves fail-closed PR link checks under batched discovery
 - submit still checkpoints cache state after each completed PR sync
 
 ### Slice 10: Merged PR Reconciliation
@@ -913,7 +913,7 @@ Done when:
 - fetched branch-tip commits for merged non-trunk PRs are treated as fetched
   remote review state, not as the canonical continuation of the local stack
 - automatic local rewrites fail closed only when the selected path or PR
-  linkage is truly ambiguous, or when removing a merged path change would
+  link is truly ambiguous, or when removing a merged path change would
   discard unpublished local edits
 - tests cover the common fetched-merge case, safe survivor restacking, and the
   refusal cases that still require human intervention
@@ -938,7 +938,7 @@ instead of accepting arbitrary PR subsets.
 The command also needs explicit phase boundaries so retries are idempotent:
 
 1. resolve the selected local path, open-prefix boundary, trunk target, and
-   GitHub linkage
+   GitHub PR link
 2. if `--apply` is set, rerun the same planning step and abort if the plan
    changed materially since preview
 3. replay the landable prefix onto trunk locally in `jj`, preserving it as a
@@ -950,7 +950,7 @@ The command also needs explicit phase boundaries so retries are idempotent:
 Error handling should stay specific instead of collapsing everything into one
 generic recovery path:
 
-- linkage problems should point to `status --fetch` / `relink`
+- link problems should point to `status --fetch` / `relink`
 - local ancestry repair should point to `cleanup --restack`
 - policy or branch-protection failures should stop immediately with no fallback
 - plan invalidation between preview and apply should tell the user to rerun the
@@ -1005,7 +1005,7 @@ The CLI contract is:
 
 The product-level split is:
 
-- `status --fetch` refreshes remote observations and GitHub linkage without
+- `status --fetch` refreshes remote observations and GitHub PR state without
   mutating local review bookmarks or the workspace
 - `import` materializes sparse local review state for one exact stack
 - `cleanup --restack` remains the local-history repair path after merges or
@@ -1014,7 +1014,7 @@ The product-level split is:
 The implementation uses explicit rules for what `import` may mutate:
 
 - without `--fetch`, use only locally available commits and remembered review
-  linkage for the selected stack
+  link for the selected stack
 - with `--fetch`, refresh remote bookmark state and, for `--pull-request` and
   `--head`, fetch only the review branches needed for the selected stack so an
   existing reviewed stack can be bootstrapped on a new machine
@@ -1037,21 +1037,21 @@ This slice is done when:
   explicit PR or review-branch selector with `--fetch`
 - remote-only review branches can be materialized into sparse local state
   with `--fetch` and without inventing topology from cache
-- bookmark ownership conflicts, ambiguous PR linkage, and unsupported stack
+- bookmark ownership conflicts, ambiguous PR link, and unsupported stack
   shapes fail with targeted recovery guidance
 - rerunning `import` on an already-materialized stack reports that the local
   review state is already up to date instead of claiming the stack is empty
 - import output always reports GitHub availability explicitly, even when no
   selected remote or repository target is available
 - `--current` import failures are explicit when the current local path has no
-  discoverable remote review linkage
-- `import --current` rejects that missing-linkage case from fetched bookmark
+  discoverable remote review link
+- `import --current` rejects that missing-link case from fetched bookmark
   state before waiting on GitHub inspection
 - import distinguishes a missing cached remote bookmark from a stale cached
   bookmark target so the repair path is easier to diagnose
 - import prints a brief progress note before live GitHub inspection so deep
   stacks do not look hung while status resolution is in flight
-- stale local cache state is refreshed only when fetched linkage for the exact
+- stale local cache state is refreshed only when fetched link for the exact
   selected stack is unambiguous; otherwise import fails closed with targeted
   conflict guidance
 - `import --revset` does not synthesize review bookmark names when no remote is
@@ -1096,7 +1096,7 @@ The `close` slice needs clear apply-phase and ownership rules:
   cache updates that already succeeded on the same path
 - when a PR has already disappeared, cached stack-comment cleanup must
   re-check comment ownership by comment ID before deleting anything
-- fail closed on ambiguous linkage or ambiguous branch ownership instead of
+- fail closed on ambiguous link or ambiguous branch ownership instead of
   guessing what should be deleted
 - reruns should be idempotent, so a second `close` or `close --cleanup`
   performs only the remaining safe work
@@ -1124,15 +1124,15 @@ versus mere cache:
 - clearing cached PR fields is not enough
 - unlink writes a durable detached marker for the selected change
 - rerunning unlink is idempotent and should succeed as a no-op
-- unlinking a change with no active review linkage should fail instead of
+- unlinking a change with no active review link should fail instead of
   creating detached state for a never-linked change
 
 `unlink` keeps the detached-state precedence rule. Once a change is explicitly
 unlinked, that detached record must override every other proof of ownership:
 
 - local synthetic bookmarks
-- cached PR linkage
-- discoverable GitHub linkage for the same head branch
+- cached PR link
+- discoverable GitHub PR link for the same head branch
 
 That means the implementation cannot treat a preserved local bookmark as
 sufficient proof of ownership once detached state exists.
@@ -1141,7 +1141,7 @@ This slice is now in place with the current implementation:
 
 - `unlink` detaches one explicitly selected local review unit without mutating
   GitHub
-- unlink clears active PR and stack-comment linkage, preserves any known review
+- unlink clears active PR and stack-comment link, preserves any known review
   bookmark, and records durable detached state in the sparse cache
 - rerunning unlink for an already-detached change succeeds as a no-op, while
   unlinking a never-linked change fails with targeted guidance
@@ -1150,20 +1150,20 @@ This slice is now in place with the current implementation:
 - `import` may restore local bookmark state for detached changes, but it keeps
   the durable detached marker and does not repopulate active PR ownership
 - `submit` now refuses detached changes until `relink` clears the detached
-  marker, and `relink` reactivates the linkage when it succeeds
+  marker, and `relink` reactivates the link when it succeeds
 - `land` blocks detached changes as not safely landable through the managed
   pipeline
-- cleanup treats detached linkage as a valid reason to remove managed stack
+- cleanup treats detached link as a valid reason to remove managed stack
   comments and continues to prune detached markers once their `change_id` no
   longer resolves locally
 
 Done when:
 
-- unlinking one selected change clears active linkage and records detached state
-- `status --fetch` surfaces detached state without repopulating active linkage
+- unlinking one selected change clears active link and records detached state
+- `status --fetch` surfaces detached state without repopulating active link
 - `status` reports preserved local bookmarks as detached review bookmarks when
   detached state still exists
-- `submit` refuses to reuse detached linkage until `relink` clears it
+- `submit` refuses to reuse detached link until `relink` clears it
 - `land` rejects detached changes as not safely landable
 - cleanup prunes detached markers whose `change_id` no longer resolves in
   visible history

@@ -49,7 +49,7 @@ class SubmitBookmarkConflictError(CliError):
 
 
 class SubmitBookmarkResolutionError(CliError):
-    """Raised when `submit` cannot safely rediscover review bookmark linkage."""
+    """Raised when `submit` cannot safely rediscover review bookmark link."""
 
 
 class SubmitRemoteBookmarkConflictError(CliError):
@@ -759,7 +759,7 @@ def _ensure_remote_can_be_updated(
         )
     if remote_state.target == desired_target:
         return
-    if _bookmark_linkage_is_proven(
+    if _bookmark_link_is_proven(
         bookmark=bookmark,
         bookmark_source=bookmark_source,
         bookmark_state=bookmark_state,
@@ -769,12 +769,12 @@ def _ensure_remote_can_be_updated(
         return
     raise SubmitRemoteBookmarkOwnershipError(
         f"Remote bookmark {bookmark!r}@{remote} already exists and points elsewhere. "
-        "Submit will not take over an existing remote branch unless its linkage is "
+        "Submit will not take over an existing remote branch unless its link is "
         "already proven by local state, cached state, or explicit relinking."
     )
 
 
-def _bookmark_linkage_is_proven(
+def _bookmark_link_is_proven(
     *,
     bookmark: str,
     bookmark_source: BookmarkSource,
@@ -1320,7 +1320,7 @@ async def _sync_pull_request(
     team_reviewers: list[str],
 ) -> PullRequestSyncResult:
     cached_change = state.changes.get(change_id)
-    _ensure_pull_request_linkage_is_consistent(
+    _ensure_pull_request_link_is_consistent(
         bookmark=bookmark,
         cached_change=cached_change,
         change_id=change_id,
@@ -1434,7 +1434,7 @@ def _select_discovered_pull_request(
     if len(pull_requests) > 1:
         raise SubmitPullRequestResolutionError(
             f"GitHub reports multiple pull requests for head branch {head_label!r}. "
-            "Inspect the linkage with `status --fetch` and repair it with `relink` "
+            "Inspect the PR link with `status --fetch` and repair it with `relink` "
             "before submitting again."
         )
     if not pull_requests:
@@ -1443,13 +1443,13 @@ def _select_discovered_pull_request(
     if pull_request.state != "open":
         raise SubmitPullRequestResolutionError(
             f"GitHub reports pull request #{pull_request.number} for head branch "
-            f"{head_label!r} in state {pull_request.state!r}. Inspect the linkage with "
+            f"{head_label!r} in state {pull_request.state!r}. Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before submitting again."
         )
     return pull_request
 
 
-def _ensure_pull_request_linkage_is_consistent(
+def _ensure_pull_request_link_is_consistent(
     *,
     bookmark: str,
     cached_change: CachedChange | None,
@@ -1466,21 +1466,21 @@ def _ensure_pull_request_linkage_is_consistent(
         return
     if discovered_pull_request is None:
         raise SubmitPullRequestResolutionError(
-            f"Cached pull request linkage exists for bookmark {bookmark!r}, but GitHub "
-            "no longer reports a PR for that head branch. Inspect the linkage with "
+            f"Cached pull request link exists for bookmark {bookmark!r}, but GitHub "
+            "no longer reports a PR for that head branch. Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before submitting again."
         )
     if cached_change.pr_number not in (None, discovered_pull_request.number):
         raise SubmitPullRequestResolutionError(
             f"Cached pull request #{cached_change.pr_number} does not match the PR "
             f"GitHub reports for bookmark {bookmark!r} "
-            f"(#{discovered_pull_request.number}). Inspect the linkage with "
+            f"(#{discovered_pull_request.number}). Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before submitting again."
         )
     if cached_change.pr_url not in (None, discovered_pull_request.html_url):
         raise SubmitPullRequestResolutionError(
             f"Cached pull request URL for bookmark {bookmark!r} does not match "
-            "GitHub. Inspect the linkage with `status --fetch` and repair it with "
+            "GitHub. Inspect the PR link with `status --fetch` and repair it with "
             "`relink` before submitting again."
         )
 
@@ -1649,7 +1649,7 @@ async def _sync_stack_comments(
         if cached_change is None:
             if dry_run:
                 continue
-            raise AssertionError("Stack comments require cached pull request linkage.")
+            raise AssertionError("Stack comments require cached pull request link.")
         comment_body = _render_stack_comment(
             current=revision,
             next_revision=revisions[index + 1] if index + 1 < len(revisions) else None,
@@ -1753,7 +1753,7 @@ async def _upsert_stack_comment(
                 raise SubmitStackCommentError(
                     f"Cached stack comment #{cached_change.stack_comment_id} for pull "
                     f"request #{pull_request_number} is not managed by `jj-review`. "
-                    "Inspect the linkage with `status --fetch` or delete the cached "
+                    "Inspect the PR link with `status --fetch` or delete the cached "
                     "comment ID before submitting again."
                 )
             if cached_comment.body == comment_body:
@@ -1822,7 +1822,7 @@ async def _discover_stack_comment(
         comment_ids = ", ".join(str(comment.id) for comment in matching_comments)
         raise SubmitStackCommentError(
             "GitHub reports multiple `jj-review` stack comments for the same pull "
-            f"request: {comment_ids}. Inspect the linkage with `status --fetch` or "
+            f"request: {comment_ids}. Inspect the PR link with `status --fetch` or "
             "delete the extra stack comments before submitting again."
         )
     return matching_comments[0]

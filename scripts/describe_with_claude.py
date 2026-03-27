@@ -250,18 +250,6 @@ def parse_model_output(text: str) -> dict[str, str]:
         isinstance(payload.get(field), str) for field in ("title", "body")
     ):
         return {"title": payload["title"], "body": payload["body"]}
-    for key in ("result", "message", "text"):
-        candidate = payload.get(key) if isinstance(payload, dict) else None
-        if not isinstance(candidate, str):
-            continue
-        try:
-            nested = json.loads(candidate)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(nested, dict) and all(
-            isinstance(nested.get(field), str) for field in ("title", "body")
-        ):
-            return {"title": nested["title"], "body": nested["body"]}
     raise SystemExit("Claude did not return a JSON object with string title/body fields.")
 
 

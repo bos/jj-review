@@ -64,7 +64,7 @@ class StackCommentLookup:
 
 @dataclass(frozen=True, slots=True)
 class ReviewStatusRevision:
-    """Rendered review linkage state for one local revision."""
+    """Rendered review link state for one local revision."""
 
     bookmark: str
     bookmark_source: BookmarkSource

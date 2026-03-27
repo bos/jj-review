@@ -383,7 +383,7 @@ async def _process_missing_close_revision(
     revision,
     revision_label: str,
 ) -> bool:
-    if _has_active_cached_linkage(cached_change):
+    if _has_active_cached_link(cached_change):
         record_action(
             CloseAction(
                 kind="close",
@@ -866,7 +866,7 @@ def _close_cached_change(
     )
 
 
-def _has_active_cached_linkage(cached_change: CachedChange | None) -> bool:
+def _has_active_cached_link(cached_change: CachedChange | None) -> bool:
     if cached_change is None:
         return False
     return cached_change.pr_state == "open"

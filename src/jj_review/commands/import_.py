@@ -153,10 +153,10 @@ async def _run_import_async(
         repo_root=repo_root,
         revset=selection.selected_revset,
     )
-    if current and not _prepared_status_has_discoverable_remote_linkage(prepared_status):
+    if current and not _prepared_status_has_discoverable_remote_link(prepared_status):
         raise ImportResolutionError(
             "`import --current` cannot proceed because the current local path has no "
-            "discoverable remote review linkage."
+            "discoverable remote review link."
         )
     print("Inspecting GitHub review state...")
     status_result = await _stream_status_async(
@@ -309,20 +309,20 @@ async def _resolve_remote_head(
         if not pull_requests:
             raise ImportResolutionError(
                 f"GitHub no longer reports a pull request for head branch "
-                f"{github_repository.owner}:{head}. Inspect the linkage with "
+                f"{github_repository.owner}:{head}. Inspect the PR link with "
                 "`status --fetch` and repair it with `relink` before importing again."
             )
         numbers = ", ".join(str(pull_request.number) for pull_request in pull_requests)
         raise ImportResolutionError(
             f"GitHub reports multiple pull requests for head branch "
-            f"{github_repository.owner}:{head}: {numbers}. Inspect the linkage with "
+            f"{github_repository.owner}:{head}: {numbers}. Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before importing again."
         )
     if pull_request_reference is None and len(pull_requests) > 1:
         numbers = ", ".join(str(pull_request.number) for pull_request in pull_requests)
         raise ImportResolutionError(
             f"GitHub reports multiple pull requests for head branch "
-            f"{github_repository.owner}:{head}: {numbers}. Inspect the linkage with "
+            f"{github_repository.owner}:{head}: {numbers}. Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before importing again."
         )
     if len(pull_requests) == 1:
@@ -770,7 +770,7 @@ def _update_cached_change_from_status(
     return updated_change
 
 
-def _prepared_status_has_discoverable_remote_linkage(
+def _prepared_status_has_discoverable_remote_link(
     prepared_status: PreparedStatus,
 ) -> bool:
     prepared = prepared_status.prepared
@@ -829,7 +829,7 @@ def _resolve_import_bookmark(
             f"cached review bookmark {bookmark!r} for "
             f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} points "
             "to a different revision on the selected remote. Refresh with "
-            "`status --fetch` or repair the stale remote linkage before importing "
+            "`status --fetch` or repair the stale remote link before importing "
             "again."
         )
     return bookmark

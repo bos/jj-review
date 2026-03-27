@@ -886,7 +886,7 @@ def test_submit_reports_up_to_date_when_remote_bookmark_and_pr_already_match(
     assert {number: pr.title for number, pr in fake_repo.pull_requests.items()} == first_prs
 
 
-def test_status_reports_remote_and_github_linkage(
+def test_status_reports_remote_and_github_link(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1229,7 +1229,7 @@ def test_status_exits_nonzero_when_github_reports_multiple_pull_requests(
 
     assert exit_code == 1
     assert "multiple pull requests" in captured.out
-    assert "Review linkage note:" in captured.out
+    assert "PR link note:" in captured.out
     assert "status --fetch" in captured.out
     assert "relink <pr>" in captured.out
 
@@ -1256,7 +1256,7 @@ def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
     assert "multiple `jj-review` stack comments" in captured.out
 
 
-def test_relink_repairs_existing_pull_request_linkage_for_rewritten_change(
+def test_relink_repairs_existing_pull_request_link_for_rewritten_change(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1528,7 +1528,7 @@ def test_unlink_is_idempotent_for_detached_change(
     assert "already detached from managed review" in captured.out
 
 
-def test_unlink_rejects_change_without_active_review_linkage(
+def test_unlink_rejects_change_without_active_review_link(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1543,10 +1543,10 @@ def test_unlink_rejects_change_without_active_review_linkage(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "no active managed review linkage to unlink" in captured.err
+    assert "no active managed review link to unlink" in captured.err
 
 
-def test_status_fetch_surfaces_detached_state_without_repopulating_linkage(
+def test_status_fetch_surfaces_detached_state_without_repopulating_link(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1964,7 +1964,7 @@ def test_submit_fails_closed_when_cached_pull_request_is_missing_on_github(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "Cached pull request linkage exists" in captured.err
+    assert "Cached pull request link exists" in captured.err
     assert "status --fetch" in captured.err
     assert "relink" in captured.err
     assert state_store.load() == initial_state
@@ -2184,7 +2184,7 @@ def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
 
     assert exit_code == 1
     assert ": cached PR #1 (open), no GitHub PR" in captured.out
-    assert "Review linkage note:" in captured.out
+    assert "PR link note:" in captured.out
     assert "status --fetch" in captured.out
     assert "relink <pr>" in captured.out
     assert refreshed_state.changes[change_id].pr_number is None
@@ -3781,7 +3781,7 @@ def test_status_exits_zero_for_disjoint_intent(
     stack_1 = JjClient(repo).discover_review_stack()
     feature_1_change_id = stack_1.revisions[0].change_id
 
-    # Submit feature 1 to get a PR linkage (ensures the change_id resolves)
+    # Submit feature 1 to get a PR link (ensures the change_id resolves)
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
 
@@ -3790,7 +3790,7 @@ def test_status_exits_zero_for_disjoint_intent(
     _write_file(repo / "feature-2.txt", "feature 2\n")
     _run(["jj", "describe", "-m", "feature 2"], repo)
 
-    # Submit feature 2 to create its own PR linkage
+    # Submit feature 2 to create its own PR link
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
 

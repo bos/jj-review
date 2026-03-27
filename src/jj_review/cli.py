@@ -98,7 +98,7 @@ also restack local descendants after earlier pull requests were merged.
 """
 _IMPORT_DESCRIPTION = """
 Import one existing reviewed stack into local jj-review state. Without
-`--fetch`, this uses the selected stack only if its commits and review linkage
+`--fetch`, this uses the selected stack only if its commits and review link
 are already available locally. With `--fetch`, it fetches the selected pull
 request or review branch first so the stack can be imported into a repo that
 does not have it yet. Import does not rewrite commits, restack changes, or
@@ -1140,10 +1140,10 @@ def _emit_status_advisories(result) -> None:
         if getattr(revision, "local_divergent", False)
         and not _revision_has_merged_pull_request(revision)
     ]
-    linkage_revisions = [
+    link_revisions = [
         revision
         for revision in result.revisions
-        if _revision_has_linkage_advisory(revision)
+        if _revision_has_link_advisory(revision)
     ]
     policy_warnings = [
         revision
@@ -1157,7 +1157,7 @@ def _emit_status_advisories(result) -> None:
     if (
         not cleanup_revisions
         and not divergent_revisions
-        and not linkage_revisions
+        and not link_revisions
         and not policy_warnings
     ):
         return
@@ -1183,17 +1183,17 @@ def _emit_status_advisories(result) -> None:
                 f"{_status_revision_label(revision)}: {pull_request_label} is merged, "
                 "and later local changes are still based on it"
             )
-    if linkage_revisions:
+    if link_revisions:
         next_status = f"jj-review status --fetch {result.selected_revset}"
         next_relink = f"jj-review relink <pr> {result.selected_revset}"
         _print_wrapped_advisory(
-            f"Review linkage note: refresh remote and GitHub observations with "
+            f"PR link note: refresh remote and GitHub observations with "
             f"`{next_status}`. If the existing PR should stay attached to one of these "
-            f"changes, repair that linkage intentionally with `{next_relink}`."
+            f"changes, repair that PR link intentionally with `{next_relink}`."
         )
-        for revision in linkage_revisions:
+        for revision in link_revisions:
             _print_wrapped_advisory(
-                f"{_status_revision_label(revision)}: {_describe_linkage_advisory(revision)}"
+                f"{_status_revision_label(revision)}: {_describe_link_advisory(revision)}"
             )
     for revision in policy_warnings:
         base_ref = revision.pull_request_lookup.pull_request.base.ref
@@ -1245,7 +1245,7 @@ def _revision_pull_request_number(revision) -> int | None:
     return lookup.pull_request.number
 
 
-def _revision_has_linkage_advisory(revision) -> bool:
+def _revision_has_link_advisory(revision) -> bool:
     if getattr(revision, "link_state", "active") == "detached":
         return False
     lookup = revision.pull_request_lookup
@@ -1264,12 +1264,12 @@ def _revision_has_linkage_advisory(revision) -> bool:
     return False
 
 
-def _describe_linkage_advisory(revision) -> str:
+def _describe_link_advisory(revision) -> str:
     lookup = revision.pull_request_lookup
     if lookup is None:
-        raise AssertionError("Linkage advisory requires a pull request lookup.")
+        raise AssertionError("Link advisory requires a pull request lookup.")
     if lookup.state == "ambiguous":
-        return lookup.message or "GitHub reports ambiguous pull request linkage"
+        return lookup.message or "GitHub reports an ambiguous pull request link"
     if lookup.state == "missing":
         cached_label = _format_cached_pull_request_label(revision.cached_change)
         if cached_label is None:
@@ -1283,7 +1283,7 @@ def _describe_linkage_advisory(revision) -> str:
             f"PR #{pull_request.number} is {pull_request.state}; submit will not reuse a "
             "closed review automatically"
         )
-    raise AssertionError(f"Unexpected linkage advisory state: {lookup.state}")
+    raise AssertionError(f"Unexpected link advisory state: {lookup.state}")
 
 
 def _resolve_selected_revset(

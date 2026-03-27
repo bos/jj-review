@@ -35,7 +35,7 @@ def test_review_state_store_round_trips_and_creates_parent_directories(tmp_path:
     assert state_path.exists()
 
 
-def test_review_state_store_round_trips_detached_linkage(tmp_path: Path) -> None:
+def test_review_state_store_round_trips_detached_link(tmp_path: Path) -> None:
     state_path = tmp_path / "state.toml"
     store = ReviewStateStore(state_path)
 

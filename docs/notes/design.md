@@ -14,9 +14,9 @@ tool-owned parent map.
 Each reviewable change should get one synthetic bookmark, which acts as the
 GitHub PR head branch.
 
-Local metadata, if any, should be limited to GitHub linkage, user overrides,
-and the pinned bookmark name chosen for a change when the default name includes
-mutable text such as the commit subject.
+Local metadata, if any, should be limited to the GitHub PR link, user
+overrides, and the pinned bookmark name chosen for a change when the default
+name includes mutable text such as the commit subject.
 
 The result is a tool that behaves like a natural extension of `jj` instead of a
 parallel stack manager.
@@ -240,10 +240,10 @@ If the tool stores any machine-written local state, it should be limited to:
 - cached PR number and URL
 - cached stack-comment identifier, if the tool uses a dedicated PR comment
 - last known PR state, only as a cache
-- a durable detached-linkage marker for a change the operator explicitly
+- a durable detached-link marker for a change the operator explicitly
   unlinked, because that is user intent the tool must not silently undo
 
-Even PR linkage can often be rediscovered by asking GitHub for the PR whose
+Even the PR link can often be rediscovered by asking GitHub for the PR whose
 head branch matches the synthetic bookmark name.
 
 User-authored settings and overrides are a separate category and should not be
@@ -331,7 +331,7 @@ Given a selected head revision:
    - if two selected changes resolve to the same bookmark name, fail closed
      before mutating local or remote state
 5. Query GitHub for the PR state of those review branches.
-   - if cached linkage and GitHub-discovered linkage disagree, stop and require
+   - if cached link and GitHub-discovered link disagree, stop and require
      an explicit recovery flow instead of silently creating a replacement PR
    - by default, derive the PR title from the commit subject and the PR body
      from the remaining commit description
@@ -360,7 +360,7 @@ Given a selected head revision:
    - if the local bookmark or selected remote bookmark is conflicted, stop and
      require the user to resolve the bookmark state first
    - if the selected remote bookmark exists but points somewhere else, proceed
-     only if review linkage for that branch is already proven by local state,
+     only if review link for that branch is already proven by local state,
      cached state, or GitHub discovery; otherwise fail closed instead of
      silently taking over that branch
    - when updating an existing untracked remote bookmark, do not import its
@@ -405,19 +405,19 @@ The tool should be conservative when review identity is unclear.
 
 If submit cannot prove that a change still corresponds to the same review
 branch and PR, it should fail with a targeted diagnostic instead of guessing.
-In particular, it should not automatically open a new PR just because cached
-linkage, bookmark state, or GitHub state is missing or damaged.
+In particular, it should not automatically open a new PR just because cached PR
+link, bookmark state, or GitHub state is missing or damaged.
 
 The recovery surface should be explicit and narrow:
 
 - `jj review status --fetch [<revset>]` refreshes remembered remote-branch
-  observations before inspecting GitHub linkage, then reports the selected
+  observations before inspecting GitHub PR state, then reports the selected
   stack and any cached or discoverable PR state without mutating GitHub or
   review bookmarks
 - `jj review relink <pr> [--current | <revset>]` is an advanced repair-only
   command that explicitly reassociates an existing PR and its same-repository
   head branch with a specific `jj` change when the operator intends that
-  linkage; it should pin that branch locally and persist the PR identity so a
+  link; it should pin that branch locally and persist the PR identity so a
   later submit can update the relinked review instead of opening a replacement
   PR
 
@@ -439,14 +439,14 @@ Read-only inspection may remain ergonomic:
   current path by default
 
 `jj review status [<revset>]` should show the selected local stack, pinned or
-discovered review bookmarks, and any cached or discoverable GitHub linkage for
+discovered review bookmarks, and any cached or discoverable GitHub PR link for
 those bookmarks. It is read-only with respect to GitHub and review bookmarks.
-It may persist generated bookmark pins and last-known discoverable GitHub
-linkage into the sparse local cache, but that cache remains advisory rather
-than a source of truth.
+It may persist generated bookmark pins and last-known discoverable GitHub PR
+link into the sparse local cache, but that cache remains advisory rather than a
+source of truth.
 `jj review status --fetch [<revset>]` is the same inspection command, but it
 refreshes remote bookmark observations first so the report reflects the latest
-remote state before it inspects GitHub linkage.
+remote state before it inspects GitHub PR state.
 Because fetched GitHub state often produces extra visible revisions for merged
 changes, status should not insist that every visible revision in the repo still
 forms one supported review stack. Instead, it should discover the selected
@@ -471,20 +471,20 @@ If GitHub is unreachable or misconfigured, status should report that once at the
 repo level and then fall back to conservative per-change summaries derived from
 local cache rather than claiming a PR is absent. Because that output is
 incomplete, the command should exit non-zero instead of reporting success.
-Likewise, if live inspection finds ambiguous PR linkage or multiple managed
+Likewise, if live inspection finds ambiguous PR link or multiple managed
 stack comments for the same PR, status should surface that inline and exit
 non-zero rather than silently treating the stack as healthy.
-If cached PR linkage existed but GitHub now reports no PR for that review
-branch, status should likewise surface that stale linkage inline and exit
+If cached PR link existed but GitHub now reports no PR for that review
+branch, status should likewise surface that stale link inline and exit
 non-zero before it clears the stale cached identity.
-When that inspection finds stale or ambiguous PR linkage, status may also
+When that inspection finds stale or ambiguous PR link, status may also
 print a short repair advisory that points the operator to `status --fetch`
 for refresh and `relink` for intentional reattachment.
-When cached GitHub linkage includes a last-known PR state, status may surface
+When cached GitHub PR link includes a last-known PR state, status may surface
 that state in the fallback output as cached information rather than implying it
 is live.
 When live GitHub inspection succeeds, status should refresh that cached
-linkage in both directions, including clearing stale cached PR identity when
+link in both directions, including clearing stale cached PR identity when
 GitHub now reports that no PR exists for the review branch.
 
 When status reports `cleanup needed`, it should explain why in plain language:
@@ -517,7 +517,7 @@ or a PR number.
 
 Its job is local materialization, not workspace motion:
 
-- without `--fetch`, use only commits and review linkage that are already
+- without `--fetch`, use only commits and review link that are already
   available locally
 - resolve the selected stack from a PR head branch, a specific review branch,
   or an explicitly selected local path
@@ -555,12 +555,12 @@ Failure guidance should stay narrow and specific:
   `jj review cleanup --restack` only when the problem is local ancestry rather
   than remote identity
 - if `--current` was selected but the current local path has no discoverable
-  remote review linkage, say so explicitly instead of silently doing nothing
+  remote review link, say so explicitly instead of silently doing nothing
 - if a local bookmark already points somewhere else, stop and explain the exact
   bookmark-ownership conflict and the safe repair steps instead of stealing
   ownership silently
-- if stale local sparse state disagrees with freshly fetched linkage for the
-  selected stack, fetched linkage wins only when it is exact and unambiguous;
+- if stale local sparse state disagrees with freshly fetched link for the
+  selected stack, fetched link wins only when it is exact and unambiguous;
   otherwise import should fail closed and surface the conflicting local and
   remote identities instead of partially overwriting state
 
@@ -593,7 +593,7 @@ for review artifacts the tool can prove it owns for that path:
 - delete owned remote review branches on the configured target remote only
 - forget owned local synthetic review bookmarks
 - delete managed stack comments that belong to the closed path
-- remove stale managed review metadata such as cached stack-comment linkage
+- remove stale managed review metadata such as cached stack-comment link
 
 That cleanup should stay opt-in instead of implicit because closing PRs is less
 destructive than deleting branches. Preview output should make the difference
@@ -618,7 +618,7 @@ The repair-oriented inverse of `relink` is `unlink`:
 review. Its unit of intent should mirror `relink`: one selected review unit,
 identified from the local DAG.
 
-`unlink` should clear active linkage fields such as:
+`unlink` should clear active link fields such as:
 
 - `pr_number`
 - `pr_url`
@@ -626,7 +626,7 @@ identified from the local DAG.
 - `pr_review_decision`
 - `stack_comment_id`
 
-It should then write a durable detached-linkage marker for that change. That
+It should then write a durable detached-link marker for that change. That
 record matters because a plain cache clear would otherwise be undone
 immediately by later rediscovery.
 
@@ -636,15 +636,15 @@ Detached state should mean:
   for the same review branch, but it must label that state as detached instead
   of repopulating active ownership
 - `import` may rematerialize local bookmark state for the selected change, but
-  it must preserve detached linkage instead of restoring active PR ownership
+  it must preserve detached link instead of restoring active PR ownership
 - when a preserved local bookmark still exists, status should surface it as a
   detached review bookmark rather than an active managed review branch
-- `submit` must refuse to reuse detached linkage automatically, even if a local
+- `submit` must refuse to reuse detached link automatically, even if a local
   bookmark or a discoverable GitHub PR would normally count as proof
 - `land` must reject detached changes as not safely mergeable through the
   managed review pipeline
 - `relink` is the explicit way back in; it clears the detached marker and
-  reestablishes active linkage intentionally
+  reestablishes active link intentionally
 
 By default, `unlink` should be local-only:
 
@@ -659,7 +659,7 @@ rule is part of the product contract, not an implementation detail.
 `unlink` should also be idempotent:
 
 - unlinking an already-detached change should succeed as a no-op
-- unlinking a change with no active review linkage should fail with a targeted
+- unlinking a change with no active review link should fail with a targeted
   diagnostic instead of creating a new detached marker for a never-linked
   change
 
@@ -887,7 +887,7 @@ selected path means. In particular, it should stop with a targeted diagnostic
 when:
 
 - the selected path itself is not a supported linear walk
-- a path change has ambiguous PR linkage
+- a path change has ambiguous PR link
 - a merged path change has local edits since its last submit and removing it
   would discard unpublished work
 - a closed-unmerged path change would need to be skipped or removed, because
@@ -922,7 +922,7 @@ prefix of the selected local path starting at `trunk()`.
 That means:
 
 - walk the selected local path upward from `trunk()`
-- include consecutive review units whose PRs are still open and whose linkage
+- include consecutive review units whose PRs are still open and whose link
   is unambiguous
 - stop at the first merged, closed-unmerged, missing, or ambiguous review unit
 - if the resulting prefix is empty, report that nothing is currently landable
@@ -960,11 +960,11 @@ these changed:
 - the open-prefix boundary
 - the expected PR, if `--expect-pr` was supplied
 - the trunk target or trunk commit
-- the GitHub PR states or linkage for the landing unit
+- the GitHub PR states or PR link for the landing unit
 
 Recovery guidance should stay case-specific:
 
-- if PR linkage is missing or ambiguous, point the operator to
+- if PR link is missing or ambiguous, point the operator to
   `jj review status --fetch` and `jj review relink`
 - if the open-prefix scan stops at a closed-but-unmerged PR, say so directly
   and tell the operator to close or clean up that review path before retrying

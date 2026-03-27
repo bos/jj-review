@@ -14,7 +14,7 @@ from jj_review.models.cache import CachedChange
 
 
 class UnlinkError(CliError):
-    """Raised when `unlink` cannot safely detach review linkage."""
+    """Raised when `unlink` cannot safely detach review link."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +94,7 @@ async def _run_unlink_async(
             subject=prepared_revision.revision.subject,
         )
 
-    if not _revision_has_active_review_linkage(
+    if not _revision_has_active_review_link(
         bookmark=bookmark,
         cached_change=cached_change,
         prepared_client=prepared.client,
@@ -102,7 +102,7 @@ async def _run_unlink_async(
         status_revision=status_revision,
     ):
         raise UnlinkError(
-            "The selected change has no active managed review linkage to unlink. "
+            "The selected change has no active managed review link to unlink. "
             "Use `relink` only when you need to attach an existing PR intentionally."
         )
 
@@ -147,7 +147,7 @@ def _resolved_unlink_bookmark(*, cached_change, prepared_revision, status_revisi
     return None
 
 
-def _revision_has_active_review_linkage(
+def _revision_has_active_review_link(
     *,
     bookmark: str | None,
     cached_change,

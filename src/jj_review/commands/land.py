@@ -91,7 +91,7 @@ class PreparedLand:
 
 @dataclass(frozen=True, slots=True)
 class _LandRevision:
-    """One landed review unit plus its GitHub linkage."""
+    """One landed review unit plus its GitHub link."""
 
     bookmark: str
     change_id: str
@@ -686,10 +686,10 @@ def _land_boundary_message(
             "or `relink` first"
         )
     if pull_request_lookup.state == "ambiguous":
-        detail = pull_request_lookup.message or "GitHub reports ambiguous linkage"
+        detail = pull_request_lookup.message or "GitHub reports an ambiguous PR link"
         return (
             f"stop before {revision.subject} [{_short_change_id(revision.change_id)}] because "
-            f"{detail} Run `status --fetch` and repair the linkage with `relink`."
+            f"{detail} Run `status --fetch` and repair the PR link with `relink`."
         )
     if pull_request_lookup.state == "error":
         detail = pull_request_lookup.message or "GitHub lookup failed"

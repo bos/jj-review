@@ -163,7 +163,7 @@ def test_import_reports_github_inspection_progress(
     assert "Inspecting GitHub review state..." in captured.out
 
 
-def test_import_current_requires_discoverable_remote_review_linkage(
+def test_import_current_requires_discoverable_remote_review_link(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -200,7 +200,7 @@ def test_import_revset_fails_closed_without_remote_bookmark_identity(
     }
 
 
-def test_import_head_rejects_ambiguous_pull_request_linkage(
+def test_import_head_rejects_ambiguous_pull_request_link(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -216,9 +216,9 @@ def test_import_head_rejects_ambiguous_pull_request_linkage(
     assert top_bookmark is not None
     fake_repo.create_pull_request(
         base_ref=fake_repo.pull_requests[2].base_ref,
-        body="duplicate linkage",
+        body="duplicate link",
         head_ref=top_bookmark,
-        title="duplicate linkage",
+        title="duplicate link",
     )
 
     exit_code = _main(repo, config_path, "import", "--fetch", "--head", top_bookmark)
@@ -399,7 +399,7 @@ def test_import_prefers_exact_remote_bookmarks_over_stale_cached_names(
     assert bookmark_states[stale_bookmark].local_target is None
 
 
-def test_import_current_rejects_cache_only_linkage(
+def test_import_current_rejects_cache_only_link(
     tmp_path: Path,
     monkeypatch,
 ) -> None:

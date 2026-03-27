@@ -65,7 +65,7 @@ def test_unlink_is_idempotent_for_already_detached_change(
     assert "is already detached from managed review" in captured.out
 
 
-def test_unlink_rejects_change_without_active_review_linkage(
+def test_unlink_rejects_change_without_active_review_link(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -78,10 +78,10 @@ def test_unlink_rejects_change_without_active_review_linkage(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "no active managed review linkage to unlink" in captured.err
+    assert "no active managed review link to unlink" in captured.err
 
 
-def test_unlink_accepts_cached_active_linkage_without_live_remote_or_pr(
+def test_unlink_accepts_cached_active_link_without_live_remote_or_pr(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
