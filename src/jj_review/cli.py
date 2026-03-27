@@ -149,7 +149,8 @@ def build_parser() -> ArgumentParser:
         prog="jj-review",
         description=_normalized_help_text(_TOP_LEVEL_HELP_DESCRIPTION),
     )
-    _add_common_options(parser)
+    _add_common_options(parser, suppress_defaults=False)
+    parser.set_defaults(handler=None)
     _normalize_help_action_text(parser)
     parser.add_argument(
         "--version",
@@ -565,8 +566,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(error, file=sys.stderr)
         return error.exit_code
     args = parser.parse_args(normalized_argv)
-    with _time_output(enabled=getattr(args, "time_output", False)):
-        handler = getattr(args, "handler", None)
+    with _time_output(enabled=args.time_output):
+        handler = args.handler
         if handler is None:
             print(parser.format_help(), end="")
             return 0
@@ -679,29 +680,33 @@ def _add_import_parser[SubparserT: ArgumentParser](
     return parser
 
 
-def _add_common_options(parser: ArgumentParser) -> None:
+def _add_common_options(
+    parser: ArgumentParser,
+    *,
+    suppress_defaults: bool = True,
+) -> None:
     parser.add_argument(
         "--repository",
         type=Path,
-        default=SUPPRESS,
+        default=SUPPRESS if suppress_defaults else None,
         help="Workspace path to operate on; defaults to the current directory",
     )
     parser.add_argument(
         "--config",
         type=Path,
-        default=SUPPRESS,
+        default=SUPPRESS if suppress_defaults else None,
         help="Use this config file",
     )
     parser.add_argument(
         "--debug",
         action="store_true",
-        default=SUPPRESS,
+        default=SUPPRESS if suppress_defaults else False,
         help="Enable debug logging",
     )
     parser.add_argument(
         "--time-output",
         action="store_true",
-        default=SUPPRESS,
+        default=SUPPRESS if suppress_defaults else False,
         help="Prefix each printed line with elapsed seconds since process start",
     )
 
