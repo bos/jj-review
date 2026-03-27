@@ -880,7 +880,7 @@ async def _discover_pull_requests_by_bookmark(
         )
     except GithubClientError as error:
         raise SubmitPullRequestResolutionError(
-            "Could not batch pull request discovery for review branches: "
+            "Could not batch pull request discovery for branches: "
             f"{error}"
         ) from error
 
@@ -1885,7 +1885,7 @@ def _render_stack_comment(
         lines.extend(("", "---"))
     lines.extend(
         [
-            "This pull request is part of a stack managed by `jj-review`.",
+            "This pull request is part of a stack tracked by `jj-review`.",
             "",
             f"Previous: {_render_stack_neighbor(previous, fallback=f'trunk `{trunk_branch}`')}",
             f"Current: {_render_pull_request_reference(current)}",
@@ -2049,7 +2049,7 @@ def _discover_bookmarks_for_revisions(
         unique_candidates = sorted(set(candidates))
         if len(unique_candidates) > 1:
             raise SubmitBookmarkResolutionError(
-                f"Could not safely rediscover the review bookmark for change "
+                f"Could not safely rediscover the bookmark for change "
                 f"{revision.change_id}: multiple existing bookmarks match its stable "
                 f"change-ID suffix: {', '.join(unique_candidates)}."
             )

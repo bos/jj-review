@@ -43,7 +43,7 @@ StackCommentLookupState = Literal["ambiguous", "error", "missing", "present"]
 
 @dataclass(frozen=True, slots=True)
 class PullRequestLookup:
-    """Best-effort GitHub pull request lookup for one review branch."""
+    """Best-effort GitHub pull request lookup for one branch."""
 
     message: str | None
     pull_request: GithubPullRequest | None
@@ -64,7 +64,7 @@ class StackCommentLookup:
 
 @dataclass(frozen=True, slots=True)
 class ReviewStatusRevision:
-    """Rendered review link state for one local revision."""
+    """Rendered pull-request and branch state for one local revision."""
 
     bookmark: str
     bookmark_source: BookmarkSource

@@ -169,7 +169,8 @@ async def _stream_close_async(
             CloseAction(
                 kind="close",
                 message=(
-                    "cannot close managed pull requests without live GitHub state; "
+                    "cannot close pull requests tracked by jj-review without live "
+                    "GitHub state; "
                     "fix GitHub access and retry"
                 ),
                 status="blocked",
@@ -389,7 +390,7 @@ async def _process_missing_close_revision(
                 kind="close",
                 message=(
                     f"cannot close {revision_label} because GitHub no longer reports a pull "
-                    "request for its review branch; run `status --fetch` or `relink` before "
+                    "request for its branch; run `status --fetch` or `relink` before "
                     "retrying"
                 ),
                 status="blocked",

@@ -355,7 +355,7 @@ def stream_restack(
                 CleanupAction(
                     kind="policy",
                     message=(
-                        f"PR #{pull_request_number} merged into review branch {base_ref}; "
+                        f"PR #{pull_request_number} merged into branch {base_ref}; "
                         "configure GitHub to block merges of PRs targeting `review/*`"
                     ),
                     status="planned",

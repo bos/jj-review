@@ -332,7 +332,7 @@ The resolution order should be:
 - selected remote: command-line flag, then local config, then `origin` if it
   exists, then the only remote if exactly one exists, otherwise fail
 - trunk branch: command-line flag, then local config, then the selected
-  remote's default branch if discoverable, then one remote bookmark on the
+  remote's default branch if it can be found, then one remote bookmark on the
   selected remote that points at `trunk()`, otherwise fail
 - GitHub owner/repo: derive from the selected remote URL, otherwise fail
 
@@ -665,13 +665,13 @@ Implemented in a follow-up:
   `title` / `body` fields and invalid helper output aborts submit before any
   local, remote, or GitHub mutation
 - stack helper invocation is skipped when the selected stack contains only one
-  change, because no stack comment will be created in that case
+  change, because no stack summary comment will be created in that case
 - the submit CLI now prints the selected revset and remote promptly, then
   renders the final ordered review summary once the submit phases complete,
   instead of trying to stream per-revision mutation progress inline
 - the per-change submit summary now renders created PRs as `[PR #n]` in live
   output and `[new PR]` in dry-run output, omitting the separate remote push
-  marker because PR creation already implies the review branch was updated
+  marker because PR creation already implies the branch was updated
 
 Done when:
 
@@ -727,7 +727,7 @@ Status: done.
 
 Implemented in the first vertical cut:
 
-- `status` now reports local bookmark resolution together with any discoverable
+- `status` now reports local bookmark resolution together with any discovered
   remote and GitHub PR link, while still falling back to local-only output when
   the repo is not configured well enough for remote inspection
 - `status` now prints the selected revset and remote immediately from local
@@ -757,7 +757,7 @@ Implemented in the first vertical cut:
   inspected changes
 - that `status` saved-data refresh is now bidirectional: live observations
   update open and closed PR state, and clear the saved PR link when GitHub reports
-  that the review branch no longer has a PR
+  that the branch no longer has a PR
 - `status` now also distinguishes merged PRs from merely closed ones and
   derives a lightweight review decision for open PRs from GitHub reviews so
   the stack summary can show approval and change-request state
@@ -811,8 +811,8 @@ Implemented in the first vertical cut:
 - stale saved entries now avoid extra GitHub stack-summary-comment inspection
   unless saved local data suggests comment cleanup could still produce an
   action, such as a saved stack summary comment, a saved closed PR, or a
-  missing remote review branch that suggests the PR may now be unlinked
-- cleanup now overlaps the remaining GitHub stack-comment inspection with
+  missing remote branch that suggests the PR may now be unlinked
+- cleanup now overlaps the remaining GitHub stack-summary-comment inspection with
   bounded concurrency while still applying any resulting mutations in the
   original saved-entry order
 - remote-branch cleanup remains conservative and fail-closed: conflicted
@@ -826,7 +826,7 @@ Deliver:
 
 - stale saved-data cleanup
 - stale reviewer-facing metadata cleanup
-- conservative remote review branch cleanup
+- conservative remote branch cleanup
 
 Done when:
 
@@ -881,9 +881,10 @@ Deliver:
 - persist each change's last submitted local `commit_id` in saved local data on
   successful `submit`
 - teach `status` and `status --fetch` to inspect the selected local stack even
-  after fetching merged PR branches has created immutable or divergent off-path
+  after fetching merged PR branches has created immutable or divergent side
   revisions
-- render merged path changes as cleanup needed instead of treating normal
+- render merged changes on the selected stack as cleanup needed instead of
+  treating normal
   fetched GitHub merge state as a broken stack
 - make `status` explain why cleanup is needed, warn that descendant submit
   operations still follow the old local ancestry, and print the exact
@@ -892,13 +893,14 @@ Deliver:
   problem instead of presenting them as a mysterious stack failure
 - add `cleanup --restack` as the explicit opt-in local rewrite path for merged
   ancestors
-- let default `cleanup --restack --apply` perform only survivor rebases whose
+- let default `cleanup --restack --apply` perform only rebases of remaining
+  changes whose
   destination is `trunk()`
 - require `--allow-nontrunk-rebase` or manual `jj rebase` before restacking
   surviving descendants onto another surviving local review base
 - keep using the selected local stack rather than fetched branch-tip commits for
   merged non-trunk PRs
-- leave merged or off-path artifacts alone unless some later cleanup pass can
+- leave merged or side-copy artifacts alone unless some later cleanup pass can
   prove they are stale and removable
 
 Done when:
@@ -908,15 +910,16 @@ Done when:
   failing on fetched branch artifacts
 - the default status output tells the operator what `cleanup needed` means and
   what command to run next instead of making them infer the repair flow
-- `cleanup --restack` restores one linear local stack of surviving review
-  units by excising merged path changes from active local ancestry, while
-  blocking non-trunk survivor rebases unless the operator opts in explicitly
+- `cleanup --restack` restores one linear local stack by removing merged
+  changes from active local ancestry, while blocking non-trunk rebases of
+  remaining changes unless the operator opts in explicitly
 - fetched branch-tip commits for merged non-trunk PRs are treated as fetched
   saved GitHub observations, not as the canonical continuation of the local stack
 - automatic local rewrites fail closed only when the selected stack or PR
   link is truly ambiguous, or when removing a merged path change would
   discard unpublished local edits
-- tests cover the common fetched-merge case, safe survivor restacking, and the
+- tests cover the common fetched-merge case, safe restacking of remaining
+  changes, and the
   refusal cases that still require human intervention
 
 ### Landing
@@ -947,7 +950,7 @@ The command also needs explicit phase boundaries so retries are idempotent:
    preserving them as a stack of commits, then push the resulting trunk tip
    with a lease
 4. only after that succeeds, update saved jj-review data and apply the exact
-   PR bookkeeping for the landed prefix
+   PR bookkeeping for the landed changes
 5. leave broader saved-data pruning and stale-review cleanup to `cleanup`
 
 Error handling should stay specific instead of collapsing everything into one
@@ -970,7 +973,7 @@ This slice is now in place with the current implementation:
   through saved-preview validation on rerun, so same-path PR-state drift cannot
   silently bypass preview invalidation
 - land now constructs the landed trunk history locally in `jj`, preserving the
-  landed prefix as multiple commits, then updates trunk with a leased push
+  landed changes as multiple commits, then updates trunk with a leased push
 - if the trunk push fails or is interrupted after the local bookmark move, the
   local trunk bookmark is restored before the command exits so a rejected
   remote update does not silently rewrite local trunk state
@@ -978,15 +981,15 @@ This slice is now in place with the current implementation:
   trunk checks gate the push while `review/*` protection only prevents direct
   review-branch merges
 - review-only `review/*` branches are not themselves merged directly
-- surviving descendants above the landed prefix are left for follow-up
+- surviving descendants above the landed changes are left for follow-up
   `cleanup --restack` and `submit`, rather than being silently retargeted or
   restacked during `land`
-- post-land PR finalization for the landed prefix happens bottom-to-top, even
+- post-land PR finalization for the landed changes happens bottom-to-top, even
   if surrounding GitHub lookups or other independent work use batching or
   bounded parallelism
 - interrupted applies now resume from persisted land intent data, including the
   already-landed trunk target and per-PR completion checkpoints, so reruns can
-  finish post-push bookkeeping without rediscovering the original prefix
+  finish post-push bookkeeping without rediscovering the original landing set
 - preview-state write failures are surfaced immediately instead of degrading
   into a later confusing “run preview first” apply error
 - preview/apply recovery guidance preserves a saved `--expect-pr` guardrail in
@@ -1016,16 +1019,16 @@ The product-level split is:
 
 The implementation uses explicit rules for what `import` may mutate:
 
-- without `--fetch`, use only locally available commits and remembered review
-  link for the selected stack
+- without `--fetch`, use only locally available commits and a remembered PR or
+  branch match for the selected stack
 - with `--fetch`, refresh remote bookmark state and, for `--pull-request` and
-  `--head`, fetch only the review branches needed for the selected stack so an
+  `--head`, fetch only the needed branches for the selected stack so an
   existing reviewed stack can be bootstrapped on a new machine
 - refresh saved data only for the selected stack
 - create or refresh local review bookmarks only when the target is
   exact and unambiguous
 - fail closed if any imported revision would require inventing a new generated
-  review bookmark rather than reusing exact remote identity
+  bookmark rather than reusing exact remote identity
 - `--revset` imports without a selected remote fail closed when the selected
   stack would need generated bookmark identity; only exact saved or discovered
   bookmark names may be imported
@@ -1037,17 +1040,17 @@ The implementation uses explicit rules for what `import` may mutate:
 This slice is done when:
 
 - a user can bootstrap an existing review stack on a new machine from an
-  explicit PR or review-branch selector with `--fetch`
+  explicit PR or branch selector with `--fetch`
 - remote-only review branches can be imported into saved local data
   with `--fetch` and without inventing topology from saved data
-- bookmark ownership conflicts, ambiguous PR link, and unsupported stack
+- bookmark conflicts, ambiguous PR matches, and unsupported stack
   shapes fail with targeted recovery guidance
 - rerunning `import` on an already-imported stack reports that local jj-review
   tracking is already up to date instead of claiming the stack is empty
 - import output always reports GitHub availability explicitly, even when no
   selected remote or repository target is available
-- `--current` import failures are explicit when the current local path has no
-  discoverable remote review link
+- `--current` import failures are explicit when the current stack has no
+  matching remote pull request or branch
 - `import --current` rejects that missing-link case from fetched bookmark
   state before waiting on GitHub inspection
 - import distinguishes a missing saved remote bookmark from a stale saved
@@ -1060,7 +1063,7 @@ This slice is done when:
 - `import --revset` does not synthesize review bookmark names when no remote is
   selected
 - remote-selected import without `--fetch` fails with targeted guidance to
-  rerun with `import --fetch` when the necessary review branch is not already
+  rerun with `import --fetch` when the necessary branch is not already
   present locally
 
 Backlog should keep repo-scoped `sync` as a separate question. This slice
@@ -1068,11 +1071,11 @@ solves explicit import/materialization, not whole-repo refresh policy.
 
 ### Close
 
-`close` is implemented. The normal user-facing "stop review for this path"
-flow closes the managed open PRs for the selected local stack, and
-`close --cleanup` extends that with conservative cleanup of owned review
+`close` is implemented. The normal user-facing "stop review for this stack"
+flow closes the open PRs `jj-review` is already tracking for the selected local
+stack, and `close --cleanup` extends that with conservative cleanup of review
 branches, local review bookmarks, stack summary comments, and stale saved data
-entries when ownership is provable.
+entries when the tool can verify they belong to the stack.
 
 The CLI contract is:
 
@@ -1080,8 +1083,8 @@ The CLI contract is:
 
 The product split should stay explicit:
 
-- `close` operates on the selected local stack and closes the managed
-  open PRs on that path
+- `close` operates on the selected local stack and closes the open PRs
+  `jj-review` is already tracking there
 - `close --cleanup` performs conservative branch and metadata cleanup after
   the PR close succeeds
 
@@ -1089,27 +1092,27 @@ The `close` slice needs clear apply-phase and ownership rules:
 
 - preview by default, with `--apply` required for mutations
 - without `--cleanup`, close open PRs and retire active local jj-review data
-  only, while skipping already-merged or already-closed PRs on the path
-- with `--cleanup`, delete owned remote review branches, forget owned local
-  review bookmarks, delete owned stack summary comments, and prune
-  stale managed metadata only when the tool can prove ownership for the
+  only, while skipping already-merged or already-closed PRs on the stack
+- with `--cleanup`, delete remote review branches, forget local review
+  bookmarks, delete stack summary comments, and prune stale jj-review metadata
+  only when the tool can verify they belong to the
   selected stack on the configured target remote
 - controlled blocked exits retire their close intent instead of leaving a
   stale "interrupted" notice behind, while still checkpointing any earlier
   saved-data updates that already succeeded on the same path
 - when a PR has already disappeared, saved stack-summary-comment cleanup must
-  re-check comment ownership by comment ID before deleting anything
-- fail closed on ambiguous link or ambiguous branch ownership instead of
+  re-check comment identity by comment ID before deleting anything
+- fail closed on ambiguous link or ambiguous branch identity instead of
   guessing what should be deleted
 - reruns should be idempotent, so a second `close` or `close --cleanup`
   performs only the remaining safe work
 
 Done when:
 
-- `close` can preview and then close the managed open PRs for one selected
-  local stack
-- `close --cleanup` can also delete owned review branches and retire owned
-  local review artifacts without crossing ambiguous ownership boundaries
+- `close` can preview and then close the open PRs `jj-review` is already
+  tracking for one selected local stack
+- `close --cleanup` can also delete review branches and retire local review
+  artifacts without crossing ambiguous identity boundaries
 - close reruns skip already-finished PRs and only perform any remaining safe
   cleanup work
 
@@ -1131,31 +1134,32 @@ versus saved local data:
   creating unlinked state for a never-linked change
 
 `unlink` keeps the unlinked-state precedence rule. Once a change is explicitly
-unlinked, that unlinked record must override every other proof of ownership:
+unlinked, that unlinked record must override every other proof that the change
+is still being tracked:
 
 - local review bookmarks
 - saved PR link
-- discoverable GitHub PR link for the same head branch
+- discovered GitHub PR link for the same head branch
 
 That means the implementation cannot treat a preserved local bookmark as
-sufficient proof of ownership once unlinked state exists.
+sufficient proof of active tracking once unlinked state exists.
 
 This slice is now in place with the current implementation:
 
 - `unlink` detaches one explicitly selected local change without mutating
   GitHub
-- unlink clears active PR and stack-comment link, preserves any known review
-  bookmark, and records durable unlinked state in saved local data
+- unlink clears active PR and stack-summary-comment link, preserves any known
+  review bookmark, and records durable unlinked state in saved local data
 - rerunning unlink for an already-unlinked change succeeds as a no-op, while
   unlinking a never-linked change fails with targeted guidance
 - `status --fetch` surfaces unlinked review branches and unlinked PRs without
   repopulating active tracked state
 - `import` may restore local bookmark state for unlinked changes, but it keeps
-  the durable unlinked marker and does not repopulate active PR ownership
+  the durable unlinked marker and does not repopulate active PR tracking
 - `submit` now refuses unlinked changes until `relink` clears the unlinked
   marker, and `relink` reactivates the link when it succeeds
-- `land` blocks unlinked changes as not safely landable through the managed
-  pipeline
+- `land` blocks unlinked changes as not safely landable through the normal
+  review pipeline
 - cleanup treats unlinked state as a valid reason to remove stack summary
   comments and continues to prune unlinked markers once their `change_id` no
   longer resolves locally

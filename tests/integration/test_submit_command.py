@@ -297,7 +297,7 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
         "feature-1.txt"
         in _issue_comments(fake_repo, 1)[0].body
     )
-    assert "This pull request is part of a stack managed by `jj-review`." in (
+    assert "This pull request is part of a stack tracked by `jj-review`." in (
         _issue_comments(fake_repo, 1)[0].body
     )
 
@@ -1421,7 +1421,7 @@ def test_relink_rejects_cross_repository_pull_request_head(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "same-repository review branches" in captured.err
+    assert "same-repository pull request branches" in captured.err
 
 
 def test_relink_rejects_pull_request_with_missing_remote_head_branch(
@@ -2779,7 +2779,9 @@ def test_close_apply_reports_blocked_when_github_is_unavailable(
     assert exit_code == 1
     assert "Close blocked:" in captured.out
     assert "Applied close actions:" not in captured.out
-    assert "cannot close managed pull requests without live GitHub state" in captured.out
+    assert "cannot close pull requests tracked by jj-review without live GitHub state" in (
+        captured.out
+    )
     assert ReviewStateStore.for_repo(repo).load() == initial_state
 
 

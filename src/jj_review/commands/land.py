@@ -668,7 +668,7 @@ def _land_boundary_message(
     if remote_state is None or remote_state.target != prepared_revision.revision.commit_id:
         return (
             f"stop before {revision.subject} [{_short_change_id(revision.change_id)}] because "
-            "the pushed review branch does not match the current local commit; rerun `submit` "
+            "the pushed branch does not match the current local commit; rerun `submit` "
             "first"
         )
     pull_request_lookup = revision.pull_request_lookup
@@ -682,7 +682,7 @@ def _land_boundary_message(
     if pull_request_lookup.state == "missing":
         return (
             f"stop before {revision.subject} [{_short_change_id(revision.change_id)}] because "
-            "GitHub no longer reports a pull request for its review branch; run `status --fetch` "
+            "GitHub no longer reports a pull request for its branch; run `status --fetch` "
             "or `relink` first"
         )
     if pull_request_lookup.state == "ambiguous":

@@ -331,7 +331,7 @@ async def _resolve_remote_head(
             raise ImportResolutionError(
                 f"Pull request #{pull_request.number} head {pull_request.head.label!r} does "
                 f"not belong to {github_repository.full_name}. Import only supports "
-                "same-repository review branches."
+                "same-repository pull request branches."
             )
 
     remote_state = client.get_bookmark_state(head).remote_target(remote.name)
@@ -375,7 +375,7 @@ def _fetch_selected_stack_bookmarks(
     if explicit_head_bookmark not in remote_branches:
         raise ImportResolutionError(
             f"Remote bookmark {explicit_head_bookmark!r}@{remote.name} does not exist. "
-            "Fetch and retry once the review branch is visible on the selected remote."
+            "Fetch and retry once that branch is visible on the selected remote."
         )
     selected_branch_targets = {
         explicit_head_bookmark: remote_branches[explicit_head_bookmark],
@@ -493,7 +493,7 @@ async def _load_pull_request(
         raise ImportResolutionError(
             f"Pull request #{pull_request.number} head {pull_request.head.label!r} does not "
             f"belong to {github_repository.full_name}. Import only supports same-repository "
-            "review branches."
+            "pull request branches."
         )
     return pull_request
 
@@ -529,12 +529,12 @@ def _remote_bookmark_commit_id(
         if not fetch:
             raise ImportResolutionError(
                 f"Remote bookmark {head!r}@{remote.name} is not available in remembered "
-                "local remote state. Re-run `import --fetch` to fetch that review branch "
+                "local remote state. Re-run `import --fetch` to fetch that branch "
                 "before importing."
             )
         raise ImportResolutionError(
             f"Remote bookmark {head!r}@{remote.name} does not exist. Fetch and retry once "
-            "the review branch is visible on the selected remote."
+            "that branch is visible on the selected remote."
         )
     if len(remote_state.targets) > 1:
         raise ImportResolutionError(
@@ -545,7 +545,7 @@ def _remote_bookmark_commit_id(
     if commit_id is None:
         raise ImportResolutionError(
             f"Remote bookmark {head!r}@{remote.name} is ambiguous. Import requires one "
-            "exact review branch."
+            "exact branch."
         )
     return commit_id
 

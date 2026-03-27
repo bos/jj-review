@@ -691,7 +691,7 @@ def _add_import_parser[SubparserT: ArgumentParser](
     )
     selector.add_argument(
         "--head",
-        help="Review branch name to import",
+        help="Branch name to import",
     )
     selector.add_argument(
         "--current",
@@ -708,7 +708,7 @@ def _add_import_parser[SubparserT: ArgumentParser](
         help=_normalized_help_text(
             """
             Refresh the selected stack's remote bookmark state and, for
-            `--pull-request` or `--head`, fetch only the review branches needed
+            `--pull-request` or `--head`, fetch only the branches needed
             to import that stack
             """
         ),
@@ -1273,8 +1273,8 @@ def _describe_link_advisory(revision) -> str:
     if lookup.state == "missing":
         cached_label = _format_cached_pull_request_label(revision.cached_change)
         if cached_label is None:
-            return "GitHub no longer reports a pull request for this review branch"
-        return f"{cached_label} is no longer present on GitHub for this review branch"
+            return "GitHub no longer reports a pull request for this branch"
+        return f"{cached_label} is no longer present on GitHub for this branch"
     if lookup.state == "closed":
         pull_request = lookup.pull_request
         if pull_request is None:
