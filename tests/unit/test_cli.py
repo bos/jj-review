@@ -769,7 +769,7 @@ def test_main_import_renders_up_to_date_output(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
 
-    def fake_run_import(**kwargs):
+    async def fake_run_import_async(**kwargs):
         assert kwargs["current"] is False
         assert kwargs["fetch"] is False
         assert kwargs["head"] == "review/feature-aaaaaaaa"
@@ -785,7 +785,10 @@ def test_main_import_renders_up_to_date_output(
             selector="--head review/feature-aaaaaaaa",
         )
 
-    monkeypatch.setattr("jj_review.commands.import_.run_import", fake_run_import)
+    monkeypatch.setattr(
+        "jj_review.commands.import_._run_import_async",
+        fake_run_import_async,
+    )
 
     exit_code = main(
         [
@@ -813,7 +816,7 @@ def test_main_import_renders_unavailable_github_line(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
 
-    def fake_run_import(**kwargs):
+    async def fake_run_import_async(**kwargs):
         assert kwargs["fetch"] is False
         return SimpleNamespace(
             actions=(),
@@ -827,7 +830,10 @@ def test_main_import_renders_unavailable_github_line(
             selector="--current",
         )
 
-    monkeypatch.setattr("jj_review.commands.import_.run_import", fake_run_import)
+    monkeypatch.setattr(
+        "jj_review.commands.import_._run_import_async",
+        fake_run_import_async,
+    )
 
     exit_code = main(["import", "--repository", str(tmp_path), "--current"])
     captured = capsys.readouterr()
@@ -845,7 +851,7 @@ def test_main_import_fetch_renders_fetched_tip_commit(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
 
-    def fake_run_import(**kwargs):
+    async def fake_run_import_async(**kwargs):
         assert kwargs["fetch"] is True
         return SimpleNamespace(
             actions=(),
@@ -859,7 +865,10 @@ def test_main_import_fetch_renders_fetched_tip_commit(
             selector="--pull-request 2",
         )
 
-    monkeypatch.setattr("jj_review.commands.import_.run_import", fake_run_import)
+    monkeypatch.setattr(
+        "jj_review.commands.import_._run_import_async",
+        fake_run_import_async,
+    )
 
     exit_code = main(
         [

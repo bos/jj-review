@@ -13,8 +13,8 @@ from jj_review.commands.import_ import (
     _prepared_status_has_discoverable_remote_link,
     _resolve_import_bookmark,
     _resolve_remote_head,
+    _run_import_async,
     _validate_bookmark_state,
-    run_import,
 )
 from jj_review.commands.review_state import PreparedStatus
 from jj_review.config import RepoConfig
@@ -356,15 +356,17 @@ def test_run_import_current_rejects_before_github_inspection(
     )
 
     with pytest.raises(ImportResolutionError) as exc_info:
-        run_import(
-            change_overrides={},
-            config=RepoConfig(),
-            current=True,
-            fetch=False,
-            head=None,
-            pull_request_reference=None,
-            repo_root=tmp_path,
-            revset=None,
+        asyncio.run(
+            _run_import_async(
+                change_overrides={},
+                config=RepoConfig(),
+                current=True,
+                fetch=False,
+                head=None,
+                pull_request_reference=None,
+                repo_root=tmp_path,
+                revset=None,
+            )
         )
 
     assert "has no matching remote pull request or branch" in str(exc_info.value)

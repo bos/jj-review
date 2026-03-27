@@ -99,33 +99,6 @@ class _RevisionWithChangeId(Protocol):
     def change_id(self) -> str: ...
 
 
-def run_import(
-    *,
-    change_overrides: dict[str, ChangeConfig],
-    config: RepoConfig,
-    current: bool,
-    fetch: bool,
-    head: str | None,
-    pull_request_reference: str | None,
-    repo_root: Path,
-    revset: str | None,
-) -> ImportResult:
-    """Set up local jj-review tracking for one exact selected stack."""
-
-    return asyncio.run(
-        _run_import_async(
-            change_overrides=change_overrides,
-            config=config,
-            current=current,
-            fetch=fetch,
-            head=head,
-            pull_request_reference=pull_request_reference,
-            repo_root=repo_root,
-            revset=revset,
-        )
-    )
-
-
 def handle_import_command(
     *,
     config_path: Path | None,
@@ -146,20 +119,22 @@ def handle_import_command(
         config_path=config_path,
         debug=debug,
     )
-    result = run_import(
-        change_overrides=context.config.change,
-        config=context.config.repo,
-        current=current,
-        fetch=fetch,
-        head=head,
-        pull_request_reference=pull_request,
-        repo_root=context.repo_root,
-        revset=resolve_selected_revset(
-            command_label="import",
+    result = asyncio.run(
+        _run_import_async(
+            change_overrides=context.config.change,
+            config=context.config.repo,
             current=current,
-            require_explicit=False,
-            revset=revset,
-        ),
+            fetch=fetch,
+            head=head,
+            pull_request_reference=pull_request,
+            repo_root=context.repo_root,
+            revset=resolve_selected_revset(
+                command_label="import",
+                current=current,
+                require_explicit=False,
+                revset=revset,
+            ),
+        )
     )
     print(f"Selected selector: {result.selector}")
     print(f"Selected revset: {result.selected_revset}")
