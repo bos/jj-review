@@ -35,25 +35,6 @@ class UnlinkResult:
     subject: str
 
 
-def run_unlink(
-    *,
-    change_overrides: dict[str, ChangeConfig],
-    config: RepoConfig,
-    repo_root: Path,
-    revset: str | None,
-) -> UnlinkResult:
-    """Unlink one selected local revision from review tracking."""
-
-    return asyncio.run(
-        _run_unlink_async(
-            change_overrides=change_overrides,
-            config=config,
-            repo_root=repo_root,
-            revset=revset,
-        )
-    )
-
-
 def handle_unlink_command(
     *,
     config_path: Path | None,
@@ -72,16 +53,18 @@ def handle_unlink_command(
         config_path=config_path,
         debug=debug,
     )
-    result = run_unlink(
-        change_overrides=context.config.change,
-        config=context.config.repo,
-        repo_root=context.repo_root,
-        revset=resolve_selected_revset(
-            command_label="unlink",
-            current=current,
-            require_explicit=True,
-            revset=revset,
-        ),
+    result = asyncio.run(
+        _run_unlink_async(
+            change_overrides=context.config.change,
+            config=context.config.repo,
+            repo_root=context.repo_root,
+            revset=resolve_selected_revset(
+                command_label="unlink",
+                current=current,
+                require_explicit=True,
+                revset=revset,
+            ),
+        )
     )
     print(f"Selected revset: {result.selected_revset}")
     if result.already_unlinked:

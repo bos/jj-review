@@ -54,25 +54,6 @@ class RelinkResult:
     subject: str
 
 
-def run_relink(
-    *,
-    config: RepoConfig,
-    pull_request_reference: str,
-    repo_root: Path,
-    revset: str | None,
-) -> RelinkResult:
-    """Reassociate an existing pull request with one local reviewable change."""
-
-    return asyncio.run(
-        _run_relink_async(
-            config=config,
-            pull_request_reference=pull_request_reference,
-            repo_root=repo_root,
-            revset=revset,
-        )
-    )
-
-
 def handle_relink_command(
     *,
     config_path: Path | None,
@@ -91,16 +72,18 @@ def handle_relink_command(
         config_path=config_path,
         debug=debug,
     )
-    result = run_relink(
-        config=context.config.repo,
-        pull_request_reference=pull_request,
-        repo_root=context.repo_root,
-        revset=resolve_selected_revset(
-            command_label="relink",
-            current=current,
-            require_explicit=True,
-            revset=revset,
-        ),
+    result = asyncio.run(
+        _run_relink_async(
+            config=context.config.repo,
+            pull_request_reference=pull_request,
+            repo_root=context.repo_root,
+            revset=resolve_selected_revset(
+                command_label="relink",
+                current=current,
+                require_explicit=True,
+                revset=revset,
+            ),
+        )
     )
     print(f"Selected revset: {result.selected_revset}")
     print(f"Selected remote: {result.remote_name}")

@@ -1552,12 +1552,15 @@ def test_main_relink_requires_explicit_revision_selection(
     )
     run_called = False
 
-    def fake_run_relink(**kwargs):
+    async def fake_run_relink_async(**kwargs):
         nonlocal run_called
         run_called = True
         raise AssertionError("relink should not run without an explicit selector")
 
-    monkeypatch.setattr("jj_review.commands.relink.run_relink", fake_run_relink)
+    monkeypatch.setattr(
+        "jj_review.commands.relink._run_relink_async",
+        fake_run_relink_async,
+    )
 
     exit_code = main(["relink", "--repository", str(tmp_path), "123"])
     captured = capsys.readouterr()
@@ -1575,7 +1578,7 @@ def test_main_relink_current_passes_current_path_selection(
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     relink_calls: list[str | None] = []
 
-    def fake_run_relink(**kwargs):
+    async def fake_run_relink_async(**kwargs):
         relink_calls.append(kwargs["revset"])
         return SimpleNamespace(
             bookmark="review/feature-abcdefgh",
@@ -1587,7 +1590,10 @@ def test_main_relink_current_passes_current_path_selection(
             subject="feature 1",
         )
 
-    monkeypatch.setattr("jj_review.commands.relink.run_relink", fake_run_relink)
+    monkeypatch.setattr(
+        "jj_review.commands.relink._run_relink_async",
+        fake_run_relink_async,
+    )
 
     exit_code = main(["relink", "--current", "--repository", str(tmp_path), "7"])
     captured = capsys.readouterr()
@@ -1615,12 +1621,15 @@ def test_main_unlink_requires_explicit_revision_selection(
     )
     run_called = False
 
-    def fake_run_unlink(**kwargs):
+    async def fake_run_unlink_async(**kwargs):
         nonlocal run_called
         run_called = True
         raise AssertionError("unlink should not run without an explicit selector")
 
-    monkeypatch.setattr("jj_review.commands.unlink.run_unlink", fake_run_unlink)
+    monkeypatch.setattr(
+        "jj_review.commands.unlink._run_unlink_async",
+        fake_run_unlink_async,
+    )
 
     exit_code = main(["unlink", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1638,7 +1647,7 @@ def test_main_unlink_current_passes_current_path_selection(
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     calls: list[str | None] = []
 
-    def fake_run_unlink(**kwargs):
+    async def fake_run_unlink_async(**kwargs):
         calls.append(kwargs["revset"])
         return SimpleNamespace(
             already_unlinked=False,
@@ -1648,7 +1657,10 @@ def test_main_unlink_current_passes_current_path_selection(
             subject="feature 1",
         )
 
-    monkeypatch.setattr("jj_review.commands.unlink.run_unlink", fake_run_unlink)
+    monkeypatch.setattr(
+        "jj_review.commands.unlink._run_unlink_async",
+        fake_run_unlink_async,
+    )
 
     exit_code = main(["unlink", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
