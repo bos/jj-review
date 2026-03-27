@@ -519,7 +519,7 @@ def test_main_submit_requires_explicit_revision_selection(
         run_called = True
         raise AssertionError("submit should not run without an explicit selector")
 
-    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
 
     exit_code = main(["submit", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1058,7 +1058,7 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
 
     exit_code = main(["submit", "--dry-run", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1092,7 +1092,7 @@ def test_main_submit_passes_draft_mode_to_submit_runner(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
 
     exit_code = main(["submit", "--draft", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1121,7 +1121,7 @@ def test_main_submit_passes_draft_all_mode_to_submit_runner(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
 
     exit_code = main(["submit", "--draft=all", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1150,7 +1150,7 @@ def test_main_submit_passes_reviewer_overrides_to_submit_runner(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
 
     exit_code = main(
         [
@@ -1194,7 +1194,7 @@ def test_main_submit_passes_describe_with_to_submit_runner(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
 
     exit_code = main(
         [
@@ -1244,7 +1244,7 @@ def test_main_submit_prints_final_output_without_duplicate_lines(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
 
     exit_code = main(["submit", "--dry-run", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1291,7 +1291,7 @@ def test_main_submit_prints_top_pull_request_url_at_end(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
 
     exit_code = main(["submit", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1333,7 +1333,7 @@ def test_main_time_output_prefixes_submit_summary_lines(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
 
     exit_code = main(["submit", "--current", "--time-output", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
