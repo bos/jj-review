@@ -58,10 +58,8 @@ from jj_review.commands.cleanup import (
     stream_cleanup,
     stream_restack,
 )
-from jj_review.commands.relink import run_relink
 from jj_review.commands.review_state import prepare_status, run_status_command, stream_status
 from jj_review.commands.submit import run_submit
-from jj_review.commands.unlink import run_unlink
 from jj_review.completion import emit_shell_completion
 from jj_review.errors import CliError, CommandNotImplementedError
 from jj_review.jj import UnsupportedStackError
@@ -274,13 +272,14 @@ def build_parser() -> ArgumentParser:
         command="relink",
         help_text=_normalized_help_text(relink_command.HELP),
         description_text=relink_command.__doc__ or "",
+        handler=relink_command.handle_relink_command,
     )
     unlink_parser = _add_revision_command(
         subparsers,
         command="unlink",
         help_text=_normalized_help_text(unlink_command.HELP),
         description_text=unlink_command.__doc__ or "",
-        handler=_unlink_handler,
+        handler=unlink_command.handle_unlink_command,
     )
     unlink_parser.add_argument(
         "--current",
@@ -628,6 +627,7 @@ def _add_relink_parser[SubparserT: ArgumentParser](
     command: str,
     help_text: str,
     description_text: str,
+    handler=None,
 ) -> SubparserT:
     parser = subparsers.add_parser(
         command,
@@ -647,7 +647,7 @@ def _add_relink_parser[SubparserT: ArgumentParser](
         nargs="?",
         help="Revision to reassociate with the pull request",
     )
-    parser.set_defaults(handler=_relink_handler)
+    parser.set_defaults(handler=handler or _stub_handler(command))
     return parser
 
 
@@ -1006,64 +1006,6 @@ def _render_submit_pr_suffix(
     if action == "created":
         return f" [{label}]"
     return f" [{label} {action}]"
-
-
-def _relink_handler(args: Namespace) -> int:
-    context = bootstrap_context(args)
-    selected_revset = _resolve_selected_revset(
-        args,
-        command_label="relink",
-        require_explicit=True,
-    )
-    result = run_relink(
-        config=context.config.repo,
-        pull_request_reference=args.pull_request,
-        repo_root=context.repo_root,
-        revset=selected_revset,
-    )
-    print(f"Selected revset: {result.selected_revset}")
-    print(f"Selected remote: {result.remote_name}")
-    print(f"GitHub: {result.github_repository}")
-    print(
-        f"Relinked PR #{result.pull_request_number} for {result.subject} "
-        f"[{status_command.display_change_id(result.change_id)}] -> {result.bookmark}"
-    )
-    return 0
-
-
-def _unlink_handler(args: Namespace) -> int:
-    context = bootstrap_context(args)
-    selected_revset = _resolve_selected_revset(
-        args,
-        command_label="unlink",
-        require_explicit=True,
-    )
-    result = run_unlink(
-        change_overrides=context.config.change,
-        config=context.config.repo,
-        repo_root=context.repo_root,
-        revset=selected_revset,
-    )
-    print(f"Selected revset: {result.selected_revset}")
-    if result.already_unlinked:
-        print(
-            f"{result.subject} "
-            f"[{status_command.display_change_id(result.change_id)}] is already "
-            "unlinked from review tracking."
-        )
-        return 0
-    if result.bookmark is None:
-        print(
-            f"Stopped review tracking for {result.subject} "
-            f"[{status_command.display_change_id(result.change_id)}]."
-        )
-    else:
-        print(
-            f"Stopped review tracking for {result.subject} "
-            f"[{status_command.display_change_id(result.change_id)}], preserving "
-            f"{result.bookmark}."
-        )
-    return 0
 
 
 def _cleanup_handler(args: Namespace) -> int:

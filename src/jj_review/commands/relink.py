@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+from argparse import Namespace
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from jj_review.cache import ReviewStateStore
+from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClientError
@@ -70,6 +72,32 @@ def run_relink(
             revset=revset,
         )
     )
+
+
+def handle_relink_command(args: Namespace) -> int:
+    """CLI entrypoint for `relink`."""
+
+    from jj_review.bootstrap import bootstrap_context
+
+    context = bootstrap_context(args)
+    result = run_relink(
+        config=context.config.repo,
+        pull_request_reference=args.pull_request,
+        repo_root=context.repo_root,
+        revset=resolve_selected_revset(
+            args,
+            command_label="relink",
+            require_explicit=True,
+        ),
+    )
+    print(f"Selected revset: {result.selected_revset}")
+    print(f"Selected remote: {result.remote_name}")
+    print(f"GitHub: {result.github_repository}")
+    print(
+        f"Relinked PR #{result.pull_request_number} for {result.subject} "
+        f"[{result.change_id[:_DISPLAY_CHANGE_ID_LENGTH]}] -> {result.bookmark}"
+    )
+    return 0
 
 
 async def _run_relink_async(

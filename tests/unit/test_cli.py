@@ -1554,7 +1554,7 @@ def test_main_relink_requires_explicit_revision_selection(
         run_called = True
         raise AssertionError("relink should not run without an explicit selector")
 
-    monkeypatch.setattr("jj_review.cli.run_relink", fake_run_relink)
+    monkeypatch.setattr("jj_review.commands.relink.run_relink", fake_run_relink)
 
     exit_code = main(["relink", "--repository", str(tmp_path), "123"])
     captured = capsys.readouterr()
@@ -1584,7 +1584,7 @@ def test_main_relink_current_passes_current_path_selection(
             subject="feature 1",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_relink", fake_run_relink)
+    monkeypatch.setattr("jj_review.commands.relink.run_relink", fake_run_relink)
 
     exit_code = main(["relink", "--current", "--repository", str(tmp_path), "7"])
     captured = capsys.readouterr()
@@ -1617,7 +1617,7 @@ def test_main_unlink_requires_explicit_revision_selection(
         run_called = True
         raise AssertionError("unlink should not run without an explicit selector")
 
-    monkeypatch.setattr("jj_review.cli.run_unlink", fake_run_unlink)
+    monkeypatch.setattr("jj_review.commands.unlink.run_unlink", fake_run_unlink)
 
     exit_code = main(["unlink", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1645,7 +1645,7 @@ def test_main_unlink_current_passes_current_path_selection(
             subject="feature 1",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_unlink", fake_run_unlink)
+    monkeypatch.setattr("jj_review.commands.unlink.run_unlink", fake_run_unlink)
 
     exit_code = main(["unlink", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
