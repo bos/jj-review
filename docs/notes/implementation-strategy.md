@@ -625,7 +625,7 @@ Status: complete.
 
 Deliver:
 
-- push/move synthetic review bookmarks
+- push/move review bookmarks
 - detect tracked-remote and remote branch state
 - verify actual Git remote state in tests
 
@@ -801,7 +801,7 @@ Implemented in the first vertical cut:
 
 - `cleanup` now reports repo-scoped sparse-state cleanup actions before it
   mutates anything, including stale cached change records, removable managed
-  stack comments on stale PRs, and stale synthetic remote review branches
+  stack comments on stale PRs, and stale remote review branches
 - `cleanup --apply` now performs the safe subset of those actions: it prunes
   cached change entries that no longer resolve to supported local review
   stacks, deletes only managed stack comments on closed or unlinked PRs, and
@@ -1019,7 +1019,7 @@ The implementation uses explicit rules for what `import` may mutate:
   `--head`, fetch only the review branches needed for the selected stack so an
   existing reviewed stack can be bootstrapped on a new machine
 - refresh cache entries only for the selected stack
-- create or refresh local synthetic review bookmarks only when the target is
+- create or refresh local review bookmarks only when the target is
   exact and unambiguous
 - fail closed if any imported revision would require inventing a new generated
   review bookmark rather than reusing exact remote identity
@@ -1068,7 +1068,7 @@ solves explicit import/materialization, not whole-repo refresh policy.
 `close` is implemented. The normal user-facing "stop review for this path"
 flow closes the managed open PRs for the selected local path, and
 `close --cleanup` extends that with conservative cleanup of owned review
-branches, local synthetic bookmarks, managed stack comments, and stale cache
+branches, local review bookmarks, managed stack comments, and stale cache
 entries when ownership is provable.
 
 The CLI contract is:
@@ -1088,7 +1088,7 @@ The `close` slice needs clear apply-phase and ownership rules:
 - without `--cleanup`, close open PRs and retire active local review state
   only, while skipping already-merged or already-closed PRs on the path
 - with `--cleanup`, delete owned remote review branches, forget owned local
-  synthetic review bookmarks, delete owned managed stack comments, and prune
+  review bookmarks, delete owned managed stack comments, and prune
   stale managed metadata only when the tool can prove ownership for the
   selected path on the configured target remote
 - controlled blocked exits retire their close intent instead of leaving a
@@ -1130,7 +1130,7 @@ versus mere cache:
 `unlink` keeps the unlinked-state precedence rule. Once a change is explicitly
 unlinked, that unlinked record must override every other proof of ownership:
 
-- local synthetic bookmarks
+- local review bookmarks
 - cached PR link
 - discoverable GitHub PR link for the same head branch
 

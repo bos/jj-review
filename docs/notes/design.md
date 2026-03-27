@@ -11,7 +11,7 @@ A reviewable unit should be one visible mutable change, identified by full
 A review stack should be derived from the `jj` DAG, not reconstructed from a
 tool-owned parent map.
 
-Each reviewable change should get one synthetic bookmark, which acts as the
+Each reviewable change should get one review bookmark, which acts as the
 GitHub PR head branch.
 
 Local metadata, if any, should be limited to the GitHub PR link, user
@@ -125,7 +125,7 @@ simple parent-child chain.
 
 ### Review Branch
 
-Each review change gets exactly one synthetic bookmark branch, which becomes
+Each review change gets exactly one review bookmark branch, which becomes
 the GitHub PR head branch.
 
 That bookmark name should be readable to humans and stable for tooling.
@@ -245,7 +245,7 @@ If the tool stores any machine-written local state, it should be limited to:
   unlinked, because that is user intent the tool must not silently undo
 
 Even the PR link can often be rediscovered by asking GitHub for the PR whose
-head branch matches the synthetic bookmark name.
+head branch matches the review bookmark name.
 
 User-authored settings and overrides are a separate category and should not be
 mixed into machine-written review state. Those include:
@@ -527,7 +527,7 @@ Its job is local state import, not workspace motion:
   selected stack so a reviewed stack that exists only on the remote can still
   be imported into local review state
 - refresh sparse cache entries only for that exact stack
-- create or refresh local synthetic review bookmarks only when the target is
+- create or refresh local review bookmarks only when the target is
   exact, same-repository, and unambiguous
 - when `--fetch` pulls in a remote-selected stack, report the fetched tip
   commit instead of changing the user's workspace automatically
@@ -592,7 +592,7 @@ With `--cleanup`, `close` should also perform conservative post-close cleanup
 for review artifacts the tool can prove it owns for that path:
 
 - delete owned remote review branches on the configured target remote only
-- forget owned local synthetic review bookmarks
+- forget owned local review bookmarks
 - delete managed stack comments that belong to the closed path
 - remove stale review tracking metadata such as cached stack-comment link
 
@@ -702,7 +702,7 @@ branch identity still matters is at the GitHub boundary, because GitHub wants:
 - one head branch per PR
 - one base branch per PR
 
-That means the `jj` tool still needs synthetic bookmark branches, but it does
+That means the `jj` tool still needs review bookmark branches, but it does
 not need a saved parent graph.
 
 ## CLI Shape
@@ -812,7 +812,7 @@ repo, remember that `GIT_DIR` may need to point at `.jj/repo/store/git`.
   in any review stack
 - remove stale reviewer-facing stack comments that belong to closed or unlinked
   PRs
-- optionally delete synthetic remote review branches only when they are clearly
+- optionally delete remote review branches only when they are clearly
   stale, such as after the corresponding PR is closed or the change has been
   abandoned
 
@@ -942,7 +942,7 @@ This design also needs to respect the recommended GitHub policy above:
 - after producing that local landed result, it should update the trunk branch
   by pushing the new trunk tip with an optimistic lease that still respects
   repository policy and branch protection
-- `land` merges onto trunk, not into synthetic review bases, and it does not
+- `land` merges onto trunk, not into review-branch bases, and it does not
   delegate the history shape to GitHub's PR merge UI
 - that bypass is intentional: trunk branch protection and required checks gate
   landing, while `review/*` protection exists to block accidental direct merges
@@ -1084,8 +1084,7 @@ In a branch-first review tool, stack metadata often becomes part of the core
 model.
 
 In `jj`, the stack model is already the commit DAG. The tool's job is only to
-map that DAG to GitHub's branch-based PR API with stable synthetic
-bookmarks.
+map that DAG to GitHub's branch-based PR API with stable review bookmarks.
 
 ## References
 

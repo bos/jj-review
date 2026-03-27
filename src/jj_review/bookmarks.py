@@ -21,7 +21,7 @@ BookmarkSource = Literal["cache", "discovered", "generated", "override"]
 
 @dataclass(frozen=True, slots=True)
 class ResolvedBookmark:
-    """Resolved synthetic bookmark for one local revision."""
+    """Resolved review bookmark for one local revision."""
 
     bookmark: str
     change_id: str
@@ -38,7 +38,7 @@ class BookmarkResolutionResult:
 
 
 class BookmarkResolver:
-    """Resolve synthetic bookmark names using cache-first semantics."""
+    """Resolve review bookmark names using cache-first semantics."""
 
     def __init__(
         self,
@@ -115,7 +115,7 @@ class BookmarkResolver:
 
 
 def generate_bookmark_name(revision: LocalRevision) -> str:
-    """Generate the default synthetic bookmark for a change."""
+    """Generate the default review bookmark for a change."""
 
     first_line = revision.description.splitlines()[0] if revision.description else ""
     slug = _slugify(first_line)
