@@ -285,7 +285,16 @@ def build_parser() -> ArgumentParser:
         command="land",
         help_text=_normalized_help_text(land_command.HELP),
         description_text=land_command.__doc__ or "",
-        handler=land_command.handle_land_command,
+        handler=lambda args: land_command.handle_land_command(
+            apply=args.apply,
+            bypass_readiness=args.bypass_readiness,
+            config_path=args.config,
+            current=args.current,
+            debug=args.debug,
+            expect_pr=args.expect_pr,
+            repository=args.repository,
+            revset=args.revset,
+        ),
     )
     land_parser.add_argument(
         "--apply",

@@ -18,7 +18,6 @@ import asyncio
 import json
 import os
 import tempfile
-from argparse import Namespace
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from dataclasses import replace as dataclass_replace
@@ -204,28 +203,38 @@ def run_land(
     return stream_land(prepared_land=prepared_land)
 
 
-def handle_land_command(args: Namespace) -> int:
+def handle_land_command(
+    *,
+    apply: bool,
+    bypass_readiness: bool,
+    config_path: Path | None,
+    current: bool,
+    debug: bool,
+    expect_pr: str | None,
+    repository: Path | None,
+    revset: str | None,
+) -> int:
     """CLI entrypoint for `land`."""
 
     from jj_review.bootstrap import bootstrap_context
 
     context = bootstrap_context(
-        repository=args.repository,
-        config_path=args.config,
-        debug=args.debug,
+        repository=repository,
+        config_path=config_path,
+        debug=debug,
     )
     result = run_land(
-        apply=bool(args.apply),
-        bypass_readiness=bool(args.bypass_readiness),
+        apply=apply,
+        bypass_readiness=bypass_readiness,
         change_overrides=context.config.change,
         config=context.config.repo,
-        expect_pr_reference=args.expect_pr,
+        expect_pr_reference=expect_pr,
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
             command_label="land",
-            current=args.current,
+            current=current,
             require_explicit=True,
-            revset=args.revset,
+            revset=revset,
         ),
     )
     print(f"Selected revset: {result.selected_revset}")
