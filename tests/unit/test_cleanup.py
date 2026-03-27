@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import cast
 
+from jj_review.cache import ReviewStateStore
 from jj_review.commands.cleanup import (
     PreparedCleanup,
     PreparedRestack,
@@ -13,7 +14,9 @@ from jj_review.commands.cleanup import (
     _stream_cleanup_async,
     stream_restack,
 )
+from jj_review.commands.review_state import PreparedStatus, ReviewStatusRevision
 from jj_review.commands.submit import ResolvedGithubRepository
+from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 
@@ -99,12 +102,12 @@ def test_stream_cleanup_limits_stack_comment_github_inspection_concurrency(
             repo="stacked-review",
         ),
         github_repository_error=None,
-        jj_client=cast(Any, SimpleNamespace()),
+        jj_client=cast(JjClient, SimpleNamespace()),
         remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
         remote_error=None,
         state=state,
         state_dir=None,
-        state_store=cast(Any, SimpleNamespace(save=lambda state: None)),
+        state_store=cast(ReviewStateStore, SimpleNamespace(save=lambda state: None)),
     )
     active = 0
     max_active = 0
@@ -176,12 +179,12 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
             repo="stacked-review",
         ),
         github_repository_error=None,
-        jj_client=cast(Any, SimpleNamespace()),
+        jj_client=cast(JjClient, SimpleNamespace()),
         remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
         remote_error=None,
         state=state,
         state_dir=None,
-        state_store=cast(Any, SimpleNamespace(save=lambda state: None)),
+        state_store=cast(ReviewStateStore, SimpleNamespace(save=lambda state: None)),
     )
     streamed_actions: list[str] = []
     release_comment_checks = asyncio.Event()
@@ -265,7 +268,7 @@ def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
     prepared_restack = PreparedRestack(
         apply=False,
         prepared_status=cast(
-            Any,
+            PreparedStatus,
             SimpleNamespace(
                 prepared=SimpleNamespace(
                     client=SimpleNamespace(),
@@ -361,7 +364,7 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
     prepared_restack = PreparedRestack(
         apply=True,
         prepared_status=cast(
-            Any,
+            PreparedStatus,
             SimpleNamespace(
                 prepared=SimpleNamespace(
                     client=FakeClient(),
@@ -416,7 +419,7 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
 
 def test_resolve_restack_path_revisions_preserves_selected_path_order() -> None:
     prepared_status = cast(
-        Any,
+        PreparedStatus,
         SimpleNamespace(
             prepared=SimpleNamespace(
                 status_revisions=(
@@ -471,7 +474,7 @@ def test_plan_restack_operations_blocks_divergent_survivor() -> None:
         subject="divergent feature",
     )
     prepared_status = cast(
-        Any,
+        PreparedStatus,
         SimpleNamespace(
             prepared=SimpleNamespace(
                 status_revisions=(
@@ -496,7 +499,7 @@ def test_plan_restack_operations_blocks_divergent_survivor() -> None:
 
     plan = _plan_restack_operations(
         path_revisions=cast(
-            Any,
+            tuple[ReviewStatusRevision, ...],
             (merged_revision, divergent_revision),
         ),
         prepared_status=prepared_status,
