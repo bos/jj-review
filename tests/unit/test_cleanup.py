@@ -16,6 +16,8 @@ from jj_review.commands.cleanup import (
     _plan_restack_operations,
     _process_remote_branch_cleanup,
     _resolve_restack_path_revisions,
+    _resolve_stack_summary_comment,
+    _resolve_unlinked_pull_request_number,
     _should_inspect_stack_comment_cleanup,
     _stream_cleanup_async,
     stream_restack,
@@ -24,6 +26,7 @@ from jj_review.github_resolution import ResolvedGithubRepository
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
+from jj_review.models.github import GithubBranchRef, GithubIssueComment, GithubPullRequest
 from jj_review.review_inspection import PreparedStatus, ReviewStatusRevision
 
 
@@ -81,6 +84,48 @@ def test_should_inspect_stack_comment_for_stale_change_with_missing_remote_branc
     )
 
     assert should_inspect is True
+
+
+def test_resolve_stack_summary_comment_blocks_multiple_candidates() -> None:
+    async def fake_list_issue_comments(owner, repo, issue_number):
+        return (_stack_comment(comment_id=11), _stack_comment(comment_id=12))
+
+    result = asyncio.run(
+        _resolve_stack_summary_comment(
+            cached_change=CachedChange(stack_comment_id=None),
+            github_client=SimpleNamespace(list_issue_comments=fake_list_issue_comments),
+            github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
+            pull_request_number=7,
+        )
+    )
+
+    assert result == CleanupAction(
+        kind="stack summary comment",
+        message=(
+            "cannot delete stack summary comments because GitHub reports multiple "
+            "candidates on PR #7"
+        ),
+        status="blocked",
+    )
+
+
+def test_resolve_unlinked_pull_request_number_blocks_multiple_pull_requests() -> None:
+    result = asyncio.run(
+        _resolve_unlinked_pull_request_number(
+            bookmark_state=BookmarkState(name="review/feature-aaaaaaaa"),
+            github_client=SimpleNamespace(list_pull_requests=_fake_list_pull_requests),
+            github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
+        )
+    )
+
+    assert result == CleanupAction(
+        kind="stack summary comment",
+        message=(
+            "cannot delete stack summary comment because GitHub reports multiple pull "
+            "requests for unlinked bookmark 'review/feature-aaaaaaaa'"
+        ),
+        status="blocked",
+    )
 
 
 def test_stream_cleanup_limits_stack_comment_github_inspection_concurrency(
@@ -498,6 +543,32 @@ def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
     assert result.actions[0].kind == "restack"
     assert result.actions[0].message == "rebase survivor onto trunk()"
     assert result.actions[0].status == "planned"
+
+
+async def _fake_list_pull_requests(owner, repo, *, head, state="all"):
+    return (
+        _pull_request(number=7, head_ref="review/feature-aaaaaaaa"),
+        _pull_request(number=8, head_ref="review/feature-aaaaaaaa"),
+    )
+
+
+def _pull_request(*, number: int, head_ref: str) -> GithubPullRequest:
+    return GithubPullRequest(
+        base=GithubBranchRef(ref="main"),
+        head=GithubBranchRef(ref=head_ref, label=f"octo-org:{head_ref}"),
+        html_url=f"https://github.test/octo-org/stacked-review/pull/{number}",
+        number=number,
+        state="open",
+        title=f"feature {number}",
+    )
+
+
+def _stack_comment(*, comment_id: int) -> GithubIssueComment:
+    return GithubIssueComment(
+        body="intro\n<!-- jj-review-stack -->\nsummary",
+        html_url=f"https://github.test/comments/{comment_id}",
+        id=comment_id,
+    )
 
 
 def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
