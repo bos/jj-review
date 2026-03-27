@@ -25,14 +25,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
 
-from jj_review.commands.review_state import (
-    PreparedStatus,
-    ReviewStatusRevision,
-    StatusResult,
-    _PreparedRevision,
-    prepare_status,
-    stream_status,
-)
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
@@ -56,6 +48,14 @@ from jj_review.models.intent import LandIntent, LoadedIntent
 from jj_review.pull_request_references import (
     parse_pull_request_number,
     parse_pull_request_url,
+)
+from jj_review.review_inspection import (
+    PreparedStatus,
+    ReviewStatusRevision,
+    StatusResult,
+    _PreparedRevision,
+    prepare_status,
+    stream_status,
 )
 
 HELP = "Land the ready prefix of a stack"

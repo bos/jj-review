@@ -461,7 +461,7 @@ def test_import_revset_rejects_generated_bookmarks_without_selected_remote(
         raise CliError("No submit remote configured.")
 
     monkeypatch.setattr(
-        "jj_review.commands.review_state.select_submit_remote",
+        "jj_review.review_inspection.select_submit_remote",
         _no_selected_remote,
     )
 
@@ -552,7 +552,7 @@ def _configure_import_environment(
     return configure_fake_github_environment(
         command_modules=(
             "jj_review.commands.submit",
-            "jj_review.commands.review_state",
+            "jj_review.review_inspection",
             "jj_review.commands.import_",
         ),
         fake_repo=fake_repo,

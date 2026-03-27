@@ -19,12 +19,6 @@ from jj_review.bookmarks import (
     _bookmark_matches_generated_change_id,
     _discover_bookmarks_for_revisions,
 )
-from jj_review.commands.review_state import (
-    PreparedStatus,
-    StatusResult,
-    _stream_status_async,
-    prepare_status,
-)
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClientError
@@ -41,6 +35,12 @@ from jj_review.models.github import GithubPullRequest
 from jj_review.pull_request_references import (
     parse_pull_request_number,
     parse_pull_request_url,
+)
+from jj_review.review_inspection import (
+    PreparedStatus,
+    StatusResult,
+    _stream_status_async,
+    prepare_status,
 )
 
 HELP = "Set up local jj-review tracking for an existing stack"

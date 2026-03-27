@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Literal
 
 from jj_review.cache import ReviewStateStore
-from jj_review.commands.review_state import PreparedStatus, prepare_status, stream_status
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_resolution import _build_github_client
@@ -31,6 +30,7 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubIssueComment
 from jj_review.models.intent import CloseIntent
+from jj_review.review_inspection import PreparedStatus, prepare_status, stream_status
 from jj_review.stack_comments import is_stack_summary_comment
 
 HELP = "Stop reviewing a jj stack on GitHub"

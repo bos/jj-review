@@ -284,7 +284,7 @@ def _configure_environment(
             "jj_review.commands.cleanup",
             "jj_review.commands.import_",
             "jj_review.commands.land",
-            "jj_review.commands.review_state",
+            "jj_review.review_inspection",
         ),
         fake_repo=fake_repo,
         monkeypatch=monkeypatch,

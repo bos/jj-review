@@ -1002,11 +1002,11 @@ def test_status_limits_concurrent_github_lookups(
         )
 
     monkeypatch.setattr(
-        "jj_review.commands.review_state._GITHUB_INSPECTION_CONCURRENCY",
+        "jj_review.review_inspection._GITHUB_INSPECTION_CONCURRENCY",
         2,
     )
     monkeypatch.setattr(
-        "jj_review.commands.review_state._build_github_client",
+        "jj_review.review_inspection._build_github_client",
         build_github_client,
     )
 
@@ -1053,7 +1053,7 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
         )
 
     monkeypatch.setattr(
-        "jj_review.commands.review_state._build_github_client",
+        "jj_review.review_inspection._build_github_client",
         build_github_client,
     )
 
@@ -1099,7 +1099,7 @@ def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
         )
 
     monkeypatch.setattr(
-        "jj_review.commands.review_state._build_github_client",
+        "jj_review.review_inspection._build_github_client",
         build_github_client,
     )
 
@@ -1143,7 +1143,7 @@ def test_status_does_not_probe_repository_before_pull_request_lookup(
         )
 
     monkeypatch.setattr(
-        "jj_review.commands.review_state._build_github_client",
+        "jj_review.review_inspection._build_github_client",
         build_github_client,
     )
 
@@ -1190,7 +1190,7 @@ def test_status_exits_nonzero_when_pull_request_lookup_fails(
         )
 
     monkeypatch.setattr(
-        "jj_review.commands.review_state._build_github_client",
+        "jj_review.review_inspection._build_github_client",
         build_github_client,
     )
 
@@ -2143,7 +2143,7 @@ def test_status_uses_cached_pull_request_metadata_after_prior_online_run(
         )
 
     monkeypatch.setattr(
-        "jj_review.commands.review_state._build_github_client",
+        "jj_review.review_inspection._build_github_client",
         build_github_client,
     )
 
@@ -2387,7 +2387,7 @@ def test_status_preserves_cached_review_decision_when_review_lookup_fails(
         )
 
     monkeypatch.setattr(
-        "jj_review.commands.review_state._build_github_client",
+        "jj_review.review_inspection._build_github_client",
         build_github_client,
     )
 
@@ -2770,7 +2770,7 @@ def test_close_apply_reports_blocked_when_github_is_unavailable(
 
     monkeypatch.setattr("jj_review.commands.close._build_github_client", build_github_client)
     monkeypatch.setattr(
-        "jj_review.commands.review_state._build_github_client",
+        "jj_review.review_inspection._build_github_client",
         build_github_client,
     )
 
@@ -4343,7 +4343,7 @@ def _configure_submit_environment(
             "jj_review.commands.close",
             "jj_review.commands.cleanup",
             "jj_review.commands.land",
-            "jj_review.commands.review_state",
+            "jj_review.review_inspection",
         ),
         fake_repo=fake_repo,
         monkeypatch=monkeypatch,

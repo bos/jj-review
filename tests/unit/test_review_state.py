@@ -83,11 +83,11 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
         raise CliError("jj bookmark list failed")
 
     monkeypatch.setattr(
-        "jj_review.commands.review_state._iter_status_revisions_with_github",
+        "jj_review.review_inspection._iter_status_revisions_with_github",
         fake_iter_status_revisions_with_github,
     )
     monkeypatch.setattr(
-        "jj_review.commands.review_state._build_status_revisions_without_github",
+        "jj_review.review_inspection._build_status_revisions_without_github",
         lambda prepared: local_only_revisions,
     )
 
@@ -146,11 +146,11 @@ def test_classify_status_intents_partitions_stale_and_outstanding_intents(
     )
 
     monkeypatch.setattr(
-        "jj_review.commands.review_state.scan_intents",
+        "jj_review.review_inspection.scan_intents",
         lambda state_dir: [fresh, stale],
     )
     monkeypatch.setattr(
-        "jj_review.commands.review_state.intent_is_stale",
+        "jj_review.review_inspection.intent_is_stale",
         lambda intent, resolver, now: intent.label == "stale",
     )
 
@@ -365,7 +365,7 @@ def test_stream_status_marks_missing_github_target_as_incomplete(monkeypatch) ->
         ),
     )
     monkeypatch.setattr(
-        "jj_review.commands.review_state._build_status_revisions_without_github",
+        "jj_review.review_inspection._build_status_revisions_without_github",
         lambda prepared: local_only_revisions,
     )
 
@@ -470,9 +470,9 @@ def test_prepare_status_fetches_before_remote_bookmark_discovery(
     def build_status(*, fetch_remote_state: bool):
         client = FakeClient()
         state_store = FakeStateStore()
-        monkeypatch.setattr("jj_review.commands.review_state.JjClient", lambda _: client)
+        monkeypatch.setattr("jj_review.review_inspection.JjClient", lambda _: client)
         monkeypatch.setattr(
-            "jj_review.commands.review_state.ReviewStateStore.for_repo",
+            "jj_review.review_inspection.ReviewStateStore.for_repo",
             lambda _: state_store,
         )
         return _prepare_status_for_test(
