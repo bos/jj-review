@@ -180,37 +180,60 @@ def prepare_status(
         len(prepared.status_revisions),
         prepared.remote.name if prepared.remote is not None else "unavailable",
     )
-    github_repository_error: str | None = None
-    github_repository: ResolvedGithubRepository | None = None
-    if prepared.remote is not None:
-        try:
-            github_repository = resolve_github_repository(config, prepared.remote)
-        except CliError as error:
-            github_repository_error = str(error)
-
-    outstanding_intents: list[LoadedIntent] = []
-    stale_intents_list: list[LoadedIntent] = []
-    if prepared.state_store.state_dir is not None:
-        _now = datetime.now(UTC)
-        for loaded in scan_intents(prepared.state_store.state_dir):
-            if intent_is_stale(
-                loaded.intent,
-                lambda cid: _change_id_resolves(prepared.client, cid),
-                now=_now,
-            ):
-                stale_intents_list.append(loaded)
-            else:
-                outstanding_intents.append(loaded)
+    github_repository, github_repository_error = _resolve_status_github_repository(
+        config=config,
+        remote=prepared.remote,
+    )
+    outstanding_intents, stale_intents = _classify_status_intents(prepared)
 
     return PreparedStatus(
         github_repository=github_repository,
         github_repository_error=github_repository_error,
-        outstanding_intents=tuple(outstanding_intents),
+        outstanding_intents=outstanding_intents,
         prepared=prepared,
         selected_revset=prepared.stack.selected_revset,
-        stale_intents=tuple(stale_intents_list),
+        stale_intents=stale_intents,
         trunk_subject=prepared.stack.trunk.subject,
     )
+
+
+def _resolve_status_github_repository(
+    *,
+    config: RepoConfig,
+    remote: GitRemote | None,
+) -> tuple[ResolvedGithubRepository | None, str | None]:
+    if remote is None:
+        return None, None
+    try:
+        return resolve_github_repository(config, remote), None
+    except CliError as error:
+        return None, str(error)
+
+
+def _classify_status_intents(
+    prepared: _PreparedStack,
+) -> tuple[tuple[LoadedIntent, ...], tuple[LoadedIntent, ...]]:
+    state_dir = prepared.state_store.state_dir
+    if state_dir is None:
+        return (), ()
+
+    outstanding_intents: list[LoadedIntent] = []
+    stale_intents: list[LoadedIntent] = []
+    now = datetime.now(UTC)
+
+    def change_id_resolves(change_id: str) -> bool:
+        return _change_id_resolves(prepared.client, change_id)
+
+    for loaded in scan_intents(state_dir):
+        if intent_is_stale(
+            loaded.intent,
+            change_id_resolves,
+            now=now,
+        ):
+            stale_intents.append(loaded)
+        else:
+            outstanding_intents.append(loaded)
+    return tuple(outstanding_intents), tuple(stale_intents)
 
 
 def stream_status(

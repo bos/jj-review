@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
@@ -8,7 +9,9 @@ from jj_review.commands.review_state import (
     PreparedStatus,
     PullRequestLookup,
     ReviewStatusRevision,
+    _classify_status_intents,
     _PreparedStack,
+    _resolve_status_github_repository,
     _status_is_incomplete,
     _stream_status_async,
 )
@@ -116,6 +119,45 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
         local_only_revisions[1],
         local_only_revisions[0],
     )
+
+
+def test_resolve_status_github_repository_returns_resolution_error() -> None:
+    github_repository, github_repository_error = _resolve_status_github_repository(
+        config=RepoConfig(),
+        remote=GitRemote(name="origin", url="ssh://example.com/not-github.git"),
+    )
+
+    assert github_repository is None
+    assert github_repository_error is not None
+    assert "Could not determine the GitHub repository" in github_repository_error
+
+
+def test_classify_status_intents_partitions_stale_and_outstanding_intents(
+    monkeypatch,
+) -> None:
+    fresh = cast(object, SimpleNamespace(intent=SimpleNamespace(label="fresh")))
+    stale = cast(object, SimpleNamespace(intent=SimpleNamespace(label="stale")))
+    prepared = cast(
+        _PreparedStack,
+        SimpleNamespace(
+            client=object(),
+            state_store=SimpleNamespace(state_dir=Path("/tmp/state")),
+        ),
+    )
+
+    monkeypatch.setattr(
+        "jj_review.commands.review_state.scan_intents",
+        lambda state_dir: [fresh, stale],
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.review_state.intent_is_stale",
+        lambda intent, resolver, now: intent.label == "stale",
+    )
+
+    outstanding, stale_intents = _classify_status_intents(prepared)
+
+    assert outstanding == (fresh,)
+    assert stale_intents == (stale,)
 
 
 def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> None:
