@@ -1,6 +1,7 @@
 """Unit tests for the intent file module."""
 from __future__ import annotations
 
+import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,6 +10,7 @@ import pytest
 
 from jj_review.intent import (
     _intent_filename,
+    _remove_temporary_intent_file,
     check_same_kind_intent,
     intent_is_stale,
     match_ordered_change_ids,
@@ -231,6 +233,25 @@ def test_scan_intents_sorted_by_name(tmp_path: Path) -> None:
     results = scan_intents(tmp_path)
     assert len(results) == 2
     assert results[0].path.name < results[1].path.name
+
+
+def test_remove_temporary_intent_file_logs_cleanup_failures(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    temp_path = tmp_path / "incomplete.toml.tmp"
+    temp_path.write_text("temp", encoding="utf-8")
+
+    def fail_unlink(self: Path, missing_ok: bool = False) -> None:
+        raise OSError("disk unhappy")
+
+    monkeypatch.setattr(Path, "unlink", fail_unlink)
+
+    with caplog.at_level(logging.WARNING):
+        _remove_temporary_intent_file(temp_path)
+
+    assert "Could not remove temporary intent file" in caplog.text
 
 
 # ---------------------------------------------------------------------------

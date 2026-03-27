@@ -117,11 +117,17 @@ def _write_intent_file(path: Path, intent: IntentFile) -> None:
             f.write(rendered)
         Path(tmp_path_str).replace(path)
     except Exception:
-        try:
-            os.unlink(tmp_path_str)
-        except OSError:
-            pass
+        _remove_temporary_intent_file(Path(tmp_path_str))
         raise
+
+
+def _remove_temporary_intent_file(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        logger.warning("Could not remove temporary intent file %s: %s", path, error)
 
 
 # ---------------------------------------------------------------------------
