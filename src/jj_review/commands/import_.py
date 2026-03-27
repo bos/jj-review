@@ -39,7 +39,7 @@ ImportActionStatus = Literal["applied"]
 
 
 class ImportResolutionError(CliError):
-    """Raised when `import` cannot safely materialize a review stack."""
+    """Raised when `import` cannot safely import a review stack."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +75,7 @@ class _Selection:
 
 
 @dataclass(frozen=True, slots=True)
-class _PlannedMaterialization:
+class _PlannedImport:
     bookmark: str
     track_remote: bool
     update_local_bookmark: bool
@@ -98,7 +98,7 @@ def run_import(
     repo_root: Path,
     revset: str | None,
 ) -> ImportResult:
-    """Materialize sparse review state for one exact selected stack."""
+    """Import local review state for one exact selected stack."""
 
     return asyncio.run(
         _run_import_async(
@@ -198,7 +198,7 @@ async def _run_import_async(
         head_revision = prepared_status.prepared.status_revisions[-1]
         bookmark_by_change_id[head_revision.revision.change_id] = selection.head_bookmark
 
-    actions = _materialize_local_state(
+    actions = _import_local_state(
         client=prepared_status.prepared.client,
         prepared_status=prepared_status,
         status_result=status_result,
@@ -550,7 +550,7 @@ def _remote_bookmark_commit_id(
     return commit_id
 
 
-def _materialize_local_state(
+def _import_local_state(
     *,
     client: JjClient,
     prepared_status: PreparedStatus,
@@ -566,7 +566,7 @@ def _materialize_local_state(
     selected_remote_name = (
         prepared.remote.name if prepared.remote is not None else None
     )
-    planned_materializations: list[_PlannedMaterialization] = []
+    planned_imports: list[_PlannedImport] = []
 
     seen_bookmarks: set[str] = set()
     for prepared_revision in prepared.status_revisions:
@@ -616,8 +616,8 @@ def _materialize_local_state(
         )
         if existing_change is None or updated_change != cached_change:
             next_changes[prepared_revision.revision.change_id] = updated_change
-        planned_materializations.append(
-            _PlannedMaterialization(
+        planned_imports.append(
+            _PlannedImport(
                 bookmark=bookmark,
                 track_remote=track_remote,
                 update_local_bookmark=(
@@ -627,7 +627,7 @@ def _materialize_local_state(
             )
         )
 
-    for planned in planned_materializations:
+    for planned in planned_imports:
         if planned.update_local_bookmark:
             client.set_bookmark(planned.bookmark, planned.update_local_target)
             actions.append(

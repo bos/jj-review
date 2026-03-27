@@ -709,7 +709,7 @@ def _add_import_parser[SubparserT: ArgumentParser](
             """
             Refresh the selected stack's remote bookmark state and, for
             `--pull-request` or `--head`, fetch only the review branches needed
-            to materialize that stack
+            to import that stack
             """
         ),
     )

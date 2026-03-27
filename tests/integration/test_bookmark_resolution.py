@@ -71,7 +71,7 @@ def test_resolve_state_path_bootstraps_jj_repo_id(
     assert state_path.name == "state.toml"
 
 
-def test_status_continues_when_repo_id_cannot_be_materialized(
+def test_status_continues_when_repo_id_file_is_not_created(
     tmp_path: Path,
     monkeypatch,
     capsys,

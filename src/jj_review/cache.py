@@ -151,7 +151,7 @@ def _resolve_repo_id(repo_root: Path) -> str:
     if repo_id is not None:
         return repo_id
 
-    _materialize_repo_config_id(repo_root)
+    _ensure_repo_config_id_exists(repo_root)
     repo_id = _read_repo_id(config_id_path)
     if repo_id is not None:
         return repo_id
@@ -179,7 +179,7 @@ def _read_repo_id(config_id_path: Path) -> str | None:
     return repo_id
 
 
-def _materialize_repo_config_id(repo_root: Path) -> None:
+def _ensure_repo_config_id_exists(repo_root: Path) -> None:
     try:
         completed = subprocess.run(
             ["jj", "config", "path", "--repo"],

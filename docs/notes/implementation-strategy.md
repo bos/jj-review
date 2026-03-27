@@ -1007,7 +1007,7 @@ The product-level split is:
 
 - `status --fetch` refreshes remote observations and GitHub PR state without
   mutating local review bookmarks or the workspace
-- `import` materializes sparse local review state for one exact stack
+- `import` imports sparse local review state for one exact stack
 - `cleanup --restack` remains the local-history repair path after merges or
   other ancestry damage
 
@@ -1025,7 +1025,7 @@ The implementation uses explicit rules for what `import` may mutate:
   review bookmark rather than reusing exact remote identity
 - `--revset` imports without a selected remote fail closed when the selected
   stack would need generated bookmark identity; only exact cached or discovered
-  bookmark names may be materialized
+  bookmark names may be imported
 - do not rewrite commits, restack descendants, or mutate GitHub state
 - do not update the current workspace to the fetched tip automatically
 - when `--fetch` imports a remote-selected stack, print the fetched tip commit
@@ -1035,11 +1035,11 @@ This slice is done when:
 
 - a user can bootstrap an existing review stack on a new machine from an
   explicit PR or review-branch selector with `--fetch`
-- remote-only review branches can be materialized into sparse local state
+- remote-only review branches can be imported into sparse local state
   with `--fetch` and without inventing topology from cache
 - bookmark ownership conflicts, ambiguous PR link, and unsupported stack
   shapes fail with targeted recovery guidance
-- rerunning `import` on an already-materialized stack reports that the local
+- rerunning `import` on an already-imported stack reports that the local
   review state is already up to date instead of claiming the stack is empty
 - import output always reports GitHub availability explicitly, even when no
   selected remote or repository target is available

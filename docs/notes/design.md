@@ -303,7 +303,7 @@ path-based conditional matching rather than a separate repo-local config file.
 For machine-written review state, reuse `jj`'s repo config identity:
 
 1. if `.jj/repo/config-id` exists, use it as `<repo-id>`
-2. otherwise run `jj config path --repo` to ask `jj` to materialize its repo
+2. otherwise run `jj config path --repo` to ask `jj` to create its repo
    config identity
 3. then read `.jj/repo/config-id` and use that as `<repo-id>`
 
@@ -504,18 +504,18 @@ These commands are not sources of truth either. They are operator-driven ways
 to reattach GitHub state to a `jj`-derived stack after damage, cross-machine
 work, or manual edits on GitHub.
 
-The explicit stack materialization command is:
+The explicit stack import command is:
 
 - `jj review import [--fetch] (--pull-request <pr> | --head <bookmark> |
   --current | --revset <revset>)` resolves one exact review stack and
-  materializes sparse local review state for that stack without mutating
+  imports sparse local review state for that stack without mutating
   GitHub
 
 The selector should stay explicit and collision-free. In particular, the
 command should not overload a bare positional argument to mean either a revset
 or a PR number.
 
-Its job is local materialization, not workspace motion:
+Its job is local state import, not workspace motion:
 
 - without `--fetch`, use only commits and review link that are already
   available locally
@@ -524,7 +524,7 @@ Its job is local materialization, not workspace motion:
 - with `--fetch`, refresh remote bookmark observations and, for an explicit PR
   or review-branch selector, fetch only the review branches needed for the
   selected stack so a reviewed stack that exists only on the remote can still
-  be materialized into local review state
+  be imported into local review state
 - refresh sparse cache entries only for that exact stack
 - create or refresh local synthetic review bookmarks only when the target is
   exact, same-repository, and unambiguous
@@ -635,7 +635,7 @@ Detached state should mean:
 - `status --fetch` may still report discovered remote bookmarks or GitHub PRs
   for the same review branch, but it must label that state as detached instead
   of repopulating active ownership
-- `import` may rematerialize local bookmark state for the selected change, but
+- `import` may restore local bookmark state for the selected change, but
   it must preserve detached link instead of restoring active PR ownership
 - when a preserved local bookmark still exists, status should surface it as a
   detached review bookmark rather than an active managed review branch

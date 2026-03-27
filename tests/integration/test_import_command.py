@@ -107,7 +107,7 @@ def test_import_head_bootstraps_local_review_state_without_pull_requests(
     )
 
 
-def test_import_reports_up_to_date_when_selected_stack_is_already_materialized(
+def test_import_reports_up_to_date_when_selected_stack_is_already_imported(
     tmp_path: Path,
     monkeypatch,
     capsys,
