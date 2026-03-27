@@ -251,7 +251,7 @@ _TaskItemT = TypeVar("_TaskItemT")
 _TaskResultT = TypeVar("_TaskResultT")
 
 
-def handle_submit_command(
+def submit(
     *,
     config_path: Path | None,
     current: bool,

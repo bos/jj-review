@@ -37,7 +37,7 @@ prepare_status = _review_inspection.prepare_status
 stream_status = _review_inspection.stream_status
 
 
-def handle_status_command(
+def status(
     *,
     config_path: Path | None,
     debug: bool,

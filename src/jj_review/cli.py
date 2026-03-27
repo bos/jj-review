@@ -144,7 +144,7 @@ def build_parser() -> ArgumentParser:
         command="submit",
         help_text=_normalized_help_text(commands.submit.HELP),
         description_text=commands.submit.__doc__ or "",
-        handler=lambda args: commands.submit.handle_submit_command(
+        handler=lambda args: commands.submit.submit(
             config_path=args.config,
             current=args.current,
             debug=args.debug,
@@ -229,7 +229,7 @@ def build_parser() -> ArgumentParser:
         command="status",
         help_text=_normalized_help_text(commands.review_state.HELP),
         description_text=commands.review_state.__doc__ or "",
-        handler=lambda args: commands.review_state.handle_status_command(
+        handler=lambda args: commands.review_state.status(
             config_path=args.config,
             debug=args.debug,
             fetch=args.fetch,
@@ -248,7 +248,7 @@ def build_parser() -> ArgumentParser:
         command="relink",
         help_text=_normalized_help_text(commands.relink.HELP),
         description_text=commands.relink.__doc__ or "",
-        handler=lambda args: commands.relink.handle_relink_command(
+        handler=lambda args: commands.relink.relink(
             config_path=args.config,
             current=args.current,
             debug=args.debug,
@@ -262,7 +262,7 @@ def build_parser() -> ArgumentParser:
         command="unlink",
         help_text=_normalized_help_text(commands.unlink.HELP),
         description_text=commands.unlink.__doc__ or "",
-        handler=lambda args: commands.unlink.handle_unlink_command(
+        handler=lambda args: commands.unlink.unlink(
             config_path=args.config,
             current=args.current,
             debug=args.debug,
@@ -280,7 +280,7 @@ def build_parser() -> ArgumentParser:
         command="land",
         help_text=_normalized_help_text(commands.land.HELP),
         description_text=commands.land.__doc__ or "",
-        handler=lambda args: commands.land.handle_land_command(
+        handler=lambda args: commands.land.land(
             apply=args.apply,
             bypass_readiness=args.bypass_readiness,
             config_path=args.config,
@@ -318,7 +318,7 @@ def build_parser() -> ArgumentParser:
         command="close",
         help_text=_normalized_help_text(commands.close.HELP),
         description_text=commands.close.__doc__ or "",
-        handler=lambda args: commands.close.handle_close_command(
+        handler=lambda args: commands.close.close(
             apply=args.apply,
             cleanup=args.cleanup,
             config_path=args.config,
@@ -348,7 +348,7 @@ def build_parser() -> ArgumentParser:
         command="import",
         help_text=_normalized_help_text(commands.import_.HELP),
         description_text=commands.import_.__doc__ or "",
-        handler=lambda args: commands.import_.handle_import_command(
+        handler=lambda args: commands.import_.import_(
             config_path=args.config,
             current=args.current,
             debug=args.debug,
@@ -388,7 +388,7 @@ def build_parser() -> ArgumentParser:
         help="Revision whose stack should be inspected or restacked",
     )
     cleanup_parser.set_defaults(
-        handler=lambda args: commands.cleanup.handle_cleanup_command(
+        handler=lambda args: commands.cleanup.cleanup(
             apply=args.apply,
             config_path=args.config,
             current=args.current,

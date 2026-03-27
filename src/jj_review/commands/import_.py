@@ -99,7 +99,7 @@ class _RevisionWithChangeId(Protocol):
     def change_id(self) -> str: ...
 
 
-def handle_import_command(
+def import_(
     *,
     config_path: Path | None,
     current: bool,

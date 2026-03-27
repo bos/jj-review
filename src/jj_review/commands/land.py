@@ -179,7 +179,7 @@ class _BookmarkRestorer(Protocol):
         """Create or move a local bookmark."""
 
 
-def handle_land_command(
+def land(
     *,
     apply: bool,
     bypass_readiness: bool,

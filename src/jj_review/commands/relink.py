@@ -54,7 +54,7 @@ class RelinkResult:
     subject: str
 
 
-def handle_relink_command(
+def relink(
     *,
     config_path: Path | None,
     current: bool,

@@ -240,7 +240,7 @@ def render_restack_postamble(*, result: RestackResult) -> tuple[str, ...]:
     return ()
 
 
-def handle_cleanup_command(
+def cleanup(
     *,
     apply: bool,
     config_path: Path | None,

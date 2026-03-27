@@ -35,7 +35,7 @@ class UnlinkResult:
     subject: str
 
 
-def handle_unlink_command(
+def unlink(
     *,
     config_path: Path | None,
     current: bool,

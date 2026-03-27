@@ -73,7 +73,7 @@ class PreparedClose:
     state_dir: Path | None
 
 
-def handle_close_command(
+def close(
     *,
     apply: bool,
     cleanup: bool,
