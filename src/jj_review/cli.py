@@ -329,7 +329,7 @@ def build_parser() -> ArgumentParser:
     )
     land_parser.add_argument(
         "--expect-pr",
-        help="Assert that the selected landable prefix ends at this pull request",
+        help="Assert that the changes that can be landed now end at this pull request",
     )
     land_parser.add_argument(
         "--current",

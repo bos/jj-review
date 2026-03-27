@@ -940,7 +940,10 @@ def test_main_land_renders_blocked_output_without_apply_hint(
             actions=(
                 SimpleNamespace(
                     kind="guardrail",
-                    message="`--expect-pr 7` did not match the selected landable prefix.",
+                    message=(
+                        "`--expect-pr 7` did not match the changes that can be "
+                        "landed now."
+                    ),
                     status="blocked",
                 ),
             ),

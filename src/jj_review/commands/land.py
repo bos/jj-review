@@ -170,7 +170,7 @@ def run_land(
     repo_root: Path,
     revset: str | None,
 ) -> LandResult:
-    """Preview or apply the landable prefix on the selected local stack."""
+    """Preview or apply the changes that can be landed now on the selected local stack."""
 
     prepared_land = prepare_land(
         apply=apply,

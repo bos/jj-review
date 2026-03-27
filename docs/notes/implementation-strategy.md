@@ -932,18 +932,20 @@ The CLI contract should stay consistent with the rest of the tool:
   optional guardrail that the operator is landing the intended review
 
 The first implementation decision must be the landing unit. The design doc now
-defines that as the maximal contiguous open prefix of the selected local stack
-starting at `trunk()`. The implementation should preserve that exact contract
-instead of accepting arbitrary PR subsets.
+defines that as the consecutive changes from `trunk()` that can be landed now.
+The implementation should preserve that exact contract instead of accepting
+arbitrary PR subsets.
 
 The command also needs explicit phase boundaries so retries are idempotent:
 
-1. resolve the selected local stack, open-prefix boundary, trunk target, and
+1. resolve the selected local stack, the first change that blocks landing,
+   trunk target, and
    GitHub PR link
 2. if `--apply` is set, rerun the same planning step and abort if the plan
    changed materially since preview
-3. replay the landable prefix onto trunk locally in `jj`, preserving it as a
-   stack of commits, then push the resulting trunk tip with a lease
+3. replay the changes that can be landed now onto trunk locally in `jj`,
+   preserving them as a stack of commits, then push the resulting trunk tip
+   with a lease
 4. only after that succeeds, update sparse review state and apply the exact
    PR bookkeeping for the landed prefix
 5. leave broader cache pruning and stale-review cleanup to `cleanup`
@@ -959,8 +961,8 @@ generic recovery path:
 
 This slice is now in place with the current implementation:
 
-- preview output clearly identifies the landable prefix, target trunk, and any
-  blocked boundary on the selected stack
+- preview output clearly identifies the changes that can be landed now, the
+  target trunk, and the first change that blocks landing on the selected stack
 - `land --apply` now requires a matching saved preview unless it is resuming an
   interrupted apply from a recorded intent, so material plan drift is rejected
   before any new mutation starts

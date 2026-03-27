@@ -917,8 +917,8 @@ Its default UX should mirror the preview-first shape already used by
   asserts that the selected local stack still corresponds to the PR the
   operator intended to land
 
-The landing unit should be one precise thing: the maximal contiguous open
-prefix of the selected local stack starting at `trunk()`.
+The landing unit should be one precise thing: the consecutive changes from
+`trunk()` that can be landed now.
 
 That means:
 
@@ -926,8 +926,7 @@ That means:
 - include consecutive changes whose PRs are still open and whose link
   is unambiguous
 - stop at the first merged, closed-unmerged, missing, or ambiguous change
-  - if the resulting prefix is empty, report that nothing is currently landable
-  on the selected stack
+  - if none of those changes can be landed, report that directly
 
 This is intentionally not "the entire selected stack no matter what" and not
 "whatever open PR the operator typed". It keeps the command aligned with the
@@ -958,7 +957,7 @@ these changed:
 
 - the selected revset or `--current` resolution
 - the selected stack's `change_id`s or `commit_id`s
-- the open-prefix boundary
+- the first change that blocks landing
 - the expected PR, if `--expect-pr` was supplied
 - the trunk target or trunk commit
 - the GitHub PR states or PR link for the landing unit
@@ -967,13 +966,13 @@ Recovery guidance should stay case-specific:
 
 - if PR link is missing or ambiguous, point the operator to
   `jj review status --fetch` and `jj review relink`
-- if the open-prefix scan stops at a closed-but-unmerged PR, say so directly
+- if the landing scan stops at a closed-but-unmerged PR, say so directly
   and tell the operator to close or clean up that stack before retrying
 - if the selected stack itself needs local ancestry repair after an earlier
   merge, point the operator to `jj review cleanup --restack`
-- if the selected stack has no landable prefix, say so directly and explain
-  whether the user should select a different head, clean up merged ancestors,
-  or repair closed PR state first
+- if the selected stack has no changes that can be landed now, say so directly
+  and explain whether the user should select a different head, clean up merged
+  ancestors, or repair closed PR state first
 - if repository policy or branch protection blocks the transition onto trunk,
   surface that as a hard error instead of trying an alternate mutation path
 
