@@ -25,6 +25,16 @@ for _name in dir(_review_inspection):
 
 del _name
 
+HELP = "Check the review status of a jj stack"
+PreparedStatus = _review_inspection.PreparedStatus
+StatusResult = _review_inspection.StatusResult
+ReviewStatusRevision = _review_inspection.ReviewStatusRevision
+PullRequestLookup = _review_inspection.PullRequestLookup
+_PreparedStack = _review_inspection._PreparedStack
+_classify_status_intents = _review_inspection._classify_status_intents
+_resolve_status_github_repository = _review_inspection._resolve_status_github_repository
+_status_is_incomplete = _review_inspection._status_is_incomplete
+_stream_status_async = _review_inspection._stream_status_async
 prepare_status = _review_inspection.prepare_status
 stream_status = _review_inspection.stream_status
 
@@ -36,10 +46,10 @@ def run_status_command(
     configured_trunk_branch: str | None,
     emit: Callable[[str], None],
     fetch_remote_state: bool,
-    prepare_status_fn: Callable[..., object] | None = None,
+    prepare_status_fn: Callable[..., PreparedStatus] | None = None,
     repo_root: Path,
     revset: str | None,
-    stream_status_fn: Callable[..., object] | None = None,
+    stream_status_fn: Callable[..., StatusResult] | None = None,
 ) -> int:
     """Prepare, stream, and render the `status` command."""
 

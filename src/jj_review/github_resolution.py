@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient
-from jj_review.models.bookmarks import GitRemote
+from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.github import GithubRepository
 
 _DEFAULT_GITHUB_HOST = "github.com"
@@ -56,7 +56,7 @@ class ParsedRemoteUrl:
 class BookmarkStateReader(Protocol):
     """Minimal bookmark reader needed for trunk resolution."""
 
-    def list_bookmark_states(self): ...
+    def list_bookmark_states(self) -> dict[str, BookmarkState]: ...
 
 
 def select_submit_remote(
