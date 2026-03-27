@@ -17,8 +17,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypeVar
 
-from jj_review import bookmarks as bookmark_helpers
-from jj_review import github_resolution
 from jj_review.bookmarks import (
     BookmarkResolver,
     BookmarkSource,
@@ -34,6 +32,7 @@ from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_resolution import (
+    GithubRepositoryResolutionError,
     ResolvedGithubRepository,
     _build_github_client,
     _remote_bookmarks_pointing_at_trunk,
@@ -58,15 +57,6 @@ from jj_review.models.intent import LoadedIntent, SubmitIntent
 from jj_review.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
 
 HELP = "Send a jj stack to GitHub for review"
-
-SubmitBookmarkCollisionError = bookmark_helpers.BookmarkCollisionError
-SubmitBookmarkResolutionError = bookmark_helpers.BookmarkRediscoveryError
-SubmitRemoteResolutionError = github_resolution.RemoteResolutionError
-SubmitGithubResolutionError = github_resolution.GithubRepositoryResolutionError
-_github_hostname_from_api_base_url = github_resolution._github_hostname_from_api_base_url
-_github_token_for_base_url = github_resolution._github_token_for_base_url
-_github_token_from_env = github_resolution._github_token_from_env
-_github_token_from_gh_cli = github_resolution._github_token_from_gh_cli
 
 
 class SubmitBookmarkConflictError(CliError):
@@ -856,7 +846,7 @@ async def _get_github_repository(
             github_repository.repo,
         )
     except GithubClientError as error:
-        raise SubmitGithubResolutionError(
+        raise GithubRepositoryResolutionError(
             f"Could not load GitHub repository {github_repository.full_name}: {error}"
         ) from error
 

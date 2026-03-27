@@ -9,32 +9,14 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from jj_review import review_inspection as _review_inspection
 from jj_review.errors import CliError
 from jj_review.intent import intent_change_ids, pid_is_alive
 from jj_review.jj import UnsupportedStackError
+from jj_review.review_inspection import prepare_status, stream_status
 
 _DISPLAY_CHANGE_ID_LENGTH = 8
 
-for _name in dir(_review_inspection):
-    if _name.startswith("__"):
-        continue
-    globals()[_name] = getattr(_review_inspection, _name)
-
-del _name
-
 HELP = "Check the review status of a jj stack"
-PreparedStatus = _review_inspection.PreparedStatus
-StatusResult = _review_inspection.StatusResult
-ReviewStatusRevision = _review_inspection.ReviewStatusRevision
-PullRequestLookup = _review_inspection.PullRequestLookup
-_PreparedStack = _review_inspection._PreparedStack
-_classify_status_intents = _review_inspection._classify_status_intents
-_resolve_status_github_repository = _review_inspection._resolve_status_github_repository
-_status_is_incomplete = _review_inspection._status_is_incomplete
-_stream_status_async = _review_inspection._stream_status_async
-prepare_status = _review_inspection.prepare_status
-stream_status = _review_inspection.stream_status
 
 
 def status(

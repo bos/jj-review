@@ -5,7 +5,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
-from jj_review.commands.review_state import (
+from jj_review.config import RepoConfig
+from jj_review.errors import CliError
+from jj_review.github_resolution import ResolvedGithubRepository
+from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
+from jj_review.models.cache import ReviewState
+from jj_review.models.github import GithubBranchRef, GithubPullRequest
+from jj_review.models.stack import LocalRevision, LocalStack
+from jj_review.review_inspection import (
     PreparedStatus,
     PullRequestLookup,
     ReviewStatusRevision,
@@ -15,13 +22,6 @@ from jj_review.commands.review_state import (
     _status_is_incomplete,
     _stream_status_async,
 )
-from jj_review.commands.submit import ResolvedGithubRepository
-from jj_review.config import RepoConfig
-from jj_review.errors import CliError
-from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
-from jj_review.models.cache import ReviewState
-from jj_review.models.github import GithubBranchRef, GithubPullRequest
-from jj_review.models.stack import LocalRevision, LocalStack
 
 
 def test_stream_status_streams_local_fallback_revisions_after_github_abort(

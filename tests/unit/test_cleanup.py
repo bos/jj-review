@@ -20,11 +20,11 @@ from jj_review.commands.cleanup import (
     _stream_cleanup_async,
     stream_restack,
 )
-from jj_review.commands.review_state import PreparedStatus, ReviewStatusRevision
-from jj_review.commands.submit import ResolvedGithubRepository
+from jj_review.github_resolution import ResolvedGithubRepository
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
+from jj_review.review_inspection import PreparedStatus, ReviewStatusRevision
 
 
 def test_should_skip_stack_comment_inspection_for_stale_open_change_without_comment_hint(

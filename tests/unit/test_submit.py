@@ -7,29 +7,24 @@ from types import SimpleNamespace
 
 import pytest
 
-from jj_review.bookmarks import ResolvedBookmark
+from jj_review.bookmarks import (
+    BookmarkCollisionError,
+    BookmarkRediscoveryError,
+    ResolvedBookmark,
+    _discover_bookmarks_for_revisions,
+    _ensure_unique_bookmarks,
+)
 from jj_review.commands.submit import (
     GeneratedDescription,
-    SubmitBookmarkCollisionError,
     SubmitBookmarkConflictError,
-    SubmitBookmarkResolutionError,
     SubmitDescriptionCommandError,
-    SubmitGithubResolutionError,
     SubmitPrivateCommitError,
     SubmitPullRequestResolutionError,
     SubmitRemoteBookmarkConflictError,
     SubmitRemoteBookmarkOwnershipError,
-    SubmitRemoteResolutionError,
     _bookmark_link_is_proven,
-    _build_github_client,
-    _discover_bookmarks_for_revisions,
     _ensure_pull_request_link_is_consistent,
     _ensure_remote_can_be_updated,
-    _ensure_unique_bookmarks,
-    _github_hostname_from_api_base_url,
-    _github_token_for_base_url,
-    _github_token_from_env,
-    _github_token_from_gh_cli,
     _preflight_private_commits,
     _remote_is_up_to_date,
     _render_generated_stack_description,
@@ -38,11 +33,20 @@ from jj_review.commands.submit import (
     _resolve_local_action,
     _run_description_command,
     _should_update_untracked_remote_with_git,
+)
+from jj_review.config import RepoConfig
+from jj_review.github_resolution import (
+    GithubRepositoryResolutionError,
+    RemoteResolutionError,
+    _build_github_client,
+    _github_hostname_from_api_base_url,
+    _github_token_for_base_url,
+    _github_token_from_env,
+    _github_token_from_gh_cli,
     resolve_github_repository,
     resolve_trunk_branch,
     select_submit_remote,
 )
-from jj_review.config import RepoConfig
 from jj_review.intent import write_intent
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
@@ -85,7 +89,7 @@ def test_select_submit_remote_uses_only_remote_when_unambiguous() -> None:
 
 
 def test_select_submit_remote_rejects_missing_configured_remote() -> None:
-    with pytest.raises(SubmitRemoteResolutionError, match="Configured remote 'origin'"):
+    with pytest.raises(RemoteResolutionError, match="Configured remote 'origin'"):
         select_submit_remote(
             RepoConfig(remote="origin"),
             (GitRemote(name="upstream", url="git@example.com:org/repo.git"),),
@@ -94,7 +98,7 @@ def test_select_submit_remote_rejects_missing_configured_remote() -> None:
 
 def test_select_submit_remote_rejects_ambiguous_remote_set_without_origin() -> None:
     with pytest.raises(
-        SubmitRemoteResolutionError,
+        RemoteResolutionError,
         match="Could not determine which Git remote to use for submit",
     ):
         select_submit_remote(
@@ -108,7 +112,7 @@ def test_select_submit_remote_rejects_ambiguous_remote_set_without_origin() -> N
 
 def test_select_submit_remote_rejects_empty_remote_list() -> None:
     with pytest.raises(
-        SubmitRemoteResolutionError,
+        RemoteResolutionError,
         match="Could not determine which Git remote to use for submit",
     ):
         select_submit_remote(RepoConfig(), ())
@@ -145,7 +149,7 @@ def test_resolve_github_repository_parses_https_remote_url() -> None:
 
 def test_resolve_github_repository_rejects_unparseable_remote_without_config() -> None:
     with pytest.raises(
-        SubmitGithubResolutionError,
+        GithubRepositoryResolutionError,
         match="Could not determine the GitHub repository",
     ):
         resolve_github_repository(
@@ -464,7 +468,7 @@ def test_resolve_trunk_branch_falls_back_to_unique_remote_bookmark() -> None:
 
 def test_resolve_trunk_branch_rejects_ambiguous_remote_bookmarks() -> None:
     with pytest.raises(
-        SubmitGithubResolutionError,
+        GithubRepositoryResolutionError,
         match="multiple remote bookmarks",
     ):
         resolve_trunk_branch(
@@ -580,7 +584,7 @@ def test_discover_bookmarks_for_revisions_reuses_unique_matching_remote_bookmark
 
 def test_discover_bookmarks_for_revisions_rejects_ambiguous_matches() -> None:
     with pytest.raises(
-        SubmitBookmarkResolutionError,
+        BookmarkRediscoveryError,
         match="multiple existing bookmarks match",
     ):
         _discover_bookmarks_for_revisions(
@@ -787,7 +791,7 @@ def test_ensure_unique_bookmarks_rejects_duplicate_names() -> None:
     )
 
     with pytest.raises(
-        SubmitBookmarkCollisionError,
+        BookmarkCollisionError,
         match="multiple changes to the same bookmark",
     ):
         _ensure_unique_bookmarks(resolutions)

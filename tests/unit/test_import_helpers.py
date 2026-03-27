@@ -16,10 +16,10 @@ from jj_review.commands.import_ import (
     _run_import_async,
     _validate_bookmark_state,
 )
-from jj_review.commands.review_state import PreparedStatus
 from jj_review.config import RepoConfig
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
+from jj_review.review_inspection import PreparedStatus
 
 
 @dataclass(frozen=True)

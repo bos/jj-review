@@ -23,12 +23,12 @@ from jj_review.commands.land import (
     _updated_landed_change,
     _write_land_preview,
 )
-from jj_review.commands.review_state import PreparedStatus, StatusResult
-from jj_review.commands.submit import ResolvedGithubRepository
+from jj_review.github_resolution import ResolvedGithubRepository
 from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
 from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
 from jj_review.models.intent import LandIntent, LoadedIntent
+from jj_review.review_inspection import PreparedStatus, StatusResult
 
 
 def test_build_land_plan_uses_maximal_ready_prefix() -> None:
