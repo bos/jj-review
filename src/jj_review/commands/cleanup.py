@@ -364,47 +364,15 @@ def _build_restack_result(
     client = prepared.client
     _restack_succeeded = False
     try:
-        if prepared_restack.apply and not blocked:
-            for source_change_id, destination_change_id in rebase_plans:
-                source_revision = client.resolve_revision(source_change_id)
-                if destination_change_id is None:
-                    destination_revision = prepared.stack.trunk.commit_id
-                else:
-                    destination_revision = client.resolve_revision(
-                        destination_change_id
-                    ).commit_id
-                if source_revision.only_parent_commit_id() == destination_revision:
-                    continue
-                client.rebase_revision(
-                    source=source_change_id,
-                    destination=destination_revision,
-                )
-                record_action(
-                    CleanupAction(
-                        kind="restack",
-                        message=(
-                            f"rebase {_short_change_id(source_change_id)} onto "
-                            f"{_restack_destination_label(destination_change_id)}"
-                        ),
-                        status="applied",
-                    )
-                )
-        else:
-            for source_change_id, destination_change_id in rebase_plans:
-                status = "blocked" if blocked else "planned"
-                message = (
-                    f"rebase {_short_change_id(source_change_id)} onto "
-                    f"{_restack_destination_label(destination_change_id)}"
-                )
-                if blocked and closed_unmerged_revisions:
-                    message = f"{message} once blocked path changes are resolved"
-                record_action(
-                    CleanupAction(
-                        kind="restack",
-                        message=message,
-                        status=status,
-                    )
-                )
+        _run_restack_rebase_pass(
+            blocked=blocked,
+            client=client,
+            closed_unmerged_revisions=closed_unmerged_revisions,
+            prepared_restack=prepared_restack,
+            rebase_plans=tuple(rebase_plans),
+            record_action=record_action,
+            trunk_commit_id=prepared.stack.trunk.commit_id,
+        )
 
         for revision in merged_revisions:
             pull_request_number = _revision_pull_request_number(revision)
@@ -467,6 +435,70 @@ def _resolve_restack_path_revisions(
         for prepared_revision in prepared_status.prepared.status_revisions
         if prepared_revision.revision.change_id in revisions_by_change_id
     )
+
+
+def _run_restack_rebase_pass(
+    *,
+    blocked: bool,
+    client: JjClient,
+    closed_unmerged_revisions: tuple[ReviewStatusRevision, ...],
+    prepared_restack: PreparedRestack,
+    rebase_plans: tuple[tuple[str, str | None], ...],
+    record_action: Callable[[CleanupAction], None],
+    trunk_commit_id: str,
+) -> None:
+    if prepared_restack.apply and not blocked:
+        for source_change_id, destination_change_id in rebase_plans:
+            source_revision = client.resolve_revision(source_change_id)
+            destination_commit_id = _restack_destination_commit_id(
+                client=client,
+                destination_change_id=destination_change_id,
+                trunk_commit_id=trunk_commit_id,
+            )
+            if source_revision.only_parent_commit_id() == destination_commit_id:
+                continue
+            client.rebase_revision(
+                source=source_change_id,
+                destination=destination_commit_id,
+            )
+            record_action(
+                CleanupAction(
+                    kind="restack",
+                    message=(
+                        f"rebase {_short_change_id(source_change_id)} onto "
+                        f"{_restack_destination_label(destination_change_id)}"
+                    ),
+                    status="applied",
+                )
+            )
+        return
+
+    for source_change_id, destination_change_id in rebase_plans:
+        status = "blocked" if blocked else "planned"
+        message = (
+            f"rebase {_short_change_id(source_change_id)} onto "
+            f"{_restack_destination_label(destination_change_id)}"
+        )
+        if blocked and closed_unmerged_revisions:
+            message = f"{message} once blocked path changes are resolved"
+        record_action(
+            CleanupAction(
+                kind="restack",
+                message=message,
+                status=status,
+            )
+        )
+
+
+def _restack_destination_commit_id(
+    *,
+    client: JjClient,
+    destination_change_id: str | None,
+    trunk_commit_id: str,
+) -> str:
+    if destination_change_id is None:
+        return trunk_commit_id
+    return client.resolve_revision(destination_change_id).commit_id
 
 
 def _plan_restack_operations(
