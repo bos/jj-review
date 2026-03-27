@@ -153,6 +153,115 @@ class _RestackOperationPlan:
     pre_actions: tuple[CleanupAction, ...]
     rebase_plans: tuple[tuple[str, str | None], ...]
 
+
+def render_cleanup_preamble(*, prepared_cleanup: PreparedCleanup) -> tuple[str, ...]:
+    """Render the non-streaming cleanup context lines for the CLI."""
+
+    return _render_remote_and_github_lines(
+        remote=prepared_cleanup.remote,
+        remote_error=prepared_cleanup.remote_error,
+        github_repository=(
+            prepared_cleanup.github_repository.full_name
+            if prepared_cleanup.github_repository is not None
+            else None
+        ),
+        github_error=prepared_cleanup.github_repository_error,
+    )
+
+
+def render_cleanup_action_header(*, apply: bool) -> str:
+    """Render the cleanup action section header."""
+
+    return "Applied cleanup actions:" if apply else "Planned cleanup actions:"
+
+
+def render_cleanup_action(*, action: CleanupAction) -> str:
+    """Render one cleanup action line."""
+
+    return f"- [{action.status}] {action.kind}: {action.message}"
+
+
+def render_cleanup_postamble(*, result: CleanupResult) -> tuple[str, ...]:
+    """Render cleanup lines that only depend on the completed result."""
+
+    if not result.actions:
+        return ("No cleanup actions planned.",)
+    if not result.applied:
+        return ("Re-run with `cleanup --apply` to perform safe actions.",)
+    return ()
+
+
+def render_restack_preamble(*, prepared_restack: PreparedRestack) -> tuple[str, ...]:
+    """Render the non-streaming restack context lines for the CLI."""
+
+    prepared_status = prepared_restack.prepared_status
+    prepared = prepared_status.prepared
+    return (
+        f"Selected revset: {prepared_status.selected_revset}",
+        *_render_remote_and_github_lines(
+            remote=prepared.remote,
+            remote_error=prepared.remote_error,
+            github_repository=(
+                prepared_status.github_repository.full_name
+                if prepared_status.github_repository is not None
+                else None
+            ),
+            github_error=prepared_status.github_repository_error,
+        ),
+    )
+
+
+def render_restack_action_header(*, apply: bool) -> str:
+    """Render the restack action section header."""
+
+    return "Applied restack actions:" if apply else "Planned restack actions:"
+
+
+def render_restack_action(*, action: CleanupAction) -> str:
+    """Render one restack action line."""
+
+    return f"- [{action.status}] {action.kind}: {action.message}"
+
+
+def render_restack_postamble(*, result: RestackResult) -> tuple[str, ...]:
+    """Render restack lines that only depend on the completed result."""
+
+    if not result.actions:
+        return ("No merged changes on the selected stack need restacking.",)
+    if not result.applied:
+        selected_revset = (
+            f" {result.selected_revset}" if result.selected_revset else ""
+        )
+        return (
+            "Re-run with `cleanup --restack --apply"
+            f"{selected_revset}` to rewrite surviving local changes.",
+        )
+    return ()
+
+
+def _render_remote_and_github_lines(
+    *,
+    remote: GitRemote | None,
+    remote_error: str | None,
+    github_repository: str | None,
+    github_error: str | None,
+) -> tuple[str, ...]:
+    lines: list[str] = []
+    if remote is None:
+        if remote_error is None:
+            lines.append("Selected remote: unavailable")
+        else:
+            lines.append(f"Selected remote: unavailable ({remote_error})")
+    else:
+        lines.append(f"Selected remote: {remote.name}")
+
+    if github_repository is None:
+        if github_error is not None:
+            lines.append(f"GitHub target: unavailable ({github_error})")
+    else:
+        lines.append(f"GitHub: {github_repository}")
+    return tuple(lines)
+
 def prepare_cleanup(
     *,
     apply: bool,
@@ -397,6 +506,60 @@ def stream_restack(
         if _restack_succeeded and restack_intent_path is not None and _restack_intent is not None:
             retire_superseded_intents(restack_stale_intents, _restack_intent)
             delete_intent(restack_intent_path)
+
+
+def run_cleanup_command(
+    *,
+    apply: bool,
+    config: RepoConfig,
+    on_action: Callable[[CleanupAction], None] | None = None,
+    prepare_cleanup_fn: Callable[..., PreparedCleanup] | None = None,
+    repo_root: Path,
+    stream_cleanup_fn: Callable[..., CleanupResult] | None = None,
+) -> tuple[PreparedCleanup, CleanupResult]:
+    """Prepare and run cleanup while allowing the CLI to inject test seams."""
+
+    prepare_fn = prepare_cleanup if prepare_cleanup_fn is None else prepare_cleanup_fn
+    stream_fn = stream_cleanup if stream_cleanup_fn is None else stream_cleanup_fn
+    prepared_cleanup = prepare_fn(
+        apply=apply,
+        config=config,
+        repo_root=repo_root,
+    )
+    result = stream_fn(
+        on_action=on_action,
+        prepared_cleanup=prepared_cleanup,
+    )
+    return prepared_cleanup, result
+
+
+def run_restack_command(
+    *,
+    apply: bool,
+    change_overrides: dict[str, ChangeConfig],
+    config: RepoConfig,
+    on_action: Callable[[CleanupAction], None] | None = None,
+    prepare_restack_fn: Callable[..., PreparedRestack] | None = None,
+    repo_root: Path,
+    revset: str | None,
+    stream_restack_fn: Callable[..., RestackResult] | None = None,
+) -> tuple[PreparedRestack, RestackResult]:
+    """Prepare and run restack while allowing the CLI to inject test seams."""
+
+    prepare_fn = prepare_restack if prepare_restack_fn is None else prepare_restack_fn
+    stream_fn = stream_restack if stream_restack_fn is None else stream_restack_fn
+    prepared_restack = prepare_fn(
+        apply=apply,
+        change_overrides=change_overrides,
+        config=config,
+        repo_root=repo_root,
+        revset=revset,
+    )
+    result = stream_fn(
+        on_action=on_action,
+        prepared_restack=prepared_restack,
+    )
+    return prepared_restack, result
 
 
 def _resolve_restack_path_revisions(

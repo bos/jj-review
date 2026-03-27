@@ -45,6 +45,16 @@ from jj_review.commands import (
 from jj_review.commands.cleanup import (
     prepare_cleanup,
     prepare_restack,
+    render_cleanup_action,
+    render_cleanup_action_header,
+    render_cleanup_postamble,
+    render_cleanup_preamble,
+    render_restack_action,
+    render_restack_action_header,
+    render_restack_postamble,
+    render_restack_preamble,
+    run_cleanup_command,
+    run_restack_command,
     stream_cleanup,
     stream_restack,
 )
@@ -1516,52 +1526,33 @@ def _cleanup_handler(args: Namespace) -> int:
             )
         except UnsupportedStackError as error:
             raise CliError(_describe_status_preparation_error(error)) from error
-        prepared_status = prepared_restack.prepared_status
-        prepared = prepared_status.prepared
-        print(f"Selected revset: {prepared_status.selected_revset}")
-        if prepared.remote is None:
-            if prepared.remote_error is None:
-                print("Selected remote: unavailable")
-            else:
-                print(f"Selected remote: unavailable ({prepared.remote_error})")
-        else:
-            print(f"Selected remote: {prepared.remote.name}")
-        if prepared_status.github_repository is None:
-            if prepared_status.github_repository_error is not None:
-                print(
-                    "GitHub target: unavailable "
-                    f"({prepared_status.github_repository_error})"
-                )
-        else:
-            print(f"GitHub: {prepared_status.github_repository.full_name}")
+        for line in render_restack_preamble(prepared_restack=prepared_restack):
+            print(line)
 
         header_printed = False
 
         def emit_action(action) -> None:
             nonlocal header_printed
             if not header_printed:
-                header = (
-                    "Applied restack actions:"
-                    if prepared_restack.apply
-                    else "Planned restack actions:"
-                )
-                print(header)
+                print(render_restack_action_header(apply=prepared_restack.apply))
                 header_printed = True
-            print(f"- [{action.status}] {action.kind}: {action.message}")
+            print(render_restack_action(action=action))
 
-        result = stream_restack(
-            on_action=emit_action,
-            prepared_restack=prepared_restack,
-        )
-        if not result.actions:
-            print("No merged changes on the selected stack need restacking.")
-            return 0
-        if not result.applied:
-            print(
-                "Re-run with `cleanup --restack --apply"
-                f"{' ' + result.selected_revset if result.selected_revset else ''}` "
-                "to rewrite surviving local changes."
+        try:
+            _, result = run_restack_command(
+                apply=bool(args.apply),
+                change_overrides=context.config.change,
+                config=context.config.repo,
+                on_action=emit_action,
+                prepare_restack_fn=lambda **kwargs: prepared_restack,
+                repo_root=context.repo_root,
+                revset=selected_revset,
+                stream_restack_fn=stream_restack,
             )
+        except UnsupportedStackError as error:
+            raise CliError(_describe_status_preparation_error(error)) from error
+        for line in render_restack_postamble(result=result):
+            print(line)
         return 1 if result.blocked else 0
 
     prepared_cleanup = prepare_cleanup(
@@ -1569,46 +1560,28 @@ def _cleanup_handler(args: Namespace) -> int:
         config=context.config.repo,
         repo_root=context.repo_root,
     )
-    if prepared_cleanup.remote is None:
-        if prepared_cleanup.remote_error is None:
-            print("Selected remote: unavailable")
-        else:
-            print(f"Selected remote: unavailable ({prepared_cleanup.remote_error})")
-    else:
-        print(f"Selected remote: {prepared_cleanup.remote.name}")
-
-    if prepared_cleanup.github_repository is None:
-        if prepared_cleanup.github_repository_error is not None:
-            print(
-                "GitHub target: unavailable "
-                f"({prepared_cleanup.github_repository_error})"
-            )
-    else:
-        print(f"GitHub: {prepared_cleanup.github_repository.full_name}")
+    for line in render_cleanup_preamble(prepared_cleanup=prepared_cleanup):
+        print(line)
 
     header_printed = False
 
     def emit_action(action) -> None:
         nonlocal header_printed
         if not header_printed:
-            header = (
-                "Applied cleanup actions:"
-                if prepared_cleanup.apply
-                else "Planned cleanup actions:"
-            )
-            print(header)
+            print(render_cleanup_action_header(apply=prepared_cleanup.apply))
             header_printed = True
-        print(f"- [{action.status}] {action.kind}: {action.message}")
+        print(render_cleanup_action(action=action))
 
-    result = stream_cleanup(
+    _, result = run_cleanup_command(
+        apply=bool(args.apply),
+        config=context.config.repo,
         on_action=emit_action,
-        prepared_cleanup=prepared_cleanup,
+        prepare_cleanup_fn=lambda **kwargs: prepared_cleanup,
+        repo_root=context.repo_root,
+        stream_cleanup_fn=stream_cleanup,
     )
-    if not result.actions:
-        print("No cleanup actions planned.")
-        return 0
-    if not result.applied:
-        print("Re-run with `cleanup --apply` to perform safe actions.")
+    for line in render_cleanup_postamble(result=result):
+        print(line)
     return 0
 
 
