@@ -11,15 +11,20 @@ import json
 import os
 import subprocess
 import tempfile
-from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypeVar
 
+from jj_review import bookmarks as bookmark_helpers
 from jj_review import github_resolution
-from jj_review.bookmarks import BookmarkResolver, BookmarkSource, ResolvedBookmark
+from jj_review.bookmarks import (
+    BookmarkResolver,
+    BookmarkSource,
+    _discover_bookmarks_for_revisions,
+    _ensure_unique_bookmarks,
+)
 from jj_review.cache import ReviewStateStore
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
@@ -49,6 +54,8 @@ from jj_review.models.intent import LoadedIntent, SubmitIntent
 
 HELP = "Send a jj stack to GitHub for review"
 
+SubmitBookmarkCollisionError = bookmark_helpers.BookmarkCollisionError
+SubmitBookmarkResolutionError = bookmark_helpers.BookmarkRediscoveryError
 SubmitRemoteResolutionError = github_resolution.RemoteResolutionError
 SubmitGithubResolutionError = github_resolution.GithubRepositoryResolutionError
 _github_hostname_from_api_base_url = github_resolution._github_hostname_from_api_base_url
@@ -57,16 +64,8 @@ _github_token_from_env = github_resolution._github_token_from_env
 _github_token_from_gh_cli = github_resolution._github_token_from_gh_cli
 
 
-class SubmitBookmarkCollisionError(CliError):
-    """Raised when multiple changes resolve to the same bookmark."""
-
-
 class SubmitBookmarkConflictError(CliError):
     """Raised when a local bookmark has multiple conflicting targets."""
-
-
-class SubmitBookmarkResolutionError(CliError):
-    """Raised when `submit` cannot safely rediscover the saved bookmark."""
 
 
 class SubmitRemoteBookmarkConflictError(CliError):
@@ -723,32 +722,6 @@ def _preflight_private_commits(
     raise SubmitPrivateCommitError(
         f"Stack contains commits blocked by `git.private-commits`: {subjects}. "
         "Remove these changes from the stack before submitting."
-    )
-
-
-def _ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
-    bookmarks_to_changes: dict[str, list[str]] = defaultdict(list)
-    for resolution in resolutions:
-        bookmarks_to_changes[resolution.bookmark].append(resolution.change_id)
-
-    duplicates = {
-        bookmark: change_ids
-        for bookmark, change_ids in bookmarks_to_changes.items()
-        if len(change_ids) > 1
-    }
-    if not duplicates:
-        return
-
-    collision_descriptions = ", ".join(
-        (
-            f"{bookmark!r} for changes {', '.join(change_ids)}"
-            for bookmark, change_ids in sorted(duplicates.items())
-        )
-    )
-    raise SubmitBookmarkCollisionError(
-        "Selected stack resolves multiple changes to the same bookmark: "
-        f"{collision_descriptions}. Configure distinct bookmark names before "
-        "submitting."
     )
 
 
@@ -1877,41 +1850,3 @@ def _updated_cached_change(
             "pr_url": pull_request.html_url,
         }
     )
-
-
-def _discover_bookmarks_for_revisions(
-    *,
-    bookmark_states: dict[str, BookmarkState],
-    remote_name: str,
-    revisions: tuple[Any, ...],
-) -> dict[str, str]:
-    discovered: dict[str, str] = {}
-    for revision in revisions:
-        candidates = [
-            bookmark
-            for bookmark, bookmark_state in bookmark_states.items()
-            if _bookmark_matches_generated_change_id(bookmark, revision.change_id)
-            and _bookmark_state_is_discoverable(bookmark_state, remote_name)
-        ]
-        if not candidates:
-            continue
-        unique_candidates = sorted(set(candidates))
-        if len(unique_candidates) > 1:
-            raise SubmitBookmarkResolutionError(
-                f"Could not safely rediscover the bookmark for change "
-                f"{revision.change_id}: multiple existing bookmarks match its stable "
-                f"change-ID suffix: {', '.join(unique_candidates)}."
-            )
-        discovered[revision.change_id] = unique_candidates[0]
-    return discovered
-
-
-def _bookmark_matches_generated_change_id(bookmark: str, change_id: str) -> bool:
-    return bookmark.startswith("review/") and bookmark.endswith(f"-{change_id[:8]}")
-
-
-def _bookmark_state_is_discoverable(bookmark_state: BookmarkState, remote_name: str) -> bool:
-    if bookmark_state.local_targets:
-        return True
-    remote_state = bookmark_state.remote_target(remote_name)
-    return remote_state is not None and bool(remote_state.targets)

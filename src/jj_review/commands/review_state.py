@@ -14,13 +14,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from jj_review.bookmarks import BookmarkResolver, BookmarkSource
-from jj_review.cache import ReviewStateStore
-from jj_review.commands.submit import (
-    _STACK_COMMENT_MARKER,
+from jj_review.bookmarks import (
+    BookmarkResolver,
+    BookmarkSource,
     _discover_bookmarks_for_revisions,
     _ensure_unique_bookmarks,
 )
+from jj_review.cache import ReviewStateStore
+from jj_review.commands.submit import _STACK_COMMENT_MARKER
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError

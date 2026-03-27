@@ -15,15 +15,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
+from jj_review.bookmarks import (
+    _bookmark_matches_generated_change_id,
+    _discover_bookmarks_for_revisions,
+)
 from jj_review.commands.review_state import (
     PreparedStatus,
     StatusResult,
     _stream_status_async,
     prepare_status,
-)
-from jj_review.commands.submit import (
-    _bookmark_matches_generated_change_id,
-    _discover_bookmarks_for_revisions,
 )
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError

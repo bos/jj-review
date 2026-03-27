@@ -1,13 +1,15 @@
-"""Synthetic bookmark naming and resolution."""
+"""Bookmark naming, rediscovery, and resolution helpers."""
 
 from __future__ import annotations
 
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from jj_review.config import ChangeConfig
+from jj_review.errors import CliError
+from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision
 
@@ -17,6 +19,14 @@ _REVIEW_NAMESPACE = "review"
 _SHORT_CHANGE_ID_LENGTH = 8
 
 BookmarkSource = Literal["cache", "discovered", "generated", "override"]
+
+
+class BookmarkCollisionError(CliError):
+    """Raised when multiple changes resolve to the same bookmark."""
+
+
+class BookmarkRediscoveryError(CliError):
+    """Raised when the tool cannot safely rediscover a bookmark."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +131,68 @@ def generate_bookmark_name(revision: LocalRevision) -> str:
     slug = _slugify(first_line)
     short_change_id = revision.change_id[:_SHORT_CHANGE_ID_LENGTH]
     return f"{_REVIEW_NAMESPACE}/{slug}-{short_change_id}"
+
+
+def _discover_bookmarks_for_revisions(
+    *,
+    bookmark_states: dict[str, BookmarkState],
+    remote_name: str,
+    revisions: tuple[Any, ...],
+) -> dict[str, str]:
+    discovered: dict[str, str] = {}
+    for revision in revisions:
+        candidates = [
+            bookmark
+            for bookmark, bookmark_state in bookmark_states.items()
+            if _bookmark_matches_generated_change_id(bookmark, revision.change_id)
+            and _bookmark_state_is_discoverable(bookmark_state, remote_name)
+        ]
+        if not candidates:
+            continue
+        unique_candidates = sorted(set(candidates))
+        if len(unique_candidates) > 1:
+            raise BookmarkRediscoveryError(
+                f"Could not safely rediscover the bookmark for change "
+                f"{revision.change_id}: multiple existing bookmarks match its stable "
+                f"change-ID suffix: {', '.join(unique_candidates)}."
+            )
+        discovered[revision.change_id] = unique_candidates[0]
+    return discovered
+
+
+def _ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
+    bookmarks_to_changes: dict[str, list[str]] = {}
+    for resolution in resolutions:
+        bookmarks_to_changes.setdefault(resolution.bookmark, []).append(resolution.change_id)
+
+    duplicates = {
+        bookmark: change_ids
+        for bookmark, change_ids in bookmarks_to_changes.items()
+        if len(change_ids) > 1
+    }
+    if not duplicates:
+        return
+
+    collision_descriptions = ", ".join(
+        f"{bookmark!r} for changes {', '.join(change_ids)}"
+        for bookmark, change_ids in sorted(duplicates.items())
+    )
+    raise BookmarkCollisionError(
+        "Selected stack resolves multiple changes to the same bookmark: "
+        f"{collision_descriptions}. Configure distinct bookmark names before "
+        "submitting."
+    )
+
+
+def _bookmark_matches_generated_change_id(bookmark: str, change_id: str) -> bool:
+    return bookmark.startswith("review/") and bookmark.endswith(f"-{change_id[:8]}")
+
+
+def _bookmark_state_is_discoverable(bookmark_state: BookmarkState, remote_name: str) -> bool:
+    if bookmark_state.local_targets:
+        return True
+    remote_state = bookmark_state.remote_target(remote_name)
+    return remote_state is not None and bool(remote_state.targets)
 
 
 def _slugify(subject: str) -> str:
