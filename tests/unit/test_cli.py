@@ -1591,7 +1591,7 @@ def test_main_unlink_current_passes_current_path_selection(
     def fake_run_unlink(**kwargs):
         calls.append(kwargs["revset"])
         return SimpleNamespace(
-            already_detached=False,
+            already_unlinked=False,
             bookmark="review/feature-abcdefgh",
             change_id="abcdefghijkl",
             selected_revset="@",
@@ -1605,7 +1605,7 @@ def test_main_unlink_current_passes_current_path_selection(
 
     assert exit_code == 0
     assert calls == [None]
-    assert "Detached managed review state for feature 1 [abcdefgh]" in captured.out
+    assert "Stopped review tracking for feature 1 [abcdefgh]" in captured.out
 
 
 def test_main_cleanup_restack_renders_next_step_and_policy_warning(

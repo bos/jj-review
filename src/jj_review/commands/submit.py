@@ -68,8 +68,8 @@ class SubmitPullRequestResolutionError(CliError):
     """Raised when `submit` cannot safely resolve a pull request."""
 
 
-class SubmitDetachedChangeError(CliError):
-    """Raised when `submit` hits a change explicitly detached from review."""
+class SubmitUnlinkedChangeError(CliError):
+    """Raised when `submit` hits a change explicitly unlinked from review."""
 
 
 class SubmitPrivateCommitError(CliError):
@@ -466,7 +466,7 @@ async def _run_submit_async(
                 stack.revisions,
                 strict=True,
             ):
-                _ensure_change_is_not_detached(
+                _ensure_change_is_not_unlinked(
                     cached_change=bookmark_result.state.changes.get(revision.change_id),
                     change_id=revision.change_id,
                 )
@@ -791,7 +791,7 @@ def _bookmark_link_is_proven(
     cached_change = state.changes.get(change_id)
     return (
         cached_change is not None
-        and not cached_change.is_detached
+        and not cached_change.is_unlinked
         and cached_change.bookmark == bookmark
     )
 
@@ -1456,7 +1456,7 @@ def _ensure_pull_request_link_is_consistent(
     change_id: str,
     discovered_pull_request: GithubPullRequest | None,
 ) -> None:
-    _ensure_change_is_not_detached(
+    _ensure_change_is_not_unlinked(
         cached_change=cached_change,
         change_id=change_id,
     )
@@ -1485,15 +1485,15 @@ def _ensure_pull_request_link_is_consistent(
         )
 
 
-def _ensure_change_is_not_detached(
+def _ensure_change_is_not_unlinked(
     *,
     cached_change: CachedChange | None,
     change_id: str,
 ) -> None:
-    if cached_change is None or not cached_change.is_detached:
+    if cached_change is None or not cached_change.is_unlinked:
         return
-    raise SubmitDetachedChangeError(
-        f"Change {change_id[:8]} is detached from managed review. Run `relink` to "
+    raise SubmitUnlinkedChangeError(
+        f"Change {change_id[:8]} is unlinked from review tracking. Run `relink` to "
         "reattach it before submitting again."
     )
 

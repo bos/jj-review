@@ -240,7 +240,7 @@ If the tool stores any machine-written local state, it should be limited to:
 - cached PR number and URL
 - cached stack-comment identifier, if the tool uses a dedicated PR comment
 - last known PR state, only as a cache
-- a durable detached-link marker for a change the operator explicitly
+- a durable unlinked marker for a change the operator explicitly
   unlinked, because that is user intent the tool must not silently undo
 
 Even the PR link can often be rediscovered by asking GitHub for the PR whose
@@ -339,7 +339,7 @@ Given a selected head revision:
      invoking the helper once per review unit as `helper --pr <change_id>`
    - the same helper may also be invoked once per selected stack as
      `helper --stack <selected-revset>`; that output is prepended to the
-     managed reviewer-facing stack comment when the selected path contains
+     reviewer-facing stack comment when the selected path contains
      more than one review unit, and does not become a separate source of
      truth for topology
    - for stack helpers, submit may also provide a temporary helper-owned input
@@ -593,7 +593,7 @@ for review artifacts the tool can prove it owns for that path:
 - delete owned remote review branches on the configured target remote only
 - forget owned local synthetic review bookmarks
 - delete managed stack comments that belong to the closed path
-- remove stale managed review metadata such as cached stack-comment link
+- remove stale review tracking metadata such as cached stack-comment link
 
 That cleanup should stay opt-in instead of implicit because closing PRs is less
 destructive than deleting branches. Preview output should make the difference
@@ -626,24 +626,24 @@ identified from the local DAG.
 - `pr_review_decision`
 - `stack_comment_id`
 
-It should then write a durable detached-link marker for that change. That
+It should then write a durable unlinked marker for that change. That
 record matters because a plain cache clear would otherwise be undone
 immediately by later rediscovery.
 
-Detached state should mean:
+Unlinked state should mean:
 
 - `status --fetch` may still report discovered remote bookmarks or GitHub PRs
-  for the same review branch, but it must label that state as detached instead
+  for the same review branch, but it must label that state as unlinked instead
   of repopulating active ownership
 - `import` may restore local bookmark state for the selected change, but
-  it must preserve detached link instead of restoring active PR ownership
-- when a preserved local bookmark still exists, status should surface it as a
-  detached review bookmark rather than an active managed review branch
-- `submit` must refuse to reuse detached link automatically, even if a local
+  it must preserve the unlinked state instead of restoring active PR ownership
+- when a preserved local bookmark still exists, status should surface it as an
+  unlinked review bookmark rather than an active review branch
+- `submit` must refuse to reuse unlinked state automatically, even if a local
   bookmark or a discoverable GitHub PR would normally count as proof
-- `land` must reject detached changes as not safely mergeable through the
-  managed review pipeline
-- `relink` is the explicit way back in; it clears the detached marker and
+- `land` must reject unlinked changes as not safely mergeable through the
+  review workflow
+- `relink` is the explicit way back in; it clears the unlinked marker and
   reestablishes active link intentionally
 
 By default, `unlink` should be local-only:
@@ -652,19 +652,19 @@ By default, `unlink` should be local-only:
 - no deleting review branches
 - no deleting stack comments on GitHub
 
-It may preserve the local bookmark, but once the detached marker exists that
+It may preserve the local bookmark, but once the unlinked marker exists that
 bookmark must no longer count as proof of active ownership. That precedence
 rule is part of the product contract, not an implementation detail.
 
 `unlink` should also be idempotent:
 
-- unlinking an already-detached change should succeed as a no-op
+- unlinking an already-unlinked change should succeed as a no-op
 - unlinking a change with no active review link should fail with a targeted
-  diagnostic instead of creating a new detached marker for a never-linked
+  diagnostic instead of creating a new unlinked marker for a never-linked
   change
 
-Broader cleanup remains with `cleanup`. Detached records should not expire just
-because a remote PR disappeared, but cleanup should prune detached markers
+Broader cleanup remains with `cleanup`. Unlinked records should not expire just
+because a remote PR disappeared, but cleanup should prune unlinked markers
 whose `change_id` no longer resolves anywhere in visible history.
 
 ## Rewrite Behavior
@@ -809,7 +809,7 @@ repo, remember that `GIT_DIR` may need to point at `.jj/repo/store/git`.
 
 - prune cache entries for changes that no longer exist or no longer participate
   in any review stack
-- remove stale reviewer-facing stack comments that belong to closed or detached
+- remove stale reviewer-facing stack comments that belong to closed or unlinked
   PRs
 - optionally delete synthetic remote review branches only when they are clearly
   stale, such as after the corresponding PR is closed or the change has been
@@ -1009,7 +1009,7 @@ version = 1
 
 [change."<full-change-id>"]
 bookmark = "review/fix-cache-invalidation-ypvmkkuo"
-detached_at = "2026-03-22T12:34:56+00:00"
+unlinked_at = "2026-03-22T12:34:56+00:00"
 link_state = "active"
 pr_number = 123
 pr_review_decision = "approved"
@@ -1033,7 +1033,7 @@ Semantics:
 - if the machine-written state file is unreadable or partially written, treat
   it as missing cache state for recovery purposes, warn once, and fall back to
   rediscovery where the command can do so safely
-- `link_state = "detached"` is durable operator intent and suppresses
+- `link_state = "unlinked"` is durable operator intent and suppresses
   automatic reattachment until the user runs `relink`
 - cached `pr_state` and `pr_review_decision` are advisory last-known GitHub
   observations for status rendering, not a source of truth

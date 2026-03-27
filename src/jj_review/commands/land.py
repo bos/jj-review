@@ -654,10 +654,10 @@ def _land_boundary_message(
     prepared_revision: _PreparedRevision,
     revision: ReviewStatusRevision,
 ) -> str | None:
-    if revision.link_state == "detached":
+    if revision.link_state == "unlinked":
         return (
             f"stop before {revision.subject} [{_short_change_id(revision.change_id)}] because "
-            "this change is detached from managed review; run `relink` first"
+            "this change is unlinked from review tracking; run `relink` first"
         )
     if revision.local_divergent:
         return (

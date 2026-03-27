@@ -701,7 +701,7 @@ the stack helper for that case.
 The same managed comment now also accepts an optional generated stack-summary
 prefix from `submit --describe-with`; that prose is rendered ahead of the
 standard previous/current/next navigation block so the product still owns only
-one managed reviewer-facing comment per PR.
+one reviewer-facing comment per PR.
 
 When `submit` invokes a stack helper, it now also writes a temporary input file
 with the already-generated PR title/body pairs plus compact per-PR diffstat
@@ -804,13 +804,13 @@ Implemented in the first vertical cut:
   stack comments on stale PRs, and stale synthetic remote review branches
 - `cleanup --apply` now performs the safe subset of those actions: it prunes
   cached change entries that no longer resolve to supported local review
-  stacks, deletes only managed stack comments on closed or detached PRs, and
+  stacks, deletes only managed stack comments on closed or unlinked PRs, and
   deletes stale remote review branches only when the remote branch is
   unambiguous and no local bookmark still owns it
 - stale cache entries now avoid extra GitHub stack-comment inspection unless
   local sparse state suggests comment cleanup could still produce an action,
   such as a cached managed comment, a cached closed PR, or a missing remote
-  review branch that suggests the PR may now be detached
+  review branch that suggests the PR may now be unlinked
 - cleanup now overlaps the remaining GitHub stack-comment inspection with
   bounded concurrency while still applying any resulting mutations in the
   original cache-entry order
@@ -1122,50 +1122,50 @@ The state model needs to stay explicit about what is durable operator intent
 versus mere cache:
 
 - clearing cached PR fields is not enough
-- unlink writes a durable detached marker for the selected change
+- unlink writes a durable unlinked marker for the selected change
 - rerunning unlink is idempotent and should succeed as a no-op
 - unlinking a change with no active review link should fail instead of
-  creating detached state for a never-linked change
+  creating unlinked state for a never-linked change
 
-`unlink` keeps the detached-state precedence rule. Once a change is explicitly
-unlinked, that detached record must override every other proof of ownership:
+`unlink` keeps the unlinked-state precedence rule. Once a change is explicitly
+unlinked, that unlinked record must override every other proof of ownership:
 
 - local synthetic bookmarks
 - cached PR link
 - discoverable GitHub PR link for the same head branch
 
 That means the implementation cannot treat a preserved local bookmark as
-sufficient proof of ownership once detached state exists.
+sufficient proof of ownership once unlinked state exists.
 
 This slice is now in place with the current implementation:
 
 - `unlink` detaches one explicitly selected local review unit without mutating
   GitHub
 - unlink clears active PR and stack-comment link, preserves any known review
-  bookmark, and records durable detached state in the sparse cache
-- rerunning unlink for an already-detached change succeeds as a no-op, while
+  bookmark, and records durable unlinked state in the sparse cache
+- rerunning unlink for an already-unlinked change succeeds as a no-op, while
   unlinking a never-linked change fails with targeted guidance
-- `status --fetch` surfaces detached review branches and detached PRs without
+- `status --fetch` surfaces unlinked review branches and unlinked PRs without
   repopulating active cache ownership
-- `import` may restore local bookmark state for detached changes, but it keeps
-  the durable detached marker and does not repopulate active PR ownership
-- `submit` now refuses detached changes until `relink` clears the detached
+- `import` may restore local bookmark state for unlinked changes, but it keeps
+  the durable unlinked marker and does not repopulate active PR ownership
+- `submit` now refuses unlinked changes until `relink` clears the unlinked
   marker, and `relink` reactivates the link when it succeeds
-- `land` blocks detached changes as not safely landable through the managed
+- `land` blocks unlinked changes as not safely landable through the managed
   pipeline
-- cleanup treats detached link as a valid reason to remove managed stack
-  comments and continues to prune detached markers once their `change_id` no
+- cleanup treats unlinked state as a valid reason to remove managed stack
+  comments and continues to prune unlinked markers once their `change_id` no
   longer resolves locally
 
 Done when:
 
-- unlinking one selected change clears active link and records detached state
-- `status --fetch` surfaces detached state without repopulating active link
-- `status` reports preserved local bookmarks as detached review bookmarks when
-  detached state still exists
-- `submit` refuses to reuse detached link until `relink` clears it
-- `land` rejects detached changes as not safely landable
-- cleanup prunes detached markers whose `change_id` no longer resolves in
+- unlinking one selected change clears active link and records unlinked state
+- `status --fetch` surfaces unlinked state without repopulating active link
+- `status` reports preserved local bookmarks as unlinked review bookmarks when
+  unlinked state still exists
+- `submit` refuses to reuse unlinked state until `relink` clears it
+- `land` rejects unlinked changes as not safely landable
+- cleanup prunes unlinked markers whose `change_id` no longer resolves in
   visible history
 
 ## Error Handling Strategy

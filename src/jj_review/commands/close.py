@@ -1,4 +1,4 @@
-"""Close managed review state for a selected local path."""
+"""Close review tracking state for a selected local path."""
 
 from __future__ import annotations
 
@@ -828,7 +828,7 @@ def _retire_cached_change(
     *,
     pr_state: str,
 ) -> CachedChange:
-    # Closed changes remain "active" unless they were explicitly detached. The cache still
+    # Closed changes remain "active" unless they were explicitly unlinked. The cache still
     # needs the last known review identity so later cleanup or status refresh can reason
     # about the already-closed path without reattaching it.
     updates: dict[str, object] = {

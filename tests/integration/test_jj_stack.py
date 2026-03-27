@@ -61,7 +61,7 @@ def test_discover_review_stack_fails_with_root_before_trunk(tmp_path: Path) -> N
     # silently producing a corrupted stack.  We set trunk() to a bookmark
     # that is NOT an ancestor of the selected head.
     repo = _init_repo(tmp_path, configure_trunk=False)
-    # Create a detached bookmark that lives on @- (the base commit).
+    # Create a unlinked bookmark that lives on @- (the base commit).
     _run(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
     # Create a sibling branch starting from the root commit, not from main.
     _run(["jj", "new", "root()"], repo)

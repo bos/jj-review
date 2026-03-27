@@ -174,7 +174,7 @@ async def _run_relink_async(
         updated_change = (cached_change or CachedChange()).model_copy(
             update={
                 "bookmark": bookmark,
-                "detached_at": None,
+                "unlinked_at": None,
                 "link_state": "active",
                 "pr_number": pull_request.number,
                 "pr_review_decision": None,
@@ -242,14 +242,14 @@ def _ensure_relinkable_cached_link(
     for cached_change_id, cached_change in state.changes.items():
         if cached_change_id == change_id:
             continue
-        if cached_change.bookmark == bookmark and cached_change.link_state != "detached":
+        if cached_change.bookmark == bookmark and cached_change.link_state != "unlinked":
             raise RelinkResolutionError(
                 f"Bookmark {bookmark!r} is already linked to "
                 f"{_short_change_id(cached_change_id)} in local state."
             )
         if (
             cached_change.pr_number == pull_request_number
-            and cached_change.link_state != "detached"
+            and cached_change.link_state != "unlinked"
         ):
             raise RelinkResolutionError(
                 f"PR #{pull_request_number} is already linked to "

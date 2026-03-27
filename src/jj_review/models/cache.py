@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-LinkState = Literal["active", "detached"]
+LinkState = Literal["active", "unlinked"]
 
 
 class CachedChange(BaseModel):
@@ -15,7 +15,7 @@ class CachedChange(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     bookmark: str | None = None
-    detached_at: str | None = None
+    unlinked_at: str | None = None
     last_submitted_commit_id: str | None = None
     link_state: LinkState = "active"
     pr_is_draft: bool | None = None
@@ -26,10 +26,10 @@ class CachedChange(BaseModel):
     stack_comment_id: int | None = None
 
     @property
-    def is_detached(self) -> bool:
-        """Whether this change has been intentionally detached from managed review."""
+    def is_unlinked(self) -> bool:
+        """Whether this change has been intentionally unlinked from review tracking."""
 
-        return self.link_state == "detached"
+        return self.link_state == "unlinked"
 
 
 class ReviewState(BaseModel):

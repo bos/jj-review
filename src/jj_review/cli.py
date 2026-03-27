@@ -1006,21 +1006,21 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
     cached_change = revision.cached_change
     cached_label = _format_cached_pull_request_label(cached_change)
     summary: str
-    if getattr(revision, "link_state", "active") == "detached":
+    if getattr(revision, "link_state", "active") == "unlinked":
         if lookup is not None and lookup.pull_request is not None:
             pull_request = lookup.pull_request
             if pull_request.state == "open":
                 summary = _format_pull_request_label(
                     pull_request.number,
                     is_draft=getattr(pull_request, "is_draft", False),
-                    prefix="detached ",
+                    prefix="unlinked ",
                 )
             else:
-                summary = f"detached PR #{pull_request.number} {pull_request.state}"
+                summary = f"unlinked PR #{pull_request.number} {pull_request.state}"
         elif revision.remote_state is not None and revision.remote_state.targets:
-            summary = "detached review branch"
+            summary = "unlinked review branch"
         else:
-            summary = "detached"
+            summary = "unlinked"
     elif lookup is None:
         if github_available:
             summary = "not submitted"
@@ -1246,7 +1246,7 @@ def _revision_pull_request_number(revision) -> int | None:
 
 
 def _revision_has_link_advisory(revision) -> bool:
-    if getattr(revision, "link_state", "active") == "detached":
+    if getattr(revision, "link_state", "active") == "unlinked":
         return False
     lookup = revision.pull_request_lookup
     if lookup is None:
@@ -1506,20 +1506,20 @@ def _unlink_handler(args: Namespace) -> int:
         revset=selected_revset,
     )
     print(f"Selected revset: {result.selected_revset}")
-    if result.already_detached:
+    if result.already_unlinked:
         print(
-            f"{result.subject} [{_display_change_id(result.change_id)}] is already detached "
-            "from managed review."
+            f"{result.subject} [{_display_change_id(result.change_id)}] is already unlinked "
+            "from review tracking."
         )
         return 0
     if result.bookmark is None:
         print(
-            f"Detached managed review state for {result.subject} "
+            f"Stopped review tracking for {result.subject} "
             f"[{_display_change_id(result.change_id)}]."
         )
     else:
         print(
-            f"Detached managed review state for {result.subject} "
+            f"Stopped review tracking for {result.subject} "
             f"[{_display_change_id(result.change_id)}], preserving {result.bookmark}."
         )
     return 0

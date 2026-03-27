@@ -1113,8 +1113,8 @@ def _should_inspect_stack_comment_cleanup(
     stale_reason: str | None,
 ) -> bool:
     if cached_change.pr_number is None:
-        return cached_change.is_detached and cached_change.bookmark is not None
-    if cached_change.is_detached:
+        return cached_change.is_unlinked and cached_change.bookmark is not None
+    if cached_change.is_unlinked:
         return True
     if stale_reason is None:
         return True
@@ -1137,8 +1137,8 @@ async def _plan_stack_comment_cleanup(
     github_repository,
 ) -> StackCommentCleanupPlan | None:
     pull_request_number = cached_change.pr_number
-    if pull_request_number is None and cached_change.is_detached:
-        pull_request_number = await _resolve_detached_pull_request_number(
+    if pull_request_number is None and cached_change.is_unlinked:
+        pull_request_number = await _resolve_unlinked_pull_request_number(
             bookmark_state=bookmark_state,
             github_client=github_client,
             github_repository=github_repository,
@@ -1157,9 +1157,9 @@ async def _plan_stack_comment_cleanup(
     if pull_request is None:
         return None
 
-    if not _pull_request_is_closed_or_detached(
+    if not _pull_request_is_closed_or_unlinked(
         bookmark=cached_change.bookmark,
-        detached=cached_change.is_detached,
+        unlinked=cached_change.is_unlinked,
         github_repository=github_repository,
         pull_request=pull_request,
     ):
@@ -1209,14 +1209,14 @@ async def _load_pull_request(
         ) from error
 
 
-def _pull_request_is_closed_or_detached(
+def _pull_request_is_closed_or_unlinked(
     *,
     bookmark: str | None,
-    detached: bool,
+    unlinked: bool,
     github_repository,
     pull_request: GithubPullRequest,
 ) -> bool:
-    if detached:
+    if unlinked:
         return True
     if pull_request.state == "closed":
         return True
@@ -1279,7 +1279,7 @@ async def _resolve_managed_stack_comment(
     return managed_comments[0]
 
 
-async def _resolve_detached_pull_request_number(
+async def _resolve_unlinked_pull_request_number(
     *,
     bookmark_state: BookmarkState,
     github_client: GithubClient,
@@ -1297,7 +1297,7 @@ async def _resolve_detached_pull_request_number(
         )
     except GithubClientError as error:
         raise CleanupError(
-            f"Could not list pull requests for detached bookmark {bookmark_state.name!r}: "
+            f"Could not list pull requests for unlinked bookmark {bookmark_state.name!r}: "
             f"{error}"
         ) from error
 
@@ -1308,7 +1308,7 @@ async def _resolve_detached_pull_request_number(
             kind="stack comment",
             message=(
                 "cannot delete managed stack comment because GitHub reports multiple "
-                f"pull requests for detached bookmark {bookmark_state.name!r}"
+                f"pull requests for unlinked bookmark {bookmark_state.name!r}"
             ),
             status="blocked",
         )

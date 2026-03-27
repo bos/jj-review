@@ -133,7 +133,7 @@ def test_build_land_plan_blocks_expect_pr_mismatch() -> None:
     assert "`--expect-pr 9`" in plan.boundary_action.message
 
 
-def test_build_land_plan_blocks_detached_change() -> None:
+def test_build_land_plan_blocks_unlinked_change() -> None:
     prepared_status = _prepared_status(("change-1",))
     status_result = cast(
         StatusResult,
@@ -142,7 +142,7 @@ def test_build_land_plan_blocks_detached_change() -> None:
                 _status_revision(
                     change_id="change-1",
                     commit_id="commit-1",
-                    link_state="detached",
+                    link_state="unlinked",
                     pull_request=_pull_request(number=7),
                     pull_request_state="open",
                     subject="feature 1",
@@ -160,7 +160,7 @@ def test_build_land_plan_blocks_detached_change() -> None:
 
     assert plan.blocked is True
     assert plan.boundary_action is not None
-    assert "detached from managed review" in plan.boundary_action.message
+    assert "unlinked from review tracking" in plan.boundary_action.message
 
 
 def test_build_land_plan_raises_assertion_when_status_revision_is_missing() -> None:

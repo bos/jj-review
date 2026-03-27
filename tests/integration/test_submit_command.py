@@ -1491,10 +1491,10 @@ def test_unlink_detaches_change_and_preserves_local_bookmark(
     unlinked_change = state_store.load().changes[change_id]
 
     assert exit_code == 0
-    assert "Detached managed review state" in captured.out
+    assert "Stopped review tracking for" in captured.out
     assert unlinked_change.bookmark == bookmark
-    assert unlinked_change.detached_at is not None
-    assert unlinked_change.link_state == "detached"
+    assert unlinked_change.unlinked_at is not None
+    assert unlinked_change.link_state == "unlinked"
     assert unlinked_change.pr_number is None
     assert unlinked_change.pr_review_decision is None
     assert unlinked_change.pr_state is None
@@ -1505,7 +1505,7 @@ def test_unlink_detaches_change_and_preserves_local_bookmark(
     assert _issue_comments(fake_repo, 1) == []
 
 
-def test_unlink_is_idempotent_for_detached_change(
+def test_unlink_is_idempotent_for_unlinked_change(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1525,7 +1525,7 @@ def test_unlink_is_idempotent_for_detached_change(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "already detached from managed review" in captured.out
+    assert "already unlinked from review tracking" in captured.out
 
 
 def test_unlink_rejects_change_without_active_review_link(
@@ -1543,10 +1543,10 @@ def test_unlink_rejects_change_without_active_review_link(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "no active managed review link to unlink" in captured.err
+    assert "no active review tracking link to unlink" in captured.err
 
 
-def test_status_fetch_surfaces_detached_state_without_repopulating_link(
+def test_status_fetch_surfaces_unlinked_state_without_repopulating_link(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1564,18 +1564,18 @@ def test_status_fetch_surfaces_detached_state_without_repopulating_link(
 
     exit_code = _main(repo, config_path, "status", "--fetch", change_id)
     captured = capsys.readouterr()
-    detached_change = ReviewStateStore.for_repo(repo).load().changes[change_id]
+    unlinked_change = ReviewStateStore.for_repo(repo).load().changes[change_id]
 
     assert exit_code == 0
-    assert ": detached PR #1" in captured.out
-    assert detached_change.link_state == "detached"
-    assert detached_change.pr_number is None
-    assert detached_change.pr_state is None
-    assert detached_change.pr_url is None
-    assert detached_change.stack_comment_id is None
+    assert ": unlinked PR #1" in captured.out
+    assert unlinked_change.link_state == "unlinked"
+    assert unlinked_change.pr_number is None
+    assert unlinked_change.pr_state is None
+    assert unlinked_change.pr_url is None
+    assert unlinked_change.stack_comment_id is None
 
 
-def test_submit_rejects_detached_change_until_relink(
+def test_submit_rejects_unlinked_change_until_relink(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1595,11 +1595,11 @@ def test_submit_rejects_detached_change_until_relink(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "detached from managed review" in captured.err
+    assert "unlinked from review tracking" in captured.err
     assert "relink" in captured.err
 
 
-def test_relink_clears_detached_state(
+def test_relink_clears_unlinked_state(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1621,13 +1621,13 @@ def test_relink_clears_detached_state(
 
     assert exit_code == 0
     assert "Relinked PR #1" in captured.out
-    assert relinked_change.detached_at is None
+    assert relinked_change.unlinked_at is None
     assert relinked_change.link_state == "active"
     assert relinked_change.pr_number == 1
     assert relinked_change.pr_state == "open"
 
 
-def test_land_blocks_detached_change(
+def test_land_blocks_unlinked_change(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1648,10 +1648,10 @@ def test_land_blocks_detached_change(
 
     assert exit_code == 1
     assert "Land blocked:" in captured.out
-    assert "detached from managed review" in captured.out
+    assert "unlinked from review tracking" in captured.out
 
 
-def test_cleanup_apply_prunes_detached_state_for_stale_change(
+def test_cleanup_apply_prunes_unlinked_state_for_stale_change(
     tmp_path: Path,
     monkeypatch,
     capsys,

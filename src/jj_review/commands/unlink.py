@@ -1,4 +1,4 @@
-"""Detach one selected change from managed review state without mutating GitHub."""
+"""Unlink one selected change from review tracking without mutating GitHub."""
 
 from __future__ import annotations
 
@@ -14,14 +14,14 @@ from jj_review.models.cache import CachedChange
 
 
 class UnlinkError(CliError):
-    """Raised when `unlink` cannot safely detach review link."""
+    """Raised when `unlink` cannot safely remove a review link."""
 
 
 @dataclass(frozen=True, slots=True)
 class UnlinkResult:
     """Rendered unlink result for one selected local revision."""
 
-    already_detached: bool
+    already_unlinked: bool
     bookmark: str | None
     change_id: str
     selected_revset: str
@@ -35,7 +35,7 @@ def run_unlink(
     repo_root: Path,
     revset: str | None,
 ) -> UnlinkResult:
-    """Detach one selected local revision from managed review state."""
+    """Unlink one selected local revision from review tracking."""
 
     return asyncio.run(
         _run_unlink_async(
@@ -85,9 +85,9 @@ async def _run_unlink_async(
         prepared_revision=prepared_revision,
         status_revision=status_revision,
     )
-    if cached_change is not None and cached_change.is_detached:
+    if cached_change is not None and cached_change.is_unlinked:
         return UnlinkResult(
-            already_detached=True,
+            already_unlinked=True,
             bookmark=bookmark,
             change_id=prepared_revision.revision.change_id,
             selected_revset=prepared_status.selected_revset,
@@ -102,15 +102,15 @@ async def _run_unlink_async(
         status_revision=status_revision,
     ):
         raise UnlinkError(
-            "The selected change has no active managed review link to unlink. "
+            "The selected change has no active review tracking link to unlink. "
             "Use `relink` only when you need to attach an existing PR intentionally."
         )
 
     updated_change = (cached_change or CachedChange(bookmark=bookmark)).model_copy(
         update={
             "bookmark": bookmark,
-            "detached_at": datetime.now(UTC).isoformat(),
-            "link_state": "detached",
+            "unlinked_at": datetime.now(UTC).isoformat(),
+            "link_state": "unlinked",
             "pr_number": None,
             "pr_review_decision": None,
             "pr_state": None,
@@ -128,7 +128,7 @@ async def _run_unlink_async(
     )
     state_store.save(next_state)
     return UnlinkResult(
-        already_detached=False,
+        already_unlinked=False,
         bookmark=bookmark,
         change_id=prepared_revision.revision.change_id,
         selected_revset=prepared_status.selected_revset,
@@ -155,7 +155,7 @@ def _revision_has_active_review_link(
     prepared_revision,
     status_revision,
 ) -> bool:
-    if cached_change is not None and not cached_change.is_detached and (
+    if cached_change is not None and not cached_change.is_unlinked and (
         cached_change.bookmark is not None
         or cached_change.pr_number is not None
         or cached_change.pr_url is not None

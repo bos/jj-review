@@ -541,7 +541,7 @@ def _persist_status_cache_updates(
             or prepared.state.changes.get(revision.change_id)
         )
         updated_change = cached_change or CachedChange(bookmark=revision.bookmark)
-        if cached_change is not None and cached_change.is_detached:
+        if cached_change is not None and cached_change.is_unlinked:
             if updated_change != cached_change:
                 state_changes[revision.change_id] = updated_change
             continue
