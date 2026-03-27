@@ -41,7 +41,7 @@ class SubmitRemoteResolutionError(CliError):
 
 
 class SubmitBookmarkCollisionError(CliError):
-    """Raised when multiple review units resolve to the same bookmark."""
+    """Raised when multiple changes resolve to the same bookmark."""
 
 
 class SubmitBookmarkConflictError(CliError):
@@ -841,7 +841,7 @@ def _ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
         )
     )
     raise SubmitBookmarkCollisionError(
-        "Selected stack resolves multiple review units to the same bookmark: "
+        "Selected stack resolves multiple changes to the same bookmark: "
         f"{collision_descriptions}. Configure distinct bookmark names before "
         "submitting."
     )

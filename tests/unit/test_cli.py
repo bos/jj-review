@@ -1384,7 +1384,7 @@ def test_main_cleanup_restack_passes_apply_and_revset_to_prepare_restack(
     assert exit_code == 0
     assert prepare_calls == [(True, "@-")]
     assert "Selected revset: @-" in captured.out
-    assert "No merged review units on the selected path need restacking." in captured.out
+    assert "No merged changes on the selected path need restacking." in captured.out
 
 
 def test_main_cleanup_restack_apply_requires_explicit_revision_selection(

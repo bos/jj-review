@@ -33,7 +33,7 @@ class LocalRevision(BaseModel):
         allow_divergent: bool = False,
         allow_immutable: bool = False,
     ) -> bool:
-        """Whether the revision should count as a review unit."""
+        """Whether the revision should count as a review change."""
 
         return (
             not self.hidden

@@ -380,7 +380,7 @@ def build_parser() -> ArgumentParser:
     cleanup_parser.add_argument(
         "--restack",
         action="store_true",
-        help="Preview or apply a local restack for merged review units on the selected path",
+        help="Preview or apply a local restack for merged changes on the selected path",
     )
     cleanup_parser.add_argument(
         "--current",
@@ -1581,7 +1581,7 @@ def _cleanup_handler(args: Namespace) -> int:
             prepared_restack=prepared_restack,
         )
         if not result.actions:
-            print("No merged review units on the selected path need restacking.")
+            print("No merged changes on the selected path need restacking.")
             return 0
         if not result.applied:
             print(

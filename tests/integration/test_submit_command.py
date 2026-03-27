@@ -2057,7 +2057,7 @@ def test_submit_rejects_duplicate_bookmark_overrides_before_projection(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "multiple review units to the same bookmark" in captured.err
+    assert "multiple changes to the same bookmark" in captured.err
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert set(_remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
     assert fake_repo.pull_requests == {}

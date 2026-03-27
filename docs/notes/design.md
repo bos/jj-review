@@ -85,9 +85,10 @@ A few properties of `jj` drive this design:
 
 ## Proposed Mental Model
 
-### Review Unit
+### Review Change
 
-A review unit is one visible mutable `jj` change, identified by full `change_id`.
+A review change is one visible mutable `jj` change, identified by full
+`change_id`.
 
 That is the durable identity. Not the commit ID, not the bookmark name, and not
 the current diff base.
@@ -108,7 +109,7 @@ rewrite.
 
 ### Review Stack
 
-A review stack is a linear chain of review units from a selected head back to
+A review stack is a linear chain of review changes from a selected head back to
 `trunk()`.
 
 For now, the tool should support only linear stacks. Reject or require manual
@@ -124,8 +125,8 @@ simple parent-child chain.
 
 ### Review Branch
 
-Each review unit gets exactly one synthetic bookmark branch, which becomes the GitHub PR head
-branch.
+Each review change gets exactly one synthetic bookmark branch, which becomes
+the GitHub PR head branch.
 
 That bookmark name should be readable to humans and stable for tooling.
 
@@ -175,9 +176,9 @@ slug and derive names only from stable inputs such as `change_id`.
 
 ### Review Base
 
-The GitHub base branch for a review unit is:
+The GitHub base branch for a review change is:
 
-- the parent review unit's bookmark, if the parent is also being reviewed
+- the parent review change's bookmark, if the parent is also being reviewed
 - otherwise the repo trunk branch
 
 This is the key place where GitHub still imposes a branch model on top of `jj`.
@@ -336,11 +337,11 @@ Given a selected head revision:
    - by default, derive the PR title from the commit subject and the PR body
      from the remaining commit description
    - `submit --describe-with <helper>` may replace that default mapping by
-     invoking the helper once per review unit as `helper --pr <change_id>`
+     invoking the helper once per change as `helper --pr <change_id>`
    - the same helper may also be invoked once per selected stack as
      `helper --stack <selected-revset>`; that output is prepended to the
      reviewer-facing stack comment when the selected path contains
-     more than one review unit, and does not become a separate source of
+     more than one change, and does not become a separate source of
      truth for topology
    - for stack helpers, submit may also provide a temporary helper-owned input
      file describing the generated per-PR title/body pairs and compact diffstat
@@ -352,7 +353,7 @@ Given a selected head revision:
    from bottom to top:
    - ensure the local bookmark points at the current visible commit for that change
    - treat topology changes as meaningful updates even when the patch tree is
-     unchanged; if the parent review unit, bookmark target, or PR base changed,
+     unchanged; if the parent review change, bookmark target, or PR base changed,
      this is not a no-op
    - if the selected remote bookmark already points at the desired commit, treat
      it as up to date even when the local repo has not tracked that remote
@@ -388,7 +389,7 @@ This bottom-up ordering matches the dependency order in the stack, and the
 parent relationship is derived from the DAG rather than loaded from side
 metadata.
 
-For a selected path with exactly one review unit, submit should behave like a
+For a selected path with exactly one change, submit should behave like a
 plain PR submit flow:
 
 - no stack-specific helper invocation
@@ -612,10 +613,10 @@ heuristics.
 The repair-oriented inverse of `relink` is `unlink`:
 
 - `jj review unlink [--current | <revset>]` intentionally detaches one selected
-  review unit from active PR ownership without mutating GitHub
+  change from active PR ownership without mutating GitHub
 
 `unlink` should remain an advanced repair command, not the normal way to end a
-review. Its unit of intent should mirror `relink`: one selected review unit,
+review. Its unit of intent should mirror `relink`: one selected change,
 identified from the local DAG.
 
 `unlink` should clear active link fields such as:
@@ -677,7 +678,7 @@ This design behaves well under normal `jj` rewrite-heavy workflows:
 - Reorder or reparent: the stack is rediscovered from the DAG; PR base branches are recalculated.
 - Abandon: `jj` deletes bookmarks attached to abandoned commits. The tool can then close the PR,
   leave it open with a warning, or mark it stale.
-- Split: new logical review units get new change IDs, which should usually
+- Split: new logical review changes get new change IDs, which should usually
   become new PRs. The original change still exists with the same `change_id`
   but a smaller diff; it is updated normally on next submit. This is a feature,
   not a bug.
@@ -821,14 +822,14 @@ should require explicit user intent rather than happening automatically.
 
 `jj review cleanup --restack` is the explicit local-history repair path for the
 common case where GitHub merges have been fetched and the local stack still
-contains merged review units.
+contains merged changes.
 
 Its UX should be explicit:
 
 - without `--apply`, it previews the local restack plan
 - with `--apply`, it performs only the restack steps whose destination is
   `trunk()`
-- if a remaining restack step would rebase onto another surviving review unit,
+- if a remaining restack step would rebase onto another surviving change,
   it should stop and tell the user to either rebase manually with `jj rebase`
   or rerun with `--allow-nontrunk-rebase`
 - if repo policy is part of the problem, it should say so directly instead of
@@ -853,7 +854,7 @@ The algorithm should be:
    fetching merged PR branches.
 2. For each logical change on that path, classify its PR state as open,
    merged, closed-unmerged, or absent.
-3. Treat only merged path changes as removable review units. Open and absent
+3. Treat only merged path changes as removable changes. Open and absent
    path changes are survivors. Closed-unmerged path changes are not rewritten
    automatically.
 4. For each survivor, compute its desired new parent in logical order:
@@ -863,7 +864,7 @@ The algorithm should be:
    onto that desired new parent, but allow default `--apply` to perform only
    the steps whose destination is `trunk()`
 6. If later survivor segments would still need to land on another surviving
-   review unit, stop and require either manual `jj rebase` or an explicit
+   change, stop and require either manual `jj rebase` or an explicit
    `--allow-nontrunk-rebase` override
 7. After the rebases succeed, the implementation may leave merged or fetched
    off-path artifacts in place until a later conservative cleanup pass can
@@ -875,8 +876,8 @@ The algorithm should be:
 
 This keeps the local result as close to linear as possible:
 
-- merged review units disappear from the active path
-- surviving open review units stay in order
+- merged changes disappear from the active path
+- surviving open changes stay in order
 - unsubmitted local work above them stays attached to the nearest surviving
   base
 - fetched off-path copies of merged changes may remain as stale artifacts, but
@@ -908,7 +909,7 @@ branches as the canonical landed history.
 Its default UX should mirror the preview-first shape already used by
 `cleanup`:
 
-- without `--apply`, it prints the landing plan, the landable review unit, the
+- without `--apply`, it prints the landing plan, the landable change, the
   target trunk, and any exact follow-up bookkeeping it can already prove safe
 - with `--apply`, it reruns the same planning step and stops if the plan has
   changed materially since preview
@@ -922,10 +923,10 @@ prefix of the selected local path starting at `trunk()`.
 That means:
 
 - walk the selected local path upward from `trunk()`
-- include consecutive review units whose PRs are still open and whose link
+- include consecutive changes whose PRs are still open and whose link
   is unambiguous
-- stop at the first merged, closed-unmerged, missing, or ambiguous review unit
-- if the resulting prefix is empty, report that nothing is currently landable
+- stop at the first merged, closed-unmerged, missing, or ambiguous change
+  - if the resulting prefix is empty, report that nothing is currently landable
   on the selected path
 
 This is intentionally not "the entire selected stack no matter what" and not

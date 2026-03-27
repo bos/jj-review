@@ -91,7 +91,7 @@ class PreparedLand:
 
 @dataclass(frozen=True, slots=True)
 class _LandRevision:
-    """One landed review unit plus its GitHub link."""
+    """One landed change plus its GitHub link."""
 
     bookmark: str
     change_id: str

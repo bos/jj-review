@@ -368,7 +368,7 @@ def stream_restack(
                 CleanupAction(
                     kind="restack",
                     message=(
-                        f"merged review units remain on the selected path ({merged_labels}), but "
+                        f"merged changes remain on the selected path ({merged_labels}), but "
                         "no surviving descendants need to move"
                     ),
                     status="planned" if not prepared_restack.apply else "applied",

@@ -578,7 +578,7 @@ def _import_local_state(
         )
         if bookmark in seen_bookmarks:
             raise ImportResolutionError(
-                "Selected stack resolves multiple review units to the same "
+                "Selected stack resolves multiple changes to the same "
                 f"bookmark {bookmark!r}."
             )
         seen_bookmarks.add(bookmark)

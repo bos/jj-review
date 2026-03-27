@@ -788,7 +788,7 @@ def test_ensure_unique_bookmarks_rejects_duplicate_names() -> None:
 
     with pytest.raises(
         SubmitBookmarkCollisionError,
-        match="multiple review units to the same bookmark",
+        match="multiple changes to the same bookmark",
     ):
         _ensure_unique_bookmarks(resolutions)
 

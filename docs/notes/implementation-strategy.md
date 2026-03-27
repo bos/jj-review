@@ -665,7 +665,7 @@ Implemented in a follow-up:
   `title` / `body` fields and invalid helper output aborts submit before any
   local, remote, or GitHub mutation
 - stack helper invocation is skipped when the selected path contains only one
-  review unit, because no stack comment will be created in that case
+  change, because no stack comment will be created in that case
 - the submit CLI now prints the selected revset and remote promptly, then
   renders the final ordered review summary once the submit phases complete,
   instead of trying to stream per-revision mutation progress inline
@@ -689,7 +689,7 @@ Deliver:
 - regeneration on every submit
 - caching of comment identifiers if needed
 
-Implemented with one dedicated PR comment per review unit, marked so `submit`
+Implemented with one dedicated PR comment per change, marked so `submit`
 can rediscover it when cached comment IDs are missing. The comment body is
 regenerated from the current submitted stack on every run and is never used as
 the source of truth for topology.
@@ -867,7 +867,7 @@ Deliver:
 
 Done when:
 
-- submit no longer performs one PR lookup request per review unit
+- submit no longer performs one PR lookup request per change
 - submit preserves fail-closed PR link checks under batched discovery
 - submit still checkpoints cache state after each completed PR sync
 
@@ -1139,7 +1139,7 @@ sufficient proof of ownership once unlinked state exists.
 
 This slice is now in place with the current implementation:
 
-- `unlink` detaches one explicitly selected local review unit without mutating
+- `unlink` detaches one explicitly selected local change without mutating
   GitHub
 - unlink clears active PR and stack-comment link, preserves any known review
   bookmark, and records durable unlinked state in the sparse cache
