@@ -240,7 +240,13 @@ def build_parser() -> ArgumentParser:
         command="status",
         help_text=_normalized_help_text(status_command.HELP),
         description_text=status_command.__doc__ or "",
-        handler=status_command.handle_status_command,
+        handler=lambda args: status_command.handle_status_command(
+            config_path=args.config,
+            debug=args.debug,
+            fetch=args.fetch,
+            repository=args.repository,
+            revset=args.revset,
+        ),
     )
     status_parser.add_argument(
         "-f",
