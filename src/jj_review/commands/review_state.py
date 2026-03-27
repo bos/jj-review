@@ -21,7 +21,6 @@ from jj_review.bookmarks import (
     _ensure_unique_bookmarks,
 )
 from jj_review.cache import ReviewStateStore
-from jj_review.commands.submit import _STACK_COMMENT_MARKER
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
@@ -40,6 +39,7 @@ from jj_review.models.cache import CachedChange, LinkState, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
 from jj_review.models.intent import LoadedIntent
 from jj_review.models.stack import LocalRevision, LocalStack
+from jj_review.stack_comments import is_stack_summary_comment
 
 logger = logging.getLogger(__name__)
 _GITHUB_INSPECTION_CONCURRENCY = 4
@@ -875,7 +875,9 @@ async def _inspect_stack_comment(
             state="error",
         )
 
-    matching_comments = [comment for comment in comments if _STACK_COMMENT_MARKER in comment.body]
+    matching_comments = [
+        comment for comment in comments if is_stack_summary_comment(comment.body)
+    ]
     if not matching_comments:
         return StackCommentLookup(comment=None, message=None, state="missing")
     if len(matching_comments) > 1:

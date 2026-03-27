@@ -51,6 +51,7 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkS
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest, GithubRepository
 from jj_review.models.intent import LoadedIntent, SubmitIntent
+from jj_review.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
 
 HELP = "Send a jj stack to GitHub for review"
 
@@ -103,7 +104,6 @@ RemoteBookmarkAction = Literal["pushed", "up to date"]
 PushOperation = Literal["batch", "git_update", "up_to_date"]
 _GITHUB_INSPECTION_CONCURRENCY = 4
 _DESCRIBE_WITH_STACK_INPUT_ENV = "JJ_REVIEW_STACK_INPUT_FILE"
-_STACK_COMMENT_MARKER = "<!-- jj-review-stack -->"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1627,7 +1627,7 @@ async def _upsert_stack_comment(
             None,
         )
         if cached_comment is not None:
-            if _STACK_COMMENT_MARKER not in cached_comment.body:
+            if not is_stack_summary_comment(cached_comment.body):
                 raise SubmitStackCommentError(
                     f"Saved stack summary comment #{cached_change.stack_comment_id} for "
                     f"pull request #{pull_request_number} does not belong to "
@@ -1693,7 +1693,7 @@ async def _discover_stack_comment(
     comments: tuple[GithubIssueComment, ...],
 ) -> GithubIssueComment | None:
     matching_comments = [
-        comment for comment in comments if _STACK_COMMENT_MARKER in comment.body
+        comment for comment in comments if is_stack_summary_comment(comment.body)
     ]
     if not matching_comments:
         return None
@@ -1756,7 +1756,7 @@ def _render_stack_comment(
     stack_description: GeneratedDescription | None,
     trunk_branch: str,
 ) -> str:
-    lines = [_STACK_COMMENT_MARKER]
+    lines = [STACK_COMMENT_MARKER]
     description_lines = _render_generated_stack_description(stack_description)
     if description_lines:
         lines.extend(description_lines)

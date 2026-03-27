@@ -22,7 +22,6 @@ from jj_review.commands.review_state import (
     prepare_status,
     stream_status,
 )
-from jj_review.commands.submit import _STACK_COMMENT_MARKER
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
@@ -45,6 +44,7 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
 from jj_review.models.intent import CleanupApplyIntent, CleanupRestackIntent, LoadedIntent
+from jj_review.stack_comments import is_stack_summary_comment
 
 HELP = "Clean up stale jj-review data for a jj stack"
 
@@ -1257,7 +1257,7 @@ async def _resolve_stack_summary_comment(
             None,
         )
         if cached_comment is not None:
-            if _STACK_COMMENT_MARKER not in cached_comment.body:
+            if not is_stack_summary_comment(cached_comment.body):
                 return CleanupAction(
                     kind="stack summary comment",
                     message=(
@@ -1270,7 +1270,7 @@ async def _resolve_stack_summary_comment(
             return cached_comment
 
     stack_summary_comments = [
-        comment for comment in comments if _STACK_COMMENT_MARKER in comment.body
+        comment for comment in comments if is_stack_summary_comment(comment.body)
     ]
     if len(stack_summary_comments) > 1:
         return CleanupAction(

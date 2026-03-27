@@ -17,7 +17,6 @@ from typing import Literal
 
 from jj_review.cache import ReviewStateStore
 from jj_review.commands.review_state import PreparedStatus, prepare_status, stream_status
-from jj_review.commands.submit import _STACK_COMMENT_MARKER
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_resolution import _build_github_client
@@ -32,6 +31,7 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubIssueComment
 from jj_review.models.intent import CloseIntent
+from jj_review.stack_comments import is_stack_summary_comment
 
 HELP = "Stop reviewing a jj stack on GitHub"
 
@@ -767,7 +767,7 @@ async def _find_stack_summary_comment(
                         status="blocked",
                     ),
                 )
-            if _STACK_COMMENT_MARKER not in cached_comment.body:
+            if not is_stack_summary_comment(cached_comment.body):
                 return (
                     None,
                     CloseAction(
@@ -799,7 +799,7 @@ async def _find_stack_summary_comment(
             None,
         )
         if cached_comment is not None:
-            if _STACK_COMMENT_MARKER not in cached_comment.body:
+            if not is_stack_summary_comment(cached_comment.body):
                 return (
                     None,
                     CloseAction(
@@ -815,7 +815,7 @@ async def _find_stack_summary_comment(
             return cached_comment, None
 
     stack_summary_comments = [
-        comment for comment in comments if _STACK_COMMENT_MARKER in comment.body
+        comment for comment in comments if is_stack_summary_comment(comment.body)
     ]
     if len(stack_summary_comments) > 1:
         return (
