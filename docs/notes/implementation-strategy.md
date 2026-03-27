@@ -133,6 +133,12 @@ sentences, and should omit trailing periods. Each subcommand help page should
 also start with a short descriptive paragraph explaining what the command does
 and whether it only inspects state or may mutate jj-review data.
 
+This slice now also treats `help` as hidden parser glue instead of a normal
+top-level command listing. That keeps the default command list focused while
+preserving `jj-review help` as an exact top-level-help entrypoint and
+`jj-review help <command>` as the same command-specific help surface as
+`jj-review <command> --help`.
+
 `submit` now also supports explicit draft-state controls at the CLI boundary:
 `--draft` / `--draft=new` creates newly opened PRs as drafts, `--draft=all`
 also returns existing published PRs on the selected stack to draft, and

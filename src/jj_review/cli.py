@@ -83,7 +83,7 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
     ),
     (
         "Help",
-        (_HelpCommand("help", _HELP_HELP),),
+        (_HelpCommand("help", _HELP_HELP, hidden=True),),
     ),
 )
 
@@ -409,7 +409,7 @@ def build_parser() -> ArgumentParser:
     completion_parser.set_defaults(handler=_completion_handler)
     help_parser = subparsers.add_parser(
         "help",
-        help=_HELP_HELP,
+        help=SUPPRESS,
         description=_normalized_help_text(_HELP_DESCRIPTION),
     )
     _normalize_help_action_text(help_parser)

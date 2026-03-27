@@ -737,7 +737,10 @@ review lifecycle (`submit`, `status`, `land`, `close`) plus adjacent support
 commands such as `cleanup` and `import`. Advanced repair commands such as
 `relink` and `unlink`, along with shell-integration glue such as `completion`,
 may stay hidden from default top-level help and appear only in an explicit
-extended view such as `jj review help --all`. The default top-level help should
+extended view such as `jj review help --all`. The `help` command itself may be
+implemented as hidden parser glue as long as `jj review help` still behaves the
+same as `jj review --help`, and `jj review help <command>` behaves the same as
+`jj review <command> --help`. The default top-level help should
 also keep advanced global options such as `--repository`, `--config`,
 `--debug`, and `--time-output` out of view until that explicit extended mode.
 

@@ -26,7 +26,7 @@ def test_main_without_command_prints_help(capsys: pytest.CaptureFixture[str]) ->
     assert "close" in captured.out
     assert "import" in captured.out
     assert "cleanup" in captured.out
-    assert "help" in captured.out
+    assert "Show help for this command or another command" not in captured.out
     assert "unlink" not in captured.out
     assert "relink" not in captured.out
     assert "completion" not in captured.out
@@ -141,7 +141,7 @@ def test_top_level_help_uses_updated_command_summaries(
     assert "Stop reviewing a jj stack on GitHub" in captured.out
     assert "Clean up stale jj-review data for a jj stack" in captured.out
     assert "Set up local jj-review tracking for an existing stack" in captured.out
-    assert "Show help for this command or another command" in captured.out
+    assert "Show help for this command or another command" not in captured.out
 
 
 def test_top_level_help_describes_what_jj_review_is_for(
@@ -185,6 +185,7 @@ def test_help_output_omits_trailing_periods_in_command_and_option_descriptions()
     assert "Land the ready prefix of a stack." not in top_level_help
     assert "Stop reviewing a jj stack on GitHub." not in top_level_help
     assert "Clean up stale jj-review data for a jj stack." not in top_level_help
+    assert "Show help for this command or another command." not in top_level_help
     assert "Workspace path to operate on; defaults to the current directory." not in (
         top_level_help
     )
@@ -276,6 +277,52 @@ def test_build_parser_help_hides_suppressed_alias() -> None:
     rendered = build_parser().format_help()
 
     assert "==SUPPRESS==" not in rendered
+
+
+def test_main_help_command_is_hidden_from_default_top_level_help(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main([])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "\nHelp:\n" not in captured.out
+    assert "Show help for this command or another command" not in captured.out
+
+
+def test_main_help_all_includes_hidden_help_command(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["help", "--all"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Show help for this command or another command" in captured.out
+
+
+def test_main_help_matches_top_level_help(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = build_parser()
+
+    help_exit_code = main(["help"])
+    help_output = capsys.readouterr()
+
+    assert help_exit_code == 0
+    assert help_output.err == ""
+    assert help_output.out == parser.format_help()
+
+
+def test_main_help_submit_matches_submit_help(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    submit_parser = _find_subcommand_parser(build_parser(), "submit")
+
+    help_exit_code = main(["help", "submit"])
+    help_output = capsys.readouterr()
+
+    assert help_exit_code == 0
+    assert submit_parser is not None
+    assert help_output.err == ""
+    assert help_output.out == submit_parser.format_help()
 
 
 def test_main_time_output_prefixes_help_lines(
