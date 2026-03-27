@@ -596,12 +596,12 @@ def test_main_land_requires_explicit_revision_selection(
     )
     run_called = False
 
-    def fake_run_land(**kwargs):
+    def fake_prepare_land(**kwargs):
         nonlocal run_called
         run_called = True
         raise AssertionError("land should not run without an explicit selector")
 
-    monkeypatch.setattr("jj_review.commands.land.run_land", fake_run_land)
+    monkeypatch.setattr("jj_review.commands.land.prepare_land", fake_prepare_land)
 
     exit_code = main(["land", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -893,10 +893,13 @@ def test_main_land_renders_planned_output(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
 
-    def fake_run_land(**kwargs):
+    def fake_prepare_land(**kwargs):
         assert kwargs["bypass_readiness"] is False
         assert kwargs["expect_pr_reference"] == "7"
         assert kwargs["revset"] == "@-"
+        return SimpleNamespace()
+
+    def fake_stream_land(**kwargs):
         return SimpleNamespace(
             actions=(
                 SimpleNamespace(
@@ -922,7 +925,8 @@ def test_main_land_renders_planned_output(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.commands.land.run_land", fake_run_land)
+    monkeypatch.setattr("jj_review.commands.land.prepare_land", fake_prepare_land)
+    monkeypatch.setattr("jj_review.commands.land.stream_land", fake_stream_land)
 
     exit_code = main(
         [
@@ -951,8 +955,11 @@ def test_main_land_renders_blocked_output_without_apply_hint(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
 
-    def fake_run_land(**kwargs):
+    def fake_prepare_land(**kwargs):
         assert kwargs["bypass_readiness"] is False
+        return SimpleNamespace()
+
+    def fake_stream_land(**kwargs):
         return SimpleNamespace(
             actions=(
                 SimpleNamespace(
@@ -976,7 +983,8 @@ def test_main_land_renders_blocked_output_without_apply_hint(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.commands.land.run_land", fake_run_land)
+    monkeypatch.setattr("jj_review.commands.land.prepare_land", fake_prepare_land)
+    monkeypatch.setattr("jj_review.commands.land.stream_land", fake_stream_land)
 
     exit_code = main(
         [
@@ -996,11 +1004,16 @@ def test_main_land_renders_blocked_output_without_apply_hint(
     assert "Re-run with `land --apply" not in captured.out
 
 
-def test_main_land_passes_bypass_readiness_and_renders_apply_hint(tmp_path, monkeypatch, capsys):
+def test_main_land_passes_bypass_readiness_and_renders_apply_hint(
+    tmp_path, monkeypatch, capsys
+):
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
 
-    def fake_run_land(**kwargs):
+    def fake_prepare_land(**kwargs):
         assert kwargs["bypass_readiness"] is True
+        return SimpleNamespace()
+
+    def fake_stream_land(**kwargs):
         return SimpleNamespace(
             actions=(),
             applied=False,
@@ -1015,7 +1028,8 @@ def test_main_land_passes_bypass_readiness_and_renders_apply_hint(tmp_path, monk
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.commands.land.run_land", fake_run_land)
+    monkeypatch.setattr("jj_review.commands.land.prepare_land", fake_prepare_land)
+    monkeypatch.setattr("jj_review.commands.land.stream_land", fake_stream_land)
 
     exit_code = main(
         [

@@ -179,30 +179,6 @@ class _BookmarkRestorer(Protocol):
         """Create or move a local bookmark."""
 
 
-def run_land(
-    *,
-    apply: bool,
-    bypass_readiness: bool,
-    change_overrides: dict[str, ChangeConfig],
-    config: RepoConfig,
-    expect_pr_reference: str | None,
-    repo_root: Path,
-    revset: str | None,
-) -> LandResult:
-    """Preview or apply the changes that can be landed now on the selected local stack."""
-
-    prepared_land = prepare_land(
-        apply=apply,
-        bypass_readiness=bypass_readiness,
-        change_overrides=change_overrides,
-        config=config,
-        expect_pr_reference=expect_pr_reference,
-        repo_root=repo_root,
-        revset=revset,
-    )
-    return stream_land(prepared_land=prepared_land)
-
-
 def handle_land_command(
     *,
     apply: bool,
@@ -223,7 +199,7 @@ def handle_land_command(
         config_path=config_path,
         debug=debug,
     )
-    result = run_land(
+    prepared_land = prepare_land(
         apply=apply,
         bypass_readiness=bypass_readiness,
         change_overrides=context.config.change,
@@ -237,6 +213,7 @@ def handle_land_command(
             revset=revset,
         ),
     )
+    result = stream_land(prepared_land=prepared_land)
     print(f"Selected revset: {result.selected_revset}")
     print(f"Selected remote: {result.remote_name}")
     print(f"GitHub: {result.github_repository}")
