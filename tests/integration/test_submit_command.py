@@ -1230,7 +1230,7 @@ def test_status_exits_nonzero_when_github_reports_multiple_pull_requests(
     assert exit_code == 1
     assert "multiple pull requests" in captured.out
     assert "PR link note:" in captured.out
-    assert "status --fetch" in captured.out
+    assert "refresh remote and GitHub observations" in captured.out
     assert "relink <pr>" in captured.out
 
 
@@ -2185,7 +2185,7 @@ def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
     assert exit_code == 1
     assert ": cached PR #1 (open), no GitHub PR" in captured.out
     assert "PR link note:" in captured.out
-    assert "status --fetch" in captured.out
+    assert "refresh remote and GitHub observations" in captured.out
     assert "relink <pr>" in captured.out
     assert refreshed_state.changes[change_id].pr_number is None
     assert refreshed_state.changes[change_id].pr_state is None
