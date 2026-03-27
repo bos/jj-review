@@ -6,9 +6,13 @@ from typing import cast
 
 from jj_review.cache import ReviewStateStore
 from jj_review.commands.cleanup import (
+    CleanupAction,
     PreparedCleanup,
     PreparedRestack,
+    RemoteBranchCleanupPlan,
+    _plan_remote_branch_cleanup,
     _plan_restack_operations,
+    _process_remote_branch_cleanup,
     _resolve_restack_path_revisions,
     _should_inspect_stack_comment_cleanup,
     _stream_cleanup_async,
@@ -511,3 +515,61 @@ def test_plan_restack_operations_blocks_divergent_survivor() -> None:
         "multiple visible revisions still share that change ID" in action.message
         for action in plan.pre_actions
     )
+
+
+def test_plan_remote_branch_cleanup_blocks_when_local_bookmark_still_exists() -> None:
+    plan = _plan_remote_branch_cleanup(
+        bookmark_state=BookmarkState(
+            name="review/feature-aaaaaaaa",
+            local_targets=("commit-1",),
+            remote_targets=(
+                RemoteBookmarkState(remote="origin", targets=("commit-1",)),
+            ),
+        ),
+        cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
+        remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
+    )
+
+    assert plan is not None
+    assert plan.action.status == "blocked"
+    assert "local bookmark" in plan.action.message
+
+
+def test_process_remote_branch_cleanup_applies_planned_deletion() -> None:
+    delete_calls: list[tuple[str, str, str]] = []
+    recorded_actions: list[CleanupAction] = []
+
+    class FakeClient:
+        def delete_remote_bookmark(
+            self,
+            *,
+            remote: str,
+            bookmark: str,
+            expected_remote_target: str,
+        ) -> None:
+            delete_calls.append((remote, bookmark, expected_remote_target))
+
+    _process_remote_branch_cleanup(
+        apply=True,
+        cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
+        jj_client=cast(JjClient, FakeClient()),
+        record_action=recorded_actions.append,
+        remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
+        remote_plan=RemoteBranchCleanupPlan(
+            action=CleanupAction(
+                kind="remote branch",
+                message="delete remote review branch review/feature-aaaaaaaa@origin",
+                status="planned",
+            ),
+            expected_remote_target="commit-1",
+        ),
+    )
+
+    assert delete_calls == [("origin", "review/feature-aaaaaaaa", "commit-1")]
+    assert recorded_actions == [
+        CleanupAction(
+            kind="remote branch",
+            message="delete remote review branch review/feature-aaaaaaaa@origin",
+            status="applied",
+        )
+    ]

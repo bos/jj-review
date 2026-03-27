@@ -684,24 +684,14 @@ async def _stream_cleanup_async(
                     remote=remote,
                 )
                 if remote_plan is not None:
-                    remote_action = remote_plan.action
-                    if (
-                        apply
-                        and remote_action.status == "planned"
-                        and remote is not None
-                        and remote_plan.expected_remote_target is not None
-                    ):
-                        jj_client.delete_remote_bookmark(
-                            remote=remote.name,
-                            bookmark=cached_change.bookmark or "",
-                            expected_remote_target=remote_plan.expected_remote_target,
-                        )
-                        remote_action = CleanupAction(
-                            kind=remote_plan.action.kind,
-                            message=remote_plan.action.message,
-                            status="applied",
-                        )
-                    record_action(remote_action)
+                    _process_remote_branch_cleanup(
+                        apply=apply,
+                        cached_change=cached_change,
+                        jj_client=jj_client,
+                        record_action=record_action,
+                        remote=remote,
+                        remote_plan=remote_plan,
+                    )
 
                 if apply:
                     interim = prepared_cleanup.state.model_copy(
@@ -755,24 +745,14 @@ async def _stream_cleanup_async(
                     remote=remote,
                 )
                 if remote_plan is not None:
-                    remote_action = remote_plan.action
-                    if (
-                        apply
-                        and remote_action.status == "planned"
-                        and remote is not None
-                        and remote_plan.expected_remote_target is not None
-                    ):
-                        jj_client.delete_remote_bookmark(
-                            remote=remote.name,
-                            bookmark=cached_change.bookmark or "",
-                            expected_remote_target=remote_plan.expected_remote_target,
-                        )
-                        remote_action = CleanupAction(
-                            kind=remote_plan.action.kind,
-                            message=remote_plan.action.message,
-                            status="applied",
-                        )
-                    record_action(remote_action)
+                    _process_remote_branch_cleanup(
+                        apply=apply,
+                        cached_change=cached_change,
+                        jj_client=jj_client,
+                        record_action=record_action,
+                        remote=remote,
+                        remote_plan=remote_plan,
+                    )
 
                 if apply:
                     interim = prepared_cleanup.state.model_copy(
@@ -1040,6 +1020,35 @@ def _plan_remote_branch_cleanup(
         ),
         expected_remote_target=remote_state.target,
     )
+
+
+def _process_remote_branch_cleanup(
+    *,
+    apply: bool,
+    cached_change: CachedChange,
+    jj_client: JjClient,
+    record_action: Callable[[CleanupAction], None],
+    remote: GitRemote | None,
+    remote_plan: RemoteBranchCleanupPlan,
+) -> None:
+    remote_action = remote_plan.action
+    if (
+        apply
+        and remote_action.status == "planned"
+        and remote is not None
+        and remote_plan.expected_remote_target is not None
+    ):
+        jj_client.delete_remote_bookmark(
+            remote=remote.name,
+            bookmark=cached_change.bookmark or "",
+            expected_remote_target=remote_plan.expected_remote_target,
+        )
+        remote_action = CleanupAction(
+            kind=remote_action.kind,
+            message=remote_action.message,
+            status="applied",
+        )
+    record_action(remote_action)
 
 
 def _should_inspect_stack_comment_cleanup(
