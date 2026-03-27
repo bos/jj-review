@@ -1342,7 +1342,7 @@ def _submit_handler(args: Namespace) -> int:
             print("Dry run: no local, remote, or GitHub changes applied.")
             print("Planned review bookmarks:")
         else:
-            print("Projected review bookmarks:")
+            print("Submitted review bookmarks:")
         emitted_section_header = True
 
     result = run_submit(
@@ -1372,7 +1372,7 @@ def _submit_handler(args: Namespace) -> int:
             print("Dry run: no local, remote, or GitHub changes applied.")
             print("Planned review bookmarks:")
         else:
-            print("Projected review bookmarks:")
+            print("Submitted review bookmarks:")
     for revision in result.revisions:
         _print_submit_revision(revision)
     if not result.dry_run:

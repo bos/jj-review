@@ -32,8 +32,8 @@ sequencing.
 
 ## Summary
 
-We will build a Python client that projects a `jj` stack onto GitHub's
-branch-based pull request model.
+We will build a Python client that maps a `jj` stack to GitHub's branch-based
+pull request model.
 
 The client will:
 
@@ -199,7 +199,7 @@ The CLI layer should be thin. It should:
   local context promptly and stream per-item results as remote inspection
   completes rather than buffering the full command behind one aggregate result
 - for successful live `submit` runs, print the top-of-stack URL after the
-  projected bookmark summary so the operator can jump straight to the stack in
+  submitted bookmark summary so the operator can jump straight to the stack in
   a browser
 
 It should not contain stack planning logic.
@@ -548,7 +548,7 @@ rather than:
 
 We should implement the tool in vertical slices.
 
-### Slice 1: Project Scaffold
+### Slice 1: Initial Scaffold
 
 Status: complete.
 
@@ -619,7 +619,7 @@ Done when:
 - repo ID lookup failures fall back to generated bookmarks without persisted
   state
 
-### Slice 4: Remote Branch Projection
+### Slice 4: Remote Branch Sync
 
 Status: complete.
 
@@ -671,7 +671,7 @@ Implemented in a follow-up:
   instead of trying to stream per-revision mutation progress inline
 - the per-change submit summary now renders created PRs as `[PR #n]` in live
   output and `[new PR]` in dry-run output, omitting the separate remote push
-  marker because PR creation already implies the review branch was projected
+  marker because PR creation already implies the review branch was updated
 
 Done when:
 
@@ -910,8 +910,8 @@ Done when:
 - `cleanup --restack` restores one linear local stack of surviving review
   units by excising merged path changes from active local ancestry, while
   blocking non-trunk survivor rebases unless the operator opts in explicitly
-- fetched branch-tip commits for merged non-trunk PRs are treated as projected
-  remote state, not as the canonical continuation of the local stack
+- fetched branch-tip commits for merged non-trunk PRs are treated as fetched
+  remote review state, not as the canonical continuation of the local stack
 - automatic local rewrites fail closed only when the selected path or PR
   linkage is truly ambiguous, or when removing a merged path change would
   discard unpublished local edits

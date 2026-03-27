@@ -39,7 +39,7 @@ Recommended settings:
 
 That last rule is important. Linear-history protection by itself is not enough:
 GitHub can still merge PRs targeting `review/*` with squash or rebase, which
-creates accepted branch-local history that is awkward to project back into the
+creates accepted branch-local history that is awkward to map back into the
 intended local `jj` stack model.
 
 The intended policy is:
@@ -289,7 +289,7 @@ Tracked workspace files are the wrong default for both:
 - config in the working tree looks like project-shared policy and is too easy to
   commit accidentally
 - machine-written state in the working tree dirties the `jj` working copy and
-  perturbs the history the tool is supposed to project
+  perturbs the history the tool is supposed to map to GitHub
 
 Instead, split storage into two locations:
 
@@ -389,14 +389,14 @@ parent relationship is derived from the DAG rather than loaded from side
 metadata.
 
 For a selected path with exactly one review unit, submit should behave like a
-plain PR projection:
+plain PR submit flow:
 
 - no stack-specific helper invocation
 - no reviewer-facing stack comment
 - after a successful live submit, print the URL of the top of the stack so the
-  operator can open the projected stack in a browser
+  operator can open it in a browser
 
-There is no meaningful stack metadata to project when the selected review path
+There is no meaningful stack metadata to add when the selected review path
 contains only one PR.
 
 ## Recovery and Repair
@@ -870,8 +870,8 @@ The algorithm should be:
    prove they are stale and removable. Restack's primary job is to repair the
    active local path first.
 8. Do not rebase surviving local descendants onto fetched branch-tip commits
-   for merged non-trunk PRs. Those fetched commits are projected branch state,
-   not the canonical continuation of the active local stack.
+   for merged non-trunk PRs. Those fetched commits are fetched review-branch
+   state, not the canonical continuation of the active local stack.
 
 This keeps the local result as close to linear as possible:
 
@@ -948,8 +948,8 @@ This design also needs to respect the recommended GitHub policy above:
   into review branches rather than to act as the landing gate
 
 That means `land` owns the merge transition for the landed prefix, while
-`review/*` branches remain projected review state rather than merge targets in
-their own right.
+`review/*` branches remain review-only state rather than merge targets in their
+own right.
 
 Preview output should become invalid if any material planning input changes
 before `--apply`. At minimum, apply should rerun planning and stop if any of
@@ -1083,7 +1083,7 @@ In a branch-first review tool, stack metadata often becomes part of the core
 model.
 
 In `jj`, the stack model is already the commit DAG. The tool's job is only to
-project that DAG onto GitHub's branch-based PR API with stable synthetic
+map that DAG to GitHub's branch-based PR API with stable synthetic
 bookmarks.
 
 ## References

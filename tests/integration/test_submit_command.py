@@ -281,7 +281,7 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
     stack = JjClient(repo).discover_review_stack()
 
     assert exit_code == 0
-    assert "Projected review bookmarks:" in captured.out
+    assert "Submitted review bookmarks:" in captured.out
     assert fake_repo.pull_requests[1].title == f"AI {stack.revisions[0].change_id[:8]}"
     assert fake_repo.pull_requests[1].body == (
         f"Generated body for {stack.revisions[0].change_id}"

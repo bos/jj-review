@@ -1,4 +1,4 @@
-"""Submit command support for remote bookmark and pull request projection."""
+"""Submit command support for syncing remote bookmarks and pull requests."""
 
 from __future__ import annotations
 
@@ -97,7 +97,7 @@ _STACK_COMMENT_MARKER = "<!-- jj-review-stack -->"
 
 @dataclass(frozen=True, slots=True)
 class SubmittedRevision:
-    """Remote and GitHub projection result for one revision in the submitted stack."""
+    """Remote bookmark and GitHub result for one revision in the submitted stack."""
 
     bookmark: str
     bookmark_source: BookmarkSource
@@ -113,7 +113,7 @@ class SubmittedRevision:
 
 @dataclass(frozen=True, slots=True)
 class SubmitResult:
-    """Projected remote bookmark and pull request state for the selected stack."""
+    """Remote bookmark and pull request state for the selected stack."""
 
     dry_run: bool
     remote: GitRemote
@@ -228,7 +228,7 @@ class PrivateCommitFinder(Protocol):
 
 
 class RemoteBookmarkSyncer(Protocol):
-    """Subset of the jj client interface needed for remote bookmark projection."""
+    """Subset of the jj client interface needed for remote bookmark updates."""
 
     def push_bookmarks(self, *, remote: str, bookmarks: tuple[str, ...]) -> None:
         """Push a batch of bookmarks to the selected remote."""
@@ -278,7 +278,7 @@ def run_submit(
     reviewers: list[str] | None = None,
     team_reviewers: list[str] | None = None,
 ) -> SubmitResult:
-    """Project the selected local stack to synthetic review bookmarks and PRs."""
+    """Submit the selected local stack as review bookmarks and pull requests."""
 
     state_store = ReviewStateStore.for_repo(repo_root)
     state_dir = state_store.require_writable() if not dry_run else state_store.state_dir
