@@ -142,7 +142,6 @@ async def _stream_close_async(
 ) -> CloseResult:
     prepared_status = prepared_close.prepared_status
     prepared = prepared_status.prepared
-    remote = prepared.remote
     github_repository = prepared_status.github_repository
 
     actions: list[CloseAction] = []
@@ -157,16 +156,12 @@ async def _stream_close_async(
             on_action(action)
 
     if not status_result.revisions:
-        return CloseResult(
+        return _close_result(
             actions=(),
-            applied=prepared_close.apply,
             blocked=False,
-            cleanup=prepared_close.cleanup,
             github_error=status_result.github_error,
-            github_repository=github_repository.full_name if github_repository else None,
-            remote=remote,
-            remote_error=prepared.remote_error,
-            selected_revset=prepared_status.selected_revset,
+            github_repository=github_repository,
+            prepared_close=prepared_close,
         )
 
     if status_result.github_error is not None or github_repository is None:
@@ -180,16 +175,13 @@ async def _stream_close_async(
                 status="blocked",
             )
         )
-        return CloseResult(
+        return _close_result(
             actions=tuple(actions),
             applied=False,
             blocked=True,
-            cleanup=prepared_close.cleanup,
             github_error=status_result.github_error,
-            github_repository=github_repository.full_name if github_repository else None,
-            remote=remote,
-            remote_error=prepared.remote_error,
-            selected_revset=prepared_status.selected_revset,
+            github_repository=github_repository,
+            prepared_close=prepared_close,
         )
 
     state_store = prepared.state_store
@@ -241,206 +233,340 @@ async def _stream_close_async(
             base_url=github_repository.api_base_url
         ) as github_client:
             for revision in status_result.revisions:
-                cached_change = (
-                    revision.cached_change
-                    or current_state.changes.get(revision.change_id)
-                )
-                lookup = revision.pull_request_lookup
-                if lookup is None:
-                    continue
-                if lookup.state in {"ambiguous", "error"}:
-                    record_action(
-                        CloseAction(
-                            kind="close",
-                            message=lookup.message
-                            or "cannot safely determine the pull request for this path",
-                            status="blocked",
-                        )
-                    )
-                    return complete_result(
-                        CloseResult(
-                            actions=tuple(actions),
-                            applied=prepared_close.apply,
-                            blocked=True,
-                            cleanup=prepared_close.cleanup,
-                            github_error=status_result.github_error,
-                            github_repository=github_repository.full_name,
-                            remote=remote,
-                            remote_error=prepared.remote_error,
-                            selected_revset=prepared_status.selected_revset,
-                        )
-                    )
-                revision_label = _revision_label(revision)
-                if lookup.state == "missing":
-                    if _has_active_cached_linkage(cached_change):
-                        record_action(
-                            CloseAction(
-                                kind="close",
-                                message=(
-                                    f"cannot close {revision_label} because "
-                                    "GitHub no longer reports a pull request for its "
-                                    "review branch; run `status --fetch` or `relink` "
-                                    "before retrying"
-                                ),
-                                status="blocked",
-                            )
-                        )
-                        return complete_result(
-                            CloseResult(
-                                actions=tuple(actions),
-                                applied=prepared_close.apply,
-                                blocked=True,
-                                cleanup=prepared_close.cleanup,
-                                github_error=status_result.github_error,
-                                github_repository=github_repository.full_name,
-                                remote=remote,
-                                remote_error=prepared.remote_error,
-                                selected_revset=prepared_status.selected_revset,
-                            )
-                        )
-                    if not prepared_close.cleanup or cached_change is None:
-                        continue
-
-                    updated_change = _retire_cached_change(
-                        cached_change,
-                        pr_state=cached_change.pr_state or "closed",
-                    )
-                    if updated_change != cached_change:
-                        next_changes[revision.change_id] = updated_change
-                        record_action(
-                            CloseAction(
-                                kind="cache",
-                                message=f"retire active review state for {revision_label}",
-                                status="applied" if prepared_close.apply else "planned",
-                            )
-                        )
-                    await _cleanup_revision(
-                        apply=prepared_close.apply,
-                        bookmark_state=prepared.client.get_bookmark_state(revision.bookmark),
-                        cached_change=updated_change,
-                        github_client=github_client,
-                        github_repository=github_repository,
-                        next_changes=next_changes,
-                        record_action=record_action,
-                        jj_client=prepared.client,
-                        remote_name=remote.name if remote is not None else None,
-                        commit_id=commit_ids_by_change_id.get(revision.change_id),
-                        revision=revision,
-                        revision_label=revision_label,
-                    )
-                    continue
-
-                cached_change = _close_cached_change(
-                    cached_change=cached_change,
+                should_stop = await _process_close_revision(
+                    commit_id=commit_ids_by_change_id.get(revision.change_id),
+                    current_state=current_state,
+                    github_client=github_client,
+                    github_repository=github_repository,
+                    next_changes=next_changes,
+                    prepared_close=prepared_close,
+                    record_action=record_action,
                     revision=revision,
                 )
-                if cached_change is None:
-                    continue
-                if lookup.state == "open" and lookup.pull_request is not None:
-                    record_action(
-                        CloseAction(
-                            kind="pull request",
-                            message=(
-                                f"close PR #{lookup.pull_request.number} for "
-                                f"{revision_label}"
-                            ),
-                            status="applied" if prepared_close.apply else "planned",
-                        )
-                    )
-                    if prepared_close.apply:
-                        await github_client.close_pull_request(
-                            github_repository.owner,
-                            github_repository.repo,
-                            pull_number=lookup.pull_request.number,
-                        )
-
-                    updated_change = _retire_cached_change(cached_change, pr_state="closed")
-                    if updated_change != cached_change:
-                        next_changes[revision.change_id] = updated_change
-                        record_action(
-                            CloseAction(
-                                kind="cache",
-                                message=(
-                                    f"retire active review state for {revision_label}"
-                                ),
-                                status="applied" if prepared_close.apply else "planned",
-                            )
-                        )
-
-                    if prepared_close.cleanup:
-                        await _cleanup_revision(
-                            apply=prepared_close.apply,
-                            bookmark_state=prepared.client.get_bookmark_state(
-                                revision.bookmark
-                            ),
-                            cached_change=updated_change,
-                            github_client=github_client,
+                if should_stop:
+                    return complete_result(
+                        _close_result(
+                            actions=tuple(actions),
+                            blocked=True,
+                            github_error=status_result.github_error,
                             github_repository=github_repository,
-                            next_changes=next_changes,
-                            record_action=record_action,
-                            jj_client=prepared.client,
-                            remote_name=remote.name if remote is not None else None,
-                            commit_id=commit_ids_by_change_id.get(revision.change_id),
-                            revision=revision,
-                            revision_label=revision_label,
+                            prepared_close=prepared_close,
                         )
-                    continue
-
-                if lookup.state != "closed":
-                    continue
-
-                pr_state = "merged" if (
-                    lookup.pull_request is not None and lookup.pull_request.merged_at is not None
-                ) else "closed"
-                if cached_change.pr_state == "merged":
-                    pr_state = "merged"
-
-                updated_change = _retire_cached_change(cached_change, pr_state=pr_state)
-                if updated_change != cached_change:
-                    next_changes[revision.change_id] = updated_change
-                    record_action(
-                        CloseAction(
-                            kind="cache",
-                            message=f"retire active review state for {revision_label}",
-                            status="applied" if prepared_close.apply else "planned",
-                        )
-                    )
-
-                if prepared_close.cleanup:
-                    await _cleanup_revision(
-                        apply=prepared_close.apply,
-                        bookmark_state=prepared.client.get_bookmark_state(
-                            revision.bookmark
-                        ),
-                        cached_change=updated_change,
-                        github_client=github_client,
-                        github_repository=github_repository,
-                        next_changes=next_changes,
-                        record_action=record_action,
-                        jj_client=prepared.client,
-                        remote_name=remote.name if remote is not None else None,
-                        commit_id=commit_ids_by_change_id.get(revision.change_id),
-                        revision=revision,
-                        revision_label=revision_label,
                     )
 
         return complete_result(
-            CloseResult(
+            _close_result(
                 actions=tuple(actions),
-                applied=prepared_close.apply,
                 blocked=blocked,
-                cleanup=prepared_close.cleanup,
                 github_error=status_result.github_error,
-                github_repository=github_repository.full_name,
-                remote=remote,
-                remote_error=prepared.remote_error,
-                selected_revset=prepared_status.selected_revset,
+                github_repository=github_repository,
+                prepared_close=prepared_close,
             )
         )
     finally:
         if completed and intent_path is not None and intent is not None:
             retire_superseded_intents(stale_intents, intent)
             delete_intent(intent_path)
+
+
+def _close_result(
+    *,
+    actions: tuple[CloseAction, ...],
+    applied: bool | None = None,
+    blocked: bool,
+    github_error: str | None,
+    github_repository,
+    prepared_close: PreparedClose,
+) -> CloseResult:
+    prepared = prepared_close.prepared_status.prepared
+    return CloseResult(
+        actions=actions,
+        applied=prepared_close.apply if applied is None else applied,
+        blocked=blocked,
+        cleanup=prepared_close.cleanup,
+        github_error=github_error,
+        github_repository=github_repository.full_name if github_repository else None,
+        remote=prepared.remote,
+        remote_error=prepared.remote_error,
+        selected_revset=prepared_close.prepared_status.selected_revset,
+    )
+
+
+async def _process_close_revision(
+    *,
+    commit_id: str | None,
+    current_state,
+    github_client: GithubClient,
+    github_repository,
+    next_changes: dict[str, CachedChange],
+    prepared_close: PreparedClose,
+    record_action: Callable[[CloseAction], None],
+    revision,
+) -> bool:
+    lookup = revision.pull_request_lookup
+    if lookup is None:
+        return False
+    if lookup.state in {"ambiguous", "error"}:
+        record_action(
+            CloseAction(
+                kind="close",
+                message=(
+                    lookup.message
+                    or "cannot safely determine the pull request for this path"
+                ),
+                status="blocked",
+            )
+        )
+        return True
+
+    cached_change = revision.cached_change or current_state.changes.get(revision.change_id)
+    revision_label = _revision_label(revision)
+    if lookup.state == "missing":
+        return await _process_missing_close_revision(
+            cached_change=cached_change,
+            commit_id=commit_id,
+            github_client=github_client,
+            github_repository=github_repository,
+            next_changes=next_changes,
+            prepared_close=prepared_close,
+            record_action=record_action,
+            revision=revision,
+            revision_label=revision_label,
+        )
+
+    cached_change = _close_cached_change(
+        cached_change=cached_change,
+        revision=revision,
+    )
+    if cached_change is None:
+        return False
+    if lookup.state == "open" and lookup.pull_request is not None:
+        await _process_open_close_revision(
+            cached_change=cached_change,
+            commit_id=commit_id,
+            github_client=github_client,
+            github_repository=github_repository,
+            next_changes=next_changes,
+            prepared_close=prepared_close,
+            pull_request_number=lookup.pull_request.number,
+            record_action=record_action,
+            revision=revision,
+            revision_label=revision_label,
+        )
+        return False
+    if lookup.state != "closed":
+        return False
+
+    await _process_closed_close_revision(
+        cached_change=cached_change,
+        commit_id=commit_id,
+        github_client=github_client,
+        github_repository=github_repository,
+        next_changes=next_changes,
+        prepared_close=prepared_close,
+        record_action=record_action,
+        revision=revision,
+        revision_label=revision_label,
+    )
+    return False
+
+
+async def _process_missing_close_revision(
+    *,
+    cached_change: CachedChange | None,
+    commit_id: str | None,
+    github_client: GithubClient,
+    github_repository,
+    next_changes: dict[str, CachedChange],
+    prepared_close: PreparedClose,
+    record_action: Callable[[CloseAction], None],
+    revision,
+    revision_label: str,
+) -> bool:
+    if _has_active_cached_linkage(cached_change):
+        record_action(
+            CloseAction(
+                kind="close",
+                message=(
+                    f"cannot close {revision_label} because GitHub no longer reports a pull "
+                    "request for its review branch; run `status --fetch` or `relink` before "
+                    "retrying"
+                ),
+                status="blocked",
+            )
+        )
+        return True
+    if not prepared_close.cleanup or cached_change is None:
+        return False
+
+    updated_change = _record_retired_cached_change(
+        cached_change=cached_change,
+        next_changes=next_changes,
+        pr_state=cached_change.pr_state or "closed",
+        prepared_close=prepared_close,
+        record_action=record_action,
+        revision=revision,
+        revision_label=revision_label,
+    )
+    await _cleanup_if_requested(
+        cached_change=updated_change,
+        commit_id=commit_id,
+        github_client=github_client,
+        github_repository=github_repository,
+        next_changes=next_changes,
+        prepared_close=prepared_close,
+        record_action=record_action,
+        revision=revision,
+        revision_label=revision_label,
+    )
+    return False
+
+
+async def _process_open_close_revision(
+    *,
+    cached_change: CachedChange,
+    commit_id: str | None,
+    github_client: GithubClient,
+    github_repository,
+    next_changes: dict[str, CachedChange],
+    prepared_close: PreparedClose,
+    pull_request_number: int,
+    record_action: Callable[[CloseAction], None],
+    revision,
+    revision_label: str,
+) -> None:
+    record_action(
+        CloseAction(
+            kind="pull request",
+            message=f"close PR #{pull_request_number} for {revision_label}",
+            status="applied" if prepared_close.apply else "planned",
+        )
+    )
+    if prepared_close.apply:
+        await github_client.close_pull_request(
+            github_repository.owner,
+            github_repository.repo,
+            pull_number=pull_request_number,
+        )
+
+    updated_change = _record_retired_cached_change(
+        cached_change=cached_change,
+        next_changes=next_changes,
+        pr_state="closed",
+        prepared_close=prepared_close,
+        record_action=record_action,
+        revision=revision,
+        revision_label=revision_label,
+    )
+    await _cleanup_if_requested(
+        cached_change=updated_change,
+        commit_id=commit_id,
+        github_client=github_client,
+        github_repository=github_repository,
+        next_changes=next_changes,
+        prepared_close=prepared_close,
+        record_action=record_action,
+        revision=revision,
+        revision_label=revision_label,
+    )
+
+
+async def _process_closed_close_revision(
+    *,
+    cached_change: CachedChange,
+    commit_id: str | None,
+    github_client: GithubClient,
+    github_repository,
+    next_changes: dict[str, CachedChange],
+    prepared_close: PreparedClose,
+    record_action: Callable[[CloseAction], None],
+    revision,
+    revision_label: str,
+) -> None:
+    lookup = revision.pull_request_lookup
+    pr_state = "merged" if (
+        lookup is not None
+        and lookup.pull_request is not None
+        and lookup.pull_request.merged_at is not None
+    ) else "closed"
+    if cached_change.pr_state == "merged":
+        pr_state = "merged"
+
+    updated_change = _record_retired_cached_change(
+        cached_change=cached_change,
+        next_changes=next_changes,
+        pr_state=pr_state,
+        prepared_close=prepared_close,
+        record_action=record_action,
+        revision=revision,
+        revision_label=revision_label,
+    )
+    await _cleanup_if_requested(
+        cached_change=updated_change,
+        commit_id=commit_id,
+        github_client=github_client,
+        github_repository=github_repository,
+        next_changes=next_changes,
+        prepared_close=prepared_close,
+        record_action=record_action,
+        revision=revision,
+        revision_label=revision_label,
+    )
+
+
+def _record_retired_cached_change(
+    *,
+    cached_change: CachedChange,
+    next_changes: dict[str, CachedChange],
+    pr_state: str,
+    prepared_close: PreparedClose,
+    record_action: Callable[[CloseAction], None],
+    revision,
+    revision_label: str,
+) -> CachedChange:
+    updated_change = _retire_cached_change(cached_change, pr_state=pr_state)
+    if updated_change != cached_change:
+        next_changes[revision.change_id] = updated_change
+        record_action(
+            CloseAction(
+                kind="cache",
+                message=f"retire active review state for {revision_label}",
+                status="applied" if prepared_close.apply else "planned",
+            )
+        )
+    return updated_change
+
+
+async def _cleanup_if_requested(
+    *,
+    cached_change: CachedChange,
+    commit_id: str | None,
+    github_client: GithubClient,
+    github_repository,
+    next_changes: dict[str, CachedChange],
+    prepared_close: PreparedClose,
+    record_action: Callable[[CloseAction], None],
+    revision,
+    revision_label: str,
+) -> None:
+    if not prepared_close.cleanup:
+        return
+    prepared = prepared_close.prepared_status.prepared
+    remote = prepared.remote
+    await _cleanup_revision(
+        apply=prepared_close.apply,
+        bookmark_state=prepared.client.get_bookmark_state(revision.bookmark),
+        cached_change=cached_change,
+        github_client=github_client,
+        github_repository=github_repository,
+        next_changes=next_changes,
+        record_action=record_action,
+        jj_client=prepared.client,
+        remote_name=remote.name if remote is not None else None,
+        commit_id=commit_id,
+        revision=revision,
+        revision_label=revision_label,
+    )
 
 
 async def _cleanup_revision(

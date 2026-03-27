@@ -2733,6 +2733,55 @@ def test_close_preview_closes_no_remote_state_and_reports_planned_actions(
     assert _issue_comments(fake_repo, 1) == []
 
 
+def test_close_apply_reports_blocked_when_github_is_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    initial_state = ReviewStateStore.for_repo(repo).load()
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    class OfflineGithubClient(GithubClient):
+        async def list_pull_requests(self, owner, repo, *, head, state="all"):
+            raise GithubClientError("Connection refused")
+
+        async def list_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
+            raise GithubClientError("Connection refused")
+
+        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
+            raise GithubClientError("Connection refused")
+
+    def build_github_client(*, base_url: str) -> GithubClient:
+        return OfflineGithubClient(
+            base_url=base_url,
+            transport=httpx.ASGITransport(app=app),
+        )
+
+    monkeypatch.setattr("jj_review.commands.close._build_github_client", build_github_client)
+    monkeypatch.setattr(
+        "jj_review.commands.review_state._build_github_client",
+        build_github_client,
+    )
+
+    exit_code = _main(repo, config_path, "close", "--apply", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Close blocked:" in captured.out
+    assert "Applied close actions:" not in captured.out
+    assert "cannot close managed pull requests without live GitHub state" in captured.out
+    assert ReviewStateStore.for_repo(repo).load() == initial_state
+
+
 def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
     tmp_path: Path,
     monkeypatch,
