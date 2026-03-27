@@ -251,44 +251,6 @@ _TaskItemT = TypeVar("_TaskItemT")
 _TaskResultT = TypeVar("_TaskResultT")
 
 
-def run_submit(
-    *,
-    change_overrides: dict[str, ChangeConfig],
-    config: RepoConfig,
-    describe_with: str | None = None,
-    draft_mode: SubmitDraftMode = "default",
-    dry_run: bool = False,
-    on_prepared: Callable[[str, GitRemote, bool], None] | None = None,
-    on_trunk_resolved: Callable[[str, str, bool], None] | None = None,
-    repo_root: Path,
-    revset: str | None,
-    reviewers: list[str] | None = None,
-    team_reviewers: list[str] | None = None,
-) -> SubmitResult:
-    """Submit the selected local stack as bookmarks and pull requests."""
-
-    state_store = ReviewStateStore.for_repo(repo_root)
-    state_dir = state_store.require_writable() if not dry_run else state_store.state_dir
-
-    return asyncio.run(
-        _run_submit_async(
-            change_overrides=change_overrides,
-            config=config,
-            describe_with=describe_with,
-            draft_mode=draft_mode,
-            dry_run=dry_run,
-            on_prepared=on_prepared,
-            on_trunk_resolved=on_trunk_resolved,
-            repo_root=repo_root,
-            revset=revset,
-            reviewers=reviewers,
-            state_dir=state_dir,
-            state_store=state_store,
-            team_reviewers=team_reviewers,
-        )
-    )
-
-
 def handle_submit_command(
     *,
     config_path: Path | None,
@@ -307,6 +269,7 @@ def handle_submit_command(
     """CLI entrypoint for `submit`."""
 
     from jj_review.bootstrap import bootstrap_context
+    from jj_review.commands.review_state import display_change_id
 
     context = bootstrap_context(
         repository=repository,
@@ -345,22 +308,28 @@ def handle_submit_command(
             print("Submitted bookmarks:")
         emitted_section_header = True
 
-    result = run_submit(
-        change_overrides=context.config.change,
-        config=context.config.repo,
-        describe_with=describe_with,
-        draft_mode=_submit_draft_mode(
-            draft=draft,
-            draft_all=draft_all,
-            publish=publish,
-        ),
-        dry_run=dry_run,
-        on_prepared=emit_prepared,
-        on_trunk_resolved=emit_trunk,
-        repo_root=context.repo_root,
-        revset=selected_revset,
-        reviewers=reviewer_list,
-        team_reviewers=team_reviewer_list,
+    state_store = ReviewStateStore.for_repo(context.repo_root)
+    state_dir = state_store.require_writable() if not dry_run else state_store.state_dir
+    result = asyncio.run(
+        _run_submit_async(
+            change_overrides=context.config.change,
+            config=context.config.repo,
+            describe_with=describe_with,
+            draft_mode=_submit_draft_mode(
+                draft=draft,
+                draft_all=draft_all,
+                publish=publish,
+            ),
+            dry_run=dry_run,
+            on_prepared=emit_prepared,
+            on_trunk_resolved=emit_trunk,
+            repo_root=context.repo_root,
+            revset=selected_revset,
+            reviewers=reviewer_list,
+            state_dir=state_dir,
+            state_store=state_store,
+            team_reviewers=team_reviewer_list,
+        )
     )
     if not emitted_prepared:
         print(f"Selected revset: {result.selected_revset}")
@@ -378,19 +347,24 @@ def handle_submit_command(
         else:
             print("Submitted bookmarks:")
     for revision in result.revisions:
-        _print_submit_revision(revision)
+        print(f"- {revision.subject} [{display_change_id(revision.change_id)}]")
+        pr_suffix = _render_submit_pr_suffix(
+            action=revision.pull_request_action,
+            is_draft=getattr(revision, "pull_request_is_draft", None),
+            pull_request_number=revision.pull_request_number,
+        )
+        remote_suffix = ""
+        if revision.pull_request_action != "created":
+            if revision.remote_action == "up to date":
+                remote_suffix = " [already pushed]"
+            else:
+                remote_suffix = " [pushed]"
+        print(f"  -> {revision.bookmark}{remote_suffix}{pr_suffix}")
     if not result.dry_run:
         top_pull_request_url = result.revisions[-1].pull_request_url
         if top_pull_request_url is not None:
             print(f"Top of stack: {top_pull_request_url}")
     return 0
-
-
-def _print_submit_revision(revision) -> None:
-    from jj_review.commands.review_state import display_change_id
-
-    print(f"- {revision.subject} [{display_change_id(revision.change_id)}]")
-    print(f"  -> {revision.bookmark}{_render_submit_revision_suffix(revision)}")
 
 
 def _submit_draft_mode(
@@ -406,23 +380,6 @@ def _submit_draft_mode(
     if publish:
         return "publish"
     return "default"
-
-
-def _render_submit_revision_suffix(revision) -> str:
-    pr_suffix = _render_submit_pr_suffix(
-        action=revision.pull_request_action,
-        is_draft=getattr(revision, "pull_request_is_draft", None),
-        pull_request_number=revision.pull_request_number,
-    )
-    if revision.pull_request_action == "created":
-        return pr_suffix
-    return _render_submit_remote_suffix(revision.remote_action) + pr_suffix
-
-
-def _render_submit_remote_suffix(remote_action: str) -> str:
-    if remote_action == "up to date":
-        return " [already pushed]"
-    return " [pushed]"
 
 
 def _render_submit_pr_suffix(

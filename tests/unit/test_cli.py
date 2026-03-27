@@ -12,6 +12,14 @@ from jj_review.jj import UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState
 
 
+def _fake_submit_state_store(tmp_path: Path) -> SimpleNamespace:
+    state_dir = tmp_path / "jj-review-state"
+    return SimpleNamespace(
+        state_dir=state_dir,
+        require_writable=lambda: state_dir,
+    )
+
+
 def test_main_without_command_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = main([])
     captured = capsys.readouterr()
@@ -514,12 +522,12 @@ def test_main_submit_requires_explicit_revision_selection(
     )
     run_called = False
 
-    def fake_run_submit(**kwargs):
+    async def fake_run_submit(**kwargs):
         nonlocal run_called
         run_called = True
         raise AssertionError("submit should not run without an explicit selector")
 
-    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit._run_submit_async", fake_run_submit)
 
     exit_code = main(["submit", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1062,10 +1070,14 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.commands.submit.ReviewStateStore.for_repo",
+        lambda _: _fake_submit_state_store(tmp_path),
+    )
     dry_run_calls: list[bool] = []
     selected_revsets: list[str | None] = []
 
-    def fake_run_submit(**kwargs):
+    async def fake_run_submit(**kwargs):
         dry_run_calls.append(bool(kwargs["dry_run"]))
         selected_revsets.append(kwargs["revset"])
         return SimpleNamespace(
@@ -1089,7 +1101,7 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit._run_submit_async", fake_run_submit)
 
     exit_code = main(["submit", "--dry-run", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1110,9 +1122,13 @@ def test_main_submit_passes_draft_mode_to_submit_runner(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.commands.submit.ReviewStateStore.for_repo",
+        lambda _: _fake_submit_state_store(tmp_path),
+    )
     draft_modes: list[str] = []
 
-    def fake_run_submit(**kwargs):
+    async def fake_run_submit(**kwargs):
         draft_modes.append(kwargs["draft_mode"])
         return SimpleNamespace(
             dry_run=False,
@@ -1123,7 +1139,7 @@ def test_main_submit_passes_draft_mode_to_submit_runner(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit._run_submit_async", fake_run_submit)
 
     exit_code = main(["submit", "--draft", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1139,9 +1155,13 @@ def test_main_submit_passes_draft_all_mode_to_submit_runner(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.commands.submit.ReviewStateStore.for_repo",
+        lambda _: _fake_submit_state_store(tmp_path),
+    )
     draft_modes: list[str] = []
 
-    def fake_run_submit(**kwargs):
+    async def fake_run_submit(**kwargs):
         draft_modes.append(kwargs["draft_mode"])
         return SimpleNamespace(
             dry_run=False,
@@ -1152,7 +1172,7 @@ def test_main_submit_passes_draft_all_mode_to_submit_runner(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit._run_submit_async", fake_run_submit)
 
     exit_code = main(["submit", "--draft=all", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1168,9 +1188,13 @@ def test_main_submit_passes_reviewer_overrides_to_submit_runner(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.commands.submit.ReviewStateStore.for_repo",
+        lambda _: _fake_submit_state_store(tmp_path),
+    )
     reviewer_calls: list[tuple[list[str] | None, list[str] | None]] = []
 
-    def fake_run_submit(**kwargs):
+    async def fake_run_submit(**kwargs):
         reviewer_calls.append((kwargs["reviewers"], kwargs["team_reviewers"]))
         return SimpleNamespace(
             dry_run=False,
@@ -1181,7 +1205,7 @@ def test_main_submit_passes_reviewer_overrides_to_submit_runner(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit._run_submit_async", fake_run_submit)
 
     exit_code = main(
         [
@@ -1212,9 +1236,13 @@ def test_main_submit_passes_describe_with_to_submit_runner(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.commands.submit.ReviewStateStore.for_repo",
+        lambda _: _fake_submit_state_store(tmp_path),
+    )
     describe_with_calls: list[str | None] = []
 
-    def fake_run_submit(**kwargs):
+    async def fake_run_submit(**kwargs):
         describe_with_calls.append(kwargs["describe_with"])
         return SimpleNamespace(
             dry_run=False,
@@ -1225,7 +1253,7 @@ def test_main_submit_passes_describe_with_to_submit_runner(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit._run_submit_async", fake_run_submit)
 
     exit_code = main(
         [
@@ -1250,6 +1278,10 @@ def test_main_submit_prints_final_output_without_duplicate_lines(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.commands.submit.ReviewStateStore.for_repo",
+        lambda _: _fake_submit_state_store(tmp_path),
+    )
 
     revision = SimpleNamespace(
         bookmark="review/feature-abcdefgh",
@@ -1263,7 +1295,7 @@ def test_main_submit_prints_final_output_without_duplicate_lines(
         subject="feature 1",
     )
 
-    def fake_run_submit(**kwargs):
+    async def fake_run_submit(**kwargs):
         kwargs["on_prepared"]("@", SimpleNamespace(name="origin"), True)
         kwargs["on_trunk_resolved"]("base", "main", True)
         return SimpleNamespace(
@@ -1275,7 +1307,7 @@ def test_main_submit_prints_final_output_without_duplicate_lines(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit._run_submit_async", fake_run_submit)
 
     exit_code = main(["submit", "--dry-run", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1297,6 +1329,10 @@ def test_main_submit_prints_top_pull_request_url_at_end(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.commands.submit.ReviewStateStore.for_repo",
+        lambda _: _fake_submit_state_store(tmp_path),
+    )
 
     revision = SimpleNamespace(
         bookmark="review/feature-abcdefgh",
@@ -1310,7 +1346,7 @@ def test_main_submit_prints_top_pull_request_url_at_end(
         subject="feature 1",
     )
 
-    def fake_run_submit(**kwargs):
+    async def fake_run_submit(**kwargs):
         kwargs["on_prepared"]("@", SimpleNamespace(name="origin"), True)
         kwargs["on_trunk_resolved"]("base", "main", True)
         return SimpleNamespace(
@@ -1322,7 +1358,7 @@ def test_main_submit_prints_top_pull_request_url_at_end(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit._run_submit_async", fake_run_submit)
 
     exit_code = main(["submit", "--current", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1339,6 +1375,10 @@ def test_main_time_output_prefixes_submit_summary_lines(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(
+        "jj_review.commands.submit.ReviewStateStore.for_repo",
+        lambda _: _fake_submit_state_store(tmp_path),
+    )
 
     revision = SimpleNamespace(
         bookmark="review/feature-abcdefgh",
@@ -1352,7 +1392,7 @@ def test_main_time_output_prefixes_submit_summary_lines(
         subject="feature 1",
     )
 
-    def fake_run_submit(**kwargs):
+    async def fake_run_submit(**kwargs):
         kwargs["on_prepared"]("@", SimpleNamespace(name="origin"), True)
         kwargs["on_trunk_resolved"]("base", "main", True)
         return SimpleNamespace(
@@ -1364,7 +1404,7 @@ def test_main_time_output_prefixes_submit_summary_lines(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.commands.submit.run_submit", fake_run_submit)
+    monkeypatch.setattr("jj_review.commands.submit._run_submit_async", fake_run_submit)
 
     exit_code = main(["submit", "--current", "--time-output", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
