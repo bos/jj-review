@@ -336,7 +336,16 @@ def build_parser() -> ArgumentParser:
         command="import",
         help_text=_normalized_help_text(import_command.HELP),
         description_text=import_command.__doc__ or "",
-        handler=import_command.handle_import_command,
+        handler=lambda args: import_command.handle_import_command(
+            config_path=args.config,
+            current=args.current,
+            debug=args.debug,
+            fetch=args.fetch,
+            head=args.head,
+            pull_request=args.pull_request,
+            repository=args.repository,
+            revset=args.revset,
+        ),
     )
 
     cleanup_parser = subparsers.add_parser(

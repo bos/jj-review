@@ -10,7 +10,6 @@ changes, or change GitHub.
 from __future__ import annotations
 
 import asyncio
-from argparse import Namespace
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -127,29 +126,39 @@ def run_import(
     )
 
 
-def handle_import_command(args: Namespace) -> int:
+def handle_import_command(
+    *,
+    config_path: Path | None,
+    current: bool,
+    debug: bool,
+    fetch: bool,
+    head: str | None,
+    pull_request: str | None,
+    repository: Path | None,
+    revset: str | None,
+) -> int:
     """CLI entrypoint for `import`."""
 
     from jj_review.bootstrap import bootstrap_context
 
     context = bootstrap_context(
-        repository=args.repository,
-        config_path=args.config,
-        debug=args.debug,
+        repository=repository,
+        config_path=config_path,
+        debug=debug,
     )
     result = run_import(
         change_overrides=context.config.change,
         config=context.config.repo,
-        current=bool(args.current),
-        fetch=bool(args.fetch),
-        head=args.head,
-        pull_request_reference=args.pull_request,
+        current=current,
+        fetch=fetch,
+        head=head,
+        pull_request_reference=pull_request,
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
             command_label="import",
-            current=args.current,
+            current=current,
             require_explicit=False,
-            revset=args.revset,
+            revset=revset,
         ),
     )
     print(f"Selected selector: {result.selector}")
