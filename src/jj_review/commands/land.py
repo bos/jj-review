@@ -18,6 +18,7 @@ import asyncio
 import json
 import os
 import tempfile
+from argparse import Namespace
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from dataclasses import replace as dataclass_replace
@@ -25,6 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
 
+from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
@@ -200,6 +202,66 @@ def run_land(
         revset=revset,
     )
     return stream_land(prepared_land=prepared_land)
+
+
+def handle_land_command(
+    args: Namespace,
+    *,
+    bootstrap_context_fn,
+    run_land_fn=run_land,
+) -> int:
+    """CLI entrypoint for `land`."""
+
+    context = bootstrap_context_fn(args)
+    result = run_land_fn(
+        apply=bool(args.apply),
+        bypass_readiness=bool(args.bypass_readiness),
+        change_overrides=context.config.change,
+        config=context.config.repo,
+        expect_pr_reference=args.expect_pr,
+        repo_root=context.repo_root,
+        revset=resolve_selected_revset(
+            args,
+            command_label="land",
+            require_explicit=True,
+        ),
+    )
+    print(f"Selected revset: {result.selected_revset}")
+    print(f"Selected remote: {result.remote_name}")
+    print(f"GitHub: {result.github_repository}")
+    print(f"Trunk: {result.trunk_subject} -> {result.trunk_branch}")
+    if result.actions:
+        if result.applied:
+            header = "Applied land actions:"
+        elif result.blocked:
+            header = "Land blocked:"
+        else:
+            header = "Planned land actions:"
+        print(header)
+        for action in result.actions:
+            print(f"- [{action.status}] {action.kind}: {action.message}")
+    if result.follow_up is not None:
+        print(result.follow_up)
+    if not result.applied and not result.blocked:
+        print(
+            "Re-run with "
+            f"`{format_land_apply_command(result)}` "
+            "to update trunk and finalize those changes."
+        )
+    return 1 if result.blocked else 0
+
+
+def format_land_apply_command(result: LandResult) -> str:
+    """Render the follow-up `land --apply` command for preview output."""
+
+    parts = ["land", "--apply"]
+    if result.bypass_readiness:
+        parts.append("--bypass-readiness")
+    if result.expect_pr_number is not None:
+        parts.extend(("--expect-pr", str(result.expect_pr_number)))
+    if result.selected_revset:
+        parts.append(result.selected_revset)
+    return " ".join(parts)
 
 
 def prepare_land(

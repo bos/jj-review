@@ -61,7 +61,7 @@ from jj_review.commands.cleanup import (
 )
 from jj_review.commands.close import CloseResult, run_close
 from jj_review.commands.import_ import run_import
-from jj_review.commands.land import LandResult, run_land
+from jj_review.commands.land import run_land
 from jj_review.commands.relink import run_relink
 from jj_review.commands.review_state import prepare_status, run_status_command, stream_status
 from jj_review.commands.submit import run_submit
@@ -296,7 +296,11 @@ def build_parser() -> ArgumentParser:
         command="land",
         help_text=_normalized_help_text(land_command.HELP),
         description_text=land_command.__doc__ or "",
-        handler=_land_handler,
+        handler=partial(
+            land_command.handle_land_command,
+            bootstrap_context_fn=bootstrap_context,
+            run_land_fn=run_land,
+        ),
     )
     land_parser.add_argument(
         "--apply",
@@ -1205,58 +1209,6 @@ def _close_handler(args: Namespace) -> int:
             "to close the selected stack."
         )
     return 1 if result.blocked else 0
-
-
-def _land_handler(args: Namespace) -> int:
-    context = bootstrap_context(args)
-    selected_revset = _resolve_selected_revset(
-        args,
-        command_label="land",
-        require_explicit=True,
-    )
-    result = run_land(
-        apply=bool(args.apply),
-        bypass_readiness=bool(args.bypass_readiness),
-        change_overrides=context.config.change,
-        config=context.config.repo,
-        expect_pr_reference=args.expect_pr,
-        repo_root=context.repo_root,
-        revset=selected_revset,
-    )
-    print(f"Selected revset: {result.selected_revset}")
-    print(f"Selected remote: {result.remote_name}")
-    print(f"GitHub: {result.github_repository}")
-    print(f"Trunk: {result.trunk_subject} -> {result.trunk_branch}")
-    if result.actions:
-        if result.applied:
-            header = "Applied land actions:"
-        elif result.blocked:
-            header = "Land blocked:"
-        else:
-            header = "Planned land actions:"
-        print(header)
-        for action in result.actions:
-            print(f"- [{action.status}] {action.kind}: {action.message}")
-    if result.follow_up is not None:
-        print(result.follow_up)
-    if not result.applied and not result.blocked:
-        print(
-            "Re-run with "
-            f"`{_format_land_apply_command(result)}` "
-            "to update trunk and finalize those changes."
-        )
-    return 1 if result.blocked else 0
-
-
-def _format_land_apply_command(result: LandResult) -> str:
-    parts = ["land", "--apply"]
-    if result.bypass_readiness:
-        parts.append("--bypass-readiness")
-    if result.expect_pr_number is not None:
-        parts.extend(("--expect-pr", str(result.expect_pr_number)))
-    if result.selected_revset:
-        parts.append(result.selected_revset)
-    return " ".join(parts)
 
 
 def _format_close_apply_command(result: CloseResult) -> str:
