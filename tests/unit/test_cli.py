@@ -598,7 +598,7 @@ def test_main_land_requires_explicit_revision_selection(
         run_called = True
         raise AssertionError("land should not run without an explicit selector")
 
-    monkeypatch.setattr("jj_review.cli.run_land", fake_run_land)
+    monkeypatch.setattr("jj_review.commands.land.run_land", fake_run_land)
 
     exit_code = main(["land", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -629,7 +629,7 @@ def test_main_close_requires_explicit_revision_selection(
         run_called = True
         raise AssertionError("close should not run without an explicit selector")
 
-    monkeypatch.setattr("jj_review.cli.run_close", fake_run_close)
+    monkeypatch.setattr("jj_review.commands.close.run_close", fake_run_close)
 
     exit_code = main(["close", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -695,7 +695,7 @@ def test_main_close_renders_planned_output(
             selected_revset="@",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_close", fake_run_close)
+    monkeypatch.setattr("jj_review.commands.close.run_close", fake_run_close)
 
     exit_code = main(["close", "--cleanup", "--repository", str(tmp_path), "@"])
     captured = capsys.readouterr()
@@ -735,7 +735,7 @@ def test_main_close_renders_apply_noop_output(
             selected_revset="@",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_close", fake_run_close)
+    monkeypatch.setattr("jj_review.commands.close.run_close", fake_run_close)
 
     exit_code = main(["close", "--apply", "--repository", str(tmp_path), "@"])
     captured = capsys.readouterr()
@@ -782,7 +782,7 @@ def test_main_import_renders_up_to_date_output(
             selector="--head review/feature-aaaaaaaa",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_import", fake_run_import)
+    monkeypatch.setattr("jj_review.commands.import_.run_import", fake_run_import)
 
     exit_code = main(
         [
@@ -824,7 +824,7 @@ def test_main_import_renders_unavailable_github_line(
             selector="--current",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_import", fake_run_import)
+    monkeypatch.setattr("jj_review.commands.import_.run_import", fake_run_import)
 
     exit_code = main(["import", "--repository", str(tmp_path), "--current"])
     captured = capsys.readouterr()
@@ -856,7 +856,7 @@ def test_main_import_fetch_renders_fetched_tip_commit(
             selector="--pull-request 2",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_import", fake_run_import)
+    monkeypatch.setattr("jj_review.commands.import_.run_import", fake_run_import)
 
     exit_code = main(
         [
@@ -910,7 +910,7 @@ def test_main_land_renders_planned_output(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_land", fake_run_land)
+    monkeypatch.setattr("jj_review.commands.land.run_land", fake_run_land)
 
     exit_code = main(
         [
@@ -964,7 +964,7 @@ def test_main_land_renders_blocked_output_without_apply_hint(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_land", fake_run_land)
+    monkeypatch.setattr("jj_review.commands.land.run_land", fake_run_land)
 
     exit_code = main(
         [
@@ -1003,7 +1003,7 @@ def test_main_land_passes_bypass_readiness_and_renders_apply_hint(tmp_path, monk
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.run_land", fake_run_land)
+    monkeypatch.setattr("jj_review.commands.land.run_land", fake_run_land)
 
     exit_code = main(
         [

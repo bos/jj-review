@@ -127,16 +127,13 @@ def run_import(
     )
 
 
-def handle_import_command(
-    args: Namespace,
-    *,
-    bootstrap_context_fn,
-    run_import_fn=run_import,
-) -> int:
+def handle_import_command(args: Namespace) -> int:
     """CLI entrypoint for `import`."""
 
-    context = bootstrap_context_fn(args)
-    result = run_import_fn(
+    from jj_review.bootstrap import bootstrap_context
+
+    context = bootstrap_context(args)
+    result = run_import(
         change_overrides=context.config.change,
         config=context.config.repo,
         current=bool(args.current),

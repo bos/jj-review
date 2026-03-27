@@ -204,16 +204,13 @@ def run_land(
     return stream_land(prepared_land=prepared_land)
 
 
-def handle_land_command(
-    args: Namespace,
-    *,
-    bootstrap_context_fn,
-    run_land_fn=run_land,
-) -> int:
+def handle_land_command(args: Namespace) -> int:
     """CLI entrypoint for `land`."""
 
-    context = bootstrap_context_fn(args)
-    result = run_land_fn(
+    from jj_review.bootstrap import bootstrap_context
+
+    context = bootstrap_context(args)
+    result = run_land(
         apply=bool(args.apply),
         bypass_readiness=bool(args.bypass_readiness),
         change_overrides=context.config.change,

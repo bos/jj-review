@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from argparse import Namespace
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import Literal
 
 from jj_review.cache import ReviewStateStore
+from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_resolution import _build_github_client
@@ -92,6 +94,82 @@ def run_close(
         revset=revset,
     )
     return stream_close(prepared_close=prepared_close)
+
+
+def handle_close_command(args: Namespace) -> int:
+    """CLI entrypoint for `close`."""
+
+    from jj_review.bootstrap import bootstrap_context
+
+    context = bootstrap_context(args)
+    result = run_close(
+        apply=bool(args.apply),
+        cleanup=bool(args.cleanup),
+        change_overrides=context.config.change,
+        config=context.config.repo,
+        repo_root=context.repo_root,
+        revset=resolve_selected_revset(
+            args,
+            command_label=(
+                "close --cleanup --apply"
+                if args.apply and args.cleanup
+                else (
+                    "close --cleanup"
+                    if args.cleanup
+                    else "close --apply" if args.apply else "close"
+                )
+            ),
+            require_explicit=True,
+        ),
+    )
+    print(f"Selected revset: {result.selected_revset}")
+    if result.remote is None:
+        if result.remote_error is None:
+            print("Selected remote: unavailable")
+        else:
+            print(f"Selected remote: unavailable ({result.remote_error})")
+    else:
+        print(f"Selected remote: {result.remote.name}")
+
+    if result.github_repository is None:
+        if result.github_error is not None:
+            print(f"GitHub target: unavailable ({result.github_error})")
+    else:
+        print(f"GitHub: {result.github_repository}")
+
+    if result.actions:
+        if result.blocked:
+            header = "Close blocked:"
+        elif result.applied:
+            header = "Applied close actions:"
+        else:
+            header = "Planned close actions:"
+        print(header)
+        for action in result.actions:
+            print(f"- [{action.status}] {action.kind}: {action.message}")
+    else:
+        if result.applied:
+            print("No close actions were needed for the selected stack.")
+        else:
+            print("No open pull requests tracked by jj-review on the selected stack.")
+
+    if not result.applied and not result.blocked and result.actions:
+        print(
+            f"Re-run with `{format_close_apply_command(result)}` "
+            "to close the selected stack."
+        )
+    return 1 if result.blocked else 0
+
+
+def format_close_apply_command(result: CloseResult) -> str:
+    """Render the follow-up `close --apply` command for preview output."""
+
+    parts = ["close", "--apply"]
+    if result.cleanup:
+        parts.append("--cleanup")
+    if result.selected_revset:
+        parts.append(result.selected_revset)
+    return " ".join(parts)
 
 
 def prepare_close(

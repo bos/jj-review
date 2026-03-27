@@ -13,7 +13,6 @@ from argparse import SUPPRESS, ArgumentParser, HelpFormatter, Namespace, _SubPar
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from functools import partial
 from pathlib import Path
 from typing import Literal, cast
 
@@ -59,9 +58,6 @@ from jj_review.commands.cleanup import (
     stream_cleanup,
     stream_restack,
 )
-from jj_review.commands.close import CloseResult, run_close
-from jj_review.commands.import_ import run_import
-from jj_review.commands.land import run_land
 from jj_review.commands.relink import run_relink
 from jj_review.commands.review_state import prepare_status, run_status_command, stream_status
 from jj_review.commands.submit import run_submit
@@ -296,11 +292,7 @@ def build_parser() -> ArgumentParser:
         command="land",
         help_text=_normalized_help_text(land_command.HELP),
         description_text=land_command.__doc__ or "",
-        handler=partial(
-            land_command.handle_land_command,
-            bootstrap_context_fn=bootstrap_context,
-            run_land_fn=run_land,
-        ),
+        handler=land_command.handle_land_command,
     )
     land_parser.add_argument(
         "--apply",
@@ -329,7 +321,7 @@ def build_parser() -> ArgumentParser:
         command="close",
         help_text=_normalized_help_text(close_command.HELP),
         description_text=close_command.__doc__ or "",
-        handler=_close_handler,
+        handler=close_command.handle_close_command,
     )
     close_parser.add_argument(
         "--apply",
@@ -351,11 +343,7 @@ def build_parser() -> ArgumentParser:
         command="import",
         help_text=_normalized_help_text(import_command.HELP),
         description_text=import_command.__doc__ or "",
-        handler=partial(
-            import_command.handle_import_command,
-            bootstrap_context_fn=bootstrap_context,
-            run_import_fn=run_import,
-        ),
+        handler=import_command.handle_import_command,
     )
 
     cleanup_parser = subparsers.add_parser(
@@ -1153,71 +1141,6 @@ def _cleanup_handler(args: Namespace) -> int:
     for line in render_cleanup_postamble(result=result):
         print(line)
     return 0
-
-
-def _close_handler(args: Namespace) -> int:
-    context = bootstrap_context(args)
-    selected_revset = _resolve_selected_revset(
-        args,
-        command_label="close --cleanup --apply" if args.apply and args.cleanup else (
-            "close --cleanup" if args.cleanup else "close --apply" if args.apply else "close"
-        ),
-        require_explicit=True,
-    )
-    result = run_close(
-        apply=bool(args.apply),
-        cleanup=bool(args.cleanup),
-        change_overrides=context.config.change,
-        config=context.config.repo,
-        repo_root=context.repo_root,
-        revset=selected_revset,
-    )
-    print(f"Selected revset: {result.selected_revset}")
-    if result.remote is None:
-        if result.remote_error is None:
-            print("Selected remote: unavailable")
-        else:
-            print(f"Selected remote: unavailable ({result.remote_error})")
-    else:
-        print(f"Selected remote: {result.remote.name}")
-
-    if result.github_repository is None:
-        if result.github_error is not None:
-            print(f"GitHub target: unavailable ({result.github_error})")
-    else:
-        print(f"GitHub: {result.github_repository}")
-
-    if result.actions:
-        if result.blocked:
-            header = "Close blocked:"
-        elif result.applied:
-            header = "Applied close actions:"
-        else:
-            header = "Planned close actions:"
-        print(header)
-        for action in result.actions:
-            print(f"- [{action.status}] {action.kind}: {action.message}")
-    else:
-        if result.applied:
-            print("No close actions were needed for the selected stack.")
-        else:
-            print("No open pull requests tracked by jj-review on the selected stack.")
-
-    if not result.applied and not result.blocked and result.actions:
-        print(
-            f"Re-run with `{_format_close_apply_command(result)}` "
-            "to close the selected stack."
-        )
-    return 1 if result.blocked else 0
-
-
-def _format_close_apply_command(result: CloseResult) -> str:
-    parts = ["close", "--apply"]
-    if result.cleanup:
-        parts.append("--cleanup")
-    if result.selected_revset:
-        parts.append(result.selected_revset)
-    return " ".join(parts)
 
 
 def _stub_handler(command: str):
