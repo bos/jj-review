@@ -9,6 +9,7 @@ import pytest
 
 from jj_review.commands.import_ import (
     _fetch_selected_stack_bookmarks,
+    _parse_pull_request_reference,
     _prepared_status_has_discoverable_remote_link,
     _resolve_import_bookmark,
     _resolve_remote_head,
@@ -19,6 +20,7 @@ from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
+from jj_review.models.github import GithubBranchRef, GithubPullRequest
 from jj_review.review_inspection import PreparedStatus
 
 
@@ -266,6 +268,138 @@ def test_resolve_remote_head_fetches_selected_branch_when_requested(
     assert selection.fetched_tip_commit == "commit-2"
 
 
+def test_parse_pull_request_reference_accepts_matching_url() -> None:
+    assert (
+        _parse_pull_request_reference(
+            reference="https://github.test/octo-org/stacked-review/pull/17",
+            github_repository=SimpleNamespace(
+                host="github.test",
+                owner="octo-org",
+                repo="stacked-review",
+                full_name="octo-org/stacked-review",
+            ),
+        )
+        == 17
+    )
+
+
+def test_parse_pull_request_reference_rejects_wrong_repository() -> None:
+    with pytest.raises(CliError, match="does not match configured repository"):
+        _parse_pull_request_reference(
+            reference="https://github.test/other-org/stacked-review/pull/17",
+            github_repository=SimpleNamespace(
+                host="github.test",
+                owner="octo-org",
+                repo="stacked-review",
+                full_name="octo-org/stacked-review",
+            ),
+        )
+
+
+def test_resolve_remote_head_rejects_pull_request_missing_after_head_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "jj_review.commands.import_.resolve_github_repository",
+        lambda config, remote: SimpleNamespace(
+            api_base_url="https://github.test/api/v3",
+            full_name="octo-org/stacked-review",
+            host="github.test",
+            owner="octo-org",
+            repo="stacked-review",
+        ),
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.import_._load_pull_request",
+        _fake_load_pull_request,
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.import_._list_pull_requests_by_head",
+        _fake_list_pull_requests_by_head,
+    )
+
+    with pytest.raises(
+        CliError,
+        match="GitHub no longer reports a pull request for head branch",
+    ):
+        asyncio.run(
+            _resolve_remote_head(
+                client=cast(
+                    JjClient,
+                    SimpleNamespace(
+                        list_git_remotes=lambda: (
+                            SimpleNamespace(name="origin", url="https://example.test/repo.git"),
+                        ),
+                        get_bookmark_state=lambda bookmark: BookmarkState(
+                            name=bookmark,
+                            remote_targets=(
+                                RemoteBookmarkState(remote="origin", targets=("commit-2",)),
+                            ),
+                        ),
+                    ),
+                ),
+                config=RepoConfig(),
+                fetch=False,
+                pull_request_reference="17",
+            )
+        )
+
+
+def test_resolve_remote_head_rejects_cross_repository_pull_request_head(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_cross_repo_pull_requests(**kwargs):
+        return (
+            _pull_request(
+                number=17,
+                head_ref="review/feature-aaaaaaaa",
+                head_label="fork:head",
+            ),
+        )
+
+    monkeypatch.setattr(
+        "jj_review.commands.import_.resolve_github_repository",
+        lambda config, remote: SimpleNamespace(
+            api_base_url="https://github.test/api/v3",
+            full_name="octo-org/stacked-review",
+            host="github.test",
+            owner="octo-org",
+            repo="stacked-review",
+        ),
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.import_._load_pull_request",
+        _fake_load_pull_request,
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.import_._list_pull_requests_by_head",
+        fake_cross_repo_pull_requests,
+    )
+
+    with pytest.raises(CliError, match="Import only supports same-repository pull request"):
+        asyncio.run(
+            _resolve_remote_head(
+                client=cast(
+                    JjClient,
+                    SimpleNamespace(
+                        list_git_remotes=lambda: (
+                            SimpleNamespace(name="origin", url="https://example.test/repo.git"),
+                        ),
+                        get_bookmark_state=lambda bookmark: BookmarkState(
+                            name=bookmark,
+                            remote_targets=(
+                                RemoteBookmarkState(remote="origin", targets=("commit-2",)),
+                            ),
+                        ),
+                    ),
+                ),
+                config=RepoConfig(),
+                fetch=False,
+                pull_request_reference="17",
+            )
+        )
+
+
 def test_fetch_selected_stack_bookmarks_fetches_only_missing_exact_stack_branches() -> None:
     fetch_calls: list[tuple[str, tuple[str, ...] | None]] = []
     bookmark_state_calls = 0
@@ -370,3 +504,31 @@ def test_run_import_current_rejects_before_github_inspection(
         )
 
     assert "has no matching remote pull request or branch" in str(exc_info.value)
+
+
+async def _fake_load_pull_request(**kwargs):
+    return _pull_request(number=17, head_ref="review/feature-aaaaaaaa")
+
+
+async def _fake_list_pull_requests_by_head(**kwargs):
+    return ()
+
+
+def _pull_request(
+    *,
+    number: int,
+    head_ref: str,
+    head_label: str | None = None,
+) -> GithubPullRequest:
+    return GithubPullRequest(
+        base=GithubBranchRef(ref="main"),
+        draft=False,
+        head=GithubBranchRef(
+            ref=head_ref,
+            label=head_label or f"octo-org:{head_ref}",
+        ),
+        html_url=f"https://github.test/octo-org/stacked-review/pull/{number}",
+        number=number,
+        state="open",
+        title=f"feature {number}",
+    )
