@@ -136,6 +136,17 @@ class PreparedRestack:
     state_dir: Path | None
 
 
+@dataclass(frozen=True, slots=True)
+class _RestackOperationPlan:
+    """Derived restack planning data before preview/apply rendering."""
+
+    blocked: bool
+    closed_unmerged_revisions: tuple[ReviewStatusRevision, ...]
+    merged_revisions: tuple[ReviewStatusRevision, ...]
+    pre_actions: tuple[CleanupAction, ...]
+    rebase_plans: tuple[tuple[str, str | None], ...]
+
+
 def run_cleanup(
     *,
     apply: bool,
@@ -255,13 +266,9 @@ def _build_restack_result(
 ) -> RestackResult:
     prepared_status = prepared_restack.prepared_status
     prepared = prepared_status.prepared
-    revisions_by_change_id = {
-        revision.change_id: revision for revision in status_result.revisions
-    }
-    path_revisions = tuple(
-        revisions_by_change_id[prepared_revision.revision.change_id]
-        for prepared_revision in prepared.status_revisions
-        if prepared_revision.revision.change_id in revisions_by_change_id
+    path_revisions = _resolve_restack_path_revisions(
+        prepared_status=prepared_status,
+        status_result=status_result,
     )
 
     actions: list[CleanupAction] = []
@@ -293,10 +300,12 @@ def _build_restack_result(
             selected_revset=status_result.selected_revset,
         )
 
-    blocked = False
-    merged_revisions = tuple(
-        revision for revision in path_revisions if _revision_has_merged_pull_request(revision)
+    operation_plan = _plan_restack_operations(
+        path_revisions=path_revisions,
+        prepared_status=prepared_status,
     )
+    blocked = operation_plan.blocked
+    merged_revisions = operation_plan.merged_revisions
     if not merged_revisions:
         return RestackResult(
             actions=(),
@@ -309,86 +318,10 @@ def _build_restack_result(
             selected_revset=status_result.selected_revset,
         )
 
-    closed_unmerged_revisions = tuple(
-        revision for revision in path_revisions if _revision_is_closed_unmerged(revision)
-    )
-    for revision in closed_unmerged_revisions:
-        blocked = True
-        record_action(
-            CleanupAction(
-                kind="restack",
-                message=(
-                    f"cannot restack past {_revision_label(revision)} because PR "
-                    f"#{_revision_pull_request_number(revision)} is closed without merge; "
-                    "decide whether to keep or drop that change first"
-                ),
-                status="blocked",
-            )
-        )
-
-    current_commit_id_by_change_id = {
-        pr.revision.change_id: pr.revision.commit_id for pr in prepared.status_revisions
-    }
-    for revision in merged_revisions:
-        cached_change = revision.cached_change
-        if cached_change is None or cached_change.last_submitted_commit_id is None:
-            continue
-        # merged_revisions is a subset of path_revisions, which is derived from
-        # prepared.status_revisions, so every change_id is guaranteed to be present.
-        current_commit_id = current_commit_id_by_change_id[revision.change_id]
-        last_submitted = cached_change.last_submitted_commit_id
-        if current_commit_id == last_submitted:
-            continue
-        blocked = True
-        record_action(
-            CleanupAction(
-                kind="restack",
-                message=(
-                    f"cannot restack past {_revision_label(revision)} because it has "
-                    "local edits since last submit; push a new version first or rebase "
-                    "manually"
-                ),
-                status="blocked",
-            )
-        )
-
-    survivor_change_ids: list[str] = []
-    rebase_plans: list[tuple[str, str | None]] = []
-    for prepared_revision in prepared.status_revisions:
-        revision = revisions_by_change_id.get(prepared_revision.revision.change_id)
-        if revision is None:
-            continue
-        if _revision_has_merged_pull_request(revision):
-            continue
-        if _revision_is_closed_unmerged(revision):
-            continue
-        if revision.local_divergent:
-            blocked = True
-            record_action(
-                CleanupAction(
-                    kind="restack",
-                    message=(
-                        f"cannot restack {_revision_label(revision)} while multiple visible "
-                        "revisions still share that change ID"
-                    ),
-                    status="blocked",
-                )
-            )
-            survivor_change_ids.append(revision.change_id)
-            continue
-
-        desired_parent_change_id = survivor_change_ids[-1] if survivor_change_ids else None
-        parent_commit_id = prepared_revision.revision.only_parent_commit_id()
-        parent_is_merged = False
-        for candidate in prepared.status_revisions:
-            if candidate.revision.commit_id == parent_commit_id:
-                parent_is_merged = _revision_has_merged_pull_request(
-                    revisions_by_change_id[candidate.revision.change_id]
-                )
-                break
-        if parent_is_merged:
-            rebase_plans.append((revision.change_id, desired_parent_change_id))
-        survivor_change_ids.append(revision.change_id)
+    closed_unmerged_revisions = operation_plan.closed_unmerged_revisions
+    for action in operation_plan.pre_actions:
+        record_action(action)
+    rebase_plans = list(operation_plan.rebase_plans)
 
     # Write intent file before the rebase loop (apply mode only)
     restack_intent_path: Path | None = None
@@ -519,6 +452,130 @@ def _build_restack_result(
         if _restack_succeeded and restack_intent_path is not None and _restack_intent is not None:
             retire_superseded_intents(restack_stale_intents, _restack_intent)
             delete_intent(restack_intent_path)
+
+
+def _resolve_restack_path_revisions(
+    *,
+    prepared_status: PreparedStatus,
+    status_result,
+) -> tuple[ReviewStatusRevision, ...]:
+    revisions_by_change_id = {
+        revision.change_id: revision for revision in status_result.revisions
+    }
+    return tuple(
+        revisions_by_change_id[prepared_revision.revision.change_id]
+        for prepared_revision in prepared_status.prepared.status_revisions
+        if prepared_revision.revision.change_id in revisions_by_change_id
+    )
+
+
+def _plan_restack_operations(
+    *,
+    path_revisions: tuple[ReviewStatusRevision, ...],
+    prepared_status: PreparedStatus,
+) -> _RestackOperationPlan:
+    merged_revisions = tuple(
+        revision for revision in path_revisions if _revision_has_merged_pull_request(revision)
+    )
+    closed_unmerged_revisions = tuple(
+        revision for revision in path_revisions if _revision_is_closed_unmerged(revision)
+    )
+    revisions_by_change_id = {revision.change_id: revision for revision in path_revisions}
+    current_commit_id_by_change_id = {
+        prepared_revision.revision.change_id: prepared_revision.revision.commit_id
+        for prepared_revision in prepared_status.prepared.status_revisions
+    }
+
+    blocked = False
+    actions: list[CleanupAction] = []
+    for revision in closed_unmerged_revisions:
+        blocked = True
+        actions.append(
+            CleanupAction(
+                kind="restack",
+                message=(
+                    f"cannot restack past {_revision_label(revision)} because PR "
+                    f"#{_revision_pull_request_number(revision)} is closed without merge; "
+                    "decide whether to keep or drop that change first"
+                ),
+                status="blocked",
+            )
+        )
+
+    for revision in merged_revisions:
+        cached_change = revision.cached_change
+        if cached_change is None or cached_change.last_submitted_commit_id is None:
+            continue
+        current_commit_id = current_commit_id_by_change_id[revision.change_id]
+        if current_commit_id == cached_change.last_submitted_commit_id:
+            continue
+        blocked = True
+        actions.append(
+            CleanupAction(
+                kind="restack",
+                message=(
+                    f"cannot restack past {_revision_label(revision)} because it has local "
+                    "edits since last submit; push a new version first or rebase manually"
+                ),
+                status="blocked",
+            )
+        )
+
+    survivor_change_ids: list[str] = []
+    rebase_plans: list[tuple[str, str | None]] = []
+    for prepared_revision in prepared_status.prepared.status_revisions:
+        revision = revisions_by_change_id.get(prepared_revision.revision.change_id)
+        if revision is None:
+            continue
+        if _revision_has_merged_pull_request(revision):
+            continue
+        if _revision_is_closed_unmerged(revision):
+            continue
+        if revision.local_divergent:
+            blocked = True
+            actions.append(
+                CleanupAction(
+                    kind="restack",
+                    message=(
+                        f"cannot restack {_revision_label(revision)} while multiple visible "
+                        "revisions still share that change ID"
+                    ),
+                    status="blocked",
+                )
+            )
+            survivor_change_ids.append(revision.change_id)
+            continue
+
+        desired_parent_change_id = survivor_change_ids[-1] if survivor_change_ids else None
+        if _restack_parent_is_merged(
+            parent_commit_id=prepared_revision.revision.only_parent_commit_id(),
+            prepared_status=prepared_status,
+            revisions_by_change_id=revisions_by_change_id,
+        ):
+            rebase_plans.append((revision.change_id, desired_parent_change_id))
+        survivor_change_ids.append(revision.change_id)
+
+    return _RestackOperationPlan(
+        blocked=blocked,
+        closed_unmerged_revisions=closed_unmerged_revisions,
+        merged_revisions=merged_revisions,
+        pre_actions=tuple(actions),
+        rebase_plans=tuple(rebase_plans),
+    )
+
+
+def _restack_parent_is_merged(
+    *,
+    parent_commit_id: str | None,
+    prepared_status: PreparedStatus,
+    revisions_by_change_id: dict[str, ReviewStatusRevision],
+) -> bool:
+    for candidate in prepared_status.prepared.status_revisions:
+        if candidate.revision.commit_id != parent_commit_id:
+            continue
+        revision = revisions_by_change_id.get(candidate.revision.change_id)
+        return revision is not None and _revision_has_merged_pull_request(revision)
+    return False
 
 
 def _revision_has_merged_pull_request(revision: ReviewStatusRevision) -> bool:

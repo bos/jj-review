@@ -7,6 +7,8 @@ from typing import Any, cast
 from jj_review.commands.cleanup import (
     PreparedCleanup,
     PreparedRestack,
+    _plan_restack_operations,
+    _resolve_restack_path_revisions,
     _should_inspect_stack_comment_cleanup,
     _stream_cleanup_async,
     stream_restack,
@@ -410,3 +412,99 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
     assert result.actions[0].kind == "restack"
     assert result.actions[0].message == "rebase survivor onto trunk()"
     assert result.actions[0].status == "applied"
+
+
+def test_resolve_restack_path_revisions_preserves_selected_path_order() -> None:
+    prepared_status = cast(
+        Any,
+        SimpleNamespace(
+            prepared=SimpleNamespace(
+                status_revisions=(
+                    SimpleNamespace(revision=SimpleNamespace(change_id="change-1")),
+                    SimpleNamespace(revision=SimpleNamespace(change_id="change-2")),
+                )
+            )
+        ),
+    )
+    status_result = SimpleNamespace(
+        revisions=(
+            SimpleNamespace(change_id="change-2"),
+            SimpleNamespace(change_id="change-1"),
+        )
+    )
+
+    path_revisions = _resolve_restack_path_revisions(
+        prepared_status=prepared_status,
+        status_result=status_result,
+    )
+
+    assert [revision.change_id for revision in path_revisions] == ["change-1", "change-2"]
+
+
+def test_plan_restack_operations_blocks_divergent_survivor() -> None:
+    merged_revision = SimpleNamespace(
+        cached_change=None,
+        change_id="merged-change",
+        local_divergent=False,
+        pull_request_lookup=SimpleNamespace(
+            pull_request=SimpleNamespace(
+                base=SimpleNamespace(ref="main"),
+                number=1,
+                state="merged",
+            ),
+            state="closed",
+        ),
+        subject="merged feature",
+    )
+    divergent_revision = SimpleNamespace(
+        cached_change=None,
+        change_id="divergent-change",
+        local_divergent=True,
+        pull_request_lookup=SimpleNamespace(
+            pull_request=SimpleNamespace(
+                base=SimpleNamespace(ref="main"),
+                number=2,
+                state="open",
+            ),
+            state="open",
+        ),
+        subject="divergent feature",
+    )
+    prepared_status = cast(
+        Any,
+        SimpleNamespace(
+            prepared=SimpleNamespace(
+                status_revisions=(
+                    SimpleNamespace(
+                        revision=SimpleNamespace(
+                            change_id="merged-change",
+                            commit_id="merged-commit",
+                            only_parent_commit_id=lambda: "trunk-commit",
+                        )
+                    ),
+                    SimpleNamespace(
+                        revision=SimpleNamespace(
+                            change_id="divergent-change",
+                            commit_id="divergent-commit",
+                            only_parent_commit_id=lambda: "merged-commit",
+                        )
+                    ),
+                )
+            )
+        ),
+    )
+
+    plan = _plan_restack_operations(
+        path_revisions=cast(
+            Any,
+            (merged_revision, divergent_revision),
+        ),
+        prepared_status=prepared_status,
+    )
+
+    assert plan.blocked is True
+    assert plan.rebase_plans == ()
+    assert any(
+        "multiple visible revisions still share that change ID" in action.message
+        for action in plan.pre_actions
+    )
