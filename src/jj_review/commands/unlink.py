@@ -11,7 +11,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from jj_review.bootstrap import bootstrap_context
 from jj_review.command_ui import resolve_selected_revset
+from jj_review.commands.review_state import display_change_id
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.models.cache import CachedChange
@@ -44,9 +46,6 @@ def unlink(
     revset: str | None,
 ) -> int:
     """CLI entrypoint for `unlink`."""
-
-    from jj_review.bootstrap import bootstrap_context
-    from jj_review.commands.review_state import display_change_id
 
     context = bootstrap_context(
         repository=repository,

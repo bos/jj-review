@@ -19,6 +19,7 @@ from jj_review.bookmarks import (
     _bookmark_matches_generated_change_id,
     _discover_bookmarks_for_revisions,
 )
+from jj_review.bootstrap import bootstrap_context
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
@@ -111,8 +112,6 @@ def import_(
     revset: str | None,
 ) -> int:
     """CLI entrypoint for `import`."""
-
-    from jj_review.bootstrap import bootstrap_context
 
     context = bootstrap_context(
         repository=repository,

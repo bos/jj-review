@@ -15,8 +15,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
+from jj_review.commands.review_state import describe_status_preparation_error
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
@@ -252,9 +254,6 @@ def cleanup(
 ) -> int:
     """CLI entrypoint for `cleanup`."""
 
-    from jj_review.bootstrap import bootstrap_context
-    from jj_review.commands.review_state import describe_status_preparation_error
-
     context = bootstrap_context(
         repository=repository,
         config_path=config_path,
@@ -397,9 +396,8 @@ def prepare_restack(
 ) -> PreparedRestack:
     """Resolve local restack inputs before any rewrite."""
 
-    from jj_review.cache import ReviewStateStore as _RSS
-    _state_store = _RSS.for_repo(repo_root)
-    _state_dir = _state_store.require_writable() if apply else _state_store.state_dir
+    state_store = ReviewStateStore.for_repo(repo_root)
+    state_dir = state_store.require_writable() if apply else state_store.state_dir
 
     return PreparedRestack(
         apply=apply,
@@ -410,7 +408,7 @@ def prepare_restack(
             repo_root=repo_root,
             revset=revset,
         ),
-        state_dir=_state_dir,
+        state_dir=state_dir,
     )
 
 

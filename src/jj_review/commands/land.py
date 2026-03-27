@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
 
+from jj_review.bootstrap import bootstrap_context
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
@@ -191,8 +192,6 @@ def land(
     revset: str | None,
 ) -> int:
     """CLI entrypoint for `land`."""
-
-    from jj_review.bootstrap import bootstrap_context
 
     context = bootstrap_context(
         repository=repository,

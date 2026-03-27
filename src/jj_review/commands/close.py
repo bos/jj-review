@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
@@ -84,8 +85,6 @@ def close(
     revset: str | None,
 ) -> int:
     """CLI entrypoint for `close`."""
-
-    from jj_review.bootstrap import bootstrap_context
 
     context = bootstrap_context(
         repository=repository,

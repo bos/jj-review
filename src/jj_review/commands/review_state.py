@@ -9,6 +9,7 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
+from jj_review.bootstrap import bootstrap_context
 from jj_review.errors import CliError
 from jj_review.intent import intent_change_ids, pid_is_alive
 from jj_review.jj import UnsupportedStackError
@@ -28,8 +29,6 @@ def status(
     revset: str | None,
 ) -> int:
     """CLI entrypoint for `status`."""
-
-    from jj_review.bootstrap import bootstrap_context
 
     context = bootstrap_context(
         repository=repository,

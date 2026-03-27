@@ -23,11 +23,13 @@ from jj_review.bookmarks import (
     _discover_bookmarks_for_revisions,
     _ensure_unique_bookmarks,
 )
+from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import (
     parse_comma_separated_flag_values,
     resolve_selected_revset,
 )
+from jj_review.commands.review_state import display_change_id, format_pull_request_label
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
@@ -258,9 +260,6 @@ def submit(
 ) -> int:
     """CLI entrypoint for `submit`."""
 
-    from jj_review.bootstrap import bootstrap_context
-    from jj_review.commands.review_state import display_change_id
-
     context = bootstrap_context(
         repository=repository,
         config_path=config_path,
@@ -378,8 +377,6 @@ def _render_submit_pr_suffix(
     is_draft: bool | None,
     pull_request_number: int | None,
 ) -> str:
-    from jj_review.commands.review_state import format_pull_request_label
-
     if pull_request_number is None:
         if action == "created":
             return " [new PR]"
