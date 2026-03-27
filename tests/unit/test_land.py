@@ -8,7 +8,6 @@ from typing import cast
 import pytest
 
 from jj_review.commands.land import (
-    LandError,
     _build_land_plan,
     _collect_landable_prefix,
     _find_resume_land_intent,
@@ -23,6 +22,7 @@ from jj_review.commands.land import (
     _updated_landed_change,
     _write_land_preview,
 )
+from jj_review.errors import CliError
 from jj_review.github_resolution import ResolvedGithubRepository
 from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
 from jj_review.models.cache import CachedChange
@@ -498,7 +498,7 @@ def test_parse_pull_request_reference_accepts_matching_url() -> None:
 
 
 def test_parse_pull_request_reference_rejects_wrong_repo() -> None:
-    with pytest.raises(LandError, match="`--expect-pr`"):
+    with pytest.raises(CliError, match="`--expect-pr`"):
         _parse_pull_request_reference(
             reference="https://github.test/other-org/stacked-review/pull/17",
             github_repository=ResolvedGithubRepository(
@@ -604,7 +604,7 @@ def test_remote_trunk_matches_commit_requires_matching_remote_and_local_state() 
 
 def test_require_matching_land_preview_requires_saved_preview(tmp_path: Path) -> None:
     with pytest.raises(
-        LandError,
+        CliError,
         match=r"requires a saved preview\. Run `land --expect-pr 5 @-` first\.",
     ):
         _require_matching_land_preview(
@@ -631,7 +631,7 @@ def test_require_matching_land_preview_rejects_changed_preview(tmp_path: Path) -
     )
 
     with pytest.raises(
-        LandError,
+        CliError,
         match=r"changed since the saved preview\. Run `land --expect-pr 5 @-` again",
     ):
         _require_matching_land_preview(
@@ -659,7 +659,7 @@ def test_require_matching_land_preview_rejects_bypass_change(tmp_path: Path) -> 
     )
 
     with pytest.raises(
-        LandError,
+        CliError,
         match=r"Run `land --expect-pr 5 @-` again before `land --apply`\.",
     ):
         _require_matching_land_preview(
@@ -710,7 +710,7 @@ def test_resume_land_plan_rejects_incomplete_intent_data() -> None:
         landed_subjects={"change-1": "feature 1"},
     )
 
-    with pytest.raises(LandError, match="Interrupted land intent"):
+    with pytest.raises(CliError, match="Interrupted land intent"):
         _resume_land_plan(intent=broken_intent, trunk_branch="main")
 
 

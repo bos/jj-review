@@ -3,7 +3,6 @@
 from jj_review.jj.client import (
     JjClient,
     JjCommandError,
-    RevsetResolutionError,
     StaleWorkspaceError,
     UnsupportedStackError,
 )
@@ -11,7 +10,6 @@ from jj_review.jj.client import (
 __all__ = [
     "JjClient",
     "JjCommandError",
-    "RevsetResolutionError",
     "StaleWorkspaceError",
     "UnsupportedStackError",
 ]

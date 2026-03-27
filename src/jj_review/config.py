@@ -8,12 +8,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from jj_review.errors import CliError
+
 CONFIG_DIRNAME = "jj-review"
 CONFIG_FILENAME = "config.toml"
-
-
-class ConfigError(RuntimeError):
-    """Raised when the local configuration file is invalid."""
 
 
 class RepoConfig(BaseModel):
@@ -78,23 +76,23 @@ def load_config(*, repo_root: Path | None, config_path: Path | None = None) -> A
     resolved_path = config_path or default_config_path()
     if not resolved_path.exists():
         if explicit_config_path:
-            raise ConfigError(f"Config file does not exist: {resolved_path}")
+            raise CliError(f"Config file does not exist: {resolved_path}")
         return AppConfig()
     if not resolved_path.is_file():
-        raise ConfigError(f"Config path is not a file: {resolved_path}")
+        raise CliError(f"Config path is not a file: {resolved_path}")
 
     try:
         with resolved_path.open("rb") as file:
             raw_config = tomllib.load(file)
     except tomllib.TOMLDecodeError as error:
-        raise ConfigError(f"Invalid jj-review config in {resolved_path}: {error}") from error
+        raise CliError(f"Invalid jj-review config in {resolved_path}: {error}") from error
     except OSError as error:
-        raise ConfigError(f"Could not read config file {resolved_path}: {error}") from error
+        raise CliError(f"Could not read config file {resolved_path}: {error}") from error
 
     try:
         config = AppConfig.model_validate(raw_config)
     except ValidationError as error:
-        raise ConfigError(f"Invalid jj-review config in {resolved_path}: {error}") from error
+        raise CliError(f"Invalid jj-review config in {resolved_path}: {error}") from error
     return _apply_repo_overrides(config, repo_root)
 
 

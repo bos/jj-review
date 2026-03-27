@@ -8,20 +8,12 @@ from types import SimpleNamespace
 import pytest
 
 from jj_review.bookmarks import (
-    BookmarkCollisionError,
-    BookmarkRediscoveryError,
     ResolvedBookmark,
     _discover_bookmarks_for_revisions,
     _ensure_unique_bookmarks,
 )
 from jj_review.commands.submit import (
     GeneratedDescription,
-    SubmitBookmarkConflictError,
-    SubmitDescriptionCommandError,
-    SubmitPrivateCommitError,
-    SubmitPullRequestResolutionError,
-    SubmitRemoteBookmarkConflictError,
-    SubmitRemoteBookmarkOwnershipError,
     _bookmark_link_is_proven,
     _ensure_pull_request_link_is_consistent,
     _ensure_remote_can_be_updated,
@@ -35,9 +27,8 @@ from jj_review.commands.submit import (
     _should_update_untracked_remote_with_git,
 )
 from jj_review.config import RepoConfig
+from jj_review.errors import CliError
 from jj_review.github_resolution import (
-    GithubRepositoryResolutionError,
-    RemoteResolutionError,
     _build_github_client,
     _github_hostname_from_api_base_url,
     _github_token_for_base_url,
@@ -89,7 +80,7 @@ def test_select_submit_remote_uses_only_remote_when_unambiguous() -> None:
 
 
 def test_select_submit_remote_rejects_missing_configured_remote() -> None:
-    with pytest.raises(RemoteResolutionError, match="Configured remote 'origin'"):
+    with pytest.raises(CliError, match="Configured remote 'origin'"):
         select_submit_remote(
             RepoConfig(remote="origin"),
             (GitRemote(name="upstream", url="git@example.com:org/repo.git"),),
@@ -98,7 +89,7 @@ def test_select_submit_remote_rejects_missing_configured_remote() -> None:
 
 def test_select_submit_remote_rejects_ambiguous_remote_set_without_origin() -> None:
     with pytest.raises(
-        RemoteResolutionError,
+        CliError,
         match="Could not determine which Git remote to use for submit",
     ):
         select_submit_remote(
@@ -112,7 +103,7 @@ def test_select_submit_remote_rejects_ambiguous_remote_set_without_origin() -> N
 
 def test_select_submit_remote_rejects_empty_remote_list() -> None:
     with pytest.raises(
-        RemoteResolutionError,
+        CliError,
         match="Could not determine which Git remote to use for submit",
     ):
         select_submit_remote(RepoConfig(), ())
@@ -149,7 +140,7 @@ def test_resolve_github_repository_parses_https_remote_url() -> None:
 
 def test_resolve_github_repository_rejects_unparseable_remote_without_config() -> None:
     with pytest.raises(
-        GithubRepositoryResolutionError,
+        CliError,
         match="Could not determine the GitHub repository",
     ):
         resolve_github_repository(
@@ -285,7 +276,7 @@ def test_run_description_command_rejects_invalid_json(
 
     monkeypatch.setattr("jj_review.commands.submit.subprocess.run", fake_run)
 
-    with pytest.raises(SubmitDescriptionCommandError, match="invalid JSON"):
+    with pytest.raises(CliError, match="invalid JSON"):
         _run_description_command(
             command="helper",
             kind="stack",
@@ -468,7 +459,7 @@ def test_resolve_trunk_branch_falls_back_to_unique_remote_bookmark() -> None:
 
 def test_resolve_trunk_branch_rejects_ambiguous_remote_bookmarks() -> None:
     with pytest.raises(
-        GithubRepositoryResolutionError,
+        CliError,
         match="multiple remote bookmarks",
     ):
         resolve_trunk_branch(
@@ -509,7 +500,7 @@ def test_resolve_local_action_moved_when_target_differs() -> None:
 
 def test_resolve_local_action_rejects_conflicted_bookmark() -> None:
     with pytest.raises(
-        SubmitBookmarkConflictError,
+        CliError,
         match="2 conflicting local targets",
     ):
         _resolve_local_action("review/foo", ("abc123", "def456"), "abc123")
@@ -584,7 +575,7 @@ def test_discover_bookmarks_for_revisions_reuses_unique_matching_remote_bookmark
 
 def test_discover_bookmarks_for_revisions_rejects_ambiguous_matches() -> None:
     with pytest.raises(
-        BookmarkRediscoveryError,
+        CliError,
         match="multiple existing bookmarks match",
     ):
         _discover_bookmarks_for_revisions(
@@ -611,7 +602,7 @@ def test_discover_bookmarks_for_revisions_rejects_ambiguous_matches() -> None:
 
 def test_ensure_remote_can_be_updated_rejects_conflicted_remote_bookmark() -> None:
     with pytest.raises(
-        SubmitRemoteBookmarkConflictError,
+        CliError,
         match="Remote bookmark 'review/foo'@origin is conflicted",
     ):
         _ensure_remote_can_be_updated(
@@ -632,7 +623,7 @@ def test_ensure_remote_can_be_updated_rejects_conflicted_remote_bookmark() -> No
 
 def test_ensure_remote_can_be_updated_rejects_unproven_existing_remote_branch() -> None:
     with pytest.raises(
-        SubmitRemoteBookmarkOwnershipError,
+        CliError,
         match="already exists and points elsewhere",
     ):
         _ensure_remote_can_be_updated(
@@ -748,7 +739,7 @@ def test_repair_interrupted_untracked_remote_bookmarks_tracks_matching_remote_ta
 
 def test_pull_request_link_rejects_missing_discovered_pull_request() -> None:
     with pytest.raises(
-        SubmitPullRequestResolutionError,
+        CliError,
         match="Saved pull request link exists",
     ):
         _ensure_pull_request_link_is_consistent(
@@ -765,7 +756,7 @@ def test_pull_request_link_rejects_missing_discovered_pull_request() -> None:
 
 def test_pull_request_link_rejects_mismatched_pull_request_number() -> None:
     with pytest.raises(
-        SubmitPullRequestResolutionError,
+        CliError,
         match="Saved pull request #17 does not match",
     ):
         _ensure_pull_request_link_is_consistent(
@@ -791,7 +782,7 @@ def test_ensure_unique_bookmarks_rejects_duplicate_names() -> None:
     )
 
     with pytest.raises(
-        BookmarkCollisionError,
+        CliError,
         match="multiple changes to the same bookmark",
     ):
         _ensure_unique_bookmarks(resolutions)
@@ -836,7 +827,7 @@ def test_preflight_private_commits_raises_on_private_commit() -> None:
     )
     client = _FakeJjClientWithPrivateCommits((private,))
 
-    with pytest.raises(SubmitPrivateCommitError, match="git.private-commits"):
+    with pytest.raises(CliError, match="git.private-commits"):
         _preflight_private_commits(client, (private,))
 
 
@@ -846,7 +837,7 @@ def test_preflight_private_commits_error_names_the_blocked_changes() -> None:
     )
     client = _FakeJjClientWithPrivateCommits((private,))
 
-    with pytest.raises(SubmitPrivateCommitError, match="secret work"):
+    with pytest.raises(CliError, match="secret work"):
         _preflight_private_commits(client, (private,))
 
 

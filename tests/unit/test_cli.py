@@ -2198,7 +2198,7 @@ def test_main_reports_non_jj_directory_without_traceback(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     # A plain directory with no jj workspace should fail fast with a clear
-    # BootstrapError, not silently proceed and fail later.
+    # CliError, not silently proceed and fail later.
     plain_dir = tmp_path / "not-a-jj-repo"
     plain_dir.mkdir()
 

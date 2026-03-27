@@ -34,7 +34,6 @@ from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_resolution import (
-    GithubRepositoryResolutionError,
     ResolvedGithubRepository,
     _build_github_client,
     _remote_bookmarks_pointing_at_trunk,
@@ -59,38 +58,6 @@ from jj_review.models.intent import LoadedIntent, SubmitIntent
 from jj_review.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
 
 HELP = "Send a jj stack to GitHub for review"
-
-
-class SubmitBookmarkConflictError(CliError):
-    """Raised when a local bookmark has multiple conflicting targets."""
-
-
-class SubmitRemoteBookmarkConflictError(CliError):
-    """Raised when the selected remote bookmark is conflicted."""
-
-
-class SubmitRemoteBookmarkOwnershipError(CliError):
-    """Raised when `submit` cannot prove an existing remote branch belongs to it."""
-
-
-class SubmitPullRequestResolutionError(CliError):
-    """Raised when `submit` cannot safely resolve a pull request."""
-
-
-class SubmitUnlinkedChangeError(CliError):
-    """Raised when `submit` hits a change explicitly unlinked from review."""
-
-
-class SubmitPrivateCommitError(CliError):
-    """Raised when the stack contains commits blocked by git.private-commits."""
-
-
-class SubmitStackCommentError(CliError):
-    """Raised when `submit` cannot create or update stack metadata comments."""
-
-
-class SubmitDescriptionCommandError(CliError):
-    """Raised when `submit` cannot generate metadata through a helper command."""
 
 
 LocalBookmarkAction = Literal["created", "moved", "unchanged"]
@@ -729,7 +696,7 @@ def _resolve_local_action(
     desired_target: str,
 ) -> LocalBookmarkAction:
     if len(local_targets) > 1:
-        raise SubmitBookmarkConflictError(
+        raise CliError(
             f"Bookmark {bookmark!r} has {len(local_targets)} conflicting local targets. "
             "Resolve the bookmark conflict with `jj bookmark` before submitting."
         )
@@ -764,7 +731,7 @@ def _ensure_remote_can_be_updated(
     if remote_state is None or not remote_state.targets:
         return
     if len(remote_state.targets) > 1:
-        raise SubmitRemoteBookmarkConflictError(
+        raise CliError(
             f"Remote bookmark {bookmark!r}@{remote} is conflicted. Resolve it with `jj "
             "git fetch` and retry."
         )
@@ -778,7 +745,7 @@ def _ensure_remote_can_be_updated(
         state=state,
     ):
         return
-    raise SubmitRemoteBookmarkOwnershipError(
+    raise CliError(
         f"Remote bookmark {bookmark!r}@{remote} already exists and points elsewhere. "
         "Submit will not take over an existing remote branch unless its link is "
         "already proven by local state, saved jj-review data, or explicit relinking."
@@ -826,7 +793,7 @@ def _preflight_private_commits(
     if not private:
         return
     subjects = ", ".join(f"{r.change_id[:8]} ({r.subject})" for r in private)
-    raise SubmitPrivateCommitError(
+    raise CliError(
         f"Stack contains commits blocked by `git.private-commits`: {subjects}. "
         "Remove these changes from the stack before submitting."
     )
@@ -843,7 +810,7 @@ async def _get_github_repository(
             github_repository.repo,
         )
     except GithubClientError as error:
-        raise GithubRepositoryResolutionError(
+        raise CliError(
             f"Could not load GitHub repository {github_repository.full_name}: {error}"
         ) from error
 
@@ -864,7 +831,7 @@ async def _discover_pull_requests_by_bookmark(
             head_refs=bookmarks,
         )
     except GithubClientError as error:
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             "Could not batch pull request discovery for branches: "
             f"{error}"
         ) from error
@@ -1006,12 +973,12 @@ def _describe_with_diffstat(*, repo_root: Path, revset: str) -> str:
             text=True,
         )
     except OSError as error:
-        raise SubmitDescriptionCommandError(
+        raise CliError(
             f"Could not collect diffstat for --stack {revset!r}: {error}"
         ) from error
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip() or "unknown jj failure"
-        raise SubmitDescriptionCommandError(
+        raise CliError(
             f"Could not collect diffstat for --stack {revset!r}: {detail}"
         )
 
@@ -1051,11 +1018,11 @@ def _run_description_command(
             text=True,
         )
     except FileNotFoundError as error:
-        raise SubmitDescriptionCommandError(
+        raise CliError(
             f"Describe helper {command!r} was not found."
         ) from error
     except OSError as error:
-        raise SubmitDescriptionCommandError(
+        raise CliError(
             f"Could not run describe helper {command!r}: {error}"
         ) from error
 
@@ -1063,26 +1030,26 @@ def _run_description_command(
         detail = (completed.stderr or completed.stdout).strip()
         if not detail:
             detail = f"exit status {completed.returncode}"
-        raise SubmitDescriptionCommandError(
+        raise CliError(
             f"Describe helper {command!r} failed for --{kind} {revset!r}: {detail}"
         )
 
     output = completed.stdout.strip()
     if not output:
-        raise SubmitDescriptionCommandError(
+        raise CliError(
             f"Describe helper {command!r} produced no JSON for --{kind} {revset!r}."
         )
 
     try:
         payload = json.loads(output)
     except json.JSONDecodeError as error:
-        raise SubmitDescriptionCommandError(
+        raise CliError(
             f"Describe helper {command!r} returned invalid JSON for --{kind} "
             f"{revset!r}: {error}"
         ) from error
 
     if not isinstance(payload, dict):
-        raise SubmitDescriptionCommandError(
+        raise CliError(
             f"Describe helper {command!r} must return a JSON object for --{kind} "
             f"{revset!r}."
         )
@@ -1090,7 +1057,7 @@ def _run_description_command(
     title = payload.get("title")
     body = payload.get("body")
     if not isinstance(title, str) or not isinstance(body, str):
-        raise SubmitDescriptionCommandError(
+        raise CliError(
             f"Describe helper {command!r} must return string `title` and `body` "
             f"fields for --{kind} {revset!r}."
         )
@@ -1417,7 +1384,7 @@ def _select_discovered_pull_request(
     pull_requests: tuple[GithubPullRequest, ...],
 ) -> GithubPullRequest | None:
     if len(pull_requests) > 1:
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             f"GitHub reports multiple pull requests for head branch {head_label!r}. "
             "Inspect the PR link with `status --fetch` and repair it with `relink` "
             "before submitting again."
@@ -1426,7 +1393,7 @@ def _select_discovered_pull_request(
         return None
     pull_request = pull_requests[0]
     if pull_request.state != "open":
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             f"GitHub reports pull request #{pull_request.number} for head branch "
             f"{head_label!r} in state {pull_request.state!r}. Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before submitting again."
@@ -1450,20 +1417,20 @@ def _ensure_pull_request_link_is_consistent(
     ):
         return
     if discovered_pull_request is None:
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             f"Saved pull request link exists for bookmark {bookmark!r}, but GitHub "
             "no longer reports a PR for that head branch. Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before submitting again."
         )
     if cached_change.pr_number not in (None, discovered_pull_request.number):
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             f"Saved pull request #{cached_change.pr_number} does not match the PR "
             f"GitHub reports for bookmark {bookmark!r} "
             f"(#{discovered_pull_request.number}). Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before submitting again."
         )
     if cached_change.pr_url not in (None, discovered_pull_request.html_url):
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             f"Saved pull request URL for bookmark {bookmark!r} does not match "
             "GitHub. Inspect the PR link with `status --fetch` and repair it with "
             "`relink` before submitting again."
@@ -1477,7 +1444,7 @@ def _ensure_change_is_not_unlinked(
 ) -> None:
     if cached_change is None or not cached_change.is_unlinked:
         return
-    raise SubmitUnlinkedChangeError(
+    raise CliError(
         f"Change {change_id[:8]} is unlinked from review tracking. Run `relink` to "
         "reattach it before submitting again."
     )
@@ -1504,7 +1471,7 @@ async def _create_pull_request(
             title=title,
         )
     except GithubClientError as error:
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             f"Could not create a pull request for branch {head_branch!r}: {error}"
         ) from error
 
@@ -1535,7 +1502,7 @@ async def _sync_pull_request_metadata(
                 labels=labels,
             )
     except GithubClientError as error:
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             f"Could not synchronize metadata for pull request #{pull_request_number}: "
             f"{error}"
         ) from error
@@ -1548,7 +1515,7 @@ async def _mark_pull_request_ready_for_review(
     pull_request: GithubPullRequest,
 ) -> GithubPullRequest:
     if pull_request.node_id is None:
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             f"Could not publish draft pull request #{pull_request.number} for "
             f"{github_repository.full_name}: GitHub did not return a node ID."
         )
@@ -1557,7 +1524,7 @@ async def _mark_pull_request_ready_for_review(
             pull_request_id=pull_request.node_id,
         )
     except GithubClientError as error:
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             f"Could not publish draft pull request #{pull_request.number} for "
             f"{github_repository.full_name}: {error}"
         ) from error
@@ -1570,7 +1537,7 @@ async def _convert_pull_request_to_draft(
     pull_request: GithubPullRequest,
 ) -> GithubPullRequest:
     if pull_request.node_id is None:
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             f"Could not return pull request #{pull_request.number} to draft for "
             f"{github_repository.full_name}: GitHub did not return a node ID."
         )
@@ -1579,7 +1546,7 @@ async def _convert_pull_request_to_draft(
             pull_request_id=pull_request.node_id,
         )
     except GithubClientError as error:
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             f"Could not return pull request #{pull_request.number} to draft for "
             f"{github_repository.full_name}: {error}"
         ) from error
@@ -1604,7 +1571,7 @@ async def _update_pull_request(
             title=title,
         )
     except GithubClientError as error:
-        raise SubmitPullRequestResolutionError(
+        raise CliError(
             f"Could not update pull request #{pull_request.number}: {error}"
         ) from error
 
@@ -1735,7 +1702,7 @@ async def _upsert_stack_comment(
         )
         if cached_comment is not None:
             if not is_stack_summary_comment(cached_comment.body):
-                raise SubmitStackCommentError(
+                raise CliError(
                     f"Saved stack summary comment #{cached_change.stack_comment_id} for "
                     f"pull request #{pull_request_number} does not belong to "
                     "`jj-review`. Inspect the PR link with `status --fetch` or delete "
@@ -1789,7 +1756,7 @@ async def _list_issue_comments(
             issue_number=pull_request_number,
         )
     except GithubClientError as error:
-        raise SubmitStackCommentError(
+        raise CliError(
             f"Could not list stack summary comments for pull request "
             f"#{pull_request_number}: {error}"
         ) from error
@@ -1806,7 +1773,7 @@ async def _discover_stack_comment(
         return None
     if len(matching_comments) > 1:
         comment_ids = ", ".join(str(comment.id) for comment in matching_comments)
-        raise SubmitStackCommentError(
+        raise CliError(
             "GitHub reports multiple `jj-review` stack summary comments for the same "
             f"pull request: {comment_ids}. Inspect the PR link with `status --fetch` "
             "or delete the extra stack summary comments before submitting again."
@@ -1829,7 +1796,7 @@ async def _create_stack_comment(
             body=comment_body,
         )
     except GithubClientError as error:
-        raise SubmitStackCommentError(
+        raise CliError(
             f"Could not create a stack summary comment for pull request "
             f"#{pull_request_number}: {error}"
         ) from error
@@ -1850,7 +1817,7 @@ async def _update_stack_comment(
             body=comment_body,
         )
     except GithubClientError as error:
-        raise SubmitStackCommentError(
+        raise CliError(
             f"Could not update stack summary comment #{comment_id}: {error}"
         ) from error
 

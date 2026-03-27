@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from jj_review import __version__, commands
-from jj_review.bootstrap import BootstrapError
 from jj_review.completion import emit_shell_completion
 from jj_review.errors import CliError
 
@@ -615,7 +614,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         try:
             return handler(args)
-        except (BootstrapError, CliError) as error:
+        except CliError as error:
             print(error, file=sys.stderr)
             return error.exit_code
         except KeyboardInterrupt:

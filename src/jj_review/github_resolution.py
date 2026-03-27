@@ -17,14 +17,6 @@ from jj_review.models.github import GithubRepository
 _DEFAULT_GITHUB_HOST = "github.com"
 
 
-class RemoteResolutionError(CliError):
-    """Raised when the tool cannot resolve which Git remote to use."""
-
-
-class GithubRepositoryResolutionError(CliError):
-    """Raised when the tool cannot resolve the target GitHub repository."""
-
-
 @dataclass(frozen=True, slots=True)
 class ResolvedGithubRepository:
     """Resolved GitHub repository target for the selected remote."""
@@ -69,7 +61,7 @@ def select_submit_remote(
     if config.remote:
         remote = remotes_by_name.get(config.remote)
         if remote is None:
-            raise RemoteResolutionError(
+            raise CliError(
                 f"Configured remote {config.remote!r} is not defined in this repository."
             )
         return remote
@@ -77,7 +69,7 @@ def select_submit_remote(
         return remotes_by_name["origin"]
     if len(remotes) == 1:
         return remotes[0]
-    raise RemoteResolutionError(
+    raise CliError(
         "Could not determine which Git remote to use for submit. Configure "
         "`repo.remote`, add an `origin` remote, or leave exactly one remote."
     )
@@ -97,7 +89,7 @@ def resolve_github_repository(
     repo = config.github_repo or (parsed_remote.repo if parsed_remote else None)
     if owner and repo:
         return ResolvedGithubRepository(host=host, owner=owner, repo=repo)
-    raise GithubRepositoryResolutionError(
+    raise CliError(
         f"Could not determine the GitHub repository for remote {remote.name!r}. "
         "Configure `repo.github_owner` and `repo.github_repo`, or use a GitHub remote URL."
     )
@@ -126,11 +118,11 @@ def resolve_trunk_branch(
     if len(remote_bookmarks) == 1:
         return remote_bookmarks[0]
     if len(remote_bookmarks) > 1:
-        raise GithubRepositoryResolutionError(
+        raise CliError(
             "Could not determine the trunk branch because multiple remote bookmarks on "
             f"{remote.name!r} point at `trunk()`: {', '.join(remote_bookmarks)}."
         )
-    raise GithubRepositoryResolutionError(
+    raise CliError(
         f"Could not determine the trunk branch for remote {remote.name!r}. Configure "
         "`repo.trunk_branch`, ensure the GitHub repository exposes a default branch, or "
         "create one remote bookmark that points at `trunk()`."

@@ -21,14 +21,6 @@ _SHORT_CHANGE_ID_LENGTH = 8
 BookmarkSource = Literal["cache", "discovered", "generated", "override"]
 
 
-class BookmarkCollisionError(CliError):
-    """Raised when multiple changes resolve to the same bookmark."""
-
-
-class BookmarkRediscoveryError(CliError):
-    """Raised when the tool cannot safely rediscover a bookmark."""
-
-
 @dataclass(frozen=True, slots=True)
 class ResolvedBookmark:
     """Resolved bookmark for one local revision."""
@@ -151,7 +143,7 @@ def _discover_bookmarks_for_revisions(
             continue
         unique_candidates = sorted(set(candidates))
         if len(unique_candidates) > 1:
-            raise BookmarkRediscoveryError(
+            raise CliError(
                 f"Could not safely rediscover the bookmark for change "
                 f"{revision.change_id}: multiple existing bookmarks match its stable "
                 f"change-ID suffix: {', '.join(unique_candidates)}."
@@ -177,7 +169,7 @@ def _ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
         f"{bookmark!r} for changes {', '.join(change_ids)}"
         for bookmark, change_ids in sorted(duplicates.items())
     )
-    raise BookmarkCollisionError(
+    raise CliError(
         "Selected stack resolves multiple changes to the same bookmark: "
         f"{collision_descriptions}. Configure distinct bookmark names before "
         "submitting."

@@ -28,10 +28,6 @@ class JjCommandError(CliError):
     """Raised when a `jj` invocation fails."""
 
 
-class RevsetResolutionError(CliError):
-    """Raised when a revset does not resolve to exactly one visible revision."""
-
-
 type UnsupportedStackReason = Literal[
     "divergent_change",
     "empty_working_copy",
@@ -222,11 +218,11 @@ class JjClient:
 
         revisions = self._query_revisions(revset, limit=2)
         if not revisions:
-            raise RevsetResolutionError(
+            raise CliError(
                 f"Revset {revset!r} did not resolve to a visible revision."
             )
         if len(revisions) > 1:
-            raise RevsetResolutionError(f"Revset {revset!r} resolved to more than one revision.")
+            raise CliError(f"Revset {revset!r} resolved to more than one revision.")
         return revisions[0]
 
     def query_revisions(

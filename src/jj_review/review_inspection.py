@@ -29,7 +29,6 @@ from jj_review.github_resolution import (
 )
 from jj_review.intent import intent_is_stale, scan_intents
 from jj_review.jj import JjClient
-from jj_review.jj.client import RevsetResolutionError
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, LinkState, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
@@ -938,5 +937,5 @@ def _change_id_resolves(client: JjClient, change_id: str) -> bool:
     try:
         client.resolve_revision(change_id)
         return True
-    except (RevsetResolutionError, CliError):
+    except CliError:
         return False

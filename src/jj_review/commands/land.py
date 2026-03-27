@@ -65,10 +65,6 @@ HELP = "Land the ready prefix of a stack"
 LandActionStatus = Literal["applied", "blocked", "planned"]
 
 
-class LandError(CliError):
-    """Raised when `land` cannot safely resolve or apply a landing plan."""
-
-
 @dataclass(frozen=True, slots=True)
 class LandAction:
     """One planned, applied, or blocked landing action."""
@@ -273,10 +269,10 @@ def prepare_land(
     prepared = prepared_status.prepared
     if prepared.remote is None:
         message = prepared.remote_error or "Could not determine which Git remote to use."
-        raise LandError(message)
+        raise CliError(message)
     if prepared_status.github_repository is None:
         message = prepared_status.github_repository_error or "Could not resolve GitHub target."
-        raise LandError(message)
+        raise CliError(message)
 
     expect_pr_number = None
     if expect_pr_reference is not None:
@@ -320,7 +316,7 @@ async def _stream_land_async(
     prepared_status = prepared_land.prepared_status
     prepared = prepared_status.prepared
     if status_result.github_error is not None:
-        raise LandError(
+        raise CliError(
             "Could not inspect GitHub pull request state for `land`: "
             f"{status_result.github_error}"
         )
@@ -624,7 +620,7 @@ async def _get_github_repository(
             github_repository.repo,
         )
     except GithubClientError as error:
-        raise LandError(
+        raise CliError(
             f"Could not load GitHub repository {github_repository.full_name}: {error}"
         ) from error
 
@@ -922,7 +918,7 @@ def _write_land_preview(state_dir: Path, snapshot: _LandPreviewSnapshot) -> None
             Path(tmp_path).unlink(missing_ok=True)
             raise
     except OSError as error:
-        raise LandError(
+        raise CliError(
             f"Could not write saved land preview {path}: {error}"
         ) from error
 
@@ -935,13 +931,13 @@ def _load_land_preview(state_dir: Path) -> _LandPreviewSnapshot | None:
         with path.open("r", encoding="utf-8") as file:
             payload = json.load(file)
     except OSError as error:
-        raise LandError(f"Could not read saved land preview {path}: {error}") from error
+        raise CliError(f"Could not read saved land preview {path}: {error}") from error
     except json.JSONDecodeError as error:
-        raise LandError(
+        raise CliError(
             f"Saved land preview {path} is invalid. Re-run `land` to refresh it."
         ) from error
     if not isinstance(payload, dict):
-        raise LandError(f"Saved land preview {path} is invalid. Re-run `land` to refresh it.")
+        raise CliError(f"Saved land preview {path} is invalid. Re-run `land` to refresh it.")
     try:
         return _LandPreviewSnapshot(
             bypass_readiness=bool(payload.get("bypass_readiness", False)),
@@ -973,7 +969,7 @@ def _load_land_preview(state_dir: Path) -> _LandPreviewSnapshot | None:
             trunk_commit_id=str(payload["trunk_commit_id"]),
         )
     except (KeyError, TypeError, ValueError) as error:
-        raise LandError(
+        raise CliError(
             f"Saved land preview {path} is invalid. Re-run `land` to refresh it."
         ) from error
 
@@ -1003,11 +999,11 @@ def _require_matching_land_preview(
         selected_revset=selected_revset,
     )
     if saved_preview is None:
-        raise LandError(
+        raise CliError(
             f"`land --apply` requires a saved preview. Run `{preview_command}` first."
         )
     if saved_preview != current_snapshot:
-        raise LandError(
+        raise CliError(
             "The landing plan changed since the saved preview. "
             f"Run `{preview_command}` again before `land --apply`."
         )
@@ -1106,7 +1102,7 @@ def _resume_land_plan(*, intent: LandIntent, trunk_branch: str) -> _LandPlan:
                 )
             )
         except KeyError as error:
-            raise LandError(
+            raise CliError(
                 f"Interrupted land intent for {intent.label!r} is incomplete. "
                 "Re-run `land` to refresh the plan."
             ) from error
@@ -1154,29 +1150,29 @@ def _ensure_trunk_branch_matches_selected_trunk(
 ) -> None:
     bookmark_state = client.get_bookmark_state(trunk_branch)
     if len(bookmark_state.local_targets) > 1:
-        raise LandError(
+        raise CliError(
             f"Local trunk bookmark {trunk_branch!r} is conflicted. Resolve it before landing."
         )
     local_target = bookmark_state.local_target
     if local_target is not None and local_target != trunk_commit_id:
-        raise LandError(
+        raise CliError(
             f"Local trunk bookmark {trunk_branch!r} no longer matches `trunk()`. Refresh or "
             "restore the local trunk state before retrying."
         )
 
     remote_state = bookmark_state.remote_target(remote_name)
     if remote_state is None or remote_state.target is None:
-        raise LandError(
+        raise CliError(
             f"Remote trunk bookmark {trunk_branch!r}@{remote_name} is not available. Fetch and "
             "retry."
         )
     if len(remote_state.targets) > 1:
-        raise LandError(
+        raise CliError(
             f"Remote trunk bookmark {trunk_branch!r}@{remote_name} is conflicted. Resolve it "
             "before landing."
         )
     if remote_state.target != trunk_commit_id:
-        raise LandError(
+        raise CliError(
             f"Remote trunk bookmark {trunk_branch!r}@{remote_name} moved since the selected "
             "path was resolved. Fetch, restack if needed, and retry."
         )
@@ -1197,7 +1193,7 @@ async def _finalize_landed_pull_request(
             pull_number=landed_revision.pull_request_number,
         )
     except GithubClientError as error:
-        raise LandError(
+        raise CliError(
             f"Could not load PR #{landed_revision.pull_request_number} during land: {error}"
         ) from error
     pull_request = _normalize_pull_request_state(pull_request)
@@ -1212,7 +1208,7 @@ async def _finalize_landed_pull_request(
                 title=pull_request.title,
             )
         except GithubClientError as error:
-            raise LandError(
+            raise CliError(
                 f"Could not retarget PR #{pull_request.number} to {trunk_branch!r}: {error}"
             ) from error
         pull_request = _normalize_pull_request_state(pull_request)
@@ -1229,7 +1225,7 @@ async def _finalize_landed_pull_request(
                 pull_number=pull_request.number,
             )
         except GithubClientError as error:
-            raise LandError(
+            raise CliError(
                 f"Could not close PR #{pull_request.number} after landing: {error}"
             ) from error
         pull_request = _normalize_pull_request_state(pull_request)
@@ -1242,7 +1238,7 @@ async def _finalize_landed_pull_request(
             )
         except GithubClientError as error:
             if error.status_code != 404:
-                raise LandError(
+                raise CliError(
                     f"Could not delete stack summary comment "
                     f"#{cached_change.stack_comment_id}: {error}"
                 ) from error
@@ -1351,7 +1347,7 @@ def _parse_pull_request_reference(
         or pull_request_url.owner != github_repository.owner
         or pull_request_url.repo != github_repository.repo
     ):
-        raise LandError(
+        raise CliError(
             f"`--expect-pr` must be a pull request number or a URL for "
             f"{github_repository.full_name}."
         )

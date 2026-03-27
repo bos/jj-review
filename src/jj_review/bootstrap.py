@@ -7,16 +7,11 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from jj_review.config import AppConfig, ConfigError, load_config
+from jj_review.config import AppConfig, load_config
+from jj_review.errors import CliError
 
 _MINIMUM_JJ_VERSION = (0, 21, 0)
 _MINIMUM_JJ_VERSION_STRING = "0.21.0"
-
-
-class BootstrapError(RuntimeError):
-    """Raised when CLI bootstrap fails with a user-facing error."""
-
-    exit_code = 1
 
 
 @dataclass(slots=True, frozen=True)
@@ -49,11 +44,8 @@ def bootstrap_context(
     _validate_repository_path(repository)
     config_path = _resolve_optional_path(config_path)
     check_jj_version()
-    try:
-        repo_root = resolve_repo_root(repository or Path.cwd())
-        config = load_config(repo_root=repo_root, config_path=config_path)
-    except ConfigError as error:
-        raise BootstrapError(str(error)) from error
+    repo_root = resolve_repo_root(repository or Path.cwd())
+    config = load_config(repo_root=repo_root, config_path=config_path)
     configure_logging(debug=debug, configured_level=config.logging.level)
 
     return AppContext(
@@ -90,7 +82,7 @@ def _resolve_logging_level(level_name: str, *, original_value: str) -> int:
     level_names = logging.getLevelNamesMapping()
     if level_name not in level_names:
         valid_levels = ", ".join(sorted(level_names))
-        raise BootstrapError(
+        raise CliError(
             f"Invalid logging level {original_value!r}. Expected one of: {valid_levels}"
         )
     return level_names[level_name]
@@ -99,7 +91,7 @@ def _resolve_logging_level(level_name: str, *, original_value: str) -> int:
 def resolve_repo_root(start_dir: Path) -> Path:
     """Resolve the jj workspace root from `start_dir`.
 
-    Raises `BootstrapError` if the directory is not inside a jj workspace,
+    Raises `CliError` if the directory is not inside a jj workspace,
     so callers get a clear diagnostic rather than confusing downstream
     errors from later `jj` commands.
     """
@@ -113,22 +105,22 @@ def resolve_repo_root(start_dir: Path) -> Path:
             text=True,
         )
     except FileNotFoundError as error:
-        raise BootstrapError("`jj` is not installed or is not on PATH.") from error
+        raise CliError("`jj` is not installed or is not on PATH.") from error
     if completed.returncode != 0:
         message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
-        raise BootstrapError(f"Not inside a jj workspace (from {start_dir}): {message}")
+        raise CliError(f"Not inside a jj workspace (from {start_dir}): {message}")
 
     root = completed.stdout.strip()
     if not root:
-        raise BootstrapError(f"`jj root` returned an empty path (from {start_dir}).")
+        raise CliError(f"`jj root` returned an empty path (from {start_dir}).")
     return Path(root)
 
 
 def check_jj_version() -> None:
     """Verify that the installed `jj` meets the minimum required version.
 
-    Raises `BootstrapError` if `jj` is absent, if its version string cannot
-    be parsed, or if the installed version is older than the minimum.
+    Raises `CliError` if `jj` is absent, if its version string cannot be parsed,
+    or if the installed version is older than the minimum.
     """
 
     try:
@@ -139,21 +131,21 @@ def check_jj_version() -> None:
             text=True,
         )
     except FileNotFoundError as error:
-        raise BootstrapError("`jj` is not installed or is not on PATH.") from error
+        raise CliError("`jj` is not installed or is not on PATH.") from error
 
     if completed.returncode != 0:
         message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
-        raise BootstrapError(f"`jj --version` failed: {message}")
+        raise CliError(f"`jj --version` failed: {message}")
 
     version = _parse_jj_version(completed.stdout.strip())
     if version is None:
-        raise BootstrapError(
+        raise CliError(
             f"Could not parse `jj --version` output: {completed.stdout.strip()!r}. "
             f"jj-review requires jj {_MINIMUM_JJ_VERSION_STRING} or later."
         )
     if version < _MINIMUM_JJ_VERSION:
         installed = ".".join(str(x) for x in version)
-        raise BootstrapError(
+        raise CliError(
             f"jj {installed} is too old. "
             f"jj-review requires jj {_MINIMUM_JJ_VERSION_STRING} or later. "
             "Please upgrade jj."
@@ -189,6 +181,6 @@ def _validate_repository_path(repository: Path | None) -> None:
     if repository is None:
         return
     if not repository.exists():
-        raise BootstrapError(f"Repository path does not exist: {repository}")
+        raise CliError(f"Repository path does not exist: {repository}")
     if not repository.is_dir():
-        raise BootstrapError(f"Repository path is not a directory: {repository}")
+        raise CliError(f"Repository path is not a directory: {repository}")

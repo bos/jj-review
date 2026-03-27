@@ -55,10 +55,6 @@ CleanupActionStatus = Literal["applied", "blocked", "planned"]
 _GITHUB_INSPECTION_CONCURRENCY = 4
 
 
-class CleanupError(CliError):
-    """Raised when cleanup cannot safely inspect remote review state."""
-
-
 @dataclass(frozen=True, slots=True)
 class CleanupAction:
     """One cleanup action that was planned, applied, or blocked."""
@@ -1405,7 +1401,7 @@ async def _load_pull_request(
     except GithubClientError as error:
         if error.status_code == 404:
             return None
-        raise CleanupError(
+        raise CliError(
             f"Could not load pull request #{pull_request_number}: {error}"
         ) from error
 
@@ -1497,7 +1493,7 @@ async def _resolve_unlinked_pull_request_number(
             state="all",
         )
     except GithubClientError as error:
-        raise CleanupError(
+        raise CliError(
             f"Could not list pull requests for unlinked bookmark {bookmark_state.name!r}: "
             f"{error}"
         ) from error
@@ -1529,7 +1525,7 @@ async def _list_issue_comments(
             issue_number=pull_request_number,
         )
     except GithubClientError as error:
-        raise CleanupError(
+        raise CliError(
             f"Could not list stack summary comments for pull request #{pull_request_number}: "
             f"{error}"
         ) from error
@@ -1548,6 +1544,6 @@ async def _delete_issue_comment(
             comment_id=comment_id,
         )
     except GithubClientError as error:
-        raise CleanupError(
+        raise CliError(
             f"Could not delete stack summary comment #{comment_id}: {error}"
         ) from error

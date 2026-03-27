@@ -51,10 +51,6 @@ _DISPLAY_CHANGE_ID_LENGTH = 8
 ImportActionStatus = Literal["applied"]
 
 
-class ImportResolutionError(CliError):
-    """Raised when `import` cannot safely import a review stack."""
-
-
 @dataclass(frozen=True, slots=True)
 class ImportAction:
     """One applied import action."""
@@ -192,7 +188,7 @@ async def _run_import_async(
         and selection.selected_revset is not None
         and not client.query_revisions(selection.selected_revset, limit=1)
     ):
-        raise ImportResolutionError(
+        raise CliError(
             f"Branch {selection.head_bookmark!r} is not present locally. Re-run "
             "`import --fetch` to fetch that stack before importing."
         )
@@ -205,7 +201,7 @@ async def _run_import_async(
         revset=selection.selected_revset,
     )
     if current and not _prepared_status_has_discoverable_remote_link(prepared_status):
-        raise ImportResolutionError(
+        raise CliError(
             "`import --current` cannot proceed because the current stack has no "
             "matching remote pull request or branch."
         )
@@ -292,7 +288,7 @@ async def _resolve_selection(
         if present
     )
     if selector_count != 1:
-        raise ImportResolutionError(
+        raise CliError(
             "`import` requires exactly one selector: `--pull-request`, `--head`, "
             "`--current`, or `--revset`."
         )
@@ -358,20 +354,20 @@ async def _resolve_remote_head(
     )
     if pull_request_reference is not None and len(pull_requests) != 1:
         if not pull_requests:
-            raise ImportResolutionError(
+            raise CliError(
                 f"GitHub no longer reports a pull request for head branch "
                 f"{github_repository.owner}:{head}. Inspect the PR link with "
                 "`status --fetch` and repair it with `relink` before importing again."
             )
         numbers = ", ".join(str(pull_request.number) for pull_request in pull_requests)
-        raise ImportResolutionError(
+        raise CliError(
             f"GitHub reports multiple pull requests for head branch "
             f"{github_repository.owner}:{head}: {numbers}. Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before importing again."
         )
     if pull_request_reference is None and len(pull_requests) > 1:
         numbers = ", ".join(str(pull_request.number) for pull_request in pull_requests)
-        raise ImportResolutionError(
+        raise CliError(
             f"GitHub reports multiple pull requests for head branch "
             f"{github_repository.owner}:{head}: {numbers}. Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before importing again."
@@ -379,7 +375,7 @@ async def _resolve_remote_head(
     if len(pull_requests) == 1:
         pull_request = pull_requests[0]
         if pull_request.head.label != f"{github_repository.owner}:{head}":
-            raise ImportResolutionError(
+            raise CliError(
                 f"Pull request #{pull_request.number} head {pull_request.head.label!r} does "
                 f"not belong to {github_repository.full_name}. Import only supports "
                 "same-repository pull request branches."
@@ -424,7 +420,7 @@ def _fetch_selected_stack_bookmarks(
     )
     remote_branches = client.list_remote_branches(remote=remote.name, patterns=patterns)
     if explicit_head_bookmark not in remote_branches:
-        raise ImportResolutionError(
+        raise CliError(
             f"Remote bookmark {explicit_head_bookmark!r}@{remote.name} does not exist. "
             "Fetch and retry once that branch is visible on the selected remote."
         )
@@ -441,7 +437,7 @@ def _fetch_selected_stack_bookmarks(
             if _bookmark_matches_generated_change_id(name, change_id)
         )
         if len(candidates) > 1:
-            raise ImportResolutionError(
+            raise CliError(
                 "Could not safely import the selected stack because "
                 f"{change_id[:_DISPLAY_CHANGE_ID_LENGTH]} matches multiple remote review "
                 f"branches on {remote.name}: {', '.join(candidates)}."
@@ -536,12 +532,12 @@ async def _load_pull_request(
                 pull_number=pull_request_number,
             )
         except GithubClientError as error:
-            raise ImportResolutionError(
+            raise CliError(
                 f"Could not load pull request #{pull_request_number}: {error}"
             ) from error
 
     if pull_request.head.label != f"{github_repository.owner}:{pull_request.head.ref}":
-        raise ImportResolutionError(
+        raise CliError(
             f"Pull request #{pull_request.number} head {pull_request.head.label!r} does not "
             f"belong to {github_repository.full_name}. Import only supports same-repository "
             "pull request branches."
@@ -563,7 +559,7 @@ async def _list_pull_requests_by_head(
                 state="all",
             )
         except GithubClientError as error:
-            raise ImportResolutionError(
+            raise CliError(
                 f"Could not list pull requests for head {head!r}: {error}"
             ) from error
     return tuple(pull_requests)
@@ -578,23 +574,23 @@ def _remote_bookmark_commit_id(
 ) -> str:
     if remote_state is None or not remote_state.targets:
         if not fetch:
-            raise ImportResolutionError(
+            raise CliError(
                 f"Remote bookmark {head!r}@{remote.name} is not available in remembered "
                 "local remote state. Re-run `import --fetch` to fetch that branch "
                 "before importing."
             )
-        raise ImportResolutionError(
+        raise CliError(
             f"Remote bookmark {head!r}@{remote.name} does not exist. Fetch and retry once "
             "that branch is visible on the selected remote."
         )
     if len(remote_state.targets) > 1:
-        raise ImportResolutionError(
+        raise CliError(
             f"Remote bookmark {head!r}@{remote.name} is conflicted. Resolve it before "
             "importing."
         )
     commit_id = remote_state.target
     if commit_id is None:
-        raise ImportResolutionError(
+        raise CliError(
             f"Remote bookmark {head!r}@{remote.name} is ambiguous. Import requires one "
             "exact branch."
         )
@@ -628,7 +624,7 @@ def _import_local_state(
             selected_remote_name=selected_remote_name,
         )
         if bookmark in seen_bookmarks:
-            raise ImportResolutionError(
+            raise CliError(
                 "Selected stack resolves multiple changes to the same "
                 f"bookmark {bookmark!r}."
             )
@@ -727,14 +723,14 @@ def _validate_bookmark_state(
     selected_remote_name: str | None,
 ) -> None:
     if len(bookmark_state.local_targets) > 1:
-        raise ImportResolutionError(
+        raise CliError(
             f"Local bookmark {bookmark!r} is conflicted. Resolve it before importing."
         )
     if (
         bookmark_state.local_target is not None
         and bookmark_state.local_target != desired_commit_id
     ):
-        raise ImportResolutionError(
+        raise CliError(
             f"Local bookmark {bookmark!r} already points to a different revision. Move "
             "or forget it explicitly before importing."
         )
@@ -744,12 +740,12 @@ def _validate_bookmark_state(
     if remote_state is None:
         return
     if len(remote_state.targets) > 1:
-        raise ImportResolutionError(
+        raise CliError(
             f"Remote bookmark {bookmark!r}@{selected_remote_name} is conflicted. Resolve "
             "it before importing."
         )
     if remote_state.target is not None and remote_state.target != desired_commit_id:
-        raise ImportResolutionError(
+        raise CliError(
             f"Remote bookmark {bookmark!r}@{selected_remote_name} already points to a "
             "different revision. Import will not overwrite a stale remote identity."
         )
@@ -856,7 +852,7 @@ def _resolve_import_bookmark(
     else:
         bookmark = prepared_revision.bookmark
         if prepared_revision.bookmark_source == "generated":
-            raise ImportResolutionError(
+            raise CliError(
                 "Could not safely import the selected stack because "
                 f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} has no "
                 "matching branch on the selected remote. Refresh with `status --fetch` "
@@ -867,7 +863,7 @@ def _resolve_import_bookmark(
     bookmark_state = bookmark_states.get(bookmark, BookmarkState(name=bookmark))
     remote_state = bookmark_state.remote_target(selected_remote_name)
     if remote_state is None or remote_state.target is None:
-        raise ImportResolutionError(
+        raise CliError(
             "Could not safely import the selected stack because "
             f"saved branch {bookmark!r} for "
             f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} is not "
@@ -875,7 +871,7 @@ def _resolve_import_bookmark(
             "an exact branch or pull request."
         )
     if remote_state.target != prepared_revision.revision.commit_id:
-        raise ImportResolutionError(
+        raise CliError(
             "Could not safely import the selected stack because "
             f"saved branch {bookmark!r} for "
             f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} points "
@@ -895,11 +891,11 @@ def _parse_pull_request_reference(
         return parsed
     pull_request_url = parse_pull_request_url(reference)
     if pull_request_url is None:
-        raise ImportResolutionError(
+        raise CliError(
             f"Pull request reference {reference!r} is not a PR number or URL."
         )
     if pull_request_url.host != github_repository.host:
-        raise ImportResolutionError(
+        raise CliError(
             f"Pull request URL {reference!r} does not match configured host "
             f"{github_repository.host!r}."
         )
@@ -907,7 +903,7 @@ def _parse_pull_request_reference(
         pull_request_url.owner != github_repository.owner
         or pull_request_url.repo != github_repository.repo
     ):
-        raise ImportResolutionError(
+        raise CliError(
             f"Pull request URL {reference!r} does not match configured repository "
             f"{github_repository.full_name!r}."
         )

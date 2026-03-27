@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from jj_review.config import CONFIG_DIRNAME, CONFIG_FILENAME, ConfigError, load_config
+from jj_review.config import CONFIG_DIRNAME, CONFIG_FILENAME, load_config
+from jj_review.errors import CliError
 
 
 def test_load_config_returns_defaults_when_config_is_missing(
@@ -48,7 +49,7 @@ def test_load_config_reads_repository_and_logging_sections(
 def test_load_config_rejects_missing_explicit_config_path(tmp_path: Path) -> None:
     config_path = tmp_path / "missing.toml"
 
-    with pytest.raises(ConfigError, match="Config file does not exist"):
+    with pytest.raises(CliError, match="Config file does not exist"):
         load_config(repo_root=tmp_path, config_path=config_path)
 
 
@@ -114,7 +115,7 @@ def test_load_config_rejects_unexpected_top_level_keys(
     config_path.write_text('remote = "origin"\n', encoding="utf-8")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
 
-    with pytest.raises(ConfigError, match="Extra inputs are not permitted"):
+    with pytest.raises(CliError, match="Extra inputs are not permitted"):
         load_config(repo_root=tmp_path)
 
 

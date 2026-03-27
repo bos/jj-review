@@ -22,10 +22,6 @@ from jj_review.review_inspection import _stream_status_async, prepare_status
 HELP = "Stop managing one local change as part of review"
 
 
-class UnlinkError(CliError):
-    """Raised when `unlink` cannot safely remove active tracking."""
-
-
 @dataclass(frozen=True, slots=True)
 class UnlinkResult:
     """Rendered unlink result for one selected local revision."""
@@ -102,7 +98,7 @@ async def _run_unlink_async(
     )
     prepared = prepared_status.prepared
     if not prepared.status_revisions:
-        raise UnlinkError("No reviewable commits between the selected revision and `trunk()`.")
+        raise CliError("No reviewable commits between the selected revision and `trunk()`.")
 
     status_result = await _stream_status_async(
         persist_cache_updates=False,
@@ -139,7 +135,7 @@ async def _run_unlink_async(
         prepared_revision=prepared_revision,
         status_revision=status_revision,
     ):
-        raise UnlinkError(
+        raise CliError(
             "The selected change has no active review tracking link to unlink. "
             "Use `relink` only when you need to attach an existing PR intentionally."
         )

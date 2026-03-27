@@ -38,10 +38,6 @@ HELP = "Reconnect an existing pull request to a local change"
 _DISPLAY_CHANGE_ID_LENGTH = 8
 
 
-class RelinkResolutionError(CliError):
-    """Raised when `relink` cannot safely bind a PR to a local change."""
-
-
 @dataclass(frozen=True, slots=True)
 class RelinkResult:
     """Explicit review relink result for one local revision."""
@@ -107,7 +103,7 @@ async def _run_relink_async(
 
     stack = client.discover_review_stack(revset)
     if not stack.revisions:
-        raise RelinkResolutionError(
+        raise CliError(
             "No reviewable commits between the selected revision and `trunk()`."
         )
     revision = stack.head
@@ -130,12 +126,12 @@ async def _run_relink_async(
                 pull_number=pull_request_number,
             )
         except GithubClientError as error:
-            raise RelinkResolutionError(
+            raise CliError(
                 f"Could not load pull request #{pull_request_number}: {error}"
             ) from error
 
     if pull_request.state != "open":
-        raise RelinkResolutionError(
+        raise CliError(
             f"Pull request #{pull_request.number} is not open; cannot relink "
             f"{pull_request.state!r} PRs."
         )
@@ -143,7 +139,7 @@ async def _run_relink_async(
     bookmark = pull_request.head.ref
     expected_head_label = f"{github_repository.owner}:{bookmark}"
     if pull_request.head.label != expected_head_label:
-        raise RelinkResolutionError(
+        raise CliError(
             f"Pull request #{pull_request.number} head {pull_request.head.label!r} does not "
             f"belong to {github_repository.full_name}. Relink only supports "
             "same-repository pull request branches."
@@ -151,25 +147,25 @@ async def _run_relink_async(
 
     bookmark_state = client.get_bookmark_state(bookmark)
     if len(bookmark_state.local_targets) > 1:
-        raise RelinkResolutionError(
+        raise CliError(
             f"Local bookmark {bookmark!r} is conflicted. Resolve it before relinking."
         )
     if (
         bookmark_state.local_target is not None
         and bookmark_state.local_target != revision.commit_id
     ):
-        raise RelinkResolutionError(
+        raise CliError(
             f"Local bookmark {bookmark!r} already points to a different revision. "
             "Move or forget it explicitly before relinking."
         )
     remote_state = bookmark_state.remote_target(remote.name)
     if remote_state is None or not remote_state.targets:
-        raise RelinkResolutionError(
+        raise CliError(
             f"Remote bookmark {bookmark!r}@{remote.name} does not exist. Fetch "
             "and retry once the PR head branch is visible on the selected remote."
         )
     if len(remote_state.targets) > 1:
-        raise RelinkResolutionError(
+        raise CliError(
             f"Remote bookmark {bookmark!r}@{remote.name} is conflicted. Resolve it before "
             "relinking."
         )
@@ -246,7 +242,7 @@ def _parse_pull_request_reference(
         return parsed
     pull_request_url = parse_pull_request_url(reference)
     if pull_request_url is None or pull_request_url.host != github_repository.host:
-        raise RelinkResolutionError(
+        raise CliError(
             f"`{reference}` is not a pull request number or URL for "
             f"{github_repository.full_name}."
         )
@@ -254,7 +250,7 @@ def _parse_pull_request_reference(
         pull_request_url.owner != github_repository.owner
         or pull_request_url.repo != github_repository.repo
     ):
-        raise RelinkResolutionError(
+        raise CliError(
             f"`{reference}` does not belong to {github_repository.full_name}."
         )
     return pull_request_url.number
@@ -271,7 +267,7 @@ def _ensure_relinkable_cached_link(
         if cached_change_id == change_id:
             continue
         if cached_change.bookmark == bookmark and cached_change.link_state != "unlinked":
-            raise RelinkResolutionError(
+            raise CliError(
                 f"Bookmark {bookmark!r} is already linked to "
                 f"{_short_change_id(cached_change_id)} in local state."
             )
@@ -279,7 +275,7 @@ def _ensure_relinkable_cached_link(
             cached_change.pr_number == pull_request_number
             and cached_change.link_state != "unlinked"
         ):
-            raise RelinkResolutionError(
+            raise CliError(
                 f"PR #{pull_request_number} is already linked to "
                 f"{_short_change_id(cached_change_id)} in local state."
             )

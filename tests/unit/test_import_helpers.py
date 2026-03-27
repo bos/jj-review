@@ -8,7 +8,6 @@ from typing import cast
 import pytest
 
 from jj_review.commands.import_ import (
-    ImportResolutionError,
     _fetch_selected_stack_bookmarks,
     _prepared_status_has_discoverable_remote_link,
     _resolve_import_bookmark,
@@ -17,6 +16,7 @@ from jj_review.commands.import_ import (
     _validate_bookmark_state,
 )
 from jj_review.config import RepoConfig
+from jj_review.errors import CliError
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.review_inspection import PreparedStatus
@@ -43,7 +43,7 @@ def test_validate_bookmark_state_ignores_other_remote_conflicts() -> None:
 
 
 def test_validate_bookmark_state_rejects_selected_remote_conflicts() -> None:
-    with pytest.raises(ImportResolutionError) as exc_info:
+    with pytest.raises(CliError) as exc_info:
         _validate_bookmark_state(
             bookmark="review/feature-aaaaaaaa",
             bookmark_state=BookmarkState(
@@ -66,7 +66,7 @@ def test_validate_bookmark_state_rejects_selected_remote_conflicts() -> None:
 
 def test_resolve_import_bookmark_rejects_generated_bookmark_without_selected_remote(
     ) -> None:
-    with pytest.raises(ImportResolutionError) as exc_info:
+    with pytest.raises(CliError) as exc_info:
         _resolve_import_bookmark(
             bookmark_by_change_id={},
             bookmark_states={},
@@ -85,7 +85,7 @@ def test_resolve_import_bookmark_rejects_generated_bookmark_without_selected_rem
 
 
 def test_resolve_import_bookmark_rejects_missing_cached_remote_bookmark() -> None:
-    with pytest.raises(ImportResolutionError) as exc_info:
+    with pytest.raises(CliError) as exc_info:
         _resolve_import_bookmark(
             bookmark_by_change_id={"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "review/feature-aaaa"},
             bookmark_states={
@@ -111,7 +111,7 @@ def test_resolve_import_bookmark_rejects_missing_cached_remote_bookmark() -> Non
 
 
 def test_resolve_import_bookmark_rejects_stale_cached_remote_bookmark_target() -> None:
-    with pytest.raises(ImportResolutionError) as exc_info:
+    with pytest.raises(CliError) as exc_info:
         _resolve_import_bookmark(
             bookmark_by_change_id={"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "review/feature-aaaa"},
             bookmark_states={
@@ -190,7 +190,7 @@ def test_resolve_remote_head_requires_fetch_when_remote_bookmark_is_not_remember
         fake_list_pull_requests_by_head,
     )
 
-    with pytest.raises(ImportResolutionError) as exc_info:
+    with pytest.raises(CliError) as exc_info:
         asyncio.run(
             _resolve_remote_head(
                 client=cast(
@@ -355,7 +355,7 @@ def test_run_import_current_rejects_before_github_inspection(
         fail_stream_status_async,
     )
 
-    with pytest.raises(ImportResolutionError) as exc_info:
+    with pytest.raises(CliError) as exc_info:
         asyncio.run(
             _run_import_async(
                 change_overrides={},

@@ -5,11 +5,11 @@ from unittest.mock import patch
 import pytest
 
 from jj_review.bootstrap import (
-    BootstrapError,
     _parse_jj_version,
     check_jj_version,
     configure_logging,
 )
+from jj_review.errors import CliError
 
 
 def _fake_jj_version(version_string: str) -> subprocess.CompletedProcess[str]:
@@ -53,7 +53,7 @@ def test_check_jj_version_accepts_newer_version() -> None:
 
 def test_check_jj_version_rejects_older_version() -> None:
     with patch("subprocess.run", return_value=_fake_jj_version("0.20.0")):
-        with pytest.raises(BootstrapError, match="0.20.0 is too old"):
+        with pytest.raises(CliError, match="0.20.0 is too old"):
             check_jj_version()
 
 
@@ -65,13 +65,13 @@ def test_check_jj_version_rejects_unparseable_output() -> None:
         stderr="",
     )
     with patch("subprocess.run", return_value=bad_output):
-        with pytest.raises(BootstrapError, match="Could not parse"):
+        with pytest.raises(CliError, match="Could not parse"):
             check_jj_version()
 
 
 def test_check_jj_version_raises_when_jj_not_installed() -> None:
     with patch("subprocess.run", side_effect=FileNotFoundError):
-        with pytest.raises(BootstrapError, match="not installed or is not on PATH"):
+        with pytest.raises(CliError, match="not installed or is not on PATH"):
             check_jj_version()
 
 
@@ -83,7 +83,7 @@ def test_check_jj_version_raises_when_version_command_fails() -> None:
         stderr="some error",
     )
     with patch("subprocess.run", return_value=failed):
-        with pytest.raises(BootstrapError, match="failed"):
+        with pytest.raises(CliError, match="failed"):
             check_jj_version()
 
 
