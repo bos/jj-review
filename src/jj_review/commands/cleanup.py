@@ -146,23 +146,6 @@ class _RestackOperationPlan:
     pre_actions: tuple[CleanupAction, ...]
     rebase_plans: tuple[tuple[str, str | None], ...]
 
-
-def run_cleanup(
-    *,
-    apply: bool,
-    config: RepoConfig,
-    repo_root: Path,
-) -> CleanupResult:
-    """Plan or apply conservative sparse-state cleanup actions."""
-
-    prepared_cleanup = prepare_cleanup(
-        apply=apply,
-        config=config,
-        repo_root=repo_root,
-    )
-    return stream_cleanup(prepared_cleanup=prepared_cleanup)
-
-
 def prepare_cleanup(
     *,
     apply: bool,
@@ -251,19 +234,6 @@ def stream_restack(
     """Inspect and optionally apply a local restack plan for merged path changes."""
 
     status_result = stream_status(prepared_status=prepared_restack.prepared_status)
-    return _build_restack_result(
-        on_action=on_action,
-        prepared_restack=prepared_restack,
-        status_result=status_result,
-    )
-
-
-def _build_restack_result(
-    *,
-    on_action: Callable[[CleanupAction], None] | None,
-    prepared_restack: PreparedRestack,
-    status_result,
-) -> RestackResult:
     prepared_status = prepared_restack.prepared_status
     prepared = prepared_status.prepared
     path_revisions = _resolve_restack_path_revisions(

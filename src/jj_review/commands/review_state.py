@@ -127,33 +127,6 @@ class _PreparedRevision:
     cached_change: CachedChange | None
     revision: LocalRevision
 
-
-def run_status(
-    *,
-    change_overrides: dict[str, ChangeConfig],
-    config: RepoConfig,
-    fetch_remote_state: bool = False,
-    persist_bookmarks: bool = True,
-    persist_cache_updates: bool = True,
-    repo_root: Path,
-    revset: str | None,
-) -> StatusResult:
-    """Inspect local, cached, and discoverable review linkage."""
-
-    prepared_status = prepare_status(
-        change_overrides=change_overrides,
-        config=config,
-        fetch_remote_state=fetch_remote_state,
-        persist_bookmarks=persist_bookmarks,
-        repo_root=repo_root,
-        revset=revset,
-    )
-    return stream_status(
-        persist_cache_updates=persist_cache_updates,
-        prepared_status=prepared_status,
-    )
-
-
 def prepare_status(
     *,
     change_overrides: dict[str, ChangeConfig],
