@@ -58,24 +58,24 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
     (
         "Core commands",
         (
-            _HelpCommand("submit", commands.submit.HELP.strip()),
-            _HelpCommand("status", commands.review_state.HELP.strip()),
-            _HelpCommand("land", commands.land.HELP.strip()),
-            _HelpCommand("close", commands.close.HELP.strip()),
+            _HelpCommand("submit", commands.submit.HELP),
+            _HelpCommand("status", commands.review_state.HELP),
+            _HelpCommand("land", commands.land.HELP),
+            _HelpCommand("close", commands.close.HELP),
         ),
     ),
     (
         "Support commands",
         (
-            _HelpCommand("cleanup", commands.cleanup.HELP.strip()),
-            _HelpCommand("import", commands.import_.HELP.strip()),
+            _HelpCommand("cleanup", commands.cleanup.HELP),
+            _HelpCommand("import", commands.import_.HELP),
         ),
     ),
     (
         "Advanced repair",
         (
-            _HelpCommand("relink", commands.relink.HELP.strip(), hidden=True),
-            _HelpCommand("unlink", commands.unlink.HELP.strip(), hidden=True),
+            _HelpCommand("relink", commands.relink.HELP, hidden=True),
+            _HelpCommand("unlink", commands.unlink.HELP, hidden=True),
         ),
     ),
     (
@@ -504,7 +504,7 @@ def _format_help_command_section(
         initial_indent = f"  {entry.name.ljust(label_width)}"
         lines.append(
             textwrap.fill(
-                entry.summary,
+                _normalized_help_text(entry.summary),
                 width=effective_width,
                 initial_indent=initial_indent,
                 subsequent_indent=" " * len(initial_indent),
