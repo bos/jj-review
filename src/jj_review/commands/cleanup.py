@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from argparse import Namespace
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import Literal
 
 from jj_review.cache import ReviewStateStore
+from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
@@ -237,6 +239,88 @@ def render_restack_postamble(*, result: RestackResult) -> tuple[str, ...]:
             f"{selected_revset}` to rewrite surviving local changes.",
         )
     return ()
+
+
+def handle_cleanup_command(args: Namespace) -> int:
+    """CLI entrypoint for `cleanup`."""
+
+    from jj_review.bootstrap import bootstrap_context
+    from jj_review.commands.review_state import describe_status_preparation_error
+
+    context = bootstrap_context(args)
+    if args.restack:
+        selected_revset = resolve_selected_revset(
+            args,
+            command_label="cleanup --restack --apply" if args.apply else "cleanup --restack",
+            require_explicit=bool(args.apply),
+        )
+        try:
+            prepared_restack = prepare_restack(
+                apply=bool(args.apply),
+                change_overrides=context.config.change,
+                config=context.config.repo,
+                repo_root=context.repo_root,
+                revset=selected_revset,
+            )
+        except UnsupportedStackError as error:
+            raise CliError(describe_status_preparation_error(error)) from error
+        for line in render_restack_preamble(prepared_restack=prepared_restack):
+            print(line)
+
+        header_printed = False
+
+        def emit_action(action) -> None:
+            nonlocal header_printed
+            if not header_printed:
+                print(render_restack_action_header(apply=prepared_restack.apply))
+                header_printed = True
+            print(render_restack_action(action=action))
+
+        try:
+            _, result = run_restack_command(
+                apply=bool(args.apply),
+                change_overrides=context.config.change,
+                config=context.config.repo,
+                on_action=emit_action,
+                prepare_restack_fn=lambda **kwargs: prepared_restack,
+                repo_root=context.repo_root,
+                revset=selected_revset,
+                stream_restack_fn=stream_restack,
+            )
+        except UnsupportedStackError as error:
+            raise CliError(describe_status_preparation_error(error)) from error
+        for line in render_restack_postamble(result=result):
+            print(line)
+        return 1 if result.blocked else 0
+
+    prepared_cleanup = prepare_cleanup(
+        apply=bool(args.apply),
+        config=context.config.repo,
+        repo_root=context.repo_root,
+    )
+    for line in render_cleanup_preamble(prepared_cleanup=prepared_cleanup):
+        print(line)
+
+    header_printed = False
+
+    def emit_action(action) -> None:
+        nonlocal header_printed
+        if not header_printed:
+            print(render_cleanup_action_header(apply=prepared_cleanup.apply))
+            header_printed = True
+        print(render_cleanup_action(action=action))
+
+    _, result = run_cleanup_command(
+        apply=bool(args.apply),
+        config=context.config.repo,
+        on_action=emit_action,
+        prepare_cleanup_fn=lambda **kwargs: prepared_cleanup,
+        repo_root=context.repo_root,
+        stream_cleanup_fn=stream_cleanup,
+    )
+    for line in render_cleanup_postamble(result=result):
+        print(line)
+    return 0
 
 
 def _render_remote_and_github_lines(

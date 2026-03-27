@@ -341,7 +341,7 @@ def test_main_accepts_global_options_after_subcommand(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(
-        "jj_review.cli.prepare_status",
+        "jj_review.commands.review_state.prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
                 client=SimpleNamespace(list_bookmark_states=lambda: {}),
@@ -361,7 +361,7 @@ def test_main_accepts_global_options_after_subcommand(
         ),
     )
     monkeypatch.setattr(
-        "jj_review.cli.stream_status",
+        "jj_review.commands.review_state.stream_status",
         lambda **kwargs: SimpleNamespace(incomplete=False),
     )
 
@@ -403,9 +403,9 @@ def test_main_status_passes_fetch_to_prepare_status(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.prepare_status", fake_prepare_status)
+    monkeypatch.setattr("jj_review.commands.review_state.prepare_status", fake_prepare_status)
     monkeypatch.setattr(
-        "jj_review.cli.stream_status",
+        "jj_review.commands.review_state.stream_status",
         lambda **kwargs: SimpleNamespace(incomplete=False),
     )
 
@@ -445,9 +445,9 @@ def test_main_status_short_fetch_alias_passes_fetch_to_prepare_status(
             trunk_subject="base",
         )
 
-    monkeypatch.setattr("jj_review.cli.prepare_status", fake_prepare_status)
+    monkeypatch.setattr("jj_review.commands.review_state.prepare_status", fake_prepare_status)
     monkeypatch.setattr(
-        "jj_review.cli.stream_status",
+        "jj_review.commands.review_state.stream_status",
         lambda **kwargs: SimpleNamespace(incomplete=False),
     )
 
@@ -474,7 +474,10 @@ def test_main_status_reports_targeted_divergent_stack_error(
             reason="divergent_change",
         )
 
-    monkeypatch.setattr("jj_review.cli.prepare_status", raise_unsupported_stack)
+    monkeypatch.setattr(
+        "jj_review.commands.review_state.prepare_status",
+        raise_unsupported_stack,
+    )
 
     exit_code = main(["status", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1378,8 +1381,8 @@ def test_main_cleanup_passes_apply_to_prepare_cleanup(
             remote_error=None,
         )
 
-    monkeypatch.setattr("jj_review.cli.prepare_cleanup", fake_prepare_cleanup)
-    monkeypatch.setattr("jj_review.cli.stream_cleanup", fake_stream_cleanup)
+    monkeypatch.setattr("jj_review.commands.cleanup.prepare_cleanup", fake_prepare_cleanup)
+    monkeypatch.setattr("jj_review.commands.cleanup.stream_cleanup", fake_stream_cleanup)
 
     exit_code = main(["cleanup", "--apply", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1412,9 +1415,9 @@ def test_main_cleanup_restack_passes_apply_and_revset_to_prepare_restack(
             ),
         )
 
-    monkeypatch.setattr("jj_review.cli.prepare_restack", fake_prepare_restack)
+    monkeypatch.setattr("jj_review.commands.cleanup.prepare_restack", fake_prepare_restack)
     monkeypatch.setattr(
-        "jj_review.cli.stream_restack",
+        "jj_review.commands.cleanup.stream_restack",
         lambda **kwargs: SimpleNamespace(
             actions=(),
             applied=True,
@@ -1455,7 +1458,7 @@ def test_main_cleanup_restack_apply_requires_explicit_revision_selection(
         prepare_called = True
         raise AssertionError("restack apply should not prepare without a selector")
 
-    monkeypatch.setattr("jj_review.cli.prepare_restack", fake_prepare_restack)
+    monkeypatch.setattr("jj_review.commands.cleanup.prepare_restack", fake_prepare_restack)
 
     exit_code = main(["cleanup", "--restack", "--apply", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1472,7 +1475,7 @@ def test_main_cleanup_renders_planned_and_blocked_actions(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(
-        "jj_review.cli.prepare_cleanup",
+        "jj_review.commands.cleanup.prepare_cleanup",
         lambda **kwargs: SimpleNamespace(
             apply=False,
             github_repository=SimpleNamespace(full_name="octo-org/stacked-review"),
@@ -1517,7 +1520,7 @@ def test_main_cleanup_renders_planned_and_blocked_actions(
             remote_error=None,
         )
 
-    monkeypatch.setattr("jj_review.cli.stream_cleanup", fake_stream_cleanup)
+    monkeypatch.setattr("jj_review.commands.cleanup.stream_cleanup", fake_stream_cleanup)
 
     exit_code = main(["cleanup", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1662,7 +1665,7 @@ def test_main_cleanup_restack_renders_next_step_and_policy_warning(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(
-        "jj_review.cli.prepare_restack",
+        "jj_review.commands.cleanup.prepare_restack",
         lambda **kwargs: SimpleNamespace(
             apply=False,
             prepared_status=SimpleNamespace(
@@ -1710,7 +1713,7 @@ def test_main_cleanup_restack_renders_next_step_and_policy_warning(
             selected_revset="@",
         )
 
-    monkeypatch.setattr("jj_review.cli.stream_restack", fake_stream_restack)
+    monkeypatch.setattr("jj_review.commands.cleanup.stream_restack", fake_stream_restack)
 
     exit_code = main(["cleanup", "--restack", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1730,7 +1733,7 @@ def test_main_cleanup_prints_remote_and_github_before_stream_completes(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(
-        "jj_review.cli.prepare_cleanup",
+        "jj_review.commands.cleanup.prepare_cleanup",
         lambda **kwargs: SimpleNamespace(
             apply=False,
             github_repository=SimpleNamespace(full_name="octo-org/stacked-review"),
@@ -1767,7 +1770,7 @@ def test_main_cleanup_prints_remote_and_github_before_stream_completes(
             remote_error=None,
         )
 
-    monkeypatch.setattr("jj_review.cli.stream_cleanup", fake_stream_cleanup)
+    monkeypatch.setattr("jj_review.commands.cleanup.stream_cleanup", fake_stream_cleanup)
 
     exit_code = main(["cleanup", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -1787,7 +1790,7 @@ def test_main_status_reports_uninspected_github_target_for_empty_stack(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(
-        "jj_review.cli.prepare_status",
+        "jj_review.commands.review_state.prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
                 client=SimpleNamespace(list_bookmark_states=lambda: {}),
@@ -1816,7 +1819,7 @@ def test_main_status_reports_uninspected_github_target_for_empty_stack(
         )
         return SimpleNamespace(incomplete=False)
 
-    monkeypatch.setattr("jj_review.cli.stream_status", fake_stream_status)
+    monkeypatch.setattr("jj_review.commands.review_state.stream_status", fake_stream_status)
 
     exit_code = main(["status", "--repository", str(tmp_path), "main"])
     captured = capsys.readouterr()
@@ -1836,7 +1839,7 @@ def test_main_time_output_prefixes_status_lines(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(
-        "jj_review.cli.prepare_status",
+        "jj_review.commands.review_state.prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
                 client=SimpleNamespace(list_bookmark_states=lambda: {}),
@@ -1856,7 +1859,7 @@ def test_main_time_output_prefixes_status_lines(
         ),
     )
     monkeypatch.setattr(
-        "jj_review.cli.stream_status",
+        "jj_review.commands.review_state.stream_status",
         lambda **kwargs: SimpleNamespace(incomplete=False),
     )
 
@@ -1878,7 +1881,7 @@ def test_main_reports_keyboard_interrupt_without_traceback(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(
-        "jj_review.cli.prepare_status",
+        "jj_review.commands.review_state.prepare_status",
         lambda **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
 
@@ -1898,7 +1901,7 @@ def test_main_status_prints_local_header_before_streaming(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(
-        "jj_review.cli.prepare_status",
+        "jj_review.commands.review_state.prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
                 client=SimpleNamespace(
@@ -1949,7 +1952,7 @@ def test_main_status_prints_local_header_before_streaming(
         return SimpleNamespace(incomplete=False)
 
     monkeypatch.setattr(
-        "jj_review.cli.stream_status",
+        "jj_review.commands.review_state.stream_status",
         fake_stream_status,
     )
 
@@ -1973,7 +1976,7 @@ def test_main_reports_keyboard_interrupt_during_status_stream_without_traceback(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(
-        "jj_review.cli.prepare_status",
+        "jj_review.commands.review_state.prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
                 client=SimpleNamespace(list_bookmark_states=lambda: {}),
@@ -1993,7 +1996,7 @@ def test_main_reports_keyboard_interrupt_during_status_stream_without_traceback(
         ),
     )
     monkeypatch.setattr(
-        "jj_review.cli.stream_status",
+        "jj_review.commands.review_state.stream_status",
         lambda **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
 
@@ -2015,7 +2018,7 @@ def test_main_status_prints_cleanup_advisories_for_merged_review_units(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(
-        "jj_review.cli.prepare_status",
+        "jj_review.commands.review_state.prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
                 client=SimpleNamespace(list_bookmark_states=lambda: {}),
@@ -2062,7 +2065,7 @@ def test_main_status_prints_cleanup_advisories_for_merged_review_units(
             selected_revset="@",
         )
 
-    monkeypatch.setattr("jj_review.cli.stream_status", fake_stream_status)
+    monkeypatch.setattr("jj_review.commands.review_state.stream_status", fake_stream_status)
 
     exit_code = main(["status", "--repository", str(tmp_path)])
     captured = capsys.readouterr()
@@ -2092,7 +2095,7 @@ def test_main_time_output_prefixes_interrupt_message(
 ) -> None:
     monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(
-        "jj_review.cli.prepare_status",
+        "jj_review.commands.review_state.prepare_status",
         lambda **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
 

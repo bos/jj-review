@@ -42,27 +42,9 @@ from jj_review.commands import (
 from jj_review.commands import (
     unlink as unlink_command,
 )
-from jj_review.commands.cleanup import (
-    prepare_cleanup,
-    prepare_restack,
-    render_cleanup_action,
-    render_cleanup_action_header,
-    render_cleanup_postamble,
-    render_cleanup_preamble,
-    render_restack_action,
-    render_restack_action_header,
-    render_restack_postamble,
-    render_restack_preamble,
-    run_cleanup_command,
-    run_restack_command,
-    stream_cleanup,
-    stream_restack,
-)
-from jj_review.commands.review_state import prepare_status, run_status_command, stream_status
 from jj_review.commands.submit import run_submit
 from jj_review.completion import emit_shell_completion
 from jj_review.errors import CliError, CommandNotImplementedError
-from jj_review.jj import UnsupportedStackError
 
 logger = logging.getLogger(__name__)
 _TOP_LEVEL_HELP_WIDTH = 80
@@ -259,7 +241,7 @@ def build_parser() -> ArgumentParser:
         command="status",
         help_text=_normalized_help_text(status_command.HELP),
         description_text=status_command.__doc__ or "",
-        handler=_status_handler,
+        handler=status_command.handle_status_command,
     )
     status_parser.add_argument(
         "-f",
@@ -372,7 +354,7 @@ def build_parser() -> ArgumentParser:
         nargs="?",
         help="Revision whose stack should be inspected or restacked",
     )
-    cleanup_parser.set_defaults(handler=_cleanup_handler)
+    cleanup_parser.set_defaults(handler=cleanup_command.handle_cleanup_command)
 
     completion_parser = subparsers.add_parser(
         "completion",
@@ -807,21 +789,6 @@ def _prefix_rendered_output(
     return "".join(chunks), current_at_line_start
 
 
-def _status_handler(args: Namespace) -> int:
-    context = bootstrap_context(args)
-    return run_status_command(
-        change_overrides=context.config.change,
-        config=context.config.repo,
-        configured_trunk_branch=context.config.repo.trunk_branch,
-        emit=print,
-        fetch_remote_state=args.fetch,
-        prepare_status_fn=prepare_status,
-        repo_root=context.repo_root,
-        revset=args.revset,
-        stream_status_fn=stream_status,
-    )
-
-
 def _resolve_selected_revset(
     args: Namespace,
     *,
@@ -1006,83 +973,6 @@ def _render_submit_pr_suffix(
     if action == "created":
         return f" [{label}]"
     return f" [{label} {action}]"
-
-
-def _cleanup_handler(args: Namespace) -> int:
-    context = bootstrap_context(args)
-    if args.restack:
-        selected_revset = _resolve_selected_revset(
-            args,
-            command_label="cleanup --restack --apply" if args.apply else "cleanup --restack",
-            require_explicit=bool(args.apply),
-        )
-        try:
-            prepared_restack = prepare_restack(
-                apply=bool(args.apply),
-                change_overrides=context.config.change,
-                config=context.config.repo,
-                repo_root=context.repo_root,
-                revset=selected_revset,
-            )
-        except UnsupportedStackError as error:
-            raise CliError(status_command.describe_status_preparation_error(error)) from error
-        for line in render_restack_preamble(prepared_restack=prepared_restack):
-            print(line)
-
-        header_printed = False
-
-        def emit_action(action) -> None:
-            nonlocal header_printed
-            if not header_printed:
-                print(render_restack_action_header(apply=prepared_restack.apply))
-                header_printed = True
-            print(render_restack_action(action=action))
-
-        try:
-            _, result = run_restack_command(
-                apply=bool(args.apply),
-                change_overrides=context.config.change,
-                config=context.config.repo,
-                on_action=emit_action,
-                prepare_restack_fn=lambda **kwargs: prepared_restack,
-                repo_root=context.repo_root,
-                revset=selected_revset,
-                stream_restack_fn=stream_restack,
-            )
-        except UnsupportedStackError as error:
-            raise CliError(status_command.describe_status_preparation_error(error)) from error
-        for line in render_restack_postamble(result=result):
-            print(line)
-        return 1 if result.blocked else 0
-
-    prepared_cleanup = prepare_cleanup(
-        apply=bool(args.apply),
-        config=context.config.repo,
-        repo_root=context.repo_root,
-    )
-    for line in render_cleanup_preamble(prepared_cleanup=prepared_cleanup):
-        print(line)
-
-    header_printed = False
-
-    def emit_action(action) -> None:
-        nonlocal header_printed
-        if not header_printed:
-            print(render_cleanup_action_header(apply=prepared_cleanup.apply))
-            header_printed = True
-        print(render_cleanup_action(action=action))
-
-    _, result = run_cleanup_command(
-        apply=bool(args.apply),
-        config=context.config.repo,
-        on_action=emit_action,
-        prepare_cleanup_fn=lambda **kwargs: prepared_cleanup,
-        repo_root=context.repo_root,
-        stream_cleanup_fn=stream_cleanup,
-    )
-    for line in render_cleanup_postamble(result=result):
-        print(line)
-    return 0
 
 
 def _stub_handler(command: str):

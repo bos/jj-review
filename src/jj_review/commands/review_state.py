@@ -7,6 +7,7 @@ change without changing anything.
 from __future__ import annotations
 
 import textwrap
+from argparse import Namespace
 from collections.abc import Callable
 from pathlib import Path
 
@@ -37,6 +38,25 @@ _status_is_incomplete = _review_inspection._status_is_incomplete
 _stream_status_async = _review_inspection._stream_status_async
 prepare_status = _review_inspection.prepare_status
 stream_status = _review_inspection.stream_status
+
+
+def handle_status_command(args: Namespace) -> int:
+    """CLI entrypoint for `status`."""
+
+    from jj_review.bootstrap import bootstrap_context
+
+    context = bootstrap_context(args)
+    return run_status_command(
+        change_overrides=context.config.change,
+        config=context.config.repo,
+        configured_trunk_branch=context.config.repo.trunk_branch,
+        emit=print,
+        fetch_remote_state=args.fetch,
+        prepare_status_fn=prepare_status,
+        repo_root=context.repo_root,
+        revset=args.revset,
+        stream_status_fn=stream_status,
+    )
 
 
 def run_status_command(
