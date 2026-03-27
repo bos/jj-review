@@ -6,19 +6,20 @@ current slices.
 ## Crash and Interrupt Recovery
 
 Intent files now act as the concurrency lock, mutating commands hard-fail when
-review state is unavailable, cache writes are incremental during mutating
-operations, and `status` surfaces outstanding and stale incomplete operations.
+saved jj-review data is unavailable, saved-data writes are incremental during
+mutating operations, and `status` surfaces outstanding and stale incomplete
+operations.
 
 The remaining follow-up in this area is explicit abort support.
 
 ## Aborting Incomplete Operations
 
-Once intent files and incremental cache saves are in place, `submit --abort`
-and `cleanup --abort` become well-defined: use the intent file to identify what
-was in progress and the cache to identify what completed, then retract the
-completed work (close PRs, delete remote branches, revert local bookmarks,
-clear cache entries) and remove the intent file. Design separately; don't tie
-to the intent file implementation.
+Once intent files and incremental saved-data writes are in place,
+`submit --abort` and `cleanup --abort` become well-defined: use the intent file
+to identify what was in progress and the saved data to identify what
+completed, then retract the completed work (close PRs, delete remote branches,
+revert local bookmarks, clear saved-data entries) and remove the intent file.
+Design separately; don't tie to the intent file implementation.
 
 ## Concurrency and Rate Limiting
 
@@ -46,8 +47,8 @@ merged ancestors and the division of labor between `land` and
 
 The remaining follow-up here is narrower:
 
-- edge cases around partial-stack landing boundaries after an earlier prefix
-  has already landed
+- edge cases around partial-stack landing boundaries after some earlier changes
+  have already landed
 - whether future landing transports impose extra constraints on how descendants
   are rediscovered and resubmitted
 - any residual diagnostics that are still too subtle once the concrete `land`

@@ -1,4 +1,4 @@
-"""Unlink one selected change from review tracking without mutating GitHub."""
+"""Unlink one selected change from jj-review tracking without mutating GitHub."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from jj_review.models.cache import CachedChange
 
 
 class UnlinkError(CliError):
-    """Raised when `unlink` cannot safely remove a review link."""
+    """Raised when `unlink` cannot safely remove active tracking."""
 
 
 @dataclass(frozen=True, slots=True)

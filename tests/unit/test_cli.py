@@ -82,8 +82,8 @@ def test_main_help_command_prints_subcommand_help(
         ),
         (
             "cleanup",
-            "Find stale jj-review branches and saved local data left behind by earlier "
-            "review work",
+            "Find stale jj-review remote branches and saved local data left behind by "
+            "earlier review work",
         ),
         (
             "import",
@@ -1022,7 +1022,7 @@ def test_main_submit_passes_dry_run_and_renders_planned_output(
     assert dry_run_calls == [True]
     assert selected_revsets == [None]
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
-    assert "Planned review bookmarks:" in captured.out
+    assert "Planned bookmarks:" in captured.out
     assert "- feature 1 [abcdefgh]" in captured.out
     assert "  -> review/feature-abcdefgh [new PR]" in captured.out
     assert "Top of stack:" not in captured.out
@@ -1209,7 +1209,7 @@ def test_main_submit_prints_final_output_without_duplicate_lines(
     assert captured.out.count("Selected remote: origin") == 1
     assert captured.out.count("Trunk: base -> main") == 1
     assert captured.out.count("Dry run: no local, remote, or GitHub changes applied.") == 1
-    assert captured.out.count("Planned review bookmarks:") == 1
+    assert captured.out.count("Planned bookmarks:") == 1
     assert captured.out.count("- feature 1 [abcdefgh]") == 1
     assert captured.out.count("  -> review/feature-abcdefgh [new PR]") == 1
     assert "Top of stack:" not in captured.out

@@ -205,8 +205,8 @@ The CLI layer should be thin. It should:
 It should not contain stack planning logic.
 
 Bootstrap failures such as missing config files, invalid config syntax, or bad
-local paths should be surfaced as targeted CLI diagnostics rather than Python
-tracebacks.
+stack selection should be surfaced as targeted CLI diagnostics rather than
+Python tracebacks.
 
 ### JJ Adapter
 
@@ -311,7 +311,7 @@ Important persisted records should mirror the design doc's minimal jj-review
 data:
 
 - per-change pinned bookmark and GitHub PR link
-- per-change reviewer-facing stack comment identifier, if used
+- per-change reviewer-facing stack summary comment identifier, if used
 
 Repo defaults used for resolution belong in config, not in machine-written
 jj-review data.
@@ -625,7 +625,7 @@ Status: complete.
 
 Deliver:
 
-- push/move review bookmarks
+- push/move bookmarks
 - detect tracked-remote and remote branch state
 - verify actual Git remote state in tests
 
@@ -698,11 +698,10 @@ Single-review-unit submits are treated as plain PRs rather than stacks: they
 skip the stack summary comment entirely, and `--describe-with` does not invoke
 the stack helper for that case.
 
-The same stack summary comment now also accepts an optional generated
-stack-summary
-prefix from `submit --describe-with`; that prose is rendered ahead of the
-standard previous/current/next navigation block so the product still owns only
-one reviewer-facing comment per PR.
+The same stack summary comment now also accepts optional generated
+introductory text from `submit --describe-with`; that prose is rendered ahead
+of the standard previous/current/next navigation block so the product still
+owns only one reviewer-facing comment per PR.
 
 When `submit` invokes a stack helper, it now also writes a temporary input file
 with the already-generated PR title/body pairs plus compact per-PR diffstat
@@ -778,7 +777,7 @@ Implemented in the first vertical cut:
   link so a later submit can update the relinked review intentionally
 - `relink` now also fails closed on GitHub lookup errors instead of surfacing
   uncaught transport exceptions through the CLI
-- `relink` now also refuses to steal an already-bound local review bookmark from
+- `relink` now also refuses to steal an already-bound local bookmark from
   another revision when saved local data is missing or stale
 - slice coverage now exercises `status --fetch` as a real remote-rediscovery
   path and covers explicit `relink` failure cases such as missing PRs, closed
@@ -802,11 +801,11 @@ Implemented in the first vertical cut:
 
 - `cleanup` now reports repo-scoped saved-data cleanup actions before it
   mutates anything, including stale saved change records, removable stack
-  summary comments on stale PRs, and stale remote review branches
+  summary comments on stale PRs, and stale remote pull request branches
 - `cleanup --apply` now performs the safe subset of those actions: it prunes
   saved change entries that no longer resolve to supported local review
   stacks, deletes only stack summary comments on closed or unlinked PRs, and
-  deletes stale remote review branches only when the remote branch is
+  deletes stale remote pull request branches only when the remote branch is
   unambiguous and no local bookmark still owns it
 - stale saved entries now avoid extra GitHub stack-summary-comment inspection
   unless saved local data suggests comment cleanup could still produce an
@@ -843,10 +842,11 @@ Implemented in the first vertical cut:
   GitHub GraphQL lookup path instead of issuing one REST list call per review
   unit
 - `submit` now batches ordinary `jj git push --bookmark ...` updates into one
-  remote push when the selected review branches can use the normal tracked
+  remote push when the selected pull request branches can use the normal tracked
   bookmark path, while still handling untracked remote-bookmark lease updates
   conservatively one branch at a time
-- once remote review branches are in place, submit now syncs PR create/update
+- once remote pull request branches are in place, submit now syncs PR
+  create/update
   work with bounded concurrency, stops launching new PR work after the first
   failure, drains already-started tasks, checkpoints each successful in-flight
   PR sync, and reconciles configured reviewers and labels when saved-data
@@ -916,7 +916,7 @@ Done when:
 - fetched branch-tip commits for merged non-trunk PRs are treated as fetched
   saved GitHub observations, not as the canonical continuation of the local stack
 - automatic local rewrites fail closed only when the selected stack or PR
-  link is truly ambiguous, or when removing a merged path change would
+  link is truly ambiguous, or when removing a merged stack change would
   discard unpublished local edits
 - tests cover the common fetched-merge case, safe restacking of remaining
   changes, and the
@@ -994,8 +994,8 @@ This slice is now in place with the current implementation:
   into a later confusing “run preview first” apply error
 - preview/apply recovery guidance preserves a saved `--expect-pr` guardrail in
   the rerun hint, so plan-invalidation retries do not silently drop it
-- exact post-landing bookkeeping is limited to the landed prefix, while
-  broader stale-state cleanup remains a separate `cleanup` concern
+- exact post-landing bookkeeping is limited to the changes landed in that run,
+  while broader stale-state cleanup remains a separate `cleanup` concern
 
 ### Stack Import
 
@@ -1012,7 +1012,7 @@ The CLI contract is:
 The product-level split is:
 
 - `status --fetch` refreshes remote observations and GitHub PR state without
-  mutating local review bookmarks or the workspace
+  mutating local bookmarks or the workspace
 - `import` sets up saved local jj-review data for one exact stack
 - `cleanup --restack` remains the local-history repair path after merges or
   other ancestry damage
@@ -1025,7 +1025,7 @@ The implementation uses explicit rules for what `import` may mutate:
   `--head`, fetch only the needed branches for the selected stack so an
   existing reviewed stack can be bootstrapped on a new machine
 - refresh saved data only for the selected stack
-- create or refresh local review bookmarks only when the target is
+- create or refresh local bookmarks only when the target is
   exact and unambiguous
 - fail closed if any imported revision would require inventing a new generated
   bookmark rather than reusing exact remote identity
@@ -1041,7 +1041,7 @@ This slice is done when:
 
 - a user can bootstrap an existing review stack on a new machine from an
   explicit PR or branch selector with `--fetch`
-- remote-only review branches can be imported into saved local data
+- remote-only pull request branches can be imported into saved local data
   with `--fetch` and without inventing topology from saved data
 - bookmark conflicts, ambiguous PR matches, and unsupported stack
   shapes fail with targeted recovery guidance
@@ -1060,7 +1060,7 @@ This slice is done when:
 - stale saved local data is refreshed only when fetched link for the exact
   selected stack is unambiguous; otherwise import fails closed with targeted
   conflict guidance
-- `import --revset` does not synthesize review bookmark names when no remote is
+- `import --revset` does not synthesize bookmark names when no remote is
   selected
 - remote-selected import without `--fetch` fails with targeted guidance to
   rerun with `import --fetch` when the necessary branch is not already
@@ -1073,8 +1073,8 @@ solves explicit import/materialization, not whole-repo refresh policy.
 
 `close` is implemented. The normal user-facing "stop review for this stack"
 flow closes the open PRs `jj-review` is already tracking for the selected local
-stack, and `close --cleanup` extends that with conservative cleanup of review
-branches, local review bookmarks, stack summary comments, and stale saved data
+stack, and `close --cleanup` extends that with conservative cleanup of pull
+request branches, local bookmarks, stack summary comments, and stale saved data
 entries when the tool can verify they belong to the stack.
 
 The CLI contract is:
@@ -1088,15 +1088,15 @@ The product split should stay explicit:
 - `close --cleanup` performs conservative branch and metadata cleanup after
   the PR close succeeds
 
-The `close` slice needs clear apply-phase and ownership rules:
+The `close` slice needs clear apply-phase and verification rules:
 
 - preview by default, with `--apply` required for mutations
 - without `--cleanup`, close open PRs and retire active local jj-review data
   only, while skipping already-merged or already-closed PRs on the stack
-- with `--cleanup`, delete remote review branches, forget local review
+- with `--cleanup`, delete remote pull request branches, forget local
   bookmarks, delete stack summary comments, and prune stale jj-review metadata
-  only when the tool can verify they belong to the
-  selected stack on the configured target remote
+  only when the tool can verify they belong to the selected stack on the
+  configured target remote
 - controlled blocked exits retire their close intent instead of leaving a
   stale "interrupted" notice behind, while still checkpointing any earlier
   saved-data updates that already succeeded on the same path
@@ -1111,8 +1111,8 @@ Done when:
 
 - `close` can preview and then close the open PRs `jj-review` is already
   tracking for one selected local stack
-- `close --cleanup` can also delete review branches and retire local review
-  artifacts without crossing ambiguous identity boundaries
+- `close --cleanup` can also delete pull request branches and retire local
+  review artifacts without crossing ambiguous identity boundaries
 - close reruns skip already-finished PRs and only perform any remaining safe
   cleanup work
 
@@ -1130,14 +1130,14 @@ versus saved local data:
 - clearing saved PR fields is not enough
 - unlink writes a durable unlinked marker for the selected change
 - rerunning unlink is idempotent and should succeed as a no-op
-- unlinking a change with no active review link should fail instead of
+- unlinking a change with no active tracking should fail instead of
   creating unlinked state for a never-linked change
 
 `unlink` keeps the unlinked-state precedence rule. Once a change is explicitly
 unlinked, that unlinked record must override every other proof that the change
 is still being tracked:
 
-- local review bookmarks
+- local bookmarks
 - saved PR link
 - discovered GitHub PR link for the same head branch
 
@@ -1149,17 +1149,17 @@ This slice is now in place with the current implementation:
 - `unlink` detaches one explicitly selected local change without mutating
   GitHub
 - unlink clears active PR and stack-summary-comment link, preserves any known
-  review bookmark, and records durable unlinked state in saved local data
+  bookmark, and records durable unlinked state in saved local data
 - rerunning unlink for an already-unlinked change succeeds as a no-op, while
   unlinking a never-linked change fails with targeted guidance
-- `status --fetch` surfaces unlinked review branches and unlinked PRs without
+- `status --fetch` surfaces unlinked bookmarks and unlinked PRs without
   repopulating active tracked state
 - `import` may restore local bookmark state for unlinked changes, but it keeps
   the durable unlinked marker and does not repopulate active PR tracking
 - `submit` now refuses unlinked changes until `relink` clears the unlinked
   marker, and `relink` reactivates the link when it succeeds
 - `land` blocks unlinked changes as not safely landable through the normal
-  review pipeline
+  `jj-review` flow
 - cleanup treats unlinked state as a valid reason to remove stack summary
   comments and continues to prune unlinked markers once their `change_id` no
   longer resolves locally
@@ -1168,7 +1168,7 @@ Done when:
 
 - unlinking one selected change clears active link and records unlinked state
 - `status --fetch` surfaces unlinked state without repopulating active link
-- `status` reports preserved local bookmarks as unlinked review bookmarks when
+- `status` reports preserved local bookmarks as unlinked bookmarks when
   unlinked state still exists
 - `submit` refuses to reuse unlinked state until `relink` clears it
 - `land` rejects unlinked changes as not safely landable

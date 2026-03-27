@@ -1,4 +1,4 @@
-"""Conservative cleanup of stale local and remote review state."""
+"""Conservative cleanup of stale local and remote jj-review data."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Explicit PR-link repair for existing review branches."""
+"""Explicit PR-link repair for existing pull request branches."""
 
 from __future__ import annotations
 
@@ -117,8 +117,8 @@ async def _run_relink_async(
     if pull_request.head.label != expected_head_label:
         raise RelinkResolutionError(
             f"Pull request #{pull_request.number} head {pull_request.head.label!r} does not "
-            f"belong to {github_repository.full_name}. Relink only supports same-repository "
-            "review branches."
+            f"belong to {github_repository.full_name}. Relink only supports "
+            "same-repository pull request branches."
         )
 
     bookmark_state = client.get_bookmark_state(bookmark)

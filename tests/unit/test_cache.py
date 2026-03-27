@@ -125,5 +125,5 @@ def test_review_state_store_disables_persistence_when_repo_id_is_unavailable(
         store.save(ReviewState())
 
     assert loaded_state == ReviewState()
-    assert "Review state disabled" in caplog.text
-    assert "Skipping review state save" in caplog.text
+    assert "jj-review data disabled" in caplog.text
+    assert "Skipping jj-review data save" in caplog.text

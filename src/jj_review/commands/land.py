@@ -1,4 +1,4 @@
-"""Land command support for moving the trunk-open review prefix onto trunk."""
+"""Land command support for moving the changes that can be landed now onto trunk."""
 
 from __future__ import annotations
 
@@ -573,8 +573,8 @@ def _build_land_plan(
                 boundary_action=LandAction(
                     kind="guardrail",
                     message=(
-                        f"`--expect-pr {expect_pr_number}` did not match the selected landable "
-                        f"prefix on {trunk_branch}."
+                        f"`--expect-pr {expect_pr_number}` did not match the selected changes "
+                        f"that can be landed now on {trunk_branch}."
                     ),
                     status="blocked",
                 ),
@@ -1006,7 +1006,7 @@ def _follow_up_message(
     if landed_change_count == 0 or landed_change_count >= total_change_count:
         return None
     return (
-        "Next step: surviving descendants remain above the landed prefix. "
+        "Next step: remaining descendants still sit above the changes that were landed. "
         f"Run `cleanup --restack {selected_revset}` and then `submit {selected_revset}`."
     )
 
@@ -1109,7 +1109,8 @@ async def _finalize_landed_pull_request(
         except GithubClientError as error:
             if error.status_code != 404:
                 raise LandError(
-                    f"Could not delete stack comment #{cached_change.stack_comment_id}: {error}"
+                    f"Could not delete stack summary comment "
+                    f"#{cached_change.stack_comment_id}: {error}"
                 ) from error
     return pull_request
 

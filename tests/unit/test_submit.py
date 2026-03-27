@@ -745,7 +745,7 @@ def test_repair_interrupted_untracked_remote_bookmarks_tracks_matching_remote_ta
 def test_pull_request_link_rejects_missing_discovered_pull_request() -> None:
     with pytest.raises(
         SubmitPullRequestResolutionError,
-        match="Cached pull request link exists",
+        match="Saved pull request link exists",
     ):
         _ensure_pull_request_link_is_consistent(
             bookmark="review/foo",
@@ -762,7 +762,7 @@ def test_pull_request_link_rejects_missing_discovered_pull_request() -> None:
 def test_pull_request_link_rejects_mismatched_pull_request_number() -> None:
     with pytest.raises(
         SubmitPullRequestResolutionError,
-        match="Cached pull request #17 does not match",
+        match="Saved pull request #17 does not match",
     ):
         _ensure_pull_request_link_is_consistent(
             bookmark="review/foo",

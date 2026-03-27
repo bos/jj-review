@@ -92,9 +92,10 @@ requests, and `--cleanup` also removes jj-review's GitHub branches and any local
 bookmarks for them.
 """
 _CLEANUP_DESCRIPTION = """
-Find stale jj-review branches and saved local data left behind by earlier review
-work. With `--apply`, this removes the safe ones, and with `--restack` it can
-also restack local descendants after earlier pull requests were merged.
+Find stale jj-review remote branches and saved local data left behind by
+earlier review work. With `--apply`, this removes the safe ones, and with
+`--restack` it can also restack local descendants after earlier pull requests
+were merged.
 """
 _IMPORT_DESCRIPTION = """
 Set up local jj-review tracking for one existing reviewed stack. Without
@@ -351,7 +352,7 @@ def build_parser() -> ArgumentParser:
     close_parser.add_argument(
         "--cleanup",
         action="store_true",
-        help="Also clean up review branches and saved jj-review data for the stack",
+        help="Also clean up pull request branches and saved jj-review data for the stack",
     )
     close_parser.add_argument(
         "--current",
@@ -1340,9 +1341,9 @@ def _submit_handler(args: Namespace) -> int:
             return
         if args.dry_run:
             print("Dry run: no local, remote, or GitHub changes applied.")
-            print("Planned review bookmarks:")
+            print("Planned bookmarks:")
         else:
-            print("Submitted review bookmarks:")
+            print("Submitted bookmarks:")
         emitted_section_header = True
 
     result = run_submit(
@@ -1370,9 +1371,9 @@ def _submit_handler(args: Namespace) -> int:
     if not emitted_section_header:
         if result.dry_run:
             print("Dry run: no local, remote, or GitHub changes applied.")
-            print("Planned review bookmarks:")
+            print("Planned bookmarks:")
         else:
-            print("Submitted review bookmarks:")
+            print("Submitted bookmarks:")
     for revision in result.revisions:
         _print_submit_revision(revision)
     if not result.dry_run:

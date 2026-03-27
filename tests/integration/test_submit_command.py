@@ -281,7 +281,7 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
     stack = JjClient(repo).discover_review_stack()
 
     assert exit_code == 0
-    assert "Submitted review bookmarks:" in captured.out
+    assert "Submitted bookmarks:" in captured.out
     assert fake_repo.pull_requests[1].title == f"AI {stack.revisions[0].change_id[:8]}"
     assert fake_repo.pull_requests[1].body == (
         f"Generated body for {stack.revisions[0].change_id}"
@@ -572,7 +572,7 @@ def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
 
     assert exit_code == 0
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
-    assert "Planned review bookmarks:" in captured.out
+    assert "Planned bookmarks:" in captured.out
     assert "feature 1 [" in captured.out
     assert "  -> review/" in captured.out
     assert " [new PR]" in captured.out
@@ -907,7 +907,7 @@ def test_status_reports_remote_and_github_link(
     assert "feature 1 [" in captured.out
     assert ": PR #1" in captured.out
     assert "review/" not in captured.out
-    assert "stack comment" not in captured.out
+    assert "stack summary comment" not in captured.out
 
 
 def test_status_prints_stack_tip_first_like_jj_log(
@@ -3444,7 +3444,7 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
             if issue_number == issue_number_2:
                 await asyncio.sleep(0.01)
                 raise GithubClientError(
-                    "Simulated stack comment failure",
+                    "Simulated stack summary comment failure",
                     status_code=500,
                 )
             if issue_number == issue_number_1:
@@ -3666,7 +3666,7 @@ def test_status_shows_outstanding_submit_intent(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    # First do a submit to create cache state
+    # First do a submit to create saved local data
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
 
@@ -3704,7 +3704,7 @@ def test_status_exits_nonzero_for_overlapping_intent(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    # First do a submit to create cache state
+    # First do a submit to create saved local data
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
 
@@ -3742,7 +3742,7 @@ def test_status_exits_zero_for_stale_intent(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    # First do a submit to create cache state
+    # First do a submit to create saved local data
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
 
@@ -3958,7 +3958,7 @@ def test_land_previews_and_applies_trunk_open_prefix(
     bookmark_1 = submitted_state.changes[change_id_1].bookmark
     bookmark_2 = submitted_state.changes[change_id_2].bookmark
     if bookmark_1 is None or bookmark_2 is None:
-        raise AssertionError("Expected saved review bookmarks after submit.")
+        raise AssertionError("Expected saved bookmarks after submit.")
 
     fake_repo.pull_requests[3].state = "closed"
 

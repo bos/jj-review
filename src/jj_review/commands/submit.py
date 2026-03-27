@@ -49,7 +49,7 @@ class SubmitBookmarkConflictError(CliError):
 
 
 class SubmitBookmarkResolutionError(CliError):
-    """Raised when `submit` cannot safely rediscover review bookmark link."""
+    """Raised when `submit` cannot safely rediscover the saved bookmark."""
 
 
 class SubmitRemoteBookmarkConflictError(CliError):
@@ -184,7 +184,7 @@ class PreparedSubmitRevision:
 
 @dataclass(frozen=True, slots=True)
 class SubmittedPullRequestSync:
-    """One completed PR sync plus its cache update."""
+    """One completed PR sync plus its saved-data update."""
 
     cached_change: CachedChange | None
     submitted_revision: SubmittedRevision
@@ -278,7 +278,7 @@ def run_submit(
     reviewers: list[str] | None = None,
     team_reviewers: list[str] | None = None,
 ) -> SubmitResult:
-    """Submit the selected local stack as review bookmarks and pull requests."""
+    """Submit the selected local stack as bookmarks and pull requests."""
 
     state_store = ReviewStateStore.for_repo(repo_root)
     state_dir = state_store.require_writable() if not dry_run else state_store.state_dir
