@@ -529,8 +529,8 @@ def _record_retired_cached_change(
         next_changes[revision.change_id] = updated_change
         record_action(
             CloseAction(
-                kind="cache",
-                message=f"retire active review state for {revision_label}",
+                kind="tracking",
+                message=f"stop saved jj-review tracking for {revision_label}",
                 status="applied" if prepared_close.apply else "planned",
             )
         )
@@ -597,7 +597,7 @@ async def _cleanup_revision(
                 CloseAction(
                     kind="local bookmark",
                     message=(
-                        f"cannot forget local review bookmark {bookmark!r} because it is "
+                        f"cannot forget local bookmark {bookmark!r} because it is "
                         "conflicted"
                     ),
                     status="blocked",
@@ -609,7 +609,7 @@ async def _cleanup_revision(
                 CloseAction(
                     kind="local bookmark",
                     message=(
-                        f"cannot forget local review bookmark {bookmark!r} because it "
+                        f"cannot forget local bookmark {bookmark!r} because it "
                         "already points to a different revision"
                     ),
                     status="blocked",
@@ -630,7 +630,7 @@ async def _cleanup_revision(
                     CloseAction(
                         kind="remote branch",
                         message=(
-                            f"cannot delete remote review branch {bookmark}@{remote_name} "
+                            f"cannot delete remote branch {bookmark}@{remote_name} "
                             "because the remote bookmark is conflicted"
                         ),
                         status="blocked",
@@ -642,7 +642,7 @@ async def _cleanup_revision(
                     CloseAction(
                         kind="remote branch",
                         message=(
-                            f"cannot delete remote review branch {bookmark}@{remote_name} "
+                            f"cannot delete remote branch {bookmark}@{remote_name} "
                             "because it already points to a different revision"
                         ),
                         status="blocked",
@@ -661,7 +661,7 @@ async def _cleanup_revision(
             record_action(
                 CloseAction(
                     kind="remote branch",
-                    message=f"delete remote review branch {bookmark}@{remote_name}",
+                    message=f"delete remote branch {bookmark}@{remote_name}",
                     status="applied" if apply else "planned",
                 )
             )
@@ -678,7 +678,7 @@ async def _cleanup_revision(
             record_action(
                 CloseAction(
                     kind="local bookmark",
-                    message=f"forget local review bookmark {bookmark}",
+                    message=f"forget local bookmark {bookmark}",
                     status="applied" if apply else "planned",
                 )
             )
@@ -700,7 +700,7 @@ async def _cleanup_revision(
     if comment is not None:
         record_action(
             CloseAction(
-                kind="stack comment",
+                kind="stack summary comment",
                 message=(
                     f"delete stack summary comment #{comment.id} from PR "
                     f"#{cached_change.pr_number}"
@@ -750,9 +750,9 @@ async def _find_stack_summary_comment(
                 return (
                     None,
                     CloseAction(
-                        kind="stack comment",
+                        kind="stack summary comment",
                         message=(
-                            "cannot inspect cached stack comment "
+                            "cannot inspect saved stack summary comment "
                             f"#{cached_stack_comment_id}: {cached_comment_error}"
                         ),
                         status="blocked",
@@ -762,10 +762,11 @@ async def _find_stack_summary_comment(
                 return (
                     None,
                     CloseAction(
-                        kind="stack comment",
+                        kind="stack summary comment",
                         message=(
-                            f"cannot delete cached stack comment #{cached_stack_comment_id} "
-                            "because it is not managed by `jj-review`"
+                            f"cannot delete saved stack summary comment "
+                            f"#{cached_stack_comment_id} because it does not belong to "
+                            "`jj-review`"
                         ),
                         status="blocked",
                     ),
@@ -774,7 +775,7 @@ async def _find_stack_summary_comment(
         return (
             None,
             CloseAction(
-                kind="stack comment",
+                kind="stack summary comment",
                 message=(
                     f"cannot inspect stack summary comments for PR #{pull_request_number}: "
                     f"{error}"
@@ -793,10 +794,11 @@ async def _find_stack_summary_comment(
                 return (
                     None,
                     CloseAction(
-                        kind="stack comment",
+                        kind="stack summary comment",
                         message=(
-                            f"cannot delete cached stack comment #{cached_stack_comment_id} "
-                            f"because it is not managed by `jj-review`"
+                            f"cannot delete saved stack summary comment "
+                            f"#{cached_stack_comment_id} because it does not belong to "
+                            "`jj-review`"
                         ),
                         status="blocked",
                     ),
@@ -810,7 +812,7 @@ async def _find_stack_summary_comment(
         return (
             None,
             CloseAction(
-                kind="stack comment",
+                kind="stack summary comment",
                 message=(
                     "cannot delete stack summary comments because GitHub reports "
                     f"multiple candidates on PR #{pull_request_number}"
@@ -828,9 +830,9 @@ def _retire_cached_change(
     *,
     pr_state: str,
 ) -> CachedChange:
-    # Closed changes remain "active" unless they were explicitly unlinked. The cache still
-    # needs the last known review identity so later cleanup or status refresh can reason
-    # about the already-closed path without reattaching it.
+    # Closed changes remain "active" unless they were explicitly unlinked. The saved
+    # jj-review data still needs the last known review identity so later cleanup or
+    # status refresh can reason about the already-closed stack without reattaching it.
     updates: dict[str, object] = {
         "pr_review_decision": None,
         "pr_state": pr_state,

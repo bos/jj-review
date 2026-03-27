@@ -770,7 +770,7 @@ def test_submit_rejects_cached_stack_comment_id_for_non_stack_comment(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "is not managed by `jj-review`" in captured.err
+    assert "does not belong to `jj-review`" in captured.err
     assert manual_comment in _issue_comments(fake_repo, 2)
 
 
@@ -809,7 +809,7 @@ def test_submit_rejects_ambiguous_discovered_stack_comments(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "multiple `jj-review` stack comments" in captured.err
+    assert "multiple `jj-review` stack summary comments" in captured.err
 
 
 def test_submit_reports_stack_comment_update_failures_without_traceback(
@@ -854,7 +854,7 @@ def test_submit_reports_stack_comment_update_failures_without_traceback(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "Could not update stack comment" in captured.err
+    assert "Could not update stack summary comment" in captured.err
     assert "Traceback" not in captured.err
 
 
@@ -1065,7 +1065,7 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
         "(repo not found or inaccessible - check GITHUB_TOKEN or gh auth)"
     ) in captured.out
     assert "documentation_url" not in captured.out
-    assert ": cached PR #1 (open)" in captured.out
+    assert ": saved PR #1 (open)" in captured.out
     assert ": PR #1" not in captured.out
 
 
@@ -1198,7 +1198,7 @@ def test_status_exits_nonzero_when_pull_request_lookup_fails(
 
     assert exit_code == 1
     assert f"GitHub: {fake_repo.owner}/{fake_repo.name}" in captured.out
-    assert ": cached PR #1 (open), pull request lookup failed (GitHub 422)" in captured.out
+    assert ": saved PR #1 (open), pull request lookup failed (GitHub 422)" in captured.out
 
 
 def test_status_exits_nonzero_when_github_reports_multiple_pull_requests(
@@ -1253,7 +1253,7 @@ def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "multiple `jj-review` stack comments" in captured.out
+    assert "multiple `jj-review` stack summary comments" in captured.out
 
 
 def test_relink_repairs_existing_pull_request_link_for_rewritten_change(
@@ -1672,7 +1672,7 @@ def test_cleanup_apply_prunes_unlinked_state_for_stale_change(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "remove cached review state" in captured.out
+    assert "remove saved jj-review data" in captured.out
     assert change_id not in ReviewStateStore.for_repo(repo).load().changes
 
 
@@ -1964,7 +1964,7 @@ def test_submit_fails_closed_when_cached_pull_request_is_missing_on_github(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "Cached pull request link exists" in captured.err
+    assert "Saved pull request link exists" in captured.err
     assert "status --fetch" in captured.err
     assert "relink" in captured.err
     assert state_store.load() == initial_state
@@ -2154,7 +2154,7 @@ def test_status_uses_cached_pull_request_metadata_after_prior_online_run(
         "GitHub target: octo-org/stacked-review "
         "(unavailable - check network connectivity)"
     ) in captured.out
-    assert ": cached PR #1 (open)" in captured.out
+    assert ": saved PR #1 (open)" in captured.out
 
 
 def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
@@ -2183,7 +2183,7 @@ def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
     refreshed_state = state_store.load()
 
     assert exit_code == 1
-    assert ": cached PR #1 (open), no GitHub PR" in captured.out
+    assert ": saved PR #1 (open), no GitHub PR" in captured.out
     assert "PR link note:" in captured.out
     assert "refresh remote and GitHub observations" in captured.out
     assert "relink <pr>" in captured.out
@@ -2495,8 +2495,8 @@ def test_cleanup_reports_stale_cache_and_remote_branch_without_applying(
 
     assert exit_code == 0
     assert "Planned cleanup actions:" in captured.out
-    assert "[planned] cache:" in captured.out
-    assert f"[planned] remote branch: delete remote review branch {bookmark}@origin" in (
+    assert "[planned] tracking:" in captured.out
+    assert f"[planned] remote branch: delete remote branch {bookmark}@origin" in (
         captured.out
     )
     assert "cleanup --apply" in captured.out
@@ -2531,7 +2531,7 @@ def test_cleanup_apply_removes_stale_cache_and_remote_branch(
 
     assert exit_code == 0
     assert "Applied cleanup actions:" in captured.out
-    assert f"[applied] remote branch: delete remote review branch {bookmark}@origin" in (
+    assert f"[applied] remote branch: delete remote branch {bookmark}@origin" in (
         captured.out
     )
     assert change_id not in state_store.load().changes
@@ -2626,7 +2626,7 @@ def test_cleanup_apply_deletes_managed_stack_comment_for_closed_pull_request(
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert "[applied] stack comment: delete stack summary comment #2 from PR #2" in (
+    assert "[applied] stack summary comment: delete stack summary comment #2 from PR #2" in (
         captured.out
     )
     assert refreshed_state.changes[change_id].pr_number == 2
@@ -2670,7 +2670,7 @@ def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert "[applied] stack comment: delete stack summary comment #2 from PR #2" in (
+    assert "[applied] stack summary comment: delete stack summary comment #2 from PR #2" in (
         captured.out
     )
     assert refreshed_state.changes[change_id].stack_comment_id is None
@@ -3033,8 +3033,8 @@ def test_close_apply_cleanup_rechecks_cached_comment_ownership_when_pr_is_missin
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "cannot delete cached stack comment" in captured.out
-    assert "not managed by `jj-review`" in captured.out
+    assert "cannot delete saved stack summary comment" in captured.out
+    assert "does not belong to `jj-review`" in captured.out
     assert manual_comment in _issue_comments(fake_repo, 1)
 
 
@@ -3130,7 +3130,7 @@ def test_close_apply_cleanup_exits_nonzero_when_cleanup_is_blocked(
 
     assert exit_code == 1
     assert "Close blocked:" in captured.out
-    assert "[blocked] stack comment:" in captured.out
+    assert "[blocked] stack summary comment:" in captured.out
     assert fake_repo.pull_requests[2].state == "closed"
 
 
@@ -3956,7 +3956,7 @@ def test_land_previews_and_applies_trunk_open_prefix(
     bookmark_1 = submitted_state.changes[change_id_1].bookmark
     bookmark_2 = submitted_state.changes[change_id_2].bookmark
     if bookmark_1 is None or bookmark_2 is None:
-        raise AssertionError("Expected cached review bookmarks after submit.")
+        raise AssertionError("Expected saved review bookmarks after submit.")
 
     fake_repo.pull_requests[3].state = "closed"
 

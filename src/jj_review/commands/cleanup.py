@@ -231,7 +231,7 @@ def stream_restack(
     on_action: Callable[[CleanupAction], None] | None = None,
     prepared_restack: PreparedRestack,
 ) -> RestackResult:
-    """Inspect and optionally apply a local restack plan for merged path changes."""
+    """Inspect and optionally apply a local restack plan after merged changes."""
 
     status_result = stream_status(prepared_status=prepared_restack.prepared_status)
     prepared_status = prepared_restack.prepared_status
@@ -450,7 +450,7 @@ def _run_restack_rebase_pass(
             f"{_restack_destination_label(destination_change_id)}"
         )
         if blocked and closed_unmerged_revisions:
-            message = f"{message} once blocked path changes are resolved"
+            message = f"{message} once blocked changes on the stack are resolved"
         record_action(
             CleanupAction(
                 kind="restack",
@@ -998,8 +998,8 @@ def _cache_action(
     status: CleanupActionStatus,
 ) -> CleanupAction:
     return CleanupAction(
-        kind="cache",
-        message=f"remove cached review state for {_short_change_id(change_id)} ({reason})",
+        kind="tracking",
+        message=f"remove saved jj-review data for {_short_change_id(change_id)} ({reason})",
         status=status,
     )
 
@@ -1048,7 +1048,7 @@ def _plan_remote_branch_cleanup(
             action=CleanupAction(
                 kind="remote branch",
                 message=(
-                    f"cannot delete remote review branch {branch_label} while the "
+                    f"cannot delete remote branch {branch_label} while the "
                     f"local bookmark {bookmark!r} still exists"
                 ),
                 status="blocked",
@@ -1059,7 +1059,7 @@ def _plan_remote_branch_cleanup(
             action=CleanupAction(
                 kind="remote branch",
                 message=(
-                    f"cannot delete remote review branch {branch_label} because the "
+                    f"cannot delete remote branch {branch_label} because the "
                     "remote bookmark is conflicted"
                 ),
                 status="blocked",
@@ -1069,7 +1069,7 @@ def _plan_remote_branch_cleanup(
     return RemoteBranchCleanupPlan(
         action=CleanupAction(
             kind="remote branch",
-            message=f"delete remote review branch {branch_label}",
+            message=f"delete remote branch {branch_label}",
             status="planned",
         ),
         expected_remote_target=remote_state.target,
@@ -1178,7 +1178,7 @@ async def _plan_stack_comment_cleanup(
 
     return StackCommentCleanupPlan(
         action=CleanupAction(
-            kind="stack comment",
+            kind="stack summary comment",
             message=(
                 "delete stack summary comment "
                 f"#{stack_summary_comment.id} from PR #{pull_request_number}"
@@ -1252,10 +1252,10 @@ async def _resolve_stack_summary_comment(
         if cached_comment is not None:
             if _STACK_COMMENT_MARKER not in cached_comment.body:
                 return CleanupAction(
-                    kind="stack comment",
+                    kind="stack summary comment",
                     message=(
-                        "cannot delete cached stack comment "
-                        f"#{cached_comment.id} because it is not managed by "
+                        "cannot delete saved stack summary comment "
+                        f"#{cached_comment.id} because it does not belong to "
                         "`jj-review`"
                     ),
                     status="blocked",
@@ -1267,7 +1267,7 @@ async def _resolve_stack_summary_comment(
     ]
     if len(stack_summary_comments) > 1:
         return CleanupAction(
-            kind="stack comment",
+            kind="stack summary comment",
             message=(
                 "cannot delete stack summary comments because GitHub reports "
                 f"multiple candidates on PR #{pull_request_number}"
@@ -1305,7 +1305,7 @@ async def _resolve_unlinked_pull_request_number(
         return None
     if len(pull_requests) > 1:
         return CleanupAction(
-            kind="stack comment",
+            kind="stack summary comment",
             message=(
                 "cannot delete stack summary comment because GitHub reports multiple "
                 f"pull requests for unlinked bookmark {bookmark_state.name!r}"
@@ -1329,7 +1329,7 @@ async def _list_issue_comments(
         )
     except GithubClientError as error:
         raise CleanupError(
-            f"Could not list stack comments for pull request #{pull_request_number}: "
+            f"Could not list stack summary comments for pull request #{pull_request_number}: "
             f"{error}"
         ) from error
 
@@ -1347,4 +1347,6 @@ async def _delete_issue_comment(
             comment_id=comment_id,
         )
     except GithubClientError as error:
-        raise CleanupError(f"Could not delete stack comment #{comment_id}: {error}") from error
+        raise CleanupError(
+            f"Could not delete stack summary comment #{comment_id}: {error}"
+        ) from error

@@ -55,7 +55,7 @@ class PullRequestLookup:
 
 @dataclass(frozen=True, slots=True)
 class StackCommentLookup:
-    """Best-effort GitHub stack comment lookup for one pull request."""
+    """Best-effort GitHub stack summary comment lookup for one pull request."""
 
     comment: GithubIssueComment | None
     message: str | None
@@ -582,7 +582,9 @@ def _persist_status_cache_updates(
         if stack_comment_lookup is not None:
             if stack_comment_lookup.state == "present":
                 if stack_comment_lookup.comment is None:
-                    raise AssertionError("Present stack comment lookup must include a comment.")
+                    raise AssertionError(
+                        "Present stack summary comment lookup must include a comment."
+                    )
                 updated_change = updated_change.model_copy(
                     update={"stack_comment_id": stack_comment_lookup.comment.id}
                 )
@@ -858,7 +860,7 @@ async def _inspect_stack_comment(
         return StackCommentLookup(
             comment=None,
             message=_summarize_github_lookup_error(
-                action=f"stack comment lookup for pull request #{pull_request_number}",
+                action=f"stack summary comment lookup for pull request #{pull_request_number}",
                 error=error,
             ),
             state="error",
@@ -872,7 +874,7 @@ async def _inspect_stack_comment(
         return StackCommentLookup(
             comment=None,
             message=(
-                "GitHub reports multiple `jj-review` stack comments for the same pull "
+                "GitHub reports multiple `jj-review` stack summary comments for the same "
                 f"request: {comment_ids}."
             ),
             state="ambiguous",

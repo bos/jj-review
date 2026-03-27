@@ -1,4 +1,4 @@
-"""Persistence helpers for sparse local review state."""
+"""Persistence helpers for saved local jj-review data."""
 
 from __future__ import annotations
 
@@ -26,15 +26,15 @@ _REPO_ID_RE = re.compile(r"^[0-9a-f]+$")
 
 
 class ReviewStateError(CliError):
-    """Raised when the local review state file is unreadable or invalid."""
+    """Raised when the saved local jj-review data is unreadable or invalid."""
 
 
 class ReviewStateUnavailable(CliError):
-    """Raised when optional repo-scoped review state cannot be used."""
+    """Raised when optional repo-scoped jj-review data cannot be used."""
 
 
 class ReviewStateStore:
-    """Load and save sparse review state in a user state directory."""
+    """Load and save jj-review data in a user state directory."""
 
     def __init__(self, path: Path | None, *, disabled_reason: str | None = None) -> None:
         self._path = path
@@ -42,12 +42,12 @@ class ReviewStateStore:
 
     @classmethod
     def for_repo(cls, repo_root: Path) -> ReviewStateStore:
-        """Build a review state store for the supplied repository root."""
+        """Build a jj-review data store for the supplied repository root."""
 
         try:
             return cls(resolve_state_path(repo_root))
         except ReviewStateUnavailable as error:
-            logger.debug("Review state disabled for %s: %s", repo_root, error)
+            logger.debug("jj-review data disabled for %s: %s", repo_root, error)
             return cls(path=None, disabled_reason=str(error))
 
     @property
@@ -57,17 +57,17 @@ class ReviewStateStore:
         return self._path.parent
 
     def require_writable(self) -> Path:
-        """Return the state directory, or raise ReviewStateUnavailable if unavailable."""
+        """Return the data directory, or raise ReviewStateUnavailable if unavailable."""
         if self._path is None:
             raise ReviewStateUnavailable(
-                f"The review state directory is not available: {self._disabled_reason}. "
-                "Mutating operations require a writable state directory. "
+                f"The jj-review data directory is not available: {self._disabled_reason}. "
+                "Mutating operations require a writable data directory. "
                 "Ensure `jj config path --repo` succeeds and the path is writable."
             )
         return self._path.parent
 
     def load(self) -> ReviewState:
-        """Load the persisted state, or defaults when the file is missing."""
+        """Load the saved data, or defaults when the file is missing."""
 
         if self._path is None:
             return ReviewState()
@@ -77,13 +77,15 @@ class ReviewStateStore:
         try:
             return ReviewState.model_validate(raw_data)
         except ValidationError as error:
-            raise ReviewStateError(f"Invalid jj-review state in {self._path}: {error}") from error
+            raise ReviewStateError(
+                f"Invalid jj-review data in {self._path}: {error}"
+            ) from error
 
     def save(self, state: ReviewState) -> None:
-        """Persist the supplied state."""
+        """Persist the supplied jj-review data."""
 
         if self._path is None:
-            logger.debug("Skipping review state save: %s", self._disabled_reason)
+            logger.debug("Skipping jj-review data save: %s", self._disabled_reason)
             return
         serialized_state = state.model_dump(by_alias=True, exclude_none=True)
         rendered = _render_toml(serialized_state)
@@ -103,7 +105,7 @@ class ReviewStateStore:
                 raise
         except OSError as error:
             raise ReviewStateError(
-                f"Could not write jj-review state file {self._path}: {error}"
+                f"Could not write jj-review data file {self._path}: {error}"
             ) from error
 
     def _load_raw_data(self) -> dict[str, Any]:
@@ -113,31 +115,31 @@ class ReviewStateStore:
         if not path.exists():
             return {}
         if not path.is_file():
-            raise ReviewStateError(f"jj-review state path is not a file: {path}")
+            raise ReviewStateError(f"jj-review data path is not a file: {path}")
         try:
             with path.open("rb") as file:
                 data = tomllib.load(file)
         except tomllib.TOMLDecodeError as error:
-            raise ReviewStateError(f"Invalid jj-review state in {path}: {error}") from error
+            raise ReviewStateError(f"Invalid jj-review data in {path}: {error}") from error
         except OSError as error:
             raise ReviewStateError(
-                f"Could not read jj-review state file {path}: {error}"
+                f"Could not read jj-review data file {path}: {error}"
             ) from error
 
         if not isinstance(data, dict):
-            raise ReviewStateError(f"Invalid jj-review state in {path}: expected a table.")
+            raise ReviewStateError(f"Invalid jj-review data in {path}: expected a table.")
         return dict(data)
 
 
 def resolve_state_path(repo_root: Path) -> Path:
-    """Return the machine-written review state path for the repo."""
+    """Return the machine-written jj-review data path for the repo."""
 
     repo_id = _resolve_repo_id(repo_root)
     return default_state_root() / STATE_DIRNAME / "repos" / repo_id / STATE_FILENAME
 
 
 def default_state_root() -> Path:
-    """Return the base directory used for machine-written state."""
+    """Return the base directory used for machine-written jj-review data."""
 
     configured = os.environ.get("XDG_STATE_HOME")
     if configured:

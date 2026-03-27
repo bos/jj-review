@@ -1,4 +1,4 @@
-"""Import sparse local review state for an exact stack selector."""
+"""Set up saved local jj-review data for an exact stack selector."""
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ def run_import(
     repo_root: Path,
     revset: str | None,
 ) -> ImportResult:
-    """Import local review state for one exact selected stack."""
+    """Set up local jj-review tracking for one exact selected stack."""
 
     return asyncio.run(
         _run_import_async(
@@ -142,7 +142,7 @@ async def _run_import_async(
         and not client.query_revisions(selection.selected_revset, limit=1)
     ):
         raise ImportResolutionError(
-            f"Review branch {selection.head_bookmark!r} is not present locally. Re-run "
+            f"Branch {selection.head_bookmark!r} is not present locally. Re-run "
             "`import --fetch` to fetch that stack before importing."
         )
     prepared_status = prepare_status(
@@ -155,10 +155,10 @@ async def _run_import_async(
     )
     if current and not _prepared_status_has_discoverable_remote_link(prepared_status):
         raise ImportResolutionError(
-            "`import --current` cannot proceed because the current local path has no "
-            "discoverable remote review link."
+            "`import --current` cannot proceed because the current stack has no "
+            "matching remote pull request or branch."
         )
-    print("Inspecting GitHub review state...")
+    print("Inspecting GitHub pull requests and branches...")
     status_result = await _stream_status_async(
         persist_cache_updates=False,
         prepared_status=prepared_status,
@@ -634,7 +634,7 @@ def _import_local_state(
                 ImportAction(
                     kind="bookmark",
                     message=(
-                        f"set local review bookmark {planned.bookmark} -> "
+                        f"set local bookmark {planned.bookmark} -> "
                         f"{planned.update_local_target[:_DISPLAY_CHANGE_ID_LENGTH]}"
                     ),
                     status="applied",
@@ -648,7 +648,7 @@ def _import_local_state(
                 ImportAction(
                     kind="bookmark tracking",
                     message=(
-                        f"track remote review branch {planned.bookmark}"
+                        f"track remote branch {planned.bookmark}"
                         f"@{prepared.remote.name}"
                     ),
                     status="applied",
@@ -660,8 +660,8 @@ def _import_local_state(
         state_store.save(next_state)
         actions.append(
             ImportAction(
-                kind="cache",
-                message="refresh sparse review cache for the selected stack",
+                kind="tracking",
+                message="update saved jj-review data for the selected stack",
                 status="applied",
             )
         )
@@ -808,8 +808,8 @@ def _resolve_import_bookmark(
             raise ImportResolutionError(
                 "Could not safely import the selected stack because "
                 f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} has no "
-                "discoverable review bookmark on the selected remote. Refresh with "
-                "`status --fetch` or select an exact review branch or pull request."
+                "matching branch on the selected remote. Refresh with `status --fetch` "
+                "or select an exact branch or pull request."
             )
     if selected_remote_name is None:
         return bookmark
@@ -818,19 +818,18 @@ def _resolve_import_bookmark(
     if remote_state is None or remote_state.target is None:
         raise ImportResolutionError(
             "Could not safely import the selected stack because "
-            f"cached review bookmark {bookmark!r} for "
+            f"saved branch {bookmark!r} for "
             f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} is not "
-            "present on the selected remote. Refresh with `status --fetch` or "
-            "select an exact review branch or pull request."
+            "present on the selected remote. Refresh with `status --fetch` or select "
+            "an exact branch or pull request."
         )
     if remote_state.target != prepared_revision.revision.commit_id:
         raise ImportResolutionError(
             "Could not safely import the selected stack because "
-            f"cached review bookmark {bookmark!r} for "
+            f"saved branch {bookmark!r} for "
             f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} points "
             "to a different revision on the selected remote. Refresh with "
-            "`status --fetch` or repair the stale remote link before importing "
-            "again."
+            "`status --fetch` or repair the stale remote match before importing again."
         )
     return bookmark
 

@@ -48,7 +48,7 @@ _TOP_LEVEL_HELP_DESCRIPTION = """
 jj-review lets you review a local jj stack on GitHub as stacked pull requests.
 
 Use it to submit changes for review, inspect pull request status, land
-reviewed changes, and clean up stale review state.
+reviewed changes, and clean up stale jj-review data.
 """
 _TOP_LEVEL_HIDDEN_OPTION_STRINGS = frozenset(
     {"--repository", "--config", "--debug", "--time-output"}
@@ -58,8 +58,8 @@ _SUBMIT_HELP = "Send a jj stack to GitHub for review"
 _STATUS_HELP = "Check the review status of a jj stack"
 _LAND_HELP = "Land the merge-ready part of a stack"
 _CLOSE_HELP = "Stop reviewing a jj stack on GitHub"
-_CLEANUP_HELP = "Clean up stale review state for a jj stack"
-_IMPORT_HELP = "Import an existing review stack into local jj-review state"
+_CLEANUP_HELP = "Clean up stale jj-review data for a jj stack"
+_IMPORT_HELP = "Set up local jj-review tracking for an existing stack"
 _RELINK_HELP = "Reconnect an existing pull request to a local change"
 _UNLINK_HELP = "Stop managing one local change as part of review"
 _COMPLETION_HELP = "Print shell completion setup for bash, zsh, or fish"
@@ -92,15 +92,15 @@ requests, and `--cleanup` also removes jj-review's GitHub branches and any local
 bookmarks for them.
 """
 _CLEANUP_DESCRIPTION = """
-Find stale jj-review branches and local records left behind by earlier review
+Find stale jj-review branches and saved local data left behind by earlier review
 work. With `--apply`, this removes the safe ones, and with `--restack` it can
 also restack local descendants after earlier pull requests were merged.
 """
 _IMPORT_DESCRIPTION = """
-Import one existing reviewed stack into local jj-review state. Without
-`--fetch`, this uses the selected stack only if its commits and review link
-are already available locally. With `--fetch`, it fetches the selected pull
-request or review branch first so the stack can be imported into a repo that
+Set up local jj-review tracking for one existing reviewed stack. Without
+`--fetch`, this uses the selected stack only if its commits and matching pull
+request or branch are already available locally. With `--fetch`, it fetches the
+selected pull request or branch first so the stack can be set up in a repo that
 does not have it yet. Import does not rewrite commits, restack changes, or
 change GitHub.
 """
@@ -351,7 +351,7 @@ def build_parser() -> ArgumentParser:
     close_parser.add_argument(
         "--cleanup",
         action="store_true",
-        help="Also clean up owned review branches and managed metadata",
+        help="Also clean up review branches and saved jj-review data for the stack",
     )
     close_parser.add_argument(
         "--current",
@@ -1018,7 +1018,7 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
             else:
                 summary = f"unlinked PR #{pull_request.number} {pull_request.state}"
         elif revision.remote_state is not None and revision.remote_state.targets:
-            summary = "unlinked review branch"
+            summary = "unlinked branch"
         else:
             summary = "unlinked"
     elif lookup is None:
@@ -1074,7 +1074,7 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
         "ambiguous",
         "error",
     }:
-        message = stack_comment_lookup.message or "stack comment lookup failed"
+        message = stack_comment_lookup.message or "stack summary comment lookup failed"
         return f"{summary}, {message}"
     return summary
 
@@ -1086,7 +1086,7 @@ def _format_cached_pull_request_label(cached_change) -> str | None:
     label = _format_pull_request_label(
         cached_change.pr_number,
         is_draft=bool(cached_change.pr_is_draft) and cached_change.pr_state == "open",
-        prefix="cached ",
+        prefix="saved ",
     )
     if cached_change.pr_state is None:
         return label
@@ -1685,7 +1685,7 @@ def _close_handler(args: Namespace) -> int:
         if result.applied:
             print("No close actions were needed for the selected stack.")
         else:
-            print("No managed open pull requests on the selected stack.")
+            print("No open pull requests tracked by jj-review on the selected stack.")
 
     if not result.applied and not result.blocked and result.actions:
         print(
@@ -1726,12 +1726,12 @@ def _import_handler(args: Namespace) -> int:
     else:
         print(f"GitHub: {result.github_repository}")
     if result.actions:
-        print("Imported review state:")
+        print("Updated local jj-review tracking:")
         for action in result.actions:
             print(f"- [{action.status}] {action.kind}: {action.message}")
     else:
         if result.reviewable_revision_count:
-            print("Review state is already up to date for the selected stack.")
+            print("Local jj-review tracking is already up to date for the selected stack.")
         else:
             print("No reviewable commits between the selected revision and `trunk()`.")
     return 0
@@ -1772,7 +1772,7 @@ def _land_handler(args: Namespace) -> int:
         print(
             "Re-run with "
             f"`{_format_land_apply_command(result)}` "
-            "to update trunk and finalize the prefix."
+            "to update trunk and finalize those changes."
         )
     return 1 if result.blocked else 0
 

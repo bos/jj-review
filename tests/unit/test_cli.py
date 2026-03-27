@@ -82,13 +82,13 @@ def test_main_help_command_prints_subcommand_help(
         ),
         (
             "cleanup",
-            "Find stale jj-review branches and local records left behind by earlier "
+            "Find stale jj-review branches and saved local data left behind by earlier "
             "review work",
         ),
         (
             "import",
             "Without `--fetch`, this uses the selected stack only if its commits "
-            "and review link are already available locally",
+            "and matching pull request or branch are already available locally",
         ),
         (
             "relink",
@@ -133,8 +133,8 @@ def test_top_level_help_uses_updated_command_summaries(
     assert "Check the review status of a jj stack" in captured.out
     assert "Land the merge-ready part of a stack" in captured.out
     assert "Stop reviewing a jj stack on GitHub" in captured.out
-    assert "Clean up stale review state for a jj stack" in captured.out
-    assert "Import an existing review stack into local jj-review state" in captured.out
+    assert "Clean up stale jj-review data for a jj stack" in captured.out
+    assert "Set up local jj-review tracking for an existing stack" in captured.out
     assert "Show help for this command or another command" in captured.out
 
 
@@ -178,7 +178,7 @@ def test_help_output_omits_trailing_periods_in_command_and_option_descriptions()
     assert "Check the review status of a jj stack." not in top_level_help
     assert "Land the merge-ready part of a stack." not in top_level_help
     assert "Stop reviewing a jj stack on GitHub." not in top_level_help
-    assert "Clean up stale review state for a jj stack." not in top_level_help
+    assert "Clean up stale jj-review data for a jj stack." not in top_level_help
     assert "Workspace path to operate on; defaults to the current directory." not in (
         top_level_help
     )
@@ -680,8 +680,8 @@ def test_main_close_renders_planned_output(
                     status="planned",
                 ),
                 SimpleNamespace(
-                    kind="cache",
-                    message="retire active review state for feature 1 [aaaaaaaa]",
+                    kind="tracking",
+                    message="stop saved jj-review tracking for feature 1 [aaaaaaaa]",
                     status="planned",
                 ),
             ),
@@ -706,7 +706,7 @@ def test_main_close_renders_planned_output(
     assert "GitHub: octo-org/stacked-review" in captured.out
     assert "Planned close actions:" in captured.out
     assert "- [planned] pull request: close PR #7 for feature 1 [aaaaaaaa]" in captured.out
-    assert "- [planned] cache: retire active review state for feature 1 [aaaaaaaa]" in (
+    assert "- [planned] tracking: stop saved jj-review tracking for feature 1 [aaaaaaaa]" in (
         captured.out
     )
     assert "Re-run with `close --apply --cleanup @`" in captured.out
@@ -797,7 +797,9 @@ def test_main_import_renders_up_to_date_output(
 
     assert exit_code == 0
     assert "Selected selector: --head review/feature-aaaaaaaa" in captured.out
-    assert "Review state is already up to date for the selected stack." in captured.out
+    assert "Local jj-review tracking is already up to date for the selected stack." in (
+        captured.out
+    )
     assert "No reviewable commits" not in captured.out
 
 
@@ -1441,8 +1443,8 @@ def test_main_cleanup_renders_planned_and_blocked_actions(
     def fake_stream_cleanup(**kwargs):
         kwargs["on_action"](
             SimpleNamespace(
-                kind="cache",
-                message="remove cached review state for abcdef12",
+                kind="tracking",
+                message="remove saved jj-review data for abcdef12",
                 status="planned",
             )
         )
@@ -1456,8 +1458,8 @@ def test_main_cleanup_renders_planned_and_blocked_actions(
         return SimpleNamespace(
             actions=(
                 SimpleNamespace(
-                    kind="cache",
-                    message="remove cached review state for abcdef12",
+                    kind="tracking",
+                    message="remove saved jj-review data for abcdef12",
                     status="planned",
                 ),
                 SimpleNamespace(
@@ -1482,7 +1484,7 @@ def test_main_cleanup_renders_planned_and_blocked_actions(
     assert "Selected remote: origin" in captured.out
     assert "GitHub: octo-org/stacked-review" in captured.out
     assert "Planned cleanup actions:" in captured.out
-    assert "[planned] cache: remove cached review state for abcdef12" in captured.out
+    assert "[planned] tracking: remove saved jj-review data for abcdef12" in captured.out
     assert "[blocked] remote branch: cannot delete review/feature-abcdef12@origin" in (
         captured.out
     )
@@ -1702,8 +1704,8 @@ def test_main_cleanup_prints_remote_and_github_before_stream_completes(
         checkpoints.append(capsys.readouterr().out)
         kwargs["on_action"](
             SimpleNamespace(
-                kind="cache",
-                message="remove cached review state for abcdef12",
+                kind="tracking",
+                message="remove saved jj-review data for abcdef12",
                 status="planned",
             )
         )
@@ -1711,8 +1713,8 @@ def test_main_cleanup_prints_remote_and_github_before_stream_completes(
         return SimpleNamespace(
             actions=(
                 SimpleNamespace(
-                    kind="cache",
-                    message="remove cached review state for abcdef12",
+                    kind="tracking",
+                    message="remove saved jj-review data for abcdef12",
                     status="planned",
                 ),
             ),
@@ -1732,7 +1734,7 @@ def test_main_cleanup_prints_remote_and_github_before_stream_completes(
     assert "Selected remote: origin" in checkpoints[0]
     assert "GitHub: octo-org/stacked-review" in checkpoints[0]
     assert "Planned cleanup actions:" in checkpoints[1]
-    assert "[planned] cache: remove cached review state for abcdef12" in checkpoints[1]
+    assert "[planned] tracking: remove saved jj-review data for abcdef12" in checkpoints[1]
     assert "cleanup --apply" in captured.out
 
 

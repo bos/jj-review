@@ -770,7 +770,7 @@ def _ensure_remote_can_be_updated(
     raise SubmitRemoteBookmarkOwnershipError(
         f"Remote bookmark {bookmark!r}@{remote} already exists and points elsewhere. "
         "Submit will not take over an existing remote branch unless its link is "
-        "already proven by local state, cached state, or explicit relinking."
+        "already proven by local state, saved jj-review data, or explicit relinking."
     )
 
 
@@ -1466,20 +1466,20 @@ def _ensure_pull_request_link_is_consistent(
         return
     if discovered_pull_request is None:
         raise SubmitPullRequestResolutionError(
-            f"Cached pull request link exists for bookmark {bookmark!r}, but GitHub "
+            f"Saved pull request link exists for bookmark {bookmark!r}, but GitHub "
             "no longer reports a PR for that head branch. Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before submitting again."
         )
     if cached_change.pr_number not in (None, discovered_pull_request.number):
         raise SubmitPullRequestResolutionError(
-            f"Cached pull request #{cached_change.pr_number} does not match the PR "
+            f"Saved pull request #{cached_change.pr_number} does not match the PR "
             f"GitHub reports for bookmark {bookmark!r} "
             f"(#{discovered_pull_request.number}). Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before submitting again."
         )
     if cached_change.pr_url not in (None, discovered_pull_request.html_url):
         raise SubmitPullRequestResolutionError(
-            f"Cached pull request URL for bookmark {bookmark!r} does not match "
+            f"Saved pull request URL for bookmark {bookmark!r} does not match "
             "GitHub. Inspect the PR link with `status --fetch` and repair it with "
             "`relink` before submitting again."
         )
@@ -1649,7 +1649,7 @@ async def _sync_stack_comments(
         if cached_change is None:
             if dry_run:
                 continue
-            raise AssertionError("Stack comments require cached pull request link.")
+            raise AssertionError("Stack summary comments require a saved pull request link.")
         comment_body = _render_stack_comment(
             current=revision,
             next_revision=revisions[index + 1] if index + 1 < len(revisions) else None,
@@ -1751,10 +1751,10 @@ async def _upsert_stack_comment(
         if cached_comment is not None:
             if _STACK_COMMENT_MARKER not in cached_comment.body:
                 raise SubmitStackCommentError(
-                    f"Cached stack comment #{cached_change.stack_comment_id} for pull "
-                    f"request #{pull_request_number} is not managed by `jj-review`. "
-                    "Inspect the PR link with `status --fetch` or delete the cached "
-                    "comment ID before submitting again."
+                    f"Saved stack summary comment #{cached_change.stack_comment_id} for "
+                    f"pull request #{pull_request_number} does not belong to "
+                    "`jj-review`. Inspect the PR link with `status --fetch` or delete "
+                    "the saved comment ID before submitting again."
                 )
             if cached_comment.body == comment_body:
                 return cached_comment
@@ -1805,7 +1805,8 @@ async def _list_issue_comments(
         )
     except GithubClientError as error:
         raise SubmitStackCommentError(
-            f"Could not list stack comments for pull request #{pull_request_number}: {error}"
+            f"Could not list stack summary comments for pull request "
+            f"#{pull_request_number}: {error}"
         ) from error
 
 
@@ -1821,9 +1822,9 @@ async def _discover_stack_comment(
     if len(matching_comments) > 1:
         comment_ids = ", ".join(str(comment.id) for comment in matching_comments)
         raise SubmitStackCommentError(
-            "GitHub reports multiple `jj-review` stack comments for the same pull "
-            f"request: {comment_ids}. Inspect the PR link with `status --fetch` or "
-            "delete the extra stack comments before submitting again."
+            "GitHub reports multiple `jj-review` stack summary comments for the same "
+            f"pull request: {comment_ids}. Inspect the PR link with `status --fetch` "
+            "or delete the extra stack summary comments before submitting again."
         )
     return matching_comments[0]
 
@@ -1844,8 +1845,8 @@ async def _create_stack_comment(
         )
     except GithubClientError as error:
         raise SubmitStackCommentError(
-            f"Could not create a stack comment for pull request #{pull_request_number}: "
-            f"{error}"
+            f"Could not create a stack summary comment for pull request "
+            f"#{pull_request_number}: {error}"
         ) from error
 
 
@@ -1865,7 +1866,7 @@ async def _update_stack_comment(
         )
     except GithubClientError as error:
         raise SubmitStackCommentError(
-            f"Could not update stack comment #{comment_id}: {error}"
+            f"Could not update stack summary comment #{comment_id}: {error}"
         ) from error
 
 

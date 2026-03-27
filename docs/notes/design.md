@@ -145,7 +145,7 @@ review/<slug-from-subject>-<change_id.short(8)>
 Example:
 
 ```text
-review/fix-cache-invalidation-ypvmkkuo
+review/fix-bookmark-resolution-ypvmkkuo
 ```
 
 The slug is there for reviewers using GitHub or plain Git. The short
@@ -166,7 +166,7 @@ That means bookmark naming is "generate once, then pin", not "recompute forever
 from the current subject". The resolution order should be:
 
 1. explicit user override, if present
-2. previously chosen name discovered from local state, cached review state, or
+2. previously chosen name discovered from local state, saved jj-review data, or
    an existing PR for that change
 3. otherwise, generate the initial default from the current subject and
    `change_id`, then persist that choice
@@ -200,7 +200,7 @@ with a configuration error instead of guessing.
 
 ### Workspaces
 
-Review state is repo-scoped, not workspace-scoped.
+Saved jj-review data is repo-scoped, not workspace-scoped.
 
 That matches `jj`'s model: one repository can have multiple workspaces, each
 with its own working copy, while sharing the same commit graph, bookmark view,
@@ -208,7 +208,7 @@ and operation history.
 
 For now:
 
-- machine-written review state should be shared across workspaces for the same
+- machine-written jj-review data should be shared across workspaces for the same
   repo
 - stale working copies are a local workspace problem, not a distinct review
   concept for this tool
@@ -232,15 +232,15 @@ These do not need tool-owned durable metadata:
 
 All of that already lives in the commit DAG, the change ID model, and the bookmark view.
 
-### Store Only Optional Review State
+### Store Only Optional jj-review Data
 
 If the tool stores any machine-written local state, it should be limited to:
 
 - pinned generated bookmark name for a specific change, if bookmark names
   include mutable text such as the subject slug
-- cached PR number and URL
-- cached stack-comment identifier, if the tool uses a dedicated PR comment
-- last known PR state, only as a cache
+- saved PR number and URL
+- saved stack-summary comment identifier, if the tool uses a dedicated PR comment
+- last known PR state, only as saved fallback data
 - a durable unlinked marker for a change the operator explicitly
   unlinked, because that is user intent the tool must not silently undo
 
@@ -248,7 +248,7 @@ Even the PR link can often be rediscovered by asking GitHub for the PR whose
 head branch matches the review bookmark name.
 
 User-authored settings and overrides are a separate category and should not be
-mixed into machine-written review state. Those include:
+mixed into machine-written jj-review data. Those include:
 
 - repo defaults such as preferred remote, trunk branch, or GitHub owner/repo
   override
@@ -295,13 +295,13 @@ Tracked workspace files are the wrong default for both:
 Instead, split storage into two locations:
 
 - user config in `~/.config/jj-review/config.toml`
-- machine-written review state in
+- machine-written jj-review data in
   `~/.local/state/jj-review/repos/<repo-id>/state.toml`
 
 For now, repo-specific config should live in the main user config file via
 path-based conditional matching rather than a separate repo-local config file.
 
-For machine-written review state, reuse `jj`'s repo config identity:
+For machine-written jj-review data, reuse `jj`'s repo config identity:
 
 1. if `.jj/repo/config-id` exists, use it as `<repo-id>`
 2. otherwise run `jj config path --repo` to ask `jj` to create its repo
@@ -325,14 +325,14 @@ Given a selected head revision:
 3. Reject ambiguous shapes instead of inventing metadata to patch around them.
 4. Resolve each change's review bookmark by reuse-first, generation-second:
    - explicit override, if present
-   - otherwise previously chosen local or cached name, or the head branch of an
+   - otherwise previously chosen local or saved name, or the head branch of an
      existing PR for that change
    - otherwise generate the initial default name from subject plus `change_id`
      and persist that choice
    - if two selected changes resolve to the same bookmark name, fail closed
      before mutating local or remote state
 5. Query GitHub for the PR state of those review branches.
-   - if cached link and GitHub-discovered link disagree, stop and require
+   - if the saved link and GitHub-discovered link disagree, stop and require
      an explicit recovery flow instead of silently creating a replacement PR
    - by default, derive the PR title from the commit subject and the PR body
      from the remaining commit description
@@ -361,8 +361,8 @@ Given a selected head revision:
    - if the local bookmark or selected remote bookmark is conflicted, stop and
      require the user to resolve the bookmark state first
    - if the selected remote bookmark exists but points somewhere else, proceed
-     only if review link for that branch is already proven by local state,
-     cached state, or GitHub discovery; otherwise fail closed instead of
+     only if the match for that branch is already proven by local state, saved
+     data, or GitHub discovery; otherwise fail closed instead of
      silently taking over that branch
    - when updating an existing untracked remote bookmark, do not import its
      old target into the local bookmark before the remote update completes
@@ -406,14 +406,14 @@ The tool should be conservative when review identity is unclear.
 
 If submit cannot prove that a change still corresponds to the same review
 branch and PR, it should fail with a targeted diagnostic instead of guessing.
-In particular, it should not automatically open a new PR just because cached PR
+In particular, it should not automatically open a new PR just because a saved PR
 link, bookmark state, or GitHub state is missing or damaged.
 
 The recovery surface should be explicit and narrow:
 
 - `jj review status --fetch [<revset>]` refreshes remembered remote-branch
   observations before inspecting GitHub PR state, then reports the selected
-  stack and any cached or discoverable PR state without mutating GitHub or
+  stack and any saved or discovered PR state without mutating GitHub or
   review bookmarks
 - `jj review relink <pr> [--current | <revset>]` is an advanced repair-only
   command that explicitly reassociates an existing PR and its same-repository
@@ -440,11 +440,11 @@ Read-only inspection may remain ergonomic:
   current stack by default
 
 `jj review status [<revset>]` should show the selected local stack, pinned or
-discovered review bookmarks, and any cached or discoverable GitHub PR link for
+discovered review bookmarks, and any saved or discovered GitHub PR link for
 those bookmarks. It is read-only with respect to GitHub and review bookmarks.
-It may persist generated bookmark pins and last-known discoverable GitHub PR
-link into the sparse local cache, but that cache remains advisory rather than a
-source of truth.
+It may persist generated bookmark pins and last-known GitHub PR link into saved
+local jj-review data, but that data remains advisory rather than a source of
+truth.
 `jj review status --fetch [<revset>]` is the same inspection command, but it
 refreshes remote bookmark observations first so the report reflects the latest
 remote state before it inspects GitHub PR state.
@@ -461,8 +461,8 @@ has any supported linear walk, status should fail closed with a targeted local
 diagnostic rather than a traceback or an unadorned subprocess error.
 Unlike `submit`, it may fall back to local-only reporting when the
 repo is not configured well enough to resolve a remote or GitHub target.
-Its default output should stay concise and summarize the effective review state
-for each change rather than dumping cache and transport diagnostics inline.
+Its default output should stay concise and summarize the effective status for
+each change rather than dumping saved-data and transport diagnostics inline.
 When GitHub data is available, that summary should distinguish merged pull
 requests from merely closed ones, and may surface a concise review-decision
 summary such as approval or changes requested for still-open pull requests.
@@ -470,23 +470,23 @@ Open draft pull requests should render distinctly from published open pull
 requests.
 If GitHub is unreachable or misconfigured, status should report that once at the
 repo level and then fall back to conservative per-change summaries derived from
-local cache rather than claiming a PR is absent. Because that output is
+saved local data rather than claiming a PR is absent. Because that output is
 incomplete, the command should exit non-zero instead of reporting success.
 Likewise, if live inspection finds ambiguous PR link or multiple managed
 stack comments for the same PR, status should surface that inline and exit
 non-zero rather than silently treating the stack as healthy.
-If cached PR link existed but GitHub now reports no PR for that review
+If a saved PR link existed but GitHub now reports no PR for that review
 branch, status should likewise surface that stale link inline and exit
-non-zero before it clears the stale cached identity.
+non-zero before it clears the stale saved identity.
 When that inspection finds stale or ambiguous PR link, status may also
 print a short repair advisory that points the operator to `status --fetch`
 for refresh and `relink` for intentional reattachment.
-When cached GitHub PR link includes a last-known PR state, status may surface
-that state in the fallback output as cached information rather than implying it
+When a saved GitHub PR link includes a last-known PR state, status may surface
+that state in the fallback output as saved information rather than implying it
 is live.
-When live GitHub inspection succeeds, status should refresh that cached
-link in both directions, including clearing stale cached PR identity when
-GitHub now reports that no PR exists for the review branch.
+When live GitHub inspection succeeds, status should refresh that saved link in
+both directions, including clearing stale saved PR identity when GitHub now
+reports that no PR exists for the review branch.
 
 When status reports `cleanup needed`, it should explain why in plain language:
 
@@ -509,24 +509,24 @@ The explicit stack import command is:
 
 - `jj review import [--fetch] (--pull-request <pr> | --head <bookmark> |
   --current | --revset <revset>)` resolves one exact review stack and
-  imports sparse local review state for that stack without mutating
+  sets up saved local jj-review data for that stack without mutating
   GitHub
 
 The selector should stay explicit and collision-free. In particular, the
 command should not overload a bare positional argument to mean either a revset
 or a PR number.
 
-Its job is local state import, not workspace motion:
+Its job is setting up local jj-review tracking, not workspace motion:
 
-- without `--fetch`, use only commits and review link that are already
+- without `--fetch`, use only commits and matching PR or branch that are already
   available locally
 - resolve the selected stack from a PR head branch, a specific review branch,
   or an explicitly selected local stack
 - with `--fetch`, refresh remote bookmark observations and, for an explicit PR
   or review-branch selector, fetch only the review branches needed for the
   selected stack so a reviewed stack that exists only on the remote can still
-  be imported into local review state
-- refresh sparse cache entries only for that exact stack
+  be set up in local jj-review tracking
+- refresh saved local jj-review data only for that exact stack
 - create or refresh local review bookmarks only when the target is
   exact, same-repository, and unambiguous
 - when `--fetch` pulls in a remote-selected stack, report the fetched tip
@@ -560,7 +560,7 @@ Failure guidance should stay narrow and specific:
 - if a local bookmark already points somewhere else, stop and explain the exact
   bookmark-ownership conflict and the safe repair steps instead of stealing
   ownership silently
-- if stale local sparse state disagrees with freshly fetched link for the
+- if stale saved local jj-review data disagrees with freshly fetched link for the
   selected stack, fetched link wins only when it is exact and unambiguous;
   otherwise import should fail closed and surface the conflicting local and
   remote identities instead of partially overwriting state
@@ -582,7 +582,8 @@ path, and then preview or apply the actions needed to end review for that path.
 Without `--cleanup`, `close` should:
 
 - close the managed open PRs for the selected stack
-- update local review state so those changes are no longer treated as actively
+- update saved local jj-review data so those changes are no longer treated as
+  actively
   under review
 - skip already-merged or already-closed PRs on that path instead of treating
   them as new close targets
@@ -594,7 +595,7 @@ for review artifacts the tool can prove it owns for that path:
 - delete owned remote review branches on the configured target remote only
 - forget owned local review bookmarks
 - delete stack summary comments that belong to the closed path
-- remove stale review tracking metadata such as cached stack-comment link
+- remove stale review tracking metadata such as a saved stack-summary comment ID
 
 That cleanup should stay opt-in instead of implicit because closing PRs is less
 destructive than deleting branches. Preview output should make the difference
@@ -613,7 +614,7 @@ heuristics.
 The repair-oriented inverse of `relink` is `unlink`:
 
 - `jj review unlink [--current | <revset>]` intentionally detaches one selected
-  change from active PR ownership without mutating GitHub
+  change from active PR tracking without mutating GitHub
 
 `unlink` should remain an advanced repair command, not the normal way to end a
 review. Its unit of intent should mirror `relink`: one selected change,
@@ -628,7 +629,7 @@ identified from the local DAG.
 - `stack_comment_id`
 
 It should then write a durable unlinked marker for that change. That
-record matters because a plain cache clear would otherwise be undone
+record matters because simply deleting saved data would otherwise be undone
 immediately by later rediscovery.
 
 Unlinked state should mean:
@@ -724,7 +725,7 @@ The tool can stay small. A reasonable surface would be:
 
 The standalone executable may also expose `completion` as auxiliary CLI glue
 that prints shell completion scripts. It is not a review-state command and
-does not inspect the repository, local cache, or GitHub.
+does not inspect the repository, saved local data, or GitHub.
 
 Top-level help should group commands by intent so the common workflow remains
 easy to scan. `jj review --help` and `jj review help` should foreground the core
@@ -808,7 +809,8 @@ repo, remember that `GIT_DIR` may need to point at `.jj/repo/store/git`.
 
 `jj review cleanup` should have a concrete, conservative job:
 
-- prune cache entries for changes that no longer exist or no longer participate
+- prune saved jj-review data for changes that no longer exist or no longer
+  participate
   in any review stack
 - remove stale reviewer-facing stack comments that belong to closed or unlinked
   PRs
@@ -839,7 +841,7 @@ Its job is to restore one active local linear stack from three inputs:
 
 - the selected local commit-parent path
 - GitHub PR state for review bookmarks
-- sparse local review state, including the last submitted local `commit_id`
+- saved local jj-review data, including the last submitted local `commit_id`
   for each change
 
 It should not treat every fetched remote branch tip as local ancestry that must
@@ -981,7 +983,7 @@ successful landing transition:
 
 - record enough intent and result state to resume idempotently if the command
   is interrupted
-- update local sparse review state for the landed prefix
+- update saved local jj-review data for the landed changes
 - close or mark landed only the PRs that correspond exactly to the landed
   prefix, once the trunk transition succeeds
 - apply that PR finalization bottom-to-top through the landed prefix so the
@@ -994,21 +996,21 @@ successful landing transition:
 
 Broader cleanup remains the job of `cleanup`:
 
-- pruning stale cache entries outside the landed prefix
+- pruning stale saved jj-review data outside the landed changes
 - deleting stale review branches or stack comments not proven to belong to the
   just-landed prefix
 - removing fetched off-path artifacts
 - any ambiguous or indirect repair that still needs operator confirmation
 
-## Suggested Review State Format
+## Suggested jj-review Data Format
 
-If a machine-written review state file exists, keep it sparse:
+If a machine-written jj-review data file exists, keep it minimal:
 
 ```toml
 version = 1
 
 [change."<full-change-id>"]
-bookmark = "review/fix-cache-invalidation-ypvmkkuo"
+bookmark = "review/fix-bookmark-resolution-ypvmkkuo"
 unlinked_at = "2026-03-22T12:34:56+00:00"
 link_state = "active"
 pr_number = 123
@@ -1029,13 +1031,13 @@ Semantics:
 
 - missing entry means "reuse any discoverable bookmark or PR state, otherwise
   generate defaults"
-- present entry means "reuse cached generated state if still consistent"
-- if the machine-written state file is unreadable or partially written, treat
-  it as missing cache state for recovery purposes, warn once, and fall back to
+- present entry means "reuse saved generated state if still consistent"
+- if the machine-written data file is unreadable or partially written, treat
+  it as missing saved data for recovery purposes, warn once, and fall back to
   rediscovery where the command can do so safely
 - `link_state = "unlinked"` is durable operator intent and suppresses
   automatic reattachment until the user runs `relink`
-- cached `pr_state` and `pr_review_decision` are advisory last-known GitHub
+- saved `pr_state` and `pr_review_decision` are advisory last-known GitHub
   observations for status rendering, not a source of truth
 - deleting the file must never break the review stack model, though it may
   force rediscovery or manual reattachment of review bookmarks

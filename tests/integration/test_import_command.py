@@ -129,7 +129,9 @@ def test_import_reports_up_to_date_when_selected_stack_is_already_imported(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Review state is already up to date for the selected stack." in captured.out
+    assert "Local jj-review tracking is already up to date for the selected stack." in (
+        captured.out
+    )
     assert "No reviewable commits" not in captured.out
 
 
@@ -160,7 +162,7 @@ def test_import_reports_github_inspection_progress(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Inspecting GitHub review state..." in captured.out
+    assert "Inspecting GitHub pull requests and branches..." in captured.out
 
 
 def test_import_current_requires_discoverable_remote_review_link(
@@ -191,7 +193,7 @@ def test_import_revset_fails_closed_without_remote_bookmark_identity(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "has no discoverable review bookmark on the selected remote" in captured.err
+    assert "has no matching branch on the selected remote" in captured.err
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert not {
         bookmark
@@ -265,7 +267,7 @@ def test_import_fails_closed_when_stack_would_need_generated_bookmarks(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "cached review bookmark" in captured.err
+    assert "saved branch" in captured.err
     assert "is not present on the selected remote" in captured.err
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, top_bookmark))
@@ -311,7 +313,7 @@ def test_import_fails_closed_when_cached_bookmark_is_missing_on_selected_remote(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "cached review bookmark" in captured.err
+    assert "saved branch" in captured.err
     assert "is not present on the selected remote" in captured.err
     bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, top_bookmark))
     assert bookmark_states[bottom_bookmark].local_target is None
@@ -467,7 +469,7 @@ def test_import_revset_rejects_generated_bookmarks_without_selected_remote(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "has no discoverable review bookmark on the selected remote" in captured.err
+    assert "has no matching branch on the selected remote" in captured.err
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, top_bookmark))
     assert bookmark_states[bottom_bookmark].local_target is None

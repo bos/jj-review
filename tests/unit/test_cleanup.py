@@ -219,8 +219,10 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
             await asyncio.sleep(0)
 
         assert streamed_actions == [
-            "remove cached review state for change-1 (local change is no longer reviewable)",
-            "remove cached review state for change-2 (local change is no longer reviewable)",
+            "remove saved jj-review data for change-1 (local change is no longer "
+            "reviewable)",
+            "remove saved jj-review data for change-2 (local change is no longer "
+            "reviewable)",
         ]
         release_comment_checks.set()
         await task
@@ -285,7 +287,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     async def fake_plan_stack_comment_cleanup(**kwargs):
         return StackCommentCleanupPlan(
             action=CleanupAction(
-                kind="stack comment",
+                kind="stack summary comment",
                 message="delete stack summary comment #12 from PR #1",
                 status="planned",
             ),
@@ -334,7 +336,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     assert deleted_comment_ids == [12]
     assert result.actions == (
         CleanupAction(
-            kind="stack comment",
+            kind="stack summary comment",
             message="delete stack summary comment #12 from PR #1",
             status="applied",
         ),
@@ -403,7 +405,7 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
     )
 
     assert [action.message for action in result.actions] == [
-        "remove cached review state for stale-ch (local change is no longer reviewable)"
+        "remove saved jj-review data for stale-ch (local change is no longer reviewable)"
     ]
     assert [sorted(saved_state.changes) for saved_state in saved_states] == [
         ["live-change"],
@@ -732,7 +734,7 @@ def test_process_remote_branch_cleanup_applies_planned_deletion() -> None:
         remote_plan=RemoteBranchCleanupPlan(
             action=CleanupAction(
                 kind="remote branch",
-                message="delete remote review branch review/feature-aaaaaaaa@origin",
+                message="delete remote branch review/feature-aaaaaaaa@origin",
                 status="planned",
             ),
             expected_remote_target="commit-1",
@@ -743,7 +745,7 @@ def test_process_remote_branch_cleanup_applies_planned_deletion() -> None:
     assert recorded_actions == [
         CleanupAction(
             kind="remote branch",
-            message="delete remote review branch review/feature-aaaaaaaa@origin",
+            message="delete remote branch review/feature-aaaaaaaa@origin",
             status="applied",
         )
     ]

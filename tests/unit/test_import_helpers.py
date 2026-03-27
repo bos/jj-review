@@ -81,10 +81,7 @@ def test_resolve_import_bookmark_rejects_generated_bookmark_without_selected_rem
             selected_remote_name=None,
         )
 
-    assert (
-        "has no discoverable review bookmark on the selected remote"
-        in str(exc_info.value)
-    )
+    assert "has no matching branch on the selected remote" in str(exc_info.value)
 
 
 def test_resolve_import_bookmark_rejects_missing_cached_remote_bookmark() -> None:
@@ -107,10 +104,9 @@ def test_resolve_import_bookmark_rejects_missing_cached_remote_bookmark() -> Non
 
     assert (
         str(exc_info.value)
-        == "Could not safely import the selected stack because cached review bookmark "
+        == "Could not safely import the selected stack because saved branch "
         "'review/feature-aaaa' for aaaaaaaa is not present on the selected remote. "
-        "Refresh with `status --fetch` or select an exact review branch or pull "
-        "request."
+        "Refresh with `status --fetch` or select an exact branch or pull request."
     )
 
 
@@ -139,10 +135,10 @@ def test_resolve_import_bookmark_rejects_stale_cached_remote_bookmark_target() -
 
     assert (
         str(exc_info.value)
-        == "Could not safely import the selected stack because cached review bookmark "
+        == "Could not safely import the selected stack because saved branch "
         "'review/feature-aaaa' for aaaaaaaa points to a different revision on the "
         "selected remote. Refresh with `status --fetch` or repair the stale remote "
-        "link before importing again."
+        "match before importing again."
     )
 
 
@@ -371,4 +367,4 @@ def test_run_import_current_rejects_before_github_inspection(
             revset=None,
         )
 
-    assert "has no discoverable remote review link" in str(exc_info.value)
+    assert "has no matching remote pull request or branch" in str(exc_info.value)

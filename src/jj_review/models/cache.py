@@ -1,4 +1,4 @@
-"""Typed models for sparse local review state."""
+"""Typed models for saved local jj-review data."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ LinkState = Literal["active", "unlinked"]
 
 
 class CachedChange(BaseModel):
-    """Persisted review state for one logical `jj` change."""
+    """Saved jj-review data for one logical `jj` change."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -33,7 +33,7 @@ class CachedChange(BaseModel):
 
 
 class ReviewState(BaseModel):
-    """Sparse local cache and override state."""
+    """Saved local jj-review data and user overrides."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
 
