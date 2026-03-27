@@ -16,9 +16,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from jj_review import __version__, commands
-from jj_review.bootstrap import BootstrapError, bootstrap_context
+from jj_review.bootstrap import BootstrapError
 from jj_review.completion import emit_shell_completion
-from jj_review.errors import CliError, CommandNotImplementedError
+from jj_review.errors import CliError
 
 logger = logging.getLogger(__name__)
 _TOP_LEVEL_HELP_WIDTH = 80
@@ -629,7 +629,7 @@ def _add_revision_command[SubparserT: ArgumentParser](
     command: str,
     help_text: str,
     description_text: str,
-    handler=None,
+    handler,
 ) -> SubparserT:
     parser = subparsers.add_parser(
         command,
@@ -639,7 +639,7 @@ def _add_revision_command[SubparserT: ArgumentParser](
     _add_common_options(parser)
     _normalize_help_action_text(parser)
     parser.add_argument("revset", nargs="?", help="Revision to operate on")
-    parser.set_defaults(handler=handler or _stub_handler(command))
+    parser.set_defaults(handler=handler)
     return parser
 
 
@@ -649,7 +649,7 @@ def _add_relink_parser[SubparserT: ArgumentParser](
     command: str,
     help_text: str,
     description_text: str,
-    handler=None,
+    handler,
 ) -> SubparserT:
     parser = subparsers.add_parser(
         command,
@@ -669,7 +669,7 @@ def _add_relink_parser[SubparserT: ArgumentParser](
         nargs="?",
         help="Revision to reassociate with the pull request",
     )
-    parser.set_defaults(handler=handler or _stub_handler(command))
+    parser.set_defaults(handler=handler)
     return parser
 
 
@@ -679,7 +679,7 @@ def _add_import_parser[SubparserT: ArgumentParser](
     command: str,
     help_text: str,
     description_text: str,
-    handler=None,
+    handler,
 ) -> SubparserT:
     parser = subparsers.add_parser(
         command,
@@ -717,7 +717,7 @@ def _add_import_parser[SubparserT: ArgumentParser](
             """
         ),
     )
-    parser.set_defaults(handler=handler or _stub_handler(command))
+    parser.set_defaults(handler=handler)
     return parser
 
 
@@ -849,24 +849,6 @@ def _normalize_cli_args(argv: Sequence[str]) -> list[str]:
             f"Invalid value for `--draft`: {draft_mode!r}. Expected `new` or `all`."
         )
     return normalized
-
-
-def _stub_handler(command: str):
-    def handler(args: Namespace) -> int:
-        context = bootstrap_context(
-            repository=args.repository,
-            config_path=args.config,
-            debug=args.debug,
-        )
-        logger.debug(
-            "bootstrapped %s in %s with config %s",
-            command,
-            context.repo_root,
-            context.options.config_path,
-        )
-        raise CommandNotImplementedError(command)
-
-    return handler
 
 
 if __name__ == "__main__":
