@@ -7,11 +7,9 @@ change without changing anything.
 from __future__ import annotations
 
 import textwrap
-from collections.abc import Callable
 from pathlib import Path
 
 from jj_review import review_inspection as _review_inspection
-from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.intent import intent_change_ids, pid_is_alive
 from jj_review.jj import UnsupportedStackError
@@ -56,48 +54,19 @@ def handle_status_command(
         config_path=config_path,
         debug=debug,
     )
-    return run_status_command(
-        change_overrides=context.config.change,
-        config=context.config.repo,
-        configured_trunk_branch=context.config.repo.trunk_branch,
-        emit=print,
-        fetch_remote_state=fetch,
-        prepare_status_fn=prepare_status,
-        repo_root=context.repo_root,
-        revset=revset,
-        stream_status_fn=stream_status,
-    )
-
-
-def run_status_command(
-    *,
-    change_overrides: dict[str, ChangeConfig],
-    config: RepoConfig,
-    configured_trunk_branch: str | None,
-    emit: Callable[[str], None],
-    fetch_remote_state: bool,
-    prepare_status_fn: Callable[..., PreparedStatus] | None = None,
-    repo_root: Path,
-    revset: str | None,
-    stream_status_fn: Callable[..., StatusResult] | None = None,
-) -> int:
-    """Prepare, stream, and render the `status` command."""
-
-    prepare_fn = prepare_status if prepare_status_fn is None else prepare_status_fn
-    stream_fn = stream_status if stream_status_fn is None else stream_status_fn
     try:
-        prepared_status = prepare_fn(
-            change_overrides=change_overrides,
-            config=config,
-            fetch_remote_state=fetch_remote_state,
-            repo_root=repo_root,
+        prepared_status = prepare_status(
+            change_overrides=context.config.change,
+            config=context.config.repo,
+            fetch_remote_state=fetch,
+            repo_root=context.repo_root,
             revset=revset,
         )
     except UnsupportedStackError as error:
         raise CliError(describe_status_preparation_error(error)) from error
 
     for line in render_status_selection_lines(prepared_status=prepared_status):
-        emit(line)
+        print(line)
 
     stack_started = False
 
@@ -108,19 +77,19 @@ def run_status_command(
             github_repository=github_repository,
             has_revisions=bool(prepared_status.prepared.status_revisions),
         ):
-            emit(line)
+            print(line)
         if prepared_status.prepared.status_revisions:
             stack_started = True
 
     def emit_revision(revision, github_available: bool) -> None:
-        emit(
+        print(
             render_status_revision_line(
                 revision,
                 github_available=github_available,
             )
         )
 
-    result = stream_fn(
+    result = stream_status(
         on_github_status=emit_github_status,
         on_revision=emit_revision,
         prepared_status=prepared_status,
@@ -128,23 +97,23 @@ def run_status_command(
     if not prepared_status.prepared.status_revisions:
         for line in render_empty_status_lines(
             prepared_status=prepared_status,
-            configured_trunk_branch=configured_trunk_branch,
+            configured_trunk_branch=context.config.repo.trunk_branch,
         ):
-            emit(line)
+            print(line)
         return 0
 
     if not stack_started:
-        emit("Stack:")
-    emit(
+        print("Stack:")
+    print(
         render_trunk_status_row(
             prepared_status.prepared,
-            configured_trunk_branch=configured_trunk_branch,
+            configured_trunk_branch=context.config.repo.trunk_branch,
         )
     )
     for line in render_status_advisory_lines(result=result):
-        emit(line)
+        print(line)
     for line in render_status_intent_lines(prepared_status=prepared_status):
-        emit(line)
+        print(line)
 
     exit_code = 1 if result.incomplete else 0
     selected_change_ids = {revision.change_id for revision in getattr(result, "revisions", ())}
