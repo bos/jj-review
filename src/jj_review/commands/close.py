@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from argparse import Namespace
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -96,35 +95,42 @@ def run_close(
     return stream_close(prepared_close=prepared_close)
 
 
-def handle_close_command(args: Namespace) -> int:
+def handle_close_command(
+    *,
+    apply: bool,
+    cleanup: bool,
+    config_path: Path | None,
+    current: bool,
+    debug: bool,
+    repository: Path | None,
+    revset: str | None,
+) -> int:
     """CLI entrypoint for `close`."""
 
     from jj_review.bootstrap import bootstrap_context
 
     context = bootstrap_context(
-        repository=args.repository,
-        config_path=args.config,
-        debug=args.debug,
+        repository=repository,
+        config_path=config_path,
+        debug=debug,
     )
     result = run_close(
-        apply=bool(args.apply),
-        cleanup=bool(args.cleanup),
+        apply=apply,
+        cleanup=cleanup,
         change_overrides=context.config.change,
         config=context.config.repo,
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
             command_label=(
                 "close --cleanup --apply"
-                if args.apply and args.cleanup
+                if apply and cleanup
                 else (
-                    "close --cleanup"
-                    if args.cleanup
-                    else "close --apply" if args.apply else "close"
+                    "close --cleanup" if cleanup else "close --apply" if apply else "close"
                 )
             ),
-            current=args.current,
+            current=current,
             require_explicit=True,
-            revset=args.revset,
+            revset=revset,
         ),
     )
     print(f"Selected revset: {result.selected_revset}")

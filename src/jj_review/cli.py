@@ -323,7 +323,15 @@ def build_parser() -> ArgumentParser:
         command="close",
         help_text=_normalized_help_text(close_command.HELP),
         description_text=close_command.__doc__ or "",
-        handler=close_command.handle_close_command,
+        handler=lambda args: close_command.handle_close_command(
+            apply=args.apply,
+            cleanup=args.cleanup,
+            config_path=args.config,
+            current=args.current,
+            debug=args.debug,
+            repository=args.repository,
+            revset=args.revset,
+        ),
     )
     close_parser.add_argument(
         "--apply",
