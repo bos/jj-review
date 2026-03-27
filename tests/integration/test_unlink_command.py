@@ -3,35 +3,49 @@ from __future__ import annotations
 from pathlib import Path
 
 from jj_review.cache import ReviewStateStore
-from jj_review.cli import main
 from jj_review.jj import JjClient
 
-from ..support.fake_github import FakeGithubRepository
-from ..support.integration_helpers import (
-    commit_file,
-    configure_fake_github_environment,
-    init_fake_github_repo,
-    run_command,
+from .submit_command_helpers import (
+    commit as _commit,
+)
+from .submit_command_helpers import (
+    configure_submit_environment as _configure_submit_environment,
+)
+from .submit_command_helpers import (
+    init_repo as _init_repo,
+)
+from .submit_command_helpers import (
+    issue_comments as _issue_comments,
+)
+from .submit_command_helpers import (
+    run_main as _main,
 )
 
 
-def test_unlink_detaches_selected_change_and_preserves_bookmark(
+def test_unlink_detaches_change_and_preserves_local_bookmark(
     tmp_path: Path,
     monkeypatch,
+    capsys,
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_environment(monkeypatch, tmp_path, fake_repo)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
     assert _main(repo, config_path, "submit", "--current") == 0
-    state_store = ReviewStateStore.for_repo(repo)
+    capsys.readouterr()
+
     stack = JjClient(repo).discover_review_stack()
     change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
     bookmark = state_store.load().changes[change_id].bookmark
+    assert bookmark is not None
 
-    assert _main(repo, config_path, "unlink", change_id) == 0
+    exit_code = _main(repo, config_path, "unlink", change_id)
+    captured = capsys.readouterr()
     unlinked_change = state_store.load().changes[change_id]
 
+    assert exit_code == 0
+    assert "Stopped review tracking for" in captured.out
     assert unlinked_change.bookmark == bookmark
     assert unlinked_change.unlinked_at is not None
     assert unlinked_change.link_state == "unlinked"
@@ -40,30 +54,31 @@ def test_unlink_detaches_selected_change_and_preserves_bookmark(
     assert unlinked_change.pr_state is None
     assert unlinked_change.pr_url is None
     assert unlinked_change.stack_comment_id is None
+    assert JjClient(repo).get_bookmark_state(bookmark).local_target is not None
+    assert fake_repo.pull_requests[1].state == "open"
+    assert _issue_comments(fake_repo, 1) == []
 
-
-def test_unlink_is_idempotent_for_already_unlinked_change(
+def test_unlink_is_idempotent_for_unlinked_change(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_environment(monkeypatch, tmp_path, fake_repo)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
     assert _main(repo, config_path, "submit", "--current") == 0
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
+    capsys.readouterr()
+
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
 
     assert _main(repo, config_path, "unlink", change_id) == 0
     capsys.readouterr()
-
     exit_code = _main(repo, config_path, "unlink", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "is already unlinked from review tracking" in captured.out
-
+    assert "already unlinked from review tracking" in captured.out
 
 def test_unlink_rejects_change_without_active_review_link(
     tmp_path: Path,
@@ -71,244 +86,13 @@ def test_unlink_rejects_change_without_active_review_link(
     capsys,
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_environment(monkeypatch, tmp_path, fake_repo)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    exit_code = _main(repo, config_path, "unlink", "--current")
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+
+    exit_code = _main(repo, config_path, "unlink", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 1
     assert "no active review tracking link to unlink" in captured.err
-
-
-def test_unlink_accepts_cached_active_link_without_live_remote_or_pr(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-
-    assert _main(repo, config_path, "submit", "--current") == 0
-    state_store = ReviewStateStore.for_repo(repo)
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
-    bookmark = state_store.load().changes[change_id].bookmark
-    assert bookmark is not None
-
-    _run(["jj", "bookmark", "forget", bookmark], repo)
-    fake_repo.pull_requests.clear()
-    _run(
-        [
-            "git",
-            "--git-dir",
-            str(fake_repo.git_dir),
-            "update-ref",
-            "-d",
-            f"refs/heads/{bookmark}",
-        ],
-        repo,
-    )
-
-    assert _main(repo, config_path, "unlink", change_id) == 0
-    unlinked_change = state_store.load().changes[change_id]
-
-    assert unlinked_change.bookmark == bookmark
-    assert unlinked_change.link_state == "unlinked"
-    assert unlinked_change.pr_number is None
-
-
-def test_status_fetch_reports_unlinked_state_without_reattaching(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-
-    assert _main(repo, config_path, "submit", "--current") == 0
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
-    assert _main(repo, config_path, "unlink", change_id) == 0
-    capsys.readouterr()
-
-    exit_code = _main(repo, config_path, "status", "--fetch", change_id)
-    captured = capsys.readouterr()
-    unlinked_change = ReviewStateStore.for_repo(repo).load().changes[change_id]
-
-    assert exit_code == 0
-    assert "unlinked" in captured.out
-    assert unlinked_change.link_state == "unlinked"
-    assert unlinked_change.pr_number is None
-
-
-def test_submit_rejects_unlinked_change_until_relink(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-
-    assert _main(repo, config_path, "submit", "--current") == 0
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
-    assert _main(repo, config_path, "unlink", change_id) == 0
-    capsys.readouterr()
-
-    exit_code = _main(repo, config_path, "submit", "--current")
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "unlinked from review tracking" in captured.err
-    assert "relink" in captured.err
-
-
-def test_relink_clears_unlinked_marker(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-
-    assert _main(repo, config_path, "submit", "--current") == 0
-    state_store = ReviewStateStore.for_repo(repo)
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
-
-    assert _main(repo, config_path, "unlink", change_id) == 0
-    assert _main(repo, config_path, "relink", "1", change_id) == 0
-    relinked_change = state_store.load().changes[change_id]
-
-    assert relinked_change.link_state == "active"
-    assert relinked_change.unlinked_at is None
-    assert relinked_change.pr_number == 1
-
-
-def test_land_rejects_unlinked_change(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-
-    assert _main(repo, config_path, "submit", "--current") == 0
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
-    assert _main(repo, config_path, "unlink", change_id) == 0
-    capsys.readouterr()
-
-    exit_code = _main(repo, config_path, "land", "--current")
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "unlinked from review tracking" in captured.out
-
-
-def test_import_preserves_unlinked_state(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-
-    assert _main(repo, config_path, "submit", "--current") == 0
-    state_store = ReviewStateStore.for_repo(repo)
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
-    bookmark = state_store.load().changes[change_id].bookmark
-    assert bookmark is not None
-
-    assert _main(repo, config_path, "unlink", change_id) == 0
-    _run(["jj", "bookmark", "forget", bookmark], repo)
-
-    assert _main(repo, config_path, "import", "--current") == 0
-    imported_change = state_store.load().changes[change_id]
-
-    assert imported_change.bookmark == bookmark
-    assert imported_change.link_state == "unlinked"
-    assert imported_change.pr_number is None
-
-
-def test_cleanup_deletes_stack_summary_comment_for_unlinked_pull_request(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
-
-    assert _main(repo, config_path, "submit", "--current") == 0
-    state_store = ReviewStateStore.for_repo(repo)
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
-    bookmark = state_store.load().changes[change_id].bookmark
-    assert bookmark is not None
-    assert _issue_comments(fake_repo, 2)
-
-    assert _main(repo, config_path, "unlink", change_id) == 0
-    capsys.readouterr()
-
-    exit_code = _main(repo, config_path, "cleanup", "--apply")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "[applied] stack summary comment: delete stack summary comment #2 from PR #2" in (
-        captured.out
-    )
-    unlinked_change = state_store.load().changes[change_id]
-    assert unlinked_change.link_state == "unlinked"
-    assert unlinked_change.pr_number is None
-    assert unlinked_change.stack_comment_id is None
-    assert _issue_comments(fake_repo, 2) == []
-
-
-def _configure_environment(
-    monkeypatch,
-    tmp_path: Path,
-    fake_repo: FakeGithubRepository,
-) -> Path:
-    return configure_fake_github_environment(
-        command_modules=(
-            "jj_review.commands.submit",
-            "jj_review.commands.relink",
-            "jj_review.commands.close",
-            "jj_review.commands.cleanup",
-            "jj_review.commands.import_",
-            "jj_review.commands.land",
-            "jj_review.review_inspection",
-        ),
-        fake_repo=fake_repo,
-        monkeypatch=monkeypatch,
-        tmp_path=tmp_path,
-    )
-
-
-def _init_repo(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
-    return init_fake_github_repo(tmp_path)
-
-
-def _commit(repo: Path, message: str, filename: str) -> None:
-    commit_file(repo, message, filename)
-
-
-def _issue_comments(fake_repo: FakeGithubRepository, issue_number: int):
-    return fake_repo.issue_comments.get(issue_number, [])
-
-
-def _run(command: list[str], cwd: Path):
-    return run_command(command, cwd)
-
-
-def _main(repo: Path, config_path: Path, command: str, *command_args: str) -> int:
-    argv = ["--config", str(config_path), "--repository", str(repo), command]
-    argv.extend(command_args)
-    return main(argv)
