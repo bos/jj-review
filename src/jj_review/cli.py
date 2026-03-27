@@ -62,16 +62,14 @@ from jj_review.commands.close import CloseResult, run_close
 from jj_review.commands.import_ import run_import
 from jj_review.commands.land import LandResult, run_land
 from jj_review.commands.relink import run_relink
-from jj_review.commands.review_state import prepare_status, stream_status
+from jj_review.commands.review_state import prepare_status, run_status_command, stream_status
 from jj_review.commands.submit import run_submit
 from jj_review.commands.unlink import run_unlink
 from jj_review.completion import emit_shell_completion
 from jj_review.errors import CliError, CommandNotImplementedError
-from jj_review.intent import intent_change_ids, pid_is_alive
 from jj_review.jj import UnsupportedStackError
 
 logger = logging.getLogger(__name__)
-_DISPLAY_CHANGE_ID_LENGTH = 8
 _TOP_LEVEL_HELP_WIDTH = 80
 _TOP_LEVEL_HELP_USAGE = "jj-review [-h] [--version] <command> ..."
 _TOP_LEVEL_HELP_USAGE_ALL = (
@@ -97,6 +95,8 @@ _HELP_DESCRIPTION = """
 Show top-level help or the detailed help for one command. Use `--all` to also
 show the advanced repair commands and hidden global options.
 """
+
+_describe_status_preparation_error = status_command.describe_status_preparation_error
 
 
 @dataclass(frozen=True)
@@ -810,463 +810,17 @@ def _prefix_rendered_output(
 
 def _status_handler(args: Namespace) -> int:
     context = bootstrap_context(args)
-    try:
-        prepared_status = prepare_status(
-            change_overrides=context.config.change,
-            config=context.config.repo,
-            fetch_remote_state=args.fetch,
-            repo_root=context.repo_root,
-            revset=args.revset,
-        )
-    except UnsupportedStackError as error:
-        raise CliError(_describe_status_preparation_error(error)) from error
-    prepared = prepared_status.prepared
-    print(f"Selected revset: {prepared_status.selected_revset}")
-    if prepared.remote is None:
-        if prepared.remote_error is None:
-            print("Selected remote: unavailable")
-        else:
-            print(f"Selected remote: unavailable ({prepared.remote_error})")
-    else:
-        print(f"Selected remote: {prepared.remote.name}")
-
-    stack_started = False
-
-    def emit_github_status(github_repository: str | None, github_error: str | None) -> None:
-        nonlocal stack_started
-        if github_repository is None:
-            if github_error is not None:
-                print(f"GitHub target: unavailable ({github_error})")
-        else:
-            if github_error is None:
-                print(f"GitHub: {github_repository}")
-            else:
-                print(f"GitHub target: {github_repository} ({github_error})")
-        if prepared.status_revisions:
-            print("Stack:")
-            stack_started = True
-
-    def emit_revision(revision, github_available: bool) -> None:
-        summary = _format_status_summary(
-            revision,
-            github_available=github_available,
-        )
-        print(f"- {revision.subject} [{_display_change_id(revision.change_id)}]: {summary}")
-
-    result = stream_status(
-        on_github_status=emit_github_status,
-        on_revision=emit_revision,
-        prepared_status=prepared_status,
+    return run_status_command(
+        change_overrides=context.config.change,
+        config=context.config.repo,
+        configured_trunk_branch=context.config.repo.trunk_branch,
+        emit=print,
+        fetch_remote_state=args.fetch,
+        prepare_status_fn=prepare_status,
+        repo_root=context.repo_root,
+        revset=args.revset,
+        stream_status_fn=stream_status,
     )
-    if not prepared.status_revisions:
-        print(
-            _format_trunk_status_row(
-                prepared,
-                configured_trunk_branch=context.config.repo.trunk_branch,
-            )
-        )
-        print("No reviewable commits between the selected revision and `trunk()`.")
-        return 0
-    if not stack_started:
-        print("Stack:")
-    print(
-        _format_trunk_status_row(
-            prepared,
-            configured_trunk_branch=context.config.repo.trunk_branch,
-        )
-    )
-    _emit_status_advisories(result)
-
-    # Render intent file notices
-    _stale_intents = prepared_status.stale_intents
-    _outstanding_intents = prepared_status.outstanding_intents
-
-    if _stale_intents:
-        print()
-        print("Stale incomplete operations (change IDs no longer in repo):")
-        for loaded in _stale_intents:
-            alive = pid_is_alive(loaded.intent.pid)
-            status_str = "process alive" if alive else "process dead"
-            print(f"  {loaded.intent.label}  [{status_str}, {loaded.path.name}]")
-
-    if _outstanding_intents:
-        print()
-        print("Incomplete operations detected:")
-        for loaded in _outstanding_intents:
-            alive = pid_is_alive(loaded.intent.pid)
-            if alive:
-                print(f"  {loaded.intent.label}  [in progress, PID {loaded.intent.pid}]")
-            else:
-                print(f"  {loaded.intent.label}  [interrupted — re-run to complete]")
-
-    exit_code = 1 if result.incomplete else 0
-
-    # Outstanding intents overlapping selected changes increase exit code
-    selected_change_ids = {r.change_id for r in getattr(result, "revisions", ())}
-    overlapping = any(
-        intent_change_ids(loaded.intent) & selected_change_ids
-        for loaded in _outstanding_intents
-    )
-    if overlapping:
-        exit_code = max(exit_code, 1)
-
-    return exit_code
-
-
-def _describe_status_preparation_error(error: UnsupportedStackError) -> str:
-    if error.reason == "divergent_change" and error.change_id is not None:
-        return (
-            "Could not inspect review status because local history no longer forms a "
-            f"supported linear stack. {error} Inspect the divergent revisions with "
-            f"`jj log -r 'change_id({error.change_id})'` and reconcile them before "
-            "retrying. "
-            "This can happen after `status --fetch` or another fetch imports remote "
-            "bookmark updates for merged PRs."
-        )
-    return (
-        "Could not inspect review status because local history no longer forms a "
-        f"supported linear stack. {error}"
-    )
-
-
-def _format_trunk_status_row(
-    prepared,
-    *,
-    configured_trunk_branch: str | None,
-) -> str:
-    trunk = prepared.stack.trunk
-    trunk_name = _resolve_status_trunk_name(
-        prepared,
-        configured_trunk_branch=configured_trunk_branch,
-    )
-    suffix = "trunk()" if trunk_name is None else trunk_name
-    return f"◆ {trunk.subject} [{_display_change_id(trunk.change_id)}]: {suffix}"
-
-
-def _display_change_id(change_id: str) -> str:
-    return change_id[:_DISPLAY_CHANGE_ID_LENGTH]
-
-
-def _resolve_status_trunk_name(
-    prepared,
-    *,
-    configured_trunk_branch: str | None,
-) -> str | None:
-    if configured_trunk_branch:
-        return configured_trunk_branch
-
-    trunk_commit_id = prepared.stack.trunk.commit_id
-    bookmark_states = prepared.client.list_bookmark_states()
-    local_matches = tuple(
-        sorted(
-            name
-            for name, bookmark_state in bookmark_states.items()
-            if bookmark_state.local_target == trunk_commit_id
-        )
-    )
-    if len(local_matches) == 1:
-        return local_matches[0]
-
-    remote = prepared.remote
-    if remote is None:
-        return None
-
-    remote_matches = tuple(
-        sorted(
-            name
-            for name, bookmark_state in bookmark_states.items()
-            if (remote_state := bookmark_state.remote_target(remote.name)) is not None
-            and remote_state.target == trunk_commit_id
-        )
-    )
-    if len(remote_matches) == 1:
-        return remote_matches[0]
-    return None
-
-
-def _format_status_summary(revision, *, github_available: bool) -> str:
-    lookup = revision.pull_request_lookup
-    cached_change = revision.cached_change
-    cached_label = _format_cached_pull_request_label(cached_change)
-    summary: str
-    if getattr(revision, "link_state", "active") == "unlinked":
-        if lookup is not None and lookup.pull_request is not None:
-            pull_request = lookup.pull_request
-            if pull_request.state == "open":
-                summary = _format_pull_request_label(
-                    pull_request.number,
-                    is_draft=getattr(pull_request, "is_draft", False),
-                    prefix="unlinked ",
-                )
-            else:
-                summary = f"unlinked PR #{pull_request.number} {pull_request.state}"
-        elif revision.remote_state is not None and revision.remote_state.targets:
-            summary = "unlinked branch"
-        else:
-            summary = "unlinked"
-    elif lookup is None:
-        if github_available:
-            summary = "not submitted"
-        elif cached_label is not None:
-            summary = cached_label
-        else:
-            summary = "GitHub status unknown"
-    elif lookup.state == "open":
-        if lookup.pull_request is None:
-            raise AssertionError("Open pull request lookup must include a pull request.")
-        summary = _format_pull_request_label(
-            lookup.pull_request.number,
-            is_draft=getattr(lookup.pull_request, "is_draft", False),
-        )
-        review_decision = _effective_review_decision(
-            cached_change=cached_change,
-            lookup=lookup,
-        )
-        if getattr(lookup.pull_request, "is_draft", False):
-            pass
-        elif review_decision == "approved":
-            summary = f"{summary} approved"
-        elif review_decision == "changes_requested":
-            summary = f"{summary} changes requested"
-    elif lookup.state == "missing":
-        if cached_label is not None:
-            summary = f"{cached_label}, no GitHub PR"
-        else:
-            summary = "not submitted"
-    elif lookup.state == "closed":
-        if lookup.pull_request is None:
-            raise AssertionError("Closed pull request lookup must include a pull request.")
-        if lookup.pull_request.state == "merged":
-            summary = f"PR #{lookup.pull_request.number} merged, cleanup needed"
-        else:
-            summary = f"PR #{lookup.pull_request.number} closed"
-    else:
-        message = lookup.message or "GitHub lookup failed"
-        if cached_label is not None:
-            summary = f"{cached_label}, {message}"
-        else:
-            summary = message
-
-    if getattr(revision, "local_divergent", False) and not _revision_has_merged_pull_request(
-        revision
-    ):
-        summary = f"{summary}, multiple visible revisions"
-
-    stack_comment_lookup = revision.stack_comment_lookup
-    if stack_comment_lookup is not None and stack_comment_lookup.state in {
-        "ambiguous",
-        "error",
-    }:
-        message = stack_comment_lookup.message or "stack summary comment lookup failed"
-        return f"{summary}, {message}"
-    return summary
-
-
-def _format_cached_pull_request_label(cached_change) -> str | None:
-    if cached_change is None or cached_change.pr_number is None:
-        return None
-
-    label = _format_pull_request_label(
-        cached_change.pr_number,
-        is_draft=bool(cached_change.pr_is_draft) and cached_change.pr_state == "open",
-        prefix="saved ",
-    )
-    if cached_change.pr_state is None:
-        return label
-
-    details = [cached_change.pr_state]
-    if (
-        cached_change.pr_state == "open"
-        and not cached_change.pr_is_draft
-        and cached_change.pr_review_decision is not None
-    ):
-        details.append(_format_review_decision_label(cached_change.pr_review_decision))
-    return f"{label} ({', '.join(details)})"
-
-
-def _format_pull_request_label(
-    pull_request_number: int,
-    *,
-    is_draft: bool,
-    prefix: str = "",
-) -> str:
-    label = f"PR #{pull_request_number}"
-    if is_draft:
-        label = f"draft {label}"
-    return f"{prefix}{label}"
-
-
-def _effective_review_decision(*, cached_change, lookup) -> str | None:
-    review_decision = getattr(lookup, "review_decision", None)
-    if review_decision is not None:
-        return review_decision
-    if getattr(lookup, "review_decision_error", None) is None or cached_change is None:
-        return None
-    return cached_change.pr_review_decision
-
-
-def _format_review_decision_label(review_decision: str) -> str:
-    if review_decision == "changes_requested":
-        return "changes requested"
-    return review_decision
-
-
-def _emit_status_advisories(result) -> None:
-    if not hasattr(result, "revisions") or not hasattr(result, "selected_revset"):
-        return
-    cleanup_revisions = [
-        revision for revision in result.revisions if _revision_has_merged_pull_request(revision)
-    ]
-    divergent_revisions = [
-        revision
-        for revision in result.revisions
-        if getattr(revision, "local_divergent", False)
-        and not _revision_has_merged_pull_request(revision)
-    ]
-    link_revisions = [
-        revision
-        for revision in result.revisions
-        if _revision_has_link_advisory(revision)
-    ]
-    policy_warnings = [
-        revision
-        for revision in cleanup_revisions
-        if (
-            revision.pull_request_lookup is not None
-            and revision.pull_request_lookup.pull_request is not None
-            and revision.pull_request_lookup.pull_request.base.ref.startswith("review/")
-        )
-    ]
-    if (
-        not cleanup_revisions
-        and not divergent_revisions
-        and not link_revisions
-        and not policy_warnings
-    ):
-        return
-
-    print()
-    print("Advisories:")
-    if cleanup_revisions:
-        next_command = f"jj-review cleanup --restack {result.selected_revset}"
-        _print_wrapped_advisory(
-            "Submit note: descendant PR bases still follow the old local ancestry "
-            "until the stack is restacked"
-        )
-        _print_wrapped_advisory(
-            f"Next step: run `{next_command}` to preview the local restack plan, "
-            "then rerun it with `--apply`"
-        )
-        for revision in cleanup_revisions:
-            pull_request_number = _revision_pull_request_number(revision)
-            pull_request_label = (
-                f"PR #{pull_request_number}" if pull_request_number is not None else "merged PR"
-            )
-            _print_wrapped_advisory(
-                f"{_status_revision_label(revision)}: {pull_request_label} is merged, "
-                "and later local changes are still based on it"
-            )
-    if link_revisions:
-        next_status = f"jj-review status --fetch {result.selected_revset}"
-        next_relink = f"jj-review relink <pr> {result.selected_revset}"
-        _print_wrapped_advisory(
-            f"PR link note: refresh remote and GitHub observations with "
-            f"`{next_status}`. If the existing PR should stay attached to one of these "
-            f"changes, repair that PR link intentionally with `{next_relink}`."
-        )
-        for revision in link_revisions:
-            _print_wrapped_advisory(
-                f"{_status_revision_label(revision)}: {_describe_link_advisory(revision)}"
-            )
-    for revision in policy_warnings:
-        base_ref = revision.pull_request_lookup.pull_request.base.ref
-        pull_request_number = _revision_pull_request_number(revision)
-        _print_wrapped_advisory(
-            f"Repository policy warning: PR #{pull_request_number} merged into "
-            f"{base_ref}; configure GitHub to block merges of PRs targeting "
-            "`review/*`"
-        )
-    for revision in divergent_revisions:
-        _print_wrapped_advisory(
-            f"{_status_revision_label(revision)}: resolve the multiple visible "
-            "revisions for this change before retrying "
-            f"(`jj log -r 'change_id({revision.change_id})'`)"
-        )
-
-
-def _print_wrapped_advisory(message: str) -> None:
-    print(
-        textwrap.fill(
-            message,
-            width=80,
-            initial_indent="- ",
-            subsequent_indent="  ",
-            break_long_words=False,
-            break_on_hyphens=False,
-        )
-    )
-
-
-def _status_revision_label(revision) -> str:
-    return f"[{_display_change_id(revision.change_id)}]"
-
-
-def _revision_has_merged_pull_request(revision) -> bool:
-    lookup = revision.pull_request_lookup
-    return (
-        lookup is not None
-        and lookup.state == "closed"
-        and lookup.pull_request is not None
-        and lookup.pull_request.state == "merged"
-    )
-
-
-def _revision_pull_request_number(revision) -> int | None:
-    lookup = revision.pull_request_lookup
-    if lookup is None or lookup.pull_request is None:
-        return None
-    return lookup.pull_request.number
-
-
-def _revision_has_link_advisory(revision) -> bool:
-    if getattr(revision, "link_state", "active") == "unlinked":
-        return False
-    lookup = revision.pull_request_lookup
-    if lookup is None:
-        return False
-    if lookup.state == "ambiguous":
-        return True
-    if lookup.state == "missing":
-        cached_change = revision.cached_change
-        return cached_change is not None and (
-            cached_change.pr_number is not None or cached_change.pr_url is not None
-        )
-    if lookup.state == "closed":
-        pull_request = lookup.pull_request
-        return pull_request is not None and pull_request.state != "merged"
-    return False
-
-
-def _describe_link_advisory(revision) -> str:
-    lookup = revision.pull_request_lookup
-    if lookup is None:
-        raise AssertionError("Link advisory requires a pull request lookup.")
-    if lookup.state == "ambiguous":
-        return lookup.message or "GitHub reports an ambiguous pull request link"
-    if lookup.state == "missing":
-        cached_label = _format_cached_pull_request_label(revision.cached_change)
-        if cached_label is None:
-            return "GitHub no longer reports a pull request for this branch"
-        return f"{cached_label} is no longer present on GitHub for this branch"
-    if lookup.state == "closed":
-        pull_request = lookup.pull_request
-        if pull_request is None:
-            raise AssertionError("Closed pull request advisory requires a pull request.")
-        return (
-            f"PR #{pull_request.number} is {pull_request.state}; submit will not reuse a "
-            "closed review automatically"
-        )
-    raise AssertionError(f"Unexpected link advisory state: {lookup.state}")
 
 
 def _resolve_selected_revset(
@@ -1366,7 +920,10 @@ def _submit_handler(args: Namespace) -> int:
 
 
 def _print_submit_revision(revision) -> None:
-    print(f"- {revision.subject} [{_display_change_id(revision.change_id)}]")
+    print(
+        f"- {revision.subject} "
+        f"[{status_command.display_change_id(revision.change_id)}]"
+    )
     print(f"  -> {revision.bookmark}{_render_submit_revision_suffix(revision)}")
 
 
@@ -1443,7 +1000,7 @@ def _render_submit_pr_suffix(
         if action == "updated":
             return " [PR #n updated]"
         return " [PR unchanged]"
-    label = _format_pull_request_label(
+    label = status_command.format_pull_request_label(
         pull_request_number,
         is_draft=bool(is_draft),
     )
@@ -1470,7 +1027,7 @@ def _relink_handler(args: Namespace) -> int:
     print(f"GitHub: {result.github_repository}")
     print(
         f"Relinked PR #{result.pull_request_number} for {result.subject} "
-        f"[{_display_change_id(result.change_id)}] -> {result.bookmark}"
+        f"[{status_command.display_change_id(result.change_id)}] -> {result.bookmark}"
     )
     return 0
 
@@ -1491,19 +1048,21 @@ def _unlink_handler(args: Namespace) -> int:
     print(f"Selected revset: {result.selected_revset}")
     if result.already_unlinked:
         print(
-            f"{result.subject} [{_display_change_id(result.change_id)}] is already unlinked "
-            "from review tracking."
+            f"{result.subject} "
+            f"[{status_command.display_change_id(result.change_id)}] is already "
+            "unlinked from review tracking."
         )
         return 0
     if result.bookmark is None:
         print(
             f"Stopped review tracking for {result.subject} "
-            f"[{_display_change_id(result.change_id)}]."
+            f"[{status_command.display_change_id(result.change_id)}]."
         )
     else:
         print(
             f"Stopped review tracking for {result.subject} "
-            f"[{_display_change_id(result.change_id)}], preserving {result.bookmark}."
+            f"[{status_command.display_change_id(result.change_id)}], preserving "
+            f"{result.bookmark}."
         )
     return 0
 
@@ -1525,7 +1084,7 @@ def _cleanup_handler(args: Namespace) -> int:
                 revset=selected_revset,
             )
         except UnsupportedStackError as error:
-            raise CliError(_describe_status_preparation_error(error)) from error
+            raise CliError(status_command.describe_status_preparation_error(error)) from error
         for line in render_restack_preamble(prepared_restack=prepared_restack):
             print(line)
 
@@ -1550,7 +1109,7 @@ def _cleanup_handler(args: Namespace) -> int:
                 stream_restack_fn=stream_restack,
             )
         except UnsupportedStackError as error:
-            raise CliError(_describe_status_preparation_error(error)) from error
+            raise CliError(status_command.describe_status_preparation_error(error)) from error
         for line in render_restack_postamble(result=result):
             print(line)
         return 1 if result.blocked else 0
