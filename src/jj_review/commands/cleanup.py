@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from argparse import Namespace
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -241,27 +240,36 @@ def render_restack_postamble(*, result: RestackResult) -> tuple[str, ...]:
     return ()
 
 
-def handle_cleanup_command(args: Namespace) -> int:
+def handle_cleanup_command(
+    *,
+    apply: bool,
+    config_path: Path | None,
+    current: bool,
+    debug: bool,
+    repository: Path | None,
+    restack: bool,
+    revset: str | None,
+) -> int:
     """CLI entrypoint for `cleanup`."""
 
     from jj_review.bootstrap import bootstrap_context
     from jj_review.commands.review_state import describe_status_preparation_error
 
     context = bootstrap_context(
-        repository=args.repository,
-        config_path=args.config,
-        debug=args.debug,
+        repository=repository,
+        config_path=config_path,
+        debug=debug,
     )
-    if args.restack:
+    if restack:
         selected_revset = resolve_selected_revset(
-            command_label="cleanup --restack --apply" if args.apply else "cleanup --restack",
-            current=args.current,
-            require_explicit=bool(args.apply),
-            revset=args.revset,
+            command_label="cleanup --restack --apply" if apply else "cleanup --restack",
+            current=current,
+            require_explicit=apply,
+            revset=revset,
         )
         try:
             prepared_restack = prepare_restack(
-                apply=bool(args.apply),
+                apply=apply,
                 change_overrides=context.config.change,
                 config=context.config.repo,
                 repo_root=context.repo_root,
@@ -283,7 +291,7 @@ def handle_cleanup_command(args: Namespace) -> int:
 
         try:
             _, result = run_restack_command(
-                apply=bool(args.apply),
+                apply=apply,
                 change_overrides=context.config.change,
                 config=context.config.repo,
                 on_action=emit_action,
@@ -299,7 +307,7 @@ def handle_cleanup_command(args: Namespace) -> int:
         return 1 if result.blocked else 0
 
     prepared_cleanup = prepare_cleanup(
-        apply=bool(args.apply),
+        apply=apply,
         config=context.config.repo,
         repo_root=context.repo_root,
     )
@@ -316,7 +324,7 @@ def handle_cleanup_command(args: Namespace) -> int:
         print(render_cleanup_action(action=action))
 
     _, result = run_cleanup_command(
-        apply=bool(args.apply),
+        apply=apply,
         config=context.config.repo,
         on_action=emit_action,
         prepare_cleanup_fn=lambda **kwargs: prepared_cleanup,

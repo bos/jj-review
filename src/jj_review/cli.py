@@ -398,7 +398,17 @@ def build_parser() -> ArgumentParser:
         nargs="?",
         help="Revision whose stack should be inspected or restacked",
     )
-    cleanup_parser.set_defaults(handler=cleanup_command.handle_cleanup_command)
+    cleanup_parser.set_defaults(
+        handler=lambda args: cleanup_command.handle_cleanup_command(
+            apply=args.apply,
+            config_path=args.config,
+            current=args.current,
+            debug=args.debug,
+            repository=args.repository,
+            restack=args.restack,
+            revset=args.revset,
+        )
+    )
 
     completion_parser = subparsers.add_parser(
         "completion",
