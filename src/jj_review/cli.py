@@ -253,14 +253,27 @@ def build_parser() -> ArgumentParser:
         command="relink",
         help_text=_normalized_help_text(relink_command.HELP),
         description_text=relink_command.__doc__ or "",
-        handler=relink_command.handle_relink_command,
+        handler=lambda args: relink_command.handle_relink_command(
+            config_path=args.config,
+            current=args.current,
+            debug=args.debug,
+            pull_request=args.pull_request,
+            repository=args.repository,
+            revset=args.revset,
+        ),
     )
     unlink_parser = _add_revision_command(
         subparsers,
         command="unlink",
         help_text=_normalized_help_text(unlink_command.HELP),
         description_text=unlink_command.__doc__ or "",
-        handler=unlink_command.handle_unlink_command,
+        handler=lambda args: unlink_command.handle_unlink_command(
+            config_path=args.config,
+            current=args.current,
+            debug=args.debug,
+            repository=args.repository,
+            revset=args.revset,
+        ),
     )
     unlink_parser.add_argument(
         "--current",

@@ -7,7 +7,6 @@ Later jj-review commands will ignore that change unless you link it again.
 from __future__ import annotations
 
 import asyncio
-from argparse import Namespace
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -55,16 +54,23 @@ def run_unlink(
     )
 
 
-def handle_unlink_command(args: Namespace) -> int:
+def handle_unlink_command(
+    *,
+    config_path: Path | None,
+    current: bool,
+    debug: bool,
+    repository: Path | None,
+    revset: str | None,
+) -> int:
     """CLI entrypoint for `unlink`."""
 
     from jj_review.bootstrap import bootstrap_context
     from jj_review.commands.review_state import display_change_id
 
     context = bootstrap_context(
-        repository=args.repository,
-        config_path=args.config,
-        debug=args.debug,
+        repository=repository,
+        config_path=config_path,
+        debug=debug,
     )
     result = run_unlink(
         change_overrides=context.config.change,
@@ -72,9 +78,9 @@ def handle_unlink_command(args: Namespace) -> int:
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
             command_label="unlink",
-            current=args.current,
+            current=current,
             require_explicit=True,
-            revset=args.revset,
+            revset=revset,
         ),
     )
     print(f"Selected revset: {result.selected_revset}")

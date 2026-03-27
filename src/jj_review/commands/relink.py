@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from argparse import Namespace
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -74,25 +73,33 @@ def run_relink(
     )
 
 
-def handle_relink_command(args: Namespace) -> int:
+def handle_relink_command(
+    *,
+    config_path: Path | None,
+    current: bool,
+    debug: bool,
+    pull_request: str,
+    repository: Path | None,
+    revset: str | None,
+) -> int:
     """CLI entrypoint for `relink`."""
 
     from jj_review.bootstrap import bootstrap_context
 
     context = bootstrap_context(
-        repository=args.repository,
-        config_path=args.config,
-        debug=args.debug,
+        repository=repository,
+        config_path=config_path,
+        debug=debug,
     )
     result = run_relink(
         config=context.config.repo,
-        pull_request_reference=args.pull_request,
+        pull_request_reference=pull_request,
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
             command_label="relink",
-            current=args.current,
+            current=current,
             require_explicit=True,
-            revset=args.revset,
+            revset=revset,
         ),
     )
     print(f"Selected revset: {result.selected_revset}")
