@@ -295,7 +295,11 @@ def handle_submit_command(args: Namespace) -> int:
 
     from jj_review.bootstrap import bootstrap_context
 
-    context = bootstrap_context(args)
+    context = bootstrap_context(
+        repository=args.repository,
+        config_path=args.config,
+        debug=args.debug,
+    )
     selected_revset = resolve_selected_revset(
         args,
         command_label="submit",

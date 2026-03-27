@@ -79,7 +79,11 @@ def handle_relink_command(args: Namespace) -> int:
 
     from jj_review.bootstrap import bootstrap_context
 
-    context = bootstrap_context(args)
+    context = bootstrap_context(
+        repository=args.repository,
+        config_path=args.config,
+        debug=args.debug,
+    )
     result = run_relink(
         config=context.config.repo,
         pull_request_reference=args.pull_request,

@@ -101,7 +101,11 @@ def handle_close_command(args: Namespace) -> int:
 
     from jj_review.bootstrap import bootstrap_context
 
-    context = bootstrap_context(args)
+    context = bootstrap_context(
+        repository=args.repository,
+        config_path=args.config,
+        debug=args.debug,
+    )
     result = run_close(
         apply=bool(args.apply),
         cleanup=bool(args.cleanup),

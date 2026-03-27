@@ -247,7 +247,11 @@ def handle_cleanup_command(args: Namespace) -> int:
     from jj_review.bootstrap import bootstrap_context
     from jj_review.commands.review_state import describe_status_preparation_error
 
-    context = bootstrap_context(args)
+    context = bootstrap_context(
+        repository=args.repository,
+        config_path=args.config,
+        debug=args.debug,
+    )
     if args.restack:
         selected_revset = resolve_selected_revset(
             args,

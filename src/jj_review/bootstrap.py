@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from argparse import Namespace
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,19 +37,23 @@ class AppContext:
     repo_root: Path
 
 
-def bootstrap_context(args: Namespace) -> AppContext:
+def bootstrap_context(
+    *,
+    repository: Path | None,
+    config_path: Path | None,
+    debug: bool,
+) -> AppContext:
     """Resolve the repository, load config, and initialize logging."""
 
-    repository = _resolve_optional_path(getattr(args, "repository", None))
+    repository = _resolve_optional_path(repository)
     _validate_repository_path(repository)
-    config_path = _resolve_optional_path(getattr(args, "config", None))
+    config_path = _resolve_optional_path(config_path)
     check_jj_version()
     try:
         repo_root = resolve_repo_root(repository or Path.cwd())
         config = load_config(repo_root=repo_root, config_path=config_path)
     except ConfigError as error:
         raise BootstrapError(str(error)) from error
-    debug = bool(getattr(args, "debug", False))
     configure_logging(debug=debug, configured_level=config.logging.level)
 
     return AppContext(

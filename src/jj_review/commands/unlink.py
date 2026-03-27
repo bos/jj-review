@@ -61,7 +61,11 @@ def handle_unlink_command(args: Namespace) -> int:
     from jj_review.bootstrap import bootstrap_context
     from jj_review.commands.review_state import display_change_id
 
-    context = bootstrap_context(args)
+    context = bootstrap_context(
+        repository=args.repository,
+        config_path=args.config,
+        debug=args.debug,
+    )
     result = run_unlink(
         change_overrides=context.config.change,
         config=context.config.repo,

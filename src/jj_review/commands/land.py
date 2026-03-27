@@ -209,7 +209,11 @@ def handle_land_command(args: Namespace) -> int:
 
     from jj_review.bootstrap import bootstrap_context
 
-    context = bootstrap_context(args)
+    context = bootstrap_context(
+        repository=args.repository,
+        config_path=args.config,
+        debug=args.debug,
+    )
     result = run_land(
         apply=bool(args.apply),
         bypass_readiness=bool(args.bypass_readiness),

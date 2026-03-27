@@ -812,7 +812,11 @@ def _normalize_cli_args(argv: Sequence[str]) -> list[str]:
 
 def _stub_handler(command: str):
     def handler(args: Namespace) -> int:
-        context = bootstrap_context(args)
+        context = bootstrap_context(
+            repository=args.repository,
+            config_path=args.config,
+            debug=args.debug,
+        )
         logger.debug(
             "bootstrapped %s in %s with config %s",
             command,
