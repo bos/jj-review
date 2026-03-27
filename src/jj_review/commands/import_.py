@@ -10,6 +10,7 @@ changes, or change GitHub.
 from __future__ import annotations
 
 import asyncio
+from argparse import Namespace
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,7 @@ from jj_review.bookmarks import (
     _bookmark_matches_generated_change_id,
     _discover_bookmarks_for_revisions,
 )
+from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClientError
@@ -123,6 +125,59 @@ def run_import(
             revset=revset,
         )
     )
+
+
+def handle_import_command(
+    args: Namespace,
+    *,
+    bootstrap_context_fn,
+    run_import_fn=run_import,
+) -> int:
+    """CLI entrypoint for `import`."""
+
+    context = bootstrap_context_fn(args)
+    result = run_import_fn(
+        change_overrides=context.config.change,
+        config=context.config.repo,
+        current=bool(args.current),
+        fetch=bool(args.fetch),
+        head=args.head,
+        pull_request_reference=args.pull_request,
+        repo_root=context.repo_root,
+        revset=resolve_selected_revset(
+            args,
+            command_label="import",
+            require_explicit=False,
+        ),
+    )
+    print(f"Selected selector: {result.selector}")
+    print(f"Selected revset: {result.selected_revset}")
+    if result.fetched_tip_commit is not None:
+        print(f"Fetched tip commit: {result.fetched_tip_commit}")
+    if result.remote is None:
+        if result.remote_error is None:
+            print("Selected remote: unavailable")
+        else:
+            print(f"Selected remote: unavailable ({result.remote_error})")
+    else:
+        print(f"Selected remote: {result.remote.name}")
+    if result.github_repository is None:
+        if result.github_error is None:
+            print("GitHub: unavailable")
+        else:
+            print(f"GitHub: unavailable ({result.github_error})")
+    else:
+        print(f"GitHub: {result.github_repository}")
+    if result.actions:
+        print("Updated local jj-review tracking:")
+        for action in result.actions:
+            print(f"- [{action.status}] {action.kind}: {action.message}")
+    else:
+        if result.reviewable_revision_count:
+            print("Local jj-review tracking is already up to date for the selected stack.")
+        else:
+            print("No reviewable commits between the selected revision and `trunk()`.")
+    return 0
 
 
 async def _run_import_async(

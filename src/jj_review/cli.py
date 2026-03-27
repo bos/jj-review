@@ -13,6 +13,7 @@ from argparse import SUPPRESS, ArgumentParser, HelpFormatter, Namespace, _SubPar
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import Literal, cast
 
@@ -346,6 +347,11 @@ def build_parser() -> ArgumentParser:
         command="import",
         help_text=_normalized_help_text(import_command.HELP),
         description_text=import_command.__doc__ or "",
+        handler=partial(
+            import_command.handle_import_command,
+            bootstrap_context_fn=bootstrap_context,
+            run_import_fn=run_import,
+        ),
     )
 
     cleanup_parser = subparsers.add_parser(
@@ -659,6 +665,7 @@ def _add_import_parser[SubparserT: ArgumentParser](
     command: str,
     help_text: str,
     description_text: str,
+    handler=None,
 ) -> SubparserT:
     parser = subparsers.add_parser(
         command,
@@ -696,7 +703,7 @@ def _add_import_parser[SubparserT: ArgumentParser](
             """
         ),
     )
-    parser.set_defaults(handler=_import_handler)
+    parser.set_defaults(handler=handler or _stub_handler(command))
     return parser
 
 
@@ -1198,48 +1205,6 @@ def _close_handler(args: Namespace) -> int:
             "to close the selected stack."
         )
     return 1 if result.blocked else 0
-
-
-def _import_handler(args: Namespace) -> int:
-    context = bootstrap_context(args)
-    result = run_import(
-        change_overrides=context.config.change,
-        config=context.config.repo,
-        current=bool(args.current),
-        fetch=bool(args.fetch),
-        head=args.head,
-        pull_request_reference=args.pull_request,
-        repo_root=context.repo_root,
-        revset=args.revset,
-    )
-    print(f"Selected selector: {result.selector}")
-    print(f"Selected revset: {result.selected_revset}")
-    if result.fetched_tip_commit is not None:
-        print(f"Fetched tip commit: {result.fetched_tip_commit}")
-    if result.remote is None:
-        if result.remote_error is None:
-            print("Selected remote: unavailable")
-        else:
-            print(f"Selected remote: unavailable ({result.remote_error})")
-    else:
-        print(f"Selected remote: {result.remote.name}")
-    if result.github_repository is None:
-        if result.github_error is None:
-            print("GitHub: unavailable")
-        else:
-            print(f"GitHub: unavailable ({result.github_error})")
-    else:
-        print(f"GitHub: {result.github_repository}")
-    if result.actions:
-        print("Updated local jj-review tracking:")
-        for action in result.actions:
-            print(f"- [{action.status}] {action.kind}: {action.message}")
-    else:
-        if result.reviewable_revision_count:
-            print("Local jj-review tracking is already up to date for the selected stack.")
-        else:
-            print("No reviewable commits between the selected revision and `trunk()`.")
-    return 0
 
 
 def _land_handler(args: Namespace) -> int:
