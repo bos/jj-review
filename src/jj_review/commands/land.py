@@ -1161,7 +1161,7 @@ def _ensure_trunk_branch_matches_selected_trunk(
         )
 
     remote_state = bookmark_state.remote_target(remote_name)
-    if remote_state is None or remote_state.target is None:
+    if remote_state is None:
         raise CliError(
             f"Remote trunk bookmark {trunk_branch!r}@{remote_name} is not available. Fetch and "
             "retry."
@@ -1170,6 +1170,11 @@ def _ensure_trunk_branch_matches_selected_trunk(
         raise CliError(
             f"Remote trunk bookmark {trunk_branch!r}@{remote_name} is conflicted. Resolve it "
             "before landing."
+        )
+    if remote_state.target is None:
+        raise CliError(
+            f"Remote trunk bookmark {trunk_branch!r}@{remote_name} is not available. Fetch and "
+            "retry."
         )
     if remote_state.target != trunk_commit_id:
         raise CliError(

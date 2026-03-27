@@ -10,8 +10,10 @@ import pytest
 from jj_review.commands.land import (
     _build_land_plan,
     _collect_landable_prefix,
+    _ensure_trunk_branch_matches_selected_trunk,
     _find_resume_land_intent,
     _LandPreviewSnapshot,
+    _load_land_preview,
     _parse_pull_request_reference,
     _planned_land_actions,
     _remote_trunk_matches_commit,
@@ -675,6 +677,22 @@ def test_require_matching_land_preview_rejects_bypass_change(tmp_path: Path) -> 
         )
 
 
+def test_load_land_preview_rejects_invalid_json(tmp_path: Path) -> None:
+    preview_path = tmp_path / "land-preview.json"
+    preview_path.write_text("{not json}\n", encoding="utf-8")
+
+    with pytest.raises(CliError, match="Saved land preview .* is invalid"):
+        _load_land_preview(tmp_path)
+
+
+def test_load_land_preview_rejects_invalid_shape(tmp_path: Path) -> None:
+    preview_path = tmp_path / "land-preview.json"
+    preview_path.write_text('{"selected_revset": "@-"}\n', encoding="utf-8")
+
+    with pytest.raises(CliError, match="Saved land preview .* is invalid"):
+        _load_land_preview(tmp_path)
+
+
 def test_resume_land_plan_skips_completed_change_ids() -> None:
     intent = cast(
         LandIntent,
@@ -738,6 +756,92 @@ def test_restore_local_trunk_bookmark_forgets_bookmark_when_original_target_miss
 
     assert client.forget_calls == ["main"]
     assert client.set_calls == []
+
+
+def test_ensure_trunk_branch_matches_selected_trunk_rejects_conflicted_local_bookmark() -> None:
+    client = _BookmarkClientStub(
+        BookmarkState(
+            name="main",
+            local_targets=("commit-1", "commit-2"),
+            remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
+        )
+    )
+
+    with pytest.raises(CliError, match="Local trunk bookmark 'main' is conflicted"):
+        _ensure_trunk_branch_matches_selected_trunk(
+            client=client,
+            remote_name="origin",
+            trunk_branch="main",
+            trunk_commit_id="commit-1",
+        )
+
+
+def test_ensure_trunk_branch_matches_selected_trunk_rejects_moved_local_bookmark() -> None:
+    client = _BookmarkClientStub(
+        BookmarkState(
+            name="main",
+            local_targets=("commit-2",),
+            remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
+        )
+    )
+
+    with pytest.raises(CliError, match="Local trunk bookmark 'main' no longer matches"):
+        _ensure_trunk_branch_matches_selected_trunk(
+            client=client,
+            remote_name="origin",
+            trunk_branch="main",
+            trunk_commit_id="commit-1",
+        )
+
+
+def test_ensure_trunk_branch_matches_selected_trunk_rejects_missing_remote_bookmark() -> None:
+    client = _BookmarkClientStub(BookmarkState(name="main", local_targets=("commit-1",)))
+
+    with pytest.raises(CliError, match="Remote trunk bookmark 'main'@origin is not available"):
+        _ensure_trunk_branch_matches_selected_trunk(
+            client=client,
+            remote_name="origin",
+            trunk_branch="main",
+            trunk_commit_id="commit-1",
+        )
+
+
+def test_ensure_trunk_branch_matches_selected_trunk_rejects_conflicted_remote_bookmark() -> None:
+    client = _BookmarkClientStub(
+        BookmarkState(
+            name="main",
+            local_targets=("commit-1",),
+            remote_targets=(
+                RemoteBookmarkState(remote="origin", targets=("commit-1", "commit-2")),
+            ),
+        )
+    )
+
+    with pytest.raises(CliError, match="Remote trunk bookmark 'main'@origin is conflicted"):
+        _ensure_trunk_branch_matches_selected_trunk(
+            client=client,
+            remote_name="origin",
+            trunk_branch="main",
+            trunk_commit_id="commit-1",
+        )
+
+
+def test_ensure_trunk_branch_matches_selected_trunk_rejects_moved_remote_bookmark() -> None:
+    client = _BookmarkClientStub(
+        BookmarkState(
+            name="main",
+            local_targets=("commit-1",),
+            remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-2",)),),
+        )
+    )
+
+    with pytest.raises(CliError, match="Remote trunk bookmark 'main'@origin moved"):
+        _ensure_trunk_branch_matches_selected_trunk(
+            client=client,
+            remote_name="origin",
+            trunk_branch="main",
+            trunk_commit_id="commit-1",
+        )
 
 
 def _status_revision(
