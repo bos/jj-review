@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 from jj_review import __version__
 from jj_review.bootstrap import BootstrapError, bootstrap_context
@@ -801,11 +801,11 @@ def _time_output(*, enabled: bool):
         if flush:
             destination.flush()
 
-    builtins.print = cast(Any, timed_print)
+    builtins.print = timed_print  # noqa: B010
     try:
         yield
     finally:
-        builtins.print = original_print
+        builtins.print = original_print  # noqa: B010
 
 
 def _prefix_rendered_lines(rendered: str, *, prefix: str) -> str:
