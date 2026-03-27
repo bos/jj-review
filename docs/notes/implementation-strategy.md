@@ -419,6 +419,18 @@ override the default worker count, while `./check.py -n 1` should provide a
 serial escape hatch without changing the environment bootstrap, lint, and
 type-check steps.
 
+The check runner should also support an explicit concurrency-observability mode:
+
+```text
+./check.py --pytest-concurrency-report
+```
+
+That mode should keep the same bootstrap, lint, and type-check flow, then run
+pytest with a local plugin that measures per-test wall-clock occupancy,
+reports average and peak active-test counts, and highlights the tests that
+contribute the most concurrency debt when the suite drops below the requested
+worker count.
+
 Coverage should be available as an explicit local verification mode:
 
 ```text

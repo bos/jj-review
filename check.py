@@ -39,12 +39,15 @@ def _build_checks(
     *,
     pytest_jobs: PytestJobs | None,
     coverage: bool,
+    concurrency_report: bool,
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
     pytest_command: tuple[str, ...] = ("-m", "pytest")
     if pytest_jobs in (None, "auto"):
         pytest_command = (*pytest_command, "-n", "auto")
     elif isinstance(pytest_jobs, int) and pytest_jobs > 1:
         pytest_command = (*pytest_command, "-n", str(pytest_jobs))
+    if concurrency_report:
+        pytest_command = (*pytest_command, "--concurrency-report")
     if coverage:
         pytest_command = (
             *pytest_command,
@@ -81,6 +84,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             "HTML reports in htmlcov/."
         ),
     )
+    parser.add_argument(
+        "--pytest-concurrency-report",
+        action="store_true",
+        help="Report observed test concurrency and highlight bottlenecks.",
+    )
     args = parser.parse_args(argv)
     try:
         pytest_jobs = (
@@ -93,6 +101,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for name, command in _build_checks(
         pytest_jobs=pytest_jobs,
         coverage=args.coverage,
+        concurrency_report=args.pytest_concurrency_report,
     ):
         full_command = (str(VENV_PYTHON), *command)
         print(f"==> {name}: {shlex.join(full_command)}", flush=True)
