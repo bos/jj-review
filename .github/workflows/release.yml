@@ -18,6 +18,9 @@ on:
 permissions:
   contents: read
 
+env:
+  JJ_VERSION: v0.39.0
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -30,6 +33,9 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.11"
+
+      - name: Install jj
+        run: echo "$(tools/install-jj-release.sh "$JJ_VERSION")" >> "$GITHUB_PATH"
 
       - name: Run local verification suite
         run: ./check.py

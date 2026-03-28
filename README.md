@@ -80,7 +80,7 @@ On the other hand, it's likely not for you if:
 
 - Python 3.11 or newer
 - `uv`
-- `jj` 0.22.0 or newer
+- `jj` 0.39.0 or newer
 - GitHub authentication via `gh auth login` or a `GITHUB_TOKEN`
 
 If you are new to `jj`: it is a Git-compatible VCS that makes it much easier to
@@ -202,6 +202,8 @@ If you are here to work on the tool itself rather than use it:
 
 - local development entrypoint: `uv run jj-review ...`
 - default verification command: `./check.py`
+- install a pinned release binary for compatibility checks with
+  `tools/install-jj-release.sh <version>`
 - design doc: [docs/notes/design.md](docs/notes/design.md)
 - implementation notes:
   [docs/notes/implementation-strategy.md](docs/notes/implementation-strategy.md)

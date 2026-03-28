@@ -1,6 +1,9 @@
 # Repo Notes
 
 - This is a `jj` repo. Do not use `git` to work on the repo itself.
+- In user-facing output, identify revisions by `change_id` by default. If a
+  concrete immutable snapshot matters, include the `commit_id` second and
+  label it explicitly.
 - Read [docs/notes/design.md](docs/notes/design.md) and
   [docs/notes/implementation-strategy.md](docs/notes/implementation-strategy.md)
   before changing behavior. `design.md` is the canonical product spec.

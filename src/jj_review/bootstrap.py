@@ -10,8 +10,8 @@ from pathlib import Path
 from jj_review.config import AppConfig, load_config
 from jj_review.errors import CliError
 
-_MINIMUM_JJ_VERSION = (0, 22, 0)
-_MINIMUM_JJ_VERSION_STRING = "0.22.0"
+_MINIMUM_JJ_VERSION = (0, 39, 0)
+_MINIMUM_JJ_VERSION_STRING = "0.39.0"
 
 
 @dataclass(slots=True, frozen=True)
