@@ -19,6 +19,7 @@ from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.commands.review_state import describe_status_preparation_error
+from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
@@ -52,7 +53,7 @@ from jj_review.stack_comments import is_stack_summary_comment
 HELP = "Clean up stale jj-review data for a jj stack"
 
 CleanupActionStatus = Literal["applied", "blocked", "planned"]
-_GITHUB_INSPECTION_CONCURRENCY = 4
+_GITHUB_INSPECTION_CONCURRENCY = DEFAULT_BOUNDED_CONCURRENCY
 
 
 @dataclass(frozen=True, slots=True)
@@ -842,6 +843,7 @@ async def _stream_cleanup_async(
 
     # Write an intent file before the first mutation (apply mode only)
     intent_path: Path | None = None
+    _cleanup_succeeded = False
     if apply and prepared_cleanup.state_dir is not None:
         _intent = CleanupApplyIntent(
             kind="cleanup-apply",
@@ -854,7 +856,6 @@ async def _stream_cleanup_async(
             print(f"Note: a previous cleanup was interrupted ({_loaded.intent.label})")
         intent_path = write_intent(prepared_cleanup.state_dir, _intent)
 
-        _cleanup_succeeded = False
     try:
         if prepared_cleanup.github_repository is None:
             _run_local_cleanup_pass(
@@ -1028,28 +1029,6 @@ def _save_cleanup_state_if_changed(
         )
 
 
-def _create_stack_comment_cleanup_tasks(
-    *,
-    github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
-    prepared_changes: tuple[PreparedCleanupChange, ...],
-) -> dict[str, asyncio.Task[StackCommentCleanupPlan | None]]:
-    semaphore = asyncio.Semaphore(_GITHUB_INSPECTION_CONCURRENCY)
-    return {
-        prepared_change.change_id: asyncio.create_task(
-            _plan_stack_comment_cleanup_with_semaphore(
-                cached_change=prepared_change.cached_change,
-                bookmark_state=prepared_change.bookmark_state,
-                github_client=github_client,
-                github_repository=github_repository,
-                semaphore=semaphore,
-            )
-        )
-        for prepared_change in prepared_changes
-        if prepared_change.inspect_stack_comment
-    }
-
-
 async def _run_stack_comment_cleanup_pass(
     *,
     github_client: GithubClient,
@@ -1059,34 +1038,37 @@ async def _run_stack_comment_cleanup_pass(
     prepared_cleanup: PreparedCleanup,
     record_action: Callable[[CleanupAction], None],
 ) -> None:
-    comment_plan_tasks = _create_stack_comment_cleanup_tasks(
-        github_client=github_client,
-        github_repository=github_repository,
-        prepared_changes=prepared_changes,
+    stack_comment_changes = tuple(
+        prepared_change
+        for prepared_change in prepared_changes
+        if prepared_change.inspect_stack_comment
     )
-    try:
-        for prepared_change in prepared_changes:
-            if not prepared_change.inspect_stack_comment:
-                continue
-
-            comment_plan = await comment_plan_tasks[prepared_change.change_id]
-            if comment_plan is None:
-                continue
-            await _apply_stack_comment_cleanup_action(
-                comment_plan=comment_plan,
-                change_id=prepared_change.change_id,
-                github_client=github_client,
-                github_repository=github_repository,
-                next_changes=next_changes,
-                prepared_cleanup=prepared_cleanup,
-                record_action=record_action,
-            )
-    finally:
-        for task in comment_plan_tasks.values():
-            if not task.done():
-                task.cancel()
-        if comment_plan_tasks:
-            await asyncio.gather(*comment_plan_tasks.values(), return_exceptions=True)
+    comment_plans = await run_bounded_tasks(
+        concurrency=_GITHUB_INSPECTION_CONCURRENCY,
+        items=stack_comment_changes,
+        run_item=lambda prepared_change: _plan_stack_comment_cleanup(
+            cached_change=prepared_change.cached_change,
+            bookmark_state=prepared_change.bookmark_state,
+            github_client=github_client,
+            github_repository=github_repository,
+        ),
+    )
+    for prepared_change, comment_plan in zip(
+        stack_comment_changes,
+        comment_plans,
+        strict=True,
+    ):
+        if comment_plan is None:
+            continue
+        await _apply_stack_comment_cleanup_action(
+            comment_plan=comment_plan,
+            change_id=prepared_change.change_id,
+            github_client=github_client,
+            github_repository=github_repository,
+            next_changes=next_changes,
+            prepared_cleanup=prepared_cleanup,
+            record_action=record_action,
+        )
 
 
 async def _apply_stack_comment_cleanup_action(
@@ -1124,23 +1106,6 @@ async def _apply_stack_comment_cleanup_action(
         _save_cleanup_state(
             next_changes=next_changes,
             prepared_cleanup=prepared_cleanup,
-        )
-
-
-async def _plan_stack_comment_cleanup_with_semaphore(
-    *,
-    cached_change: CachedChange,
-    bookmark_state: BookmarkState,
-    github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
-    semaphore: asyncio.Semaphore,
-) -> StackCommentCleanupPlan | None:
-    async with semaphore:
-        return await _plan_stack_comment_cleanup(
-            cached_change=cached_change,
-            bookmark_state=bookmark_state,
-            github_client=github_client,
-            github_repository=github_repository,
         )
 
 

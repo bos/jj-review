@@ -11,11 +11,11 @@ import json
 import os
 import subprocess
 import tempfile
-from collections.abc import Callable, Coroutine, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Protocol, TypeVar
+from typing import Any, Literal, Protocol
 
 from jj_review.bookmarks import (
     BookmarkResolver,
@@ -30,6 +30,7 @@ from jj_review.command_ui import (
     resolve_selected_revset,
 )
 from jj_review.commands.review_state import display_change_id, format_pull_request_label
+from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
@@ -65,7 +66,7 @@ PullRequestAction = Literal["created", "unchanged", "updated"]
 SubmitDraftMode = Literal["default", "draft", "draft_all", "publish"]
 RemoteBookmarkAction = Literal["pushed", "up to date"]
 PushOperation = Literal["batch", "git_update", "up_to_date"]
-_GITHUB_INSPECTION_CONCURRENCY = 4
+_GITHUB_INSPECTION_CONCURRENCY = DEFAULT_BOUNDED_CONCURRENCY
 _DESCRIBE_WITH_STACK_INPUT_ENV = "JJ_REVIEW_STACK_INPUT_FILE"
 
 
@@ -204,10 +205,6 @@ class InterruptedRemoteBookmarkRepairer(Protocol):
 
     def track_bookmark(self, *, remote: str, bookmark: str) -> None:
         """Track an existing remote bookmark locally."""
-
-
-_TaskItemT = TypeVar("_TaskItemT")
-_TaskResultT = TypeVar("_TaskResultT")
 
 
 def submit(
@@ -1065,68 +1062,6 @@ def _run_description_command(
     return GeneratedDescription(body=body, title=title)
 
 
-async def _run_bounded_submit_tasks(
-    *,
-    concurrency: int,
-    items: tuple[_TaskItemT, ...],
-    run_item: Callable[[_TaskItemT], Coroutine[Any, Any, _TaskResultT]],
-    on_success: Callable[[int, _TaskResultT], None],
-) -> list[_TaskResultT]:
-    if not items:
-        return []
-
-    item_iter = iter(enumerate(items))
-    in_flight: dict[asyncio.Task[_TaskResultT], int] = {}
-    results: list[_TaskResultT | None] = [None] * len(items)
-    first_failure: tuple[int, Exception] | None = None
-
-    def start_next() -> bool:
-        try:
-            index, item = next(item_iter)
-        except StopIteration:
-            return False
-        in_flight[asyncio.create_task(run_item(item))] = index
-        return True
-
-    for _ in range(min(concurrency, len(items))):
-        start_next()
-
-    while in_flight:
-        done, _ = await asyncio.wait(
-            tuple(in_flight),
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in done:
-            index = in_flight.pop(task)
-            try:
-                result = task.result()
-            except Exception as error:
-                if first_failure is None or index < first_failure[0]:
-                    first_failure = (index, error)
-                continue
-
-            results[index] = result
-            try:
-                on_success(index, result)
-            except Exception as error:
-                if first_failure is None or index < first_failure[0]:
-                    first_failure = (index, error)
-
-        while first_failure is None and len(in_flight) < concurrency:
-            if not start_next():
-                break
-
-    if first_failure is not None:
-        raise first_failure[1]
-
-    completed_results: list[_TaskResultT] = []
-    for result in results:
-        if result is None:
-            raise AssertionError("Submit task runner completed without a task result.")
-        completed_results.append(result)
-    return completed_results
-
-
 async def _sync_pull_requests(
     *,
     draft_mode: SubmitDraftMode,
@@ -1153,7 +1088,7 @@ async def _sync_pull_requests(
         )
         for index, prepared_revision in enumerate(prepared_revisions)
     )
-    submitted_revisions = await _run_bounded_submit_tasks(
+    submitted_revisions = await run_bounded_tasks(
         concurrency=_GITHUB_INSPECTION_CONCURRENCY,
         items=pending,
         run_item=lambda pending_sync: _sync_pull_request_task(
@@ -1619,7 +1554,7 @@ async def _sync_stack_comments(
         )
     if not pending:
         return
-    await _run_bounded_submit_tasks(
+    await run_bounded_tasks(
         concurrency=_GITHUB_INSPECTION_CONCURRENCY,
         items=tuple(pending),
         run_item=lambda pending_sync: _sync_stack_comment_task(

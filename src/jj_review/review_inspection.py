@@ -17,6 +17,7 @@ from jj_review.bookmarks import (
     _ensure_unique_bookmarks,
 )
 from jj_review.cache import ReviewStateStore
+from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
@@ -37,7 +38,7 @@ from jj_review.models.stack import LocalRevision, LocalStack
 from jj_review.stack_comments import is_stack_summary_comment
 
 logger = logging.getLogger(__name__)
-_GITHUB_INSPECTION_CONCURRENCY = 4
+_GITHUB_INSPECTION_CONCURRENCY = DEFAULT_BOUNDED_CONCURRENCY
 
 HELP = "Check the review status of a jj stack"
 
