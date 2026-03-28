@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from jj_review.errors import CliError
 from jj_review.jj import JjClient, JjCommandError, StaleWorkspaceError, UnsupportedStackError
 from jj_review.models.stack import LocalRevision
 
@@ -767,6 +768,69 @@ def test_query_revisions_returns_empty_when_change_id_no_longer_exists() -> None
     client = JjClient(Path("/repo"), runner=run)
 
     assert client.query_revisions("missing-change-id", limit=2) == ()
+
+
+def test_resolve_revision_reports_missing_revset_without_wrapped_command() -> None:
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        assert tuple(command) == (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "missing-change-id",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        )
+        assert cwd == Path("/repo")
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr="Error: Revision `missing-change-id` doesn't exist\n",
+        )
+
+    client = JjClient(Path("/repo"), runner=run)
+
+    with pytest.raises(
+        CliError,
+        match=r"Revision `missing-change-id` doesn't exist",
+    ):
+        client.resolve_revision("missing-change-id")
+
+
+def test_resolve_revision_reports_invalid_revset_without_wrapped_command() -> None:
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        assert tuple(command) == (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "x(",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        )
+        assert cwd == Path("/repo")
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr=(
+                "Error: Failed to parse revset: Syntax error\n"
+                "Hint: See https://docs.jj-vcs.dev/latest/revsets/\n"
+            ),
+        )
+
+    client = JjClient(Path("/repo"), runner=run)
+
+    with pytest.raises(
+        CliError,
+        match=r"Invalid revset 'x\(': Failed to parse revset: Syntax error\.",
+    ):
+        client.resolve_revision("x(")
 
 
 def _template() -> str:

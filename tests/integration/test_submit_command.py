@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from jj_review.cache import ReviewStateStore, resolve_state_path
+from jj_review.commands.review_state import display_change_id
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.intent import write_intent
 from jj_review.jj import JjClient
@@ -69,8 +70,15 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
     top_pr_url = state.changes[stack.revisions[-1].change_id].pr_url
 
     assert exit_code == 0
-    assert "Selected remote: origin" in captured.out
-    assert "Trunk: base -> main" in captured.out
+    assert (
+        f"Selected: {stack.head.subject} [{display_change_id(stack.head.change_id)}]"
+        in captured.out
+    )
+    assert "Selected remote:" not in captured.out
+    assert (
+        f"Trunk: {stack.trunk.subject} [{display_change_id(stack.trunk.change_id)}] -> main"
+        in captured.out
+    )
     assert top_pr_url is not None
     assert f"Top of stack: {top_pr_url}" in captured.out
     assert len(fake_repo.pull_requests) == 2
@@ -177,6 +185,27 @@ def test_submit_requires_explicit_revision_selection(
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert set(_remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
     assert fake_repo.pull_requests == {}
+
+
+def test_submit_reports_missing_revset_without_wrapped_jj_command(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    exit_code = _main(repo, config_path, "submit", "xporz")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Error: Revision `xporz` doesn't exist" in captured.err
+    assert "jj log --no-graph" not in captured.err
+    assert ReviewStateStore.for_repo(repo).load().changes == {}
+    assert set(_remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
+    assert fake_repo.pull_requests == {}
+
 
 def test_submit_creates_stack_comments_for_each_pull_request(
     tmp_path: Path,
@@ -1187,12 +1216,18 @@ def test_submit_reports_no_reviewable_commits_when_head_is_trunk(
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    stack = JjClient(repo).discover_review_stack("main")
 
     exit_code = _main(repo, config_path, "submit", "main")
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Trunk: base -> main" in captured.out
+    assert "Selected:" not in captured.out
+    assert "Selected remote:" not in captured.out
+    assert (
+        f"Trunk: {stack.trunk.subject} [{display_change_id(stack.trunk.change_id)}] -> main"
+        in captured.out
+    )
     assert "No reviewable commits" in captured.out
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert set(_remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
@@ -1559,7 +1594,6 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
 
     for issue_number in (issue_number_1, issue_number_2, issue_number_3):
         fake_repo.issue_comments[issue_number] = []
-
     state_store.save(
         initial_state.model_copy(
             update={

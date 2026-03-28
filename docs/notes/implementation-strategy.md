@@ -214,6 +214,9 @@ The CLI layer should be thin. It should:
 - initialize logging
 - build command dependencies
 - render user-facing output and diagnostics
+- for `submit`, avoid echoing explicit operator input back at them: only print a
+  selected-change banner when the head came from `--current`, and include short
+  change IDs in the selected and trunk summaries
 - for inspection-style commands such as `status` and `cleanup`, print resolved
   local context promptly and stream per-item results as remote inspection
   completes rather than buffering the full command behind one aggregate result
@@ -730,6 +733,11 @@ Implemented in a follow-up:
 - the per-change submit summary now renders created PRs as `[PR #n]` in live
   output and `[new PR]` in dry-run output, omitting the separate remote push
   marker because PR creation already implies the branch was updated
+- top-level CLI failures now print with an `Error:` prefix for clearer command-
+  line diagnostics while preserving plain `Interrupted.` for Ctrl-C handling
+- explicit missing revsets now preserve jj's own wording, for example
+  `Error: Revision \`xporz\` doesn't exist`, instead of surfacing the wrapped
+  `jj log ... failed:` command string
 
 Done when:
 

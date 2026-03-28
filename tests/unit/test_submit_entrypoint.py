@@ -103,7 +103,10 @@ def test_submit_passes_dry_run_and_renders_planned_output(
                     subject="feature 1",
                 ),
             ),
+            selected_change_id="abcdefghijkl",
             selected_revset="@",
+            selected_subject="feature 1",
+            trunk_change_id="basebasebase",
             trunk_branch="main",
             trunk_subject="base",
         )
@@ -166,7 +169,10 @@ def test_submit_passes_draft_modes_to_submit_runner(
             dry_run=False,
             remote=SimpleNamespace(name="origin"),
             revisions=(),
+            selected_change_id="abcdefghijkl",
             selected_revset="@",
+            selected_subject="feature 1",
+            trunk_change_id="basebasebase",
             trunk_branch="main",
             trunk_subject="base",
         )
@@ -213,7 +219,10 @@ def test_submit_passes_reviewer_overrides_to_submit_runner(
             dry_run=False,
             remote=SimpleNamespace(name="origin"),
             revisions=(),
+            selected_change_id="abcdefghijkl",
             selected_revset="@",
+            selected_subject="feature 1",
+            trunk_change_id="basebasebase",
             trunk_branch="main",
             trunk_subject="base",
         )
@@ -260,7 +269,10 @@ def test_submit_passes_describe_with_to_submit_runner(
             dry_run=False,
             remote=SimpleNamespace(name="origin"),
             revisions=(),
+            selected_change_id="abcdefghijkl",
             selected_revset="@",
+            selected_subject="feature 1",
+            trunk_change_id="basebasebase",
             trunk_branch="main",
             trunk_subject="base",
         )
@@ -312,13 +324,16 @@ def test_submit_prints_final_output_without_duplicate_lines(
     )
 
     async def fake_run_submit(**kwargs):
-        kwargs["on_prepared"]("@", SimpleNamespace(name="origin"), True)
-        kwargs["on_trunk_resolved"]("base", "main", True)
+        kwargs["on_prepared"]("@", "abcdefghijkl", "feature 1", True)
+        kwargs["on_trunk_resolved"]("base", "basebasebase", "main", True)
         return SimpleNamespace(
             dry_run=True,
             remote=SimpleNamespace(name="origin"),
             revisions=(revision,),
+            selected_change_id="abcdefghijkl",
             selected_revset="@",
+            selected_subject="feature 1",
+            trunk_change_id="basebasebase",
             trunk_branch="main",
             trunk_subject="base",
         )
@@ -342,9 +357,9 @@ def test_submit_prints_final_output_without_duplicate_lines(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert captured.out.count("Selected revset: @") == 1
-    assert captured.out.count("Selected remote: origin") == 1
-    assert captured.out.count("Trunk: base -> main") == 1
+    assert captured.out.count("Selected: feature 1 [abcdefgh]") == 1
+    assert "Selected remote:" not in captured.out
+    assert captured.out.count("Trunk: base [basebase] -> main") == 1
     assert captured.out.count("Dry run: no local, remote, or GitHub changes applied.") == 1
     assert captured.out.count("Planned bookmarks:") == 1
     assert captured.out.count("- feature 1 [abcdefgh]") == 1
@@ -376,13 +391,16 @@ def test_submit_prints_top_pull_request_url_at_end(
     )
 
     async def fake_run_submit(**kwargs):
-        kwargs["on_prepared"]("@", SimpleNamespace(name="origin"), True)
-        kwargs["on_trunk_resolved"]("base", "main", True)
+        kwargs["on_prepared"]("@", "abcdefghijkl", "feature 1", True)
+        kwargs["on_trunk_resolved"]("base", "basebasebase", "main", True)
         return SimpleNamespace(
             dry_run=False,
             remote=SimpleNamespace(name="origin"),
             revisions=(revision,),
+            selected_change_id="abcdefghijkl",
             selected_revset="@",
+            selected_subject="feature 1",
+            trunk_change_id="basebasebase",
             trunk_branch="main",
             trunk_subject="base",
         )

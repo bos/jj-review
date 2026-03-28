@@ -216,7 +216,13 @@ class JjClient:
     def resolve_revision(self, revset: str) -> LocalRevision:
         """Resolve a revset to exactly one revision."""
 
-        revisions = self._query_revisions(revset, limit=2)
+        try:
+            revisions = self._query_revisions(revset, limit=2)
+        except JjCommandError as error:
+            friendly_error = _revset_resolution_error(revset, error)
+            if friendly_error is not None:
+                raise friendly_error from error
+            raise
         if not revisions:
             raise CliError(
                 f"Revset {revset!r} did not resolve to a visible revision."
@@ -236,7 +242,7 @@ class JjClient:
         try:
             return tuple(self._query_revisions(revset, limit=limit))
         except JjCommandError as error:
-            if _is_missing_revision_error(str(error)):
+            if _is_missing_revision_error(_unwrap_command_error_message(str(error))):
                 return ()
             raise
 
@@ -629,6 +635,27 @@ _EXPECTED_FIELD_COUNT = 9
 
 def _is_missing_revision_error(message: str) -> bool:
     return "Revision `" in message and "doesn't exist" in message
+
+
+def _unwrap_command_error_message(message: str) -> str:
+    _prefix, separator, suffix = message.partition(" failed: ")
+    return suffix if separator else message
+
+
+def _revset_resolution_error(revset: str, error: JjCommandError) -> CliError | None:
+    raw_message = _unwrap_command_error_message(str(error))
+    if _is_missing_revision_error(raw_message):
+        first_line = raw_message.splitlines()[0].strip()
+        if first_line.startswith("Error: "):
+            first_line = first_line.removeprefix("Error: ").strip()
+        return CliError(first_line.rstrip("."))
+
+    first_line = raw_message.splitlines()[0].strip()
+    if first_line.startswith("Error: Failed to parse revset:"):
+        detail = first_line.removeprefix("Error: ").strip()
+        return CliError(f"Invalid revset {revset!r}: {detail}.")
+
+    return None
 
 
 def _parse_revision_line(line: str) -> LocalRevision:

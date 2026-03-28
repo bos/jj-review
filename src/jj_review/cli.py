@@ -598,6 +598,13 @@ def _find_subcommand_parser(
     return None
 
 
+def _print_cli_error(error: CliError) -> None:
+    message = str(error)
+    if not message.startswith("Error:"):
+        message = f"Error: {message}"
+    print(message, file=sys.stderr)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
 
@@ -605,7 +612,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         normalized_argv = _normalize_cli_args(sys.argv[1:] if argv is None else argv)
     except CliError as error:
-        print(error, file=sys.stderr)
+        _print_cli_error(error)
         return error.exit_code
     args = parser.parse_args(normalized_argv)
     with _time_output(enabled=args.time_output):
@@ -617,7 +624,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             return handler(args)
         except CliError as error:
-            print(error, file=sys.stderr)
+            _print_cli_error(error)
             return error.exit_code
         except KeyboardInterrupt:
             print("Interrupted.", file=sys.stderr)

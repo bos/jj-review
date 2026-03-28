@@ -94,7 +94,10 @@ class SubmitResult:
     dry_run: bool
     remote: GitRemote
     revisions: tuple[SubmittedRevision, ...]
+    selected_change_id: str
     selected_revset: str
+    selected_subject: str
+    trunk_change_id: str
     trunk_branch: str
     trunk_subject: str
 
@@ -242,16 +245,32 @@ def submit(
     emitted_section_header = False
     emitted_trunk = False
 
-    def emit_prepared(selected_revset: str, remote, has_revisions: bool) -> None:
-        del has_revisions
+    def emit_prepared(
+        selected_revset: str,
+        selected_change_id: str,
+        selected_subject: str,
+        has_revisions: bool,
+    ) -> None:
+        del has_revisions, selected_revset
         nonlocal emitted_prepared
-        print(f"Selected revset: {selected_revset}")
-        print(f"Selected remote: {remote.name}")
+        if revset is None:
+            print(
+                f"Selected: {selected_subject} "
+                f"[{display_change_id(selected_change_id)}]"
+            )
         emitted_prepared = True
 
-    def emit_trunk(trunk_subject: str, trunk_branch: str, has_revisions: bool) -> None:
+    def emit_trunk(
+        trunk_subject: str,
+        trunk_change_id: str,
+        trunk_branch: str,
+        has_revisions: bool,
+    ) -> None:
         nonlocal emitted_section_header, emitted_trunk
-        print(f"Trunk: {trunk_subject} -> {trunk_branch}")
+        print(
+            f"Trunk: {trunk_subject} [{display_change_id(trunk_change_id)}] "
+            f"-> {trunk_branch}"
+        )
         emitted_trunk = True
         if not has_revisions:
             return
@@ -286,10 +305,16 @@ def submit(
         )
     )
     if not emitted_prepared:
-        print(f"Selected revset: {result.selected_revset}")
-        print(f"Selected remote: {result.remote.name}")
+        if revset is None:
+            print(
+                f"Selected: {result.selected_subject} "
+                f"[{display_change_id(result.selected_change_id)}]"
+            )
     if not emitted_trunk:
-        print(f"Trunk: {result.trunk_subject} -> {result.trunk_branch}")
+        print(
+            f"Trunk: {result.trunk_subject} "
+            f"[{display_change_id(result.trunk_change_id)}] -> {result.trunk_branch}"
+        )
     if not result.revisions:
         print("No reviewable commits between the selected revision and `trunk()`.")
         return 0
@@ -364,8 +389,8 @@ async def _run_submit_async(
     describe_with: str | None,
     draft_mode: SubmitDraftMode,
     dry_run: bool,
-    on_prepared: Callable[[str, GitRemote, bool], None] | None,
-    on_trunk_resolved: Callable[[str, str, bool], None] | None,
+    on_prepared: Callable[[str, str, str, bool], None] | None,
+    on_trunk_resolved: Callable[[str, str, str, bool], None] | None,
     repo_root: Path,
     revset: str | None,
     reviewers: list[str] | None,
@@ -384,7 +409,12 @@ async def _run_submit_async(
         )
     stack = client.discover_review_stack(revset)
     if on_prepared is not None:
-        on_prepared(stack.selected_revset, remote, bool(stack.revisions))
+        on_prepared(
+            stack.selected_revset,
+            stack.head.change_id,
+            stack.head.subject,
+            bool(stack.revisions),
+        )
     state = state_store.load()
     discovered_bookmarks = _discover_bookmarks_for_revisions(
         bookmark_states=client.list_bookmark_states(),
@@ -421,12 +451,20 @@ async def _run_submit_async(
             if len(remote_bookmarks) == 1:
                 trunk_branch = remote_bookmarks[0]
         if on_trunk_resolved is not None:
-            on_trunk_resolved(stack.trunk.subject, trunk_branch or stack.trunk.subject, False)
+            on_trunk_resolved(
+                stack.trunk.subject,
+                stack.trunk.change_id,
+                trunk_branch or stack.trunk.subject,
+                False,
+            )
         return SubmitResult(
             dry_run=dry_run,
             remote=remote,
             revisions=(),
+            selected_change_id=stack.head.change_id,
             selected_revset=stack.selected_revset,
+            selected_subject=stack.head.subject,
+            trunk_change_id=stack.trunk.change_id,
             trunk_branch=trunk_branch or stack.trunk.subject,
             trunk_subject=stack.trunk.subject,
         )
@@ -513,7 +551,12 @@ async def _run_submit_async(
                 ),
             )
             if on_trunk_resolved is not None:
-                on_trunk_resolved(stack.trunk.subject, trunk_branch, True)
+                on_trunk_resolved(
+                    stack.trunk.subject,
+                    stack.trunk.change_id,
+                    trunk_branch,
+                    True,
+                )
 
             prepared_revisions: list[PreparedSubmitRevision] = []
             for resolution, revision in zip(
@@ -620,7 +663,10 @@ async def _run_submit_async(
             dry_run=dry_run,
             remote=remote,
             revisions=submitted_revisions,
+            selected_change_id=stack.head.change_id,
             selected_revset=stack.selected_revset,
+            selected_subject=stack.head.subject,
+            trunk_change_id=stack.trunk.change_id,
             trunk_branch=trunk_branch,
             trunk_subject=stack.trunk.subject,
         )

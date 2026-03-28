@@ -362,6 +362,7 @@ def test_main_reports_invalid_config_without_traceback(
     captured = capsys.readouterr()
 
     assert exit_code == 1
+    assert captured.err.startswith("Error: ")
     assert "Invalid jj-review config" in captured.err
     assert "Traceback" not in captured.err
 
