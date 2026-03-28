@@ -223,6 +223,7 @@ def test_submit_skips_stack_comment_for_single_commit_stack(
     state = ReviewStateStore.for_repo(repo).load()
 
     assert _issue_comments(fake_repo, 1) == []
+    assert fake_repo.pull_requests[1].body == "feature 1"
     assert state.changes[change_id].stack_comment_id is None
 
 def test_submit_describe_with_generates_pull_request_and_stack_metadata(
@@ -978,6 +979,7 @@ def test_submit_updates_existing_untracked_remote_bookmark(
     assert remote_state is not None
     assert remote_state.is_tracked is True
     assert fake_repo.pull_requests[pr_number].title == "feature 1 renamed"
+    assert fake_repo.pull_requests[pr_number].body == "feature 1 renamed"
 
 def test_submit_rerun_recovers_after_failure_following_untracked_remote_update(
     tmp_path: Path,

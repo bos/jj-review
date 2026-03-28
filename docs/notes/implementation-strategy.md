@@ -125,6 +125,9 @@ Packaging and release readiness are now part of the normal delivery surface:
 - GitHub Actions publishes those artifacts through `uv publish`, using
   trusted-publishing environments for TestPyPI and PyPI rather than storing a
   long-lived upload token in repository secrets
+- GitHub Actions and local compatibility probes install pinned `jj` release
+  binaries with `tools/install-jj-release.sh` instead of building `jj` from
+  source in CI
 
 The standalone executable may also provide auxiliary shell-completion output
 via `jj-review completion <bash|zsh|fish>`. That command is local CLI glue
@@ -752,6 +755,12 @@ the source of truth for topology.
 Single-review-unit submits are treated as plain PRs rather than stacks: they
 skip the stack summary comment entirely, and `--describe-with` does not invoke
 the stack helper for that case.
+
+Default PR descriptions now also fall back to the commit subject when the
+commit message has no body. That keeps GitHub PR pages from starting with a
+blank opening comment for one-line commit descriptions while preserving the
+existing "title from subject, body from remaining description" mapping when a
+real body is present.
 
 The same stack summary comment now also accepts optional generated
 introductory text from `submit --describe-with`; that prose is rendered ahead

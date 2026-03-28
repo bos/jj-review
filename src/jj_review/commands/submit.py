@@ -1828,9 +1828,12 @@ def _render_stack_comment_entry(
 
 def _pull_request_body(description: str) -> str:
     lines = description.splitlines()
-    if len(lines) < 2:
+    if not lines:
         return ""
-    return "\n".join(lines[1:]).strip()
+    body = "\n".join(lines[1:]).strip()
+    if body:
+        return body
+    return lines[0].strip()
 
 
 def _pull_request_matches(

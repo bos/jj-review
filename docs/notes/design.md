@@ -335,7 +335,8 @@ Given a selected head revision:
    - if the saved link and GitHub-discovered link disagree, stop and require
      an explicit recovery flow instead of silently creating a replacement PR
    - by default, derive the PR title from the commit subject and the PR body
-     from the remaining commit description
+     from the remaining commit description; if the commit has no body, fall
+     back to the subject so GitHub does not render an empty opening PR comment
    - `submit --describe-with <helper>` may replace that default mapping by
      invoking the helper once per change as `helper --pr <change_id>`
    - the same helper may also be invoked once per selected stack as

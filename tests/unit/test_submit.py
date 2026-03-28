@@ -13,6 +13,7 @@ from jj_review.commands.submit import (
     _ensure_pull_request_link_is_consistent,
     _ensure_remote_can_be_updated,
     _preflight_private_commits,
+    _pull_request_body,
     _remote_is_up_to_date,
     _render_generated_stack_description,
     _render_stack_comment,
@@ -267,6 +268,16 @@ def test_render_stack_comment_uses_bold_only_for_current_pr_title() -> None:
     assert "[generated bottom title](https://github.test/octo-org/repo/pull/1)" in rendered
     assert "top subject" not in rendered
     assert "bottom subject" not in rendered
+
+
+def test_pull_request_body_falls_back_to_subject_when_commit_has_no_body() -> None:
+    assert _pull_request_body("subject only") == "subject only"
+
+
+def test_pull_request_body_uses_remaining_commit_description_when_present() -> None:
+    assert _pull_request_body("subject line\n\nbody line\nbody detail") == (
+        "body line\nbody detail"
+    )
 
 
 def test_resolve_local_action_created_when_no_local_targets() -> None:
