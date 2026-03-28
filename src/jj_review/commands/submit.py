@@ -157,7 +157,7 @@ class PendingStackCommentSync:
 
     cached_change: CachedChange
     change_id: str
-    comment_body: str
+    comment_body: str | None
     pull_request_number: int
 
 
@@ -1575,9 +1575,10 @@ async def _sync_stack_comments(
     state_store: ReviewStateStore,
     trunk_branch: str,
 ) -> None:
-    if len(revisions) <= 1:
+    if not revisions:
         return
 
+    head_change_id = revisions[-1].change_id
     pending: list[PendingStackCommentSync] = []
     for revision in revisions:
         if revision.pull_request_number is None:
@@ -1589,12 +1590,14 @@ async def _sync_stack_comments(
             if dry_run:
                 continue
             raise AssertionError("Stack summary comments require a saved pull request link.")
-        comment_body = _render_stack_comment(
-            current=revision,
-            revisions=revisions,
-            stack_description=generated_stack_description,
-            trunk_branch=trunk_branch,
-        )
+        comment_body = None
+        if len(revisions) > 1 and revision.change_id == head_change_id:
+            comment_body = _render_stack_comment(
+                current=revision,
+                revisions=revisions,
+                stack_description=generated_stack_description,
+                trunk_branch=trunk_branch,
+            )
         pending.append(
             PendingStackCommentSync(
                 cached_change=cached_change,
@@ -1627,22 +1630,20 @@ async def _sync_stack_comments(
 def _record_stack_comment_success(
     *,
     dry_run: bool,
-    result: tuple[str, CachedChange, GithubIssueComment | None],
+    result: tuple[str, CachedChange],
     state: ReviewState,
     state_changes: dict[str, CachedChange],
     state_store: ReviewStateStore,
 ) -> None:
-    change_id, cached_change, comment = result
-    if comment is not None:
-        updated_change = cached_change.model_copy(update={"stack_comment_id": comment.id})
-        if state_changes.get(change_id) != updated_change:
-            state_changes[change_id] = updated_change
-            _save_submit_state_checkpoint(
-                dry_run=dry_run,
-                state=state,
-                state_changes=state_changes,
-                state_store=state_store,
-            )
+    change_id, updated_change = result
+    if state_changes.get(change_id) != updated_change:
+        state_changes[change_id] = updated_change
+        _save_submit_state_checkpoint(
+            dry_run=dry_run,
+            state=state,
+            state_changes=state_changes,
+            state_store=state_store,
+        )
 
 
 async def _sync_stack_comment_task(
@@ -1651,16 +1652,80 @@ async def _sync_stack_comment_task(
     github_client: GithubClient,
     github_repository: ResolvedGithubRepository,
     pending_sync: PendingStackCommentSync,
-) -> tuple[str, CachedChange, GithubIssueComment | None]:
-    comment = await _upsert_stack_comment(
-        cached_change=pending_sync.cached_change,
-        comment_body=pending_sync.comment_body,
-        dry_run=dry_run,
+) -> tuple[str, CachedChange]:
+    if pending_sync.comment_body is None:
+        updated_change = await _clear_stack_comment(
+            cached_change=pending_sync.cached_change,
+            dry_run=dry_run,
+            github_client=github_client,
+            github_repository=github_repository,
+            pull_request_number=pending_sync.pull_request_number,
+        )
+    else:
+        comment = await _upsert_stack_comment(
+            cached_change=pending_sync.cached_change,
+            comment_body=pending_sync.comment_body,
+            dry_run=dry_run,
+            github_client=github_client,
+            github_repository=github_repository,
+            pull_request_number=pending_sync.pull_request_number,
+        )
+        updated_change = pending_sync.cached_change.model_copy(
+            update={"stack_comment_id": None if comment is None else comment.id}
+        )
+    return pending_sync.change_id, updated_change
+
+
+async def _clear_stack_comment(
+    *,
+    cached_change: CachedChange,
+    dry_run: bool,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+    pull_request_number: int,
+) -> CachedChange:
+    comments = await _list_issue_comments(
         github_client=github_client,
         github_repository=github_repository,
-        pull_request_number=pending_sync.pull_request_number,
+        pull_request_number=pull_request_number,
     )
-    return pending_sync.change_id, pending_sync.cached_change, comment
+    if cached_change.stack_comment_id is not None:
+        cached_comment = next(
+            (
+                comment
+                for comment in comments
+                if comment.id == cached_change.stack_comment_id
+            ),
+            None,
+        )
+        if cached_comment is not None:
+            if not is_stack_summary_comment(cached_comment.body):
+                raise CliError(
+                    f"Saved stack summary comment #{cached_change.stack_comment_id} for "
+                    f"pull request #{pull_request_number} does not belong to "
+                    "`jj-review`. Inspect the PR link with `status --fetch` or delete "
+                    "the saved comment ID before submitting again."
+                )
+            if not dry_run:
+                await _delete_stack_comment(
+                    comment_id=cached_comment.id,
+                    github_client=github_client,
+                    github_repository=github_repository,
+                )
+            return cached_change.model_copy(update={"stack_comment_id": None})
+
+    discovered_comment = await _discover_stack_comment(comments=comments)
+    if discovered_comment is None:
+        if cached_change.stack_comment_id is None:
+            return cached_change
+        return cached_change.model_copy(update={"stack_comment_id": None})
+    if not dry_run:
+        await _delete_stack_comment(
+            comment_id=discovered_comment.id,
+            github_client=github_client,
+            github_repository=github_repository,
+        )
+    return cached_change.model_copy(update={"stack_comment_id": None})
 
 
 async def _upsert_stack_comment(
@@ -1805,6 +1870,26 @@ async def _update_stack_comment(
     except GithubClientError as error:
         raise CliError(
             f"Could not update stack summary comment #{comment_id}: {error}"
+        ) from error
+
+
+async def _delete_stack_comment(
+    *,
+    comment_id: int,
+    github_client: GithubClient,
+    github_repository: ResolvedGithubRepository,
+) -> None:
+    try:
+        await github_client.delete_issue_comment(
+            github_repository.owner,
+            github_repository.repo,
+            comment_id=comment_id,
+        )
+    except GithubClientError as error:
+        if error.status_code == 404:
+            return
+        raise CliError(
+            f"Could not delete stack summary comment #{comment_id}: {error}"
         ) from error
 
 

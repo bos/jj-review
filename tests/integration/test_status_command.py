@@ -440,7 +440,7 @@ def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
     assert "GitHub: octo-org/stacked-review" in captured.out
     assert ": PR #2" in captured.out
     assert refreshed_state.changes[change_id].pr_number == 2
-    assert refreshed_state.changes[change_id].stack_comment_id == 2
+    assert refreshed_state.changes[change_id].stack_comment_id == 1
 
 def test_status_refreshes_cached_pull_request_metadata_after_state_loss(
     tmp_path: Path,

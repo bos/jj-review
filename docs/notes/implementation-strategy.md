@@ -333,7 +333,8 @@ Important persisted records should mirror the design doc's minimal jj-review
 data:
 
 - per-change pinned bookmark and GitHub PR link
-- per-change reviewer-facing stack summary comment identifier, if used
+- per-change reviewer-facing stack summary comment identifier, if used for the
+  selected head PR
 
 Repo defaults used for resolution belong in config, not in machine-written
 jj-review data.
@@ -755,10 +756,13 @@ Deliver:
 - regeneration on every submit
 - caching of comment identifiers if needed
 
-Implemented with one dedicated PR comment per change, marked so `submit`
-can rediscover it when saved comment IDs are missing. The comment body is
+Implemented with one dedicated PR comment only on the selected head change
+when the selected stack contains more than one change, marked so `submit` can
+rediscover it when saved comment IDs are missing. The comment body is
 regenerated from the current submitted stack on every run and is never used as
-the source of truth for topology.
+the source of truth for topology. Re-submitting a taller selected stack moves
+that managed comment to the new selected head, and single-review-unit submits
+remove any older managed stack comment that no longer applies.
 
 Single-review-unit submits are treated as plain PRs rather than stacks: they
 skip the stack summary comment entirely, and `--describe-with` does not invoke
@@ -773,9 +777,10 @@ real body is present.
 The same stack summary comment now also accepts optional generated
 introductory text from `submit --describe-with`; that prose is rendered ahead
 of the standard full-stack navigation block so the product still owns only one
-reviewer-facing comment per PR. That block renders the full stack from top to
-bottom, bolds the current PR title, links the other PR titles, and shows a
-plain resolved trunk line beneath the bottom-most PR.
+reviewer-facing stack summary comment for the selected head PR. That block
+renders the full stack from top to bottom, bolds the selected head PR title,
+links the other PR titles, and shows a plain resolved trunk line beneath the
+bottom-most PR.
 
 When `submit` invokes a stack helper, it now also writes a temporary input file
 with the already-generated PR title/body pairs plus compact per-PR diffstat

@@ -341,13 +341,13 @@ Given a selected head revision:
      invoking the helper once per change as `helper --pr <change_id>`
    - the same helper may also be invoked once per selected stack as
      `helper --stack <selected-revset>`; that output is prepended to the
-     reviewer-facing stack summary comment when the selected stack contains
-     more than one change, and does not become a separate source of
-     truth for topology
+     reviewer-facing stack summary comment on the selected head pull request
+     when the selected stack contains more than one change, and does not
+     become a separate source of truth for topology
    - that reviewer-facing stack summary comment should render the entire PR
      stack in top-to-bottom order, with a plain trunk line shown beneath the
-     bottom-most PR; the current PR title is bold, and the other PR titles
-     link to their pull requests
+     bottom-most PR; the selected head PR title is bold, and the other PR
+     titles link to their pull requests
    - for stack helpers, submit may also provide a temporary helper-owned input
      file describing the generated per-PR title/body pairs and compact diffstat
      context for the selected stack, so helpers can summarize the stack from
@@ -399,6 +399,8 @@ plain PR submit flow:
 
 - no stack-specific helper invocation
 - no reviewer-facing stack summary comment
+- if the selected change still has an older `jj-review` stack summary comment
+  from when it headed a longer submitted stack, delete that managed comment
 - after a successful live submit, print the URL of the top of the stack so the
   operator can open it in a browser
 

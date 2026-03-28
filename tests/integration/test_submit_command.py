@@ -207,7 +207,7 @@ def test_submit_reports_missing_revset_without_wrapped_jj_command(
     assert fake_repo.pull_requests == {}
 
 
-def test_submit_creates_stack_comments_for_each_pull_request(
+def test_submit_creates_stack_comment_only_for_selected_head_pull_request(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -219,22 +219,23 @@ def test_submit_creates_stack_comments_for_each_pull_request(
 
     assert _main(repo, config_path, "submit", "--current") == 0
     capsys.readouterr()
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    top_change_id = stack.revisions[-1].change_id
     state = ReviewStateStore.for_repo(repo).load()
 
-    assert len(_issue_comments(fake_repo, 1)) == 1
+    assert _issue_comments(fake_repo, 1) == []
     assert len(_issue_comments(fake_repo, 2)) == 1
-    assert "<!-- jj-review-stack -->" in _issue_comments(fake_repo, 1)[0].body
-    assert "Stack:" in _issue_comments(fake_repo, 1)[0].body
-    assert "[feature 2](https://github.test/octo-org/stacked-review/pull/2)" in (
-        _issue_comments(fake_repo, 1)[0].body
-    )
-    assert "**feature 1**" in _issue_comments(fake_repo, 1)[0].body
-    assert "trunk `main`" in _issue_comments(fake_repo, 1)[0].body
+    assert "<!-- jj-review-stack -->" in _issue_comments(fake_repo, 2)[0].body
+    assert "Stack:" in _issue_comments(fake_repo, 2)[0].body
+    assert "**feature 1**" not in _issue_comments(fake_repo, 2)[0].body
+    assert "trunk `main`" in _issue_comments(fake_repo, 2)[0].body
     assert "**feature 2**" in _issue_comments(fake_repo, 2)[0].body
     assert "[feature 1](https://github.test/octo-org/stacked-review/pull/1)" in (
         _issue_comments(fake_repo, 2)[0].body
     )
-    assert {change.stack_comment_id for change in state.changes.values()} == {1, 2}
+    assert state.changes[bottom_change_id].stack_comment_id is None
+    assert state.changes[top_change_id].stack_comment_id == 1
 
 def test_submit_skips_stack_comment_for_single_commit_stack(
     tmp_path: Path,
@@ -325,15 +326,16 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
     assert fake_repo.pull_requests[2].body == (
         f"Generated body for {stack.revisions[1].change_id}"
     )
-    assert "## Generated stack summary" in _issue_comments(fake_repo, 1)[0].body
+    assert _issue_comments(fake_repo, 1) == []
+    assert "## Generated stack summary" in _issue_comments(fake_repo, 2)[0].body
     assert (
         f"Generated stack body for {stack.selected_revset}: "
         f"AI {stack.revisions[0].change_id[:8]} -> AI {stack.revisions[1].change_id[:8]} | "
         "feature-1.txt"
-        in _issue_comments(fake_repo, 1)[0].body
+        in _issue_comments(fake_repo, 2)[0].body
     )
     assert "This pull request is part of a stack tracked by `jj-review`." in (
-        _issue_comments(fake_repo, 1)[0].body
+        _issue_comments(fake_repo, 2)[0].body
     )
 
 def test_submit_describe_with_skips_stack_helper_for_single_commit_stack(
@@ -752,9 +754,88 @@ def test_submit_rediscovers_and_regenerates_stack_comments_when_cache_is_missing
     assert "[feature 1](https://github.test/octo-org/stacked-review/pull/1)" in (
         _issue_comments(fake_repo, 2)[0].body
     )
-    assert "feature 2 renamed" in _issue_comments(fake_repo, 1)[0].body
+    assert _issue_comments(fake_repo, 1) == []
     assert refreshed_state.changes[top_change_id].stack_comment_id == initial_comment_id
-    assert refreshed_state.changes[bottom_change_id].stack_comment_id == 1
+    assert refreshed_state.changes[bottom_change_id].stack_comment_id is None
+
+
+def test_submit_moves_managed_stack_comment_to_new_selected_head(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+    initial_stack = JjClient(repo).discover_review_stack()
+    old_top_change_id = initial_stack.revisions[-1].change_id
+    old_bottom_change_id = initial_stack.revisions[0].change_id
+    initial_state = ReviewStateStore.for_repo(repo).load()
+    initial_comment_id = initial_state.changes[old_top_change_id].stack_comment_id
+
+    assert initial_comment_id is not None
+    assert _issue_comments(fake_repo, 1) == []
+    assert len(_issue_comments(fake_repo, 2)) == 1
+
+    _commit(repo, "feature 3", "feature-3.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+    refreshed_stack = JjClient(repo).discover_review_stack()
+    refreshed_state = ReviewStateStore.for_repo(repo).load()
+    new_top_change_id = refreshed_stack.revisions[-1].change_id
+
+    assert _issue_comments(fake_repo, 1) == []
+    assert _issue_comments(fake_repo, 2) == []
+    assert len(_issue_comments(fake_repo, 3)) == 1
+    assert refreshed_state.changes[old_bottom_change_id].stack_comment_id is None
+    assert refreshed_state.changes[old_top_change_id].stack_comment_id is None
+    assert refreshed_state.changes[new_top_change_id].stack_comment_id is not None
+    assert refreshed_state.changes[new_top_change_id].stack_comment_id != initial_comment_id
+
+
+def test_submit_single_change_clears_stale_managed_stack_comment(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+    manual_comment = fake_repo.create_issue_comment(
+        body="<!-- jj-review-stack -->\nstale stack summary",
+        issue_number=1,
+    )
+    state_store.save(
+        initial_state.model_copy(
+            update={
+                "changes": {
+                    **initial_state.changes,
+                    change_id: initial_state.changes[change_id].model_copy(
+                        update={"stack_comment_id": manual_comment.id}
+                    ),
+                }
+            }
+        )
+    )
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert _issue_comments(fake_repo, 1) == []
+    assert refreshed_state.changes[change_id].stack_comment_id is None
 
 def test_submit_rejects_cached_stack_comment_id_for_non_stack_comment(
     tmp_path: Path,
@@ -1592,14 +1673,25 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
     if issue_number_1 is None or issue_number_2 is None or issue_number_3 is None:
         raise AssertionError("Expected pull request numbers after initial submit.")
 
-    for issue_number in (issue_number_1, issue_number_2, issue_number_3):
-        fake_repo.issue_comments[issue_number] = []
+    stale_comment_1 = fake_repo.create_issue_comment(
+        body="<!-- jj-review-stack -->\nstale bottom summary",
+        issue_number=issue_number_1,
+    )
+    stale_comment_2 = fake_repo.create_issue_comment(
+        body="<!-- jj-review-stack -->\nstale middle summary",
+        issue_number=issue_number_2,
+    )
     state_store.save(
         initial_state.model_copy(
             update={
                 "changes": {
-                    change_id: cached_change.model_copy(update={"stack_comment_id": None})
-                    for change_id, cached_change in initial_state.changes.items()
+                    **initial_state.changes,
+                    change_id_1: initial_state.changes[change_id_1].model_copy(
+                        update={"stack_comment_id": stale_comment_1.id}
+                    ),
+                    change_id_2: initial_state.changes[change_id_2].model_copy(
+                        update={"stack_comment_id": stale_comment_2.id}
+                    ),
                 }
             }
         )
@@ -1638,15 +1730,17 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
 
     refreshed_state = state_store.load()
 
-    assert refreshed_state.changes[change_id_1].stack_comment_id is not None
-    assert refreshed_state.changes[change_id_2].stack_comment_id is None
-    assert refreshed_state.changes[change_id_3].stack_comment_id is None
+    assert refreshed_state.changes[change_id_1].stack_comment_id is None
+    assert refreshed_state.changes[change_id_2].stack_comment_id == stale_comment_2.id
+    assert refreshed_state.changes[change_id_3].stack_comment_id == (
+        initial_state.changes[change_id_3].stack_comment_id
+    )
     assert issue_number_1 in started_issue_numbers
     assert issue_number_2 in started_issue_numbers
     assert issue_number_3 not in started_issue_numbers
-    assert len(_issue_comments(fake_repo, issue_number_1)) == 1
-    assert _issue_comments(fake_repo, issue_number_2) == []
-    assert _issue_comments(fake_repo, issue_number_3) == []
+    assert _issue_comments(fake_repo, issue_number_1) == []
+    assert len(_issue_comments(fake_repo, issue_number_2)) == 1
+    assert len(_issue_comments(fake_repo, issue_number_3)) == 1
 
 def test_submit_writes_and_deletes_intent_file_on_success(
     tmp_path: Path,
