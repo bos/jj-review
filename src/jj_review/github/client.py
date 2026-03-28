@@ -8,7 +8,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from email.utils import parsedate_to_datetime
-from typing import Any
+from typing import Any, TypeVar
 
 import httpx
 
@@ -20,6 +20,7 @@ from jj_review.models.github import (
 )
 
 logger = logging.getLogger(__name__)
+ChunkValue = TypeVar("ChunkValue")
 _GRAPHQL_PULL_REQUEST_BATCH_SIZE = 25
 
 _DEFAULT_RATE_LIMIT_RETRIES = 3
@@ -612,7 +613,7 @@ def _graphql_mutation_pull_request_payload(
     return raw_pull_request
 
 
-def _chunked[ChunkValue](
+def _chunked(
     values: Sequence[ChunkValue], *, size: int
 ) -> list[tuple[ChunkValue, ...]]:
     return [tuple(values[index : index + size]) for index in range(0, len(values), size)]

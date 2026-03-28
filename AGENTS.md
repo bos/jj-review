@@ -5,8 +5,8 @@
   [docs/notes/implementation-strategy.md](docs/notes/implementation-strategy.md)
   before changing behavior. `design.md` is the canonical product spec.
 - Preserve the core invariants: the `jj` DAG is the source of truth, local
-  cache is sparse, GitHub state is projected state, and ambiguous linkage fails
-  closed.
+  cache is sparse, GitHub pull requests are derived from the local `jj` stack,
+  and ambiguous linkage fails closed.
 - Run the CLI locally with `uv run jj-review ...` instead of invoking the
   module or virtualenv path directly.
 - Run `./check.py` for the default local Ruff, type-check, and test pass before

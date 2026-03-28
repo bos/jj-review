@@ -6,11 +6,29 @@ build-backend = "hatchling.build"
 name = "jj-review"
 version = "0.1.0"
 description = "JJ-native stacked GitHub review tooling"
-requires-python = ">=3.13"
+readme = "README.md"
+requires-python = ">=3.11"
+keywords = ["jj", "jujutsu", "github", "pull-requests", "stacked-reviews"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Version Control",
+  "Topic :: Software Development :: Version Control :: Git",
+]
 dependencies = [
   "httpx>=0.28.1,<0.29",
   "pydantic>=2.11.0,<3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/bos/cod"
+Repository = "https://github.com/bos/cod"
+Issues = "https://github.com/bos/cod/issues"
 
 [project.scripts]
 jj-review = "jj_review.cli:main"
@@ -41,13 +59,16 @@ skip_empty = true
 [tool.ruff]
 line-length = 98
 src = ["src", "tests", "tools"]
-target-version = "py313"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["B", "E", "F", "I", "UP"]
 
 [tool.pyrefly]
 search_path = ["src", "."]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jj_review"]
 
 [tool.uv]
 default-groups = ["dev"]

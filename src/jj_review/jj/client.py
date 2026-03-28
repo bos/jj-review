@@ -28,7 +28,7 @@ class JjCommandError(CliError):
     """Raised when a `jj` invocation fails."""
 
 
-type UnsupportedStackReason = Literal[
+UnsupportedStackReason = Literal[
     "divergent_change",
     "empty_working_copy",
     "head_misses_only_reviewable_child",
@@ -74,7 +74,7 @@ class StaleWorkspaceError(CliError):
     """Raised when `jj` refuses to run because the current workspace is stale."""
 
 
-type JjRunner = Callable[[Sequence[str], Path], subprocess.CompletedProcess[str]]
+JjRunner = Callable[[Sequence[str], Path], subprocess.CompletedProcess[str]]
 
 
 @dataclass(slots=True)

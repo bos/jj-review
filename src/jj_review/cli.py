@@ -14,12 +14,14 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TypeVar
 
 from jj_review import __version__, commands
 from jj_review.completion import emit_shell_completion
 from jj_review.errors import CliError
 
 logger = logging.getLogger(__name__)
+SubparserT = TypeVar("SubparserT", bound=ArgumentParser)
 _TOP_LEVEL_HELP_WIDTH = 80
 _TOP_LEVEL_HELP_USAGE = "jj-review [-h] [--version] <command> ..."
 _TOP_LEVEL_HELP_USAGE_ALL = (
@@ -622,7 +624,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 130
 
 
-def _add_revision_command[SubparserT: ArgumentParser](
+def _add_revision_command(
     subparsers: _SubParsersAction[SubparserT],
     *,
     command: str,
@@ -642,7 +644,7 @@ def _add_revision_command[SubparserT: ArgumentParser](
     return parser
 
 
-def _add_relink_parser[SubparserT: ArgumentParser](
+def _add_relink_parser(
     subparsers: _SubParsersAction[SubparserT],
     *,
     command: str,
@@ -672,7 +674,7 @@ def _add_relink_parser[SubparserT: ArgumentParser](
     return parser
 
 
-def _add_import_parser[SubparserT: ArgumentParser](
+def _add_import_parser(
     subparsers: _SubParsersAction[SubparserT],
     *,
     command: str,

@@ -25,7 +25,7 @@ def _fake_jj_version(version_string: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_parse_jj_version_stable() -> None:
-    assert _parse_jj_version("jj 0.21.0") == (0, 21, 0)
+    assert _parse_jj_version("jj 0.22.0") == (0, 22, 0)
 
 
 def test_parse_jj_version_with_build_hash() -> None:
@@ -42,7 +42,7 @@ def test_parse_jj_version_returns_none_for_unexpected_format() -> None:
 
 
 def test_check_jj_version_accepts_minimum_version() -> None:
-    with patch("subprocess.run", return_value=_fake_jj_version("0.21.0")):
+    with patch("subprocess.run", return_value=_fake_jj_version("0.22.0")):
         check_jj_version()  # should not raise
 
 
@@ -52,8 +52,8 @@ def test_check_jj_version_accepts_newer_version() -> None:
 
 
 def test_check_jj_version_rejects_older_version() -> None:
-    with patch("subprocess.run", return_value=_fake_jj_version("0.20.0")):
-        with pytest.raises(CliError, match="0.20.0 is too old"):
+    with patch("subprocess.run", return_value=_fake_jj_version("0.21.0")):
+        with pytest.raises(CliError, match="0.21.0 is too old"):
             check_jj_version()
 
 

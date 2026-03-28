@@ -116,6 +116,16 @@ For development workflows, the package may also be invoked as
 Tests and packaging should target the standalone executable directly. Any `jj`
 alias integration should stay thin and optional.
 
+Packaging and release readiness are now part of the normal delivery surface:
+
+- `pyproject.toml` carries the PyPI-facing metadata for the standalone package
+- the repo root README documents the supported `uv` install, upgrade, editable
+  tool-install, and built-wheel test flows
+- distribution artifacts are built with `uv build`
+- GitHub Actions publishes those artifacts through `uv publish`, using
+  trusted-publishing environments for TestPyPI and PyPI rather than storing a
+  long-lived upload token in repository secrets
+
 The standalone executable may also provide auxiliary shell-completion output
 via `jj-review completion <bash|zsh|fish>`. That command is local CLI glue
 only: it should render scripts from the argparse surface and should not
@@ -601,6 +611,33 @@ Done when:
 - developers can inspect uncovered lines from the terminal report or the HTML
   artifact
 
+### Packaging and Distribution Readiness
+
+Status: complete.
+
+Deliver:
+
+- PyPI-facing package metadata in `pyproject.toml`
+- repo-root install and release documentation
+- a GitHub Actions workflow that builds once, then publishes the exact built
+  artifacts to TestPyPI or PyPI with `uv publish`
+
+Implemented in the first vertical cut:
+
+- the package metadata now includes the project README, keywords, classifiers,
+  and repository URLs needed for a reasonable PyPI presentation
+- the repo root now documents the supported `uv` flows for in-repo development,
+  editable tool installs, built-wheel smoke tests, and PyPI installation
+- `.github/workflows/release.yml` now runs `./check.py`, builds the sdist and
+  wheel with `uv build`, and publishes the already-built artifacts through
+  trusted publishing
+
+Done when:
+
+- `uv build` produces releasable sdist and wheel artifacts from the repo root
+- the repo documents both local development and PATH-based testing flows
+- the release workflow can publish the same built artifacts to TestPyPI or PyPI
+
 ### Slice 2: Local Stack Discovery
 
 Status: complete.
@@ -718,8 +755,10 @@ the stack helper for that case.
 
 The same stack summary comment now also accepts optional generated
 introductory text from `submit --describe-with`; that prose is rendered ahead
-of the standard previous/current/next navigation block so the product still
-owns only one reviewer-facing comment per PR.
+of the standard full-stack navigation block so the product still owns only one
+reviewer-facing comment per PR. That block renders the full stack from top to
+bottom, bolds the current PR title, links the other PR titles, and shows a
+plain resolved trunk line beneath the bottom-most PR.
 
 When `submit` invokes a stack helper, it now also writes a temporary input file
 with the already-generated PR title/body pairs plus compact per-PR diffstat
