@@ -8,12 +8,14 @@ import pytest
 
 from jj_review.commands.submit import (
     GeneratedDescription,
+    SubmittedRevision,
     _bookmark_link_is_proven,
     _ensure_pull_request_link_is_consistent,
     _ensure_remote_can_be_updated,
     _preflight_private_commits,
     _remote_is_up_to_date,
     _render_generated_stack_description,
+    _render_stack_comment,
     _repair_interrupted_untracked_remote_bookmarks,
     _resolve_generated_descriptions,
     _resolve_local_action,
@@ -207,6 +209,64 @@ def test_render_generated_stack_description_omits_empty_fields() -> None:
     assert _render_generated_stack_description(
         GeneratedDescription(title="", body="stack body")
     ) == ["stack body"]
+
+
+def test_render_stack_comment_lists_full_stack_top_to_bottom() -> None:
+    bottom = _submitted_revision(
+        change_id="bottom-change",
+        pull_request_number=1,
+        pull_request_title="feature 1",
+        pull_request_url="https://github.test/octo-org/repo/pull/1",
+        subject="local feature 1",
+    )
+    top = _submitted_revision(
+        change_id="top-change",
+        pull_request_number=2,
+        pull_request_title="feature 2",
+        pull_request_url="https://github.test/octo-org/repo/pull/2",
+        subject="local feature 2",
+    )
+
+    rendered = _render_stack_comment(
+        current=bottom,
+        revisions=(bottom, top),
+        stack_description=None,
+        trunk_branch="main",
+    )
+
+    assert "Stack:\n[feature 2](https://github.test/octo-org/repo/pull/2)\n" in rendered
+    assert "**feature 1**\ntrunk `main`" in rendered
+    assert "[#1]" not in rendered
+    assert "[#2]" not in rendered
+
+
+def test_render_stack_comment_uses_bold_only_for_current_pr_title() -> None:
+    bottom = _submitted_revision(
+        change_id="bottom-change",
+        pull_request_number=1,
+        pull_request_title="generated bottom title",
+        pull_request_url="https://github.test/octo-org/repo/pull/1",
+        subject="bottom subject",
+    )
+    top = _submitted_revision(
+        change_id="top-change",
+        pull_request_number=2,
+        pull_request_title="generated top title",
+        pull_request_url="https://github.test/octo-org/repo/pull/2",
+        subject="top subject",
+    )
+
+    rendered = _render_stack_comment(
+        current=top,
+        revisions=(bottom, top),
+        stack_description=GeneratedDescription(title="", body="stack body"),
+        trunk_branch="trunk",
+    )
+
+    assert "**generated top title**" in rendered
+    assert "[generated bottom title](https://github.test/octo-org/repo/pull/1)" in rendered
+    assert "top subject" not in rendered
+    assert "bottom subject" not in rendered
 
 
 def test_resolve_local_action_created_when_no_local_targets() -> None:
@@ -508,4 +568,27 @@ def _github_pull_request(number: int) -> GithubPullRequest:
         number=number,
         state="open",
         title="feature",
+    )
+
+
+def _submitted_revision(
+    *,
+    change_id: str,
+    pull_request_number: int,
+    pull_request_title: str,
+    pull_request_url: str,
+    subject: str,
+) -> SubmittedRevision:
+    return SubmittedRevision(
+        bookmark=f"review/{change_id}",
+        bookmark_source="generated",
+        change_id=change_id,
+        local_action="unchanged",
+        pull_request_action="unchanged",
+        pull_request_is_draft=False,
+        pull_request_number=pull_request_number,
+        pull_request_title=pull_request_title,
+        pull_request_url=pull_request_url,
+        remote_action="up to date",
+        subject=subject,
     )

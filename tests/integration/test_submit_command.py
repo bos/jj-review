@@ -195,14 +195,16 @@ def test_submit_creates_stack_comments_for_each_pull_request(
     assert len(_issue_comments(fake_repo, 1)) == 1
     assert len(_issue_comments(fake_repo, 2)) == 1
     assert "<!-- jj-review-stack -->" in _issue_comments(fake_repo, 1)[0].body
-    assert "Previous: trunk `main`" in _issue_comments(fake_repo, 1)[0].body
-    assert "Next: [#2](https://github.test/octo-org/stacked-review/pull/2) feature 2" in (
+    assert "Stack:" in _issue_comments(fake_repo, 1)[0].body
+    assert "[feature 2](https://github.test/octo-org/stacked-review/pull/2)" in (
         _issue_comments(fake_repo, 1)[0].body
     )
-    assert "Previous: [#1](https://github.test/octo-org/stacked-review/pull/1) feature 1" in (
+    assert "**feature 1**" in _issue_comments(fake_repo, 1)[0].body
+    assert "trunk `main`" in _issue_comments(fake_repo, 1)[0].body
+    assert "**feature 2**" in _issue_comments(fake_repo, 2)[0].body
+    assert "[feature 1](https://github.test/octo-org/stacked-review/pull/1)" in (
         _issue_comments(fake_repo, 2)[0].body
     )
-    assert "Next: none" in _issue_comments(fake_repo, 2)[0].body
     assert {change.stack_comment_id for change in state.changes.values()} == {1, 2}
 
 def test_submit_skips_stack_comment_for_single_commit_stack(
@@ -716,10 +718,10 @@ def test_submit_rediscovers_and_regenerates_stack_comments_when_cache_is_missing
 
     assert len(_issue_comments(fake_repo, 2)) == 1
     assert _issue_comments(fake_repo, 2)[0].id == initial_comment_id
-    assert "Current: [#2](https://github.test/octo-org/stacked-review/pull/2) " in (
+    assert "**feature 2 renamed**" in _issue_comments(fake_repo, 2)[0].body
+    assert "[feature 1](https://github.test/octo-org/stacked-review/pull/1)" in (
         _issue_comments(fake_repo, 2)[0].body
     )
-    assert "feature 2 renamed" in _issue_comments(fake_repo, 2)[0].body
     assert "feature 2 renamed" in _issue_comments(fake_repo, 1)[0].body
     assert refreshed_state.changes[top_change_id].stack_comment_id == initial_comment_id
     assert refreshed_state.changes[bottom_change_id].stack_comment_id == 1

@@ -343,6 +343,10 @@ Given a selected head revision:
      reviewer-facing stack summary comment when the selected stack contains
      more than one change, and does not become a separate source of
      truth for topology
+   - that reviewer-facing stack summary comment should render the entire PR
+     stack in top-to-bottom order, with a plain trunk line shown beneath the
+     bottom-most PR; the current PR title is bold, and the other PR titles
+     link to their pull requests
    - for stack helpers, submit may also provide a temporary helper-owned input
      file describing the generated per-PR title/body pairs and compact diffstat
      context for the selected stack, so helpers can summarize the stack from

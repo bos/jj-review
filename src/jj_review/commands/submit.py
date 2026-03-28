@@ -81,6 +81,7 @@ class SubmittedRevision:
     pull_request_action: PullRequestAction
     pull_request_is_draft: bool | None
     pull_request_number: int | None
+    pull_request_title: str | None
     pull_request_url: str | None
     remote_action: RemoteBookmarkAction
     subject: str
@@ -1178,6 +1179,11 @@ async def _sync_pull_request_task(
                 if pull_request_result.pull_request is not None
                 else None
             ),
+            pull_request_title=(
+                pull_request_result.pull_request.title
+                if pull_request_result.pull_request is not None
+                else None
+            ),
             pull_request_url=(
                 pull_request_result.pull_request.html_url
                 if pull_request_result.pull_request is not None
@@ -1527,7 +1533,7 @@ async def _sync_stack_comments(
         return
 
     pending: list[PendingStackCommentSync] = []
-    for index, revision in enumerate(revisions):
+    for revision in revisions:
         if revision.pull_request_number is None:
             continue
         cached_change = state_changes.get(revision.change_id) or state.changes.get(
@@ -1539,8 +1545,7 @@ async def _sync_stack_comments(
             raise AssertionError("Stack summary comments require a saved pull request link.")
         comment_body = _render_stack_comment(
             current=revision,
-            next_revision=revisions[index + 1] if index + 1 < len(revisions) else None,
-            previous=revisions[index - 1] if index > 0 else None,
+            revisions=revisions,
             stack_description=generated_stack_description,
             trunk_branch=trunk_branch,
         )
@@ -1760,8 +1765,7 @@ async def _update_stack_comment(
 def _render_stack_comment(
     *,
     current: SubmittedRevision,
-    next_revision: SubmittedRevision | None,
-    previous: SubmittedRevision | None,
+    revisions: tuple[SubmittedRevision, ...],
     stack_description: GeneratedDescription | None,
     trunk_branch: str,
 ) -> str:
@@ -1774,11 +1778,11 @@ def _render_stack_comment(
         [
             "This pull request is part of a stack tracked by `jj-review`.",
             "",
-            f"Previous: {_render_stack_neighbor(previous, fallback=f'trunk `{trunk_branch}`')}",
-            f"Current: {_render_pull_request_reference(current)}",
-            f"Next: {_render_stack_neighbor(next_revision, fallback='none')}",
+            "Stack:",
         ]
     )
+    lines.extend(_render_stack_comment_entries(current=current, revisions=revisions))
+    lines.append(f"trunk `{trunk_branch}`")
     return "\n".join(lines)
 
 
@@ -1798,18 +1802,28 @@ def _render_generated_stack_description(
     return lines
 
 
-def _render_stack_neighbor(
-    revision: SubmittedRevision | None,
+def _render_stack_comment_entries(
     *,
-    fallback: str,
+    current: SubmittedRevision,
+    revisions: tuple[SubmittedRevision, ...],
+) -> list[str]:
+    return [
+        _render_stack_comment_entry(current=current, revision=revision)
+        for revision in reversed(revisions)
+    ]
+
+
+def _render_stack_comment_entry(
+    *,
+    current: SubmittedRevision,
+    revision: SubmittedRevision,
 ) -> str:
-    if revision is None:
-        return fallback
-    return _render_pull_request_reference(revision)
-
-
-def _render_pull_request_reference(revision: SubmittedRevision) -> str:
-    return f"[#{revision.pull_request_number}]({revision.pull_request_url}) {revision.subject}"
+    title = revision.pull_request_title or revision.subject
+    if revision.change_id == current.change_id:
+        return f"**{title}**"
+    if revision.pull_request_url is None:
+        return title
+    return f"[{title}]({revision.pull_request_url})"
 
 
 def _pull_request_body(description: str) -> str:
