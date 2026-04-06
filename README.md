@@ -174,7 +174,9 @@ changes, not a maze of long-lived Git branches.
 - `jj-review status`
   Inspect the review status of the current stack. The default output starts
   with capped submitted and unsubmitted summaries, then prints the trunk/base
-  row; use `jj-review status --verbose` to expand those summary sections.
+  row; the submitted summary header links to the newest submitted PR when one
+  is available. Use `jj-review status --verbose` to expand those summary
+  sections.
   Interactive terminals also show a progress bar while GitHub inspection runs.
 - `jj-review land --current`
   Preview what can be landed now.

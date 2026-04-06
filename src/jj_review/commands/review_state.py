@@ -234,7 +234,7 @@ def render_status_summary_lines(
         lines.extend(unsubmitted_lines)
 
     submitted_lines = _render_summary_section(
-        "Submitted changes",
+        _render_submitted_section_title(submitted_revisions),
         include_leading_separator=False,
         revisions=submitted_revisions,
         verbose=verbose,
@@ -315,6 +315,15 @@ def _render_summary_section(
     lines.append(f"  [...{omitted} changes omitted...]")
     lines.extend(rendered[-_SUMMARY_SECTION_TAIL_COUNT:])
     return tuple(lines)
+
+
+def _render_submitted_section_title(revisions: tuple) -> str:
+    """Render the submitted-section heading, linking the newest submitted PR when possible."""
+
+    top_pull_request_url = _revision_pull_request_url(revisions[0]) if revisions else None
+    if top_pull_request_url is None:
+        return "Submitted changes"
+    return f"Submitted changes ({top_pull_request_url})"
 
 
 def render_status_advisory_lines(*, result) -> tuple[str, ...]:
@@ -496,6 +505,15 @@ def _render_summary_revision_line(
     if not show_status and summary == "not submitted":
         return f"- {revision.subject} [{display_change_id(revision.change_id)}]"
     return f"- {revision.subject} [{display_change_id(revision.change_id)}]: {summary}"
+
+
+def _revision_pull_request_url(revision) -> str | None:
+    """Return the GitHub URL for a revision's linked pull request when one is available."""
+
+    lookup = revision.pull_request_lookup
+    if lookup is None or lookup.pull_request is None:
+        return None
+    return getattr(lookup.pull_request, "html_url", None)
 
 
 @contextmanager

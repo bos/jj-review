@@ -221,7 +221,11 @@ def test_status_prints_headers_before_stack_output(
                     change_id="abcdefghijkl",
                     link_state="active",
                     pull_request_lookup=SimpleNamespace(
-                        pull_request=SimpleNamespace(number=1, is_draft=False),
+                        pull_request=SimpleNamespace(
+                            html_url="https://github.com/bos/jj-review/pull/1",
+                            number=1,
+                            is_draft=False,
+                        ),
                         review_decision=None,
                         review_decision_error=None,
                         state="open",
@@ -245,7 +249,7 @@ def test_status_prints_headers_before_stack_output(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Submitted changes:" in captured.out
+    assert "Submitted changes (https://github.com/bos/jj-review/pull/1):" in captured.out
     assert "- feature 1 [abcdefgh]: PR #1" in captured.out
     assert "◆ base [trunkcha]: main" in captured.out
     assert captured.out.index("- feature 1 [abcdefgh]: PR #1") < captured.out.index(

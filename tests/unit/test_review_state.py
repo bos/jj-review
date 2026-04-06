@@ -219,3 +219,58 @@ def test_render_status_summary_lines_keep_leading_separator_after_headers() -> N
         "  (none)",
         "",
     )
+
+
+def test_render_status_summary_lines_links_submitted_header_to_top_pr() -> None:
+    lines = review_state_module.render_status_summary_lines(
+        github_available=True,
+        leading_separator=False,
+        result=SimpleNamespace(
+            revisions=(
+                SimpleNamespace(
+                    cached_change=None,
+                    change_id="abcdefgh1234",
+                    link_state="active",
+                    local_divergent=False,
+                    pull_request_lookup=SimpleNamespace(
+                        pull_request=SimpleNamespace(
+                            html_url="https://github.com/bos/jj-review/pull/8",
+                            is_draft=False,
+                            number=8,
+                        ),
+                        review_decision=None,
+                        review_decision_error=None,
+                        state="open",
+                    ),
+                    stack_comment_lookup=None,
+                    subject="feature 8",
+                ),
+                SimpleNamespace(
+                    cached_change=None,
+                    change_id="bcdefghi1234",
+                    link_state="active",
+                    local_divergent=False,
+                    pull_request_lookup=SimpleNamespace(
+                        pull_request=SimpleNamespace(
+                            html_url="https://github.com/bos/jj-review/pull/7",
+                            is_draft=False,
+                            number=7,
+                        ),
+                        review_decision=None,
+                        review_decision_error=None,
+                        state="open",
+                    ),
+                    stack_comment_lookup=None,
+                    subject="feature 7",
+                ),
+            ),
+        ),
+        verbose=False,
+    )
+
+    assert lines == (
+        "Submitted changes (https://github.com/bos/jj-review/pull/8):",
+        "- feature 8 [abcdefgh]: PR #8",
+        "- feature 7 [bcdefghi]: PR #7",
+        "",
+    )

@@ -51,7 +51,10 @@ def test_status_reports_remote_and_github_link(
     assert exit_code == 0
     assert "feature 1 [" in captured.out
     assert ": PR #1" in captured.out
-    assert "review/" not in captured.out
+    assert "Submitted changes (https://github.test/octo-org/stacked-review/pull/1):" in (
+        captured.out
+    )
+    assert ": review/" not in captured.out
     assert "stack summary comment" not in captured.out
 
 
