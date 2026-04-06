@@ -23,6 +23,7 @@ classifiers = [
 dependencies = [
   "httpx>=0.28.1,<0.29",
   "pydantic>=2.11.0,<3",
+  "tqdm>=4.67.1,<5",
 ]
 
 [project.urls]

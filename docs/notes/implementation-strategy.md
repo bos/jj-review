@@ -218,8 +218,11 @@ The CLI layer should be thin. It should:
   selected-change banner when the head came from `--current`, and include short
   change IDs in the selected and trunk summaries
 - for inspection-style commands such as `status` and `cleanup`, print resolved
-  local context promptly and stream per-item results as remote inspection
-  completes rather than buffering the full command behind one aggregate result
+  local context promptly; `status` may buffer remote inspection long enough to
+  render capped summaries before the trunk/base row. Interactive TTY runs
+  should show explicit progress during that GitHub inspection instead of
+  leaving the operator with a silent wait. `cleanup` may still stream per-item
+  results as remote inspection completes
 - for successful live `submit` runs, print the top-of-stack URL after the
   submitted bookmark summary so the operator can jump straight to the stack in
   a browser

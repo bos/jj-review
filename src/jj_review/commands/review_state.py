@@ -1,13 +1,20 @@
 """Show how the selected jj stack currently appears on GitHub.
 
 This reports the pull requests and GitHub branches jj-review is using for each
-change without changing anything.
+change without changing anything. By default it starts with capped submitted
+and unsubmitted summaries, then prints the trunk/base row; `--verbose`
+expands the summary sections. In interactive terminals, GitHub inspection also
+shows a progress bar on stderr while the final summaries are prepared.
 """
 
 from __future__ import annotations
 
+import sys
 import textwrap
+from contextlib import contextmanager
 from pathlib import Path
+
+from tqdm import tqdm
 
 from jj_review.bootstrap import bootstrap_context
 from jj_review.errors import CliError
@@ -16,6 +23,8 @@ from jj_review.jj import UnsupportedStackError
 from jj_review.review_inspection import prepare_status, stream_status
 
 _DISPLAY_CHANGE_ID_LENGTH = 8
+_SUMMARY_SECTION_HEAD_COUNT = 3
+_SUMMARY_SECTION_TAIL_COUNT = 3
 
 HELP = "Check the review status of a jj stack"
 
@@ -27,6 +36,7 @@ def status(
     fetch: bool,
     repository: Path | None,
     revset: str | None,
+    verbose: bool,
 ) -> int:
     """CLI entrypoint for `status`."""
 
@@ -46,35 +56,28 @@ def status(
     except UnsupportedStackError as error:
         raise CliError(describe_status_preparation_error(error)) from error
 
-    for line in render_status_selection_lines(prepared_status=prepared_status):
+    selection_lines = render_status_selection_lines(prepared_status=prepared_status)
+    for line in selection_lines:
         print(line)
 
-    stack_started = False
+    with _status_progress_bar(prepared_status=prepared_status) as progress:
+        def advance_progress(_revision, _github_available: bool) -> None:
+            if progress is not None:
+                progress.update(1)
 
-    def emit_github_status(github_repository: str | None, github_error: str | None) -> None:
-        nonlocal stack_started
-        for line in render_status_github_lines(
-            github_error=github_error,
-            github_repository=github_repository,
-            has_revisions=bool(prepared_status.prepared.status_revisions),
-        ):
-            print(line)
-        if prepared_status.prepared.status_revisions:
-            stack_started = True
-
-    def emit_revision(revision, github_available: bool) -> None:
-        print(
-            render_status_revision_line(
-                revision,
-                github_available=github_available,
-            )
+        result = stream_status(
+            on_revision=advance_progress if progress is not None else None,
+            prepared_status=prepared_status,
         )
 
-    result = stream_status(
-        on_github_status=emit_github_status,
-        on_revision=emit_revision,
-        prepared_status=prepared_status,
+    github_lines = render_status_github_lines(
+        github_error=result.github_error,
+        github_repository=result.github_repository,
+        has_revisions=bool(result.revisions),
     )
+    for line in github_lines:
+        print(line)
+
     if not prepared_status.prepared.status_revisions:
         for line in render_empty_status_lines(
             prepared_status=prepared_status,
@@ -83,8 +86,14 @@ def status(
             print(line)
         return 0
 
-    if not stack_started:
-        print("Stack:")
+    github_available = result.github_repository is not None and result.github_error is None
+    for line in render_status_summary_lines(
+        result=result,
+        github_available=github_available,
+        leading_separator=bool(selection_lines or github_lines),
+        verbose=verbose,
+    ):
+        print(line)
     print(
         render_trunk_status_row(
             prepared_status.prepared,
@@ -146,17 +155,15 @@ def format_pull_request_label(
 
 
 def render_status_selection_lines(*, prepared_status) -> tuple[str, ...]:
-    """Render the selected revset and remote lines."""
+    """Render exceptional local selection context lines."""
 
     prepared = prepared_status.prepared
-    lines = [f"Selected revset: {prepared_status.selected_revset}"]
+    lines: list[str] = []
     if prepared.remote is None:
         if prepared.remote_error is None:
             lines.append("Selected remote: unavailable")
         else:
             lines.append(f"Selected remote: unavailable ({prepared.remote_error})")
-    else:
-        lines.append(f"Selected remote: {prepared.remote.name}")
     return tuple(lines)
 
 
@@ -173,12 +180,12 @@ def render_status_github_lines(
         if github_error is not None:
             lines.append(f"GitHub target: unavailable ({github_error})")
     else:
-        if github_error is None:
-            lines.append(f"GitHub: {github_repository}")
-        else:
+        if github_error is None and not has_revisions:
+            lines.append(
+                f"GitHub target: {github_repository} (not inspected; no reviewable commits)"
+            )
+        elif github_error is not None:
             lines.append(f"GitHub target: {github_repository} ({github_error})")
-    if has_revisions:
-        lines.append("Stack:")
     return tuple(lines)
 
 
@@ -187,6 +194,63 @@ def render_status_revision_line(revision, *, github_available: bool) -> str:
 
     summary = _format_status_summary(revision, github_available=github_available)
     return f"- {revision.subject} [{display_change_id(revision.change_id)}]: {summary}"
+
+
+def render_status_summary_lines(
+    *,
+    github_available: bool,
+    leading_separator: bool,
+    result,
+    verbose: bool,
+) -> tuple[str, ...]:
+    """Render capped submitted and unsubmitted summaries before the trunk row."""
+
+    unsubmitted_revisions = tuple(
+        revision
+        for revision in result.revisions
+        if _classify_revision_for_summary(revision, github_available=github_available)
+        == "unsubmitted"
+    )
+    submitted_revisions = tuple(
+        revision
+        for revision in result.revisions
+        if _classify_revision_for_summary(revision, github_available=github_available)
+        == "submitted"
+    )
+
+    lines: list[str] = []
+    unsubmitted_lines = _render_summary_section(
+        "Unsubmitted changes",
+        include_leading_separator=leading_separator,
+        revisions=unsubmitted_revisions,
+        verbose=verbose,
+        renderer=lambda revision: _render_summary_revision_line(
+            revision,
+            github_available=github_available,
+            show_status=False,
+        ),
+    )
+    if unsubmitted_lines:
+        lines.extend(unsubmitted_lines)
+
+    submitted_lines = _render_summary_section(
+        "Submitted changes",
+        include_leading_separator=False,
+        revisions=submitted_revisions,
+        verbose=verbose,
+        renderer=lambda revision: _render_summary_revision_line(
+            revision,
+            github_available=github_available,
+            show_status=True,
+        ),
+    )
+    if submitted_lines:
+        if lines:
+            lines.append("")
+        lines.extend(submitted_lines)
+    if lines:
+        lines.append("")
+    return tuple(lines)
 
 
 def render_trunk_status_row(
@@ -219,6 +283,38 @@ def render_empty_status_lines(
         ),
         "No reviewable commits between the selected revision and `trunk()`.",
     )
+
+
+def _render_summary_section(
+    title: str,
+    *,
+    include_leading_separator: bool,
+    revisions: tuple,
+    renderer,
+    verbose: bool,
+) -> tuple[str, ...]:
+    """Render one capped summary section."""
+
+    if not revisions and not verbose:
+        return ()
+
+    lines = [f"{title}:"]
+    if include_leading_separator:
+        lines.insert(0, "")
+    if not revisions:
+        lines.append("  (none)")
+        return tuple(lines)
+
+    rendered = [renderer(revision) for revision in revisions]
+    if verbose or len(rendered) <= _SUMMARY_SECTION_HEAD_COUNT + _SUMMARY_SECTION_TAIL_COUNT + 1:
+        lines.extend(rendered)
+        return tuple(lines)
+
+    omitted = len(rendered) - _SUMMARY_SECTION_HEAD_COUNT - _SUMMARY_SECTION_TAIL_COUNT
+    lines.extend(rendered[:_SUMMARY_SECTION_HEAD_COUNT])
+    lines.append(f"  [...{omitted} changes omitted...]")
+    lines.extend(rendered[-_SUMMARY_SECTION_TAIL_COUNT:])
+    return tuple(lines)
 
 
 def render_status_advisory_lines(*, result) -> tuple[str, ...]:
@@ -386,6 +482,72 @@ def _resolve_status_trunk_name(
     if len(remote_matches) == 1:
         return remote_matches[0]
     return None
+
+
+def _render_summary_revision_line(
+    revision,
+    *,
+    github_available: bool,
+    show_status: bool,
+) -> str:
+    """Render one revision inside a submitted or unsubmitted summary section."""
+
+    summary = _format_status_summary(revision, github_available=github_available)
+    if not show_status and summary == "not submitted":
+        return f"- {revision.subject} [{display_change_id(revision.change_id)}]"
+    return f"- {revision.subject} [{display_change_id(revision.change_id)}]: {summary}"
+
+
+@contextmanager
+def _status_progress_bar(*, prepared_status):
+    """Render a TTY-only progress bar while GitHub inspection runs."""
+
+    if (
+        prepared_status.github_repository is None
+        or not prepared_status.prepared.status_revisions
+        or not sys.stderr.isatty()
+    ):
+        yield None
+        return
+
+    with tqdm(
+        total=len(prepared_status.prepared.status_revisions),
+        desc="Inspecting GitHub",
+        dynamic_ncols=True,
+        file=sys.stderr,
+        leave=False,
+        unit="change",
+    ) as progress:
+        yield progress
+
+
+def _classify_revision_for_summary(
+    revision,
+    *,
+    github_available: bool,
+) -> str:
+    """Classify a revision into submitted, unsubmitted, or other."""
+
+    if getattr(revision, "link_state", "active") == "unlinked":
+        return "submitted"
+
+    lookup = revision.pull_request_lookup
+    if lookup is None:
+        if _has_cached_pull_request(revision.cached_change):
+            return "submitted"
+        return "unsubmitted"
+
+    if lookup.state in {"open", "closed"}:
+        return "submitted"
+    if lookup.state == "missing":
+        return "submitted" if _has_cached_pull_request(revision.cached_change) else "unsubmitted"
+    if lookup.state in {"ambiguous", "error"}:
+        return "submitted" if _has_cached_pull_request(revision.cached_change) else "unsubmitted"
+    return "unsubmitted"
+
+
+def _has_cached_pull_request(cached_change) -> bool:
+    return cached_change is not None and cached_change.pr_number is not None
 
 
 def _format_status_summary(revision, *, github_available: bool) -> str:

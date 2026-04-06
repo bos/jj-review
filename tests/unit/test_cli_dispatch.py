@@ -28,6 +28,7 @@ def test_main_accepts_global_options_after_subcommand(
             "fetch": True,
             "repository": tmp_path,
             "revset": None,
+            "verbose": False,
         }
     ]
 
@@ -48,6 +49,24 @@ def test_main_short_fetch_alias_dispatches_fetch_true(
 
     assert exit_code == 0
     assert fetch_values == [True]
+
+
+def test_main_status_verbose_dispatches_verbose_true(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    verbose_values: list[bool] = []
+
+    def fake_status(**kwargs) -> int:
+        verbose_values.append(bool(kwargs["verbose"]))
+        return 0
+
+    monkeypatch.setattr(cli_module.commands.review_state, "status", fake_status)
+
+    exit_code = main(["status", "--verbose", "--repository", str(tmp_path)])
+
+    assert exit_code == 0
+    assert verbose_values == [True]
 
 
 def test_main_reports_keyboard_interrupt_without_traceback(

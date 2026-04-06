@@ -26,22 +26,38 @@ def test_render_status_selection_lines_reports_selected_remote_error() -> None:
     )
 
     assert review_state_module.render_status_selection_lines(
-        prepared_status=prepared_status
-    ) == (
-        "Selected revset: @",
-        "Selected remote: unavailable (no git remote configured)",
+        prepared_status=prepared_status,
+    ) == ("Selected remote: unavailable (no git remote configured)",)
+
+
+def test_render_status_selection_lines_omits_happy_path_context() -> None:
+    prepared_status = SimpleNamespace(
+        selected_revset="@-",
+        prepared=SimpleNamespace(
+            remote=SimpleNamespace(name="origin"),
+            remote_error=None,
+        ),
     )
 
+    assert review_state_module.render_status_selection_lines(
+        prepared_status=prepared_status,
+    ) == ()
 
-def test_render_status_github_lines_includes_stack_header_when_revisions_exist() -> None:
+
+def test_render_status_github_lines_omits_repository_when_revisions_exist() -> None:
     assert review_state_module.render_status_github_lines(
         github_error=None,
         github_repository="octo-org/stacked-review",
         has_revisions=True,
-    ) == (
-        "GitHub: octo-org/stacked-review",
-        "Stack:",
-    )
+    ) == ()
+
+
+def test_render_status_github_lines_reports_uninspected_target_for_empty_stack() -> None:
+    assert review_state_module.render_status_github_lines(
+        github_error=None,
+        github_repository="octo-org/stacked-review",
+        has_revisions=False,
+    ) == ("GitHub target: octo-org/stacked-review (not inspected; no reviewable commits)",)
 
 
 def test_render_trunk_status_row_prefers_unique_local_bookmark() -> None:
@@ -131,4 +147,75 @@ def test_render_status_intent_lines_reports_stale_and_interrupted_operations(
         "",
         "Incomplete operations detected:",
         "  land on @  [interrupted, re-run to complete]",
+    )
+
+
+def test_render_status_summary_lines_caps_middle_of_long_sections() -> None:
+    revisions = tuple(
+        SimpleNamespace(
+            cached_change=None,
+            change_id=f"{index}" * 12,
+            link_state="active",
+            local_divergent=False,
+            pull_request_lookup=None,
+            stack_comment_lookup=None,
+            subject=f"feature {index}",
+        )
+        for index in range(8, 0, -1)
+    )
+
+    lines = review_state_module.render_status_summary_lines(
+        github_available=True,
+        leading_separator=False,
+        result=SimpleNamespace(revisions=revisions),
+        verbose=False,
+    )
+
+    assert lines == (
+        "Unsubmitted changes:",
+        "- feature 8 [88888888]",
+        "- feature 7 [77777777]",
+        "- feature 6 [66666666]",
+        "  [...2 changes omitted...]",
+        "- feature 3 [33333333]",
+        "- feature 2 [22222222]",
+        "- feature 1 [11111111]",
+        "",
+    )
+
+
+def test_render_status_summary_lines_show_empty_sections_in_verbose_mode() -> None:
+    lines = review_state_module.render_status_summary_lines(
+        github_available=True,
+        leading_separator=False,
+        result=SimpleNamespace(revisions=()),
+        verbose=True,
+    )
+
+    assert lines == (
+        "Unsubmitted changes:",
+        "  (none)",
+        "",
+        "Submitted changes:",
+        "  (none)",
+        "",
+    )
+
+
+def test_render_status_summary_lines_keep_leading_separator_after_headers() -> None:
+    lines = review_state_module.render_status_summary_lines(
+        github_available=True,
+        leading_separator=True,
+        result=SimpleNamespace(revisions=()),
+        verbose=True,
+    )
+
+    assert lines[0] == ""
+    assert lines[1:] == (
+        "Unsubmitted changes:",
+        "  (none)",
+        "",
+        "Submitted changes:",
+        "  (none)",
+        "",
     )

@@ -233,6 +233,7 @@ def build_parser() -> ArgumentParser:
             fetch=args.fetch,
             repository=args.repository,
             revset=args.revset,
+            verbose=args.verbose,
         ),
     )
     status_parser.add_argument(
@@ -240,6 +241,11 @@ def build_parser() -> ArgumentParser:
         "--fetch",
         action="store_true",
         help="Fetch remote bookmark state before inspecting review status",
+    )
+    status_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Expand submitted and unsubmitted summary sections",
     )
     _add_relink_parser(
         subparsers,

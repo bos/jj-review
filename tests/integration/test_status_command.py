@@ -49,12 +49,51 @@ def test_status_reports_remote_and_github_link(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Selected remote: origin" in captured.out
-    assert f"GitHub: {fake_repo.owner}/{fake_repo.name}" in captured.out
     assert "feature 1 [" in captured.out
     assert ": PR #1" in captured.out
     assert "review/" not in captured.out
     assert "stack summary comment" not in captured.out
+
+
+def test_status_caps_unsubmitted_summary_before_trunk_row(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    for index in range(8):
+        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
+
+    exit_code = _main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Unsubmitted changes:" in captured.out
+    assert "[...2 changes omitted...]" in captured.out
+    assert "- feature 4 [" not in captured.out
+    assert "- feature 3 [" in captured.out
+    assert captured.out.index("Unsubmitted changes:") < captured.out.index("◆ base [")
+
+
+def test_status_verbose_expands_unsubmitted_summary(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    for index in range(8):
+        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
+
+    exit_code = _main(repo, config_path, "status", "--verbose")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Unsubmitted changes:" in captured.out
+    assert "[...2 changes omitted...]" not in captured.out
+    assert captured.out.count("- feature 4 [") == 1
+
 
 def test_status_prints_stack_tip_first_like_jj_log(
     tmp_path: Path,
@@ -147,10 +186,9 @@ def test_status_limits_concurrent_github_lookups(
     )
 
     exit_code = _main(repo, config_path, "status")
-    captured = capsys.readouterr()
+    capsys.readouterr()
 
     assert exit_code == 0
-    assert f"GitHub: {fake_repo.owner}/{fake_repo.name}" in captured.out
     assert max_in_flight == 2
 
 def test_status_preserves_remote_observations_when_github_lookup_fails(
@@ -272,7 +310,6 @@ def test_status_does_not_probe_repository_before_pull_request_lookup(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "GitHub: octo-org/stacked-review" in captured.out
     assert ": PR #1" in captured.out
 
 def test_status_exits_nonzero_when_pull_request_lookup_fails(
@@ -314,7 +351,6 @@ def test_status_exits_nonzero_when_pull_request_lookup_fails(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert f"GitHub: {fake_repo.owner}/{fake_repo.name}" in captured.out
     assert ": saved PR #1 (open), pull request lookup failed (GitHub 422)" in captured.out
 
 def test_status_exits_nonzero_when_github_reports_multiple_pull_requests(
@@ -437,7 +473,6 @@ def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert "GitHub: octo-org/stacked-review" in captured.out
     assert ": PR #2" in captured.out
     assert refreshed_state.changes[change_id].pr_number == 2
     assert refreshed_state.changes[change_id].stack_comment_id == 1
@@ -466,8 +501,6 @@ def test_status_refreshes_cached_pull_request_metadata_after_state_loss(
     refreshed_state = ReviewStateStore.for_repo(repo).load()
 
     assert exit_code == 0
-    assert "Selected remote: origin" in captured.out
-    assert "GitHub: octo-org/stacked-review" in captured.out
     assert ": PR #1" in captured.out
     assert refreshed_state.changes[change_id].bookmark == bookmark
     assert refreshed_state.changes[change_id].pr_number == 1

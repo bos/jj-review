@@ -172,7 +172,10 @@ changes, not a maze of long-lived Git branches.
 - `jj-review submit --current`
   Create or update the GitHub PR stack for the current `jj` stack.
 - `jj-review status`
-  Inspect the review status of the current stack.
+  Inspect the review status of the current stack. The default output starts
+  with capped submitted and unsubmitted summaries, then prints the trunk/base
+  row; use `jj-review status --verbose` to expand those summary sections.
+  Interactive terminals also show a progress bar while GitHub inspection runs.
 - `jj-review land --current`
   Preview what can be landed now.
 - `jj-review land --current --apply`
