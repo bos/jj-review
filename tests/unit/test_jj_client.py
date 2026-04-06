@@ -659,6 +659,58 @@ def test_get_config_string_returns_none_when_key_is_unset() -> None:
     assert value is None
 
 
+def test_resolve_color_when_honors_explicit_jj_config() -> None:
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "config", "get", "ui.color"): "debug\n",
+    }
+
+    value = JjClient(Path("/repo"), runner=_runner(responses)).resolve_color_when(
+        stdout_is_tty=True
+    )
+
+    assert value == "debug"
+
+
+def test_resolve_color_when_maps_auto_to_terminal_capability() -> None:
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        assert tuple(command) == ("jj", "config", "get", "ui.color")
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="no config\n")
+
+    client = JjClient(Path("/repo"), runner=run)
+
+    assert client.resolve_color_when(stdout_is_tty=True) == "always"
+    assert client.resolve_color_when(stdout_is_tty=False) == "never"
+
+
+def test_render_revision_log_lines_uses_native_jj_log_output() -> None:
+    revision = _make_revision(
+        commit_id="head",
+        change_id="head-change",
+        description="subject\n",
+    )
+    responses: dict[tuple[str, ...], str] = {
+        (
+            "jj",
+            "--ignore-working-copy",
+            "--no-pager",
+            "--color",
+            "always",
+            "log",
+            "-r",
+            "'head'",
+            "--limit",
+            "1",
+        ): "rendered head\nbody line\n~\n",
+    }
+
+    lines = JjClient(Path("/repo"), runner=_runner(responses)).render_revision_log_lines(
+        revision,
+        color_when="always",
+    )
+
+    assert lines == ("rendered head", "body line")
+
+
 def _make_revision(*, commit_id: str, change_id: str, description: str) -> LocalRevision:
     return LocalRevision(
         change_id=change_id,

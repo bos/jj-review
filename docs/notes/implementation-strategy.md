@@ -1273,6 +1273,24 @@ Done when:
 - cleanup prunes unlinked markers whose `change_id` no longer resolves in
   visible history
 
+### Status Rendering Follow-up
+
+Status: done.
+
+- `status` summary sections now render each displayed revision through a
+  direct `jj log` call instead of rebuilding commit lines inside
+  `jj-review`
+- the first rendered `jj log` line now carries the appended review status
+  suffix, while any additional lines from the user's configured log template
+  stay unchanged
+- embedded `jj log` rendering now resolves `ui.color` once up front and maps
+  `auto` against `jj-review`'s actual stdout TTY, so color output matches the
+  user's intent even though `jj` itself is writing into a subprocess pipe
+- `ReviewStatusRevision` now carries the exact `commit_id` needed for that
+  per-revision native rendering path
+
+### Cleanup Follow-up
+
 ## Error Handling Strategy
 
 Errors should be explicit and actionable.

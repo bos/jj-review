@@ -75,6 +75,7 @@ class ReviewStatusRevision:
     bookmark_source: BookmarkSource
     cached_change: CachedChange | None
     change_id: str
+    commit_id: str
     link_state: LinkState
     local_divergent: bool
     pull_request_lookup: PullRequestLookup | None
@@ -457,6 +458,7 @@ def _build_status_revisions_without_github(
             bookmark_source=revision.bookmark_source,
             cached_change=revision.cached_change,
             change_id=revision.revision.change_id,
+            commit_id=revision.revision.commit_id,
             link_state=(
                 revision.cached_change.link_state
                 if revision.cached_change is not None
@@ -726,6 +728,7 @@ async def _inspect_revision_with_github(
             bookmark_source=prepared_revision.bookmark_source,
             cached_change=prepared_revision.cached_change,
             change_id=prepared_revision.revision.change_id,
+            commit_id=prepared_revision.revision.commit_id,
             link_state=(
                 prepared_revision.cached_change.link_state
                 if prepared_revision.cached_change is not None

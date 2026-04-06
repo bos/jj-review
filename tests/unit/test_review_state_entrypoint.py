@@ -117,7 +117,10 @@ def test_status_reports_uninspected_github_target_for_empty_stack(
         "prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
-                client=SimpleNamespace(list_bookmark_states=lambda: {}),
+                client=SimpleNamespace(
+                    list_bookmark_states=lambda: {},
+                    resolve_color_when=lambda *, stdout_is_tty: "never",
+                ),
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
                 stack=SimpleNamespace(
@@ -188,7 +191,12 @@ def test_status_prints_headers_before_stack_output(
                             name="main",
                             local_targets=("trunk-commit",),
                         )
-                    }
+                    },
+                    render_revision_log_lines=lambda revision, *, color_when: (
+                        "feature 1 [abcdefgh]",
+                        "body line",
+                    ),
+                    resolve_color_when=lambda *, stdout_is_tty: "never",
                 ),
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
@@ -217,6 +225,7 @@ def test_status_prints_headers_before_stack_output(
             incomplete=False,
             revisions=(
                 SimpleNamespace(
+                    bookmark="review/feature-1-abcdefgh",
                     cached_change=None,
                     change_id="abcdefghijkl",
                     link_state="active",
@@ -250,9 +259,10 @@ def test_status_prints_headers_before_stack_output(
 
     assert exit_code == 0
     assert "Submitted changes (https://github.com/bos/jj-review/pull/1):" in captured.out
-    assert "- feature 1 [abcdefgh]: PR #1" in captured.out
+    assert "feature 1 [abcdefgh]: PR #1" in captured.out
+    assert "body line" in captured.out
     assert "◆ base [trunkcha]: main" in captured.out
-    assert captured.out.index("- feature 1 [abcdefgh]: PR #1") < captured.out.index(
+    assert captured.out.index("feature 1 [abcdefgh]: PR #1") < captured.out.index(
         "◆ base [trunkcha]: main"
     )
 
@@ -270,7 +280,13 @@ def test_status_updates_tty_progress_bar_while_streaming(
         "prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
-                client=SimpleNamespace(list_bookmark_states=lambda: {}),
+                client=SimpleNamespace(
+                    list_bookmark_states=lambda: {},
+                    render_revision_log_lines=lambda revision, *, color_when: (
+                        "feature 1 [abcdefgh]",
+                    ),
+                    resolve_color_when=lambda *, stdout_is_tty: "never",
+                ),
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
                 stack=SimpleNamespace(
@@ -342,7 +358,13 @@ def test_status_skips_progress_bar_without_tty(
         "prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
-                client=SimpleNamespace(list_bookmark_states=lambda: {}),
+                client=SimpleNamespace(
+                    list_bookmark_states=lambda: {},
+                    render_revision_log_lines=lambda revision, *, color_when: (
+                        "feature 1 [abcdefgh]",
+                    ),
+                    resolve_color_when=lambda *, stdout_is_tty: "never",
+                ),
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
                 stack=SimpleNamespace(
@@ -402,7 +424,13 @@ def test_status_prints_cleanup_advisories_for_merged_review_units(
         "prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
-                client=SimpleNamespace(list_bookmark_states=lambda: {}),
+                client=SimpleNamespace(
+                    list_bookmark_states=lambda: {},
+                    render_revision_log_lines=lambda revision, *, color_when: (
+                        "feature 1 [abcdefgh]",
+                    ),
+                    resolve_color_when=lambda *, stdout_is_tty: "never",
+                ),
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
                 stack=SimpleNamespace(
@@ -424,6 +452,7 @@ def test_status_prints_cleanup_advisories_for_merged_review_units(
     )
 
     merged_revision = SimpleNamespace(
+        bookmark="review/feature-1-abcdefgh",
         cached_change=None,
         change_id="abcdefghijkl",
         local_divergent=False,
@@ -461,6 +490,6 @@ def test_status_prints_cleanup_advisories_for_merged_review_units(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "- feature 1 [abcdefgh]: PR #5 merged, cleanup needed" in captured.out
+    assert "feature 1 [abcdefgh]: PR #5 merged, cleanup needed" in captured.out
     assert "◆ base [trunkcha]: trunk()\n\nAdvisories:" in captured.out
     assert "jj-review cleanup --restack @" in captured.out

@@ -75,6 +75,7 @@ class StaleWorkspaceError(CliError):
 
 
 JjRunner = Callable[[Sequence[str], Path], subprocess.CompletedProcess[str]]
+JjColorWhen = Literal["always", "debug", "never"]
 
 
 @dataclass(slots=True)
@@ -307,6 +308,43 @@ class JjClient:
             return None
         stripped = value.strip()
         return stripped if stripped else None
+
+    def resolve_color_when(self, *, stdout_is_tty: bool) -> JjColorWhen:
+        """Resolve the effective `jj --color` mode for embedded log rendering."""
+
+        configured = self.get_config_string("ui.color")
+        if configured == "always":
+            return "always"
+        if configured == "debug":
+            return "debug"
+        if configured == "never":
+            return "never"
+        return "always" if stdout_is_tty else "never"
+
+    def render_revision_log_lines(
+        self,
+        revision: LocalRevision,
+        *,
+        color_when: JjColorWhen,
+    ) -> tuple[str, ...]:
+        """Render one revision with the user's native `jj log` formatting."""
+
+        stdout = self._run_jj(
+            (
+                "--ignore-working-copy",
+                "--no-pager",
+                "--color",
+                color_when,
+                "log",
+                "-r",
+                _quote_revset_symbol(revision.commit_id),
+                "--limit",
+                "1",
+            )
+        )
+        return tuple(
+            line for line in stdout.rstrip("\n").splitlines() if line.strip() != "~"
+        )
 
     def find_private_commits(
         self,

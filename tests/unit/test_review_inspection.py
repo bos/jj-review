@@ -54,6 +54,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
             bookmark_source="generated",
             cached_change=None,
             change_id="aaaaaaaaaaaa",
+            commit_id="commit-1",
             link_state="active",
             local_divergent=False,
             pull_request_lookup=None,
@@ -66,6 +67,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
             bookmark_source="generated",
             cached_change=None,
             change_id="bbbbbbbbbbbb",
+            commit_id="commit-2",
             link_state="active",
             local_divergent=False,
             pull_request_lookup=None,
@@ -209,6 +211,7 @@ def test_status_treats_cleanup_needed_after_merged_pr_as_informational() -> None
         bookmark_source="generated",
         cached_change=None,
         change_id="aaaaaaaaaaaa",
+        commit_id="commit-1",
         link_state="active",
         local_divergent=True,
         pull_request_lookup=PullRequestLookup(
@@ -240,6 +243,7 @@ def test_status_marks_non_merged_divergent_revision_incomplete() -> None:
         bookmark_source="generated",
         cached_change=None,
         change_id="aaaaaaaaaaaa",
+        commit_id="commit-1",
         link_state="active",
         local_divergent=True,
         pull_request_lookup=PullRequestLookup(
@@ -282,6 +286,7 @@ def test_stream_status_marks_missing_remote_as_incomplete() -> None:
                         cached_change=None,
                         revision=SimpleNamespace(
                             change_id="aaaaaaaaaaaa",
+                            commit_id="commit-1",
                             subject="feature 1",
                         ),
                     ),
@@ -298,6 +303,7 @@ def test_stream_status_marks_missing_remote_as_incomplete() -> None:
             bookmark_source="generated",
             cached_change=None,
             change_id="aaaaaaaaaaaa",
+            commit_id="commit-1",
             link_state="active",
             local_divergent=False,
             pull_request_lookup=None,
@@ -340,6 +346,7 @@ def test_stream_status_marks_missing_github_target_as_incomplete(monkeypatch) ->
                         cached_change=None,
                         revision=SimpleNamespace(
                             change_id="aaaaaaaaaaaa",
+                            commit_id="commit-1",
                             subject="feature 1",
                         ),
                     ),
@@ -356,6 +363,7 @@ def test_stream_status_marks_missing_github_target_as_incomplete(monkeypatch) ->
             bookmark_source="generated",
             cached_change=None,
             change_id="aaaaaaaaaaaa",
+            commit_id="commit-1",
             link_state="active",
             local_divergent=False,
             pull_request_lookup=None,

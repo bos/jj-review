@@ -49,11 +49,12 @@ def test_status_reports_remote_and_github_link(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "feature 1 [" in captured.out
+    assert "feature 1" in captured.out
     assert ": PR #1" in captured.out
     assert "Submitted changes (https://github.test/octo-org/stacked-review/pull/1):" in (
         captured.out
     )
+    assert "review/feature-1-" not in captured.out
     assert ": review/" not in captured.out
     assert "stack summary comment" not in captured.out
 
@@ -74,8 +75,8 @@ def test_status_caps_unsubmitted_summary_before_trunk_row(
     assert exit_code == 0
     assert "Unsubmitted changes:" in captured.out
     assert "[...2 changes omitted...]" in captured.out
-    assert "- feature 4 [" not in captured.out
-    assert "- feature 3 [" in captured.out
+    assert "feature 4" not in captured.out
+    assert "feature 3" in captured.out
     assert captured.out.index("Unsubmitted changes:") < captured.out.index("◆ base [")
 
 
@@ -95,7 +96,7 @@ def test_status_verbose_expands_unsubmitted_summary(
     assert exit_code == 0
     assert "Unsubmitted changes:" in captured.out
     assert "[...2 changes omitted...]" not in captured.out
-    assert captured.out.count("- feature 4 [") == 1
+    assert captured.out.count("feature 4") == 1
 
 
 def test_status_prints_stack_tip_first_like_jj_log(
@@ -115,8 +116,8 @@ def test_status_prints_stack_tip_first_like_jj_log(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    feature_2_line = captured.out.index("- feature 2 [")
-    feature_1_line = captured.out.index("- feature 1 [")
+    feature_2_line = captured.out.index("feature 2")
+    feature_1_line = captured.out.index("feature 1")
     assert feature_2_line < feature_1_line
 
 def test_status_prints_trunk_below_stack_like_jj_log(
@@ -138,7 +139,7 @@ def test_status_prints_trunk_below_stack_like_jj_log(
     assert exit_code == 0
     assert "◆ base [" in captured.out
     assert ": main" in captured.out
-    assert captured.out.index("- feature 1 [") < captured.out.index("◆ base [")
+    assert captured.out.index("feature 1") < captured.out.index("◆ base [")
 
 def test_status_limits_concurrent_github_lookups(
     tmp_path: Path,

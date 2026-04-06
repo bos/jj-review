@@ -153,6 +153,7 @@ def test_render_status_intent_lines_reports_stale_and_interrupted_operations(
 def test_render_status_summary_lines_caps_middle_of_long_sections() -> None:
     revisions = tuple(
         SimpleNamespace(
+            bookmark=f"review/feature-{index}",
             cached_change=None,
             change_id=f"{index}" * 12,
             link_state="active",
@@ -165,6 +166,13 @@ def test_render_status_summary_lines_caps_middle_of_long_sections() -> None:
     )
 
     lines = review_state_module.render_status_summary_lines(
+        client=SimpleNamespace(
+            render_revision_log_lines=lambda revision, *, color_when: (
+                f"{revision.subject} [{revision.change_id[:8]}]",
+                f"body for {revision.subject}",
+            )
+        ),
+        color_when="never",
         github_available=True,
         leading_separator=False,
         result=SimpleNamespace(revisions=revisions),
@@ -173,19 +181,27 @@ def test_render_status_summary_lines_caps_middle_of_long_sections() -> None:
 
     assert lines == (
         "Unsubmitted changes:",
-        "- feature 8 [88888888]",
-        "- feature 7 [77777777]",
-        "- feature 6 [66666666]",
+        "feature 8 [88888888]",
+        "body for feature 8",
+        "feature 7 [77777777]",
+        "body for feature 7",
+        "feature 6 [66666666]",
+        "body for feature 6",
         "  [...2 changes omitted...]",
-        "- feature 3 [33333333]",
-        "- feature 2 [22222222]",
-        "- feature 1 [11111111]",
+        "feature 3 [33333333]",
+        "body for feature 3",
+        "feature 2 [22222222]",
+        "body for feature 2",
+        "feature 1 [11111111]",
+        "body for feature 1",
         "",
     )
 
 
 def test_render_status_summary_lines_show_empty_sections_in_verbose_mode() -> None:
     lines = review_state_module.render_status_summary_lines(
+        client=SimpleNamespace(render_revision_log_lines=lambda revision, *, color_when: ()),
+        color_when="never",
         github_available=True,
         leading_separator=False,
         result=SimpleNamespace(revisions=()),
@@ -204,6 +220,8 @@ def test_render_status_summary_lines_show_empty_sections_in_verbose_mode() -> No
 
 def test_render_status_summary_lines_keep_leading_separator_after_headers() -> None:
     lines = review_state_module.render_status_summary_lines(
+        client=SimpleNamespace(render_revision_log_lines=lambda revision, *, color_when: ()),
+        color_when="never",
         github_available=True,
         leading_separator=True,
         result=SimpleNamespace(revisions=()),
@@ -223,11 +241,16 @@ def test_render_status_summary_lines_keep_leading_separator_after_headers() -> N
 
 def test_render_status_summary_lines_links_submitted_header_to_top_pr() -> None:
     lines = review_state_module.render_status_summary_lines(
+        client=SimpleNamespace(
+            render_revision_log_lines=lambda revision, *, color_when: (revision.subject,)
+        ),
+        color_when="never",
         github_available=True,
         leading_separator=False,
         result=SimpleNamespace(
             revisions=(
                 SimpleNamespace(
+                    bookmark="review/feature-8",
                     cached_change=None,
                     change_id="abcdefgh1234",
                     link_state="active",
@@ -246,6 +269,7 @@ def test_render_status_summary_lines_links_submitted_header_to_top_pr() -> None:
                     subject="feature 8",
                 ),
                 SimpleNamespace(
+                    bookmark="review/feature-7",
                     cached_change=None,
                     change_id="bcdefghi1234",
                     link_state="active",
@@ -270,7 +294,99 @@ def test_render_status_summary_lines_links_submitted_header_to_top_pr() -> None:
 
     assert lines == (
         "Submitted changes (https://github.com/bos/jj-review/pull/8):",
-        "- feature 8 [abcdefgh]: PR #8",
-        "- feature 7 [bcdefghi]: PR #7",
+        "feature 8: PR #8",
+        "feature 7: PR #7",
         "",
+    )
+
+
+def test_render_status_summary_lines_append_status_only_to_first_rendered_line() -> None:
+    revision = SimpleNamespace(
+        bookmark="review/feature-8",
+        cached_change=None,
+        change_id="abcdefgh1234",
+        link_state="active",
+        local_divergent=False,
+        pull_request_lookup=SimpleNamespace(
+            pull_request=SimpleNamespace(
+                html_url="https://github.com/bos/jj-review/pull/8",
+                is_draft=False,
+                number=8,
+            ),
+            review_decision=None,
+            review_decision_error=None,
+            state="open",
+        ),
+        stack_comment_lookup=None,
+        subject="feature 8",
+    )
+
+    lines = review_state_module.render_status_summary_lines(
+        client=SimpleNamespace(
+            render_revision_log_lines=lambda current_revision, *, color_when: (
+                "metadata line",
+                current_revision.subject,
+            )
+        ),
+        color_when="never",
+        github_available=True,
+        leading_separator=False,
+        result=SimpleNamespace(revisions=(revision,)),
+        verbose=False,
+    )
+
+    assert lines == (
+        "Submitted changes (https://github.com/bos/jj-review/pull/8):",
+        "metadata line: PR #8",
+        "feature 8",
+        "",
+    )
+
+
+def test_strip_revision_bookmark_from_rendered_lines_removes_managed_bookmark() -> None:
+    lines = review_state_module._strip_revision_bookmark_from_rendered_lines(
+        (
+            "○  abcdefgh bos 2026-01-01 review/feature-1-abcdefgh 12345678",
+            "│  feature 1",
+        ),
+        bookmark="review/feature-1-abcdefgh",
+    )
+
+    assert lines == (
+        "○  abcdefgh bos 2026-01-01 12345678",
+        "│  feature 1",
+    )
+
+
+def test_strip_revision_bookmark_from_rendered_lines_preserves_other_bookmarks() -> None:
+    lines = review_state_module._strip_revision_bookmark_from_rendered_lines(
+        (
+            "○  abcdefgh bos 2026-01-01 keep/one review/feature-1-abcdefgh keep/two 12345678",
+            "│  feature 1",
+        ),
+        bookmark="review/feature-1-abcdefgh",
+    )
+
+    assert lines == (
+        "○  abcdefgh bos 2026-01-01 keep/one keep/two 12345678",
+        "│  feature 1",
+    )
+
+
+def test_strip_revision_bookmark_from_rendered_lines_removes_colored_bookmark() -> None:
+    lines = review_state_module._strip_revision_bookmark_from_rendered_lines(
+        (
+            (
+                "○  abcdefgh bos 2026-01-01 "
+                "\x1b[38;5;5mreview/feature-1-abcdefgh\x1b[39m "
+                "\x1b[1m12345678\x1b[0m"
+            ),
+            "│  feature 1",
+        ),
+        bookmark="review/feature-1-abcdefgh",
+    )
+
+    assert lines == (
+        "○  abcdefgh bos 2026-01-01 \x1b[1m12345678\x1b[0m",
+        "│  feature 1",
     )

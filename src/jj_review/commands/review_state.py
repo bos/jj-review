@@ -9,6 +9,7 @@ shows a progress bar on stderr while the final summaries are prepared.
 
 from __future__ import annotations
 
+import re
 import sys
 import textwrap
 from contextlib import contextmanager
@@ -87,7 +88,12 @@ def status(
         return 0
 
     github_available = result.github_repository is not None and result.github_error is None
+    color_when = prepared_status.prepared.client.resolve_color_when(
+        stdout_is_tty=sys.stdout.isatty()
+    )
     for line in render_status_summary_lines(
+        client=prepared_status.prepared.client,
+        color_when=color_when,
         result=result,
         github_available=github_available,
         leading_separator=bool(selection_lines or github_lines),
@@ -198,6 +204,8 @@ def render_status_revision_line(revision, *, github_available: bool) -> str:
 
 def render_status_summary_lines(
     *,
+    client,
+    color_when: str,
     github_available: bool,
     leading_separator: bool,
     result,
@@ -224,8 +232,10 @@ def render_status_summary_lines(
         include_leading_separator=leading_separator,
         revisions=unsubmitted_revisions,
         verbose=verbose,
-        renderer=lambda revision: _render_summary_revision_line(
-            revision,
+        renderer=lambda revision: _render_summary_revision_lines(
+            client=client,
+            color_when=color_when,
+            revision=revision,
             github_available=github_available,
             show_status=False,
         ),
@@ -238,8 +248,10 @@ def render_status_summary_lines(
         include_leading_separator=False,
         revisions=submitted_revisions,
         verbose=verbose,
-        renderer=lambda revision: _render_summary_revision_line(
-            revision,
+        renderer=lambda revision: _render_summary_revision_lines(
+            client=client,
+            color_when=color_when,
+            revision=revision,
             github_available=github_available,
             show_status=True,
         ),
@@ -307,13 +319,16 @@ def _render_summary_section(
 
     rendered = [renderer(revision) for revision in revisions]
     if verbose or len(rendered) <= _SUMMARY_SECTION_HEAD_COUNT + _SUMMARY_SECTION_TAIL_COUNT + 1:
-        lines.extend(rendered)
+        for block in rendered:
+            lines.extend(block)
         return tuple(lines)
 
     omitted = len(rendered) - _SUMMARY_SECTION_HEAD_COUNT - _SUMMARY_SECTION_TAIL_COUNT
-    lines.extend(rendered[:_SUMMARY_SECTION_HEAD_COUNT])
+    for block in rendered[:_SUMMARY_SECTION_HEAD_COUNT]:
+        lines.extend(block)
     lines.append(f"  [...{omitted} changes omitted...]")
-    lines.extend(rendered[-_SUMMARY_SECTION_TAIL_COUNT:])
+    for block in rendered[-_SUMMARY_SECTION_TAIL_COUNT:]:
+        lines.extend(block)
     return tuple(lines)
 
 
@@ -493,18 +508,45 @@ def _resolve_status_trunk_name(
     return None
 
 
-def _render_summary_revision_line(
-    revision,
+def _render_summary_revision_lines(
     *,
+    client,
+    color_when: str,
+    revision,
     github_available: bool,
     show_status: bool,
-) -> str:
+) -> tuple[str, ...]:
     """Render one revision inside a submitted or unsubmitted summary section."""
+
+    lines = list(
+        _strip_revision_bookmark_from_rendered_lines(
+            client.render_revision_log_lines(revision, color_when=color_when),
+            bookmark=revision.bookmark,
+        )
+    )
+    if not lines:
+        raise AssertionError("Expected `jj log` to render at least one line for a revision.")
 
     summary = _format_status_summary(revision, github_available=github_available)
     if not show_status and summary == "not submitted":
-        return f"- {revision.subject} [{display_change_id(revision.change_id)}]"
-    return f"- {revision.subject} [{display_change_id(revision.change_id)}]: {summary}"
+        return tuple(lines)
+    lines[0] = f"{lines[0]}: {summary}"
+    return tuple(lines)
+
+
+def _strip_revision_bookmark_from_rendered_lines(
+    lines: tuple[str, ...],
+    *,
+    bookmark: str,
+) -> tuple[str, ...]:
+    """Drop the managed review bookmark token from rendered `jj log` output."""
+
+    if not bookmark:
+        return lines
+    pattern = re.compile(
+        r" ?(?:\x1b\[[0-9;]*m)*" + re.escape(bookmark) + r"(?:\x1b\[[0-9;]*m)*"
+    )
+    return tuple(pattern.sub("", line, count=1) for line in lines)
 
 
 def _revision_pull_request_url(revision) -> str | None:
