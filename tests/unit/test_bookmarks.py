@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 from jj_review.bookmarks import (
@@ -125,7 +123,7 @@ def test_discover_bookmarks_for_revisions_reuses_unique_matching_remote_bookmark
         },
         remote_name="origin",
         revisions=(
-            SimpleNamespace(change_id="zvlywqkxtmnpqrstu"),
+            _revision(change_id="zvlywqkxtmnpqrstu", description=""),
         ),
     )
 
@@ -154,7 +152,7 @@ def test_discover_bookmarks_for_revisions_rejects_ambiguous_matches() -> None:
             },
             remote_name="origin",
             revisions=(
-                SimpleNamespace(change_id="zvlywqkxtmnpqrstu"),
+                _revision(change_id="zvlywqkxtmnpqrstu", description=""),
             ),
         )
 

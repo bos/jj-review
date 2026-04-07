@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 from urllib.parse import urlparse
 
 from jj_review.config import RepoConfig
@@ -49,6 +49,20 @@ class BookmarkStateReader(Protocol):
     """Minimal bookmark reader needed for trunk resolution."""
 
     def list_bookmark_states(self) -> dict[str, BookmarkState]: ...
+
+
+class _TrunkRevisionLike(Protocol):
+    """Minimal trunk revision shape needed for base-branch fallback."""
+
+    @property
+    def commit_id(self) -> str: ...
+
+
+class StackWithTrunk(Protocol):
+    """Minimal stack shape needed for resolving the trunk bookmark."""
+
+    @property
+    def trunk(self) -> _TrunkRevisionLike: ...
 
 
 def select_submit_remote(
@@ -101,7 +115,7 @@ def resolve_trunk_branch(
     config: RepoConfig,
     github_repository_state: GithubRepository,
     remote: GitRemote,
-    stack: Any,
+    stack: StackWithTrunk,
 ) -> str:
     """Resolve the GitHub base branch used for bottom-of-stack pull requests."""
 

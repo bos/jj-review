@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal, Protocol
 
 from jj_review.config import ChangeConfig
 from jj_review.errors import CliError
@@ -37,6 +37,13 @@ class BookmarkResolutionResult:
     changed: bool
     resolutions: tuple[ResolvedBookmark, ...]
     state: ReviewState
+
+
+class RevisionWithChangeId(Protocol):
+    """Minimal revision shape needed for bookmark discovery."""
+
+    @property
+    def change_id(self) -> str: ...
 
 
 class BookmarkResolver:
@@ -129,7 +136,7 @@ def _discover_bookmarks_for_revisions(
     *,
     bookmark_states: dict[str, BookmarkState],
     remote_name: str,
-    revisions: tuple[Any, ...],
+    revisions: tuple[RevisionWithChangeId, ...],
 ) -> dict[str, str]:
     discovered: dict[str, str] = {}
     for revision in revisions:

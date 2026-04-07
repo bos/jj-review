@@ -19,6 +19,7 @@ from jj_review.github_resolution import (
 )
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.github import GithubRepository
+from jj_review.models.stack import LocalRevision, LocalStack
 
 
 def test_select_submit_remote_prefers_configured_remote() -> None:
@@ -214,7 +215,7 @@ def test_resolve_trunk_branch_prefers_configured_branch() -> None:
         config=RepoConfig(trunk_branch="release"),
         github_repository_state=_github_repository(default_branch="main"),
         remote=GitRemote(name="origin", url="git@example.com:org/repo.git"),
-        stack=SimpleNamespace(trunk=SimpleNamespace(commit_id="trunk123")),
+        stack=_stack("trunk123"),
     )
 
     assert branch == "release"
@@ -226,7 +227,7 @@ def test_resolve_trunk_branch_uses_repository_default_branch() -> None:
         config=RepoConfig(),
         github_repository_state=_github_repository(default_branch="main"),
         remote=GitRemote(name="origin", url="git@example.com:org/repo.git"),
-        stack=SimpleNamespace(trunk=SimpleNamespace(commit_id="trunk123")),
+        stack=_stack("trunk123"),
     )
 
     assert branch == "main"
@@ -245,7 +246,7 @@ def test_resolve_trunk_branch_falls_back_to_unique_remote_bookmark() -> None:
         config=RepoConfig(),
         github_repository_state=_github_repository(default_branch=""),
         remote=GitRemote(name="origin", url="git@example.com:org/repo.git"),
-        stack=SimpleNamespace(trunk=SimpleNamespace(commit_id="trunk123")),
+        stack=_stack("trunk123"),
     )
 
     assert branch == "main"
@@ -276,7 +277,7 @@ def test_resolve_trunk_branch_rejects_ambiguous_remote_bookmarks() -> None:
             config=RepoConfig(),
             github_repository_state=_github_repository(default_branch=""),
             remote=GitRemote(name="origin", url="git@example.com:org/repo.git"),
-            stack=SimpleNamespace(trunk=SimpleNamespace(commit_id="trunk123")),
+            stack=_stack("trunk123"),
         )
 
 
@@ -297,4 +298,24 @@ def _github_repository(default_branch: str) -> GithubRepository:
         name="repo",
         private=True,
         url="https://api.github.test/repos/octo-org/repo",
+    )
+
+
+def _stack(trunk_commit_id: str) -> LocalStack:
+    trunk = LocalRevision(
+        change_id="trunk-change",
+        commit_id=trunk_commit_id,
+        current_working_copy=False,
+        description="trunk",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=("root",),
+    )
+    return LocalStack(
+        head=trunk,
+        revisions=(),
+        selected_revset="trunk()",
+        trunk=trunk,
     )

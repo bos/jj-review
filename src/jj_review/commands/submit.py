@@ -15,7 +15,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Literal, Protocol
 
 from jj_review.bookmarks import (
     BookmarkResolver,
@@ -56,6 +56,7 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkS
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest, GithubRepository
 from jj_review.models.intent import LoadedIntent, SubmitIntent
+from jj_review.models.stack import LocalRevision
 from jj_review.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
 
 HELP = "Send a jj stack to GitHub for review"
@@ -130,7 +131,7 @@ class PreparedSubmitRevision:
     local_action: LocalBookmarkAction
     push_operation: PushOperation
     remote_action: RemoteBookmarkAction
-    revision: Any
+    revision: LocalRevision
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,8 +174,8 @@ class PrivateCommitFinder(Protocol):
 
     def find_private_commits(
         self,
-        revisions: tuple[Any, ...],
-    ) -> tuple[Any, ...]:
+        revisions: tuple[LocalRevision, ...],
+    ) -> tuple[LocalRevision, ...]:
         """Return the revisions blocked by the repo's private-commit policy."""
 
 
@@ -831,7 +832,7 @@ def _should_update_untracked_remote_with_git(
 
 def _preflight_private_commits(
     client: PrivateCommitFinder,
-    revisions: tuple[Any, ...],
+    revisions: tuple[LocalRevision, ...],
 ) -> None:
     private = client.find_private_commits(revisions)
     if not private:
@@ -939,7 +940,7 @@ def _resolve_generated_descriptions(
     *,
     describe_with: str | None,
     repo_root: Path,
-    revisions: tuple[Any, ...],
+    revisions: tuple[LocalRevision, ...],
     selected_revset: str,
 ) -> tuple[dict[str, GeneratedDescription], GeneratedDescription | None]:
     if describe_with is None:
@@ -989,8 +990,8 @@ def _build_stack_description_input(
     *,
     generated_descriptions: dict[str, GeneratedDescription],
     repo_root: Path,
-    revisions: tuple[Any, ...],
-) -> dict[str, Any]:
+    revisions: tuple[LocalRevision, ...],
+) -> dict[str, object]:
     return {
         "revisions": [
             {
@@ -1254,7 +1255,7 @@ async def _sync_pull_request(
     github_repository: ResolvedGithubRepository,
     labels: list[str],
     reviewers: list[str],
-    revision: Any,
+    revision: LocalRevision,
     state: ReviewState,
     team_reviewers: list[str],
 ) -> PullRequestSyncResult:
