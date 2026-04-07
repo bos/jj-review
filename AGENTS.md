@@ -14,6 +14,10 @@
   module or virtualenv path directly.
 - Run `./check.py` for the default local Ruff, type-check, and test pass before
   finishing a change.
+- For focused test runs, do not use plain `uv run pytest ...`; it can miss the
+  repo's package path in this project layout. First run `uv sync --locked`, then
+  invoke pytest through the repo virtualenv, for example
+  `.venv/bin/python -m pytest tests/unit/test_jj_client.py`.
 - If behavior changes, update the docs in the same change and make sure tests pass.
 - Once a slice is implemented, update the implementation doc to note this.
 - Non-blocking design debt, architecture follow-ups, and deferred ideas belong
