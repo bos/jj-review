@@ -10,12 +10,13 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, cast
 
 from jj_review.bookmarks import (
     BookmarkResolutionResult,
@@ -30,7 +31,6 @@ from jj_review.command_ui import (
     parse_comma_separated_flag_values,
     resolve_selected_revset,
 )
-from jj_review.commands.review_state import display_change_id, format_pull_request_label
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
@@ -59,6 +59,11 @@ from jj_review.models.github import GithubIssueComment, GithubPullRequest, Githu
 from jj_review.models.intent import LoadedIntent, SubmitIntent
 from jj_review.models.stack import LocalRevision, LocalStack
 from jj_review.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
+from jj_review.stack_output import (
+    display_change_id,
+    format_pull_request_label,
+    render_revision_with_suffix_lines,
+)
 
 HELP = "Send a jj stack to GitHub for review"
 
@@ -79,6 +84,7 @@ class SubmittedRevision:
     bookmark: str
     bookmark_source: BookmarkSource
     change_id: str
+    commit_id: str
     local_action: LocalBookmarkAction
     pull_request_action: PullRequestAction
     pull_request_is_draft: bool | None
@@ -93,6 +99,7 @@ class SubmittedRevision:
 class SubmitResult:
     """Remote bookmark and pull request state for the selected stack."""
 
+    client: JjClient
     dry_run: bool
     remote: GitRemote
     revisions: tuple[SubmittedRevision, ...]
@@ -101,6 +108,7 @@ class SubmitResult:
     selected_subject: str
     trunk_change_id: str
     trunk_branch: str
+    trunk_revision: LocalRevision
     trunk_subject: str
 
 
@@ -266,8 +274,6 @@ def submit(
     reviewer_list = parse_comma_separated_flag_values(reviewers)
     team_reviewer_list = parse_comma_separated_flag_values(team_reviewers)
     emitted_prepared = False
-    emitted_section_header = False
-    emitted_trunk = False
 
     def emit_prepared(
         selected_revset: str,
@@ -284,27 +290,6 @@ def submit(
             )
         emitted_prepared = True
 
-    def emit_trunk(
-        trunk_subject: str,
-        trunk_change_id: str,
-        trunk_branch: str,
-        has_revisions: bool,
-    ) -> None:
-        nonlocal emitted_section_header, emitted_trunk
-        print(
-            f"Trunk: {trunk_subject} [{display_change_id(trunk_change_id)}] "
-            f"-> {trunk_branch}"
-        )
-        emitted_trunk = True
-        if not has_revisions:
-            return
-        if dry_run:
-            print("Dry run: no local, remote, or GitHub changes applied.")
-            print("Planned bookmarks:")
-        else:
-            print("Submitted bookmarks:")
-        emitted_section_header = True
-
     state_store = ReviewStateStore.for_repo(context.repo_root)
     state_dir = state_store.require_writable() if not dry_run else state_store.state_dir
     result = asyncio.run(
@@ -319,7 +304,7 @@ def submit(
             ),
             dry_run=dry_run,
             on_prepared=emit_prepared,
-            on_trunk_resolved=emit_trunk,
+            on_trunk_resolved=lambda *_args: None,
             repo_root=context.repo_root,
             revset=selected_revset,
             reviewers=reviewer_list,
@@ -334,35 +319,41 @@ def submit(
                 f"Selected: {result.selected_subject} "
                 f"[{display_change_id(result.selected_change_id)}]"
             )
-    if not emitted_trunk:
-        print(
-            f"Trunk: {result.trunk_subject} "
-            f"[{display_change_id(result.trunk_change_id)}] -> {result.trunk_branch}"
-        )
+    client = getattr(result, "client", None)
+    color_when = (
+        client.resolve_color_when(stdout_is_tty=sys.stdout.isatty())
+        if client is not None
+        else None
+    )
     if not result.revisions:
+        for line in _render_submit_trunk_lines(
+            client=client,
+            color_when=color_when,
+            result=result,
+        ):
+            print(line)
         print("No reviewable commits between the selected revision and `trunk()`.")
         return 0
 
-    if not emitted_section_header:
-        if result.dry_run:
-            print("Dry run: no local, remote, or GitHub changes applied.")
-            print("Planned bookmarks:")
-        else:
-            print("Submitted bookmarks:")
-    for revision in result.revisions:
-        print(f"- {revision.subject} [{display_change_id(revision.change_id)}]")
-        pr_suffix = _render_submit_pr_suffix(
-            action=revision.pull_request_action,
-            is_draft=getattr(revision, "pull_request_is_draft", None),
-            pull_request_number=revision.pull_request_number,
-        )
-        remote_suffix = ""
-        if revision.pull_request_action != "created":
-            if revision.remote_action == "up to date":
-                remote_suffix = " [already pushed]"
-            else:
-                remote_suffix = " [pushed]"
-        print(f"  -> {revision.bookmark}{remote_suffix}{pr_suffix}")
+    if result.dry_run:
+        print("Dry run: no local, remote, or GitHub changes applied.")
+        print("Planned changes:")
+    else:
+        print("Submitted changes:")
+    for revision in reversed(result.revisions):
+        for line in _render_submit_revision_lines(
+            client=client,
+            color_when=color_when,
+            revision=revision,
+        ):
+            print(line)
+    print()
+    for line in _render_submit_trunk_lines(
+        client=client,
+        color_when=color_when,
+        result=result,
+    ):
+        print(line)
     if not result.dry_run:
         top_pull_request_url = result.revisions[-1].pull_request_url
         if top_pull_request_url is not None:
@@ -406,8 +397,61 @@ def _render_submit_pr_suffix(
     return f" [{label} {action}]"
 
 
+def _render_submit_revision_lines(
+    *,
+    client: JjClient | None,
+    color_when: str | None,
+    revision,
+) -> tuple[str, ...]:
+    summary = _render_submit_revision_summary(revision)
+    if client is None or color_when is None:
+        return (f"- {revision.subject} [{display_change_id(revision.change_id)}]: {summary}",)
+    return render_revision_with_suffix_lines(
+        client=client,
+        color_when=color_when,
+        revision=revision,
+        bookmark=revision.bookmark,
+        suffix=summary,
+    )
+
+
+def _render_submit_revision_summary(revision) -> str:
+    pr_suffix = _render_submit_pr_suffix(
+        action=revision.pull_request_action,
+        is_draft=getattr(revision, "pull_request_is_draft", None),
+        pull_request_number=revision.pull_request_number,
+    )
+    remote_suffix = ""
+    if revision.pull_request_action != "created":
+        if revision.remote_action == "up to date":
+            remote_suffix = " [already pushed]"
+        else:
+            remote_suffix = " [pushed]"
+    return f"{revision.bookmark}{remote_suffix}{pr_suffix}"
+
+
+def _render_submit_trunk_lines(
+    *,
+    client: JjClient | None,
+    color_when: str | None,
+    result,
+) -> tuple[str, ...]:
+    if client is None or color_when is None:
+        return (
+            f"Trunk: {result.trunk_subject} [{display_change_id(result.trunk_change_id)}] "
+            f"-> {result.trunk_branch}",
+        )
+    return render_revision_with_suffix_lines(
+        client=client,
+        color_when=cast(Literal["always", "debug", "never"], color_when),
+        revision=result.trunk_revision,
+        suffix=result.trunk_branch,
+    )
+
+
 def _build_submit_result(
     *,
+    client: JjClient,
     dry_run: bool,
     remote: GitRemote,
     revisions: tuple[SubmittedRevision, ...],
@@ -417,6 +461,7 @@ def _build_submit_result(
     """Render one submit result from the shared stack context."""
 
     return SubmitResult(
+        client=client,
         dry_run=dry_run,
         remote=remote,
         revisions=revisions,
@@ -425,6 +470,7 @@ def _build_submit_result(
         selected_subject=stack.head.subject,
         trunk_change_id=stack.trunk.change_id,
         trunk_branch=trunk_branch,
+        trunk_revision=stack.trunk,
         trunk_subject=stack.trunk.subject,
     )
 
@@ -696,6 +742,7 @@ async def _run_submit_async(
                 False,
             )
         return _build_submit_result(
+            client=client,
             dry_run=dry_run,
             remote=remote,
             revisions=(),
@@ -796,6 +843,7 @@ async def _run_submit_async(
 
         succeeded = True
         return _build_submit_result(
+            client=client,
             dry_run=dry_run,
             remote=remote,
             revisions=submitted_revisions,
@@ -1345,6 +1393,7 @@ async def _sync_pull_request_task(
             bookmark=prepared_revision.bookmark,
             bookmark_source=prepared_revision.bookmark_source,
             change_id=prepared_revision.change_id,
+            commit_id=prepared_revision.revision.commit_id,
             local_action=prepared_revision.local_action,
             pull_request_action=pull_request_result.action,
             pull_request_is_draft=(

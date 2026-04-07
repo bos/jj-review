@@ -60,9 +60,12 @@ def test_render_status_github_lines_reports_uninspected_target_for_empty_stack()
     ) == ("GitHub target: octo-org/stacked-review (not inspected; no reviewable commits)",)
 
 
-def test_render_trunk_status_row_prefers_unique_local_bookmark() -> None:
+def test_render_trunk_status_lines_prefers_unique_local_bookmark() -> None:
     prepared = SimpleNamespace(
         client=SimpleNamespace(
+            render_revision_log_lines=lambda revision, *, color_when: (
+                f"◆ {revision.subject} [{revision.change_id[:8]}]",
+            ),
             list_bookmark_states=lambda: {
                 "main": SimpleNamespace(local_target="trunk-commit"),
             }
@@ -78,11 +81,12 @@ def test_render_trunk_status_row_prefers_unique_local_bookmark() -> None:
     )
 
     assert (
-        review_state_module.render_trunk_status_row(
-            prepared,
+        review_state_module.render_trunk_status_lines(
+            color_when="never",
+            prepared=prepared,
             configured_trunk_branch=None,
         )
-        == "◆ base [trunkcha]: main"
+        == ("◆ base [trunkcha]: main",)
     )
 
 
@@ -389,4 +393,19 @@ def test_strip_revision_bookmark_from_rendered_lines_removes_colored_bookmark() 
     assert lines == (
         "○  abcdefgh bos 2026-01-01 \x1b[1m12345678\x1b[0m",
         "│  feature 1",
+    )
+
+
+def test_strip_revision_bookmark_from_rendered_lines_removes_remote_qualified_bookmark() -> None:
+    lines = review_state_module._strip_revision_bookmark_from_rendered_lines(
+        (
+            "◆  abcdefgh bos 2026-01-01 main@origin 12345678",
+            "│  base",
+        ),
+        bookmark="main",
+    )
+
+    assert lines == (
+        "◆  abcdefgh bos 2026-01-01 12345678",
+        "│  base",
     )

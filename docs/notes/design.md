@@ -379,6 +379,10 @@ Given a selected head revision:
      the old review stack, require a local `jj rebase` before changing the PR
      base
    - create or update the PR for `head bookmark -> base bookmark`
+   - once submit completes, render the selected stack in top-to-bottom order
+     through the same native `jj log` row formatting used by `status`,
+     appending the submitted bookmark and PR result to the first rendered line
+     for each change and showing the resolved trunk row beneath the stack
    - draft-state handling should stay conservative:
      - `submit --draft` or `submit --draft=new` creates newly opened PRs as
        drafts
@@ -469,6 +473,10 @@ Unlike `submit`, it may fall back to local-only reporting when the
 repo is not configured well enough to resolve a remote or GitHub target.
 Its default output should stay concise and summarize the effective status for
 each change rather than dumping saved-data and transport diagnostics inline.
+The selected stack revisions and the `trunk()` footer should both respect the
+user's native `jj log` formatting rather than rebuilding commit rows inside
+`jj-review`; status-specific suffixes such as PR state or the resolved trunk
+base may be appended to the first rendered line.
 When GitHub data is available, that summary should distinguish merged pull
 requests from merely closed ones, and may surface a concise review-decision
 summary such as approval or changes requested for still-open pull requests.

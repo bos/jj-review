@@ -749,9 +749,12 @@ Implemented in a follow-up:
 - the submit CLI now prints the selected revset and remote promptly, then
   renders the final ordered review summary once the submit phases complete,
   instead of trying to stream per-revision mutation progress inline
+- submit and status now share the same native `jj log` row rendering helper,
+  so submit shows the stack tip-first with bookmark and PR-result suffixes on
+  the first rendered line and the resolved trunk row beneath the stack
 - the per-change submit summary now renders created PRs as `[PR #n]` in live
-  output and `[new PR]` in dry-run output, omitting the separate remote push
-  marker because PR creation already implies the branch was updated
+  output and `[new PR]` in dry-run output; updates still append explicit
+  `[pushed]` or `[already pushed]` markers alongside the bookmark suffix
 - top-level CLI failures now print with an `Error:` prefix for clearer command-
   line diagnostics while preserving plain `Interrupted.` for Ctrl-C handling
 - explicit missing revsets now preserve jj's own wording, for example
@@ -833,8 +836,8 @@ Implemented in the first vertical cut:
   children in bulk `jj log` queries instead of walking one parent at a time,
   which significantly reduces status startup latency on deeper stacks
 - `status` now renders the `trunk()` commit as a footer row beneath the stack,
-  using the same summary shape as stack entries and a best-effort trunk
-  bookmark name when one can be resolved
+  appending the resolved trunk base to the first line of the user's native
+  `jj log` output when one can be resolved
 - the CLI now supports `--time-output` as a global debugging aid that prefixes
   printed lines with elapsed time from process start
 - `status` now inspects per-change GitHub PR link with bounded concurrency on
@@ -1301,6 +1304,8 @@ Status: done.
 - `status` summary sections now render each displayed revision through a
   direct `jj log` call instead of rebuilding commit lines inside
   `jj-review`
+- the `trunk()` footer now uses that same native `jj log` rendering path, so
+  status no longer special-cases the base row format
 - the first rendered `jj log` line now carries the appended review status
   suffix, while any additional lines from the user's configured log template
   stay unchanged

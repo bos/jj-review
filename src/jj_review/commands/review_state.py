@@ -2,14 +2,14 @@
 
 This reports the pull requests and GitHub branches jj-review is using for each
 change without changing anything. By default it starts with capped submitted
-and unsubmitted summaries, then prints the trunk/base row; `--verbose`
-expands the summary sections. In interactive terminals, GitHub inspection also
-shows a progress bar on stderr while the final summaries are prepared.
+and unsubmitted summaries, then prints the trunk/base footer through the same
+native `jj log` rendering path; `--verbose` expands the summary sections. In
+interactive terminals, GitHub inspection also shows a progress bar on stderr
+while the final summaries are prepared.
 """
 
 from __future__ import annotations
 
-import re
 import sys
 import textwrap
 from contextlib import contextmanager
@@ -22,12 +22,19 @@ from jj_review.errors import CliError
 from jj_review.intent import intent_change_ids, pid_is_alive
 from jj_review.jj import UnsupportedStackError
 from jj_review.review_inspection import prepare_status, stream_status
+from jj_review.stack_output import (
+    display_change_id,
+    format_pull_request_label,
+    render_revision_with_suffix_lines,
+    strip_revision_bookmark_from_rendered_lines,
+)
 
-_DISPLAY_CHANGE_ID_LENGTH = 8
 _SUMMARY_SECTION_HEAD_COUNT = 3
 _SUMMARY_SECTION_TAIL_COUNT = 3
 
 HELP = "Check the review status of a jj stack"
+
+_strip_revision_bookmark_from_rendered_lines = strip_revision_bookmark_from_rendered_lines
 
 
 def status(
@@ -79,8 +86,13 @@ def status(
     for line in github_lines:
         print(line)
 
+    color_when = prepared_status.prepared.client.resolve_color_when(
+        stdout_is_tty=sys.stdout.isatty()
+    )
+
     if not prepared_status.prepared.status_revisions:
         for line in render_empty_status_lines(
+            color_when=color_when,
             prepared_status=prepared_status,
             configured_trunk_branch=context.config.repo.trunk_branch,
         ):
@@ -88,9 +100,6 @@ def status(
         return 0
 
     github_available = result.github_repository is not None and result.github_error is None
-    color_when = prepared_status.prepared.client.resolve_color_when(
-        stdout_is_tty=sys.stdout.isatty()
-    )
     for line in render_status_summary_lines(
         client=prepared_status.prepared.client,
         color_when=color_when,
@@ -100,12 +109,12 @@ def status(
         verbose=verbose,
     ):
         print(line)
-    print(
-        render_trunk_status_row(
-            prepared_status.prepared,
-            configured_trunk_branch=context.config.repo.trunk_branch,
-        )
-    )
+    for line in render_trunk_status_lines(
+        color_when=color_when,
+        prepared=prepared_status.prepared,
+        configured_trunk_branch=context.config.repo.trunk_branch,
+    ):
+        print(line)
     for line in render_status_advisory_lines(result=result):
         print(line)
     for line in render_status_intent_lines(prepared_status=prepared_status):
@@ -138,26 +147,6 @@ def describe_status_preparation_error(error: UnsupportedStackError) -> str:
         "Could not inspect review status because local history no longer forms a "
         f"supported linear stack. {error}"
     )
-
-
-def display_change_id(change_id: str) -> str:
-    """Render the short change ID shown in CLI output."""
-
-    return change_id[:_DISPLAY_CHANGE_ID_LENGTH]
-
-
-def format_pull_request_label(
-    pull_request_number: int,
-    *,
-    is_draft: bool,
-    prefix: str = "",
-) -> str:
-    """Render a pull request label for CLI output."""
-
-    label = f"PR #{pull_request_number}"
-    if is_draft:
-        label = f"draft {label}"
-    return f"{prefix}{label}"
 
 
 def render_status_selection_lines(*, prepared_status) -> tuple[str, ...]:
@@ -265,12 +254,13 @@ def render_status_summary_lines(
     return tuple(lines)
 
 
-def render_trunk_status_row(
-    prepared,
+def render_trunk_status_lines(
     *,
+    color_when: str,
+    prepared,
     configured_trunk_branch: str | None,
-) -> str:
-    """Render the trunk footer row."""
+) -> tuple[str, ...]:
+    """Render the trunk footer with native `jj log` formatting."""
 
     trunk = prepared.stack.trunk
     trunk_name = _resolve_status_trunk_name(
@@ -278,19 +268,27 @@ def render_trunk_status_row(
         configured_trunk_branch=configured_trunk_branch,
     )
     suffix = "trunk()" if trunk_name is None else trunk_name
-    return f"◆ {trunk.subject} [{display_change_id(trunk.change_id)}]: {suffix}"
+    return render_revision_with_suffix_lines(
+        client=prepared.client,
+        color_when=color_when,
+        revision=trunk,
+        bookmark=trunk_name,
+        suffix=suffix,
+    )
 
 
 def render_empty_status_lines(
     *,
+    color_when: str,
     configured_trunk_branch: str | None,
     prepared_status,
 ) -> tuple[str, ...]:
     """Render the empty-stack footer and explanation."""
 
     return (
-        render_trunk_status_row(
-            prepared_status.prepared,
+        *render_trunk_status_lines(
+            color_when=color_when,
+            prepared=prepared_status.prepared,
             configured_trunk_branch=configured_trunk_branch,
         ),
         "No reviewable commits between the selected revision and `trunk()`.",
@@ -518,35 +516,16 @@ def _render_summary_revision_lines(
 ) -> tuple[str, ...]:
     """Render one revision inside a submitted or unsubmitted summary section."""
 
-    lines = list(
-        _strip_revision_bookmark_from_rendered_lines(
-            client.render_revision_log_lines(revision, color_when=color_when),
-            bookmark=revision.bookmark,
-        )
-    )
-    if not lines:
-        raise AssertionError("Expected `jj log` to render at least one line for a revision.")
-
     summary = _format_status_summary(revision, github_available=github_available)
     if not show_status and summary == "not submitted":
-        return tuple(lines)
-    lines[0] = f"{lines[0]}: {summary}"
-    return tuple(lines)
-
-
-def _strip_revision_bookmark_from_rendered_lines(
-    lines: tuple[str, ...],
-    *,
-    bookmark: str,
-) -> tuple[str, ...]:
-    """Drop the managed review bookmark token from rendered `jj log` output."""
-
-    if not bookmark:
-        return lines
-    pattern = re.compile(
-        r" ?(?:\x1b\[[0-9;]*m)*" + re.escape(bookmark) + r"(?:\x1b\[[0-9;]*m)*"
+        summary = None
+    return render_revision_with_suffix_lines(
+        client=client,
+        color_when=color_when,
+        revision=revision,
+        bookmark=revision.bookmark,
+        suffix=summary,
     )
-    return tuple(pattern.sub("", line, count=1) for line in lines)
 
 
 def _revision_pull_request_url(revision) -> str | None:

@@ -75,12 +75,13 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
         in captured.out
     )
     assert "Selected remote:" not in captured.out
-    assert (
-        f"Trunk: {stack.trunk.subject} [{display_change_id(stack.trunk.change_id)}] -> main"
-        in captured.out
-    )
+    assert "Submitted changes:" in captured.out
+    assert "Trunk:" not in captured.out
+    assert ": main" in captured.out
     assert top_pr_url is not None
     assert f"Top of stack: {top_pr_url}" in captured.out
+    assert captured.out.index("feature 2") < captured.out.index("feature 1")
+    assert captured.out.index("feature 1") < captured.out.index(stack.trunk.subject)
     assert len(fake_repo.pull_requests) == 2
     for index, revision in enumerate(stack.revisions, start=1):
         cached_change = state.changes[revision.change_id]
@@ -317,7 +318,7 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
     stack = JjClient(repo).discover_review_stack()
 
     assert exit_code == 0
-    assert "Submitted bookmarks:" in captured.out
+    assert "Submitted changes:" in captured.out
     assert fake_repo.pull_requests[1].title == f"AI {stack.revisions[0].change_id[:8]}"
     assert fake_repo.pull_requests[1].body == (
         f"Generated body for {stack.revisions[0].change_id}"
@@ -599,9 +600,9 @@ def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
 
     assert exit_code == 0
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
-    assert "Planned bookmarks:" in captured.out
-    assert "feature 1 [" in captured.out
-    assert "  -> review/" in captured.out
+    assert "Planned changes:" in captured.out
+    assert "feature 1" in captured.out
+    assert ": review/" in captured.out
     assert " [new PR]" in captured.out
     assert fake_repo.pull_requests == {}
     assert _remote_refs(fake_repo.git_dir) == initial_remote_refs
@@ -622,17 +623,14 @@ def test_submit_dry_run_keeps_revision_output_grouped(
     assert exit_code == 0
     assert "[push [pushed]ed]" not in captured.out
     assert captured.out.count("[new PR]") == 2
+    assert captured.out.index("feature 2") < captured.out.index("feature 1")
     lines = captured.out.splitlines()
-    feature_1_index = next(
-        index for index, line in enumerate(lines) if "- feature 1 [" in line
-    )
-    assert "  -> review/" in lines[feature_1_index + 1]
-    assert "[new PR]" in lines[feature_1_index + 1]
-    feature_2_index = next(
-        index for index, line in enumerate(lines) if "- feature 2 [" in line
-    )
-    assert "  -> review/" in lines[feature_2_index + 1]
-    assert "[new PR]" in lines[feature_2_index + 1]
+    for subject in ("feature 1", "feature 2"):
+        subject_index = next(
+            index for index, line in enumerate(lines) if line.endswith(f"  {subject}")
+        )
+        assert ": review/" in lines[subject_index - 1]
+        assert "[new PR]" in lines[subject_index - 1]
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert list(resolve_state_path(repo).parent.glob("incomplete-*.toml")) == []
 
@@ -663,7 +661,7 @@ def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
 
     assert exit_code == 0
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
-    assert "  -> review/" in captured.out
+    assert ": review/" in captured.out
     assert "[pushed]" in captured.out
     assert "PR #1 updated" in captured.out
     assert fake_repo.pull_requests[1].title == "feature 1"
@@ -977,7 +975,7 @@ def test_submit_reports_up_to_date_when_remote_bookmark_and_pr_already_match(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "[PR #1]" in first_output
+    assert "PR #1" in first_output
     assert "[already pushed]" in captured.out
     assert "unchanged" in captured.out
     assert _remote_refs(fake_repo.git_dir) == first_refs
@@ -1305,10 +1303,9 @@ def test_submit_reports_no_reviewable_commits_when_head_is_trunk(
     assert exit_code == 0
     assert "Selected:" not in captured.out
     assert "Selected remote:" not in captured.out
-    assert (
-        f"Trunk: {stack.trunk.subject} [{display_change_id(stack.trunk.change_id)}] -> main"
-        in captured.out
-    )
+    assert "Trunk:" not in captured.out
+    assert stack.trunk.subject in captured.out
+    assert ": main" in captured.out
     assert "No reviewable commits" in captured.out
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert set(_remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}

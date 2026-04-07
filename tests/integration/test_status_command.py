@@ -77,7 +77,7 @@ def test_status_caps_unsubmitted_summary_before_trunk_row(
     assert "[...2 changes omitted...]" in captured.out
     assert "feature 4" not in captured.out
     assert "feature 3" in captured.out
-    assert captured.out.index("Unsubmitted changes:") < captured.out.index("◆ base [")
+    assert captured.out.index("Unsubmitted changes:") < captured.out.index("│  base")
 
 
 def test_status_verbose_expands_unsubmitted_summary(
@@ -137,9 +137,9 @@ def test_status_prints_trunk_below_stack_like_jj_log(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "◆ base [" in captured.out
+    assert "│  base" in captured.out
     assert ": main" in captured.out
-    assert captured.out.index("feature 1") < captured.out.index("◆ base [")
+    assert captured.out.index("feature 1") < captured.out.index("│  base")
 
 def test_status_limits_concurrent_github_lookups(
     tmp_path: Path,

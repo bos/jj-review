@@ -23,7 +23,13 @@ def test_status_passes_fetch_to_prepare_status(
         prepare_calls.append(bool(kwargs["fetch_remote_state"]))
         return SimpleNamespace(
             prepared=SimpleNamespace(
-                client=SimpleNamespace(list_bookmark_states=lambda: {}),
+                client=SimpleNamespace(
+                    list_bookmark_states=lambda: {},
+                    render_revision_log_lines=lambda revision, *, color_when: (
+                        f"◆ {revision.subject} [{revision.change_id[:8]}]",
+                    ),
+                    resolve_color_when=lambda *, stdout_is_tty: "never",
+                ),
                 remote=None,
                 remote_error=None,
                 stack=SimpleNamespace(
@@ -119,6 +125,9 @@ def test_status_reports_uninspected_github_target_for_empty_stack(
             prepared=SimpleNamespace(
                 client=SimpleNamespace(
                     list_bookmark_states=lambda: {},
+                    render_revision_log_lines=lambda revision, *, color_when: (
+                        f"◆ {revision.subject} [{revision.change_id[:8]}]",
+                    ),
                     resolve_color_when=lambda *, stdout_is_tty: "never",
                 ),
                 remote=SimpleNamespace(name="origin"),
@@ -193,8 +202,8 @@ def test_status_prints_headers_before_stack_output(
                         )
                     },
                     render_revision_log_lines=lambda revision, *, color_when: (
-                        "feature 1 [abcdefgh]",
-                        "body line",
+                        f"{revision.subject} [{revision.change_id[:8]}]",
+                        f"body for {revision.subject}",
                     ),
                     resolve_color_when=lambda *, stdout_is_tty: "never",
                 ),
@@ -260,10 +269,10 @@ def test_status_prints_headers_before_stack_output(
     assert exit_code == 0
     assert "Submitted changes (https://github.com/bos/jj-review/pull/1):" in captured.out
     assert "feature 1 [abcdefgh]: PR #1" in captured.out
-    assert "body line" in captured.out
-    assert "◆ base [trunkcha]: main" in captured.out
+    assert "body for feature 1" in captured.out
+    assert "base [trunkcha]: main" in captured.out
     assert captured.out.index("feature 1 [abcdefgh]: PR #1") < captured.out.index(
-        "◆ base [trunkcha]: main"
+        "base [trunkcha]: main"
     )
 
 
@@ -283,7 +292,7 @@ def test_status_updates_tty_progress_bar_while_streaming(
                 client=SimpleNamespace(
                     list_bookmark_states=lambda: {},
                     render_revision_log_lines=lambda revision, *, color_when: (
-                        "feature 1 [abcdefgh]",
+                        f"{revision.subject} [{revision.change_id[:8]}]",
                     ),
                     resolve_color_when=lambda *, stdout_is_tty: "never",
                 ),
@@ -361,7 +370,7 @@ def test_status_skips_progress_bar_without_tty(
                 client=SimpleNamespace(
                     list_bookmark_states=lambda: {},
                     render_revision_log_lines=lambda revision, *, color_when: (
-                        "feature 1 [abcdefgh]",
+                        f"{revision.subject} [{revision.change_id[:8]}]",
                     ),
                     resolve_color_when=lambda *, stdout_is_tty: "never",
                 ),
@@ -427,7 +436,7 @@ def test_status_prints_cleanup_advisories_for_merged_review_units(
                 client=SimpleNamespace(
                     list_bookmark_states=lambda: {},
                     render_revision_log_lines=lambda revision, *, color_when: (
-                        "feature 1 [abcdefgh]",
+                        f"{revision.subject} [{revision.change_id[:8]}]",
                     ),
                     resolve_color_when=lambda *, stdout_is_tty: "never",
                 ),
@@ -491,5 +500,5 @@ def test_status_prints_cleanup_advisories_for_merged_review_units(
 
     assert exit_code == 0
     assert "feature 1 [abcdefgh]: PR #5 merged, cleanup needed" in captured.out
-    assert "◆ base [trunkcha]: trunk()\n\nAdvisories:" in captured.out
+    assert "base [trunkcha]: trunk()\n\nAdvisories:" in captured.out
     assert "jj-review cleanup --restack @" in captured.out

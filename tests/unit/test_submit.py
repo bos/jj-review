@@ -585,6 +585,7 @@ def _github_pull_request(number: int) -> GithubPullRequest:
 def _submitted_revision(
     *,
     change_id: str,
+    commit_id: str | None = None,
     pull_request_number: int,
     pull_request_title: str,
     pull_request_url: str,
@@ -594,6 +595,7 @@ def _submitted_revision(
         bookmark=f"review/{change_id}",
         bookmark_source="generated",
         change_id=change_id,
+        commit_id=commit_id or f"{change_id}-commit",
         local_action="unchanged",
         pull_request_action="unchanged",
         pull_request_is_draft=False,
