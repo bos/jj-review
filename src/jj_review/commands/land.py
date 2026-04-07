@@ -153,6 +153,17 @@ class _ResumeLandIntent:
     mode: Literal["exact-path", "tail-after-landed-prefix"]
 
 
+@dataclass(frozen=True, slots=True)
+class _LandExecutionState:
+    """Resolved apply-mode land state after preview validation and resume checks."""
+
+    execution_plan: _LandPlan
+    follow_up: str | None
+    resume_intent: _ResumeLandIntent | None
+    stale_intents: list[LoadedIntent]
+    state_dir: Path
+
+
 class _BookmarkStateReader(Protocol):
     """Subset of the jj client interface needed for trunk bookmark inspection."""
 
@@ -245,6 +256,36 @@ def format_land_apply_command(result: LandResult) -> str:
     if result.selected_revset:
         parts.append(result.selected_revset)
     return " ".join(parts)
+
+
+def _build_land_result(
+    *,
+    actions: tuple[LandAction, ...],
+    applied: bool,
+    blocked: bool,
+    follow_up: str | None,
+    github_repository: ResolvedGithubRepository,
+    prepared_land: PreparedLand,
+    remote_name: str,
+    selected_revset: str,
+    trunk_branch: str,
+    trunk_subject: str,
+) -> LandResult:
+    """Render one land result from the shared execution context."""
+
+    return LandResult(
+        actions=actions,
+        applied=applied,
+        bypass_readiness=prepared_land.bypass_readiness,
+        blocked=blocked,
+        expect_pr_number=prepared_land.expect_pr_number,
+        follow_up=follow_up,
+        github_repository=github_repository.full_name,
+        remote_name=remote_name,
+        selected_revset=selected_revset,
+        trunk_branch=trunk_branch,
+        trunk_subject=trunk_subject,
+    )
 
 
 def prepare_land(
@@ -351,13 +392,6 @@ async def _stream_land_async(
             status_result=status_result,
             trunk_branch=trunk_branch,
         )
-        provisional_land_intent = _build_land_intent(
-            bypass_readiness=prepared_land.bypass_readiness,
-            expect_pr_number=prepared_land.expect_pr_number,
-            landed_revisions=plan.landed_revisions,
-            prepared_status=prepared_status,
-            trunk_branch=trunk_branch,
-        )
         preview_snapshot = _build_land_preview_snapshot(
             bypass_readiness=prepared_land.bypass_readiness,
             expect_pr_number=prepared_land.expect_pr_number,
@@ -372,127 +406,43 @@ async def _stream_land_async(
             total_change_count=len(prepared_status.prepared.status_revisions),
         )
         if not prepared_land.apply:
-            if prepared.state_store.state_dir is not None:
-                _write_land_preview(
-                    prepared.state_store.state_dir,
-                    preview_snapshot,
-                )
-            preview_actions = _planned_land_actions(plan=plan)
-            return LandResult(
-                actions=preview_actions,
-                applied=False,
-                bypass_readiness=prepared_land.bypass_readiness,
-                blocked=plan.blocked,
-                expect_pr_number=prepared_land.expect_pr_number,
-                follow_up=None if plan.blocked else follow_up,
-                github_repository=github_repository.full_name,
-                remote_name=remote.name,
-                selected_revset=status_result.selected_revset,
-                trunk_branch=trunk_branch,
-                trunk_subject=status_result.trunk_subject,
-            )
-
-        state_dir = prepared_land.state_dir
-        if state_dir is None:
-            raise AssertionError("Apply mode requires a writable state directory.")
-        stale_intents = check_same_kind_intent(state_dir, provisional_land_intent)
-        resume_intent = _find_resume_land_intent(
-            bypass_readiness=prepared_land.bypass_readiness,
-            expect_pr_number=prepared_land.expect_pr_number,
-            prepared_status=prepared_status,
-            stale_intents=stale_intents,
-            trunk_branch=trunk_branch,
-        )
-        for loaded in stale_intents:
-            if not isinstance(loaded.intent, LandIntent):
-                continue
-            if resume_intent is not None and loaded.path == resume_intent.path:
-                if resume_intent.mode == "tail-after-landed-prefix":
-                    print(
-                        f"Resuming interrupted {loaded.intent.label} after the trunk "
-                        "transition already succeeded"
-                    )
-                else:
-                    print(f"Resuming interrupted {loaded.intent.label}")
-                continue
-            match = match_ordered_change_ids(
-                loaded.intent.ordered_change_ids,
-                _ordered_change_ids(prepared_status),
-            )
-            if match == "exact":
-                print(f"Resuming interrupted {loaded.intent.label}")
-            elif match == "overlap":
-                print(
-                    f"Warning: this land overlaps an incomplete earlier operation "
-                    f"({loaded.intent.label})"
-                )
-            else:
-                print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
-
-        execution_plan = plan
-        trunk_transition_already_succeeded = (
-            resume_intent is not None
-            and _remote_trunk_matches_commit(
-                client=prepared.client,
-                remote_name=remote.name,
-                trunk_branch=trunk_branch,
-                commit_id=resume_intent.intent.landed_commit_id,
-            )
-        )
-        if trunk_transition_already_succeeded and resume_intent is not None:
-            execution_plan = _resume_land_plan(
-                intent=resume_intent.intent,
-                trunk_branch=trunk_branch,
-            )
-            follow_up = _follow_up_message(
-                landed_change_count=len(resume_intent.intent.landed_change_ids),
-                selected_revset=status_result.selected_revset,
-                total_change_count=len(resume_intent.intent.ordered_change_ids),
-            )
-        else:
-            _require_matching_land_preview(
-                current_snapshot=preview_snapshot,
-                selected_revset=status_result.selected_revset,
-                state_dir=state_dir,
-            )
-
-        if not execution_plan.landed_revisions and not execution_plan.push_trunk:
-            if resume_intent is not None:
-                retire_superseded_intents(stale_intents, resume_intent.intent)
-                delete_intent(resume_intent.path)
-            _delete_land_preview(state_dir)
-            return LandResult(
-                actions=(
-                    LandAction(
-                        kind="resume",
-                        message="previous landing already completed; cleared stale intent",
-                        status="applied",
-                    ),
-                ),
-                applied=True,
-                bypass_readiness=prepared_land.bypass_readiness,
-                blocked=False,
-                expect_pr_number=prepared_land.expect_pr_number,
+            return _preview_land_result(
                 follow_up=follow_up,
-                github_repository=github_repository.full_name,
+                github_repository=github_repository,
+                plan=plan,
+                prepared_land=prepared_land,
+                prepared=prepared,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
                 trunk_branch=trunk_branch,
                 trunk_subject=status_result.trunk_subject,
             )
 
-        if not execution_plan.push_trunk and not execution_plan.landed_revisions:
-            raise AssertionError("Resume execution without remaining work must be handled above.")
+        try:
+            execution_state = _prepare_land_execution_state(
+                follow_up=follow_up,
+                github_repository=github_repository,
+                plan=plan,
+                prepared_land=prepared_land,
+                prepared_status=prepared_status,
+                preview_snapshot=preview_snapshot,
+                remote_name=remote.name,
+                selected_revset=status_result.selected_revset,
+                trunk_branch=trunk_branch,
+                trunk_subject=status_result.trunk_subject,
+            )
+        except _CompletedLandResume as resume:
+            return resume.result
+        execution_plan = execution_state.execution_plan
+        follow_up = execution_state.follow_up
         if execution_plan.blocked:
-            preview_actions = _planned_land_actions(plan=execution_plan)
-            return LandResult(
-                actions=preview_actions,
+            return _build_land_result(
+                actions=_planned_land_actions(plan=execution_plan),
                 applied=False,
-                bypass_readiness=prepared_land.bypass_readiness,
-                blocked=execution_plan.blocked,
-                expect_pr_number=prepared_land.expect_pr_number,
+                blocked=True,
                 follow_up=None,
-                github_repository=github_repository.full_name,
+                github_repository=github_repository,
+                prepared_land=prepared_land,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
                 trunk_branch=trunk_branch,
@@ -502,8 +452,8 @@ async def _stream_land_async(
         state = prepared.state_store.load()
         state_changes = dict(state.changes)
         land_intent = (
-            resume_intent.intent
-            if resume_intent is not None
+            execution_state.resume_intent.intent
+            if execution_state.resume_intent is not None
             else _build_land_intent(
                 bypass_readiness=prepared_land.bypass_readiness,
                 expect_pr_number=prepared_land.expect_pr_number,
@@ -512,9 +462,10 @@ async def _stream_land_async(
                 trunk_branch=trunk_branch,
             )
         )
-        intent_path = resume_intent.path if resume_intent is not None else write_intent(
-            state_dir,
-            land_intent,
+        intent_path = (
+            execution_state.resume_intent.path
+            if execution_state.resume_intent is not None
+            else write_intent(execution_state.state_dir, land_intent)
         )
 
         actions: list[LandAction] = []
@@ -589,15 +540,14 @@ async def _stream_land_async(
                 )
                 replace_intent(intent_path, land_intent)
             succeeded = True
-            _delete_land_preview(state_dir)
-            return LandResult(
+            _delete_land_preview(execution_state.state_dir)
+            return _build_land_result(
                 actions=tuple(actions),
                 applied=True,
-                bypass_readiness=prepared_land.bypass_readiness,
                 blocked=False,
-                expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=follow_up,
-                github_repository=github_repository.full_name,
+                github_repository=github_repository,
+                prepared_land=prepared_land,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
                 trunk_branch=trunk_branch,
@@ -605,8 +555,194 @@ async def _stream_land_async(
             )
         finally:
             if succeeded:
-                retire_superseded_intents(stale_intents, land_intent)
+                retire_superseded_intents(execution_state.stale_intents, land_intent)
                 delete_intent(intent_path)
+
+
+def _preview_land_result(
+    *,
+    follow_up: str | None,
+    github_repository: ResolvedGithubRepository,
+    plan: _LandPlan,
+    prepared_land: PreparedLand,
+    prepared,
+    remote_name: str,
+    selected_revset: str,
+    trunk_branch: str,
+    trunk_subject: str,
+) -> LandResult:
+    """Persist preview state and render the dry-run land result."""
+
+    if prepared.state_store.state_dir is not None:
+        _write_land_preview(
+            prepared.state_store.state_dir,
+            _build_land_preview_snapshot(
+                bypass_readiness=prepared_land.bypass_readiness,
+                expect_pr_number=prepared_land.expect_pr_number,
+                github_repository=github_repository.full_name,
+                plan=plan,
+                prepared_status=prepared_land.prepared_status,
+                remote_name=remote_name,
+            ),
+        )
+    return _build_land_result(
+        actions=_planned_land_actions(plan=plan),
+        applied=False,
+        blocked=plan.blocked,
+        follow_up=None if plan.blocked else follow_up,
+        github_repository=github_repository,
+        prepared_land=prepared_land,
+        remote_name=remote_name,
+        selected_revset=selected_revset,
+        trunk_branch=trunk_branch,
+        trunk_subject=trunk_subject,
+    )
+
+
+def _prepare_land_execution_state(
+    *,
+    follow_up: str | None,
+    github_repository: ResolvedGithubRepository,
+    plan: _LandPlan,
+    prepared_land: PreparedLand,
+    prepared_status: PreparedStatus,
+    preview_snapshot: _LandPreviewSnapshot,
+    remote_name: str,
+    selected_revset: str,
+    trunk_branch: str,
+    trunk_subject: str,
+) -> _LandExecutionState:
+    """Resolve resume state and validate the preview before apply-mode execution."""
+
+    state_dir = prepared_land.state_dir
+    if state_dir is None:
+        raise AssertionError("Apply mode requires a writable state directory.")
+
+    stale_intents = check_same_kind_intent(state_dir, _build_land_intent(
+        bypass_readiness=prepared_land.bypass_readiness,
+        expect_pr_number=prepared_land.expect_pr_number,
+        landed_revisions=plan.landed_revisions,
+        prepared_status=prepared_status,
+        trunk_branch=trunk_branch,
+    ))
+    resume_intent = _find_resume_land_intent(
+        bypass_readiness=prepared_land.bypass_readiness,
+        expect_pr_number=prepared_land.expect_pr_number,
+        prepared_status=prepared_status,
+        stale_intents=stale_intents,
+        trunk_branch=trunk_branch,
+    )
+    _report_stale_land_intents(
+        prepared_status=prepared_status,
+        resume_intent=resume_intent,
+        stale_intents=stale_intents,
+    )
+
+    execution_plan = plan
+    trunk_transition_already_succeeded = (
+        resume_intent is not None
+        and _remote_trunk_matches_commit(
+            client=prepared_status.prepared.client,
+            remote_name=remote_name,
+            trunk_branch=trunk_branch,
+            commit_id=resume_intent.intent.landed_commit_id,
+        )
+    )
+    if trunk_transition_already_succeeded and resume_intent is not None:
+        execution_plan = _resume_land_plan(
+            intent=resume_intent.intent,
+            trunk_branch=trunk_branch,
+        )
+        follow_up = _follow_up_message(
+            landed_change_count=len(resume_intent.intent.landed_change_ids),
+            selected_revset=selected_revset,
+            total_change_count=len(resume_intent.intent.ordered_change_ids),
+        )
+    else:
+        _require_matching_land_preview(
+            current_snapshot=preview_snapshot,
+            selected_revset=selected_revset,
+            state_dir=state_dir,
+        )
+
+    if not execution_plan.landed_revisions and not execution_plan.push_trunk:
+        if resume_intent is not None:
+            retire_superseded_intents(stale_intents, resume_intent.intent)
+            delete_intent(resume_intent.path)
+        _delete_land_preview(state_dir)
+        raise _CompletedLandResume(
+            _build_land_result(
+                actions=(
+                    LandAction(
+                        kind="resume",
+                        message="previous landing already completed; cleared stale intent",
+                        status="applied",
+                    ),
+                ),
+                applied=True,
+                blocked=False,
+                follow_up=follow_up,
+                github_repository=github_repository,
+                prepared_land=prepared_land,
+                remote_name=remote_name,
+                selected_revset=selected_revset,
+                trunk_branch=trunk_branch,
+                trunk_subject=trunk_subject,
+            )
+        )
+
+    if not execution_plan.push_trunk and not execution_plan.landed_revisions:
+        raise AssertionError("Resume execution without remaining work must be handled above.")
+    return _LandExecutionState(
+        execution_plan=execution_plan,
+        follow_up=follow_up,
+        resume_intent=resume_intent,
+        stale_intents=stale_intents,
+        state_dir=state_dir,
+    )
+
+
+class _CompletedLandResume(Exception):
+    """Internal sentinel used when a resumed land already finished previously."""
+
+    def __init__(self, result: LandResult) -> None:
+        super().__init__("completed land resume")
+        self.result = result
+
+
+def _report_stale_land_intents(
+    *,
+    prepared_status: PreparedStatus,
+    resume_intent: _ResumeLandIntent | None,
+    stale_intents: list[LoadedIntent],
+) -> None:
+    """Print resumable land intent diagnostics for apply-mode execution."""
+
+    for loaded in stale_intents:
+        if not isinstance(loaded.intent, LandIntent):
+            continue
+        if resume_intent is not None and loaded.path == resume_intent.path:
+            if resume_intent.mode == "tail-after-landed-prefix":
+                print(
+                    f"Resuming interrupted {loaded.intent.label} after the trunk "
+                    "transition already succeeded"
+                )
+            else:
+                print(f"Resuming interrupted {loaded.intent.label}")
+            continue
+        match = match_ordered_change_ids(
+            loaded.intent.ordered_change_ids,
+            _ordered_change_ids(prepared_status),
+        )
+        if match == "exact":
+            print(f"Resuming interrupted {loaded.intent.label}")
+        elif match == "overlap":
+            print(
+                f"Warning: this land overlaps an incomplete earlier operation "
+                f"({loaded.intent.label})"
+            )
+        else:
+            print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
 
 
 async def _get_github_repository(

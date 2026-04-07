@@ -97,6 +97,8 @@ Recent refactor slices:
   through one long async path.
 - `cleanup` now routes its CLI modes through separate helpers and keeps restack
   intent setup, policy warnings, and survivor-rebase planning in named phases.
+- `land` now routes preview, resume validation, and apply-mode execution
+  through explicit helper phases instead of one deeply nested async path.
 
 ## Executable Surface
 
