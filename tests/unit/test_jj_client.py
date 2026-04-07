@@ -552,6 +552,53 @@ def test_delete_remote_bookmark_pushes_with_lease_and_fetches() -> None:
     ]
 
 
+def test_delete_remote_bookmarks_batches_push_and_fetch() -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        commands.append(tuple(command))
+        assert cwd == Path("/repo")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    client = JjClient(Path("/repo"), runner=run)
+    client.delete_remote_bookmarks(
+        remote="origin",
+        deletions=(
+            ("review/foo", "old456"),
+            ("review/bar", "old789"),
+        ),
+    )
+
+    assert commands == [
+        (
+            "git",
+            "push",
+            "--force-with-lease=refs/heads/review/foo:old456",
+            "--force-with-lease=refs/heads/review/bar:old789",
+            "origin",
+            ":refs/heads/review/foo",
+            ":refs/heads/review/bar",
+        ),
+        ("jj", "git", "fetch", "--remote", "origin"),
+    ]
+
+
+def test_forget_bookmarks_batches_single_command() -> None:
+    commands: list[tuple[str, ...]] = []
+
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        commands.append(tuple(command))
+        assert cwd == Path("/repo")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    client = JjClient(Path("/repo"), runner=run)
+    client.forget_bookmarks(("review/foo", "review/bar"))
+
+    assert commands == [
+        ("jj", "bookmark", "forget", "review/foo", "review/bar"),
+    ]
+
+
 def test_fetch_remote_can_limit_to_selected_branches() -> None:
     commands: list[tuple[str, ...]] = []
 

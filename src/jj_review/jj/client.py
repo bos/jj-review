@@ -455,7 +455,15 @@ class JjClient:
     def forget_bookmark(self, bookmark: str) -> None:
         """Forget a local bookmark without scheduling a remote deletion."""
 
-        self._run_jj(("bookmark", "forget", bookmark))
+        self.forget_bookmarks((bookmark,))
+
+    def forget_bookmarks(self, bookmarks: Sequence[str]) -> None:
+        """Forget one or more local bookmarks without scheduling remote deletions."""
+
+        ordered_bookmarks = tuple(bookmarks)
+        if not ordered_bookmarks:
+            return
+        self._run_jj(("bookmark", "forget", *ordered_bookmarks))
 
     def push_bookmark(self, *, remote: str, bookmark: str) -> None:
         """Push one bookmark to the selected remote."""
@@ -551,15 +559,36 @@ class JjClient:
     ) -> None:
         """Delete one remote bookmark by name."""
 
-        self._run_git(
-            (
-                "push",
-                f"--force-with-lease=refs/heads/{bookmark}:{expected_remote_target}",
-                remote,
-                f":refs/heads/{bookmark}",
-            )
+        self.delete_remote_bookmarks(
+            remote=remote,
+            deletions=((bookmark, expected_remote_target),),
         )
-        self.fetch_remote(remote=remote)
+
+    def delete_remote_bookmarks(
+        self,
+        *,
+        remote: str,
+        deletions: Sequence[tuple[str, str]],
+        fetch: bool = True,
+    ) -> None:
+        """Delete one or more remote bookmarks by name."""
+
+        ordered_deletions = tuple(deletions)
+        if not ordered_deletions:
+            return
+        command = ["push"]
+        for bookmark, expected_remote_target in ordered_deletions:
+            command.append(
+                f"--force-with-lease=refs/heads/{bookmark}:{expected_remote_target}"
+            )
+        command.append(remote)
+        for bookmark, _expected_remote_target in ordered_deletions:
+            command.append(f":refs/heads/{bookmark}")
+        self._run_git(
+            command
+        )
+        if fetch:
+            self.fetch_remote(remote=remote)
 
     def rebase_revision(self, *, source: str, destination: str) -> None:
         """Rebase one revision and its descendants onto a new destination."""

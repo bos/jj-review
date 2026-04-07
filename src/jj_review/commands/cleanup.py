@@ -128,6 +128,15 @@ class PreparedCleanupChange:
 
 
 @dataclass(frozen=True, slots=True)
+class _StaleCleanupMutationPlan:
+    """Planned local bookmark and remote branch mutations for one stale change."""
+
+    cached_change: CachedChange
+    local_bookmark_plan: LocalBookmarkCleanupPlan | None
+    remote_plan: RemoteBranchCleanupPlan | None
+
+
+@dataclass(frozen=True, slots=True)
 class RestackResult:
     """Rendered restack result for one selected local stack."""
 
@@ -955,6 +964,7 @@ def _run_local_cleanup_pass(
     record_action: Callable[[CleanupAction], None],
 ) -> tuple[PreparedCleanupChange, ...]:
     prepared_changes: list[PreparedCleanupChange] = []
+    mutation_plans: list[_StaleCleanupMutationPlan] = []
     for change_id, cached_change in prepared_cleanup.state.changes.items():
         prepared_change = _prepare_cleanup_change(
             cached_change=cached_change,
@@ -962,11 +972,25 @@ def _run_local_cleanup_pass(
             prepared_cleanup=prepared_cleanup,
         )
         prepared_changes.append(prepared_change)
-        _process_stale_cleanup_change(
+        mutation_plan = _process_stale_cleanup_change(
             next_changes=next_changes,
             prepared_change=prepared_change,
             prepared_cleanup=prepared_cleanup,
             record_action=record_action,
+        )
+        if mutation_plan is not None:
+            mutation_plans.append(mutation_plan)
+
+    if prepared_cleanup.apply:
+        _apply_stale_cleanup_mutation_plans(
+            jj_client=prepared_cleanup.jj_client,
+            mutation_plans=tuple(mutation_plans),
+            record_action=record_action,
+            remote=prepared_cleanup.remote,
+        )
+        _save_cleanup_state_if_changed(
+            next_changes=next_changes,
+            prepared_cleanup=prepared_cleanup,
         )
     return tuple(prepared_changes)
 
@@ -977,10 +1001,10 @@ def _process_stale_cleanup_change(
     prepared_change: PreparedCleanupChange,
     prepared_cleanup: PreparedCleanup,
     record_action: Callable[[CleanupAction], None],
-) -> None:
+) -> _StaleCleanupMutationPlan | None:
     stale_reason = prepared_change.stale_reason
     if stale_reason is None:
-        return
+        return None
 
     record_action(
         _cache_action(
@@ -1006,37 +1030,118 @@ def _process_stale_cleanup_change(
         ),
         remote=prepared_cleanup.remote,
     )
-    if remote_plan is not None and prepared_cleanup.apply:
-        _process_remote_branch_cleanup(
-            apply=prepared_cleanup.apply,
-            cached_change=prepared_change.cached_change,
-            jj_client=prepared_cleanup.jj_client,
-            record_action=record_action,
-            remote=prepared_cleanup.remote,
-            remote_plan=remote_plan,
-        )
-    if local_bookmark_plan is not None:
-        _process_local_bookmark_cleanup(
-            apply=prepared_cleanup.apply,
-            cached_change=prepared_change.cached_change,
-            jj_client=prepared_cleanup.jj_client,
-            local_bookmark_plan=local_bookmark_plan,
-            record_action=record_action,
-        )
-    if remote_plan is not None and not prepared_cleanup.apply:
-        _process_remote_branch_cleanup(
-            apply=prepared_cleanup.apply,
-            cached_change=prepared_change.cached_change,
-            jj_client=prepared_cleanup.jj_client,
-            record_action=record_action,
-            remote=prepared_cleanup.remote,
-            remote_plan=remote_plan,
-        )
+    if not prepared_cleanup.apply:
+        if local_bookmark_plan is not None:
+            _process_local_bookmark_cleanup(
+                apply=prepared_cleanup.apply,
+                cached_change=prepared_change.cached_change,
+                jj_client=prepared_cleanup.jj_client,
+                local_bookmark_plan=local_bookmark_plan,
+                record_action=record_action,
+            )
+        if remote_plan is not None:
+            _process_remote_branch_cleanup(
+                apply=prepared_cleanup.apply,
+                cached_change=prepared_change.cached_change,
+                jj_client=prepared_cleanup.jj_client,
+                record_action=record_action,
+                remote=prepared_cleanup.remote,
+                remote_plan=remote_plan,
+            )
+        return None
 
-    if prepared_cleanup.apply:
-        _save_cleanup_state(
-            next_changes=next_changes,
-            prepared_cleanup=prepared_cleanup,
+    if local_bookmark_plan is not None and local_bookmark_plan.action.status != "planned":
+        record_action(local_bookmark_plan.action)
+    if remote_plan is not None and remote_plan.action.status != "planned":
+        record_action(remote_plan.action)
+
+    if (
+        local_bookmark_plan is None
+        or local_bookmark_plan.action.status != "planned"
+    ) and (
+        remote_plan is None
+        or remote_plan.action.status != "planned"
+    ):
+        return None
+
+    return _StaleCleanupMutationPlan(
+        cached_change=prepared_change.cached_change,
+        local_bookmark_plan=local_bookmark_plan,
+        remote_plan=remote_plan,
+    )
+
+
+def _apply_stale_cleanup_mutation_plans(
+    *,
+    jj_client: JjClient,
+    mutation_plans: tuple[_StaleCleanupMutationPlan, ...],
+    record_action: Callable[[CleanupAction], None],
+    remote: GitRemote | None,
+) -> None:
+    remote_deletions: list[tuple[str, str]] = []
+    remote_actions: list[CleanupAction] = []
+    local_bookmarks: list[str] = []
+    local_actions: list[CleanupAction] = []
+
+    for mutation_plan in mutation_plans:
+        remote_plan = mutation_plan.remote_plan
+        if (
+            remote_plan is not None
+            and remote_plan.action.status == "planned"
+            and remote is not None
+            and remote_plan.expected_remote_target is not None
+        ):
+            bookmark = mutation_plan.cached_change.bookmark
+            if bookmark is None:
+                raise AssertionError(
+                    "Planned remote branch cleanup requires a bookmark."
+                )
+            remote_deletions.append((bookmark, remote_plan.expected_remote_target))
+            remote_actions.append(remote_plan.action)
+
+        local_bookmark_plan = mutation_plan.local_bookmark_plan
+        if (
+            local_bookmark_plan is not None
+            and local_bookmark_plan.action.status == "planned"
+        ):
+            bookmark = mutation_plan.cached_change.bookmark
+            if bookmark is None:
+                raise AssertionError(
+                    "Planned local bookmark cleanup requires a bookmark."
+                )
+            local_bookmarks.append(bookmark)
+            local_actions.append(local_bookmark_plan.action)
+
+    remote_deleted = False
+    try:
+        if remote_deletions and remote is not None:
+            jj_client.delete_remote_bookmarks(
+                remote=remote.name,
+                deletions=tuple(remote_deletions),
+                fetch=False,
+            )
+            remote_deleted = True
+        if local_bookmarks:
+            jj_client.forget_bookmarks(tuple(local_bookmarks))
+    finally:
+        if remote_deleted and remote is not None:
+            jj_client.fetch_remote(remote=remote.name)
+
+    for remote_action in remote_actions:
+        record_action(
+            CleanupAction(
+                kind=remote_action.kind,
+                message=remote_action.message,
+                status="applied",
+            )
+        )
+    for local_action in local_actions:
+        record_action(
+            CleanupAction(
+                kind=local_action.kind,
+                message=local_action.message,
+                status="applied",
+            )
         )
 
 

@@ -1299,6 +1299,9 @@ Status: done.
 - when that local bookmark forget is safe and planned, the paired remote
   review-branch deletion is now planned in the same pass instead of blocked on
   the still-present local bookmark
+- `cleanup --apply` now batches planned remote review-branch deletions into one
+  push, batches planned local bookmark forgets into one `jj bookmark forget`,
+  and refreshes remembered remote state with one fetch after those mutations
 - local bookmark cleanup stays conservative: conflicted bookmarks remain
   blocked, and bookmarks that no longer point at the last submitted commit
   stay blocked rather than being forgotten automatically

@@ -922,3 +922,106 @@ def test_process_remote_branch_cleanup_applies_planned_deletion() -> None:
             status="applied",
         )
     ]
+
+
+def test_apply_stale_cleanup_mutation_plans_batches_remote_and_local_work() -> None:
+    calls: list[tuple[str, object]] = []
+    recorded_actions: list[CleanupAction] = []
+
+    class FakeClient:
+        def delete_remote_bookmarks(
+            self,
+            *,
+            remote: str,
+            deletions: tuple[tuple[str, str], ...],
+            fetch: bool = True,
+        ) -> None:
+            calls.append(("delete_remote_bookmarks", (remote, deletions, fetch)))
+
+        def forget_bookmarks(self, bookmarks: tuple[str, ...]) -> None:
+            calls.append(("forget_bookmarks", bookmarks))
+
+        def fetch_remote(self, *, remote: str, branches=None) -> None:
+            calls.append(("fetch_remote", (remote, branches)))
+
+    cleanup_module._apply_stale_cleanup_mutation_plans(
+        jj_client=cast(JjClient, FakeClient()),
+        mutation_plans=(
+            cleanup_module._StaleCleanupMutationPlan(
+                cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
+                local_bookmark_plan=cleanup_module.LocalBookmarkCleanupPlan(
+                    action=CleanupAction(
+                        kind="local bookmark",
+                        message="forget local bookmark review/feature-aaaaaaaa (stale)",
+                        status="planned",
+                    )
+                ),
+                remote_plan=cleanup_module.RemoteBranchCleanupPlan(
+                    action=CleanupAction(
+                        kind="remote branch",
+                        message="delete remote branch review/feature-aaaaaaaa@origin",
+                        status="planned",
+                    ),
+                    expected_remote_target="commit-1",
+                ),
+            ),
+            cleanup_module._StaleCleanupMutationPlan(
+                cached_change=CachedChange(bookmark="review/feature-bbbbbbbb"),
+                local_bookmark_plan=cleanup_module.LocalBookmarkCleanupPlan(
+                    action=CleanupAction(
+                        kind="local bookmark",
+                        message="forget local bookmark review/feature-bbbbbbbb (stale)",
+                        status="planned",
+                    )
+                ),
+                remote_plan=cleanup_module.RemoteBranchCleanupPlan(
+                    action=CleanupAction(
+                        kind="remote branch",
+                        message="delete remote branch review/feature-bbbbbbbb@origin",
+                        status="planned",
+                    ),
+                    expected_remote_target="commit-2",
+                ),
+            ),
+        ),
+        record_action=recorded_actions.append,
+        remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
+    )
+
+    assert calls == [
+        (
+            "delete_remote_bookmarks",
+            (
+                "origin",
+                (
+                    ("review/feature-aaaaaaaa", "commit-1"),
+                    ("review/feature-bbbbbbbb", "commit-2"),
+                ),
+                False,
+            ),
+        ),
+        ("forget_bookmarks", ("review/feature-aaaaaaaa", "review/feature-bbbbbbbb")),
+        ("fetch_remote", ("origin", None)),
+    ]
+    assert recorded_actions == [
+        CleanupAction(
+            kind="remote branch",
+            message="delete remote branch review/feature-aaaaaaaa@origin",
+            status="applied",
+        ),
+        CleanupAction(
+            kind="remote branch",
+            message="delete remote branch review/feature-bbbbbbbb@origin",
+            status="applied",
+        ),
+        CleanupAction(
+            kind="local bookmark",
+            message="forget local bookmark review/feature-aaaaaaaa (stale)",
+            status="applied",
+        ),
+        CleanupAction(
+            kind="local bookmark",
+            message="forget local bookmark review/feature-bbbbbbbb (stale)",
+            status="applied",
+        ),
+    ]

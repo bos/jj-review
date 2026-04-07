@@ -243,6 +243,104 @@ def test_cleanup_apply_forgets_local_bookmark_before_deleting_remote_branch_when
     assert bookmark not in _run(["jj", "bookmark", "list", bookmark], repo).stdout
     assert f"refs/heads/{bookmark}" not in _remote_refs(fake_repo.git_dir)
 
+
+def test_cleanup_apply_batches_remote_delete_local_forget_and_fetch(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_ids = tuple(revision.change_id for revision in stack.revisions)
+    state_store = ReviewStateStore.for_repo(repo)
+    state = state_store.load()
+    bookmarks = tuple(
+        state.changes[change_id].bookmark for change_id in change_ids
+    )
+    assert all(bookmark is not None for bookmark in bookmarks)
+
+    for change_id, bookmark in zip(change_ids, bookmarks, strict=True):
+        assert bookmark is not None
+        _run(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
+
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup._stale_change_reason",
+        lambda **kwargs: "local change is no longer reviewable",
+    )
+
+    original_delete_remote_bookmarks = JjClient.delete_remote_bookmarks
+    original_forget_bookmarks = JjClient.forget_bookmarks
+    original_fetch_remote = JjClient.fetch_remote
+    calls: list[tuple[str, object]] = []
+
+    def tracking_delete_remote_bookmarks(
+        self,
+        *,
+        remote: str,
+        deletions,
+        fetch: bool = True,
+    ) -> None:
+        calls.append(("delete_remote_bookmarks", (remote, tuple(deletions), fetch)))
+        return original_delete_remote_bookmarks(
+            self,
+            remote=remote,
+            deletions=deletions,
+            fetch=fetch,
+        )
+
+    def tracking_forget_bookmarks(self, bookmarks) -> None:
+        calls.append(("forget_bookmarks", tuple(bookmarks)))
+        return original_forget_bookmarks(self, bookmarks)
+
+    def tracking_fetch_remote(self, *, remote: str, branches=None) -> None:
+        calls.append(("fetch_remote", (remote, branches)))
+        return original_fetch_remote(self, remote=remote, branches=branches)
+
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.JjClient.delete_remote_bookmarks",
+        tracking_delete_remote_bookmarks,
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.JjClient.forget_bookmarks",
+        tracking_forget_bookmarks,
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.JjClient.fetch_remote",
+        tracking_fetch_remote,
+    )
+
+    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    capsys.readouterr()
+
+    assert exit_code == 0
+    assert calls == [
+        (
+            "delete_remote_bookmarks",
+            (
+                "origin",
+                tuple(
+                    (bookmark, state.changes[change_id].last_submitted_commit_id)
+                    for change_id, bookmark in zip(change_ids, bookmarks, strict=True)
+                    if bookmark is not None
+                ),
+                False,
+            ),
+        ),
+        (
+            "forget_bookmarks",
+            tuple(bookmark for bookmark in bookmarks if bookmark is not None),
+        ),
+        ("fetch_remote", ("origin", None)),
+    ]
+
+
 def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
     tmp_path: Path,
     monkeypatch,
@@ -265,15 +363,16 @@ def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
     _run(["jj", "abandon", change_id], repo)
     _run(["jj", "bookmark", "delete", bookmark], repo)
 
-    original_delete_remote_bookmark = JjClient.delete_remote_bookmark
+    original_delete_remote_bookmarks = JjClient.delete_remote_bookmarks
 
-    def delete_remote_bookmark_with_race(
+    def delete_remote_bookmarks_with_race(
         self,
         *,
         remote: str,
-        bookmark: str,
-        expected_remote_target: str,
+        deletions,
+        fetch: bool = True,
     ) -> None:
+        bookmark, _expected_remote_target = tuple(deletions)[0]
         _run(
             [
                 "git",
@@ -285,16 +384,16 @@ def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
             ],
             fake_repo.git_dir.parent,
         )
-        original_delete_remote_bookmark(
+        original_delete_remote_bookmarks(
             self,
             remote=remote,
-            bookmark=bookmark,
-            expected_remote_target=expected_remote_target,
+            deletions=deletions,
+            fetch=fetch,
         )
 
     monkeypatch.setattr(
-        "jj_review.commands.cleanup.JjClient.delete_remote_bookmark",
-        delete_remote_bookmark_with_race,
+        "jj_review.commands.cleanup.JjClient.delete_remote_bookmarks",
+        delete_remote_bookmarks_with_race,
     )
 
     exit_code = _main(repo, config_path, "cleanup", "--apply")
@@ -430,12 +529,12 @@ def test_cleanup_apply_leaves_intent_file_on_failure(
     _run(["jj", "abandon", change_id], repo)
     _run(["jj", "bookmark", "delete", bookmark], repo)
 
-    def failing_delete_remote_bookmark(self, *, remote, bookmark, expected_remote_target):
+    def failing_delete_remote_bookmarks(self, *, remote, deletions, fetch=True):
         raise RuntimeError("Simulated failure during cleanup apply")
 
     monkeypatch.setattr(
-        "jj_review.commands.cleanup.JjClient.delete_remote_bookmark",
-        failing_delete_remote_bookmark,
+        "jj_review.commands.cleanup.JjClient.delete_remote_bookmarks",
+        failing_delete_remote_bookmarks,
     )
 
     with pytest.raises(RuntimeError, match="Simulated failure"):
