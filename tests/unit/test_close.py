@@ -4,7 +4,7 @@ import asyncio
 from types import SimpleNamespace
 from typing import cast
 
-from jj_review.commands.close import CloseAction, _cleanup_revision
+from jj_review.commands.close import CloseAction, _cleanup_revision, _CloseCleanupContext
 from jj_review.github.client import GithubClient
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
@@ -147,17 +147,19 @@ async def _run_cleanup_revision(*, bookmark_state: BookmarkState) -> _CleanupRes
     actions: list[CloseAction] = []
     jj_client = _JjClientStub()
     await _cleanup_revision(
-        apply=True,
         bookmark_state=bookmark_state,
         cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
-        github_client=cast(GithubClient, SimpleNamespace()),
-        github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
-        jj_client=cast(JjClient, jj_client),
-        remote_name="origin",
         commit_id="commit-1",
-        next_changes={},
-        record_action=actions.append,
-        revision=SimpleNamespace(change_id="aaaaaaaaaaaaaaaa"),
-        revision_label="feature 1 [aaaaaaaa]",
+        context=_CloseCleanupContext(
+            apply=True,
+            github_client=cast(GithubClient, SimpleNamespace()),
+            github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
+            jj_client=cast(JjClient, jj_client),
+            next_changes={},
+            record_action=actions.append,
+            remote_name="origin",
+            revision=SimpleNamespace(change_id="aaaaaaaaaaaaaaaa"),
+            revision_label="feature 1 [aaaaaaaa]",
+        ),
     )
     return _CleanupResult(actions=actions, jj_client=jj_client)

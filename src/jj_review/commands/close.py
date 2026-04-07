@@ -10,10 +10,10 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
@@ -29,9 +29,9 @@ from jj_review.intent import (
 )
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote
-from jj_review.models.cache import CachedChange
+from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment
-from jj_review.models.intent import CloseIntent
+from jj_review.models.intent import CloseIntent, LoadedIntent
 from jj_review.review_inspection import PreparedStatus, prepare_status, stream_status
 from jj_review.stack_comments import is_stack_summary_comment
 
@@ -72,6 +72,66 @@ class PreparedClose:
     cleanup: bool
     prepared_status: PreparedStatus
     state_dir: Path | None
+
+
+@dataclass(slots=True)
+class _CloseActionRecorder:
+    """Collect close actions and track whether any step blocked progress."""
+
+    on_action: Callable[[CloseAction], None] | None
+    actions: list[CloseAction] = field(default_factory=list)
+    blocked: bool = False
+
+    def record(self, action: CloseAction) -> None:
+        if action.status == "blocked":
+            self.blocked = True
+        self.actions.append(action)
+        if self.on_action is not None:
+            self.on_action(action)
+
+    def as_tuple(self) -> tuple[CloseAction, ...]:
+        return tuple(self.actions)
+
+
+@dataclass(frozen=True, slots=True)
+class _CloseExecutionState:
+    """Local saved state and commit lookup used during close execution."""
+
+    current_state: ReviewState
+    next_changes: dict[str, CachedChange]
+    commit_ids_by_change_id: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class _CloseIntentState:
+    """Prepared close intent bookkeeping for resumable apply runs."""
+
+    intent: CloseIntent | None
+    intent_path: Path | None
+    stale_intents: list[LoadedIntent]
+
+
+@dataclass(frozen=True, slots=True)
+class _CloseCleanupContext:
+    """Shared dependencies for bookmark and stack-comment cleanup."""
+
+    apply: bool
+    github_client: GithubClient
+    github_repository: Any
+    jj_client: JjClient
+    next_changes: dict[str, CachedChange]
+    record_action: Callable[[CloseAction], None]
+    remote_name: str | None
+    revision: Any
+    revision_label: str
+
+
+@dataclass(frozen=True, slots=True)
+class _BookmarkCleanupPlan:
+    """Resolved bookmark cleanup actions for one cached change."""
+
+    local_forget: bool
+    remote_delete: bool
 
 
 def close(
@@ -216,19 +276,9 @@ async def _stream_close_async(
     status_result,
 ) -> CloseResult:
     prepared_status = prepared_close.prepared_status
-    prepared = prepared_status.prepared
     github_repository = prepared_status.github_repository
 
-    actions: list[CloseAction] = []
-    blocked = False
-
-    def record_action(action: CloseAction) -> None:
-        nonlocal blocked
-        if action.status == "blocked":
-            blocked = True
-        actions.append(action)
-        if on_action is not None:
-            on_action(action)
+    recorder = _CloseActionRecorder(on_action=on_action)
 
     if not status_result.revisions:
         return _close_result(
@@ -240,7 +290,7 @@ async def _stream_close_async(
         )
 
     if status_result.github_error is not None or github_repository is None:
-        record_action(
+        recorder.record(
             CloseAction(
                 kind="close",
                 message=(
@@ -252,7 +302,7 @@ async def _stream_close_async(
             )
         )
         return _close_result(
-            actions=tuple(actions),
+            actions=recorder.as_tuple(),
             applied=False,
             blocked=True,
             github_error=status_result.github_error,
@@ -260,89 +310,139 @@ async def _stream_close_async(
             prepared_close=prepared_close,
         )
 
-    state_store = prepared.state_store
-    current_state = state_store.load() if prepared_close.apply else prepared.state
-    next_changes = dict(current_state.changes)
-    commit_ids_by_change_id = {
-        prepared_revision.revision.change_id: prepared_revision.revision.commit_id
-        for prepared_revision in prepared_status.prepared.status_revisions
-    }
-
-    def save_progress() -> None:
-        if prepared_close.apply and next_changes != current_state.changes:
-            state_store.save(current_state.model_copy(update={"changes": next_changes}))
-
+    execution_state = _prepare_close_execution_state(prepared_close=prepared_close)
     completed = False
-
-    def complete_result(result: CloseResult) -> CloseResult:
-        nonlocal completed
-        save_progress()
-        completed = True
-        return result
-
-    intent: CloseIntent | None = None
-    intent_path: Path | None = None
-    stale_intents = []
+    intent_state = _CloseIntentState(
+        intent=None,
+        intent_path=None,
+        stale_intents=[],
+    )
     try:
-        if prepared_close.apply and prepared_close.state_dir is not None:
-            ordered_change_ids = tuple(
-                revision.change_id for revision in status_result.revisions
-            )
-            intent = CloseIntent(
-                kind="close",
-                pid=os.getpid(),
-                label=(
-                    "close --cleanup on " if prepared_close.cleanup else "close on "
-                )
-                + prepared_status.selected_revset,
-                display_revset=prepared_status.selected_revset,
-                ordered_change_ids=ordered_change_ids,
-                cleanup=prepared_close.cleanup,
-                started_at=datetime.now(UTC).isoformat(),
-            )
-            stale_intents = check_same_kind_intent(prepared_close.state_dir, intent)
-            for loaded in stale_intents:
-                print(f"Note: a previous close was interrupted ({loaded.intent.label})")
-            intent_path = write_intent(prepared_close.state_dir, intent)
+        intent_state = _start_close_intent(
+            prepared_close=prepared_close,
+            revisions=status_result.revisions,
+        )
 
         async with _build_github_client(
             base_url=github_repository.api_base_url
         ) as github_client:
-            for revision in status_result.revisions:
-                should_stop = await _process_close_revision(
-                    commit_id=commit_ids_by_change_id.get(revision.change_id),
-                    current_state=current_state,
-                    github_client=github_client,
-                    github_repository=github_repository,
-                    next_changes=next_changes,
-                    prepared_close=prepared_close,
-                    record_action=record_action,
-                    revision=revision,
-                )
-                if should_stop:
-                    return complete_result(
-                        _close_result(
-                            actions=tuple(actions),
-                            blocked=True,
-                            github_error=status_result.github_error,
-                            github_repository=github_repository,
-                            prepared_close=prepared_close,
-                        )
-                    )
-
-        return complete_result(
-            _close_result(
-                actions=tuple(actions),
-                blocked=blocked,
-                github_error=status_result.github_error,
+            blocked = await _process_close_revisions(
+                execution_state=execution_state,
+                github_client=github_client,
                 github_repository=github_repository,
                 prepared_close=prepared_close,
+                recorder=recorder,
+                revisions=status_result.revisions,
             )
+
+        _save_close_progress(
+            execution_state=execution_state,
+            prepared_close=prepared_close,
+        )
+        completed = True
+        return _close_result(
+            actions=recorder.as_tuple(),
+            blocked=blocked or recorder.blocked,
+            github_error=status_result.github_error,
+            github_repository=github_repository,
+            prepared_close=prepared_close,
         )
     finally:
-        if completed and intent_path is not None and intent is not None:
-            retire_superseded_intents(stale_intents, intent)
-            delete_intent(intent_path)
+        if completed and intent_state.intent_path is not None and intent_state.intent is not None:
+            retire_superseded_intents(intent_state.stale_intents, intent_state.intent)
+            delete_intent(intent_state.intent_path)
+
+
+def _prepare_close_execution_state(*, prepared_close: PreparedClose) -> _CloseExecutionState:
+    """Load local saved state and commit IDs once before close execution."""
+
+    prepared_status = prepared_close.prepared_status
+    prepared = prepared_status.prepared
+    current_state = prepared.state_store.load() if prepared_close.apply else prepared.state
+    return _CloseExecutionState(
+        current_state=current_state,
+        next_changes=dict(current_state.changes),
+        commit_ids_by_change_id={
+            prepared_revision.revision.change_id: prepared_revision.revision.commit_id
+            for prepared_revision in prepared_status.prepared.status_revisions
+        },
+    )
+
+
+def _save_close_progress(
+    *,
+    execution_state: _CloseExecutionState,
+    prepared_close: PreparedClose,
+) -> None:
+    """Persist saved close state when apply mode changed tracked metadata."""
+
+    prepared = prepared_close.prepared_status.prepared
+    current_state = execution_state.current_state
+    if (
+        prepared_close.apply
+        and execution_state.next_changes != current_state.changes
+    ):
+        prepared.state_store.save(
+            current_state.model_copy(update={"changes": execution_state.next_changes})
+        )
+
+
+def _start_close_intent(
+    *,
+    prepared_close: PreparedClose,
+    revisions,
+) -> _CloseIntentState:
+    """Write close intent metadata for resumable apply runs."""
+
+    if not prepared_close.apply or prepared_close.state_dir is None:
+        return _CloseIntentState(intent=None, intent_path=None, stale_intents=[])
+
+    prepared_status = prepared_close.prepared_status
+    intent = CloseIntent(
+        kind="close",
+        pid=os.getpid(),
+        label=("close --cleanup on " if prepared_close.cleanup else "close on ")
+        + prepared_status.selected_revset,
+        display_revset=prepared_status.selected_revset,
+        ordered_change_ids=tuple(revision.change_id for revision in revisions),
+        cleanup=prepared_close.cleanup,
+        started_at=datetime.now(UTC).isoformat(),
+    )
+    stale_intents = check_same_kind_intent(prepared_close.state_dir, intent)
+    for loaded in stale_intents:
+        print(f"Note: a previous close was interrupted ({loaded.intent.label})")
+    return _CloseIntentState(
+        intent=intent,
+        intent_path=write_intent(prepared_close.state_dir, intent),
+        stale_intents=stale_intents,
+    )
+
+
+async def _process_close_revisions(
+    *,
+    execution_state: _CloseExecutionState,
+    github_client: GithubClient,
+    github_repository,
+    prepared_close: PreparedClose,
+    recorder: _CloseActionRecorder,
+    revisions,
+) -> bool:
+    """Process each revision in order, stopping on the first fail-closed block."""
+
+    for revision in revisions:
+        should_stop = await _process_close_revision(
+            commit_id=execution_state.commit_ids_by_change_id.get(revision.change_id),
+            current_state=execution_state.current_state,
+            github_client=github_client,
+            github_repository=github_repository,
+            next_changes=execution_state.next_changes,
+            prepared_close=prepared_close,
+            record_action=recorder.record,
+            revision=revision,
+        )
+        if should_stop:
+            return True
+    return False
 
 
 def _close_result(
@@ -629,172 +729,206 @@ async def _cleanup_if_requested(
         return
     prepared = prepared_close.prepared_status.prepared
     remote = prepared.remote
-    await _cleanup_revision(
+    cleanup_context = _CloseCleanupContext(
         apply=prepared_close.apply,
-        bookmark_state=prepared.client.get_bookmark_state(revision.bookmark),
-        cached_change=cached_change,
         github_client=github_client,
         github_repository=github_repository,
+        jj_client=prepared.client,
         next_changes=next_changes,
         record_action=record_action,
-        jj_client=prepared.client,
         remote_name=remote.name if remote is not None else None,
-        commit_id=commit_id,
         revision=revision,
         revision_label=revision_label,
+    )
+    await _cleanup_revision(
+        bookmark_state=prepared.client.get_bookmark_state(revision.bookmark),
+        cached_change=cached_change,
+        commit_id=commit_id,
+        context=cleanup_context,
     )
 
 
 async def _cleanup_revision(
     *,
-    apply: bool,
     bookmark_state: BookmarkState,
     cached_change: CachedChange,
-    github_client: GithubClient,
-    github_repository,
-    jj_client: JjClient,
-    remote_name: str | None,
     commit_id: str | None,
-    next_changes: dict[str, CachedChange],
-    record_action: Callable[[CloseAction], None],
-    revision,
-    revision_label: str,
+    context: _CloseCleanupContext,
 ) -> None:
     bookmark = cached_change.bookmark
-    local_forget_planned = False
-    remote_delete_planned = False
-    local_conflict = False
-    remote_conflict = False
-
-    if bookmark is not None and bookmark.startswith("review/"):
-        local_target = bookmark_state.local_target
-        if len(bookmark_state.local_targets) > 1:
-            record_action(
-                CloseAction(
-                    kind="local bookmark",
-                    message=(
-                        f"cannot forget local bookmark {bookmark!r} because it is "
-                        "conflicted"
-                    ),
-                    status="blocked",
-                )
-            )
-            local_conflict = True
-        elif commit_id is not None and local_target is not None and local_target != commit_id:
-            record_action(
-                CloseAction(
-                    kind="local bookmark",
-                    message=(
-                        f"cannot forget local bookmark {bookmark!r} because it "
-                        "already points to a different revision"
-                    ),
-                    status="blocked",
-                )
-            )
-            local_conflict = True
-        elif commit_id is not None and local_target == commit_id:
-            local_forget_planned = True
-
-        remote_state = (
-            bookmark_state.remote_target(remote_name)
-            if remote_name is not None
-            else None
-        )
-        if remote_state is not None and remote_name is not None and commit_id is not None:
-            if len(remote_state.targets) > 1:
-                record_action(
-                    CloseAction(
-                        kind="remote branch",
-                        message=(
-                            f"cannot delete remote branch {bookmark}@{remote_name} "
-                            "because the remote bookmark is conflicted"
-                        ),
-                        status="blocked",
-                    )
-                )
-                remote_conflict = True
-            elif remote_state.target != commit_id:
-                record_action(
-                    CloseAction(
-                        kind="remote branch",
-                        message=(
-                            f"cannot delete remote branch {bookmark}@{remote_name} "
-                            "because it already points to a different revision"
-                        ),
-                        status="blocked",
-                    )
-                )
-                remote_conflict = True
-            else:
-                remote_delete_planned = True
-
-        if local_conflict:
-            remote_delete_planned = False
-        if remote_conflict:
-            local_forget_planned = False
-
-        if remote_delete_planned:
-            record_action(
-                CloseAction(
-                    kind="remote branch",
-                    message=f"delete remote branch {bookmark}@{remote_name}",
-                    status="applied" if apply else "planned",
-                )
-            )
-            if apply:
-                if remote_name is None or commit_id is None:
-                    raise AssertionError("Planned remote branch deletion requires a target.")
-                jj_client.delete_remote_bookmark(
-                    remote=remote_name,
-                    bookmark=bookmark,
-                    expected_remote_target=commit_id,
-                )
-
-        if local_forget_planned:
-            record_action(
-                CloseAction(
-                    kind="local bookmark",
-                    message=f"forget local bookmark {bookmark}",
-                    status="applied" if apply else "planned",
-                )
-            )
-            if apply:
-                jj_client.forget_bookmark(bookmark)
+    cleanup_plan = _plan_review_bookmark_cleanup(
+        bookmark=bookmark,
+        bookmark_state=bookmark_state,
+        commit_id=commit_id,
+        context=context,
+    )
+    _apply_review_bookmark_cleanup(
+        bookmark=bookmark,
+        commit_id=commit_id,
+        context=context,
+        cleanup_plan=cleanup_plan,
+    )
 
     if cached_change.pr_number is None:
         return
 
     comment, comment_error = await _find_stack_summary_comment(
-        github_client=github_client,
-        github_repository=github_repository,
+        github_client=context.github_client,
+        github_repository=context.github_repository,
         pull_request_number=cached_change.pr_number,
         cached_stack_comment_id=cached_change.stack_comment_id,
     )
     if comment_error is not None:
-        record_action(comment_error)
+        context.record_action(comment_error)
         return
     if comment is not None:
-        record_action(
+        context.record_action(
             CloseAction(
                 kind="stack summary comment",
                 message=(
                     f"delete stack summary comment #{comment.id} from PR "
                     f"#{cached_change.pr_number}"
                 ),
-                status="applied" if apply else "planned",
+                status="applied" if context.apply else "planned",
             )
         )
-        if apply:
-            await github_client.delete_issue_comment(
-                github_repository.owner,
-                github_repository.repo,
+        if context.apply:
+            await context.github_client.delete_issue_comment(
+                context.github_repository.owner,
+                context.github_repository.repo,
                 comment_id=comment.id,
             )
 
     if cached_change.stack_comment_id is not None or comment is not None:
-        next_changes[revision.change_id] = cached_change.model_copy(
+        context.next_changes[context.revision.change_id] = cached_change.model_copy(
             update={"stack_comment_id": None}
         )
+
+
+def _plan_review_bookmark_cleanup(
+    *,
+    bookmark: str | None,
+    bookmark_state: BookmarkState,
+    commit_id: str | None,
+    context: _CloseCleanupContext,
+) -> _BookmarkCleanupPlan:
+    """Validate bookmark ownership and decide which bookmark mutations are safe."""
+
+    if bookmark is None or not bookmark.startswith("review/"):
+        return _BookmarkCleanupPlan(local_forget=False, remote_delete=False)
+
+    local_forget = False
+    remote_delete = False
+    local_conflict = False
+    remote_conflict = False
+    local_target = bookmark_state.local_target
+
+    if len(bookmark_state.local_targets) > 1:
+        context.record_action(
+            CloseAction(
+                kind="local bookmark",
+                message=f"cannot forget local bookmark {bookmark!r} because it is conflicted",
+                status="blocked",
+            )
+        )
+        local_conflict = True
+    elif commit_id is not None and local_target is not None and local_target != commit_id:
+        context.record_action(
+            CloseAction(
+                kind="local bookmark",
+                message=(
+                    f"cannot forget local bookmark {bookmark!r} because it already points "
+                    "to a different revision"
+                ),
+                status="blocked",
+            )
+        )
+        local_conflict = True
+    elif commit_id is not None and local_target == commit_id:
+        local_forget = True
+
+    remote_state = (
+        bookmark_state.remote_target(context.remote_name)
+        if context.remote_name is not None
+        else None
+    )
+    if remote_state is not None and context.remote_name is not None and commit_id is not None:
+        if len(remote_state.targets) > 1:
+            context.record_action(
+                CloseAction(
+                    kind="remote branch",
+                    message=(
+                        f"cannot delete remote branch {bookmark}@{context.remote_name} "
+                        "because the remote bookmark is conflicted"
+                    ),
+                    status="blocked",
+                )
+            )
+            remote_conflict = True
+        elif remote_state.target != commit_id:
+            context.record_action(
+                CloseAction(
+                    kind="remote branch",
+                    message=(
+                        f"cannot delete remote branch {bookmark}@{context.remote_name} "
+                        "because it already points to a different revision"
+                    ),
+                    status="blocked",
+                )
+            )
+            remote_conflict = True
+        else:
+            remote_delete = True
+
+    if local_conflict:
+        remote_delete = False
+    if remote_conflict:
+        local_forget = False
+    return _BookmarkCleanupPlan(
+        local_forget=local_forget,
+        remote_delete=remote_delete,
+    )
+
+
+def _apply_review_bookmark_cleanup(
+    *,
+    bookmark: str | None,
+    commit_id: str | None,
+    context: _CloseCleanupContext,
+    cleanup_plan: _BookmarkCleanupPlan,
+) -> None:
+    """Record and optionally apply validated bookmark cleanup mutations."""
+
+    if bookmark is None:
+        return
+
+    if cleanup_plan.remote_delete:
+        context.record_action(
+            CloseAction(
+                kind="remote branch",
+                message=f"delete remote branch {bookmark}@{context.remote_name}",
+                status="applied" if context.apply else "planned",
+            )
+        )
+        if context.apply:
+            if context.remote_name is None or commit_id is None:
+                raise AssertionError("Planned remote branch deletion requires a target.")
+            context.jj_client.delete_remote_bookmark(
+                remote=context.remote_name,
+                bookmark=bookmark,
+                expected_remote_target=commit_id,
+            )
+
+    if cleanup_plan.local_forget:
+        context.record_action(
+            CloseAction(
+                kind="local bookmark",
+                message=f"forget local bookmark {bookmark}",
+                status="applied" if context.apply else "planned",
+            )
+        )
+        if context.apply:
+            context.jj_client.forget_bookmark(bookmark)
 
 
 async def _find_stack_summary_comment(
