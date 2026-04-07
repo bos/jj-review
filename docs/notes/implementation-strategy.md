@@ -99,6 +99,9 @@ Recent refactor slices:
   intent setup, policy warnings, and survivor-rebase planning in named phases.
 - `land` now routes preview, resume validation, and apply-mode execution
   through explicit helper phases instead of one deeply nested async path.
+- `submit` now prepares local stack inputs, resumable intent state, and
+  per-revision bookmark push plans through separate helpers before touching
+  GitHub.
 
 ## Executable Surface
 

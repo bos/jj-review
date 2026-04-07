@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from jj_review.bookmarks import (
+    BookmarkResolutionResult,
     BookmarkResolver,
     BookmarkSource,
     _discover_bookmarks_for_revisions,
@@ -56,7 +57,7 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkS
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest, GithubRepository
 from jj_review.models.intent import LoadedIntent, SubmitIntent
-from jj_review.models.stack import LocalRevision
+from jj_review.models.stack import LocalRevision, LocalStack
 from jj_review.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
 
 HELP = "Send a jj stack to GitHub for review"
@@ -160,6 +161,28 @@ class PendingStackCommentSync:
     change_id: str
     comment_body: str | None
     pull_request_number: int
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedSubmitInputs:
+    """Local submit inputs prepared before GitHub mutations begin."""
+
+    bookmark_result: BookmarkResolutionResult
+    client: JjClient
+    generated_pull_request_descriptions: dict[str, GeneratedDescription]
+    generated_stack_description: GeneratedDescription | None
+    remote: GitRemote
+    stack: LocalStack
+    state: ReviewState
+
+
+@dataclass(frozen=True, slots=True)
+class _SubmitIntentState:
+    """Prepared submit intent bookkeeping for resumable runs."""
+
+    intent: SubmitIntent
+    intent_path: Path | None
+    stale_intents: list[LoadedIntent]
 
 
 class BookmarkStateReader(Protocol):
@@ -383,25 +406,45 @@ def _render_submit_pr_suffix(
     return f" [{label} {action}]"
 
 
-async def _run_submit_async(
+def _build_submit_result(
+    *,
+    dry_run: bool,
+    remote: GitRemote,
+    revisions: tuple[SubmittedRevision, ...],
+    stack: LocalStack,
+    trunk_branch: str,
+) -> SubmitResult:
+    """Render one submit result from the shared stack context."""
+
+    return SubmitResult(
+        dry_run=dry_run,
+        remote=remote,
+        revisions=revisions,
+        selected_change_id=stack.head.change_id,
+        selected_revset=stack.selected_revset,
+        selected_subject=stack.head.subject,
+        trunk_change_id=stack.trunk.change_id,
+        trunk_branch=trunk_branch,
+        trunk_subject=stack.trunk.subject,
+    )
+
+
+def _prepare_submit_inputs(
     *,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     describe_with: str | None,
-    draft_mode: SubmitDraftMode,
     dry_run: bool,
     on_prepared: Callable[[str, str, str, bool], None] | None,
-    on_trunk_resolved: Callable[[str, str, str, bool], None] | None,
     repo_root: Path,
     revset: str | None,
-    reviewers: list[str] | None,
     state_dir: Path | None,
     state_store: ReviewStateStore,
-    team_reviewers: list[str] | None,
-) -> SubmitResult:
+) -> _PreparedSubmitInputs:
+    """Load local submit state before any GitHub mutation begins."""
+
     client = JjClient(repo_root)
-    remotes = client.list_git_remotes()
-    remote = select_submit_remote(config, remotes)
+    remote = select_submit_remote(config, client.list_git_remotes())
     if not dry_run:
         _repair_interrupted_untracked_remote_bookmarks(
             client=client,
@@ -438,6 +481,200 @@ async def _run_submit_async(
         selected_revset=stack.selected_revset,
         revisions=stack.revisions,
     )
+    return _PreparedSubmitInputs(
+        bookmark_result=bookmark_result,
+        client=client,
+        generated_pull_request_descriptions=generated_pull_request_descriptions,
+        generated_stack_description=generated_stack_description,
+        remote=remote,
+        stack=stack,
+        state=state,
+    )
+
+
+def _start_submit_intent(
+    *,
+    bookmark_result: BookmarkResolutionResult,
+    dry_run: bool,
+    stack: LocalStack,
+    state_dir: Path | None,
+) -> _SubmitIntentState:
+    """Prepare submit intent state before any remote mutation begins."""
+
+    ordered_change_ids = tuple(revision.change_id for revision in stack.revisions)
+    intent = SubmitIntent(
+        kind="submit",
+        pid=os.getpid(),
+        label=f"submit on {stack.selected_revset}",
+        display_revset=stack.selected_revset,
+        head_change_id=(
+            stack.revisions[-1].change_id if stack.revisions else stack.trunk.change_id
+        ),
+        ordered_change_ids=ordered_change_ids,
+        bookmarks={
+            revision.change_id: resolution.bookmark
+            for revision, resolution in zip(
+                stack.revisions,
+                bookmark_result.resolutions,
+                strict=True,
+            )
+        },
+        bases={},
+        started_at=datetime.now(UTC).isoformat(),
+    )
+    if dry_run:
+        stale_intents = _list_stale_submit_intents_without_waiting(
+            state_dir=state_dir,
+            intent=intent,
+        )
+        _report_stale_submit_intents(
+            ordered_change_ids=ordered_change_ids,
+            stale_intents=stale_intents,
+        )
+        return _SubmitIntentState(intent=intent, intent_path=None, stale_intents=stale_intents)
+
+    if state_dir is None:
+        raise AssertionError("Live submit requires a writable state directory.")
+    stale_intents = check_same_kind_intent(state_dir, intent)
+    _report_stale_submit_intents(
+        ordered_change_ids=ordered_change_ids,
+        stale_intents=stale_intents,
+    )
+    return _SubmitIntentState(
+        intent=intent,
+        intent_path=write_intent(state_dir, intent),
+        stale_intents=stale_intents,
+    )
+
+
+def _report_stale_submit_intents(
+    *,
+    ordered_change_ids: tuple[str, ...],
+    stale_intents: list[LoadedIntent],
+) -> None:
+    """Render resumable submit intent diagnostics for the operator."""
+
+    for loaded in stale_intents:
+        if not isinstance(loaded.intent, SubmitIntent):
+            continue
+        match = match_ordered_change_ids(loaded.intent.ordered_change_ids, ordered_change_ids)
+        if match == "exact":
+            print(f"Resuming interrupted {loaded.intent.label}")
+        elif match == "superset":
+            continue
+        elif match == "overlap":
+            print(
+                f"Warning: this submit overlaps an incomplete earlier operation "
+                f"({loaded.intent.label})"
+            )
+        else:
+            print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
+ 
+
+def _prepare_submit_revisions(
+    *,
+    bookmark_result: BookmarkResolutionResult,
+    client: JjClient,
+    dry_run: bool,
+    remote: GitRemote,
+    stack: LocalStack,
+) -> tuple[PreparedSubmitRevision, ...]:
+    """Resolve bookmark mutations and push strategy for each stack revision."""
+
+    prepared_revisions: list[PreparedSubmitRevision] = []
+    for resolution, revision in zip(
+        bookmark_result.resolutions,
+        stack.revisions,
+        strict=True,
+    ):
+        _ensure_change_is_not_unlinked(
+            cached_change=bookmark_result.state.changes.get(revision.change_id),
+            change_id=revision.change_id,
+        )
+        bookmark_state = client.get_bookmark_state(resolution.bookmark)
+        local_action = _resolve_local_action(
+            resolution.bookmark,
+            bookmark_state.local_targets,
+            revision.commit_id,
+        )
+        remote_state = bookmark_state.remote_target(remote.name)
+        _ensure_remote_can_be_updated(
+            bookmark=resolution.bookmark,
+            bookmark_source=resolution.source,
+            bookmark_state=bookmark_state,
+            change_id=revision.change_id,
+            desired_target=revision.commit_id,
+            remote=remote.name,
+            remote_state=remote_state,
+            state=bookmark_result.state,
+        )
+
+        if local_action != "unchanged" and not dry_run:
+            client.set_bookmark(resolution.bookmark, revision.commit_id)
+
+        expected_remote_target: str | None = None
+        if _remote_is_up_to_date(remote_state, revision.commit_id):
+            push_operation: PushOperation = "up_to_date"
+            remote_action: RemoteBookmarkAction = "up to date"
+        elif _should_update_untracked_remote_with_git(remote_state, revision.commit_id):
+            if remote_state is None:
+                raise AssertionError("Checked remote bookmark state must exist.")
+            expected_remote_target = remote_state.target
+            if expected_remote_target is None:
+                raise AssertionError("Checked remote target must be unambiguous.")
+            push_operation = "git_update"
+            remote_action = "pushed"
+        else:
+            push_operation = "batch"
+            remote_action = "pushed"
+
+        prepared_revisions.append(
+            PreparedSubmitRevision(
+                bookmark=resolution.bookmark,
+                bookmark_source=resolution.source,
+                change_id=revision.change_id,
+                expected_remote_target=expected_remote_target,
+                local_action=local_action,
+                push_operation=push_operation,
+                remote_action=remote_action,
+                revision=revision,
+            )
+        )
+    return tuple(prepared_revisions)
+
+
+async def _run_submit_async(
+    *,
+    change_overrides: dict[str, ChangeConfig],
+    config: RepoConfig,
+    describe_with: str | None,
+    draft_mode: SubmitDraftMode,
+    dry_run: bool,
+    on_prepared: Callable[[str, str, str, bool], None] | None,
+    on_trunk_resolved: Callable[[str, str, str, bool], None] | None,
+    repo_root: Path,
+    revset: str | None,
+    reviewers: list[str] | None,
+    state_dir: Path | None,
+    state_store: ReviewStateStore,
+    team_reviewers: list[str] | None,
+) -> SubmitResult:
+    prepared_inputs = _prepare_submit_inputs(
+        change_overrides=change_overrides,
+        config=config,
+        describe_with=describe_with,
+        dry_run=dry_run,
+        on_prepared=on_prepared,
+        repo_root=repo_root,
+        revset=revset,
+        state_dir=state_dir,
+        state_store=state_store,
+    )
+    client = prepared_inputs.client
+    remote = prepared_inputs.remote
+    stack = prepared_inputs.stack
+    bookmark_result = prepared_inputs.bookmark_result
+    state = prepared_inputs.state
 
     if not stack.revisions:
         if bookmark_result.changed and not dry_run:
@@ -458,16 +695,12 @@ async def _run_submit_async(
                 trunk_branch or stack.trunk.subject,
                 False,
             )
-        return SubmitResult(
+        return _build_submit_result(
             dry_run=dry_run,
             remote=remote,
             revisions=(),
-            selected_change_id=stack.head.change_id,
-            selected_revset=stack.selected_revset,
-            selected_subject=stack.head.subject,
-            trunk_change_id=stack.trunk.change_id,
+            stack=stack,
             trunk_branch=trunk_branch or stack.trunk.subject,
-            trunk_subject=stack.trunk.subject,
         )
 
     github_repository = resolve_github_repository(config, remote)
@@ -476,58 +709,12 @@ async def _run_submit_async(
         config.team_reviewers if team_reviewers is None else team_reviewers
     )
     state_changes = dict(bookmark_result.state.changes)
-
-    # Build the intent before any mutation, using info already in hand
-    ordered_change_ids = tuple(r.change_id for r in stack.revisions)
-    bookmarks_map = {
-        r.change_id: res.bookmark
-        for r, res in zip(stack.revisions, bookmark_result.resolutions, strict=True)
-    }
-    intent = SubmitIntent(
-        kind="submit",
-        pid=os.getpid(),
-        label=f"submit on {stack.selected_revset}",
-        display_revset=stack.selected_revset,
-        head_change_id=(
-            stack.revisions[-1].change_id if stack.revisions else stack.trunk.change_id
-        ),
-        ordered_change_ids=ordered_change_ids,
-        bookmarks=bookmarks_map,
-        bases={},
-        started_at=datetime.now(UTC).isoformat(),
+    intent_state = _start_submit_intent(
+        bookmark_result=bookmark_result,
+        dry_run=dry_run,
+        stack=stack,
+        state_dir=state_dir,
     )
-    stale_intents = []
-    intent_path: Path | None = None
-    if dry_run:
-        stale_intents = _list_stale_submit_intents_without_waiting(
-            state_dir=state_dir,
-            intent=intent,
-        )
-    else:
-        if state_dir is None:
-            raise AssertionError("Live submit requires a writable state directory.")
-        stale_intents = check_same_kind_intent(state_dir, intent)
-
-    for loaded in stale_intents:
-        if not isinstance(loaded.intent, SubmitIntent):
-            continue
-        match = match_ordered_change_ids(loaded.intent.ordered_change_ids, ordered_change_ids)
-        if match == "exact":
-            print(f"Resuming interrupted {loaded.intent.label}")
-        elif match == "superset":
-            pass  # proceed silently, retire on success
-        elif match == "overlap":
-            print(
-                f"Warning: this submit overlaps an incomplete earlier operation "
-                f"({loaded.intent.label})"
-            )
-        else:
-            print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
-
-    if not dry_run:
-        if state_dir is None:
-            raise AssertionError("Live submit requires a writable state directory.")
-        intent_path = write_intent(state_dir, intent)
 
     succeeded = False
     submitted_revisions: tuple[SubmittedRevision, ...] = ()
@@ -559,70 +746,18 @@ async def _run_submit_async(
                     True,
                 )
 
-            prepared_revisions: list[PreparedSubmitRevision] = []
-            for resolution, revision in zip(
-                bookmark_result.resolutions,
-                stack.revisions,
-                strict=True,
-            ):
-                _ensure_change_is_not_unlinked(
-                    cached_change=bookmark_result.state.changes.get(revision.change_id),
-                    change_id=revision.change_id,
-                )
-                bookmark_state = client.get_bookmark_state(resolution.bookmark)
-                local_action = _resolve_local_action(
-                    resolution.bookmark,
-                    bookmark_state.local_targets,
-                    revision.commit_id,
-                )
-                remote_state = bookmark_state.remote_target(remote.name)
-                _ensure_remote_can_be_updated(
-                    bookmark=resolution.bookmark,
-                    bookmark_source=resolution.source,
-                    bookmark_state=bookmark_state,
-                    change_id=revision.change_id,
-                    desired_target=revision.commit_id,
-                    remote=remote.name,
-                    remote_state=remote_state,
-                    state=bookmark_result.state,
-                )
-
-                if local_action != "unchanged" and not dry_run:
-                    client.set_bookmark(resolution.bookmark, revision.commit_id)
-
-                expected_remote_target: str | None = None
-                if _remote_is_up_to_date(remote_state, revision.commit_id):
-                    push_operation: PushOperation = "up_to_date"
-                    remote_action: RemoteBookmarkAction = "up to date"
-                elif _should_update_untracked_remote_with_git(remote_state, revision.commit_id):
-                    if remote_state is None:
-                        raise AssertionError("Checked remote bookmark state must exist.")
-                    expected_remote_target = remote_state.target
-                    if expected_remote_target is None:
-                        raise AssertionError("Checked remote target must be unambiguous.")
-                    push_operation = "git_update"
-                    remote_action = "pushed"
-                else:
-                    push_operation = "batch"
-                    remote_action = "pushed"
-
-                prepared_revisions.append(
-                    PreparedSubmitRevision(
-                        bookmark=resolution.bookmark,
-                        bookmark_source=resolution.source,
-                        change_id=revision.change_id,
-                        expected_remote_target=expected_remote_target,
-                        local_action=local_action,
-                        push_operation=push_operation,
-                        remote_action=remote_action,
-                        revision=revision,
-                    )
-                )
+            prepared_revisions = _prepare_submit_revisions(
+                bookmark_result=bookmark_result,
+                client=client,
+                dry_run=dry_run,
+                remote=remote,
+                stack=stack,
+            )
 
             _sync_remote_bookmarks(
                 client=client,
                 dry_run=dry_run,
-                prepared_revisions=tuple(prepared_revisions),
+                prepared_revisions=prepared_revisions,
                 remote=remote,
             )
             submitted_revisions = await _sync_pull_requests(
@@ -630,7 +765,7 @@ async def _run_submit_async(
                 dry_run=dry_run,
                 github_client=github_client,
                 github_repository=github_repository,
-                prepared_revisions=tuple(prepared_revisions),
+                prepared_revisions=prepared_revisions,
                 discovered_pull_requests=discovered_pull_requests,
                 labels=config.labels,
                 reviewers=resolved_reviewers,
@@ -639,12 +774,12 @@ async def _run_submit_async(
                 state_store=state_store,
                 team_reviewers=resolved_team_reviewers,
                 trunk_branch=trunk_branch,
-                generated_descriptions=generated_pull_request_descriptions,
+                generated_descriptions=prepared_inputs.generated_pull_request_descriptions,
             )
 
             await _sync_stack_comments(
                 dry_run=dry_run,
-                generated_stack_description=generated_stack_description,
+                generated_stack_description=prepared_inputs.generated_stack_description,
                 github_client=github_client,
                 github_repository=github_repository,
                 revisions=submitted_revisions,
@@ -660,21 +795,17 @@ async def _run_submit_async(
                 state_store.save(next_state)
 
         succeeded = True
-        return SubmitResult(
+        return _build_submit_result(
             dry_run=dry_run,
             remote=remote,
             revisions=submitted_revisions,
-            selected_change_id=stack.head.change_id,
-            selected_revset=stack.selected_revset,
-            selected_subject=stack.head.subject,
-            trunk_change_id=stack.trunk.change_id,
+            stack=stack,
             trunk_branch=trunk_branch,
-            trunk_subject=stack.trunk.subject,
         )
     finally:
-        if succeeded and intent_path is not None:
-            retire_superseded_intents(stale_intents, intent)
-            delete_intent(intent_path)
+        if succeeded and intent_state.intent_path is not None:
+            retire_superseded_intents(intent_state.stale_intents, intent_state.intent)
+            delete_intent(intent_state.intent_path)
 
 
 def _list_stale_submit_intents_without_waiting(
