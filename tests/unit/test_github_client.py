@@ -375,6 +375,65 @@ def test_github_client_batches_pull_request_lookup_by_head_ref_with_graphql() ->
     )
 
 
+def test_github_client_batches_review_decision_lookup_with_graphql() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/graphql"
+        payload = json.loads(request.content.decode("utf-8"))
+        assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-review"}
+        assert "pr_7: pullRequest(number: 7)" in payload["query"]
+        assert "pr_9: pullRequest(number: 9)" in payload["query"]
+        assert "latestOpinionatedReviews" in payload["query"]
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "repository": {
+                        "pr_7": {
+                            "latestOpinionatedReviews": {
+                                "nodes": [
+                                    {
+                                        "author": {"login": "reviewer-1"},
+                                        "state": "APPROVED",
+                                    },
+                                    {
+                                        "author": {"login": "reviewer-2"},
+                                        "state": "CHANGES_REQUESTED",
+                                    },
+                                ]
+                            }
+                        },
+                        "pr_9": {
+                            "latestOpinionatedReviews": {
+                                "nodes": [
+                                    {
+                                        "author": {"login": "reviewer-3"},
+                                        "state": "DISMISSED",
+                                    }
+                                ]
+                            }
+                        },
+                    }
+                }
+            },
+            request=request,
+        )
+
+    async def run_test() -> tuple[str | None, str | None]:
+        transport = httpx.MockTransport(handler)
+        async with GithubClient(
+            base_url="https://api.github.test",
+            transport=transport,
+        ) as client:
+            decisions = await client.get_review_decisions_by_pull_request_numbers(
+                "octo-org",
+                "stacked-review",
+                pull_numbers=(7, 9),
+            )
+        return decisions[7], decisions[9]
+
+    assert asyncio.run(run_test()) == ("changes_requested", None)
+
+
 def test_github_client_closes_pull_request_via_issue_api() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.method == "PATCH"

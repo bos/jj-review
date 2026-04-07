@@ -193,6 +193,39 @@ class GithubClient:
                 )
         return results
 
+    async def get_review_decisions_by_pull_request_numbers(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        pull_numbers: Sequence[int],
+    ) -> dict[int, str | None]:
+        numbers = sorted(set(pull_numbers))
+        if not numbers:
+            return {}
+
+        results: dict[int, str | None] = {}
+        for chunk in _chunked(numbers, size=_GRAPHQL_PULL_REQUEST_BATCH_SIZE):
+            query = _pull_request_review_decisions_query(chunk)
+            payload = await self._graphql_query(
+                query,
+                variables={"owner": owner, "repo": repo},
+                response_name="pull request review decision lookup",
+            )
+            repository = _graphql_repository_payload(
+                payload,
+                response_name="pull request review decision lookup",
+            )
+            for number in chunk:
+                alias = _pull_request_alias(number)
+                raw_pull_request = repository.get(alias)
+                results[number] = _review_decision_from_graphql(
+                    alias=alias,
+                    raw_pull_request=raw_pull_request,
+                    response_name="pull request review decision lookup",
+                )
+        return results
+
     async def create_pull_request(
         self,
         owner: str,
@@ -666,6 +699,31 @@ def _pull_requests_by_head_ref_query(aliases: dict[str, str]) -> str:
     )
 
 
+def _pull_request_review_decisions_query(numbers: Sequence[int]) -> str:
+    selections = "\n".join(
+        (
+            f"      {_pull_request_alias(number)}: pullRequest(number: {number}) {{\n"
+            "        latestOpinionatedReviews(first: 100) {\n"
+            "          nodes {\n"
+            "            state\n"
+            "            author {\n"
+            "              login\n"
+            "            }\n"
+            "          }\n"
+            "        }\n"
+            "      }"
+        )
+        for number in numbers
+    )
+    return (
+        "query PullRequestReviewDecisions($owner: String!, $repo: String!) {\n"
+        "  repository(owner: $owner, name: $repo) {\n"
+        f"{selections}\n"
+        "  }\n"
+        "}\n"
+    )
+
+
 def _mark_pull_request_ready_for_review_mutation() -> str:
     return (
         "mutation MarkPullRequestReadyForReview($pullRequestId: ID!) {\n"
@@ -790,3 +848,72 @@ def _pull_request_connection_from_graphql(
             continue
         pull_requests.append(pull_request)
     return tuple(pull_requests)
+
+
+def _review_decision_from_graphql(
+    *,
+    alias: str,
+    raw_pull_request: object,
+    response_name: str,
+) -> str | None:
+    if raw_pull_request is None:
+        return None
+    if not isinstance(raw_pull_request, dict):
+        raise GithubClientError(
+            f"GitHub {response_name} response had invalid pull request payload for {alias!r}."
+        )
+    raw_latest_reviews = raw_pull_request.get("latestOpinionatedReviews")
+    if raw_latest_reviews is None:
+        return None
+    if not isinstance(raw_latest_reviews, dict):
+        raise GithubClientError(
+            f"GitHub {response_name} response had invalid latest reviews payload for {alias!r}."
+        )
+    raw_nodes = raw_latest_reviews.get("nodes")
+    if raw_nodes is None:
+        return None
+    if not isinstance(raw_nodes, list):
+        raise GithubClientError(
+            f"GitHub {response_name} response had invalid review node payload for {alias!r}."
+        )
+
+    review_states: set[str] = set()
+    for raw_node in raw_nodes:
+        if not isinstance(raw_node, dict):
+            raise GithubClientError(
+                f"GitHub {response_name} response had invalid review payload for {alias!r}."
+            )
+        if not _graphql_review_author_has_login(raw_node.get("author")):
+            continue
+        raw_state = raw_node.get("state")
+        if not isinstance(raw_state, str):
+            raise GithubClientError(
+                f"GitHub {response_name} response had invalid review state for {alias!r}."
+            )
+        normalized_state = raw_state.upper()
+        if normalized_state not in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}:
+            continue
+        review_states.add(normalized_state)
+
+    if "CHANGES_REQUESTED" in review_states:
+        return "changes_requested"
+    if "APPROVED" in review_states:
+        return "approved"
+    return None
+
+
+def _graphql_review_author_has_login(raw_author: object) -> bool:
+    if raw_author is None:
+        return False
+    if not isinstance(raw_author, dict):
+        raise GithubClientError(
+            "GitHub pull request review decision lookup response had invalid author data."
+        )
+    raw_login = raw_author.get("login")
+    if raw_login is None:
+        return False
+    if not isinstance(raw_login, str):
+        raise GithubClientError(
+            "GitHub pull request review decision lookup response had invalid author login."
+        )
+    return True

@@ -157,26 +157,33 @@ def test_status_limits_concurrent_github_lookups(
     app = create_app(FakeGithubState.single_repository(fake_repo))
     max_in_flight = 0
     in_flight = 0
+    batch_calls: list[tuple[str, ...]] = []
 
     class TrackingGithubClient(GithubClient):
-        async def list_pull_requests(
+        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
+            batch_calls.append(tuple(head_refs))
+            return await super().get_pull_requests_by_head_refs(
+                owner,
+                repo,
+                head_refs=head_refs,
+            )
+
+        async def list_issue_comments(
             self,
             owner: str,
             repo: str,
             *,
-            head: str,
-            state: str = "all",
-        ) -> tuple:
+            issue_number: int,
+        ):
             nonlocal in_flight, max_in_flight
             in_flight += 1
             max_in_flight = max(max_in_flight, in_flight)
             try:
                 await asyncio.sleep(0.02)
-                return await super().list_pull_requests(
+                return await super().list_issue_comments(
                     owner,
                     repo,
-                    head=head,
-                    state=state,
+                    issue_number=issue_number,
                 )
             finally:
                 in_flight -= 1
@@ -193,7 +200,111 @@ def test_status_limits_concurrent_github_lookups(
     capsys.readouterr()
 
     assert exit_code == 0
+    assert len(batch_calls) == 1
     assert max_in_flight == 2
+
+
+def test_status_batches_pull_request_discovery_with_graphql(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    for index in range(4):
+        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+    batch_calls: list[tuple[str, ...]] = []
+
+    class TrackingGithubClient(GithubClient):
+        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
+            batch_calls.append(tuple(head_refs))
+            return await super().get_pull_requests_by_head_refs(
+                owner,
+                repo,
+                head_refs=head_refs,
+            )
+
+        async def list_pull_requests(self, owner, repo, *, head, state="all"):
+            raise AssertionError("status should batch pull request discovery")
+
+    _patch_github_client_builders(
+        monkeypatch,
+        app=app,
+        modules=("jj_review.review_inspection",),
+        client_type=TrackingGithubClient,
+    )
+
+    exit_code = _main(repo, config_path, "status")
+    capsys.readouterr()
+    state = ReviewStateStore.for_repo(repo).load()
+
+    assert exit_code == 0
+    assert len(batch_calls) == 1
+    assert set(batch_calls[0]) == {
+        change.bookmark for change in state.changes.values() if change.bookmark is not None
+    }
+
+
+def test_status_batches_review_decision_lookup_with_graphql(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    for index in range(2):
+        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+    fake_repo.create_pull_request_review(
+        pull_number=1,
+        reviewer_login="reviewer-1",
+        state="APPROVED",
+    )
+    fake_repo.create_pull_request_review(
+        pull_number=2,
+        reviewer_login="reviewer-2",
+        state="CHANGES_REQUESTED",
+    )
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+    batch_calls: list[tuple[int, ...]] = []
+
+    class TrackingGithubClient(GithubClient):
+        async def get_review_decisions_by_pull_request_numbers(
+            self, owner, repo, *, pull_numbers
+        ):
+            batch_calls.append(tuple(pull_numbers))
+            return await super().get_review_decisions_by_pull_request_numbers(
+                owner,
+                repo,
+                pull_numbers=pull_numbers,
+            )
+
+        async def list_pull_request_reviews(self, owner, repo, *, pull_number):
+            raise AssertionError("status should batch review decision lookup")
+
+    _patch_github_client_builders(
+        monkeypatch,
+        app=app,
+        modules=("jj_review.review_inspection",),
+        client_type=TrackingGithubClient,
+    )
+
+    exit_code = _main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert len(batch_calls) == 1
+    assert set(batch_calls[0]) == {1, 2}
+    assert ": PR #2 changes requested" in captured.out
+    assert ": PR #1 approved" in captured.out
 
 def test_status_preserves_remote_observations_when_github_lookup_fails(
     tmp_path: Path,
@@ -210,14 +321,7 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
     app = create_app(FakeGithubState.single_repository(fake_repo))
 
     class FailingPullRequestLookupClient(GithubClient):
-        async def list_pull_requests(
-            self,
-            owner: str,
-            repo: str,
-            *,
-            head: str,
-            state: str = "all",
-        ):
+        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
             raise GithubClientError(
                 'GitHub request failed: 404 {"message":"Not Found","documentation_url":"x"}',
                 status_code=404,
@@ -254,14 +358,7 @@ def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
     app = create_app(FakeGithubState.single_repository(fake_repo))
 
     class OfflineGithubClient(GithubClient):
-        async def list_pull_requests(
-            self,
-            owner: str,
-            repo: str,
-            *,
-            head: str,
-            state: str = "all",
-        ):
+        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
             raise GithubClientError("Connection refused")
 
     _patch_github_client_builders(
@@ -331,14 +428,7 @@ def test_status_exits_nonzero_when_pull_request_lookup_fails(
     app = create_app(FakeGithubState.single_repository(fake_repo))
 
     class FailingPullRequestLookupClient(GithubClient):
-        async def list_pull_requests(
-            self,
-            owner: str,
-            repo: str,
-            *,
-            head: str,
-            state: str = "all",
-        ) -> tuple:
+        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
             raise GithubClientError(
                 'GitHub request failed: 422 {"message":"Validation Failed"}',
                 status_code=422,
@@ -540,14 +630,7 @@ def test_status_uses_cached_pull_request_metadata_after_prior_online_run(
     app = create_app(FakeGithubState.single_repository(fake_repo))
 
     class OfflineGithubClient(GithubClient):
-        async def list_pull_requests(
-            self,
-            owner: str,
-            repo: str,
-            *,
-            head: str,
-            state: str = "all",
-        ):
+        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
             raise GithubClientError("Connection refused")
 
     _patch_github_client_builders(
@@ -717,12 +800,8 @@ def test_status_preserves_cached_review_decision_when_review_lookup_fails(
     app = create_app(FakeGithubState.single_repository(fake_repo))
 
     class FailingReviewLookupClient(GithubClient):
-        async def list_pull_request_reviews(
-            self,
-            owner: str,
-            repo: str,
-            *,
-            pull_number: int,
+        async def get_review_decisions_by_pull_request_numbers(
+            self, owner, repo, *, pull_numbers
         ):
             raise GithubClientError("Connection refused")
 

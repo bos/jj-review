@@ -824,9 +824,13 @@ Implemented in the first vertical cut:
   printed lines with elapsed time from process start
 - `status` now inspects per-change GitHub PR link with bounded concurrency on
   one shared client with bounded concurrency
+- `status` now batches initial PR discovery by known head branch through the
+  GitHub GraphQL lookup path instead of issuing one REST list call per change
 - `status` now derives repo-level GitHub availability from the first real PR
   lookup instead of blocking on a separate repository probe before streaming
   output
+- local-only and fallback `status` rendering now batches bookmark-state reads
+  into one `jj bookmark list` call instead of reloading one bookmark at a time
 - `status` now also supports `--fetch` / `-f` to refresh remote bookmark
   observations first when the user wants a freshly fetched view before live
   GitHub inspection
@@ -842,6 +846,8 @@ Implemented in the first vertical cut:
 - `status` now also distinguishes merged PRs from merely closed ones and
   derives a lightweight review decision for open PRs from GitHub reviews so
   the stack summary can show approval and change-request state
+- `status` now batches that review-decision lookup across open PRs through the
+  GitHub GraphQL path instead of issuing one review-list request per PR
 - `status` now treats ambiguous GitHub PR link and ambiguous stack summary
   comments as incomplete inspection, so the command exits non-zero instead of
   presenting those cases as healthy output

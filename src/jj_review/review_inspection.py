@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -452,6 +452,9 @@ def _prepare_stack(
 def _build_status_revisions_without_github(
     prepared: _PreparedStack,
 ) -> tuple[ReviewStatusRevision, ...]:
+    bookmark_states = prepared.client.list_bookmark_states(
+        tuple(revision.bookmark for revision in prepared.status_revisions)
+    )
     return tuple(
         ReviewStatusRevision(
             bookmark=revision.bookmark,
@@ -467,7 +470,10 @@ def _build_status_revisions_without_github(
             local_divergent=getattr(revision.revision, "divergent", False),
             pull_request_lookup=None,
             remote_state=(
-                prepared.client.get_bookmark_state(revision.bookmark).remote_target(
+                bookmark_states.get(
+                    revision.bookmark,
+                    BookmarkState(name=revision.bookmark),
+                ).remote_target(
                     prepared.remote.name
                 )
                 if prepared.remote is not None
@@ -611,17 +617,23 @@ async def _iter_status_revisions_with_github(
     on_github_status: Callable[[str | None], None] | None,
     prepared: _PreparedStack,
 ) -> AsyncIterator[ReviewStatusRevision]:
+    ordered_prepared_revisions = tuple(reversed(prepared.status_revisions))
     bookmark_states = prepared.client.list_bookmark_states(
-        [revision.bookmark for revision in prepared.status_revisions]
+        tuple(revision.bookmark for revision in ordered_prepared_revisions)
     )
-    status_revisions = tuple(reversed(prepared.status_revisions))
-    github_status_result: asyncio.Future[str | None] = asyncio.get_running_loop().create_future()
-
-    def observe_github_status(github_error: str | None) -> None:
-        if not github_status_result.done():
-            github_status_result.set_result(github_error)
-
     async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+        pull_request_lookups = await _discover_pull_request_lookups(
+            github_client=github_client,
+            github_repository=github_repository,
+            prepared_revisions=ordered_prepared_revisions,
+        )
+        pull_request_lookups = await _attach_review_decisions_to_pull_request_lookups(
+            github_client=github_client,
+            github_repository=github_repository,
+            pull_request_lookups=pull_request_lookups,
+        )
+        if on_github_status is not None:
+            on_github_status(None)
         semaphore = asyncio.Semaphore(_GITHUB_INSPECTION_CONCURRENCY)
         tasks = tuple(
             asyncio.create_task(
@@ -629,49 +641,17 @@ async def _iter_status_revisions_with_github(
                     bookmark_states=bookmark_states,
                     github_client=github_client,
                     github_repository=github_repository,
-                    on_github_status=observe_github_status,
                     prepared=prepared,
                     prepared_revision=prepared_revision,
+                    pull_request_lookup=pull_request_lookups[prepared_revision.bookmark],
                     semaphore=semaphore,
                 )
             )
-            for prepared_revision in status_revisions
+            for prepared_revision in ordered_prepared_revisions
         )
         try:
-            github_status_reported = False
             for task in tasks:
-                while True:
-                    if not github_status_reported:
-                        done, _ = await asyncio.wait(
-                            (task, github_status_result),
-                            return_when=asyncio.FIRST_COMPLETED,
-                        )
-                        if github_status_result in done:
-                            github_status_reported = True
-                            github_error = github_status_result.result()
-                            if on_github_status is not None:
-                                on_github_status(github_error)
-                            if github_error is not None:
-                                raise CliError(github_error)
-                            if task in done:
-                                break
-                            continue
-                    else:
-                        done, _ = await asyncio.wait(
-                            (task,),
-                            return_when=asyncio.FIRST_COMPLETED,
-                        )
-                    if task in done:
-                        break
                 yield await task
-            if not github_status_reported:
-                github_error = None
-                if github_status_result.done():
-                    github_error = github_status_result.result()
-                if on_github_status is not None:
-                    on_github_status(github_error)
-                if github_error is not None:
-                    raise CliError(github_error)
         finally:
             for task in tasks:
                 if not task.done():
@@ -684,9 +664,9 @@ async def _inspect_revision_with_github(
     bookmark_states: dict[str, BookmarkState],
     github_client: GithubClient,
     github_repository,
-    on_github_status: Callable[[str | None], None] | None,
     prepared: _PreparedStack,
     prepared_revision: _PreparedRevision,
+    pull_request_lookup: PullRequestLookup,
     semaphore: asyncio.Semaphore,
 ) -> ReviewStatusRevision:
     async with semaphore:
@@ -699,14 +679,6 @@ async def _inspect_revision_with_github(
             if prepared.remote
             else None
         )
-        head_label = f"{github_repository.owner}:{prepared_revision.bookmark}"
-        pull_request_lookup = await _inspect_pull_request(
-            github_client=github_client,
-            github_repository=github_repository,
-            head_label=head_label,
-        )
-        if on_github_status is not None:
-            on_github_status(pull_request_lookup.repository_error)
         stack_comment_lookup: StackCommentLookup | None = None
         if pull_request_lookup.state == "open":
             pull_request = pull_request_lookup.pull_request
@@ -742,31 +714,102 @@ async def _inspect_revision_with_github(
         )
 
 
-async def _inspect_pull_request(
+async def _discover_pull_request_lookups(
     *,
     github_client: GithubClient,
     github_repository,
-    head_label: str,
-) -> PullRequestLookup:
+    prepared_revisions: tuple[_PreparedRevision, ...],
+) -> dict[str, PullRequestLookup]:
+    bookmarks = tuple(prepared_revision.bookmark for prepared_revision in prepared_revisions)
+    if not bookmarks:
+        return {}
+
     try:
-        pull_requests = await github_client.list_pull_requests(
+        discovered_pull_requests = await github_client.get_pull_requests_by_head_refs(
             github_repository.owner,
             github_repository.repo,
-            head=head_label,
+            head_refs=bookmarks,
         )
     except GithubClientError as error:
-        return PullRequestLookup(
-            message=_summarize_github_lookup_error(
-                action="pull request lookup",
-                error=error,
-            ),
-            pull_request=None,
-            repository_error=_summarize_github_repository_error(error)
-            if _is_repository_level_github_lookup_error(error)
-            else None,
-            state="error",
+        if _is_repository_level_github_lookup_error(error):
+            raise CliError(_summarize_github_repository_error(error)) from error
+        lookup_error = _summarize_github_lookup_error(
+            action="pull request lookup",
+            error=error,
         )
+        return {
+            bookmark: PullRequestLookup(
+                message=lookup_error,
+                pull_request=None,
+                repository_error=None,
+                state="error",
+            )
+            for bookmark in bookmarks
+        }
 
+    return {
+        bookmark: _pull_request_lookup_from_discovered(
+            head_label=f"{github_repository.owner}:{bookmark}",
+            pull_requests=discovered_pull_requests.get(bookmark, ()),
+        )
+        for bookmark in bookmarks
+    }
+
+
+async def _attach_review_decisions_to_pull_request_lookups(
+    *,
+    github_client: GithubClient,
+    github_repository,
+    pull_request_lookups: dict[str, PullRequestLookup],
+) -> dict[str, PullRequestLookup]:
+    open_pull_requests = {
+        bookmark: lookup.pull_request
+        for bookmark, lookup in pull_request_lookups.items()
+        if lookup.state == "open" and lookup.pull_request is not None
+    }
+    if not open_pull_requests:
+        return pull_request_lookups
+
+    try:
+        review_decisions = await github_client.get_review_decisions_by_pull_request_numbers(
+            github_repository.owner,
+            github_repository.repo,
+            pull_numbers=tuple(
+                pull_request.number for pull_request in open_pull_requests.values()
+            ),
+        )
+    except GithubClientError:
+        return {
+            bookmark: (
+                replace(lookup, review_decision_error="review decision lookup failed")
+                if bookmark in open_pull_requests
+                else lookup
+            )
+            for bookmark, lookup in pull_request_lookups.items()
+        }
+
+    return {
+        bookmark: (
+            replace(
+                lookup,
+                review_decision=review_decisions.get(pull_request.number),
+                review_decision_error=None,
+            )
+            if (
+                lookup.state == "open"
+                and (pull_request := lookup.pull_request) is not None
+            )
+            else lookup
+        )
+        for bookmark, lookup in pull_request_lookups.items()
+    }
+
+
+def _pull_request_lookup_from_discovered(
+    *,
+    head_label: str,
+    pull_requests: tuple[GithubPullRequest, ...],
+) -> PullRequestLookup:
     if not pull_requests:
         return PullRequestLookup(
             message=None,
@@ -799,16 +842,11 @@ async def _inspect_pull_request(
             repository_error=None,
             state="closed",
         )
-    review_decision, review_decision_error = await _inspect_pull_request_review_decision(
-        github_client=github_client,
-        github_repository=github_repository,
-        pull_request_number=effective_pull_request.number,
-    )
     return PullRequestLookup(
         message=None,
         pull_request=effective_pull_request,
-        review_decision=review_decision,
-        review_decision_error=review_decision_error,
+        review_decision=None,
+        review_decision_error=None,
         repository_error=None,
         state="open",
     )
@@ -818,39 +856,6 @@ def _normalize_pull_request_state(pull_request: GithubPullRequest) -> GithubPull
     if pull_request.state != "closed" or pull_request.merged_at is None:
         return pull_request
     return pull_request.model_copy(update={"state": "merged"})
-
-
-async def _inspect_pull_request_review_decision(
-    *,
-    github_client: GithubClient,
-    github_repository,
-    pull_request_number: int,
-) -> tuple[str | None, str | None]:
-    try:
-        reviews = await github_client.list_pull_request_reviews(
-            github_repository.owner,
-            github_repository.repo,
-            pull_number=pull_request_number,
-        )
-    except GithubClientError:
-        return None, "review decision lookup failed"
-
-    latest_relevant_reviews_by_user: dict[str, str] = {}
-    for review in reviews:
-        if review.user is None:
-            continue
-        normalized_state = review.state.upper()
-        if normalized_state not in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}:
-            continue
-        latest_relevant_reviews_by_user[review.user.login] = normalized_state
-
-    review_states = set(latest_relevant_reviews_by_user.values())
-    if "CHANGES_REQUESTED" in review_states:
-        return "changes_requested", None
-    if "APPROVED" in review_states:
-        return "approved", None
-    return None, None
-
 
 async def _inspect_stack_comment(
     *,

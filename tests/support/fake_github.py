@@ -87,6 +87,12 @@ class FakeGithubPullRequestReview:
             "user": {"login": self.reviewer_login},
         }
 
+    def to_graphql_payload(self) -> dict[str, object]:
+        return {
+            "author": {"login": self.reviewer_login},
+            "state": self.state,
+        }
+
 
 @dataclass(slots=True)
 class FakeGithubIssueComment:
@@ -736,6 +742,9 @@ _HEAD_REF_QUERY_PATTERN = re.compile(
     r"(?m)^\s*(?P<alias>\w+):\s*pullRequests\([^)]*headRefName:\s*"
     r'(?P<head_ref>"(?:\\.|[^"])*")[^)]*\)\s*\{'
 )
+_PULL_REQUEST_NUMBER_QUERY_PATTERN = re.compile(
+    r"(?m)^\s*(?P<alias>\w+):\s*pullRequest\(number:\s*(?P<number>\d+)\)\s*\{"
+)
 
 
 def _graphql_repository_payload(
@@ -745,26 +754,49 @@ def _graphql_repository_payload(
     web_origin: str,
 ) -> dict[str, object]:
     head_ref_matches = list(_HEAD_REF_QUERY_PATTERN.finditer(query))
-    if not head_ref_matches:
+    if head_ref_matches:
+        payload: dict[str, object] = {}
+        for match in head_ref_matches:
+            alias = match.group("alias")
+            head_ref = json.loads(match.group("head_ref"))
+            matching_pull_requests = [
+                _graphql_pull_request_payload(
+                    pull_request=pull_request,
+                    repository=repository,
+                    web_origin=web_origin,
+                )
+                for pull_request in sorted(
+                    repository.pull_requests.values(),
+                    key=lambda candidate: candidate.number,
+                )
+                if pull_request.head_ref == head_ref
+            ]
+            payload[alias] = {"nodes": matching_pull_requests[:2]}
+        return payload
+
+    pull_request_number_matches = list(_PULL_REQUEST_NUMBER_QUERY_PATTERN.finditer(query))
+    if not pull_request_number_matches:
         raise HTTPException(status_code=422, detail="Unsupported GraphQL query.")
 
     payload: dict[str, object] = {}
-    for match in head_ref_matches:
+    include_latest_opinionated_reviews = "latestOpinionatedReviews" in query
+    for match in pull_request_number_matches:
         alias = match.group("alias")
-        head_ref = json.loads(match.group("head_ref"))
-        matching_pull_requests = [
-            _graphql_pull_request_payload(
-                pull_request=pull_request,
-                repository=repository,
-                web_origin=web_origin,
-            )
-            for pull_request in sorted(
-                repository.pull_requests.values(),
-                key=lambda candidate: candidate.number,
-            )
-            if pull_request.head_ref == head_ref
-        ]
-        payload[alias] = {"nodes": matching_pull_requests[:2]}
+        pull_number = int(match.group("number"))
+        pull_request = repository.pull_requests.get(pull_number)
+        if pull_request is None:
+            payload[alias] = None
+            continue
+        graphql_payload = _graphql_pull_request_payload(
+            pull_request=pull_request,
+            repository=repository,
+            web_origin=web_origin,
+        )
+        if include_latest_opinionated_reviews:
+            graphql_payload["latestOpinionatedReviews"] = {
+                "nodes": _latest_opinionated_review_payloads(repository, pull_number)
+            }
+        payload[alias] = graphql_payload
     return payload
 
 
@@ -779,3 +811,22 @@ def _graphql_pull_request_payload(
         repository=repository,
         web_origin=web_origin,
     )
+
+
+def _latest_opinionated_review_payloads(
+    repository: FakeGithubRepository,
+    pull_number: int,
+) -> list[dict[str, object]]:
+    latest_by_reviewer: dict[str, FakeGithubPullRequestReview] = {}
+    reviews = sorted(
+        repository.list_pull_request_reviews(pull_number),
+        key=lambda item: item.id,
+    )
+    for review in reviews:
+        if review.state not in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}:
+            continue
+        latest_by_reviewer[review.reviewer_login] = review
+    return [
+        review.to_graphql_payload()
+        for review in sorted(latest_by_reviewer.values(), key=lambda item: item.id)
+    ]
