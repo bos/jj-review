@@ -12,21 +12,21 @@ GitHub PR stack up to date.
 
 ## Why you might want this
 
-GitHub pull requests are okay when your work fits into one branch and one PR.
-They get awkward when your work wants to be reviewed piece by piece:
+GitHub pull requests are all right when your work fits into one branch and one
+PR.  They get awkward once you want your work to be reviewed piece by piece:
 
 - first refactor the shared model
 - then add the API on top
 - then add the UI on top of that
 
-You can do that with plain Git branches, but it's kind of a pain. Rebases churn
-branch tips, dependent PRs get confusing, and it's no fun to find yourself
-spending more energy maintaining branch plumbing than describing the actual
-changes you want reviewed.
+While you can do this with plain Git branches, it's kind of a pain. Rebases
+churn branch heads, dependent PRs rapidly get confusing, and it's no fun to find
+yourself spending more energy maintaining branch plumbing than describing the
+actual changes you want reviewed.
 
-`jj-review` takes a different approach. `jj` already knows the shape of your
-local stack. This tool reads that stack and creates or updates the right GitHub
-PRs for it.
+`jj-review` takes a different approach. Since `jj` already knows the shape of
+your local stack, this tool reads that stack and creates or updates the right
+GitHub PRs for it.
 
 ## What this looks like
 
@@ -44,17 +44,18 @@ PR 1: refactor the shared model
 ```
 
 A reviewer can read the stack from bottom to top, and review the parts they
-understand in any order. An author can revise (or add, or remove) any step
-locally and re-run one command to refresh the whole stack on GitHub.
+understand in more or less any order. You, the author, can revise (or add, or
+remove) any step locally and re-run one command to refresh the whole stack on
+GitHub.
 
-## Why this is different
+## How `jj-review` is different
 
-- It uses the local `jj` stack as the source of truth instead of asking you to
+- We use the local `jj` stack as the source of truth instead of asking you to
   maintain a parallel branch-management system by hand.
-- It creates one GitHub PR per reviewable change (not one PR per arbitrary
-  branch boundary).
-- It is designed for the normal `jj` workflow of rewriting, reordering, and
-  restacking commits during review.
+- We create one GitHub PR per reviewable change (not one PR per arbitrary branch
+  boundary).
+- `jj-review` is designed for the normal `jj` workflow of fluidly rewriting,
+  reordering, and restacking commits during review.
 - It stays focused on GitHub review instead of trying to become a full hosted
   stack-management platform.
 
@@ -62,13 +63,13 @@ locally and re-run one command to refresh the whole stack on GitHub.
 
 This tool is a good fit if:
 
+- You already use `jj`, or you are willing to try it
 - You already use GitHub pull requests
 - You often wish one feature could be reviewed as 2-5 small PRs instead of one
   large chunk
-- You are willing to use `jj`, or you already use it
 - You want stacked review without paying the cost of branch-per-PR bookkeeping
 
-On the other hand, it's likely not for you if:
+In fairness, it's likely not for you if:
 
 - You want a plain Git workflow
 - You mostly work in single-commit or single-PR changes
