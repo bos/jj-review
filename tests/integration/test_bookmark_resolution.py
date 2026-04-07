@@ -88,7 +88,7 @@ def test_status_continues_when_repo_id_file_is_not_created(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "Unsubmitted changes:" in captured.out
+    assert "Unsubmitted stack:" in captured.out
     assert ": GitHub status unknown" in captured.out
     assert not list((tmp_path / "state-home").rglob("state.toml"))
 

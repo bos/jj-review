@@ -51,7 +51,7 @@ def test_status_reports_remote_and_github_link(
     assert exit_code == 0
     assert "feature 1" in captured.out
     assert ": PR #1" in captured.out
-    assert "Submitted changes (https://github.test/octo-org/stacked-review/pull/1):" in (
+    assert "Submitted stack (https://github.test/octo-org/stacked-review/pull/1):" in (
         captured.out
     )
     assert "review/feature-1-" not in captured.out
@@ -73,11 +73,11 @@ def test_status_caps_unsubmitted_summary_before_trunk_row(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Unsubmitted changes:" in captured.out
+    assert "Unsubmitted stack:" in captured.out
     assert "[...2 changes omitted...]" in captured.out
     assert "feature 4" not in captured.out
     assert "feature 3" in captured.out
-    assert captured.out.index("Unsubmitted changes:") < captured.out.index("│  base")
+    assert captured.out.index("Unsubmitted stack:") < captured.out.index("│  base")
 
 
 def test_status_verbose_expands_unsubmitted_summary(
@@ -94,7 +94,7 @@ def test_status_verbose_expands_unsubmitted_summary(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Unsubmitted changes:" in captured.out
+    assert "Unsubmitted stack:" in captured.out
     assert "[...2 changes omitted...]" not in captured.out
     assert captured.out.count("feature 4") == 1
 

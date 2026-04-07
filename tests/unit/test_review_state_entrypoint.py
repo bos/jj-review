@@ -267,7 +267,7 @@ def test_status_prints_headers_before_stack_output(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Submitted changes (https://github.com/bos/jj-review/pull/1):" in captured.out
+    assert "Submitted stack (https://github.com/bos/jj-review/pull/1):" in captured.out
     assert "feature 1 [abcdefgh]: PR #1" in captured.out
     assert "body for feature 1" in captured.out
     assert "base [trunkcha]" in captured.out

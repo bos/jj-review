@@ -184,7 +184,7 @@ def test_render_status_summary_lines_caps_middle_of_long_sections() -> None:
     )
 
     assert lines == (
-        "Unsubmitted changes:",
+        "Unsubmitted stack:",
         "feature 8 [88888888]",
         "body for feature 8",
         "feature 7 [77777777]",
@@ -213,10 +213,10 @@ def test_render_status_summary_lines_show_empty_sections_in_verbose_mode() -> No
     )
 
     assert lines == (
-        "Unsubmitted changes:",
+        "Unsubmitted stack:",
         "  (none)",
         "",
-        "Submitted changes:",
+        "Submitted stack:",
         "  (none)",
         "",
     )
@@ -234,10 +234,10 @@ def test_render_status_summary_lines_keep_leading_separator_after_headers() -> N
 
     assert lines[0] == ""
     assert lines[1:] == (
-        "Unsubmitted changes:",
+        "Unsubmitted stack:",
         "  (none)",
         "",
-        "Submitted changes:",
+        "Submitted stack:",
         "  (none)",
         "",
     )
@@ -297,7 +297,7 @@ def test_render_status_summary_lines_links_submitted_header_to_top_pr() -> None:
     )
 
     assert lines == (
-        "Submitted changes (https://github.com/bos/jj-review/pull/8):",
+        "Submitted stack (https://github.com/bos/jj-review/pull/8):",
         "feature 8: PR #8",
         "feature 7: PR #7",
         "",
@@ -340,7 +340,7 @@ def test_render_status_summary_lines_append_status_only_to_first_rendered_line()
     )
 
     assert lines == (
-        "Submitted changes (https://github.com/bos/jj-review/pull/8):",
+        "Submitted stack (https://github.com/bos/jj-review/pull/8):",
         "metadata line: PR #8",
         "feature 8",
         "",

@@ -217,7 +217,7 @@ def render_status_summary_lines(
 
     lines: list[str] = []
     unsubmitted_lines = _render_summary_section(
-        "Unsubmitted changes",
+        "Unsubmitted stack",
         include_leading_separator=leading_separator,
         revisions=unsubmitted_revisions,
         verbose=verbose,
@@ -330,8 +330,8 @@ def _render_submitted_section_title(revisions: tuple) -> str:
 
     top_pull_request_url = _revision_pull_request_url(revisions[0]) if revisions else None
     if top_pull_request_url is None:
-        return "Submitted changes"
-    return f"Submitted changes ({top_pull_request_url})"
+        return "Submitted stack"
+    return f"Submitted stack ({top_pull_request_url})"
 
 
 def render_status_advisory_lines(*, result) -> tuple[str, ...]:
