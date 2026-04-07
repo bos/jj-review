@@ -415,7 +415,7 @@ def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
     )
     assert "force-with-lease" in captured.err
 
-def test_cleanup_apply_deletes_managed_stack_comment_for_closed_pull_request(
+def test_cleanup_apply_preserves_managed_stack_comment_for_closed_pull_request(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -438,15 +438,13 @@ def test_cleanup_apply_deletes_managed_stack_comment_for_closed_pull_request(
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert "[applied] stack summary comment: delete stack summary comment #1 from PR #2" in (
-        captured.out
-    )
+    assert "stack summary comment" not in captured.out
     assert refreshed_state.changes[change_id].pr_number == 2
-    assert refreshed_state.changes[change_id].stack_comment_id is None
-    assert _issue_comments(fake_repo, 2) == []
+    assert refreshed_state.changes[change_id].stack_comment_id == 1
+    assert len(_issue_comments(fake_repo, 2)) == 1
 
 
-def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing(
+def test_cleanup_apply_preserves_discovered_stack_comment_when_cache_id_is_missing(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -482,11 +480,9 @@ def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert "[applied] stack summary comment: delete stack summary comment #1 from PR #2" in (
-        captured.out
-    )
+    assert "stack summary comment" not in captured.out
     assert refreshed_state.changes[change_id].stack_comment_id is None
-    assert _issue_comments(fake_repo, 2) == []
+    assert len(_issue_comments(fake_repo, 2)) == 1
 
 def test_cleanup_apply_writes_and_deletes_intent_file_on_success(
     tmp_path: Path,

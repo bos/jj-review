@@ -1572,9 +1572,9 @@ def _should_inspect_stack_comment_cleanup(
         return True
     if stale_reason is None:
         return True
-    if cached_change.stack_comment_id is not None:
-        return True
     if cached_change.pr_state in {"closed", "merged"}:
+        return False
+    if cached_change.stack_comment_id is not None:
         return True
     if remote is None:
         return False
@@ -1611,7 +1611,7 @@ async def _plan_stack_comment_cleanup(
     if pull_request is None:
         return None
 
-    if not _pull_request_is_closed_or_unlinked(
+    if not _pull_request_is_unlinked_or_detached(
         bookmark=cached_change.bookmark,
         unlinked=cached_change.is_unlinked,
         github_repository=github_repository,
@@ -1663,7 +1663,7 @@ async def _load_pull_request(
         ) from error
 
 
-def _pull_request_is_closed_or_unlinked(
+def _pull_request_is_unlinked_or_detached(
     *,
     bookmark: str | None,
     unlinked: bool,
@@ -1671,8 +1671,6 @@ def _pull_request_is_closed_or_unlinked(
     pull_request: GithubPullRequest,
 ) -> bool:
     if unlinked:
-        return True
-    if pull_request.state == "closed":
         return True
     if bookmark is None:
         return False

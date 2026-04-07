@@ -1305,6 +1305,9 @@ Status: done.
 - stale local change detection now resolves cached `change_id`s in bulk and
   checks supported-stack membership from one ancestor/child graph walk instead
   of running separate `jj` stack discovery for each cached change
+- `cleanup` now preserves reviewer-facing stack summary comments on closed PRs;
+  comment cleanup is limited to explicitly unlinked or otherwise detached
+  review stacks where the comment no longer describes the live branch linkage
 - local bookmark cleanup stays conservative: conflicted bookmarks remain
   blocked, and bookmarks that no longer point at the last submitted commit
   stay blocked rather than being forgotten automatically

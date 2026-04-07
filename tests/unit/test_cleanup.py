@@ -111,6 +111,22 @@ def test_should_inspect_stack_comment_for_stale_change_with_missing_remote_branc
     assert should_inspect is True
 
 
+def test_should_skip_stack_comment_inspection_for_closed_pull_request() -> None:
+    should_inspect = _should_inspect_stack_comment_cleanup(
+        bookmark_state=BookmarkState(name="review/feature-aaaaaaaa"),
+        cached_change=CachedChange(
+            bookmark="review/feature-aaaaaaaa",
+            pr_number=7,
+            pr_state="closed",
+            stack_comment_id=12,
+        ),
+        remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
+        stale_reason="local change is no longer reviewable",
+    )
+
+    assert should_inspect is False
+
+
 def test_stale_change_reasons_classifies_cached_changes_in_bulk() -> None:
     live = _local_revision(
         change_id="live-change",

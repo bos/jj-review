@@ -826,8 +826,9 @@ repo, remember that `GIT_DIR` may need to point at `.jj/repo/store/git`.
 - prune saved jj-review data for changes that no longer exist or no longer
   participate
   in any review stack
-- remove stale reviewer-facing stack summary comments that belong to closed or
-  unlinked PRs
+- remove stale reviewer-facing stack summary comments only when they no longer
+  represent a live linked review stack, such as explicitly unlinked PRs or PRs
+  whose head no longer matches the expected review bookmark
 - optionally delete remote pull request branches only when they are clearly
   stale, such as after the corresponding PR is closed or the change has been
   abandoned
