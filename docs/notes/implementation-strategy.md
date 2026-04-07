@@ -97,6 +97,8 @@ Recent refactor slices:
   through one long async path.
 - `cleanup` now routes its CLI modes through separate helpers and keeps restack
   intent setup, policy warnings, and survivor-rebase planning in named phases.
+- `cleanup --apply` now retires stale interrupted apply intents after a
+  successful rerun so `status` stops reporting already-resolved cleanup work.
 - `land` now routes preview, resume validation, and apply-mode execution
   through explicit helper phases instead of one deeply nested async path.
 - `submit` now prepares local stack inputs, resumable intent state, and

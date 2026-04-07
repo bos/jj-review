@@ -1007,6 +1007,7 @@ async def _stream_cleanup_async(
     # Write an intent file before the first mutation (apply mode only)
     intent_path: Path | None = None
     _cleanup_succeeded = False
+    stale_intents: list[LoadedIntent] = []
     if apply and prepared_cleanup.state_dir is not None:
         _intent = CleanupApplyIntent(
             kind="cleanup-apply",
@@ -1014,8 +1015,8 @@ async def _stream_cleanup_async(
             label="cleanup --apply",
             started_at=datetime.now(UTC).isoformat(),
         )
-        _stale_intents = check_same_kind_intent(prepared_cleanup.state_dir, _intent)
-        for _loaded in _stale_intents:
+        stale_intents = check_same_kind_intent(prepared_cleanup.state_dir, _intent)
+        for _loaded in stale_intents:
             print(f"Note: a previous cleanup was interrupted ({_loaded.intent.label})")
         intent_path = write_intent(prepared_cleanup.state_dir, _intent)
 
@@ -1073,6 +1074,8 @@ async def _stream_cleanup_async(
         )
     finally:
         if _cleanup_succeeded and intent_path is not None:
+            for loaded in stale_intents:
+                delete_intent(loaded.path)
             delete_intent(intent_path)
 
 

@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from jj_review.cache import ReviewStateStore, resolve_state_path
+from jj_review.intent import write_intent
 from jj_review.jj import JjClient
+from jj_review.models.intent import CleanupApplyIntent
 
 from .submit_command_helpers import (
     commit as _commit,
@@ -555,3 +557,34 @@ def test_cleanup_apply_leaves_intent_file_on_failure(
     with intent_files[0].open("rb") as f:
         data = tomllib.load(f)
     assert data["kind"] == "cleanup-apply"
+
+
+def test_cleanup_apply_retires_prior_interrupted_intent_after_success(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    state_dir = resolve_state_path(repo).parent
+    stale_intent = CleanupApplyIntent(
+        kind="cleanup-apply",
+        pid=99999999,
+        label="cleanup --apply",
+        started_at="2026-04-07T00:24:40+00:00",
+    )
+    stale_path = write_intent(state_dir, stale_intent)
+
+    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Note: a previous cleanup was interrupted (cleanup --apply)" in captured.out
+    assert "No cleanup actions needed." in captured.out
+    assert not stale_path.exists()
+    assert list(state_dir.glob("incomplete-*.toml")) == []
