@@ -77,7 +77,7 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
     assert "Selected remote:" not in captured.out
     assert "Submitted changes:" in captured.out
     assert "Trunk:" not in captured.out
-    assert ": main" in captured.out
+    assert ": main" not in captured.out
     assert top_pr_url is not None
     assert f"Top of stack: {top_pr_url}" in captured.out
     assert captured.out.index("feature 2") < captured.out.index("feature 1")
@@ -602,8 +602,7 @@ def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
     assert "Planned changes:" in captured.out
     assert "feature 1" in captured.out
-    assert ": review/" in captured.out
-    assert " [new PR]" in captured.out
+    assert ": new PR" in captured.out
     assert fake_repo.pull_requests == {}
     assert _remote_refs(fake_repo.git_dir) == initial_remote_refs
 
@@ -622,15 +621,14 @@ def test_submit_dry_run_keeps_revision_output_grouped(
 
     assert exit_code == 0
     assert "[push [pushed]ed]" not in captured.out
-    assert captured.out.count("[new PR]") == 2
+    assert captured.out.count("new PR") == 2
     assert captured.out.index("feature 2") < captured.out.index("feature 1")
     lines = captured.out.splitlines()
     for subject in ("feature 1", "feature 2"):
         subject_index = next(
             index for index, line in enumerate(lines) if line.endswith(f"  {subject}")
         )
-        assert ": review/" in lines[subject_index - 1]
-        assert "[new PR]" in lines[subject_index - 1]
+        assert lines[subject_index - 1].endswith(": new PR")
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert list(resolve_state_path(repo).parent.glob("incomplete-*.toml")) == []
 
@@ -661,8 +659,7 @@ def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
 
     assert exit_code == 0
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
-    assert ": review/" in captured.out
-    assert "[pushed]" in captured.out
+    assert "pushed, PR #1 updated" in captured.out
     assert "PR #1 updated" in captured.out
     assert fake_repo.pull_requests[1].title == "feature 1"
     assert _remote_refs(fake_repo.git_dir) == remote_refs_before
@@ -976,7 +973,7 @@ def test_submit_reports_up_to_date_when_remote_bookmark_and_pr_already_match(
 
     assert exit_code == 0
     assert "PR #1" in first_output
-    assert "[already pushed]" in captured.out
+    assert "already pushed" in captured.out
     assert "unchanged" in captured.out
     assert _remote_refs(fake_repo.git_dir) == first_refs
     assert {number: pr.title for number, pr in fake_repo.pull_requests.items()} == first_prs
@@ -1305,7 +1302,7 @@ def test_submit_reports_no_reviewable_commits_when_head_is_trunk(
     assert "Selected remote:" not in captured.out
     assert "Trunk:" not in captured.out
     assert stack.trunk.subject in captured.out
-    assert ": main" in captured.out
+    assert ": main" not in captured.out
     assert "No reviewable commits" in captured.out
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert set(_remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}

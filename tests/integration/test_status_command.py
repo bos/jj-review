@@ -138,7 +138,7 @@ def test_status_prints_trunk_below_stack_like_jj_log(
 
     assert exit_code == 0
     assert "│  base" in captured.out
-    assert ": main" in captured.out
+    assert ": main" not in captured.out
     assert captured.out.index("feature 1") < captured.out.index("│  base")
 
 def test_status_limits_concurrent_github_lookups(

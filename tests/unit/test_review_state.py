@@ -86,7 +86,7 @@ def test_render_trunk_status_lines_prefers_unique_local_bookmark() -> None:
             prepared=prepared,
             configured_trunk_branch=None,
         )
-        == ("◆ base [trunkcha]: main",)
+        == ("◆ base [trunkcha]",)
     )
 
 

@@ -134,7 +134,7 @@ def test_submit_passes_dry_run_and_renders_planned_output(
     assert selected_revsets == [None]
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
     assert "Planned changes:" in captured.out
-    assert "- feature 1 [abcdefgh]: review/feature-abcdefgh [new PR]" in captured.out
+    assert "- feature 1 [abcdefgh]: new PR" in captured.out
     assert "Top of stack:" not in captured.out
 
 
@@ -359,9 +359,10 @@ def test_submit_prints_final_output_without_duplicate_lines(
     assert captured.out.count("Selected: feature 1 [abcdefgh]") == 1
     assert "Selected remote:" not in captured.out
     assert captured.out.count("Trunk: base [basebase] -> main") == 1
+    assert "\n\nTrunk: base [basebase] -> main" not in captured.out
     assert captured.out.count("Dry run: no local, remote, or GitHub changes applied.") == 1
     assert captured.out.count("Planned changes:") == 1
-    assert captured.out.count("- feature 1 [abcdefgh]: review/feature-abcdefgh [new PR]") == 1
+    assert captured.out.count("- feature 1 [abcdefgh]: new PR") == 1
     assert "Top of stack:" not in captured.out
 
 

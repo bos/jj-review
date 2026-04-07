@@ -347,7 +347,6 @@ def submit(
             revision=revision,
         ):
             print(line)
-    print()
     for line in _render_submit_trunk_lines(
         client=client,
         color_when=color_when,
@@ -384,17 +383,17 @@ def _render_submit_pr_suffix(
 ) -> str:
     if pull_request_number is None:
         if action == "created":
-            return " [new PR]"
+            return "new PR"
         if action == "updated":
-            return " [PR #n updated]"
-        return " [PR unchanged]"
+            return "PR updated"
+        return "PR unchanged"
     label = format_pull_request_label(
         pull_request_number,
         is_draft=bool(is_draft),
     )
     if action == "created":
-        return f" [{label}]"
-    return f" [{label} {action}]"
+        return label
+    return f"{label} {action}"
 
 
 def _render_submit_revision_lines(
@@ -416,18 +415,20 @@ def _render_submit_revision_lines(
 
 
 def _render_submit_revision_summary(revision) -> str:
-    pr_suffix = _render_submit_pr_suffix(
+    parts: list[str] = []
+    if revision.pull_request_action != "created":
+        if revision.remote_action == "up to date":
+            parts.append("already pushed")
+        else:
+            parts.append("pushed")
+    parts.append(
+        _render_submit_pr_suffix(
         action=revision.pull_request_action,
         is_draft=getattr(revision, "pull_request_is_draft", None),
         pull_request_number=revision.pull_request_number,
+        )
     )
-    remote_suffix = ""
-    if revision.pull_request_action != "created":
-        if revision.remote_action == "up to date":
-            remote_suffix = " [already pushed]"
-        else:
-            remote_suffix = " [pushed]"
-    return f"{revision.bookmark}{remote_suffix}{pr_suffix}"
+    return ", ".join(parts)
 
 
 def _render_submit_trunk_lines(
@@ -441,11 +442,11 @@ def _render_submit_trunk_lines(
             f"Trunk: {result.trunk_subject} [{display_change_id(result.trunk_change_id)}] "
             f"-> {result.trunk_branch}",
         )
-    return render_revision_with_suffix_lines(
-        client=client,
-        color_when=cast(Literal["always", "debug", "never"], color_when),
-        revision=result.trunk_revision,
-        suffix=result.trunk_branch,
+    return tuple(
+        client.render_revision_log_lines(
+            result.trunk_revision,
+            color_when=cast(Literal["always", "debug", "never"], color_when),
+        )
     )
 
 

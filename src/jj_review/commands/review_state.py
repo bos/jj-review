@@ -262,18 +262,13 @@ def render_trunk_status_lines(
 ) -> tuple[str, ...]:
     """Render the trunk footer with native `jj log` formatting."""
 
+    del configured_trunk_branch
     trunk = prepared.stack.trunk
-    trunk_name = _resolve_status_trunk_name(
-        prepared,
-        configured_trunk_branch=configured_trunk_branch,
-    )
-    suffix = "trunk()" if trunk_name is None else trunk_name
-    return render_revision_with_suffix_lines(
-        client=prepared.client,
-        color_when=color_when,
-        revision=trunk,
-        bookmark=trunk_name,
-        suffix=suffix,
+    return tuple(
+        prepared.client.render_revision_log_lines(
+            trunk,
+            color_when=color_when,
+        )
     )
 
 

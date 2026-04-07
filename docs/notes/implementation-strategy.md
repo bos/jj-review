@@ -750,11 +750,11 @@ Implemented in a follow-up:
   renders the final ordered review summary once the submit phases complete,
   instead of trying to stream per-revision mutation progress inline
 - submit and status now share the same native `jj log` row rendering helper,
-  so submit shows the stack tip-first with bookmark and PR-result suffixes on
-  the first rendered line and the resolved trunk row beneath the stack
-- the per-change submit summary now renders created PRs as `[PR #n]` in live
-  output and `[new PR]` in dry-run output; updates still append explicit
-  `[pushed]` or `[already pushed]` markers alongside the bookmark suffix
+  so submit shows the stack tip-first with concise submit-result text on the
+  first rendered line and the resolved trunk row beneath the stack
+- the per-change submit summary now renders created PRs as `PR #n` in live
+  output and `new PR` in dry-run output; updates append plain-text `pushed`
+  or `already pushed` status ahead of the PR result when relevant
 - top-level CLI failures now print with an `Error:` prefix for clearer command-
   line diagnostics while preserving plain `Interrupted.` for Ctrl-C handling
 - explicit missing revsets now preserve jj's own wording, for example
@@ -836,8 +836,7 @@ Implemented in the first vertical cut:
   children in bulk `jj log` queries instead of walking one parent at a time,
   which significantly reduces status startup latency on deeper stacks
 - `status` now renders the `trunk()` commit as a footer row beneath the stack,
-  appending the resolved trunk base to the first line of the user's native
-  `jj log` output when one can be resolved
+  using the same native `jj log` rendering path as the rest of the stack
 - the CLI now supports `--time-output` as a global debugging aid that prefixes
   printed lines with elapsed time from process start
 - `status` now inspects per-change GitHub PR link with bounded concurrency on

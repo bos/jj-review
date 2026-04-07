@@ -270,9 +270,9 @@ def test_status_prints_headers_before_stack_output(
     assert "Submitted changes (https://github.com/bos/jj-review/pull/1):" in captured.out
     assert "feature 1 [abcdefgh]: PR #1" in captured.out
     assert "body for feature 1" in captured.out
-    assert "base [trunkcha]: main" in captured.out
+    assert "base [trunkcha]" in captured.out
     assert captured.out.index("feature 1 [abcdefgh]: PR #1") < captured.out.index(
-        "base [trunkcha]: main"
+        "base [trunkcha]"
     )
 
 
@@ -500,5 +500,5 @@ def test_status_prints_cleanup_advisories_for_merged_review_units(
 
     assert exit_code == 0
     assert "feature 1 [abcdefgh]: PR #5 merged, cleanup needed" in captured.out
-    assert "base [trunkcha]: trunk()\n\nAdvisories:" in captured.out
+    assert "base [trunkcha]\n\nAdvisories:" in captured.out
     assert "jj-review cleanup --restack @" in captured.out
