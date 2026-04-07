@@ -30,7 +30,7 @@ def test_discover_review_stack_rejects_root_fallback_trunk(tmp_path: Path) -> No
         JjClient(repo).discover_review_stack()
 
 
-def test_discover_review_stack_rejects_branching_review_children(tmp_path: Path) -> None:
+def test_discover_review_stack_ignores_off_path_reviewable_child(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     _commit(repo, "feature 1", "feature-1.txt")
     feature_1 = _current_parent_commit_id(repo)
@@ -39,11 +39,9 @@ def test_discover_review_stack_rejects_branching_review_children(tmp_path: Path)
     _new_child(repo, feature_1)
     _commit(repo, "feature side", "feature-side.txt")
 
-    with pytest.raises(
-        UnsupportedStackError,
-        match="multiple reviewable children require separate PR chains",
-    ):
-        JjClient(repo).discover_review_stack(feature_2)
+    stack = JjClient(repo).discover_review_stack(feature_2)
+
+    assert [revision.subject for revision in stack.revisions] == ["feature 1", "feature 2"]
 
 
 def test_discover_review_stack_returns_empty_when_head_is_trunk(tmp_path: Path) -> None:

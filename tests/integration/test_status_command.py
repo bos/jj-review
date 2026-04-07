@@ -120,6 +120,36 @@ def test_status_prints_stack_tip_first_like_jj_log(
     feature_1_line = captured.out.index("feature 1")
     assert feature_2_line < feature_1_line
 
+
+def test_status_ignores_off_path_reviewable_child(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+    _commit(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    feature_1_commit_id = stack.revisions[0].commit_id
+    feature_2_commit_id = stack.revisions[-1].commit_id
+    _run(["jj", "new", feature_1_commit_id], repo)
+    _commit(repo, "feature side", "feature-side.txt")
+    _run(["jj", "new", feature_2_commit_id], repo)
+
+    exit_code = _main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "feature 2" in captured.out
+    assert "feature 1" in captured.out
+    assert "feature side" not in captured.out
+
+
 def test_status_prints_trunk_below_stack_like_jj_log(
     tmp_path: Path,
     monkeypatch,

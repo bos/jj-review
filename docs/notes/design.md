@@ -112,16 +112,24 @@ rewrite.
 A review stack is a linear chain of review changes from a selected head back to
 `trunk()`.
 
+Commands that operate on a selected stack should validate only that selected
+parent chain. Other visible children elsewhere in the DAG are separate stacks,
+not automatically an error for the selected one.
+
 For now, the tool should support only linear stacks. Reject or require manual
 intervention for:
 
 - merge commits
 - divergent changes
 - multiple reviewable parents
-- review trees with multiple reviewable children that must become separate PR chains
+- a selected path that reaches a review tree instead of staying a simple chain
 
-`jj` can model all of those, but GitHub stacked PR UX gets much harder once the unit is not a
-simple parent-child chain.
+If an ancestor on the selected path has other reviewable children, those
+children should be treated as separate PR chains outside the current command's
+scope unless that command explicitly asks to reason about more than one stack.
+
+`jj` can model all of those, but GitHub stacked PR UX gets much harder once the
+unit is not a simple parent-child chain.
 
 ### Pull Request Branch
 

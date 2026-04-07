@@ -31,11 +31,9 @@ class JjCommandError(CliError):
 UnsupportedStackReason = Literal[
     "divergent_change",
     "empty_working_copy",
-    "head_misses_only_reviewable_child",
     "hidden_commit",
     "immutable_commit",
     "merge_commit",
-    "multiple_reviewable_children",
     "reached_root_before_trunk",
     "trunk_resolved_to_root",
 ]
@@ -140,12 +138,8 @@ class JjClient:
         }
         revisions_by_commit_id[head.commit_id] = head
         revisions_by_commit_id[trunk.commit_id] = trunk
-        children_by_parent = self._query_children_by_parent(
-            f"children(::{_quote_revset_symbol(head.commit_id)})"
-        )
 
         stack_head_first: list[LocalRevision] = []
-        child_in_path: LocalRevision | None = None
         current = head
         while current.commit_id != trunk.commit_id:
             if current.commit_id != head.commit_id:
@@ -154,38 +148,6 @@ class JjClient:
                     allow_divergent=allow_divergent,
                     allow_immutable=allow_immutable,
                 )
-            if child_in_path is not None:
-                reviewable_children = [
-                    revision
-                    for revision in children_by_parent.get(current.commit_id, ())
-                    if (
-                        revision.commit_id == child_in_path.commit_id
-                        and revision.is_reviewable(
-                            allow_divergent=allow_divergent,
-                            allow_immutable=allow_immutable,
-                        )
-                    )
-                    or (
-                        revision.commit_id != child_in_path.commit_id
-                        and revision.is_reviewable()
-                    )
-                ]
-                if len(reviewable_children) > 1:
-                    raise UnsupportedStackError.stack_shape(
-                        current.change_id,
-                        "multiple reviewable children require separate PR chains.",
-                        reason="multiple_reviewable_children",
-                    )
-                child_matches_path = any(
-                    child.commit_id == child_in_path.commit_id for child in reviewable_children
-                )
-                if not child_matches_path:
-                    raise UnsupportedStackError.stack_shape(
-                        current.change_id,
-                        "selected head does not follow the only reviewable child "
-                        "of this ancestor.",
-                        reason="head_misses_only_reviewable_child",
-                    )
 
             stack_head_first.append(current)
             if (
@@ -194,7 +156,6 @@ class JjClient:
             ):
                 break
             parent_commit_id = current.only_parent_commit_id()
-            child_in_path = current
             current = revisions_by_commit_id.get(parent_commit_id) or self.resolve_revision(
                 parent_commit_id
             )
@@ -295,6 +256,73 @@ class JjClient:
             for revision in revisions:
                 revisions_by_commit_id.setdefault(revision.commit_id, revision)
         return tuple(revisions_by_commit_id.values())
+
+    def supported_review_stack_change_ids(
+        self,
+        candidate_revisions: Sequence[LocalRevision],
+        *,
+        allow_divergent: bool = False,
+        allow_immutable: bool = False,
+        allow_trunk_ancestors: bool = False,
+    ) -> set[str]:
+        """Return change IDs whose selected-parent path remains a supported review stack."""
+
+        ordered_revisions = tuple(candidate_revisions)
+        if not ordered_revisions:
+            return set()
+
+        trunk = self._resolve_trunk()
+        commit_ids = tuple(revision.commit_id for revision in ordered_revisions)
+        revisions_by_commit_id = {
+            revision.commit_id: revision
+            for revision in self.query_ancestor_revisions(commit_ids)
+        }
+        revisions_by_commit_id[trunk.commit_id] = trunk
+
+        merged_trunk_side_branch_commit_ids: set[str] = set()
+        if allow_trunk_ancestors:
+            trunk_ancestors_revset = f"::{_quote_revset_symbol(trunk.commit_id)}"
+            merged_trunk_side_branch_commit_ids = (
+                self._merged_trunk_side_branch_commit_ids(trunk_ancestors_revset)
+            )
+
+        support_by_commit_id: dict[str, bool] = {trunk.commit_id: True}
+
+        def is_supported(commit_id: str) -> bool:
+            if commit_id in support_by_commit_id:
+                return support_by_commit_id[commit_id]
+
+            revision = revisions_by_commit_id.get(commit_id)
+            if revision is None:
+                support_by_commit_id[commit_id] = False
+                return False
+
+            try:
+                self._validate_reviewable_revision(
+                    revision,
+                    allow_divergent=allow_divergent,
+                    allow_immutable=allow_immutable,
+                )
+            except UnsupportedStackError:
+                support_by_commit_id[commit_id] = False
+                return False
+
+            if (
+                allow_trunk_ancestors
+                and revision.commit_id in merged_trunk_side_branch_commit_ids
+            ):
+                support_by_commit_id[commit_id] = True
+                return True
+
+            support = is_supported(revision.only_parent_commit_id())
+            support_by_commit_id[commit_id] = support
+            return support
+
+        return {
+            revision.change_id
+            for revision in ordered_revisions
+            if is_supported(revision.commit_id)
+        }
 
     def query_children_by_parent_for_commit_ids(
         self,

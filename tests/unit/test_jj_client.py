@@ -134,7 +134,6 @@ def test_discover_review_stack_defaults_to_parent_of_empty_working_copy() -> Non
         ("jj", "log", "--no-graph", "-r", "::'head'", "-T", _template()): (
             _HEAD + _PARENT + _TRUNK
         ),
-        ("jj", "log", "--no-graph", "-r", "children(::'head')", "-T", _template()): _HEAD,
     }
 
     stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack()
@@ -201,9 +200,6 @@ def test_discover_review_stack_allows_divergent_ancestor_for_inspection() -> Non
         ("jj", "log", "--no-graph", "-r", "::'head-2'", "-T", _template()): (
             head + divergent_parent + _PARENT + _TRUNK
         ),
-        ("jj", "log", "--no-graph", "-r", "children(::'head-2')", "-T", _template()): (
-            head + divergent_parent
-        ),
     }
 
     stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack(
@@ -227,9 +223,6 @@ def test_discover_review_stack_rejects_immutable_revisions() -> None:
         ("jj", "log", "--no-graph", "-r", "::'head'", "-T", _template()): (
             _HEAD_ON_IMMUTABLE_PARENT + _IMMUTABLE_PARENT + _TRUNK
         ),
-        ("jj", "log", "--no-graph", "-r", "children(::'head')", "-T", _template()): (
-            _HEAD_ON_IMMUTABLE_PARENT
-        ),
     }
 
     client = JjClient(Path("/repo"), runner=_runner(responses))
@@ -245,9 +238,6 @@ def test_discover_review_stack_allows_immutable_ancestor_for_inspection() -> Non
         ),
         ("jj", "log", "--no-graph", "-r", "::'head'", "-T", _template()): (
             _HEAD_ON_IMMUTABLE_PARENT + _IMMUTABLE_PARENT + _TRUNK
-        ),
-        ("jj", "log", "--no-graph", "-r", "children(::'head')", "-T", _template()): (
-            _HEAD_ON_IMMUTABLE_PARENT
         ),
     }
 
@@ -377,24 +367,18 @@ def test_discover_review_stack_rejects_hidden_revisions() -> None:
         client.discover_review_stack("hidden")
 
 
-def test_discover_review_stack_rejects_multiple_reviewable_children() -> None:
+def test_discover_review_stack_allows_off_path_reviewable_child() -> None:
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
         ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): _HEAD,
         ("jj", "log", "--no-graph", "-r", "::'head'", "-T", _template()): (
             _HEAD + _PARENT + _TRUNK
         ),
-        ("jj", "log", "--no-graph", "-r", "children(::'head')", "-T", _template()): (
-            _CHILD_A + _CHILD_B
-        ),
     }
 
-    client = JjClient(Path("/repo"), runner=_runner(responses))
-    with pytest.raises(
-        UnsupportedStackError,
-        match="multiple reviewable children require separate PR chains",
-    ):
-        client.discover_review_stack("head")
+    stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack("head")
+
+    assert [revision.subject for revision in stack.revisions] == ["parent", "head"]
 
 
 def test_discover_review_stack_raises_jj_command_error_on_wrong_field_count() -> None:
@@ -473,27 +457,56 @@ def test_discover_review_stack_raises_jj_command_error_on_wrong_field_type() -> 
         client.discover_review_stack("head")
 
 
-def test_discover_review_stack_excludes_divergent_siblings_from_child_count() -> None:
-    # A divergent sibling of a node in the walk path must not be counted as a
-    # second reviewable child.  Before the fix, is_reviewable() did not exclude
-    # divergent revisions, so the walk would fail with "multiple reviewable
-    # children" instead of succeeding.
+def test_discover_review_stack_ignores_off_path_divergent_sibling() -> None:
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
         ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): _HEAD,
         ("jj", "log", "--no-graph", "-r", "::'head'", "-T", _template()): (
             _HEAD + _PARENT + _TRUNK
         ),
-        # parent has one valid child (head) and one divergent sibling — only
-        # head is reviewable, so there is no branching conflict.
-        ("jj", "log", "--no-graph", "-r", "children(::'head')", "-T", _template()): (
-            _HEAD + _DIVERGENT_SIBLING
-        ),
     }
 
     stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack("head")
 
     assert [r.subject for r in stack.revisions] == ["parent", "head"]
+
+
+def test_supported_review_stack_change_ids_allows_sibling_stacks() -> None:
+    child_a = LocalRevision(
+        change_id="child-a-change",
+        commit_id="child-a",
+        current_working_copy=False,
+        description="child a\n",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=("parent",),
+    )
+    child_b = LocalRevision(
+        change_id="child-b-change",
+        commit_id="child-b",
+        current_working_copy=False,
+        description="child b\n",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=("parent",),
+    )
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
+        ("jj", "log", "--no-graph", "-r", "::('child-a' | 'child-b')", "-T", _template()): (
+            _CHILD_A + _CHILD_B + _PARENT + _TRUNK
+        ),
+    }
+
+    supported = JjClient(
+        Path("/repo"),
+        runner=_runner(responses),
+    ).supported_review_stack_change_ids((child_a, child_b))
+
+    assert supported == {"child-a-change", "child-b-change"}
 
 
 def test_update_untracked_remote_bookmark_pushes_fetches_and_tracks() -> None:

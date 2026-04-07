@@ -104,6 +104,9 @@ Recent refactor slices:
 - `submit` now prepares local stack inputs, resumable intent state, and
   per-revision bookmark push plans through separate helpers before touching
   GitHub.
+- `cleanup` stale-state checks now reuse the same selected-stack path semantics
+  as stack discovery, so off-path sibling stacks no longer cause valid cached
+  review state to be classified as stale.
 
 ## Executable Surface
 
@@ -671,6 +674,8 @@ Deliver:
 
 - typed `jj` command wrapper
 - linear stack discovery from a selected head back to `trunk()`
+- path-local validation of the selected stack, so off-path reviewable children
+  are treated as separate stacks instead of blocking selected-stack commands
 - rejection of unsupported graph shapes
 - fail-closed handling for `trunk()` resolving to `root()`
 - rejection of immutable revisions while walking the stack

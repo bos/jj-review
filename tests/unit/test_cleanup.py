@@ -148,26 +148,10 @@ def test_stale_change_reasons_classifies_cached_changes_in_bulk() -> None:
         commit_id="merge",
         parents=("left", "right"),
     )
-    branched_parent = _local_revision(
-        change_id="branch-parent",
-        commit_id="branch-parent",
-        parents=("trunk",),
-    )
     branched = _local_revision(
         change_id="branched-change",
         commit_id="branched",
         parents=("branch-parent",),
-    )
-    sibling = _local_revision(
-        change_id="sibling-change",
-        commit_id="sibling",
-        parents=("branch-parent",),
-    )
-    trunk = _local_revision(
-        change_id="trunk-change",
-        commit_id="trunk",
-        parents=("root",),
-        immutable=True,
     )
 
     class FakeClient:
@@ -187,18 +171,12 @@ def test_stale_change_reasons_classifies_cached_changes_in_bulk() -> None:
                 "branched-change": (branched,),
             }
 
-        def resolve_trunk(self) -> LocalRevision:
-            return trunk
-
-        def query_ancestor_revisions(self, commit_ids: tuple[str, ...]):
-            assert commit_ids == ("live", "branched")
-            return (live, branched, branched_parent, trunk)
-
-        def query_children_by_parent_for_commit_ids(self, commit_ids: tuple[str, ...]):
-            assert commit_ids == ("live", "branched")
-            return {
-                "branch-parent": (branched, sibling),
-            }
+        def supported_review_stack_change_ids(self, candidate_revisions):
+            assert tuple(revision.commit_id for revision in candidate_revisions) == (
+                "live",
+                "branched",
+            )
+            return {"live-change", "branched-change"}
 
     reasons = cleanup_module._stale_change_reasons(
         change_ids=(
@@ -216,7 +194,7 @@ def test_stale_change_reasons_classifies_cached_changes_in_bulk() -> None:
         "missing-change": "no visible local change matches that cached change ID",
         "duplicate-change": "multiple visible revisions still share that change ID",
         "merge-change": "local change is no longer reviewable",
-        "branched-change": "local change no longer participates in a supported review stack",
+        "branched-change": None,
     }
 
 
