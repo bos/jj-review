@@ -54,7 +54,7 @@ def test_cleanup_passes_apply_to_prepare_cleanup(
 
     assert exit_code == 0
     assert apply_calls == [True]
-    assert "No cleanup actions planned." in captured.out
+    assert "No cleanup actions needed." in captured.out
 
 
 def test_cleanup_restack_passes_apply_and_revset_to_prepare_restack(
@@ -204,8 +204,8 @@ def test_cleanup_renders_planned_and_blocked_actions(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Selected remote: origin" in captured.out
-    assert "GitHub: octo-org/stacked-review" in captured.out
+    assert "Selected remote: origin" not in captured.out
+    assert "GitHub: octo-org/stacked-review" not in captured.out
     assert "Planned cleanup actions:" in captured.out
     assert "[planned] tracking: remove saved jj-review data for abcdef12" in captured.out
     assert "cleanup --apply" in captured.out
@@ -344,7 +344,8 @@ def test_cleanup_prints_remote_and_github_before_stream_completes(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Selected remote: origin" in checkpoints[0]
-    assert "GitHub: octo-org/stacked-review" in checkpoints[0]
+    assert "Selected remote: origin" not in checkpoints[0]
+    assert "GitHub: octo-org/stacked-review" not in checkpoints[0]
+    assert checkpoints[0] == ""
     assert "Planned cleanup actions:" in checkpoints[1]
     assert "cleanup --apply" in captured.out

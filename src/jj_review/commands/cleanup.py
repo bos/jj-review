@@ -202,7 +202,7 @@ def render_cleanup_postamble(*, result: CleanupResult) -> tuple[str, ...]:
     """Render cleanup lines that only depend on the completed result."""
 
     if not result.actions:
-        return ("No cleanup actions planned.",)
+        return ("No cleanup actions needed.",)
     if not result.applied:
         return ("Re-run with `cleanup --apply` to perform the planned actions.",)
     return ()
@@ -352,14 +352,10 @@ def _render_remote_and_github_lines(
             lines.append("Selected remote: unavailable")
         else:
             lines.append(f"Selected remote: unavailable ({remote_error})")
-    else:
-        lines.append(f"Selected remote: {remote.name}")
 
     if github_repository is None:
         if github_error is not None:
             lines.append(f"GitHub target: unavailable ({github_error})")
-    else:
-        lines.append(f"GitHub: {github_repository}")
     return tuple(lines)
 
 def prepare_cleanup(
