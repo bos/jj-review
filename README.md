@@ -186,7 +186,8 @@ changes, not a maze of long-lived Git branches.
 - `jj-review close --current`
   Stop reviewing the current stack on GitHub.
 - `jj-review cleanup`
-  Inspect stale saved state, stack comments, or old review branches.
+  Inspect stale saved state, stack comments, old local `review/*` bookmarks,
+  or old review branches.
 - `jj-review import --pull-request <number-or-url> --fetch`
   Attach local `jj-review` tracking to an existing PR stack.
 

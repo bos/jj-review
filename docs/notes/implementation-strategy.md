@@ -1291,6 +1291,18 @@ Status: done.
 
 ### Cleanup Follow-up
 
+Status: done.
+
+- `cleanup` now plans local `review/*` bookmark removal for stale tracked
+  changes, instead of only pruning saved state and then reporting remote
+  review-branch deletion as blocked
+- when that local bookmark forget is safe and planned, the paired remote
+  review-branch deletion is now planned in the same pass instead of blocked on
+  the still-present local bookmark
+- local bookmark cleanup stays conservative: conflicted bookmarks remain
+  blocked, and bookmarks that no longer point at the last submitted commit
+  stay blocked rather than being forgotten automatically
+
 ## Error Handling Strategy
 
 Errors should be explicit and actionable.

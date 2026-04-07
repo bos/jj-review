@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import cast
 
 from jj_review.cache import ReviewStateStore
+from jj_review.commands import cleanup as cleanup_module
 from jj_review.commands.cleanup import (
     CleanupAction,
     PreparedCleanup,
@@ -781,12 +782,106 @@ def test_plan_remote_branch_cleanup_blocks_when_local_bookmark_still_exists() ->
             ),
         ),
         cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
+        local_bookmark_forget_planned=False,
         remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
     )
 
     assert plan is not None
     assert plan.action.status == "blocked"
     assert "local bookmark" in plan.action.message
+
+
+def test_plan_remote_branch_cleanup_allows_delete_when_local_forget_is_planned() -> None:
+    plan = _plan_remote_branch_cleanup(
+        bookmark_state=BookmarkState(
+            name="review/feature-aaaaaaaa",
+            local_targets=("commit-1",),
+            remote_targets=(
+                RemoteBookmarkState(remote="origin", targets=("commit-1",)),
+            ),
+        ),
+        cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
+        local_bookmark_forget_planned=True,
+        remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
+    )
+
+    assert plan is not None
+    assert plan.action.status == "planned"
+    assert plan.expected_remote_target == "commit-1"
+
+
+def test_plan_local_bookmark_cleanup_forgets_safe_review_bookmark() -> None:
+    plan = cleanup_module._plan_local_bookmark_cleanup(
+        bookmark_state=BookmarkState(
+            name="review/feature-aaaaaaaa",
+            local_targets=("commit-1",),
+        ),
+        cached_change=CachedChange(
+            bookmark="review/feature-aaaaaaaa",
+            last_submitted_commit_id="commit-1",
+        ),
+        stale_reason="local change is no longer reviewable",
+    )
+
+    assert plan is not None
+    assert plan.action == CleanupAction(
+        kind="local bookmark",
+        message=(
+            "forget local bookmark review/feature-aaaaaaaa "
+            "(local change is no longer reviewable)"
+        ),
+        status="planned",
+    )
+
+
+def test_plan_local_bookmark_cleanup_blocks_moved_review_bookmark() -> None:
+    plan = cleanup_module._plan_local_bookmark_cleanup(
+        bookmark_state=BookmarkState(
+            name="review/feature-aaaaaaaa",
+            local_targets=("commit-2",),
+        ),
+        cached_change=CachedChange(
+            bookmark="review/feature-aaaaaaaa",
+            last_submitted_commit_id="commit-1",
+        ),
+        stale_reason="local change is no longer reviewable",
+    )
+
+    assert plan is not None
+    assert plan.action.status == "blocked"
+    assert "different revision" in plan.action.message
+
+
+def test_process_local_bookmark_cleanup_applies_planned_forget() -> None:
+    forget_calls: list[str] = []
+    recorded_actions: list[CleanupAction] = []
+
+    class FakeClient:
+        def forget_bookmark(self, bookmark: str) -> None:
+            forget_calls.append(bookmark)
+
+    cleanup_module._process_local_bookmark_cleanup(
+        apply=True,
+        cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
+        jj_client=cast(JjClient, FakeClient()),
+        local_bookmark_plan=cleanup_module.LocalBookmarkCleanupPlan(
+            action=CleanupAction(
+                kind="local bookmark",
+                message="forget local bookmark review/feature-aaaaaaaa (stale)",
+                status="planned",
+            )
+        ),
+        record_action=recorded_actions.append,
+    )
+
+    assert forget_calls == ["review/feature-aaaaaaaa"]
+    assert recorded_actions == [
+        CleanupAction(
+            kind="local bookmark",
+            message="forget local bookmark review/feature-aaaaaaaa (stale)",
+            status="applied",
+        )
+    ]
 
 
 def test_process_remote_branch_cleanup_applies_planned_deletion() -> None:

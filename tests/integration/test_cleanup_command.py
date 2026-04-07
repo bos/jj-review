@@ -168,6 +168,81 @@ def test_cleanup_apply_removes_stale_cache_and_remote_branch(
     assert change_id not in state_store.load().changes
     assert f"refs/heads/{bookmark}" not in _remote_refs(fake_repo.git_dir)
 
+
+def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    bookmark = state_store.load().changes[change_id].bookmark
+    assert bookmark is not None
+
+    _run(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup._stale_change_reason",
+        lambda **kwargs: "local change is no longer reviewable",
+    )
+
+    exit_code = _main(repo, config_path, "cleanup")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "[planned] local bookmark: forget local bookmark" in captured.out
+    assert f"{bookmark} (local change is no longer reviewable)" in captured.out
+    assert f"[planned] remote branch: delete remote branch {bookmark}@origin" in (
+        captured.out
+    )
+    assert "[blocked] remote branch" not in captured.out
+    assert bookmark in _run(["jj", "bookmark", "list", bookmark], repo).stdout
+    assert f"refs/heads/{bookmark}" in _remote_refs(fake_repo.git_dir)
+
+
+def test_cleanup_apply_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = _init_repo(tmp_path)
+    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    _commit(repo, "feature 1", "feature-1.txt")
+
+    assert _main(repo, config_path, "submit", "--current") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    bookmark = state_store.load().changes[change_id].bookmark
+    assert bookmark is not None
+
+    _run(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup._stale_change_reason",
+        lambda **kwargs: "local change is no longer reviewable",
+    )
+
+    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert f"[applied] local bookmark: forget local bookmark {bookmark}" in captured.out
+    assert f"[applied] remote branch: delete remote branch {bookmark}@origin" in (
+        captured.out
+    )
+    assert change_id not in state_store.load().changes
+    assert bookmark not in _run(["jj", "bookmark", "list", bookmark], repo).stdout
+    assert f"refs/heads/{bookmark}" not in _remote_refs(fake_repo.git_dir)
+
 def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
     tmp_path: Path,
     monkeypatch,
