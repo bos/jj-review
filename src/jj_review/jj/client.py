@@ -247,6 +247,79 @@ class JjClient:
                 return ()
             raise
 
+    def query_revisions_by_change_ids(
+        self,
+        change_ids: Sequence[str],
+    ) -> dict[str, tuple[LocalRevision, ...]]:
+        """Return visible revisions grouped by logical change ID."""
+
+        ordered_change_ids = tuple(dict.fromkeys(change_ids))
+        if not ordered_change_ids:
+            return {}
+
+        grouped: dict[str, list[LocalRevision]] = {
+            change_id: [] for change_id in ordered_change_ids
+        }
+        for chunk in _chunked(ordered_change_ids):
+            revisions = self._query_revisions(
+                _union_revset_symbols(
+                    tuple(f"present({_quote_revset_symbol(change_id)})" for change_id in chunk),
+                    quote=False,
+                )
+            )
+            for revision in revisions:
+                grouped.setdefault(revision.change_id, []).append(revision)
+        return {
+            change_id: tuple(grouped.get(change_id, ()))
+            for change_id in ordered_change_ids
+        }
+
+    def resolve_trunk(self) -> LocalRevision:
+        """Resolve `trunk()` and reject the implicit root fallback."""
+
+        return self._resolve_trunk()
+
+    def query_ancestor_revisions(
+        self,
+        commit_ids: Sequence[str],
+    ) -> tuple[LocalRevision, ...]:
+        """Return ancestors for the supplied commits, including the commits themselves."""
+
+        ordered_commit_ids = tuple(dict.fromkeys(commit_ids))
+        if not ordered_commit_ids:
+            return ()
+
+        revisions_by_commit_id: dict[str, LocalRevision] = {}
+        for chunk in _chunked(ordered_commit_ids):
+            revisions = self._query_revisions(f"::{_union_revset_symbols(chunk)}")
+            for revision in revisions:
+                revisions_by_commit_id.setdefault(revision.commit_id, revision)
+        return tuple(revisions_by_commit_id.values())
+
+    def query_children_by_parent_for_commit_ids(
+        self,
+        commit_ids: Sequence[str],
+    ) -> dict[str, tuple[LocalRevision, ...]]:
+        """Return visible children grouped by parent for the ancestors of the supplied commits."""
+
+        ordered_commit_ids = tuple(dict.fromkeys(commit_ids))
+        if not ordered_commit_ids:
+            return {}
+
+        grouped: dict[str, dict[str, LocalRevision]] = {}
+        for chunk in _chunked(ordered_commit_ids):
+            children_by_parent = self._query_children_by_parent(
+                f"children(::{_union_revset_symbols(chunk)})"
+            )
+            for parent_commit_id, children in children_by_parent.items():
+                parent_group = grouped.setdefault(parent_commit_id, {})
+                for child in children:
+                    parent_group.setdefault(child.commit_id, child)
+        return {
+            parent_commit_id: tuple(children.values())
+            for parent_commit_id, children in grouped.items()
+        }
+
     def _resolve_trunk(self) -> LocalRevision:
         """Resolve `trunk()` and reject the implicit root fallback."""
 
@@ -779,3 +852,24 @@ def _require_sequence(value: Any) -> Sequence[str]:
 
 def _quote_revset_symbol(symbol: str) -> str:
     return f"'{symbol}'"
+
+
+def _union_revset_symbols(symbols: Sequence[str], *, quote: bool = True) -> str:
+    parts = [
+        _quote_revset_symbol(symbol) if quote else symbol
+        for symbol in symbols
+    ]
+    if not parts:
+        raise ValueError("Expected at least one revset symbol.")
+    if len(parts) == 1:
+        return parts[0]
+    return f"({' | '.join(parts)})"
+
+
+def _chunked(values: Sequence[str], *, size: int = 200) -> tuple[tuple[str, ...], ...]:
+    if size <= 0:
+        raise ValueError("Chunk size must be positive.")
+    return tuple(
+        tuple(values[index : index + size])
+        for index in range(0, len(values), size)
+    )

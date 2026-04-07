@@ -189,8 +189,11 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
 
     _run(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
     monkeypatch.setattr(
-        "jj_review.commands.cleanup._stale_change_reason",
-        lambda **kwargs: "local change is no longer reviewable",
+        "jj_review.commands.cleanup._stale_change_reasons",
+        lambda **kwargs: {
+            change_id: "local change is no longer reviewable"
+            for change_id in kwargs["change_ids"]
+        },
     )
 
     exit_code = _main(repo, config_path, "cleanup")
@@ -227,8 +230,11 @@ def test_cleanup_apply_forgets_local_bookmark_before_deleting_remote_branch_when
 
     _run(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
     monkeypatch.setattr(
-        "jj_review.commands.cleanup._stale_change_reason",
-        lambda **kwargs: "local change is no longer reviewable",
+        "jj_review.commands.cleanup._stale_change_reasons",
+        lambda **kwargs: {
+            change_id: "local change is no longer reviewable"
+            for change_id in kwargs["change_ids"]
+        },
     )
 
     exit_code = _main(repo, config_path, "cleanup", "--apply")
@@ -271,8 +277,11 @@ def test_cleanup_apply_batches_remote_delete_local_forget_and_fetch(
         _run(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
 
     monkeypatch.setattr(
-        "jj_review.commands.cleanup._stale_change_reason",
-        lambda **kwargs: "local change is no longer reviewable",
+        "jj_review.commands.cleanup._stale_change_reasons",
+        lambda **kwargs: {
+            change_id: "local change is no longer reviewable"
+            for change_id in kwargs["change_ids"]
+        },
     )
 
     original_delete_remote_bookmarks = JjClient.delete_remote_bookmarks
@@ -435,6 +444,7 @@ def test_cleanup_apply_deletes_managed_stack_comment_for_closed_pull_request(
     assert refreshed_state.changes[change_id].pr_number == 2
     assert refreshed_state.changes[change_id].stack_comment_id is None
     assert _issue_comments(fake_repo, 2) == []
+
 
 def test_cleanup_apply_deletes_discovered_stack_comment_when_cache_id_is_missing(
     tmp_path: Path,

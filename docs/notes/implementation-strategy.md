@@ -886,13 +886,13 @@ Implemented in the first vertical cut:
   summary comments on stale PRs, and stale remote pull request branches
 - `cleanup --apply` now performs the safe subset of those actions: it prunes
   saved change entries that no longer resolve to supported local review
-  stacks, deletes only stack summary comments on closed or unlinked PRs, and
-  deletes stale remote pull request branches only when the remote branch is
-  unambiguous and no local bookmark still owns it
+  stacks, deletes stack summary comments only for unlinked or detached review
+  stacks, and deletes stale remote pull request branches only when the remote
+  branch is unambiguous and no local bookmark still owns it
 - stale saved entries now avoid extra GitHub stack-summary-comment inspection
   unless saved local data suggests comment cleanup could still produce an
-  action, such as a saved stack summary comment, a saved closed PR, or a
-  missing remote branch that suggests the PR may now be unlinked
+  action, such as a saved stack summary comment or a missing remote branch
+  that suggests the PR may now be unlinked
 - cleanup now overlaps the remaining GitHub stack-summary-comment inspection with
   bounded concurrency while still applying any resulting mutations in the
   original saved-entry order
@@ -1302,6 +1302,9 @@ Status: done.
 - `cleanup --apply` now batches planned remote review-branch deletions into one
   push, batches planned local bookmark forgets into one `jj bookmark forget`,
   and refreshes remembered remote state with one fetch after those mutations
+- stale local change detection now resolves cached `change_id`s in bulk and
+  checks supported-stack membership from one ancestor/child graph walk instead
+  of running separate `jj` stack discovery for each cached change
 - local bookmark cleanup stays conservative: conflicted bookmarks remain
   blocked, and bookmarks that no longer point at the last submitted commit
   stay blocked rather than being forgotten automatically

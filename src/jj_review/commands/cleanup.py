@@ -42,6 +42,7 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
 from jj_review.models.intent import CleanupApplyIntent, CleanupRestackIntent, LoadedIntent
+from jj_review.models.stack import LocalRevision
 from jj_review.review_inspection import (
     PreparedStatus,
     ReviewStatusRevision,
@@ -934,14 +935,11 @@ def _prepare_cleanup_change(
     cached_change: CachedChange,
     change_id: str,
     prepared_cleanup: PreparedCleanup,
+    stale_reason: str | None,
 ) -> PreparedCleanupChange:
     bookmark_state = prepared_cleanup.bookmark_states.get(
         cached_change.bookmark or "",
         BookmarkState(name=cached_change.bookmark or ""),
-    )
-    stale_reason = _stale_change_reason(
-        change_id=change_id,
-        jj_client=prepared_cleanup.jj_client,
     )
     return PreparedCleanupChange(
         bookmark_state=bookmark_state,
@@ -965,11 +963,16 @@ def _run_local_cleanup_pass(
 ) -> tuple[PreparedCleanupChange, ...]:
     prepared_changes: list[PreparedCleanupChange] = []
     mutation_plans: list[_StaleCleanupMutationPlan] = []
+    stale_reasons = _stale_change_reasons(
+        change_ids=tuple(prepared_cleanup.state.changes),
+        jj_client=prepared_cleanup.jj_client,
+    )
     for change_id, cached_change in prepared_cleanup.state.changes.items():
         prepared_change = _prepare_cleanup_change(
             cached_change=cached_change,
             change_id=change_id,
             prepared_cleanup=prepared_cleanup,
+            stale_reason=stale_reasons.get(change_id),
         )
         prepared_changes.append(prepared_change)
         mutation_plan = _process_stale_cleanup_change(
@@ -1309,23 +1312,105 @@ def _stale_change_reason(
     change_id: str,
     jj_client: JjClient,
 ) -> str | None:
-    revisions = jj_client.query_revisions(change_id, limit=2)
-    if not revisions:
-        return "no visible local change matches that cached change ID"
-    if len(revisions) > 1:
-        return "multiple visible revisions still share that change ID"
+    return _stale_change_reasons(
+        change_ids=(change_id,),
+        jj_client=jj_client,
+    )[change_id]
 
-    revision = revisions[0]
-    if not revision.is_reviewable():
-        return "local change is no longer reviewable"
 
-    try:
-        jj_client.discover_review_stack(change_id)
-    except UnsupportedStackError as error:
-        if str(error).startswith("`trunk()`"):
-            raise
-        return "local change no longer participates in a supported review stack"
-    return None
+def _stale_change_reasons(
+    *,
+    change_ids: tuple[str, ...],
+    jj_client: JjClient,
+) -> dict[str, str | None]:
+    matched_revisions = jj_client.query_revisions_by_change_ids(change_ids)
+    reasons: dict[str, str | None] = {}
+    stack_candidates: dict[str, LocalRevision] = {}
+
+    for change_id in change_ids:
+        revisions = matched_revisions.get(change_id, ())
+        if not revisions:
+            reasons[change_id] = "no visible local change matches that cached change ID"
+            continue
+        if len(revisions) > 1:
+            reasons[change_id] = "multiple visible revisions still share that change ID"
+            continue
+
+        revision = revisions[0]
+        if not revision.is_reviewable():
+            reasons[change_id] = "local change is no longer reviewable"
+            continue
+
+        stack_candidates[change_id] = revision
+
+    if not stack_candidates:
+        return reasons
+
+    supported_change_ids = _supported_review_stack_change_ids(
+        candidate_revisions=tuple(stack_candidates.values()),
+        jj_client=jj_client,
+    )
+    for change_id in stack_candidates:
+        reasons[change_id] = (
+            None
+            if change_id in supported_change_ids
+            else "local change no longer participates in a supported review stack"
+        )
+    return reasons
+
+
+def _supported_review_stack_change_ids(
+    *,
+    candidate_revisions: tuple[LocalRevision, ...],
+    jj_client: JjClient,
+) -> set[str]:
+    if not candidate_revisions:
+        return set()
+
+    trunk = jj_client.resolve_trunk()
+    commit_ids = tuple(revision.commit_id for revision in candidate_revisions)
+    revisions_by_commit_id = {
+        revision.commit_id: revision
+        for revision in jj_client.query_ancestor_revisions(commit_ids)
+    }
+    revisions_by_commit_id[trunk.commit_id] = trunk
+    children_by_parent = jj_client.query_children_by_parent_for_commit_ids(commit_ids)
+    support_by_commit_id: dict[str, bool] = {trunk.commit_id: True}
+
+    def is_supported(commit_id: str) -> bool:
+        if commit_id in support_by_commit_id:
+            return support_by_commit_id[commit_id]
+
+        revision = revisions_by_commit_id.get(commit_id)
+        if revision is None or not revision.is_reviewable():
+            support_by_commit_id[commit_id] = False
+            return False
+
+        parent_commit_id = revision.only_parent_commit_id()
+        if not is_supported(parent_commit_id):
+            support_by_commit_id[commit_id] = False
+            return False
+        if parent_commit_id == trunk.commit_id:
+            support_by_commit_id[commit_id] = True
+            return True
+
+        reviewable_children = [
+            child
+            for child in children_by_parent.get(parent_commit_id, ())
+            if child.is_reviewable()
+        ]
+        supported = (
+            len(reviewable_children) == 1
+            and reviewable_children[0].commit_id == commit_id
+        )
+        support_by_commit_id[commit_id] = supported
+        return supported
+
+    return {
+        revision.change_id
+        for revision in candidate_revisions
+        if is_supported(revision.commit_id)
+    }
 
 
 def _plan_remote_branch_cleanup(

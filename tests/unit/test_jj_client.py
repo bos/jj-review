@@ -869,6 +869,117 @@ def test_query_revisions_returns_empty_when_change_id_no_longer_exists() -> None
     assert client.query_revisions("missing-change-id", limit=2) == ()
 
 
+def test_query_revisions_by_change_ids_batches_lookup_and_groups_results() -> None:
+    change_1 = _revision_line(
+        commit_id="commit-1",
+        parents=["trunk"],
+        change_id="change-1",
+        description="change 1\n",
+    )
+    change_2 = _revision_line(
+        commit_id="commit-2",
+        parents=["trunk"],
+        change_id="change-2",
+        description="change 2\n",
+    )
+    responses: dict[tuple[str, ...], str] = {
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "(present('change-1') | present('change-2'))",
+            "-T",
+            _template(),
+        ): change_1 + change_2,
+    }
+
+    grouped = JjClient(Path("/repo"), runner=_runner(responses)).query_revisions_by_change_ids(
+        ("change-1", "change-2")
+    )
+
+    assert grouped == {
+        "change-1": (
+            LocalRevision(
+                change_id="change-1",
+                commit_id="commit-1",
+                current_working_copy=False,
+                description="change 1\n",
+                divergent=False,
+                empty=False,
+                hidden=False,
+                immutable=False,
+                parents=("trunk",),
+            ),
+        ),
+        "change-2": (
+            LocalRevision(
+                change_id="change-2",
+                commit_id="commit-2",
+                current_working_copy=False,
+                description="change 2\n",
+                divergent=False,
+                empty=False,
+                hidden=False,
+                immutable=False,
+                parents=("trunk",),
+            ),
+        ),
+    }
+
+
+def test_query_ancestor_revisions_and_children_by_parent_for_commit_ids() -> None:
+    child = _revision_line(
+        commit_id="child",
+        parents=["parent"],
+        change_id="child-change",
+        description="child\n",
+    )
+    parent = _revision_line(
+        commit_id="parent",
+        parents=["trunk"],
+        change_id="parent-change",
+        description="parent\n",
+    )
+    sibling = _revision_line(
+        commit_id="sibling",
+        parents=["parent"],
+        change_id="sibling-change",
+        description="sibling\n",
+    )
+    responses: dict[tuple[str, ...], str] = {
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "::'child'",
+            "-T",
+            _template(),
+        ): child + parent + _TRUNK,
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "children(::'child')",
+            "-T",
+            _template(),
+        ): child + sibling,
+    }
+
+    client = JjClient(Path("/repo"), runner=_runner(responses))
+
+    ancestors = client.query_ancestor_revisions(("child",))
+    children_by_parent = client.query_children_by_parent_for_commit_ids(("child",))
+
+    assert [revision.commit_id for revision in ancestors] == ["child", "parent", "trunk"]
+    assert [revision.commit_id for revision in children_by_parent["parent"]] == [
+        "child",
+        "sibling",
+    ]
+
+
 def test_resolve_revision_reports_missing_revset_without_wrapped_command() -> None:
     def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         assert tuple(command) == (

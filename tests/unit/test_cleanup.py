@@ -29,7 +29,30 @@ from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubBranchRef, GithubIssueComment, GithubPullRequest
+from jj_review.models.stack import LocalRevision
 from jj_review.review_inspection import PreparedStatus, ReviewStatusRevision
+
+
+def _local_revision(
+    *,
+    change_id: str,
+    commit_id: str,
+    parents: tuple[str, ...],
+    divergent: bool = False,
+    hidden: bool = False,
+    immutable: bool = False,
+) -> LocalRevision:
+    return LocalRevision(
+        change_id=change_id,
+        commit_id=commit_id,
+        current_working_copy=False,
+        description=f"{change_id}\n",
+        divergent=divergent,
+        empty=False,
+        hidden=hidden,
+        immutable=immutable,
+        parents=parents,
+    )
 
 
 def test_should_skip_stack_comment_inspection_for_stale_open_change_without_comment_hint(
@@ -86,6 +109,99 @@ def test_should_inspect_stack_comment_for_stale_change_with_missing_remote_branc
     )
 
     assert should_inspect is True
+
+
+def test_stale_change_reasons_classifies_cached_changes_in_bulk() -> None:
+    live = _local_revision(
+        change_id="live-change",
+        commit_id="live",
+        parents=("trunk",),
+    )
+    duplicate_1 = _local_revision(
+        change_id="duplicate-change",
+        commit_id="dup-1",
+        parents=("trunk",),
+    )
+    duplicate_2 = _local_revision(
+        change_id="duplicate-change",
+        commit_id="dup-2",
+        parents=("trunk",),
+    )
+    not_reviewable = _local_revision(
+        change_id="merge-change",
+        commit_id="merge",
+        parents=("left", "right"),
+    )
+    branched_parent = _local_revision(
+        change_id="branch-parent",
+        commit_id="branch-parent",
+        parents=("trunk",),
+    )
+    branched = _local_revision(
+        change_id="branched-change",
+        commit_id="branched",
+        parents=("branch-parent",),
+    )
+    sibling = _local_revision(
+        change_id="sibling-change",
+        commit_id="sibling",
+        parents=("branch-parent",),
+    )
+    trunk = _local_revision(
+        change_id="trunk-change",
+        commit_id="trunk",
+        parents=("root",),
+        immutable=True,
+    )
+
+    class FakeClient:
+        def query_revisions_by_change_ids(self, change_ids: tuple[str, ...]):
+            assert change_ids == (
+                "live-change",
+                "missing-change",
+                "duplicate-change",
+                "merge-change",
+                "branched-change",
+            )
+            return {
+                "live-change": (live,),
+                "missing-change": (),
+                "duplicate-change": (duplicate_1, duplicate_2),
+                "merge-change": (not_reviewable,),
+                "branched-change": (branched,),
+            }
+
+        def resolve_trunk(self) -> LocalRevision:
+            return trunk
+
+        def query_ancestor_revisions(self, commit_ids: tuple[str, ...]):
+            assert commit_ids == ("live", "branched")
+            return (live, branched, branched_parent, trunk)
+
+        def query_children_by_parent_for_commit_ids(self, commit_ids: tuple[str, ...]):
+            assert commit_ids == ("live", "branched")
+            return {
+                "branch-parent": (branched, sibling),
+            }
+
+    reasons = cleanup_module._stale_change_reasons(
+        change_ids=(
+            "live-change",
+            "missing-change",
+            "duplicate-change",
+            "merge-change",
+            "branched-change",
+        ),
+        jj_client=cast(JjClient, FakeClient()),
+    )
+
+    assert reasons == {
+        "live-change": None,
+        "missing-change": "no visible local change matches that cached change ID",
+        "duplicate-change": "multiple visible revisions still share that change ID",
+        "merge-change": "local change is no longer reviewable",
+        "branched-change": "local change no longer participates in a supported review stack",
+    }
 
 
 def test_resolve_stack_summary_comment_blocks_multiple_candidates() -> None:
@@ -191,8 +307,11 @@ def test_stream_cleanup_limits_stack_comment_github_inspection_concurrency(
         lambda **kwargs: FakeGithubClientContext(),
     )
     monkeypatch.setattr(
-        "jj_review.commands.cleanup._stale_change_reason",
-        lambda **kwargs: "local change is no longer reviewable",
+        "jj_review.commands.cleanup._stale_change_reasons",
+        lambda **kwargs: {
+            change_id: "local change is no longer reviewable"
+            for change_id in kwargs["change_ids"]
+        },
     )
     monkeypatch.setattr(
         "jj_review.commands.cleanup._plan_stack_comment_cleanup",
@@ -285,8 +404,11 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
         lambda **kwargs: FakeGithubClientContext(),
     )
     monkeypatch.setattr(
-        "jj_review.commands.cleanup._stale_change_reason",
-        lambda **kwargs: "local change is no longer reviewable",
+        "jj_review.commands.cleanup._stale_change_reasons",
+        lambda **kwargs: {
+            change_id: "local change is no longer reviewable"
+            for change_id in kwargs["change_ids"]
+        },
     )
     monkeypatch.setattr(
         "jj_review.commands.cleanup._plan_stack_comment_cleanup",
@@ -355,8 +477,10 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
         lambda **kwargs: FakeGithubClientContext(),
     )
     monkeypatch.setattr(
-        "jj_review.commands.cleanup._stale_change_reason",
-        lambda **kwargs: None,
+        "jj_review.commands.cleanup._stale_change_reasons",
+        lambda **kwargs: {
+            change_id: None for change_id in kwargs["change_ids"]
+        },
     )
     monkeypatch.setattr(
         "jj_review.commands.cleanup._plan_stack_comment_cleanup",
@@ -430,12 +554,15 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
     )
 
     monkeypatch.setattr(
-        "jj_review.commands.cleanup._stale_change_reason",
-        lambda **kwargs: (
-            "local change is no longer reviewable"
-            if kwargs["change_id"] == "stale-change"
-            else None
-        ),
+        "jj_review.commands.cleanup._stale_change_reasons",
+        lambda **kwargs: {
+            change_id: (
+                "local change is no longer reviewable"
+                if change_id == "stale-change"
+                else None
+            )
+            for change_id in kwargs["change_ids"]
+        },
     )
     monkeypatch.setattr(
         "jj_review.commands.cleanup.check_same_kind_intent",
