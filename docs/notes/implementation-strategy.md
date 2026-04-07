@@ -95,6 +95,8 @@ Recent refactor slices:
 - `close` now keeps its execution state, resumable-intent setup, and per-revision
   cleanup context in explicit helpers instead of threading that orchestration
   through one long async path.
+- `cleanup` now routes its CLI modes through separate helpers and keeps restack
+  intent setup, policy warnings, and survivor-rebase planning in named phases.
 
 ## Executable Surface
 

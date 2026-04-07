@@ -171,6 +171,15 @@ class _RestackOperationPlan:
     rebase_plans: tuple[tuple[str, str | None], ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _RestackIntentState:
+    """Prepared restack intent bookkeeping for resumable apply runs."""
+
+    intent: CleanupRestackIntent | None
+    intent_path: Path | None
+    stale_intents: list[LoadedIntent]
+
+
 def render_cleanup_preamble(*, prepared_cleanup: PreparedCleanup) -> tuple[str, ...]:
     """Render the non-streaming cleanup context lines for the CLI."""
 
@@ -274,69 +283,115 @@ def cleanup(
         debug=debug,
     )
     if restack:
-        selected_revset = resolve_selected_revset(
-            command_label="cleanup --restack --apply" if apply else "cleanup --restack",
+        return _run_cleanup_restack_command(
+            apply=apply,
+            change_overrides=context.config.change,
+            config=context.config.repo,
             current=current,
-            require_explicit=apply,
+            repo_root=context.repo_root,
             revset=revset,
         )
-        try:
-            prepared_restack = prepare_restack(
-                apply=apply,
-                change_overrides=context.config.change,
-                config=context.config.repo,
-                repo_root=context.repo_root,
-                revset=selected_revset,
-            )
-        except UnsupportedStackError as error:
-            raise CliError(describe_status_preparation_error(error)) from error
-        for line in render_restack_preamble(prepared_restack=prepared_restack):
-            print(line)
 
-        header_printed = False
-
-        def emit_action(action) -> None:
-            nonlocal header_printed
-            if not header_printed:
-                print(render_restack_action_header(apply=prepared_restack.apply))
-                header_printed = True
-            print(render_restack_action(action=action))
-
-        try:
-            result = stream_restack(
-                on_action=emit_action,
-                prepared_restack=prepared_restack,
-            )
-        except UnsupportedStackError as error:
-            raise CliError(describe_status_preparation_error(error)) from error
-        for line in render_restack_postamble(result=result):
-            print(line)
-        return 1 if result.blocked else 0
-
-    prepared_cleanup = prepare_cleanup(
+    return _run_cleanup_command(
         apply=apply,
         config=context.config.repo,
         repo_root=context.repo_root,
     )
+
+
+def _run_cleanup_restack_command(
+    *,
+    apply: bool,
+    change_overrides: dict[str, ChangeConfig],
+    config: RepoConfig,
+    current: bool,
+    repo_root: Path,
+    revset: str | None,
+) -> int:
+    """Render and run the `cleanup --restack` command path."""
+
+    selected_revset = resolve_selected_revset(
+        command_label="cleanup --restack --apply" if apply else "cleanup --restack",
+        current=current,
+        require_explicit=apply,
+        revset=revset,
+    )
+    try:
+        prepared_restack = prepare_restack(
+            apply=apply,
+            change_overrides=change_overrides,
+            config=config,
+            repo_root=repo_root,
+            revset=selected_revset,
+        )
+    except UnsupportedStackError as error:
+        raise CliError(describe_status_preparation_error(error)) from error
+    for line in render_restack_preamble(prepared_restack=prepared_restack):
+        print(line)
+
+    try:
+        result = stream_restack(
+            on_action=_build_cleanup_action_streamer(
+                apply=prepared_restack.apply,
+                render_action=render_restack_action,
+                render_header=render_restack_action_header,
+            ),
+            prepared_restack=prepared_restack,
+        )
+    except UnsupportedStackError as error:
+        raise CliError(describe_status_preparation_error(error)) from error
+    for line in render_restack_postamble(result=result):
+        print(line)
+    return 1 if result.blocked else 0
+
+
+def _run_cleanup_command(
+    *,
+    apply: bool,
+    config: RepoConfig,
+    repo_root: Path,
+) -> int:
+    """Render and run the stale cleanup command path."""
+
+    prepared_cleanup = prepare_cleanup(
+        apply=apply,
+        config=config,
+        repo_root=repo_root,
+    )
     for line in render_cleanup_preamble(prepared_cleanup=prepared_cleanup):
         print(line)
 
-    header_printed = False
-
-    def emit_action(action) -> None:
-        nonlocal header_printed
-        if not header_printed:
-            print(render_cleanup_action_header(apply=prepared_cleanup.apply))
-            header_printed = True
-        print(render_cleanup_action(action=action))
-
     result = stream_cleanup(
-        on_action=emit_action,
+        on_action=_build_cleanup_action_streamer(
+            apply=prepared_cleanup.apply,
+            render_action=render_cleanup_action,
+            render_header=render_cleanup_action_header,
+        ),
         prepared_cleanup=prepared_cleanup,
     )
     for line in render_cleanup_postamble(result=result):
         print(line)
     return 0
+
+
+def _build_cleanup_action_streamer(
+    *,
+    apply: bool,
+    render_action: Callable[..., str],
+    render_header: Callable[..., str],
+) -> Callable[[CleanupAction], None]:
+    """Print the action header once, then stream actions as they arrive."""
+
+    header_printed = False
+
+    def emit_action(action: CleanupAction) -> None:
+        nonlocal header_printed
+        if not header_printed:
+            print(render_header(apply=apply))
+            header_printed = True
+        print(render_action(action=action))
+
+    return emit_action
 
 
 def _render_remote_and_github_lines(
@@ -470,15 +525,11 @@ def stream_restack(
                 status="blocked",
             )
         )
-        return RestackResult(
+        return _build_restack_result(
             actions=tuple(actions),
-            applied=prepared_restack.apply,
             blocked=True,
-            github_error=status_result.github_error,
-            github_repository=status_result.github_repository,
-            remote=status_result.remote,
-            remote_error=status_result.remote_error,
-            selected_revset=status_result.selected_revset,
+            prepared_restack=prepared_restack,
+            status_result=status_result,
         )
 
     operation_plan = _plan_restack_operations(
@@ -488,15 +539,11 @@ def stream_restack(
     blocked = operation_plan.blocked
     merged_revisions = operation_plan.merged_revisions
     if not merged_revisions:
-        return RestackResult(
+        return _build_restack_result(
             actions=(),
-            applied=prepared_restack.apply,
             blocked=False,
-            github_error=status_result.github_error,
-            github_repository=status_result.github_repository,
-            remote=status_result.remote,
-            remote_error=status_result.remote_error,
-            selected_revset=status_result.selected_revset,
+            prepared_restack=prepared_restack,
+            status_result=status_result,
         )
 
     closed_unmerged_revisions = operation_plan.closed_unmerged_revisions
@@ -504,43 +551,12 @@ def stream_restack(
         record_action(action)
     rebase_plans = list(operation_plan.rebase_plans)
 
-    # Write intent file before the rebase loop (apply mode only)
-    restack_intent_path: Path | None = None
-    restack_stale_intents: list[LoadedIntent] = []
-    _restack_intent: CleanupRestackIntent | None = None
-    if prepared_restack.apply and not blocked and prepared_restack.state_dir is not None:
-        _ordered_ids = tuple(
-            pr.revision.change_id for pr in prepared.status_revisions
-        )
-        _restack_intent = CleanupRestackIntent(
-            kind="cleanup-restack",
-            pid=os.getpid(),
-            label=f"cleanup --restack on {status_result.selected_revset}",
-            display_revset=status_result.selected_revset,
-            ordered_change_ids=_ordered_ids,
-            started_at=datetime.now(UTC).isoformat(),
-        )
-        restack_stale_intents = check_same_kind_intent(
-            prepared_restack.state_dir, _restack_intent
-        )
-        for _loaded in restack_stale_intents:
-            if not isinstance(_loaded.intent, CleanupRestackIntent):
-                continue
-            _match = match_ordered_change_ids(
-                _loaded.intent.ordered_change_ids, _ordered_ids
-            )
-            if _match == "exact":
-                print(f"Resuming interrupted {_loaded.intent.label}")
-            elif _match == "superset":
-                pass  # proceed silently; retire old intent on success
-            elif _match == "overlap":
-                print(
-                    f"Warning: this restack overlaps an incomplete earlier operation "
-                    f"({_loaded.intent.label})"
-                )
-            else:
-                print(f"Note: incomplete operation outstanding: {_loaded.intent.label}")
-        restack_intent_path = write_intent(prepared_restack.state_dir, _restack_intent)
+    restack_intent_state = _start_restack_intent(
+        blocked=blocked,
+        prepared=prepared,
+        prepared_restack=prepared_restack,
+        selected_revset=status_result.selected_revset,
+    )
 
     client = prepared.client
     _restack_succeeded = False
@@ -555,52 +571,152 @@ def stream_restack(
             trunk_commit_id=prepared.stack.trunk.commit_id,
         )
 
-        for revision in merged_revisions:
-            pull_request_number = _revision_pull_request_number(revision)
-            if pull_request_number is None:
-                continue
-            base_ref = _revision_pull_request_base_ref(revision)
-            if base_ref is None or not base_ref.startswith("review/"):
-                continue
-            record_action(
-                CleanupAction(
-                    kind="policy",
-                    message=(
-                        f"PR #{pull_request_number} merged into branch {base_ref}; "
-                        "configure GitHub to block merges of PRs targeting `review/*`"
-                    ),
-                    status="planned",
-                )
-            )
+        _record_restack_policy_actions(
+            merged_revisions=merged_revisions,
+            record_action=record_action,
+        )
 
         if not actions and merged_revisions:
-            merged_labels = ", ".join(_revision_label(revision) for revision in merged_revisions)
             record_action(
-                CleanupAction(
-                    kind="restack",
-                    message=(
-                        f"merged changes remain on the selected stack ({merged_labels}), but "
-                        "no surviving descendants need to move"
-                    ),
-                    status="planned" if not prepared_restack.apply else "applied",
+                _restack_noop_action(
+                    apply=prepared_restack.apply,
+                    merged_revisions=merged_revisions,
                 )
             )
 
         _restack_succeeded = True
-        return RestackResult(
+        return _build_restack_result(
             actions=tuple(actions),
-            applied=prepared_restack.apply,
             blocked=blocked,
-            github_error=status_result.github_error,
-            github_repository=status_result.github_repository,
-            remote=status_result.remote,
-            remote_error=status_result.remote_error,
-            selected_revset=status_result.selected_revset,
+            prepared_restack=prepared_restack,
+            status_result=status_result,
         )
     finally:
-        if _restack_succeeded and restack_intent_path is not None and _restack_intent is not None:
-            retire_superseded_intents(restack_stale_intents, _restack_intent)
-            delete_intent(restack_intent_path)
+        if (
+            _restack_succeeded
+            and restack_intent_state.intent_path is not None
+            and restack_intent_state.intent is not None
+        ):
+            retire_superseded_intents(
+                restack_intent_state.stale_intents,
+                restack_intent_state.intent,
+            )
+            delete_intent(restack_intent_state.intent_path)
+
+
+def _build_restack_result(
+    *,
+    actions: tuple[CleanupAction, ...],
+    blocked: bool,
+    prepared_restack: PreparedRestack,
+    status_result,
+) -> RestackResult:
+    """Render a restack result from the shared status context."""
+
+    return RestackResult(
+        actions=actions,
+        applied=prepared_restack.apply,
+        blocked=blocked,
+        github_error=status_result.github_error,
+        github_repository=status_result.github_repository,
+        remote=status_result.remote,
+        remote_error=status_result.remote_error,
+        selected_revset=status_result.selected_revset,
+    )
+
+
+def _start_restack_intent(
+    *,
+    blocked: bool,
+    prepared,
+    prepared_restack: PreparedRestack,
+    selected_revset: str,
+) -> _RestackIntentState:
+    """Write a restack intent before apply-mode rebases begin."""
+
+    if blocked or not prepared_restack.apply or prepared_restack.state_dir is None:
+        return _RestackIntentState(intent=None, intent_path=None, stale_intents=[])
+
+    ordered_change_ids = tuple(
+        prepared_revision.revision.change_id
+        for prepared_revision in prepared.status_revisions
+    )
+    intent = CleanupRestackIntent(
+        kind="cleanup-restack",
+        pid=os.getpid(),
+        label=f"cleanup --restack on {selected_revset}",
+        display_revset=selected_revset,
+        ordered_change_ids=ordered_change_ids,
+        started_at=datetime.now(UTC).isoformat(),
+    )
+    stale_intents = check_same_kind_intent(prepared_restack.state_dir, intent)
+    for loaded in stale_intents:
+        if not isinstance(loaded.intent, CleanupRestackIntent):
+            continue
+        match = match_ordered_change_ids(
+            loaded.intent.ordered_change_ids,
+            ordered_change_ids,
+        )
+        if match == "exact":
+            print(f"Resuming interrupted {loaded.intent.label}")
+        elif match == "superset":
+            continue
+        elif match == "overlap":
+            print(
+                f"Warning: this restack overlaps an incomplete earlier operation "
+                f"({loaded.intent.label})"
+            )
+        else:
+            print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
+    return _RestackIntentState(
+        intent=intent,
+        intent_path=write_intent(prepared_restack.state_dir, intent),
+        stale_intents=stale_intents,
+    )
+
+
+def _record_restack_policy_actions(
+    *,
+    merged_revisions: tuple[ReviewStatusRevision, ...],
+    record_action: Callable[[CleanupAction], None],
+) -> None:
+    """Warn when a merged PR targeted another review branch."""
+
+    for revision in merged_revisions:
+        pull_request_number = _revision_pull_request_number(revision)
+        if pull_request_number is None:
+            continue
+        base_ref = _revision_pull_request_base_ref(revision)
+        if base_ref is None or not base_ref.startswith("review/"):
+            continue
+        record_action(
+            CleanupAction(
+                kind="policy",
+                message=(
+                    f"PR #{pull_request_number} merged into branch {base_ref}; "
+                    "configure GitHub to block merges of PRs targeting `review/*`"
+                ),
+                status="planned",
+            )
+        )
+
+
+def _restack_noop_action(
+    *,
+    apply: bool,
+    merged_revisions: tuple[ReviewStatusRevision, ...],
+) -> CleanupAction:
+    """Describe a merged stack path that does not require any descendant moves."""
+
+    merged_labels = ", ".join(_revision_label(revision) for revision in merged_revisions)
+    return CleanupAction(
+        kind="restack",
+        message=(
+            f"merged changes remain on the selected stack ({merged_labels}), but "
+            "no surviving descendants need to move"
+        ),
+        status="planned" if not apply else "applied",
+    )
 
 
 def _resolve_restack_path_revisions(
@@ -699,6 +815,35 @@ def _plan_restack_operations(
         for prepared_revision in prepared_status.prepared.status_revisions
     }
 
+    blocked, actions = _collect_restack_pre_actions(
+        closed_unmerged_revisions=closed_unmerged_revisions,
+        current_commit_id_by_change_id=current_commit_id_by_change_id,
+        merged_revisions=merged_revisions,
+    )
+    blocked, rebase_plans = _plan_restack_rebases(
+        actions=actions,
+        blocked=blocked,
+        prepared_status=prepared_status,
+        revisions_by_change_id=revisions_by_change_id,
+    )
+
+    return _RestackOperationPlan(
+        blocked=blocked,
+        closed_unmerged_revisions=closed_unmerged_revisions,
+        merged_revisions=merged_revisions,
+        pre_actions=tuple(actions),
+        rebase_plans=tuple(rebase_plans),
+    )
+
+
+def _collect_restack_pre_actions(
+    *,
+    closed_unmerged_revisions: tuple[ReviewStatusRevision, ...],
+    current_commit_id_by_change_id: dict[str, str],
+    merged_revisions: tuple[ReviewStatusRevision, ...],
+) -> tuple[bool, list[CleanupAction]]:
+    """Record blocking restack conditions before survivor planning begins."""
+
     blocked = False
     actions: list[CleanupAction] = []
     for revision in closed_unmerged_revisions:
@@ -734,6 +879,18 @@ def _plan_restack_operations(
             )
         )
 
+    return blocked, actions
+
+
+def _plan_restack_rebases(
+    *,
+    actions: list[CleanupAction],
+    blocked: bool,
+    prepared_status: PreparedStatus,
+    revisions_by_change_id: dict[str, ReviewStatusRevision],
+) -> tuple[bool, list[tuple[str, str | None]]]:
+    """Plan survivor rebases after merged ancestors are removed from the path."""
+
     survivor_change_ids: list[str] = []
     rebase_plans: list[tuple[str, str | None]] = []
     for prepared_revision in prepared_status.prepared.status_revisions:
@@ -767,14 +924,7 @@ def _plan_restack_operations(
         ):
             rebase_plans.append((revision.change_id, desired_parent_change_id))
         survivor_change_ids.append(revision.change_id)
-
-    return _RestackOperationPlan(
-        blocked=blocked,
-        closed_unmerged_revisions=closed_unmerged_revisions,
-        merged_revisions=merged_revisions,
-        pre_actions=tuple(actions),
-        rebase_plans=tuple(rebase_plans),
-    )
+    return blocked, rebase_plans
 
 
 def _restack_parent_is_merged(
