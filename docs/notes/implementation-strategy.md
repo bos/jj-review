@@ -180,7 +180,7 @@ Command target selection should stay conservative at the CLI boundary:
 - `submit` and `relink` should require either an explicit `<revset>` or an
   explicit `--current` opt-in instead of silently defaulting to the current
   workspace path
-- future `close --apply` should require the same explicit selector
+- `close` should require the same explicit selector
 - `cleanup --restack --apply` should require the same explicit selector
 - read-only inspection may stay ergonomic, so `status` and `cleanup --restack`
   preview may still omit a selector and inspect the current stack by default

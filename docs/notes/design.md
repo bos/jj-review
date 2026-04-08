@@ -738,7 +738,7 @@ not need a saved parent graph.
 The tool can stay small. A reasonable surface would be:
 
 - `jj review submit [--draft[=new|all] | --publish]
-  [--reviewer <login[,login...]>] [--team-reviewer <slug[,slug...]>]
+  [--reviewers <login[,login...]>] [--team-reviewers <slug[,slug...]>]
   [--current | <revset>]`
 - `jj review status [--fetch] [<revset>]`
 - `jj review relink <pr> [--current | <revset>]`
