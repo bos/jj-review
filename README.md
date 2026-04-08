@@ -185,12 +185,18 @@ changes, not a maze of long-lived Git branches.
 - `jj-review land --current --apply`
   Land the ready prefix of the current stack.
 - `jj-review close --current`
-  Stop reviewing the current stack on GitHub.
+  Preview closing the current stack on GitHub.
+- `jj-review close --current --apply`
+  Close the tracked PRs for the current stack, and use `--cleanup` to also
+  remove verified review branches, local bookmarks, and saved jj-review state.
 - `jj-review cleanup`
   Inspect stale saved state, stack comments, old local `review/*` bookmarks,
   or old review branches.
 - `jj-review import --pull-request <number-or-url> --fetch`
   Attach local `jj-review` tracking to an existing PR stack.
+
+Advanced repair and shell-integration commands such as `relink`, `unlink`, and
+`completion` are available through `jj-review help --all`.
 
 ## Current scope
 
