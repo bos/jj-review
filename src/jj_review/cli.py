@@ -172,7 +172,7 @@ def build_parser() -> ArgumentParser:
         "--describe-with",
         help=_normalized_help_text(
             """
-            Executable to invoke as `helper --pr <revset>` for each PR and
+            Executable to invoke as `helper --pr <change_id>` for each PR and
             `helper --stack <revset>` for stack-comment prose; the helper must
             print JSON with string `title` and `body` fields
             """

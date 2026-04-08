@@ -220,6 +220,16 @@ def test_help_output_uses_uppercase_help_and_version_descriptions() -> None:
     assert "show help" not in submit_help
 
 
+def test_submit_help_describe_with_uses_change_ids() -> None:
+    submit_parser = _find_subcommand_parser(build_parser(), "submit")
+
+    assert submit_parser is not None
+    submit_help = submit_parser.format_help()
+
+    assert "`helper --pr <change_id>`" in submit_help
+    assert "`helper --pr <revset>`" not in submit_help
+
+
 def test_top_level_help_uses_title_case_options_heading(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
