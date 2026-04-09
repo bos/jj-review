@@ -8,49 +8,6 @@ from jj_review.commands import land as land_module
 from .entrypoint_test_helpers import patch_bootstrap
 
 
-def test_land_defaults_to_current_stack_when_revset_is_omitted(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    patch_bootstrap(monkeypatch, land_module, tmp_path)
-    run_called = False
-
-    def fake_prepare_land(**kwargs):
-        nonlocal run_called
-        run_called = True
-        assert kwargs["revset"] == "@-"
-        return SimpleNamespace()
-
-    monkeypatch.setattr(land_module, "prepare_land", fake_prepare_land)
-    monkeypatch.setattr(
-        land_module,
-        "stream_land",
-        lambda **kwargs: SimpleNamespace(
-            actions=(),
-            applied=True,
-            blocked=False,
-            follow_up=None,
-            github_repository="octo-org/stacked-review",
-            remote_name="origin",
-            selected_revset="@-",
-            trunk_branch="main",
-            trunk_subject="base",
-        ),
-    )
-
-    land_module.land(
-        bypass_readiness=False,
-        config_path=None,
-        debug=False,
-        dry_run=False,
-        expect_pr=None,
-        repository=tmp_path,
-        revset=None,
-    )
-
-    assert run_called
-
-
 def test_land_renders_planned_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

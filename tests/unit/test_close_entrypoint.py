@@ -8,47 +8,6 @@ from jj_review.commands import close as close_module
 from .entrypoint_test_helpers import patch_bootstrap
 
 
-def test_close_defaults_to_current_stack_when_revset_is_omitted(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    patch_bootstrap(monkeypatch, close_module, tmp_path)
-    run_called = False
-
-    def fake_prepare_close(**kwargs):
-        nonlocal run_called
-        run_called = True
-        assert kwargs["revset"] == "@-"
-        return SimpleNamespace()
-
-    monkeypatch.setattr(close_module, "prepare_close", fake_prepare_close)
-    monkeypatch.setattr(
-        close_module,
-        "stream_close",
-        lambda **kwargs: SimpleNamespace(
-            actions=(),
-            applied=True,
-            blocked=False,
-            github_error=None,
-            github_repository=None,
-            remote=None,
-            remote_error=None,
-            selected_revset="@-",
-        ),
-    )
-
-    close_module.close(
-        cleanup=False,
-        config_path=None,
-        debug=False,
-        dry_run=False,
-        repository=tmp_path,
-        revset=None,
-    )
-
-    assert run_called
-
-
 def test_close_renders_planned_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

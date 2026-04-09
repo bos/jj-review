@@ -107,6 +107,9 @@ Recent refactor slices:
 - `cleanup` stale-state checks now reuse the same selected-stack path semantics
   as stack discovery, so off-path sibling stacks no longer cause valid cached
   review state to be classified as stale.
+- shared revset-selection coverage now lives in dedicated `command_ui` unit
+  tests so command entrypoint suites do not each repeat the same wrapper-only
+  assertions
 
 ## Executable Surface
 

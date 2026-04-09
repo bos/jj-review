@@ -8,53 +8,6 @@ from jj_review.commands import submit as submit_module
 from .entrypoint_test_helpers import fake_submit_state_store, patch_bootstrap
 
 
-def test_submit_defaults_to_current_stack_when_revset_is_omitted(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    patch_bootstrap(monkeypatch, submit_module, tmp_path)
-    monkeypatch.setattr(
-        submit_module.ReviewStateStore,
-        "for_repo",
-        lambda _: fake_submit_state_store(tmp_path),
-    )
-    run_called = False
-
-    async def fake_run_submit(**kwargs):
-        nonlocal run_called
-        run_called = True
-        assert kwargs["revset"] == "@-"
-        return SimpleNamespace(
-            dry_run=False,
-            remote=SimpleNamespace(name="origin"),
-            revisions=(),
-            selected_change_id="abcdefghijkl",
-            selected_revset="@-",
-            selected_subject="feature 1",
-            trunk_change_id="basebasebase",
-            trunk_branch="main",
-            trunk_subject="base",
-        )
-
-    monkeypatch.setattr(submit_module, "_run_submit_async", fake_run_submit)
-
-    submit_module.submit(
-        config_path=None,
-        debug=False,
-        describe_with=None,
-        draft=False,
-        draft_all=False,
-        dry_run=False,
-        publish=False,
-        repository=tmp_path,
-        reviewers=None,
-        revset=None,
-        team_reviewers=None,
-    )
-
-    assert run_called
-
-
 def test_submit_passes_dry_run_and_renders_planned_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
