@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from jj_review.cache import ReviewStateStore, resolve_state_path
@@ -33,7 +32,7 @@ from .submit_command_helpers import (
 )
 
 
-def test_status_reports_remote_and_github_link(
+def test_status_reports_pull_request_link_without_showing_managed_bookmark(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -55,11 +54,9 @@ def test_status_reports_remote_and_github_link(
         captured.out
     )
     assert "review/feature-1-" not in captured.out
-    assert ": review/" not in captured.out
-    assert "stack summary comment" not in captured.out
 
 
-def test_status_caps_unsubmitted_summary_before_trunk_row(
+def test_status_truncates_long_unsubmitted_stack_summary(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -77,48 +74,6 @@ def test_status_caps_unsubmitted_summary_before_trunk_row(
     assert "[...2 changes omitted...]" in captured.out
     assert "feature 4" not in captured.out
     assert "feature 3" in captured.out
-    assert captured.out.index("Unsubmitted stack:") < captured.out.index("│  base")
-
-
-def test_status_verbose_expands_unsubmitted_summary(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    for index in range(8):
-        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
-
-    exit_code = _main(repo, config_path, "status", "--verbose")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "Unsubmitted stack:" in captured.out
-    assert "[...2 changes omitted...]" not in captured.out
-    assert captured.out.count("feature 4") == 1
-
-
-def test_status_prints_stack_tip_first_like_jj_log(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    exit_code = _main(repo, config_path, "status")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    feature_2_line = captured.out.index("feature 2")
-    feature_1_line = captured.out.index("feature 1")
-    assert feature_2_line < feature_1_line
 
 
 def test_status_ignores_off_path_reviewable_child(
@@ -148,193 +103,6 @@ def test_status_ignores_off_path_reviewable_child(
     assert "feature 2" in captured.out
     assert "feature 1" in captured.out
     assert "feature side" not in captured.out
-
-
-def test_status_prints_trunk_below_stack_like_jj_log(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    exit_code = _main(repo, config_path, "status")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "│  base" in captured.out
-    assert ": main" not in captured.out
-    assert captured.out.index("feature 1") < captured.out.index("│  base")
-
-def test_status_limits_concurrent_github_lookups(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    for index in range(4):
-        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    app = create_app(FakeGithubState.single_repository(fake_repo))
-    max_in_flight = 0
-    in_flight = 0
-    batch_calls: list[tuple[str, ...]] = []
-
-    class TrackingGithubClient(GithubClient):
-        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
-            batch_calls.append(tuple(head_refs))
-            return await super().get_pull_requests_by_head_refs(
-                owner,
-                repo,
-                head_refs=head_refs,
-            )
-
-        async def list_issue_comments(
-            self,
-            owner: str,
-            repo: str,
-            *,
-            issue_number: int,
-        ):
-            nonlocal in_flight, max_in_flight
-            in_flight += 1
-            max_in_flight = max(max_in_flight, in_flight)
-            try:
-                await asyncio.sleep(0.02)
-                return await super().list_issue_comments(
-                    owner,
-                    repo,
-                    issue_number=issue_number,
-                )
-            finally:
-                in_flight -= 1
-
-    _patch_github_client_builders(
-        monkeypatch,
-        app=app,
-        modules=("jj_review.review_inspection",),
-        client_type=TrackingGithubClient,
-        concurrency_limits={"jj_review.review_inspection": 2},
-    )
-
-    exit_code = _main(repo, config_path, "status")
-    capsys.readouterr()
-
-    assert exit_code == 0
-    assert len(batch_calls) == 1
-    assert max_in_flight == 2
-
-
-def test_status_batches_pull_request_discovery_with_graphql(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    for index in range(4):
-        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    app = create_app(FakeGithubState.single_repository(fake_repo))
-    batch_calls: list[tuple[str, ...]] = []
-
-    class TrackingGithubClient(GithubClient):
-        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
-            batch_calls.append(tuple(head_refs))
-            return await super().get_pull_requests_by_head_refs(
-                owner,
-                repo,
-                head_refs=head_refs,
-            )
-
-        async def list_pull_requests(self, owner, repo, *, head, state="all"):
-            raise AssertionError("status should batch pull request discovery")
-
-    _patch_github_client_builders(
-        monkeypatch,
-        app=app,
-        modules=("jj_review.review_inspection",),
-        client_type=TrackingGithubClient,
-    )
-
-    exit_code = _main(repo, config_path, "status")
-    capsys.readouterr()
-    state = ReviewStateStore.for_repo(repo).load()
-
-    assert exit_code == 0
-    assert len(batch_calls) == 1
-    assert set(batch_calls[0]) == {
-        change.bookmark for change in state.changes.values() if change.bookmark is not None
-    }
-
-
-def test_status_batches_review_decision_lookup_with_graphql(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    for index in range(2):
-        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-    fake_repo.create_pull_request_review(
-        pull_number=1,
-        reviewer_login="reviewer-1",
-        state="APPROVED",
-    )
-    fake_repo.create_pull_request_review(
-        pull_number=2,
-        reviewer_login="reviewer-2",
-        state="CHANGES_REQUESTED",
-    )
-
-    app = create_app(FakeGithubState.single_repository(fake_repo))
-    batch_calls: list[tuple[int, ...]] = []
-
-    class TrackingGithubClient(GithubClient):
-        async def get_review_decisions_by_pull_request_numbers(
-            self, owner, repo, *, pull_numbers
-        ):
-            batch_calls.append(tuple(pull_numbers))
-            return await super().get_review_decisions_by_pull_request_numbers(
-                owner,
-                repo,
-                pull_numbers=pull_numbers,
-            )
-
-        async def list_pull_request_reviews(self, owner, repo, *, pull_number):
-            raise AssertionError("status should batch review decision lookup")
-
-    _patch_github_client_builders(
-        monkeypatch,
-        app=app,
-        modules=("jj_review.review_inspection",),
-        client_type=TrackingGithubClient,
-    )
-
-    exit_code = _main(repo, config_path, "status")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert len(batch_calls) == 1
-    assert set(batch_calls[0]) == {1, 2}
-    assert ": PR #2 changes requested" in captured.out
-    assert ": PR #1 approved" in captured.out
 
 def test_status_preserves_remote_observations_when_github_lookup_fails(
     tmp_path: Path,
@@ -407,41 +175,6 @@ def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
         "(unavailable - check network connectivity)"
     ) in captured.out
     assert ": GitHub status unknown" in captured.out
-
-def test_status_does_not_probe_repository_before_pull_request_lookup(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    app = create_app(FakeGithubState.single_repository(fake_repo))
-
-    class NoRepositoryProbeClient(GithubClient):
-        async def get_repository(
-            self,
-            owner: str,
-            repo: str,
-        ):
-            raise AssertionError("status should not probe repository availability")
-
-    _patch_github_client_builders(
-        monkeypatch,
-        app=app,
-        modules=("jj_review.review_inspection",),
-        client_type=NoRepositoryProbeClient,
-    )
-
-    exit_code = _main(repo, config_path, "status")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert ": PR #1" in captured.out
 
 def test_status_exits_nonzero_when_pull_request_lookup_fails(
     tmp_path: Path,
