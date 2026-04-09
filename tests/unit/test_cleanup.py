@@ -55,7 +55,7 @@ def _local_revision(
     )
 
 
-def test_cleanup_skips_stack_comment_lookup_for_stale_open_change_without_comment_hint(
+def test_cleanup_skips_stack_comment_lookup_when_open_pr_still_has_remote_branch(
 ) -> None:
     bookmark_state = BookmarkState(
         name="review/feature-aaaaaaaa",

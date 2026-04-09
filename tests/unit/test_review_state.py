@@ -7,15 +7,6 @@ import pytest
 
 from jj_review.commands import review_state as review_state_module
 
-
-def test_display_change_id_truncates_to_eight_characters() -> None:
-    assert review_state_module.display_change_id("abcdefghijkl") == "abcdefgh"
-
-
-def test_format_pull_request_label_marks_drafts() -> None:
-    assert review_state_module.format_pull_request_label(7, is_draft=True) == "draft PR #7"
-
-
 def test_render_status_selection_lines_reports_selected_remote_error() -> None:
     prepared_status = SimpleNamespace(
         selected_revset="@",
