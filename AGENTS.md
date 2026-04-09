@@ -1,6 +1,10 @@
 # Repo Notes
 
 - This is a `jj` repo. Do not use `git` to work on the repo itself.
+- Do not use git worktree-based agent isolation in this repo. Git worktrees
+  branch from git commits and do not carry the live jj operation state, so
+  subagents can silently miss uncommitted jj changes. For isolated parallel
+  work, use `jj workspace` instead.
 - In user-facing output, identify revisions by `change_id` by default. If a
   concrete immutable snapshot matters, include the `commit_id` second and
   label it explicitly.
