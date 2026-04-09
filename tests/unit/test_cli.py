@@ -43,7 +43,7 @@ def test_main_help_command_prints_subcommand_help(
     assert captured.err == ""
 
 
-def test_help_command_with_invalid_option_shows_usage_without_traceback() -> None:
+def test_help_command_rejects_invalid_option() -> None:
     with pytest.raises(SystemExit) as exc_info:
         build_parser().parse_args(["help", "--version"])
 
