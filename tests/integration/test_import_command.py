@@ -89,6 +89,7 @@ def test_import_current_rejects_remote_branches_without_pull_requests(
 
     assert exit_code == 1
     assert "selected head already has a pull request" in captured.err
+    assert "Missing pull request for:" in captured.err
     assert ReviewStateStore.for_repo(repo).load().changes == {}
 
 
@@ -115,7 +116,7 @@ def test_import_reports_up_to_date_when_selected_stack_is_already_imported(
     assert "No reviewable commits" not in captured.out
 
 
-def test_import_reports_github_inspection_progress(
+def test_import_current_fails_closed_when_head_has_no_discoverable_remote_review_link(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -123,39 +124,18 @@ def test_import_reports_github_inspection_progress(
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    state_before = ReviewStateStore.for_repo(repo).load()
-    review_bookmarks = sorted(
-        {
-            change.bookmark
-            for change in state_before.changes.values()
-            if change.bookmark is not None and change.bookmark.startswith("review/")
-        }
-    )
-    for bookmark in review_bookmarks:
-        _run(["jj", "bookmark", "forget", bookmark], repo)
-    resolve_state_path(repo).unlink()
-
-    exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "Inspecting GitHub pull requests and branches..." in captured.out
-
-
-def test_import_current_requires_discoverable_remote_review_link(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
 
     exit_code = _main(repo, config_path, "import")
+    captured = capsys.readouterr()
 
     assert exit_code == 1
+    assert "current stack has no matching remote pull request" in captured.err
+    assert ReviewStateStore.for_repo(repo).load().changes == {}
+    assert not {
+        bookmark
+        for bookmark in JjClient(repo).list_bookmark_states()
+        if bookmark.startswith("review/")
+    }
 
 
 def test_import_revset_fails_closed_without_remote_bookmark_identity(
@@ -182,9 +162,10 @@ def test_import_revset_fails_closed_without_remote_bookmark_identity(
     }
 
 
-def test_import_pull_request_rejects_ambiguous_head_branch_link(
+def test_import_pull_request_fails_closed_when_head_branch_matches_multiple_pull_requests(
     tmp_path: Path,
     monkeypatch,
+    capsys,
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
@@ -194,7 +175,8 @@ def test_import_pull_request_rejects_ambiguous_head_branch_link(
     assert _main(repo, config_path, "submit") == 0
     stack = JjClient(repo).discover_review_stack()
     top_change_id = stack.revisions[-1].change_id
-    top_bookmark = ReviewStateStore.for_repo(repo).load().changes[top_change_id].bookmark
+    initial_state = ReviewStateStore.for_repo(repo).load()
+    top_bookmark = initial_state.changes[top_change_id].bookmark
     assert top_bookmark is not None
     fake_repo.create_pull_request(
         base_ref=fake_repo.pull_requests[2].base_ref,
@@ -204,8 +186,11 @@ def test_import_pull_request_rejects_ambiguous_head_branch_link(
     )
 
     exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
+    captured = capsys.readouterr()
 
     assert exit_code == 1
+    assert "multiple pull requests" in captured.err
+    assert ReviewStateStore.for_repo(repo).load().changes == initial_state.changes
 
 
 def test_import_fails_closed_when_stack_would_need_generated_bookmarks(

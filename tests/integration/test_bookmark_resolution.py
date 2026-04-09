@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 from jj_review.bookmarks import BookmarkResolver
-from jj_review.cache import ReviewStateStore, ReviewStateUnavailable, resolve_state_path
+from jj_review.cache import ReviewStateStore, ReviewStateUnavailable
 from jj_review.cli import main
 from jj_review.jj import JjClient
 
@@ -56,22 +56,7 @@ def test_status_persists_generated_bookmark_pins(
     assert not (repo / ".jj-review.toml").exists()
 
 
-def test_resolve_state_path_bootstraps_jj_repo_id(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    repo = _init_repo(tmp_path)
-    config_id_path = repo / ".jj" / "repo" / "config-id"
-    config_id_path.unlink()
-
-    state_path = resolve_state_path(repo)
-
-    assert config_id_path.exists()
-    assert state_path.name == "state.toml"
-
-
-def test_status_continues_when_repo_id_file_is_not_created(
+def test_status_continues_when_review_state_persistence_is_unavailable(
     tmp_path: Path,
     monkeypatch,
     capsys,
