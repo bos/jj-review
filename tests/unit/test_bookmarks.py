@@ -35,7 +35,7 @@ def test_generate_bookmark_name_falls_back_for_blank_subject() -> None:
     assert bookmark == "review/change-abcdefgh"
 
 
-def test_bookmark_resolver_pins_generated_names() -> None:
+def test_bookmark_resolver_generates_and_pins_bookmark_when_no_mapping_exists() -> None:
     revision = _revision(
         change_id="zvlywqkxtmnpqrstu",
         description="Fix cache invalidation\n",
@@ -52,7 +52,7 @@ def test_bookmark_resolver_pins_generated_names() -> None:
     )
 
 
-def test_bookmark_resolver_reuses_pinned_bookmark_after_subject_changes() -> None:
+def test_bookmark_resolver_keeps_cached_bookmark_stable_after_subject_change() -> None:
     state = ReviewState(
         change={
             "zvlywqkxtmnpqrstu": CachedChange(bookmark="review/fix-cache-invalidation-zvlywqkx")
@@ -70,7 +70,7 @@ def test_bookmark_resolver_reuses_pinned_bookmark_after_subject_changes() -> Non
     assert result.resolutions[0].source == "cache"
 
 
-def test_bookmark_resolver_prefers_explicit_override() -> None:
+def test_bookmark_resolver_prefers_override_over_cached_bookmark() -> None:
     state = ReviewState(
         change={
             "zvlywqkxtmnpqrstu": CachedChange(bookmark="review/fix-cache-invalidation-zvlywqkx")
@@ -113,7 +113,7 @@ def test_bookmark_resolver_reuses_discovered_bookmark_when_cache_is_missing() ->
     )
 
 
-def test_discover_bookmarks_for_revisions_reuses_unique_matching_remote_bookmark() -> None:
+def test_discover_bookmarks_reuses_unique_remote_bookmark_with_matching_change_id_suffix() -> None:
     bookmarks = _discover_bookmarks_for_revisions(
         bookmark_states={
             "review/original-title-zvlywqkx": BookmarkState(
@@ -157,7 +157,7 @@ def test_discover_bookmarks_for_revisions_rejects_ambiguous_matches() -> None:
         )
 
 
-def test_ensure_unique_bookmarks_rejects_duplicate_names() -> None:
+def test_ensure_unique_bookmarks_rejects_multiple_changes_resolving_to_same_bookmark() -> None:
     resolutions = (
         ResolvedBookmark(
             bookmark="review/shared-name",

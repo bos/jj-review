@@ -22,11 +22,11 @@ def _fake_jj_version(version_string: str) -> subprocess.CompletedProcess[str]:
 # --- _parse_jj_version ---
 
 
-def test_parse_jj_version_stable() -> None:
+def test_parse_jj_version_accepts_release_version() -> None:
     assert _parse_jj_version("jj 0.39.0") == (0, 39, 0)
 
 
-def test_parse_jj_version_with_build_hash() -> None:
+def test_parse_jj_version_ignores_build_suffix() -> None:
     assert _parse_jj_version("jj 0.39.0-d9689cd9b51b") == (0, 39, 0)
 
 

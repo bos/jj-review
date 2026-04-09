@@ -19,7 +19,7 @@ def test_load_config_returns_defaults_when_config_is_missing(
     assert config.repo.remote is None
 
 
-def test_load_config_reads_repository_and_logging_sections(
+def test_load_config_reads_repo_and_logging_values_from_toml(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -53,7 +53,7 @@ def test_load_config_rejects_missing_explicit_config_path(tmp_path: Path) -> Non
         load_config(repo_root=tmp_path, config_path=config_path)
 
 
-def test_load_config_applies_matching_repo_path_overrides(
+def test_load_config_merges_matching_repo_path_overrides(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -84,7 +84,7 @@ def test_load_config_applies_matching_repo_path_overrides(
     assert config.repo.trunk_branch == "main"
 
 
-def test_load_config_reads_per_change_overrides(
+def test_load_config_reads_per_change_bookmark_override(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

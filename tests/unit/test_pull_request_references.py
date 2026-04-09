@@ -15,7 +15,7 @@ def test_parse_pull_request_number_rejects_non_digits() -> None:
     assert parse_pull_request_number("pr-42") is None
 
 
-def test_parse_pull_request_url_accepts_matching_shape() -> None:
+def test_parse_pull_request_url_accepts_standard_pull_request_url() -> None:
     assert parse_pull_request_url("https://github.test/octo-org/stacked-review/pull/17") == (
         ParsedPullRequestUrl(
             host="github.test",
