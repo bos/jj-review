@@ -1,7 +1,6 @@
 from tests.support.pytest_concurrency import (
     RecordedInterval,
     analyze_intervals,
-    format_summary,
 )
 
 
@@ -48,4 +47,3 @@ def test_analyze_intervals_splits_shared_concurrency_debt() -> None:
     assert summary.bottlenecks[0].concurrency_debt_s == 4.0
     assert summary.bottlenecks[1].nodeid == "tests/unit/test_b.py::test_second"
     assert summary.bottlenecks[1].concurrency_debt_s == 4.0
-

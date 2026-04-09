@@ -113,7 +113,8 @@ def test_bookmark_resolver_reuses_discovered_bookmark_when_cache_is_missing() ->
     )
 
 
-def test_discover_bookmarks_reuses_unique_remote_bookmark_with_matching_change_id_suffix() -> None:
+def test_discover_bookmarks_reuses_unique_remote_bookmark_with_matching_change_id_suffix(
+) -> None:
     bookmarks = _discover_bookmarks_for_revisions(
         bookmark_states={
             "review/original-title-zvlywqkx": BookmarkState(

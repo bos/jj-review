@@ -7,6 +7,7 @@ import pytest
 
 from jj_review.commands import review_state as review_state_module
 
+
 def test_render_status_selection_lines_reports_selected_remote_error() -> None:
     prepared_status = SimpleNamespace(
         selected_revset="@",

@@ -1,7 +1,6 @@
 """Unit tests for the intent file module."""
 from __future__ import annotations
 
-import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,8 +8,6 @@ from pathlib import Path
 import pytest
 
 from jj_review.intent import (
-    _intent_filename,
-    _remove_temporary_intent_file,
     check_same_kind_intent,
     intent_is_stale,
     match_ordered_change_ids,
