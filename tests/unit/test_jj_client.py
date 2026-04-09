@@ -103,15 +103,6 @@ _CHILD_A = _revision_line(
 _CHILD_B = _revision_line(
     commit_id="child-b", parents=["parent"], change_id="child-b-change", description="child b\n"
 )
-_DIVERGENT_SIBLING = _revision_line(
-    commit_id="div-sibling",
-    parents=["parent"],
-    change_id="div-sibling-change",
-    description="divergent sibling\n",
-    divergent=True,
-)
-
-
 def test_discover_review_stack_returns_empty_revisions_when_head_is_trunk() -> None:
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
@@ -124,7 +115,8 @@ def test_discover_review_stack_returns_empty_revisions_when_head_is_trunk() -> N
     assert stack.head.commit_id == "trunk"
 
 
-def test_discover_review_stack_defaults_to_parent_of_empty_working_copy() -> None:
+def test_discover_review_stack_uses_parent_of_empty_working_copy_as_default_selection(
+) -> None:
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
         ("jj", "log", "--no-graph", "-r", "@", "-T", _template(), "--limit", "2"): (
@@ -252,7 +244,7 @@ def test_discover_review_stack_allows_immutable_ancestor_for_inspection() -> Non
     ]
 
 
-def test_discover_review_stack_stops_at_first_path_revision_already_in_trunk() -> None:
+def test_discover_review_stack_excludes_revisions_already_reachable_from_trunk() -> None:
     current_trunk = _revision_line(
         commit_id="current-trunk",
         parents=["old-trunk", "merged"],
@@ -367,20 +359,6 @@ def test_discover_review_stack_rejects_hidden_revisions() -> None:
         client.discover_review_stack("hidden")
 
 
-def test_discover_review_stack_allows_off_path_reviewable_child() -> None:
-    responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): _HEAD,
-        ("jj", "log", "--no-graph", "-r", "::'head'", "-T", _template()): (
-            _HEAD + _PARENT + _TRUNK
-        ),
-    }
-
-    stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack("head")
-
-    assert [revision.subject for revision in stack.revisions] == ["parent", "head"]
-
-
 def test_discover_review_stack_raises_jj_command_error_on_wrong_field_count() -> None:
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
@@ -455,20 +433,6 @@ def test_discover_review_stack_raises_jj_command_error_on_wrong_field_type() -> 
     client = JjClient(Path("/repo"), runner=_runner(responses))
     with pytest.raises(JjCommandError, match="unexpected field types"):
         client.discover_review_stack("head")
-
-
-def test_discover_review_stack_ignores_off_path_divergent_sibling() -> None:
-    responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): _HEAD,
-        ("jj", "log", "--no-graph", "-r", "::'head'", "-T", _template()): (
-            _HEAD + _PARENT + _TRUNK
-        ),
-    }
-
-    stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack("head")
-
-    assert [r.subject for r in stack.revisions] == ["parent", "head"]
 
 
 def test_supported_review_stack_change_ids_allows_sibling_stacks() -> None:

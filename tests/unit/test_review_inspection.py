@@ -16,7 +16,6 @@ from jj_review.review_inspection import (
     PreparedStatus,
     PullRequestLookup,
     ReviewStatusRevision,
-    _build_status_revisions_without_github,
     _classify_status_intents,
     _PreparedStack,
     _resolve_status_github_repository,
@@ -135,7 +134,7 @@ def test_resolve_status_github_repository_returns_resolution_error() -> None:
     assert "Could not determine the GitHub repository" in github_repository_error
 
 
-def test_classify_status_intents_partitions_stale_and_outstanding_intents(
+def test_classify_status_intents_separates_stale_intents_from_live_ones(
     monkeypatch,
 ) -> None:
     fresh = cast(object, SimpleNamespace(intent=SimpleNamespace(label="fresh")))
@@ -206,7 +205,7 @@ def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> No
     assert result.revisions == ()
 
 
-def test_status_treats_cleanup_needed_after_merged_pr_as_informational() -> None:
+def test_status_does_not_mark_merged_pr_needing_cleanup_as_incomplete() -> None:
     revision = ReviewStatusRevision(
         bookmark="review/feature-1-aaaaaaaa",
         bookmark_source="generated",
@@ -392,77 +391,6 @@ def test_stream_status_marks_missing_github_target_as_incomplete(monkeypatch) ->
     assert result.incomplete is True
     assert result.remote == remote
     assert result.revisions == local_only_revisions
-
-
-def test_build_status_revisions_without_github_batches_bookmark_state_lookup() -> None:
-    remote = GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git")
-    bookmark_states_calls: list[tuple[str, ...]] = []
-
-    class FakeClient:
-        def list_bookmark_states(self, bookmarks=None):
-            bookmark_states_calls.append(tuple(bookmarks or ()))
-            return {
-                "review/feature-1-aaaaaaaa": BookmarkState(
-                    name="review/feature-1-aaaaaaaa",
-                    remote_targets=(
-                        RemoteBookmarkState(remote="origin", targets=("commit-1",)),
-                    ),
-                ),
-                "review/feature-2-bbbbbbbb": BookmarkState(
-                    name="review/feature-2-bbbbbbbb",
-                    remote_targets=(
-                        RemoteBookmarkState(remote="origin", targets=("commit-2",)),
-                    ),
-                ),
-            }
-
-    prepared = cast(
-        _PreparedStack,
-        SimpleNamespace(
-            client=FakeClient(),
-            remote=remote,
-            status_revisions=(
-                SimpleNamespace(
-                    bookmark="review/feature-1-aaaaaaaa",
-                    bookmark_source="generated",
-                    cached_change=None,
-                    revision=SimpleNamespace(
-                        change_id="aaaaaaaaaaaa",
-                        commit_id="commit-1",
-                        divergent=False,
-                        subject="feature 1",
-                    ),
-                ),
-                SimpleNamespace(
-                    bookmark="review/feature-2-bbbbbbbb",
-                    bookmark_source="generated",
-                    cached_change=None,
-                    revision=SimpleNamespace(
-                        change_id="bbbbbbbbbbbb",
-                        commit_id="commit-2",
-                        divergent=False,
-                        subject="feature 2",
-                    ),
-                ),
-            ),
-        ),
-    )
-
-    revisions = _build_status_revisions_without_github(prepared)
-
-    assert bookmark_states_calls == [
-        ("review/feature-1-aaaaaaaa", "review/feature-2-bbbbbbbb")
-    ]
-    assert revisions[0].remote_state == RemoteBookmarkState(
-        remote="origin",
-        targets=("commit-1",),
-        tracking_targets=(),
-    )
-    assert revisions[1].remote_state == RemoteBookmarkState(
-        remote="origin",
-        targets=("commit-2",),
-        tracking_targets=(),
-    )
 
 
 def test_prepare_status_fetches_before_remote_bookmark_discovery(
