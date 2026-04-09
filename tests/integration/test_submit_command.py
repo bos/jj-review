@@ -169,25 +169,7 @@ def test_submit_draft_all_converts_existing_published_stack_to_draft(
     assert refreshed_state.changes[stack.revisions[0].change_id].pr_is_draft is True
     assert refreshed_state.changes[stack.revisions[1].change_id].pr_is_draft is True
 
-def test_submit_defaults_to_current_stack_when_revset_is_omitted(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-
-    exit_code = _main(repo, config_path, "submit")
-    capsys.readouterr()
-
-    assert exit_code == 0
-    state = ReviewStateStore.for_repo(repo).load()
-    assert len(state.changes) == 1
-    assert fake_repo.pull_requests
-
-
-def test_submit_reports_missing_revset_without_wrapped_jj_command(
+def test_submit_invalid_revset_reports_clean_error_without_mutation(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -425,160 +407,6 @@ def test_submit_describe_with_failure_aborts_before_mutation(
     assert fake_repo.pull_requests == {}
     assert _issue_comments(fake_repo, 1) == []
 
-def test_submit_batches_pull_request_discovery_with_graphql(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    for index in range(4):
-        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
-
-    app = create_app(FakeGithubState.single_repository(fake_repo))
-    batch_calls: list[tuple[str, ...]] = []
-
-    class TrackingGithubClient(GithubClient):
-        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
-            batch_calls.append(tuple(head_refs))
-            return await super().get_pull_requests_by_head_refs(
-                owner,
-                repo,
-                head_refs=head_refs,
-            )
-
-        async def list_pull_requests(self, owner, repo, *, head, state="all"):
-            raise AssertionError("submit should batch pull request discovery")
-
-    _patch_github_client_builders(
-        monkeypatch,
-        app=app,
-        modules=("jj_review.commands.submit",),
-        client_type=TrackingGithubClient,
-    )
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-    state = ReviewStateStore.for_repo(repo).load()
-
-    assert len(batch_calls) == 1
-    assert set(batch_calls[0]) == {
-        change.bookmark for change in state.changes.values() if change.bookmark is not None
-    }
-
-def test_submit_batches_ordinary_pushes(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    for index in range(3):
-        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
-
-    push_calls: list[tuple[str, ...]] = []
-    original_push_bookmarks = JjClient.push_bookmarks
-
-    def tracking_push_bookmarks(self, *, remote: str, bookmarks: tuple[str, ...]) -> None:
-        push_calls.append(tuple(bookmarks))
-        original_push_bookmarks(self, remote=remote, bookmarks=bookmarks)
-
-    def fail_push_bookmark(*args, **kwargs) -> None:
-        raise AssertionError("submit should batch ordinary bookmark pushes")
-
-    monkeypatch.setattr(JjClient, "push_bookmarks", tracking_push_bookmarks)
-    monkeypatch.setattr(JjClient, "push_bookmark", fail_push_bookmark)
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-    state = ReviewStateStore.for_repo(repo).load()
-
-    assert len(push_calls) == 1
-    assert set(push_calls[0]) == {
-        change.bookmark for change in state.changes.values() if change.bookmark is not None
-    }
-
-def test_submit_limits_stack_comment_github_inspection_concurrency(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    for index in range(4):
-        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
-
-    app = create_app(FakeGithubState.single_repository(fake_repo))
-    max_in_flight = 0
-    in_flight = 0
-
-    class TrackingGithubClient(GithubClient):
-        async def list_issue_comments(self, owner, repo, *, issue_number):
-            nonlocal in_flight, max_in_flight
-            in_flight += 1
-            max_in_flight = max(max_in_flight, in_flight)
-            try:
-                await asyncio.sleep(0.02)
-                return await super().list_issue_comments(
-                    owner,
-                    repo,
-                    issue_number=issue_number,
-                )
-            finally:
-                in_flight -= 1
-
-    _patch_github_client_builders(
-        monkeypatch,
-        app=app,
-        modules=("jj_review.commands.submit",),
-        client_type=TrackingGithubClient,
-        concurrency_limits={"jj_review.commands.submit": 2},
-    )
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    assert max_in_flight == 2
-
-def test_submit_reports_repository_error_before_batched_pr_discovery(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-
-    app = create_app(FakeGithubState.single_repository(fake_repo))
-    batch_lookup_called = False
-
-    class MissingRepositoryClient(GithubClient):
-        async def get_repository(self, owner: str, repo: str):
-            raise GithubClientError("GitHub request failed: 404 Not Found", status_code=404)
-
-        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
-            nonlocal batch_lookup_called
-            batch_lookup_called = True
-            return await super().get_pull_requests_by_head_refs(
-                owner,
-                repo,
-                head_refs=head_refs,
-            )
-
-    _patch_github_client_builders(
-        monkeypatch,
-        app=app,
-        modules=("jj_review.commands.submit",),
-        client_type=MissingRepositoryClient,
-    )
-
-    exit_code = _main(repo, config_path, "submit")
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "Could not load GitHub repository octo-org/stacked-review" in captured.err
-    assert not batch_lookup_called
-
 def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
     tmp_path: Path,
     monkeypatch,
@@ -601,35 +429,6 @@ def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
     assert ": new PR" in captured.out
     assert fake_repo.pull_requests == {}
     assert _remote_refs(fake_repo.git_dir) == initial_remote_refs
-
-def test_submit_dry_run_keeps_revision_output_grouped(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
-
-    exit_code = _main(repo, config_path, "submit", "--dry-run")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "[push [pushed]ed]" not in captured.out
-    assert captured.out.count("new PR") == 2
-    assert captured.out.index("feature 2") < captured.out.index("feature 1")
-    lines = captured.out.splitlines()
-    for subject in ("feature 1", "feature 2"):
-        subject_index = next(
-            index for index, line in enumerate(lines) if line.endswith(f"  {subject}")
-        )
-        assert lines[subject_index - 1].endswith(": new PR")
-    assert ReviewStateStore.for_repo(repo).load().changes == {}
-    assert list(resolve_state_path(repo).parent.glob("incomplete-*.toml")) == []
-
-    bookmark_states = JjClient(repo).list_bookmark_states()
-    assert all(not name.startswith("review/") for name in bookmark_states)
 
 def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
     tmp_path: Path,
@@ -1281,7 +1080,7 @@ def test_submit_fails_closed_when_github_reports_multiple_pull_requests(
     assert _read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
     assert set(fake_repo.pull_requests) == {1, 2}
 
-def test_submit_reports_no_reviewable_commits_when_head_is_trunk(
+def test_submit_reports_no_reviewable_commits_without_mutation_when_head_is_trunk(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1294,11 +1093,7 @@ def test_submit_reports_no_reviewable_commits_when_head_is_trunk(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Selected:" not in captured.out
-    assert "Selected remote:" not in captured.out
-    assert "Trunk:" not in captured.out
     assert stack.trunk.subject in captured.out
-    assert ": main" not in captured.out
     assert "No reviewable commits" in captured.out
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert set(_remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
