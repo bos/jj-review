@@ -55,7 +55,7 @@ def _local_revision(
     )
 
 
-def test_should_skip_stack_comment_inspection_for_stale_open_change_without_comment_hint(
+def test_cleanup_skips_stack_comment_lookup_for_stale_open_change_without_comment_hint(
 ) -> None:
     bookmark_state = BookmarkState(
         name="review/feature-aaaaaaaa",
@@ -79,7 +79,7 @@ def test_should_skip_stack_comment_inspection_for_stale_open_change_without_comm
     assert should_inspect is False
 
 
-def test_should_inspect_stack_comment_for_stale_change_with_cached_comment_id() -> None:
+def test_cleanup_inspects_stack_comment_when_cached_comment_id_is_present() -> None:
     should_inspect = _should_inspect_stack_comment_cleanup(
         bookmark_state=BookmarkState(name="review/feature-aaaaaaaa"),
         cached_change=CachedChange(
@@ -95,7 +95,7 @@ def test_should_inspect_stack_comment_for_stale_change_with_cached_comment_id() 
     assert should_inspect is True
 
 
-def test_should_inspect_stack_comment_for_stale_change_with_missing_remote_branch() -> None:
+def test_cleanup_inspects_stack_comment_when_stale_change_lost_remote_branch() -> None:
     should_inspect = _should_inspect_stack_comment_cleanup(
         bookmark_state=BookmarkState(name="review/feature-aaaaaaaa"),
         cached_change=CachedChange(
@@ -111,7 +111,7 @@ def test_should_inspect_stack_comment_for_stale_change_with_missing_remote_branc
     assert should_inspect is True
 
 
-def test_should_skip_stack_comment_inspection_for_closed_pull_request() -> None:
+def test_cleanup_skips_stack_comment_lookup_for_closed_pull_request() -> None:
     should_inspect = _should_inspect_stack_comment_cleanup(
         bookmark_state=BookmarkState(name="review/feature-aaaaaaaa"),
         cached_change=CachedChange(

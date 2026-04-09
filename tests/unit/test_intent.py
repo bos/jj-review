@@ -259,30 +259,30 @@ def test_remove_temporary_intent_file_logs_cleanup_failures(
 # Matching
 # ---------------------------------------------------------------------------
 
-def test_match_exact() -> None:
+def test_match_ordered_change_ids_returns_exact_for_identical_sequences() -> None:
     assert match_ordered_change_ids(("a", "b"), ("a", "b")) == "exact"
 
 
-def test_match_superset() -> None:
+def test_match_ordered_change_ids_returns_superset_for_extended_prefix() -> None:
     # new is a superset: existing is a prefix of new
     assert match_ordered_change_ids(("a", "b"), ("a", "b", "c")) == "superset"
 
 
-def test_match_overlap_partial() -> None:
+def test_match_ordered_change_ids_returns_overlap_for_partial_overlap() -> None:
     # Shares some IDs but neither is prefix of the other
     assert match_ordered_change_ids(("a", "b"), ("b", "c")) == "overlap"
 
 
-def test_match_overlap_reordered() -> None:
+def test_match_ordered_change_ids_returns_overlap_for_reordered_sequences() -> None:
     # Same IDs but reordered
     assert match_ordered_change_ids(("a", "b"), ("b", "a")) == "overlap"
 
 
-def test_match_disjoint() -> None:
+def test_match_ordered_change_ids_returns_disjoint_for_non_overlapping_sequences() -> None:
     assert match_ordered_change_ids(("a", "b"), ("c", "d")) == "disjoint"
 
 
-def test_match_superset_requires_ordered_prefix() -> None:
+def test_match_ordered_change_ids_requires_prefix_order_for_superset() -> None:
     # ["a","b"] vs ["b","a","c"] — b appears first in new but old starts with a
     assert match_ordered_change_ids(("a", "b"), ("b", "a", "c")) == "overlap"
 
@@ -291,11 +291,13 @@ def test_match_superset_requires_ordered_prefix() -> None:
 # PID liveness
 # ---------------------------------------------------------------------------
 
-def test_pid_is_alive_current_process() -> None:
+def test_pid_is_alive_returns_true_for_current_process() -> None:
     assert pid_is_alive(os.getpid()) is True
 
 
-def test_pid_is_not_alive(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pid_is_alive_returns_false_for_missing_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def fake_kill(pid: int, sig: int) -> None:
         raise ProcessLookupError(pid)
 
@@ -307,7 +309,7 @@ def test_pid_is_not_alive(monkeypatch: pytest.MonkeyPatch) -> None:
 # Retirement
 # ---------------------------------------------------------------------------
 
-def test_retire_on_exact_match(tmp_path: Path) -> None:
+def test_retire_superseded_intents_removes_exact_submit_match(tmp_path: Path) -> None:
     old = _make_submit_intent(("a", "b"))
     path = write_intent(tmp_path, old)
     loaded = LoadedIntent(path=path, intent=old)
@@ -316,7 +318,9 @@ def test_retire_on_exact_match(tmp_path: Path) -> None:
     assert not path.exists()
 
 
-def test_retire_on_superset(tmp_path: Path) -> None:
+def test_retire_superseded_intents_removes_submit_prefix_superset(
+    tmp_path: Path,
+) -> None:
     old = _make_submit_intent(("a", "b"))
     path = write_intent(tmp_path, old)
     loaded = LoadedIntent(path=path, intent=old)
@@ -325,7 +329,7 @@ def test_retire_on_superset(tmp_path: Path) -> None:
     assert not path.exists()
 
 
-def test_no_retire_on_overlap(tmp_path: Path) -> None:
+def test_retire_superseded_intents_keeps_non_prefix_overlap(tmp_path: Path) -> None:
     old = _make_submit_intent(("a", "b"))
     path = write_intent(tmp_path, old)
     loaded = LoadedIntent(path=path, intent=old)
@@ -334,7 +338,7 @@ def test_no_retire_on_overlap(tmp_path: Path) -> None:
     assert path.exists()
 
 
-def test_no_retire_on_disjoint(tmp_path: Path) -> None:
+def test_retire_superseded_intents_keeps_disjoint_stacks(tmp_path: Path) -> None:
     old = _make_submit_intent(("a", "b"))
     path = write_intent(tmp_path, old)
     loaded = LoadedIntent(path=path, intent=old)
