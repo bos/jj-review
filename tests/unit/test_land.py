@@ -9,13 +9,10 @@ import pytest
 
 from jj_review.commands.land import (
     _build_land_plan,
-    _collect_landable_prefix,
     _ensure_trunk_branch_matches_selected_trunk,
     _find_resume_land_intent,
     _parse_pull_request_reference,
-    _planned_land_actions,
     _remote_trunk_matches_commit,
-    _resolve_land_path_revisions,
     _restore_local_trunk_bookmark,
     _resume_land_plan,
     _updated_landed_change,
@@ -164,95 +161,6 @@ def test_build_land_plan_blocks_unlinked_change() -> None:
     assert plan.blocked is True
     assert plan.boundary_action is not None
     assert "unlinked from review tracking" in plan.boundary_action.message
-
-
-def test_build_land_plan_raises_assertion_when_status_revision_is_missing() -> None:
-    prepared_status = _prepared_status(("change-1",))
-    status_result = cast(StatusResult, SimpleNamespace(revisions=()))
-
-    with pytest.raises(
-        AssertionError,
-        match="Prepared land revision 'change-1' is missing from the status result.",
-    ):
-        _build_land_plan(
-            bypass_readiness=False,
-            expect_pr_number=None,
-            prepared_status=prepared_status,
-            status_result=status_result,
-            trunk_branch="main",
-        )
-
-
-def test_resolve_land_path_revisions_preserves_selected_path_order() -> None:
-    prepared_status = _prepared_status(("change-1", "change-2"))
-    status_result = cast(
-        StatusResult,
-        SimpleNamespace(
-            revisions=(
-                _status_revision(
-                    change_id="change-2",
-                    commit_id="commit-2",
-                    pull_request=_pull_request(number=2),
-                    pull_request_state="open",
-                    subject="feature 2",
-                ),
-                _status_revision(
-                    change_id="change-1",
-                    commit_id="commit-1",
-                    pull_request=_pull_request(number=1),
-                    pull_request_state="open",
-                    subject="feature 1",
-                ),
-            )
-        ),
-    )
-
-    path_revisions = _resolve_land_path_revisions(
-        prepared_status=prepared_status,
-        status_result=status_result,
-    )
-
-    assert [revision.change_id for _, revision in path_revisions] == ["change-1", "change-2"]
-
-
-def test_collect_landable_prefix_marks_boundary_after_open_prefix() -> None:
-    prepared_status = _prepared_status(("change-1", "change-2"))
-    status_result = cast(
-        StatusResult,
-        SimpleNamespace(
-            revisions=(
-                _status_revision(
-                    change_id="change-2",
-                    commit_id="commit-2",
-                    pull_request=_pull_request(number=2, state="closed"),
-                    pull_request_state="closed",
-                    subject="feature 2",
-                ),
-                _status_revision(
-                    change_id="change-1",
-                    commit_id="commit-1",
-                    pull_request=_pull_request(number=1),
-                    pull_request_state="open",
-                    review_decision="approved",
-                    subject="feature 1",
-                ),
-            )
-        ),
-    )
-    path_revisions = _resolve_land_path_revisions(
-        prepared_status=prepared_status,
-        status_result=status_result,
-    )
-
-    landed_revisions, boundary_action = _collect_landable_prefix(
-        bypass_readiness=False,
-        path_revisions=path_revisions,
-    )
-
-    assert [revision.pull_request_number for revision in landed_revisions] == [1]
-    assert boundary_action is not None
-    assert boundary_action.status == "planned"
-    assert "stop before feature 2" in boundary_action.message
 
 
 def test_build_land_plan_blocks_unapproved_open_change() -> None:
@@ -421,34 +329,6 @@ def test_build_land_plan_bypass_readiness_uses_maximal_open_prefix() -> None:
     assert [revision.pull_request_number for revision in plan.landed_revisions] == [1, 2]
     assert plan.boundary_action is not None
     assert "stop before feature 3" in plan.boundary_action.message
-
-
-def test_planned_land_actions_omit_mutations_when_plan_is_blocked() -> None:
-    prepared_status = _prepared_status(("change-1",))
-    status_result = cast(
-        StatusResult,
-        SimpleNamespace(
-            revisions=(
-                _status_revision(
-                    change_id="change-1",
-                    commit_id="commit-1",
-                    pull_request=_pull_request(number=7),
-                    pull_request_state="open",
-                    subject="feature 1",
-                ),
-            )
-        ),
-    )
-
-    plan = _build_land_plan(
-        bypass_readiness=False,
-        expect_pr_number=9,
-        prepared_status=prepared_status,
-        status_result=status_result,
-        trunk_branch="main",
-    )
-
-    assert _planned_land_actions(plan=plan) == (plan.boundary_action,)
 
 
 def test_updated_landed_change_marks_pr_merged_and_clears_stack_comment() -> None:

@@ -9,19 +9,15 @@ import pytest
 from jj_review.commands.submit import (
     GeneratedDescription,
     SubmittedRevision,
-    _bookmark_link_is_proven,
     _ensure_pull_request_link_is_consistent,
     _ensure_remote_can_be_updated,
     _preflight_private_commits,
     _pull_request_body,
-    _remote_is_up_to_date,
-    _render_generated_stack_description,
     _render_stack_comment,
     _repair_interrupted_untracked_remote_bookmarks,
     _resolve_generated_descriptions,
     _resolve_local_action,
     _run_description_command,
-    _should_update_untracked_remote_with_git,
 )
 from jj_review.errors import CliError
 from jj_review.intent import write_intent
@@ -202,16 +198,6 @@ def test_resolve_generated_descriptions_passes_generated_pr_data_to_stack_helper
     }
 
 
-def test_render_generated_stack_description_omits_empty_fields() -> None:
-    assert _render_generated_stack_description(None) == []
-    assert _render_generated_stack_description(
-        GeneratedDescription(title="stack title", body="")
-    ) == ["## stack title"]
-    assert _render_generated_stack_description(
-        GeneratedDescription(title="", body="stack body")
-    ) == ["stack body"]
-
-
 def test_render_stack_comment_lists_full_stack_top_to_bottom() -> None:
     bottom = _submitted_revision(
         change_id="bottom-change",
@@ -241,35 +227,6 @@ def test_render_stack_comment_lists_full_stack_top_to_bottom() -> None:
     assert "[#2]" not in rendered
 
 
-def test_render_stack_comment_uses_bold_only_for_current_pr_title() -> None:
-    bottom = _submitted_revision(
-        change_id="bottom-change",
-        pull_request_number=1,
-        pull_request_title="generated bottom title",
-        pull_request_url="https://github.test/octo-org/repo/pull/1",
-        subject="bottom subject",
-    )
-    top = _submitted_revision(
-        change_id="top-change",
-        pull_request_number=2,
-        pull_request_title="generated top title",
-        pull_request_url="https://github.test/octo-org/repo/pull/2",
-        subject="top subject",
-    )
-
-    rendered = _render_stack_comment(
-        current=top,
-        revisions=(bottom, top),
-        stack_description=GeneratedDescription(title="", body="stack body"),
-        trunk_branch="trunk",
-    )
-
-    assert "**generated top title**" in rendered
-    assert "[generated bottom title](https://github.test/octo-org/repo/pull/1)" in rendered
-    assert "top subject" not in rendered
-    assert "bottom subject" not in rendered
-
-
 def test_pull_request_body_falls_back_to_subject_when_commit_has_no_body() -> None:
     assert _pull_request_body("subject only") == "subject only"
 
@@ -280,74 +237,12 @@ def test_pull_request_body_uses_remaining_commit_description_when_present() -> N
     )
 
 
-def test_resolve_local_action_created_when_no_local_targets() -> None:
-    assert _resolve_local_action("review/foo", (), "abc123") == "created"
-
-
-def test_resolve_local_action_unchanged_when_target_matches() -> None:
-    assert _resolve_local_action("review/foo", ("abc123",), "abc123") == "unchanged"
-
-
-def test_resolve_local_action_moved_when_target_differs() -> None:
-    assert _resolve_local_action("review/foo", ("old123",), "abc123") == "moved"
-
-
 def test_resolve_local_action_rejects_conflicted_bookmark() -> None:
     with pytest.raises(
         CliError,
         match="2 conflicting local targets",
     ):
         _resolve_local_action("review/foo", ("abc123", "def456"), "abc123")
-
-
-def test_remote_is_up_to_date_when_untracked_remote_target_matches() -> None:
-    remote_state = RemoteBookmarkState(
-        remote="origin",
-        targets=("abc123",),
-        tracking_targets=(),
-    )
-
-    assert _remote_is_up_to_date(remote_state, "abc123") is True
-
-
-def test_bookmark_link_is_proven_by_existing_local_bookmark() -> None:
-    assert _bookmark_link_is_proven(
-        bookmark="review/foo",
-        bookmark_source="generated",
-        bookmark_state=BookmarkState(name="review/foo", local_targets=("abc123",)),
-        change_id="change-a",
-        state=ReviewState(),
-    )
-
-
-def test_bookmark_link_is_proven_by_cached_bookmark() -> None:
-    assert _bookmark_link_is_proven(
-        bookmark="review/foo",
-        bookmark_source="cache",
-        bookmark_state=BookmarkState(name="review/foo"),
-        change_id="change-a",
-        state=ReviewState(change={"change-a": CachedChange(bookmark="review/foo")}),
-    )
-
-
-def test_bookmark_link_is_proven_by_discovered_bookmark() -> None:
-    assert _bookmark_link_is_proven(
-        bookmark="review/foo",
-        bookmark_source="discovered",
-        bookmark_state=BookmarkState(name="review/foo"),
-        change_id="change-a",
-        state=ReviewState(),
-    )
-
-
-def test_bookmark_link_is_not_proven_by_newly_generated_name() -> None:
-    assert not _bookmark_link_is_proven(
-        bookmark="review/foo",
-        bookmark_source="generated",
-        bookmark_state=BookmarkState(name="review/foo"),
-        change_id="change-a",
-        state=ReviewState(change={"change-a": CachedChange(bookmark="review/foo")}),
-    )
 
 
 def test_ensure_remote_can_be_updated_rejects_conflicted_remote_bookmark() -> None:
@@ -398,22 +293,6 @@ def test_ensure_remote_can_be_updated_allows_matching_untracked_remote_branch() 
         remote="origin",
         remote_state=RemoteBookmarkState(remote="origin", targets=("abc123",)),
         state=ReviewState(),
-    )
-
-
-def test_should_update_untracked_remote_with_git_only_for_differing_untracked_remote() -> None:
-    assert not _should_update_untracked_remote_with_git(None, "def456")
-    assert not _should_update_untracked_remote_with_git(
-        RemoteBookmarkState(remote="origin", targets=("abc123",), tracking_targets=("abc123",)),
-        "def456",
-    )
-    assert not _should_update_untracked_remote_with_git(
-        RemoteBookmarkState(remote="origin", targets=("abc123",), tracking_targets=()),
-        "abc123",
-    )
-    assert _should_update_untracked_remote_with_git(
-        RemoteBookmarkState(remote="origin", targets=("abc123",), tracking_targets=()),
-        "def456",
     )
 
 

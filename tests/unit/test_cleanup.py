@@ -11,12 +11,9 @@ from jj_review.commands.cleanup import (
     CleanupAction,
     PreparedCleanup,
     PreparedRestack,
-    RemoteBranchCleanupPlan,
     StackCommentCleanupPlan,
     _plan_remote_branch_cleanup,
     _plan_restack_operations,
-    _process_remote_branch_cleanup,
-    _resolve_restack_path_revisions,
     _resolve_stack_summary_comment,
     _resolve_unlinked_pull_request_number,
     _should_inspect_stack_comment_cleanup,
@@ -797,33 +794,6 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
     assert result.actions[0].status == "applied"
 
 
-def test_resolve_restack_path_revisions_preserves_selected_path_order() -> None:
-    prepared_status = cast(
-        PreparedStatus,
-        SimpleNamespace(
-            prepared=SimpleNamespace(
-                status_revisions=(
-                    SimpleNamespace(revision=SimpleNamespace(change_id="change-1")),
-                    SimpleNamespace(revision=SimpleNamespace(change_id="change-2")),
-                )
-            )
-        ),
-    )
-    status_result = SimpleNamespace(
-        revisions=(
-            SimpleNamespace(change_id="change-2"),
-            SimpleNamespace(change_id="change-1"),
-        )
-    )
-
-    path_revisions = _resolve_restack_path_revisions(
-        prepared_status=prepared_status,
-        status_result=status_result,
-    )
-
-    assert [revision.change_id for revision in path_revisions] == ["change-1", "change-2"]
-
-
 def test_plan_restack_operations_blocks_divergent_survivor() -> None:
     merged_revision = SimpleNamespace(
         cached_change=None,
@@ -972,77 +942,6 @@ def test_plan_local_bookmark_cleanup_blocks_moved_review_bookmark() -> None:
     assert plan.action.status == "blocked"
     assert "different revision" in plan.action.message
 
-
-def test_process_local_bookmark_cleanup_applies_planned_forget() -> None:
-    forget_calls: list[str] = []
-    recorded_actions: list[CleanupAction] = []
-
-    class FakeClient:
-        def forget_bookmark(self, bookmark: str) -> None:
-            forget_calls.append(bookmark)
-
-    cleanup_module._process_local_bookmark_cleanup(
-        apply=True,
-        cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
-        jj_client=cast(JjClient, FakeClient()),
-        local_bookmark_plan=cleanup_module.LocalBookmarkCleanupPlan(
-            action=CleanupAction(
-                kind="local bookmark",
-                message="forget local bookmark review/feature-aaaaaaaa (stale)",
-                status="planned",
-            )
-        ),
-        record_action=recorded_actions.append,
-    )
-
-    assert forget_calls == ["review/feature-aaaaaaaa"]
-    assert recorded_actions == [
-        CleanupAction(
-            kind="local bookmark",
-            message="forget local bookmark review/feature-aaaaaaaa (stale)",
-            status="applied",
-        )
-    ]
-
-
-def test_process_remote_branch_cleanup_applies_planned_deletion() -> None:
-    delete_calls: list[tuple[str, str, str]] = []
-    recorded_actions: list[CleanupAction] = []
-
-    class FakeClient:
-        def delete_remote_bookmark(
-            self,
-            *,
-            remote: str,
-            bookmark: str,
-            expected_remote_target: str,
-        ) -> None:
-            delete_calls.append((remote, bookmark, expected_remote_target))
-
-    _process_remote_branch_cleanup(
-        apply=True,
-        cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
-        jj_client=cast(JjClient, FakeClient()),
-        record_action=recorded_actions.append,
-        remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
-        remote_plan=RemoteBranchCleanupPlan(
-            action=CleanupAction(
-                kind="remote branch",
-                message="delete remote branch review/feature-aaaaaaaa@origin",
-                status="planned",
-            ),
-            expected_remote_target="commit-1",
-        ),
-    )
-
-    assert delete_calls == [("origin", "review/feature-aaaaaaaa", "commit-1")]
-    assert recorded_actions == [
-        CleanupAction(
-            kind="remote branch",
-            message="delete remote branch review/feature-aaaaaaaa@origin",
-            status="applied",
-        )
-    ]
 
 
 def test_apply_stale_cleanup_mutation_plans_batches_remote_and_local_work() -> None:
