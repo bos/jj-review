@@ -7,7 +7,7 @@ import pytest
 from jj_review.concurrency import run_bounded_tasks
 
 
-def test_run_bounded_tasks_limits_in_flight_work() -> None:
+def test_run_bounded_tasks_preserves_result_order_while_bounding_concurrency() -> None:
     active = 0
     max_active = 0
 
@@ -31,7 +31,7 @@ def test_run_bounded_tasks_limits_in_flight_work() -> None:
     assert max_active == 2
 
 
-def test_run_bounded_tasks_stops_starting_new_work_after_failure() -> None:
+def test_run_bounded_tasks_does_not_launch_additional_items_after_first_failure() -> None:
     started: list[int] = []
     release_first = asyncio.Event()
     release_second = asyncio.Event()

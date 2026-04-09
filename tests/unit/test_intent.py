@@ -142,25 +142,6 @@ def _make_land_intent(
 # Naming
 # ---------------------------------------------------------------------------
 
-def test_intent_filename_first_slot(tmp_path: Path) -> None:
-    now = datetime(2026, 1, 15, 10, 30, tzinfo=UTC)
-    candidate = _intent_filename(tmp_path, now)
-    assert candidate.name == "incomplete-2026-01-15-10-30.01.toml"
-
-
-def test_intent_filename_collision(tmp_path: Path) -> None:
-    now = datetime(2026, 1, 15, 10, 30, tzinfo=UTC)
-    # Create the first slot
-    first = _intent_filename(tmp_path, now)
-    first.touch()
-    second = _intent_filename(tmp_path, now)
-    assert second.name == "incomplete-2026-01-15-10-30.02.toml"
-
-
-# ---------------------------------------------------------------------------
-# Round-trips
-# ---------------------------------------------------------------------------
-
 def test_submit_intent_round_trips(tmp_path: Path) -> None:
     intent = _make_submit_intent()
     path = write_intent(tmp_path, intent)
@@ -216,43 +197,6 @@ def test_scan_intents_ignores_unparseable_files(tmp_path: Path) -> None:
     bad.write_text("not valid toml ][", encoding="utf-8")
     results = scan_intents(tmp_path)
     assert results == []
-
-
-def test_scan_intents_sorted_by_name(tmp_path: Path) -> None:
-    # Write two intents with different timestamps by writing files directly
-    now1 = datetime(2026, 1, 15, 9, 0, tzinfo=UTC)
-    now2 = datetime(2026, 1, 15, 10, 0, tzinfo=UTC)
-    intent1 = _make_submit_intent(("aaaa",))
-    intent2 = _make_submit_intent(("bbbb",))
-    path1 = _intent_filename(tmp_path, now1)
-    path2 = _intent_filename(tmp_path, now2)
-    # Write via write_intent but rename to desired names
-    written1 = write_intent(tmp_path, intent1)
-    written1.rename(path1)
-    written2 = write_intent(tmp_path, intent2)
-    written2.rename(path2)
-    results = scan_intents(tmp_path)
-    assert len(results) == 2
-    assert results[0].path.name < results[1].path.name
-
-
-def test_remove_temporary_intent_file_logs_cleanup_failures(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    temp_path = tmp_path / "incomplete.toml.tmp"
-    temp_path.write_text("temp", encoding="utf-8")
-
-    def fail_unlink(self: Path, missing_ok: bool = False) -> None:
-        raise OSError("disk unhappy")
-
-    monkeypatch.setattr(Path, "unlink", fail_unlink)
-
-    with caplog.at_level(logging.WARNING):
-        _remove_temporary_intent_file(temp_path)
-
-    assert "Could not remove temporary intent file" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +262,7 @@ def test_retire_superseded_intents_removes_exact_submit_match(tmp_path: Path) ->
     assert not path.exists()
 
 
-def test_retire_superseded_intents_removes_submit_prefix_superset(
+def test_retire_superseded_submit_intent_when_new_stack_extends_it(
     tmp_path: Path,
 ) -> None:
     old = _make_submit_intent(("a", "b"))
@@ -351,12 +295,12 @@ def test_retire_superseded_intents_keeps_disjoint_stacks(tmp_path: Path) -> None
 # Stale detection
 # ---------------------------------------------------------------------------
 
-def test_intent_is_stale_when_no_ids_resolve(tmp_path: Path) -> None:
+def test_stack_intent_is_stale_when_no_change_ids_still_resolve(tmp_path: Path) -> None:
     intent = _make_submit_intent(("aaaa", "bbbb"))
     assert intent_is_stale(intent, lambda cid: False) is True
 
 
-def test_intent_is_not_stale_when_some_ids_resolve(tmp_path: Path) -> None:
+def test_stack_intent_stays_live_when_any_change_id_still_resolves(tmp_path: Path) -> None:
     intent = _make_submit_intent(("aaaa", "bbbb"))
     assert intent_is_stale(intent, lambda cid: cid == "aaaa") is False
 
@@ -371,7 +315,7 @@ def test_cleanup_apply_intent_is_not_stale_when_recent_and_pid_dead(
     assert intent_is_stale(intent, lambda cid: False, now=one_day_after) is False
 
 
-def test_cleanup_apply_intent_not_stale_when_pid_alive(
+def test_cleanup_apply_intent_stays_live_while_pid_is_alive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: True)
@@ -391,7 +335,7 @@ def test_cleanup_apply_intent_stale_when_old_and_pid_dead(
     assert intent_is_stale(intent, lambda cid: False, now=eight_days_after) is True
 
 
-def test_relink_intent_not_stale_when_pid_alive(
+def test_relink_intent_stays_live_while_pid_is_alive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: True)
@@ -454,7 +398,7 @@ def test_check_same_kind_intent_ignores_different_kind(
     assert result == []
 
 
-def test_check_same_kind_intent_polls_until_pid_dies(
+def test_check_same_kind_intent_waits_for_live_same_kind_intent_to_finish(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

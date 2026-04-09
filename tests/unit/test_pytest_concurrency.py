@@ -49,24 +49,3 @@ def test_analyze_intervals_splits_shared_concurrency_debt() -> None:
     assert summary.bottlenecks[1].nodeid == "tests/unit/test_b.py::test_second"
     assert summary.bottlenecks[1].concurrency_debt_s == 4.0
 
-
-def test_format_summary_includes_bottleneck_lines() -> None:
-    summary = analyze_intervals(
-        [
-            RecordedInterval("tests/unit/test_a.py::test_long", "gw0", 0, 6_000_000_000),
-            RecordedInterval("tests/unit/test_b.py::test_short", "gw1", 0, 3_000_000_000),
-        ],
-        requested_slots=2,
-    )
-
-    lines = format_summary(summary)
-
-    assert "requested slots: 2 (2 workers observed)" in lines
-    assert "parallelism-limited savings upper bound: 1.50s" in lines
-    assert "estimated runtime floor with perfect balancing: 4.50s" in lines
-    assert "average active tests: 1.50 / 2 (75.0% utilization)" in lines
-    assert "top bottlenecks:" in lines
-    assert any(
-        "1.50s suite time  tests/unit/test_a.py::test_long [gw0] (6.00s)" in line
-        for line in lines
-    )

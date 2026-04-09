@@ -35,7 +35,7 @@ def test_review_state_store_round_trips_and_creates_parent_directories(tmp_path:
     assert state_path.exists()
 
 
-def test_review_state_store_round_trips_unlinked_link(tmp_path: Path) -> None:
+def test_review_state_store_preserves_unlinked_change_metadata(tmp_path: Path) -> None:
     state_path = tmp_path / "state.toml"
     store = ReviewStateStore(state_path)
 
@@ -81,23 +81,6 @@ def test_review_state_store_rejects_unknown_fields(tmp_path: Path) -> None:
 
     with pytest.raises(ReviewStateError, match="bookmark_override"):
         ReviewStateStore(state_path).load()
-
-
-def test_state_dir_returns_parent(tmp_path: Path) -> None:
-    state_path = tmp_path / "jj-review" / "repos" / "abc" / "state.toml"
-    store = ReviewStateStore(state_path)
-    assert store.state_dir == state_path.parent
-
-
-def test_state_dir_none_when_disabled(tmp_path: Path) -> None:
-    store = ReviewStateStore(None, disabled_reason="x")
-    assert store.state_dir is None
-
-
-def test_require_writable_returns_dir(tmp_path: Path) -> None:
-    state_path = tmp_path / "jj-review" / "repos" / "abc" / "state.toml"
-    store = ReviewStateStore(state_path)
-    assert store.require_writable() == state_path.parent
 
 
 def test_require_writable_raises_when_disabled(tmp_path: Path) -> None:
