@@ -97,10 +97,10 @@ Recent refactor slices:
   through one long async path.
 - `cleanup` now routes its CLI modes through separate helpers and keeps restack
   intent setup, policy warnings, and survivor-rebase planning in named phases.
-- `cleanup --apply` now retires stale interrupted apply intents after a
-  successful rerun so `status` stops reporting already-resolved cleanup work.
-- `land` now routes preview, resume validation, and apply-mode execution
-  through explicit helper phases instead of one deeply nested async path.
+- `cleanup` now retires stale interrupted cleanup intents after a successful
+  rerun so `status` stops reporting already-resolved cleanup work.
+- `land` now routes dry-run planning, resume validation, and execution through
+  explicit helper phases instead of one deeply nested async path.
 - `submit` now prepares local stack inputs, resumable intent state, and
   per-revision bookmark push plans through separate helpers before touching
   GitHub.
@@ -181,9 +181,10 @@ Command target selection should stay conservative at the CLI boundary:
   explicit `--current` opt-in instead of silently defaulting to the current
   workspace path
 - `close` should require the same explicit selector
-- `cleanup --restack --apply` should require the same explicit selector
-- read-only inspection may stay ergonomic, so `status` and `cleanup --restack`
-  preview may still omit a selector and inspect the current stack by default
+- `cleanup --restack` should require the same explicit selector when it mutates
+- read-only inspection may stay ergonomic, so `status` and
+  `cleanup --restack --dry-run` may still omit a selector and inspect the
+  current stack by default
 - the lower-level `jj` adapter may keep its existing current-path resolution
   helper so the CLI can opt into that behavior intentionally via `--current`
 
@@ -912,11 +913,13 @@ Implemented in the first vertical cut:
 - `cleanup` now reports repo-scoped saved-data cleanup actions before it
   mutates anything, including stale saved change records, removable stack
   summary comments on stale PRs, and stale remote pull request branches
-- `cleanup --apply` now performs the safe subset of those actions: it prunes
-  saved change entries that no longer resolve to supported local review
-  stacks, deletes stack summary comments only for unlinked or detached review
-  stacks, and deletes stale remote pull request branches only when the remote
-  branch is unambiguous and no local bookmark still owns it
+- `cleanup` now performs the safe subset of those actions by default, while
+  `cleanup --dry-run` keeps the same plan rendering without mutating; the
+  mutating path prunes saved change entries that no longer resolve to
+  supported local review stacks, deletes stack summary comments only for
+  unlinked or detached review stacks, and deletes stale remote pull request
+  branches only when the remote branch is unambiguous and no local bookmark
+  still owns it
 - stale saved entries now avoid extra GitHub stack-summary-comment inspection
   unless saved local data suggests comment cleanup could still produce an
   action, such as a saved stack summary comment or a missing remote branch
@@ -1003,9 +1006,8 @@ Deliver:
   problem instead of presenting them as a mysterious stack failure
 - add `cleanup --restack` as the explicit opt-in local rewrite path for merged
   ancestors
-- let default `cleanup --restack --apply` perform only rebases of remaining
-  changes whose
-  destination is `trunk()`
+- let default `cleanup --restack` perform only rebases of remaining changes
+  whose destination is `trunk()`
 - require `--allow-nontrunk-rebase` or manual `jj rebase` before restacking
   surviving descendants onto another surviving local review base
 - keep using the selected local stack rather than fetched branch-tip commits for
@@ -1039,8 +1041,8 @@ protection, and partial-stack semantics materially expand the product surface.
 
 The CLI contract should stay consistent with the rest of the tool:
 
-- `jj review land [--apply] [--expect-pr <pr>] [--current | <revset>]`
-- preview by default, with `--apply` required for mutations
+- `jj review land [--dry-run] [--expect-pr <pr>] [--current | <revset>]`
+- mutate by default, with `--dry-run` available for inspection
 - local-path-first target selection, with `--expect-pr` acting only as an
   optional guardrail that the operator is landing the intended review
 
@@ -1054,15 +1056,13 @@ open-PR-based. In the first readiness slice, that means the prefix stops at the
 first PR that is draft, unapproved, or has changes requested, while still
 failing closed on ambiguous linkage or stale pushed state. A narrow
 `--bypass-readiness` flag may ignore only those readiness gates; it must not
-skip preview validation, linkage safety, or trunk push policy.
+skip linkage safety or trunk push policy.
 
 The command also needs explicit phase boundaries so retries are idempotent:
 
 1. resolve the selected local stack, the first change that blocks landing,
-   trunk target, and
-   GitHub PR link
-2. if `--apply` is set, rerun the same planning step and abort if the plan
-   changed materially since preview
+   trunk target, and GitHub PR link
+2. if `--dry-run` is set, stop after rendering that computed plan
 3. replay the changes that can be landed now onto trunk locally in `jj`,
    preserving them as a stack of commits, then push the resulting trunk tip
    with a lease
@@ -1076,8 +1076,9 @@ generic recovery path:
 - link problems should point to `status --fetch` / `relink`
 - local ancestry repair should point to `cleanup --restack`
 - policy or branch-protection failures should stop immediately with no fallback
-- plan invalidation between preview and apply should tell the user to rerun the
-  preview rather than attempting to continue with stale assumptions
+- interrupted runs should either resume exact post-push bookkeeping or
+  recompute from the current stack instead of assuming an earlier preview is
+  still authoritative
 
 This slice is now in place with the current implementation:
 
@@ -1087,17 +1088,11 @@ This slice is now in place with the current implementation:
   open prefix, so draft, unapproved, and changes-requested PRs block the
   landing boundary just like closed or ambiguous PR state already did
 - `land --bypass-readiness` may still select the open prefix for exceptional
-  cases, but only by bypassing readiness checks; linkage, stale-submit, saved
-  preview, and trunk-protection checks still fail closed
+  cases, but only by bypassing readiness checks; linkage, stale-submit, and
+  trunk-protection checks still fail closed
 - blocked `land` output does not advertise `--bypass-readiness`; operators may
   discover that override from help, but normal failure guidance stays focused
   on the blocking state itself
-- `land --apply` now requires a matching saved preview unless it is resuming an
-  interrupted apply from a recorded intent, so material plan drift is rejected
-  before any new mutation starts
-- interrupted applies that failed before the trunk transition still go back
-  through saved-preview validation on rerun, so same-path PR-state drift cannot
-  silently bypass preview invalidation
 - land now constructs the landed trunk history locally in `jj`, preserving the
   landed changes as multiple commits, then updates trunk with a leased push
 - if the trunk push fails or is interrupted after the local bookmark move, the
@@ -1114,12 +1109,10 @@ This slice is now in place with the current implementation:
   if surrounding GitHub lookups or other independent work use batching or
   bounded parallelism
 - interrupted applies now resume from persisted land intent data, including the
-  already-landed trunk target and per-PR completion checkpoints, so reruns can
-  finish post-push bookkeeping without rediscovering the original landing set
-- preview-state write failures are surfaced immediately instead of degrading
-  into a later confusing “run preview first” apply error
-- preview/apply recovery guidance preserves a saved `--expect-pr` guardrail in
-  the rerun hint, so plan-invalidation retries do not silently drop it
+  already-landed trunk target, the landed change prefix, and per-PR completion
+  checkpoints, so reruns can finish post-push bookkeeping without
+  rediscovering the original landing set, while stale pre-push intents are
+  ignored when the current landable prefix has changed
 - exact post-landing bookkeeping is limited to the changes landed in that run,
   while broader stale-state cleanup remains a separate `cleanup` concern
 
@@ -1205,7 +1198,7 @@ entries when the tool can verify they belong to the stack.
 
 The CLI contract is:
 
-- `jj review close [--cleanup] [--apply] [--current | <revset>]`
+- `jj review close [--cleanup] [--dry-run] [--current | <revset>]`
 
 The product split should stay explicit:
 
@@ -1216,7 +1209,7 @@ The product split should stay explicit:
 
 The `close` slice needs clear apply-phase and verification rules:
 
-- preview by default, with `--apply` required for mutations
+- mutate by default, with `--dry-run` available for inspection
 - without `--cleanup`, close open PRs and retire active local jj-review data
   only, while skipping already-merged or already-closed PRs on the stack
 - with `--cleanup`, delete remote pull request branches, forget local
@@ -1329,9 +1322,9 @@ Status: done.
 - when that local bookmark forget is safe and planned, the paired remote
   review-branch deletion is now planned in the same pass instead of blocked on
   the still-present local bookmark
-- `cleanup --apply` now batches planned remote review-branch deletions into one
-  push, batches planned local bookmark forgets into one `jj bookmark forget`,
-  and refreshes remembered remote state with one fetch after those mutations
+- `cleanup` now batches planned remote review-branch deletions into one push,
+  batches planned local bookmark forgets into one `jj bookmark forget`, and
+  refreshes remembered remote state with one fetch after those mutations
 - stale local change detection now resolves cached `change_id`s in bulk and
   checks supported-stack membership from one ancestor/child graph walk instead
   of running separate `jj` stack discovery for each cached change

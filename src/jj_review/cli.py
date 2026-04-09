@@ -156,6 +156,7 @@ def build_parser() -> ArgumentParser:
             revset=args.revset,
             team_reviewers=args.team_reviewers,
         ),
+        revset_help="Revision to submit; required unless --current is passed",
     )
     submit_parser.add_argument(
         "--dry-run",
@@ -235,6 +236,7 @@ def build_parser() -> ArgumentParser:
             revset=args.revset,
             verbose=args.verbose,
         ),
+        revset_help="Revision to inspect; defaults to the current stack",
     )
     status_parser.add_argument(
         "-f",
@@ -273,6 +275,7 @@ def build_parser() -> ArgumentParser:
             repository=args.repository,
             revset=args.revset,
         ),
+        revset_help="Revision to unlink; required unless --current is passed",
     )
     unlink_parser.add_argument(
         "--current",
@@ -285,7 +288,7 @@ def build_parser() -> ArgumentParser:
         help_text=_normalized_help_text(commands.land.HELP),
         description_text=commands.land.__doc__ or "",
         handler=lambda args: commands.land.land(
-            apply=args.apply,
+            dry_run=args.dry_run,
             bypass_readiness=args.bypass_readiness,
             config_path=args.config,
             current=args.current,
@@ -294,11 +297,12 @@ def build_parser() -> ArgumentParser:
             repository=args.repository,
             revset=args.revset,
         ),
+        revset_help="Revision to land; required unless --current is passed",
     )
     land_parser.add_argument(
-        "--apply",
+        "--dry-run",
         action="store_true",
-        help="Apply the landing plan instead of only previewing it",
+        help="Print the landing plan without mutating jj or GitHub state",
     )
     land_parser.add_argument(
         "--expect-pr",
@@ -323,7 +327,7 @@ def build_parser() -> ArgumentParser:
         help_text=_normalized_help_text(commands.close.HELP),
         description_text=commands.close.__doc__ or "",
         handler=lambda args: commands.close.close(
-            apply=args.apply,
+            dry_run=args.dry_run,
             cleanup=args.cleanup,
             config_path=args.config,
             current=args.current,
@@ -331,11 +335,12 @@ def build_parser() -> ArgumentParser:
             repository=args.repository,
             revset=args.revset,
         ),
+        revset_help="Revision to close; required unless --current is passed",
     )
     close_parser.add_argument(
-        "--apply",
+        "--dry-run",
         action="store_true",
-        help="Apply the close plan instead of only previewing it",
+        help="Print the close plan without mutating jj-review or GitHub state",
     )
     close_parser.add_argument(
         "--cleanup",
@@ -372,9 +377,9 @@ def build_parser() -> ArgumentParser:
     _add_common_options(cleanup_parser)
     _normalize_help_action_text(cleanup_parser)
     cleanup_parser.add_argument(
-        "--apply",
+        "--dry-run",
         action="store_true",
-        help="Apply safe cleanup actions instead of only reporting them",
+        help="Print cleanup actions without mutating jj-review or GitHub state",
     )
     cleanup_parser.add_argument(
         "--restack",
@@ -389,11 +394,14 @@ def build_parser() -> ArgumentParser:
     cleanup_parser.add_argument(
         "revset",
         nargs="?",
-        help="Revision whose stack should be inspected or restacked",
+        help=(
+            "Revision whose stack should be inspected or restacked; when "
+            "mutating with --restack, pass this or --current"
+        ),
     )
     cleanup_parser.set_defaults(
         handler=lambda args: commands.cleanup.cleanup(
-            apply=args.apply,
+            dry_run=args.dry_run,
             config_path=args.config,
             current=args.current,
             debug=args.debug,
@@ -644,6 +652,7 @@ def _add_revision_command(
     help_text: str,
     description_text: str,
     handler,
+    revset_help: str = "Revision to operate on",
 ) -> SubparserT:
     parser = subparsers.add_parser(
         command,
@@ -652,7 +661,7 @@ def _add_revision_command(
     )
     _add_common_options(parser)
     _normalize_help_action_text(parser)
-    parser.add_argument("revset", nargs="?", help="Revision to operate on")
+    parser.add_argument("revset", nargs="?", help=revset_help)
     parser.set_defaults(handler=handler)
     return parser
 

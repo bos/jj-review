@@ -5,8 +5,8 @@ draft, approved, and free of outstanding changes requested. Use
 `--bypass-readiness` to ignore those readiness gates while still enforcing the
 normal safety checks.
 
-Without `--apply`, this command only shows what would be landed. With `--apply`,
-it performs the landing.
+By default, this command performs the landing. Use `--dry-run` to inspect the
+landing plan without mutating jj or GitHub state.
 
 If later changes remain above that point, run `cleanup --restack` and then
 `submit` to keep those remaining changes under review.
@@ -15,11 +15,9 @@ If later changes remain above that point, run `cleanup --restack` and then
 from __future__ import annotations
 
 import asyncio
-import json
 import os
-import tempfile
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -126,25 +124,6 @@ class _LandPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class _LandPreviewSnapshot:
-    """Saved preview fingerprint used to validate `land --apply`."""
-
-    bypass_readiness: bool
-    boundary_message: str | None
-    expect_pr_number: int | None
-    github_repository: str
-    landed_change_ids: tuple[str, ...]
-    landed_commit_ids: tuple[str, ...]
-    landed_pull_request_numbers: tuple[int, ...]
-    ordered_change_ids: tuple[str, ...]
-    ordered_commit_ids: tuple[str, ...]
-    remote_name: str
-    selected_revset: str
-    trunk_branch: str
-    trunk_commit_id: str
-
-
-@dataclass(frozen=True, slots=True)
 class _ResumeLandIntent:
     """A stale land intent that still matches the current selected stack."""
 
@@ -155,7 +134,7 @@ class _ResumeLandIntent:
 
 @dataclass(frozen=True, slots=True)
 class _LandExecutionState:
-    """Resolved apply-mode land state after preview validation and resume checks."""
+    """Resolved apply-mode land state after resume checks."""
 
     execution_plan: _LandPlan
     follow_up: str | None
@@ -189,17 +168,18 @@ class _BookmarkRestorer(Protocol):
 
 def land(
     *,
-    apply: bool,
     bypass_readiness: bool,
     config_path: Path | None,
     current: bool,
     debug: bool,
+    dry_run: bool,
     expect_pr: str | None,
     repository: Path | None,
     revset: str | None,
 ) -> int:
     """CLI entrypoint for `land`."""
 
+    apply = not dry_run
     context = bootstrap_context(
         repository=repository,
         config_path=config_path,
@@ -236,26 +216,7 @@ def land(
             print(f"- [{action.status}] {action.kind}: {action.message}")
     if result.follow_up is not None:
         print(result.follow_up)
-    if not result.applied and not result.blocked:
-        print(
-            "Re-run with "
-            f"`{format_land_apply_command(result)}` "
-            "to update trunk and finalize those changes."
-        )
     return 1 if result.blocked else 0
-
-
-def format_land_apply_command(result: LandResult) -> str:
-    """Render the follow-up `land --apply` command for preview output."""
-
-    parts = ["land", "--apply"]
-    if result.bypass_readiness:
-        parts.append("--bypass-readiness")
-    if result.expect_pr_number is not None:
-        parts.extend(("--expect-pr", str(result.expect_pr_number)))
-    if result.selected_revset:
-        parts.append(result.selected_revset)
-    return " ".join(parts)
 
 
 def _build_land_result(
@@ -392,26 +353,19 @@ async def _stream_land_async(
             status_result=status_result,
             trunk_branch=trunk_branch,
         )
-        preview_snapshot = _build_land_preview_snapshot(
-            bypass_readiness=prepared_land.bypass_readiness,
-            expect_pr_number=prepared_land.expect_pr_number,
-            github_repository=github_repository.full_name,
-            plan=plan,
-            prepared_status=prepared_status,
-            remote_name=remote.name,
-        )
         follow_up = _follow_up_message(
             landed_change_count=len(plan.landed_revisions),
             selected_revset=status_result.selected_revset,
             total_change_count=len(prepared_status.prepared.status_revisions),
         )
         if not prepared_land.apply:
-            return _preview_land_result(
-                follow_up=follow_up,
+            return _build_land_result(
+                actions=_planned_land_actions(plan=plan),
+                applied=False,
+                blocked=plan.blocked,
+                follow_up=None if plan.blocked else follow_up,
                 github_repository=github_repository,
-                plan=plan,
                 prepared_land=prepared_land,
-                prepared=prepared,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
                 trunk_branch=trunk_branch,
@@ -425,7 +379,6 @@ async def _stream_land_async(
                 plan=plan,
                 prepared_land=prepared_land,
                 prepared_status=prepared_status,
-                preview_snapshot=preview_snapshot,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
                 trunk_branch=trunk_branch,
@@ -540,7 +493,6 @@ async def _stream_land_async(
                 )
                 replace_intent(intent_path, land_intent)
             succeeded = True
-            _delete_land_preview(execution_state.state_dir)
             return _build_land_result(
                 actions=tuple(actions),
                 applied=True,
@@ -557,48 +509,6 @@ async def _stream_land_async(
             if succeeded:
                 retire_superseded_intents(execution_state.stale_intents, land_intent)
                 delete_intent(intent_path)
-
-
-def _preview_land_result(
-    *,
-    follow_up: str | None,
-    github_repository: ResolvedGithubRepository,
-    plan: _LandPlan,
-    prepared_land: PreparedLand,
-    prepared,
-    remote_name: str,
-    selected_revset: str,
-    trunk_branch: str,
-    trunk_subject: str,
-) -> LandResult:
-    """Persist preview state and render the dry-run land result."""
-
-    if prepared.state_store.state_dir is not None:
-        _write_land_preview(
-            prepared.state_store.state_dir,
-            _build_land_preview_snapshot(
-                bypass_readiness=prepared_land.bypass_readiness,
-                expect_pr_number=prepared_land.expect_pr_number,
-                github_repository=github_repository.full_name,
-                plan=plan,
-                prepared_status=prepared_land.prepared_status,
-                remote_name=remote_name,
-            ),
-        )
-    return _build_land_result(
-        actions=_planned_land_actions(plan=plan),
-        applied=False,
-        blocked=plan.blocked,
-        follow_up=None if plan.blocked else follow_up,
-        github_repository=github_repository,
-        prepared_land=prepared_land,
-        remote_name=remote_name,
-        selected_revset=selected_revset,
-        trunk_branch=trunk_branch,
-        trunk_subject=trunk_subject,
-    )
-
-
 def _prepare_land_execution_state(
     *,
     follow_up: str | None,
@@ -606,18 +516,20 @@ def _prepare_land_execution_state(
     plan: _LandPlan,
     prepared_land: PreparedLand,
     prepared_status: PreparedStatus,
-    preview_snapshot: _LandPreviewSnapshot,
     remote_name: str,
     selected_revset: str,
     trunk_branch: str,
     trunk_subject: str,
 ) -> _LandExecutionState:
-    """Resolve resume state and validate the preview before apply-mode execution."""
+    """Resolve resume state before apply-mode execution."""
 
     state_dir = prepared_land.state_dir
     if state_dir is None:
         raise AssertionError("Apply mode requires a writable state directory.")
 
+    current_landed_change_ids = tuple(
+        revision.change_id for revision in plan.landed_revisions
+    )
     stale_intents = check_same_kind_intent(state_dir, _build_land_intent(
         bypass_readiness=prepared_land.bypass_readiness,
         expect_pr_number=prepared_land.expect_pr_number,
@@ -627,12 +539,14 @@ def _prepare_land_execution_state(
     ))
     resume_intent = _find_resume_land_intent(
         bypass_readiness=prepared_land.bypass_readiness,
+        current_landed_change_ids=current_landed_change_ids,
         expect_pr_number=prepared_land.expect_pr_number,
         prepared_status=prepared_status,
         stale_intents=stale_intents,
         trunk_branch=trunk_branch,
     )
     _report_stale_land_intents(
+        current_landed_change_ids=current_landed_change_ids,
         prepared_status=prepared_status,
         resume_intent=resume_intent,
         stale_intents=stale_intents,
@@ -658,18 +572,11 @@ def _prepare_land_execution_state(
             selected_revset=selected_revset,
             total_change_count=len(resume_intent.intent.ordered_change_ids),
         )
-    else:
-        _require_matching_land_preview(
-            current_snapshot=preview_snapshot,
-            selected_revset=selected_revset,
-            state_dir=state_dir,
-        )
 
     if not execution_plan.landed_revisions and not execution_plan.push_trunk:
         if resume_intent is not None:
             retire_superseded_intents(stale_intents, resume_intent.intent)
             delete_intent(resume_intent.path)
-        _delete_land_preview(state_dir)
         raise _CompletedLandResume(
             _build_land_result(
                 actions=(
@@ -712,6 +619,7 @@ class _CompletedLandResume(Exception):
 
 def _report_stale_land_intents(
     *,
+    current_landed_change_ids: tuple[str, ...],
     prepared_status: PreparedStatus,
     resume_intent: _ResumeLandIntent | None,
     stale_intents: list[LoadedIntent],
@@ -734,7 +642,7 @@ def _report_stale_land_intents(
             loaded.intent.ordered_change_ids,
             _ordered_change_ids(prepared_status),
         )
-        if match == "exact":
+        if match == "exact" and loaded.intent.landed_change_ids == current_landed_change_ids:
             print(f"Resuming interrupted {loaded.intent.label}")
         elif match == "overlap":
             print(
@@ -1006,164 +914,10 @@ def _ordered_commit_ids(prepared_status: PreparedStatus) -> tuple[str, ...]:
     )
 
 
-def _build_land_preview_snapshot(
-    *,
-    bypass_readiness: bool,
-    expect_pr_number: int | None,
-    github_repository: str,
-    plan: _LandPlan,
-    prepared_status: PreparedStatus,
-    remote_name: str,
-) -> _LandPreviewSnapshot:
-    return _LandPreviewSnapshot(
-        bypass_readiness=bypass_readiness,
-        boundary_message=(
-            plan.boundary_action.message if plan.boundary_action is not None else None
-        ),
-        expect_pr_number=expect_pr_number,
-        github_repository=github_repository,
-        landed_change_ids=tuple(revision.change_id for revision in plan.landed_revisions),
-        landed_commit_ids=tuple(revision.commit_id for revision in plan.landed_revisions),
-        landed_pull_request_numbers=tuple(
-            revision.pull_request_number for revision in plan.landed_revisions
-        ),
-        ordered_change_ids=_ordered_change_ids(prepared_status),
-        ordered_commit_ids=_ordered_commit_ids(prepared_status),
-        remote_name=remote_name,
-        selected_revset=prepared_status.selected_revset,
-        trunk_branch=plan.trunk_branch,
-        trunk_commit_id=prepared_status.prepared.stack.trunk.commit_id,
-    )
-
-
-def _land_preview_path(state_dir: Path) -> Path:
-    return state_dir / "land-preview.json"
-
-
-def _write_land_preview(state_dir: Path, snapshot: _LandPreviewSnapshot) -> None:
-    path = _land_preview_path(state_dir)
-    payload = json.dumps(asdict(snapshot), indent=2, sort_keys=True) + "\n"
-    try:
-        state_dir.mkdir(parents=True, exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(dir=state_dir, suffix=".json.tmp")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as file:
-                file.write(payload)
-            Path(tmp_path).replace(path)
-        except BaseException:
-            Path(tmp_path).unlink(missing_ok=True)
-            raise
-    except OSError as error:
-        raise CliError(
-            f"Could not write saved land preview {path}: {error}"
-        ) from error
-
-
-def _load_land_preview(state_dir: Path) -> _LandPreviewSnapshot | None:
-    path = _land_preview_path(state_dir)
-    if not path.exists():
-        return None
-    try:
-        with path.open("r", encoding="utf-8") as file:
-            payload = json.load(file)
-    except OSError as error:
-        raise CliError(f"Could not read saved land preview {path}: {error}") from error
-    except json.JSONDecodeError as error:
-        raise CliError(
-            f"Saved land preview {path} is invalid. Re-run `land` to refresh it."
-        ) from error
-    if not isinstance(payload, dict):
-        raise CliError(f"Saved land preview {path} is invalid. Re-run `land` to refresh it.")
-    try:
-        return _LandPreviewSnapshot(
-            bypass_readiness=bool(payload.get("bypass_readiness", False)),
-            boundary_message=(
-                None
-                if payload.get("boundary_message") is None
-                else str(payload["boundary_message"])
-            ),
-            expect_pr_number=(
-                None
-                if payload.get("expect_pr_number") is None
-                else int(payload["expect_pr_number"])
-            ),
-            github_repository=str(payload["github_repository"]),
-            landed_change_ids=tuple(str(value) for value in payload.get("landed_change_ids", [])),
-            landed_commit_ids=tuple(str(value) for value in payload.get("landed_commit_ids", [])),
-            landed_pull_request_numbers=tuple(
-                int(value) for value in payload.get("landed_pull_request_numbers", [])
-            ),
-            ordered_change_ids=tuple(
-                str(value) for value in payload.get("ordered_change_ids", [])
-            ),
-            ordered_commit_ids=tuple(
-                str(value) for value in payload.get("ordered_commit_ids", [])
-            ),
-            remote_name=str(payload["remote_name"]),
-            selected_revset=str(payload["selected_revset"]),
-            trunk_branch=str(payload["trunk_branch"]),
-            trunk_commit_id=str(payload["trunk_commit_id"]),
-        )
-    except (KeyError, TypeError, ValueError) as error:
-        raise CliError(
-            f"Saved land preview {path} is invalid. Re-run `land` to refresh it."
-        ) from error
-
-
-def _delete_land_preview(state_dir: Path) -> None:
-    _land_preview_path(state_dir).unlink(missing_ok=True)
-
-
-def _require_matching_land_preview(
-    *,
-    current_snapshot: _LandPreviewSnapshot,
-    selected_revset: str,
-    state_dir: Path,
-) -> None:
-    saved_preview = _load_land_preview(state_dir)
-    preview_command = _format_land_preview_command(
-        bypass_readiness=(
-            current_snapshot.bypass_readiness
-            if saved_preview is None
-            else saved_preview.bypass_readiness
-        ),
-        expect_pr_number=(
-            current_snapshot.expect_pr_number
-            if saved_preview is None
-            else saved_preview.expect_pr_number
-        ),
-        selected_revset=selected_revset,
-    )
-    if saved_preview is None:
-        raise CliError(
-            f"`land --apply` requires a saved preview. Run `{preview_command}` first."
-        )
-    if saved_preview != current_snapshot:
-        raise CliError(
-            "The landing plan changed since the saved preview. "
-            f"Run `{preview_command}` again before `land --apply`."
-        )
-
-
-def _format_land_preview_command(
-    *,
-    bypass_readiness: bool,
-    expect_pr_number: int | None,
-    selected_revset: str,
-) -> str:
-    parts = ["land"]
-    if bypass_readiness:
-        parts.append("--bypass-readiness")
-    if expect_pr_number is not None:
-        parts.extend(("--expect-pr", str(expect_pr_number)))
-    if selected_revset:
-        parts.append(selected_revset)
-    return " ".join(parts)
-
-
 def _find_resume_land_intent(
     *,
     bypass_readiness: bool,
+    current_landed_change_ids: tuple[str, ...],
     expect_pr_number: int | None,
     prepared_status: PreparedStatus,
     stale_intents: Sequence[LoadedIntent],
@@ -1185,6 +939,7 @@ def _find_resume_land_intent(
         if (
             intent.ordered_change_ids == current_change_ids
             and intent.ordered_commit_ids == current_commit_ids
+            and intent.landed_change_ids == current_landed_change_ids
         ):
             return _ResumeLandIntent(
                 intent=intent,

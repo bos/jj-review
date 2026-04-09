@@ -35,7 +35,7 @@ from .submit_command_helpers import (
 )
 
 
-def test_cleanup_apply_prunes_unlinked_state_for_stale_change(
+def test_cleanup_prunes_unlinked_state_for_stale_change(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -52,14 +52,14 @@ def test_cleanup_apply_prunes_unlinked_state_for_stale_change(
     capsys.readouterr()
     _run(["jj", "abandon", change_id], repo)
 
-    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    exit_code = _main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
 
     assert exit_code == 0
     assert "remove saved jj-review data" in captured.out
     assert change_id not in ReviewStateStore.for_repo(repo).load().changes
 
-def test_cleanup_restack_previews_and_applies_survivor_rebase_after_merged_ancestor(
+def test_cleanup_restack_dry_run_and_mutation_rebase_survivor_after_merged_ancestor(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -79,7 +79,14 @@ def test_cleanup_restack_previews_and_applies_survivor_rebase_after_merged_ances
     fake_repo.pull_requests[1].state = "closed"
     fake_repo.pull_requests[1].merged_at = "2026-03-16T12:00:00Z"
 
-    preview_exit_code = _main(repo, config_path, "cleanup", "--restack", top_change_id)
+    preview_exit_code = _main(
+        repo,
+        config_path,
+        "cleanup",
+        "--restack",
+        "--dry-run",
+        top_change_id,
+    )
     preview = capsys.readouterr()
 
     assert preview_exit_code == 0
@@ -91,7 +98,6 @@ def test_cleanup_restack_previews_and_applies_survivor_rebase_after_merged_ances
         config_path,
         "cleanup",
         "--restack",
-        "--apply",
         top_change_id,
     )
     applied = capsys.readouterr()
@@ -124,7 +130,7 @@ def test_cleanup_reports_stale_cache_and_remote_branch_without_applying(
     _run(["jj", "abandon", change_id], repo)
     _run(["jj", "bookmark", "delete", bookmark], repo)
 
-    exit_code = _main(repo, config_path, "cleanup")
+    exit_code = _main(repo, config_path, "cleanup", "--dry-run")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -133,11 +139,11 @@ def test_cleanup_reports_stale_cache_and_remote_branch_without_applying(
     assert f"[planned] remote branch: delete remote branch {bookmark}@origin" in (
         captured.out
     )
-    assert "cleanup --apply" in captured.out
+    assert "cleanup --apply" not in captured.out
     assert change_id in state_store.load().changes
     assert f"refs/heads/{bookmark}" in _remote_refs(fake_repo.git_dir)
 
-def test_cleanup_apply_removes_stale_cache_and_remote_branch(
+def test_cleanup_removes_stale_cache_and_remote_branch(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -159,7 +165,7 @@ def test_cleanup_apply_removes_stale_cache_and_remote_branch(
     _run(["jj", "abandon", change_id], repo)
     _run(["jj", "bookmark", "delete", bookmark], repo)
 
-    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    exit_code = _main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -198,7 +204,7 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
         },
     )
 
-    exit_code = _main(repo, config_path, "cleanup")
+    exit_code = _main(repo, config_path, "cleanup", "--dry-run")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -212,7 +218,7 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
     assert f"refs/heads/{bookmark}" in _remote_refs(fake_repo.git_dir)
 
 
-def test_cleanup_apply_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
+def test_cleanup_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -239,7 +245,7 @@ def test_cleanup_apply_forgets_local_bookmark_before_deleting_remote_branch_when
         },
     )
 
-    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    exit_code = _main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -327,7 +333,7 @@ def test_cleanup_apply_batches_remote_delete_local_forget_and_fetch(
         tracking_fetch_remote,
     )
 
-    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    exit_code = _main(repo, config_path, "cleanup")
     capsys.readouterr()
 
     assert exit_code == 0
@@ -407,7 +413,7 @@ def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
         delete_remote_bookmarks_with_race,
     )
 
-    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    exit_code = _main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -435,7 +441,7 @@ def test_cleanup_apply_preserves_managed_stack_comment_for_closed_pull_request(
     state_store = ReviewStateStore.for_repo(repo)
     fake_repo.pull_requests[2].state = "closed"
 
-    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    exit_code = _main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
     refreshed_state = state_store.load()
 
@@ -477,7 +483,7 @@ def test_cleanup_apply_preserves_discovered_stack_comment_when_cache_id_is_missi
         )
     )
 
-    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    exit_code = _main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
     refreshed_state = state_store.load()
 
@@ -486,12 +492,12 @@ def test_cleanup_apply_preserves_discovered_stack_comment_when_cache_id_is_missi
     assert refreshed_state.changes[change_id].stack_comment_id is None
     assert len(_issue_comments(fake_repo, 2)) == 1
 
-def test_cleanup_apply_writes_and_deletes_intent_file_on_success(
+def test_cleanup_writes_and_deletes_intent_file_on_success(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    """cleanup --apply deletes its intent file on success."""
+    """cleanup deletes its intent file on success."""
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
@@ -508,7 +514,7 @@ def test_cleanup_apply_writes_and_deletes_intent_file_on_success(
     _run(["jj", "abandon", change_id], repo)
     _run(["jj", "bookmark", "delete", bookmark], repo)
 
-    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    exit_code = _main(repo, config_path, "cleanup")
     capsys.readouterr()
 
     assert exit_code == 0
@@ -516,12 +522,12 @@ def test_cleanup_apply_writes_and_deletes_intent_file_on_success(
     intent_files = list(state_dir.glob("incomplete-*.toml"))
     assert intent_files == [], f"Expected no intent files after success, found: {intent_files}"
 
-def test_cleanup_apply_leaves_intent_file_on_failure(
+def test_cleanup_leaves_intent_file_on_failure(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    """cleanup --apply leaves its intent file behind when it fails mid-way."""
+    """cleanup leaves its intent file behind when it fails mid-way."""
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
@@ -546,7 +552,7 @@ def test_cleanup_apply_leaves_intent_file_on_failure(
     )
 
     with pytest.raises(RuntimeError, match="Simulated failure"):
-        _main(repo, config_path, "cleanup", "--apply")
+        _main(repo, config_path, "cleanup")
     capsys.readouterr()
 
     state_dir = resolve_state_path(repo).parent
@@ -559,7 +565,7 @@ def test_cleanup_apply_leaves_intent_file_on_failure(
     assert data["kind"] == "cleanup-apply"
 
 
-def test_cleanup_apply_retires_prior_interrupted_intent_after_success(
+def test_cleanup_retires_prior_interrupted_intent_after_success(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -575,16 +581,16 @@ def test_cleanup_apply_retires_prior_interrupted_intent_after_success(
     stale_intent = CleanupApplyIntent(
         kind="cleanup-apply",
         pid=99999999,
-        label="cleanup --apply",
+        label="cleanup",
         started_at="2026-04-07T00:24:40+00:00",
     )
     stale_path = write_intent(state_dir, stale_intent)
 
-    exit_code = _main(repo, config_path, "cleanup", "--apply")
+    exit_code = _main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Note: a previous cleanup was interrupted (cleanup --apply)" in captured.out
+    assert "Note: a previous cleanup was interrupted (cleanup)" in captured.out
     assert "No cleanup actions needed." in captured.out
     assert not stale_path.exists()
     assert list(state_dir.glob("incomplete-*.toml")) == []

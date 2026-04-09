@@ -80,11 +80,11 @@ def test_main_help_command_prints_subcommand_help(
         ),
         (
             "land",
-            "Without `--apply`, this command only shows what would be landed",
+            "By default, this command performs the landing",
         ),
         (
             "close",
-            "Without `--apply`, this command shows what would be closed",
+            "By default, this closes those pull requests",
         ),
         (
             "cleanup",
@@ -228,6 +228,28 @@ def test_submit_help_describe_with_uses_change_ids() -> None:
 
     assert "`helper --pr <change_id>`" in submit_help
     assert "`helper --pr <revset>`" not in submit_help
+
+
+@pytest.mark.parametrize(
+    ("command", "expected"),
+    [
+        ("submit", "Revision to submit; required unless --current is passed"),
+        ("unlink", "Revision to unlink; required unless --current is passed"),
+        ("land", "Revision to land; required unless --current is passed"),
+        ("close", "Revision to close; required unless --current is passed"),
+        (
+            "cleanup",
+            "when mutating with --restack, pass this or --current",
+        ),
+        ("status", "Revision to inspect; defaults to the current stack"),
+    ],
+)
+def test_revision_help_text_matches_selector_rules(command: str, expected: str) -> None:
+    parser = _find_subcommand_parser(build_parser(), command)
+
+    assert parser is not None
+    normalized_help = " ".join(parser.format_help().split())
+    assert expected in normalized_help
 
 
 def test_top_level_help_uses_title_case_options_heading(

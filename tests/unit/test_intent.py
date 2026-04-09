@@ -54,7 +54,7 @@ def _make_cleanup_apply_intent(pid: int = 12345) -> CleanupApplyIntent:
     return CleanupApplyIntent(
         kind="cleanup-apply",
         pid=pid,
-        label="cleanup --apply",
+        label="cleanup",
         started_at="2026-01-01T00:00:00+00:00",
     )
 

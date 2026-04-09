@@ -382,8 +382,8 @@ def render_status_advisory_lines(*, result) -> tuple[str, ...]:
         )
         lines.append(
             _wrap_advisory(
-                f"Next step: run `{next_command}` to preview the local restack plan, "
-                "then rerun it with `--apply`"
+                f"Next step: run `{next_command}` to rewrite the local stack, or "
+                f"`{next_command} --dry-run` to preview the restack plan first"
             )
         )
         for revision in cleanup_revisions:

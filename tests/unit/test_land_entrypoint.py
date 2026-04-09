@@ -25,11 +25,11 @@ def test_land_requires_explicit_revision_selection(
 
     with pytest.raises(CliError, match="requires an explicit revision selection"):
         land_module.land(
-            apply=False,
             bypass_readiness=False,
             config_path=None,
             current=False,
             debug=False,
+            dry_run=False,
             expect_pr=None,
             repository=tmp_path,
             revset=None,
@@ -81,11 +81,11 @@ def test_land_renders_planned_output(
     monkeypatch.setattr(land_module, "stream_land", fake_stream_land)
 
     exit_code = land_module.land(
-        apply=False,
         bypass_readiness=False,
         config_path=None,
         current=False,
         debug=False,
+        dry_run=True,
         expect_pr="7",
         repository=tmp_path,
         revset="@-",
@@ -97,7 +97,7 @@ def test_land_renders_planned_output(
     assert "GitHub: octo-org/stacked-review" in captured.out
     assert "Planned land actions:" in captured.out
     assert "- [planned] trunk: push main to feature 1 [aaaaaaaa]" in captured.out
-    assert "Re-run with `land --apply --expect-pr 7 @-`" in captured.out
+    assert "Re-run with" not in captured.out
 
 
 def test_land_renders_blocked_output_without_apply_hint(
@@ -132,11 +132,11 @@ def test_land_renders_blocked_output_without_apply_hint(
     )
 
     exit_code = land_module.land(
-        apply=False,
         bypass_readiness=False,
         config_path=None,
         current=False,
         debug=False,
+        dry_run=True,
         expect_pr="7",
         repository=tmp_path,
         revset="@-",
@@ -146,10 +146,10 @@ def test_land_renders_blocked_output_without_apply_hint(
     assert exit_code == 1
     assert "Land blocked:" in captured.out
     assert "- [blocked] guardrail:" in captured.out
-    assert "Re-run with `land --apply" not in captured.out
+    assert "Re-run with" not in captured.out
 
 
-def test_land_passes_bypass_readiness_and_renders_apply_hint(
+def test_land_passes_bypass_readiness_to_prepare_land(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -180,11 +180,11 @@ def test_land_passes_bypass_readiness_and_renders_apply_hint(
     )
 
     exit_code = land_module.land(
-        apply=False,
         bypass_readiness=True,
         config_path=None,
         current=False,
         debug=False,
+        dry_run=True,
         expect_pr="7",
         repository=tmp_path,
         revset="@-",
@@ -192,6 +192,4 @@ def test_land_passes_bypass_readiness_and_renders_apply_hint(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Re-run with `land --apply --bypass-readiness --expect-pr 7 @-`" in (
-        captured.out
-    )
+    assert "Re-run with" not in captured.out

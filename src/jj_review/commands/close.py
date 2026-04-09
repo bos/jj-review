@@ -1,8 +1,8 @@
 """Close the GitHub pull requests for the selected stack.
 
-Without `--apply`, this command shows what would be closed. With `--apply`, it
-closes those pull requests, and `--cleanup` also removes jj-review's GitHub
-branches and any local bookmarks for them.
+By default, this closes those pull requests, and `--cleanup` also removes
+jj-review's GitHub branches and any local bookmarks for them. Use `--dry-run`
+to preview the close plan without mutating jj-review or GitHub state.
 """
 
 from __future__ import annotations
@@ -136,16 +136,17 @@ class _BookmarkCleanupPlan:
 
 def close(
     *,
-    apply: bool,
     cleanup: bool,
     config_path: Path | None,
     current: bool,
     debug: bool,
+    dry_run: bool,
     repository: Path | None,
     revset: str | None,
 ) -> int:
     """CLI entrypoint for `close`."""
 
+    apply = not dry_run
     context = bootstrap_context(
         repository=repository,
         config_path=config_path,
@@ -159,10 +160,14 @@ def close(
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
             command_label=(
-                "close --cleanup --apply"
+                "close --cleanup"
                 if apply and cleanup
                 else (
-                    "close --cleanup" if cleanup else "close --apply" if apply else "close"
+                    "close --cleanup --dry-run"
+                    if cleanup
+                    else "close"
+                    if apply
+                    else "close --dry-run"
                 )
             ),
             current=current,
@@ -201,24 +206,7 @@ def close(
             print("No close actions were needed for the selected stack.")
         else:
             print("No open pull requests tracked by jj-review on the selected stack.")
-
-    if not result.applied and not result.blocked and result.actions:
-        print(
-            f"Re-run with `{format_close_apply_command(result)}` "
-            "to close the selected stack."
-        )
     return 1 if result.blocked else 0
-
-
-def format_close_apply_command(result: CloseResult) -> str:
-    """Render the follow-up `close --apply` command for preview output."""
-
-    parts = ["close", "--apply"]
-    if result.cleanup:
-        parts.append("--cleanup")
-    if result.selected_revset:
-        parts.append(result.selected_revset)
-    return " ".join(parts)
 
 
 def prepare_close(

@@ -1,8 +1,9 @@
 """Find stale jj-review remote branches and saved local data left behind by
 earlier review work.
 
-With `--apply`, this removes the safe ones, and with `--restack` it can also
-restack local descendants after earlier pull requests were merged.
+By default, this removes the safe ones, and with `--restack` it can also
+restack local descendants after earlier pull requests were merged. Use
+`--dry-run` to preview those actions without mutating local or remote state.
 """
 
 from __future__ import annotations
@@ -211,8 +212,6 @@ def render_cleanup_postamble(*, result: CleanupResult) -> tuple[str, ...]:
 
     if not result.actions:
         return ("No cleanup actions needed.",)
-    if not result.applied:
-        return ("Re-run with `cleanup --apply` to perform the planned actions.",)
     return ()
 
 
@@ -253,29 +252,22 @@ def render_restack_postamble(*, result: RestackResult) -> tuple[str, ...]:
 
     if not result.actions:
         return ("No merged changes on the selected stack need restacking.",)
-    if not result.applied:
-        selected_revset = (
-            f" {result.selected_revset}" if result.selected_revset else ""
-        )
-        return (
-            "Re-run with `cleanup --restack --apply"
-            f"{selected_revset}` to rewrite surviving local changes.",
-        )
     return ()
 
 
 def cleanup(
     *,
-    apply: bool,
     config_path: Path | None,
     current: bool,
     debug: bool,
+    dry_run: bool,
     repository: Path | None,
     restack: bool,
     revset: str | None,
 ) -> int:
     """CLI entrypoint for `cleanup`."""
 
+    apply = not dry_run
     context = bootstrap_context(
         repository=repository,
         config_path=config_path,
@@ -310,7 +302,7 @@ def _run_cleanup_restack_command(
     """Render and run the `cleanup --restack` command path."""
 
     selected_revset = resolve_selected_revset(
-        command_label="cleanup --restack --apply" if apply else "cleanup --restack",
+        command_label="cleanup --restack" if apply else "cleanup --restack --dry-run",
         current=current,
         require_explicit=apply,
         revset=revset,
@@ -1011,7 +1003,7 @@ async def _stream_cleanup_async(
         _intent = CleanupApplyIntent(
             kind="cleanup-apply",
             pid=os.getpid(),
-            label="cleanup --apply",
+            label="cleanup",
             started_at=datetime.now(UTC).isoformat(),
         )
         stale_intents = check_same_kind_intent(prepared_cleanup.state_dir, _intent)

@@ -12,17 +12,13 @@ from jj_review.commands.land import (
     _collect_landable_prefix,
     _ensure_trunk_branch_matches_selected_trunk,
     _find_resume_land_intent,
-    _LandPreviewSnapshot,
-    _load_land_preview,
     _parse_pull_request_reference,
     _planned_land_actions,
     _remote_trunk_matches_commit,
-    _require_matching_land_preview,
     _resolve_land_path_revisions,
     _restore_local_trunk_bookmark,
     _resume_land_plan,
     _updated_landed_change,
-    _write_land_preview,
 )
 from jj_review.errors import CliError
 from jj_review.github_resolution import ResolvedGithubRepository
@@ -521,6 +517,7 @@ def test_find_resume_land_intent_matches_exact_path() -> None:
 
     result = _find_resume_land_intent(
         bypass_readiness=False,
+        current_landed_change_ids=("change-1",),
         expect_pr_number=None,
         prepared_status=prepared_status,
         stale_intents=(loaded_intent,),
@@ -544,6 +541,7 @@ def test_find_resume_land_intent_matches_tail_after_landed_prefix() -> None:
 
     result = _find_resume_land_intent(
         bypass_readiness=False,
+        current_landed_change_ids=("change-2", "change-3"),
         expect_pr_number=None,
         prepared_status=prepared_status,
         stale_intents=(loaded_intent,),
@@ -566,6 +564,7 @@ def test_find_resume_land_intent_returns_none_for_mismatch() -> None:
 
     result = _find_resume_land_intent(
         bypass_readiness=False,
+        current_landed_change_ids=("change-1",),
         expect_pr_number=9,
         prepared_status=prepared_status,
         stale_intents=(loaded_intent,),
@@ -602,95 +601,6 @@ def test_remote_trunk_matches_commit_requires_matching_remote_and_local_state() 
         )
         is False
     )
-
-
-def test_require_matching_land_preview_requires_saved_preview(tmp_path: Path) -> None:
-    with pytest.raises(
-        CliError,
-        match=r"requires a saved preview\. Run `land --expect-pr 5 @-` first\.",
-    ):
-        _require_matching_land_preview(
-            current_snapshot=_preview_snapshot(
-                bypass_readiness=False,
-                expect_pr_number=5,
-                landed_commit_ids=("commit-1",),
-            ),
-            selected_revset="@-",
-            state_dir=tmp_path,
-        )
-
-
-def test_require_matching_land_preview_rejects_changed_preview(tmp_path: Path) -> None:
-    _write_land_preview(
-        tmp_path,
-        _preview_snapshot(
-            bypass_readiness=False,
-            expect_pr_number=5,
-            landed_change_ids=("change-1",),
-            landed_commit_ids=("commit-1",),
-            landed_pull_request_numbers=(7,),
-        ),
-    )
-
-    with pytest.raises(
-        CliError,
-        match=r"changed since the saved preview\. Run `land --expect-pr 5 @-` again",
-    ):
-        _require_matching_land_preview(
-            current_snapshot=_preview_snapshot(
-                bypass_readiness=False,
-                landed_change_ids=("change-1", "change-2"),
-                landed_commit_ids=("commit-1", "commit-2"),
-                landed_pull_request_numbers=(7, 8),
-            ),
-            selected_revset="@-",
-            state_dir=tmp_path,
-        )
-
-
-def test_require_matching_land_preview_rejects_bypass_change(tmp_path: Path) -> None:
-    _write_land_preview(
-        tmp_path,
-        _preview_snapshot(
-            bypass_readiness=False,
-            expect_pr_number=5,
-            landed_change_ids=("change-1",),
-            landed_commit_ids=("commit-1",),
-            landed_pull_request_numbers=(7,),
-        ),
-    )
-
-    with pytest.raises(
-        CliError,
-        match=r"Run `land --expect-pr 5 @-` again before `land --apply`\.",
-    ):
-        _require_matching_land_preview(
-            current_snapshot=_preview_snapshot(
-                bypass_readiness=True,
-                expect_pr_number=5,
-                landed_change_ids=("change-1",),
-                landed_commit_ids=("commit-1",),
-                landed_pull_request_numbers=(7,),
-            ),
-            selected_revset="@-",
-            state_dir=tmp_path,
-        )
-
-
-def test_load_land_preview_rejects_invalid_json(tmp_path: Path) -> None:
-    preview_path = tmp_path / "land-preview.json"
-    preview_path.write_text("{not json}\n", encoding="utf-8")
-
-    with pytest.raises(CliError, match="Saved land preview .* is invalid"):
-        _load_land_preview(tmp_path)
-
-
-def test_load_land_preview_rejects_invalid_shape(tmp_path: Path) -> None:
-    preview_path = tmp_path / "land-preview.json"
-    preview_path.write_text('{"selected_revset": "@-"}\n', encoding="utf-8")
-
-    with pytest.raises(CliError, match="Saved land preview .* is invalid"):
-        _load_land_preview(tmp_path)
 
 
 def test_resume_land_plan_skips_completed_change_ids() -> None:
@@ -971,33 +881,6 @@ def _loaded_land_intent(
             started_at="2026-03-22T12:00:00Z",
         ),
     )
-
-
-def _preview_snapshot(
-    *,
-    bypass_readiness: bool = False,
-    expect_pr_number: int | None = None,
-    landed_change_ids: tuple[str, ...] = (),
-    landed_commit_ids: tuple[str, ...] = (),
-    landed_pull_request_numbers: tuple[int, ...] = (),
-) -> _LandPreviewSnapshot:
-    return _LandPreviewSnapshot(
-        bypass_readiness=bypass_readiness,
-        boundary_message=None,
-        expect_pr_number=expect_pr_number,
-        github_repository="octo-org/stacked-review",
-        landed_change_ids=landed_change_ids,
-        landed_commit_ids=landed_commit_ids,
-        landed_pull_request_numbers=landed_pull_request_numbers,
-        ordered_change_ids=("change-1",),
-        ordered_commit_ids=("commit-1",),
-        remote_name="origin",
-        selected_revset="@-",
-        trunk_branch="main",
-        trunk_commit_id="trunk-commit",
-    )
-
-
 class _BookmarkClientStub:
     def __init__(self, bookmark_state: BookmarkState) -> None:
         self._bookmark_state = bookmark_state

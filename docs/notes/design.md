@@ -449,14 +449,14 @@ submit, relink, or rewrite one local stack:
   opt-in
 - `relink` requires either an explicit `<revset>` or an explicit `--current`
   opt-in
-- `cleanup --restack --apply` requires either an explicit `<revset>` or an
-  explicit `--current` opt-in
+- `cleanup --restack` requires either an explicit `<revset>` or an explicit
+  `--current` opt-in when it mutates local history
 
 Read-only inspection may remain ergonomic:
 
 - `status` may omit `<revset>` and inspect the current stack by default
-- `cleanup --restack` without `--apply` may omit `<revset>` and preview the
-  current stack by default
+- `cleanup --restack --dry-run` may omit `<revset>` and preview the current
+  stack by default
 
 `jj review status [<revset>]` should show the selected local stack, pinned or
 discovered bookmarks, and any saved or discovered GitHub PR link for those
@@ -516,8 +516,9 @@ When status reports `cleanup needed`, it should explain why in plain language:
 - the merged PR still appears on the selected local stack
 - descendant submit operations will continue to follow that old local ancestry
   until the user repairs it
-- the next command to run is `jj review cleanup --restack [<revset>]`, with a
-  follow-up `--apply` once the preview looks correct
+- the next command to run is `jj review cleanup --restack [<revset>]`; add
+  `--dry-run` first if the user wants to inspect the restack plan before
+  mutating local history
 
 That guidance matters more than the raw internal distinction between "selected
 path", fetched branch-tip artifacts, and off-path immutable copies. The tool
@@ -595,13 +596,13 @@ either command prematurely.
 
 The user-facing "stop reviewing this stack" command is `close`:
 
-- `jj review close [--cleanup] [--apply] [--current | <revset>]` ends active
+- `jj review close [--cleanup] [--dry-run] [--current | <revset>]` ends active
   review for the selected local stack
 
 That command should stay stack-first rather than PR-number-first. Its job is to
 look at the selected local stack, find the open PRs `jj-review` is already
-tracking there, and then preview or apply the actions needed to end review for
-that stack.
+tracking there, and then either perform or dry-run the actions needed to end
+review for that stack.
 
 Without `--cleanup`, `close` should:
 
@@ -743,11 +744,11 @@ The tool can stay small. A reasonable surface would be:
 - `jj review status [--fetch] [<revset>]`
 - `jj review relink <pr> [--current | <revset>]`
 - `jj review unlink [--current | <revset>]`
-- `jj review close [--cleanup] [--apply] [--current | <revset>]`
-- `jj review cleanup [--restack] [--apply] [--current | <revset>]`
+- `jj review close [--cleanup] [--dry-run] [--current | <revset>]`
+- `jj review cleanup [--restack] [--dry-run] [--current | <revset>]`
 - `jj review import [--fetch] (--pull-request <pr> | --head <bookmark> |
   --current | --revset <revset>)`
-- `jj review land [--apply] [--expect-pr <pr>] [--current | <revset>]`
+- `jj review land [--dry-run] [--expect-pr <pr>] [--current | <revset>]`
 - `jj review completion <bash|zsh|fish>`
 
 The standalone executable may also expose `completion` as auxiliary CLI glue
@@ -776,9 +777,9 @@ Target selection should stay explicit:
   reviewer defaults for that invocation only
 - `unlink`, `close`, and `land` require the same explicit selector when run
 - `import` requires exactly one explicit selector
-- `cleanup --restack --apply` likewise requires one explicit selector
-- `status` and `cleanup --restack` preview may still omit both and inspect the
-  current stack
+- `cleanup --restack` likewise requires one explicit selector when it mutates
+- `status` and `cleanup --restack --dry-run` may still omit both and inspect
+  the current stack
 - passing both `<revset>` and `--current` is an error
 
 Notably absent:
@@ -849,9 +850,11 @@ repo, remember that `GIT_DIR` may need to point at `.jj/repo/store/git`.
   stale, such as after the corresponding PR is closed or the change has been
   abandoned
 
-For now, cleanup should prefer reporting planned actions before mutating remote
-state. Deleting open PRs or deleting pull request branches for ambiguous cases
-should require explicit user intent rather than happening automatically.
+`cleanup` should mutate by default, while `cleanup --dry-run` reports the exact
+planned actions before mutating local state, saved local data, GitHub metadata,
+or remote review branches. Deleting open PRs or deleting pull request branches
+for ambiguous cases should still require explicit user intent rather than
+happening automatically.
 
 `jj review cleanup --restack` is the explicit local-history repair path for the
 common case where GitHub merges have been fetched and the local stack still
@@ -859,9 +862,9 @@ contains merged changes.
 
 Its UX should be explicit:
 
-- without `--apply`, it previews the local restack plan
-- with `--apply`, it performs only the restack steps whose destination is
+- without `--dry-run`, it performs only the restack steps whose destination is
   `trunk()`
+- with `--dry-run`, it previews the local restack plan
 - if a remaining restack step would rebase onto another surviving change,
   it should stop and tell the user to either rebase manually with `jj rebase`
   or rerun with `--allow-nontrunk-rebase`
@@ -895,7 +898,7 @@ The algorithm should be:
    - otherwise the current `trunk()`
 5. Rebase each remaining segment whose current parent is a merged change on the
    selected stack
-   onto that desired new parent, but allow default `--apply` to perform only
+   onto that desired new parent, but allow default execution to perform only
    the steps whose destination is `trunk()`
 6. If later remaining segments would still need to land on another remaining
    change, stop and require either manual `jj rebase` or an explicit
@@ -940,13 +943,13 @@ The selected local `jj` stack remains the source of truth. `land` must not
 silently repair topology, invent ancestry from GitHub, or treat pull request
 branches as the canonical landed history.
 
-Its default UX should mirror the preview-first shape already used by
-`cleanup`:
+Its default UX should be mutate-by-default, with inspection still available:
 
-- without `--apply`, it prints the landing plan, the landable change, the
+- without `--dry-run`, it computes the landing plan from the current local
+  stack and current GitHub state, then performs the landing and any exact
+  follow-up bookkeeping it can already prove safe
+- with `--dry-run`, it prints the landing plan, the landable change, the
   target trunk, and any exact follow-up bookkeeping it can already prove safe
-- with `--apply`, it reruns the same planning step and stops if the plan has
-  changed materially since preview
 - `--expect-pr <pr>` is an optional guardrail, not the primary selector; it
   asserts that the selected local stack still corresponds to the PR the
   operator intended to land
@@ -969,8 +972,7 @@ to preview or apply the open prefix anyway, but that bypass must stay narrow:
 - it may bypass readiness gates such as draft or review-decision state
 - it must not bypass ambiguous or missing PR linkage
 - it must not bypass remote/local commit mismatch checks
-- it must not bypass preview invalidation, trunk push protection, or other
-  integrity checks
+- it must not bypass trunk push protection or other integrity checks
 
 This is intentionally not "the entire selected stack no matter what" and not
 "whatever open PR the operator typed". It keeps the command aligned with the
@@ -994,17 +996,6 @@ This design also needs to respect the recommended GitHub policy above:
 That means `land` owns the merge transition for the landed changes, while
 `review/*` branches remain review-only state rather than merge targets in their
 own right.
-
-Preview output should become invalid if any material planning input changes
-before `--apply`. At minimum, apply should rerun planning and stop if any of
-these changed:
-
-- the selected revset or `--current` resolution
-- the selected stack's `change_id`s or `commit_id`s
-- the first change that blocks landing
-- the expected PR, if `--expect-pr` was supplied
-- the trunk target or trunk commit
-- the GitHub PR states or PR link for the landing unit
 
 Recovery guidance should stay case-specific:
 

@@ -52,7 +52,7 @@ def test_close_apply_closes_pull_request_and_retires_active_state(
     change_id = stack.revisions[-1].change_id
     state_store = ReviewStateStore.for_repo(repo)
 
-    exit_code = _main(repo, config_path, "close", "--apply", change_id)
+    exit_code = _main(repo, config_path, "close", change_id)
     captured = capsys.readouterr()
     refreshed_state = state_store.load()
 
@@ -64,7 +64,7 @@ def test_close_apply_closes_pull_request_and_retires_active_state(
     assert refreshed_state.changes[change_id].stack_comment_id is None
     assert _issue_comments(fake_repo, 1) == []
 
-def test_close_preview_closes_no_remote_state_and_reports_planned_actions(
+def test_close_dry_run_leaves_remote_state_unchanged_and_reports_planned_actions(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -81,7 +81,7 @@ def test_close_preview_closes_no_remote_state_and_reports_planned_actions(
     state_store = ReviewStateStore.for_repo(repo)
     initial_state = state_store.load()
 
-    exit_code = _main(repo, config_path, "close", change_id)
+    exit_code = _main(repo, config_path, "close", "--dry-run", change_id)
     captured = capsys.readouterr()
     refreshed_state = state_store.load()
 
@@ -125,7 +125,7 @@ def test_close_apply_reports_blocked_when_github_is_unavailable(
         client_type=OfflineGithubClient,
     )
 
-    exit_code = _main(repo, config_path, "close", "--apply", change_id)
+    exit_code = _main(repo, config_path, "close", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -187,7 +187,7 @@ def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
         tracking_forget_bookmark,
     )
 
-    exit_code = _main(repo, config_path, "close", "--apply", "--cleanup", change_id)
+    exit_code = _main(repo, config_path, "close", "--cleanup", change_id)
     captured = capsys.readouterr()
     refreshed_state = state_store.load()
 
@@ -217,12 +217,12 @@ def test_close_apply_rerun_is_idempotent(
     change_id = stack.revisions[-1].change_id
     state_store = ReviewStateStore.for_repo(repo)
 
-    first_exit_code = _main(repo, config_path, "close", "--apply", change_id)
+    first_exit_code = _main(repo, config_path, "close", change_id)
     capsys.readouterr()
     first_state = state_store.load()
     del fake_repo.pull_requests[1]
 
-    second_exit_code = _main(repo, config_path, "close", "--apply", change_id)
+    second_exit_code = _main(repo, config_path, "close", change_id)
     captured = capsys.readouterr()
     second_state = state_store.load()
 
@@ -251,11 +251,11 @@ def test_close_apply_cleanup_rerun_completes_after_prior_close_when_pr_is_missin
     bookmark = state_store.load().changes[change_id].bookmark
     assert bookmark is not None
 
-    assert _main(repo, config_path, "close", "--apply", change_id) == 0
+    assert _main(repo, config_path, "close", change_id) == 0
     capsys.readouterr()
     del fake_repo.pull_requests[1]
 
-    exit_code = _main(repo, config_path, "close", "--apply", "--cleanup", change_id)
+    exit_code = _main(repo, config_path, "close", "--cleanup", change_id)
     captured = capsys.readouterr()
     refreshed_state = state_store.load()
 
@@ -285,7 +285,7 @@ def test_close_apply_blocks_when_github_no_longer_reports_the_cached_pull_reques
     initial_state = state_store.load()
     del fake_repo.pull_requests[1]
 
-    exit_code = _main(repo, config_path, "close", "--apply", change_id)
+    exit_code = _main(repo, config_path, "close", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -323,11 +323,11 @@ def test_close_apply_checkpoints_prior_progress_before_later_block(
         title="feature 1 duplicate",
     )
 
-    first_exit_code = _main(repo, config_path, "close", "--apply", head_change_id)
+    first_exit_code = _main(repo, config_path, "close", head_change_id)
     first_run = capsys.readouterr()
     checkpointed_state = state_store.load()
 
-    second_exit_code = _main(repo, config_path, "close", "--apply", head_change_id)
+    second_exit_code = _main(repo, config_path, "close", head_change_id)
     second_run = capsys.readouterr()
 
     assert first_exit_code == 1
@@ -357,7 +357,7 @@ def test_close_apply_cleanup_rechecks_cached_comment_ownership_when_pr_is_missin
     change_id = stack.revisions[-1].change_id
     state_store = ReviewStateStore.for_repo(repo)
 
-    assert _main(repo, config_path, "close", "--apply", change_id) == 0
+    assert _main(repo, config_path, "close", change_id) == 0
     capsys.readouterr()
 
     manual_comment = fake_repo.create_issue_comment(body="manual note", issue_number=1)
@@ -377,7 +377,7 @@ def test_close_apply_cleanup_rechecks_cached_comment_ownership_when_pr_is_missin
     )
     del fake_repo.pull_requests[1]
 
-    exit_code = _main(repo, config_path, "close", "--apply", "--cleanup", change_id)
+    exit_code = _main(repo, config_path, "close", "--cleanup", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -404,7 +404,7 @@ def test_close_apply_cleanup_keeps_comment_cleanup_after_bookmark_block(
     initial_remote_target = _read_remote_ref(fake_repo.git_dir, bookmark)
     _run(["jj", "bookmark", "move", "--allow-backwards", bookmark, "--to", "main"], repo)
 
-    exit_code = _main(repo, config_path, "close", "--apply", "--cleanup", change_id)
+    exit_code = _main(repo, config_path, "close", "--cleanup", change_id)
     captured = capsys.readouterr()
     local_target = JjClient(repo).get_bookmark_state(bookmark).local_target
 
@@ -431,7 +431,7 @@ def test_close_apply_closes_discovered_pull_request_after_sparse_state_loss(
     change_id = stack.revisions[-1].change_id
     resolve_state_path(repo).unlink()
 
-    exit_code = _main(repo, config_path, "close", "--apply", change_id)
+    exit_code = _main(repo, config_path, "close", change_id)
     captured = capsys.readouterr()
     refreshed_state = ReviewStateStore.for_repo(repo).load()
 
@@ -470,7 +470,7 @@ def test_close_apply_cleanup_exits_nonzero_when_cleanup_is_blocked(
     )
     fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=2)
 
-    exit_code = _main(repo, config_path, "close", "--apply", "--cleanup", change_id)
+    exit_code = _main(repo, config_path, "close", "--cleanup", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 1

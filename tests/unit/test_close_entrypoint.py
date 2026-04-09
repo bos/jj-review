@@ -25,11 +25,11 @@ def test_close_requires_explicit_revision_selection(
 
     with pytest.raises(CliError, match="requires an explicit revision selection"):
         close_module.close(
-            apply=False,
             cleanup=False,
             config_path=None,
             current=False,
             debug=False,
+            dry_run=False,
             repository=tmp_path,
             revset=None,
         )
@@ -45,11 +45,11 @@ def test_close_rejects_revset_and_current_together(
 
     with pytest.raises(CliError, match="accepts either `<revset>` or `--current`, not both"):
         close_module.close(
-            apply=False,
             cleanup=False,
             config_path=None,
             current=True,
             debug=False,
+            dry_run=False,
             repository=tmp_path,
             revset="@",
         )
@@ -97,11 +97,11 @@ def test_close_renders_planned_output(
     )
 
     exit_code = close_module.close(
-        apply=False,
         cleanup=True,
         config_path=None,
         current=False,
         debug=False,
+        dry_run=True,
         repository=tmp_path,
         revset="@",
     )
@@ -113,7 +113,7 @@ def test_close_renders_planned_output(
     assert "GitHub: octo-org/stacked-review" in captured.out
     assert "Planned close actions:" in captured.out
     assert "- [planned] pull request: close PR #7 for feature 1 [aaaaaaaa]" in captured.out
-    assert "Re-run with `close --apply --cleanup @`" in captured.out
+    assert "Re-run with" not in captured.out
 
 
 def test_close_renders_apply_noop_output(
@@ -140,11 +140,11 @@ def test_close_renders_apply_noop_output(
     )
 
     exit_code = close_module.close(
-        apply=True,
         cleanup=False,
         config_path=None,
         current=False,
         debug=False,
+        dry_run=False,
         repository=tmp_path,
         revset="@",
     )

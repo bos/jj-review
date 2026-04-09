@@ -9,7 +9,7 @@ from jj_review.errors import CliError
 from .entrypoint_test_helpers import patch_bootstrap
 
 
-def test_cleanup_passes_apply_to_prepare_cleanup(
+def test_cleanup_mutates_by_default_and_passes_apply_to_prepare_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -42,10 +42,10 @@ def test_cleanup_passes_apply_to_prepare_cleanup(
     )
 
     exit_code = cleanup_module.cleanup(
-        apply=True,
         config_path=None,
         current=False,
         debug=False,
+        dry_run=False,
         repository=tmp_path,
         restack=False,
         revset=None,
@@ -57,7 +57,7 @@ def test_cleanup_passes_apply_to_prepare_cleanup(
     assert "No cleanup actions needed." in captured.out
 
 
-def test_cleanup_restack_passes_apply_and_revset_to_prepare_restack(
+def test_cleanup_restack_mutates_by_default_and_passes_apply_and_revset_to_prepare_restack(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -93,10 +93,10 @@ def test_cleanup_restack_passes_apply_and_revset_to_prepare_restack(
     )
 
     exit_code = cleanup_module.cleanup(
-        apply=True,
         config_path=None,
         current=False,
         debug=False,
+        dry_run=False,
         repository=tmp_path,
         restack=True,
         revset="@-",
@@ -109,7 +109,7 @@ def test_cleanup_restack_passes_apply_and_revset_to_prepare_restack(
     assert "No merged changes on the selected stack need restacking." in captured.out
 
 
-def test_cleanup_restack_apply_requires_explicit_revision_selection(
+def test_cleanup_restack_requires_explicit_revision_selection_when_mutating(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -125,10 +125,10 @@ def test_cleanup_restack_apply_requires_explicit_revision_selection(
 
     with pytest.raises(CliError, match="requires an explicit revision selection"):
         cleanup_module.cleanup(
-            apply=True,
             config_path=None,
             current=False,
             debug=False,
+            dry_run=False,
             repository=tmp_path,
             restack=True,
             revset=None,
@@ -193,10 +193,10 @@ def test_cleanup_renders_planned_and_blocked_actions(
     monkeypatch.setattr(cleanup_module, "stream_cleanup", fake_stream_cleanup)
 
     exit_code = cleanup_module.cleanup(
-        apply=False,
         config_path=None,
         current=False,
         debug=False,
+        dry_run=True,
         repository=tmp_path,
         restack=False,
         revset=None,
@@ -208,7 +208,7 @@ def test_cleanup_renders_planned_and_blocked_actions(
     assert "GitHub: octo-org/stacked-review" not in captured.out
     assert "Planned cleanup actions:" in captured.out
     assert "[planned] tracking: remove saved jj-review data for abcdef12" in captured.out
-    assert "cleanup --apply" in captured.out
+    assert "cleanup --apply" not in captured.out
 
 
 def test_cleanup_restack_renders_next_step_and_policy_warning(
@@ -270,10 +270,10 @@ def test_cleanup_restack_renders_next_step_and_policy_warning(
     monkeypatch.setattr(cleanup_module, "stream_restack", fake_stream_restack)
 
     exit_code = cleanup_module.cleanup(
-        apply=False,
         config_path=None,
         current=False,
         debug=False,
+        dry_run=True,
         repository=tmp_path,
         restack=True,
         revset=None,
@@ -283,7 +283,7 @@ def test_cleanup_restack_renders_next_step_and_policy_warning(
     assert exit_code == 0
     assert "Selected revset: @" in captured.out
     assert "Planned restack actions:" in captured.out
-    assert "cleanup --restack --apply @" in captured.out
+    assert "cleanup --restack --apply @" not in captured.out
 
 
 def test_cleanup_prints_remote_and_github_before_stream_completes(
@@ -333,10 +333,10 @@ def test_cleanup_prints_remote_and_github_before_stream_completes(
     monkeypatch.setattr(cleanup_module, "stream_cleanup", fake_stream_cleanup)
 
     exit_code = cleanup_module.cleanup(
-        apply=False,
         config_path=None,
         current=False,
         debug=False,
+        dry_run=True,
         repository=tmp_path,
         restack=False,
         revset=None,
@@ -348,4 +348,4 @@ def test_cleanup_prints_remote_and_github_before_stream_completes(
     assert "GitHub: octo-org/stacked-review" not in checkpoints[0]
     assert checkpoints[0] == ""
     assert "Planned cleanup actions:" in checkpoints[1]
-    assert "cleanup --apply" in captured.out
+    assert "cleanup --apply" not in captured.out
