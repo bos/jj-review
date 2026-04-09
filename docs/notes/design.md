@@ -767,6 +767,9 @@ same as `jj review --help`, and `jj review help <command>` behaves the same as
 `jj review <command> --help`. The default top-level help should
 also keep advanced global options such as `--repository`, `--config`,
 `--debug`, and `--time-output` out of view until that explicit extended mode.
+Longer command help should preserve paragraph breaks in descriptions and wrapped
+help text so multi-paragraph guidance stays readable instead of collapsing into
+one block.
 
 Target selection should stay explicit:
 

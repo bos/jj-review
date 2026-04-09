@@ -170,6 +170,10 @@ preserving `jj-review help` as an exact top-level-help entrypoint and
 `jj-review help <command>` as the same command-specific help surface as
 `jj-review <command> --help`.
 
+Subcommand help now preserves blank-line paragraph breaks in command
+descriptions and wrapped option prose so longer `--help` output stays readable
+instead of collapsing into one paragraph.
+
 `submit` now also supports explicit draft-state controls at the CLI boundary:
 `--draft` / `--draft=new` creates newly opened PRs as drafts, `--draft=all`
 also returns existing published PRs on the selected stack to draft, and

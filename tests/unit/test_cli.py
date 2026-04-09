@@ -128,6 +128,17 @@ def test_subcommand_help_includes_a_command_description(
     assert expected in normalized_help
 
 
+def test_subcommand_help_preserves_description_paragraph_breaks() -> None:
+    submit_parser = _find_subcommand_parser(build_parser(), "submit")
+
+    assert submit_parser is not None
+    assert (
+        "Create or update the GitHub pull requests for the selected stack of changes.\n\n"
+        "This pushes or updates the GitHub branches for that stack"
+        in submit_parser.format_help()
+    )
+
+
 def test_top_level_help_uses_updated_command_summaries(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

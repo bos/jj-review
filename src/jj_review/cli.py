@@ -5,6 +5,7 @@ from __future__ import annotations
 import builtins
 import io
 import logging
+import re
 import shutil
 import sys
 import textwrap
@@ -105,6 +106,23 @@ class _TitleCaseHelpFormatter(HelpFormatter):
 
     def add_usage(self, usage, actions, groups, prefix=None):
         return super().add_usage(usage, actions, groups, prefix="Usage: ")
+
+    def _fill_text(self, text: str, width: int, indent: str) -> str:
+        return _fill_help_paragraphs(
+            text,
+            width=width,
+            initial_indent=indent,
+            subsequent_indent=indent,
+        )
+
+    def _split_lines(self, text: str, width: int) -> list[str]:
+        rendered = _fill_help_paragraphs(
+            text,
+            width=width,
+            initial_indent="",
+            subsequent_indent="",
+        )
+        return rendered.splitlines()
 
 
 class _CommandArgumentParser(ArgumentParser):
@@ -576,6 +594,27 @@ def _format_option_label(action) -> str:
 
 def _normalized_help_text(text: str) -> str:
     return textwrap.dedent(text).strip()
+
+
+def _fill_help_paragraphs(
+    text: str,
+    *,
+    width: int,
+    initial_indent: str,
+    subsequent_indent: str,
+) -> str:
+    paragraphs = re.split(r"\n\s*\n", text)
+    return "\n\n".join(
+        textwrap.fill(
+            " ".join(paragraph.split()),
+            width=width,
+            initial_indent=initial_indent,
+            subsequent_indent=subsequent_indent,
+            break_long_words=False,
+            break_on_hyphens=False,
+        )
+        for paragraph in paragraphs
+    )
 
 
 def _top_level_help_width() -> int:
