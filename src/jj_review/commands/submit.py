@@ -246,7 +246,6 @@ class InterruptedRemoteBookmarkRepairer(Protocol):
 def submit(
     *,
     config_path: Path | None,
-    current: bool,
     debug: bool,
     describe_with: str | None,
     draft: bool,
@@ -267,8 +266,8 @@ def submit(
     )
     selected_revset = resolve_selected_revset(
         command_label="submit",
-        current=current,
-        require_explicit=True,
+        default_revset="@-",
+        require_explicit=False,
         revset=revset,
     )
     reviewer_list = parse_comma_separated_flag_values(reviewers)

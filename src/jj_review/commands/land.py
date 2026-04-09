@@ -170,7 +170,6 @@ def land(
     *,
     bypass_readiness: bool,
     config_path: Path | None,
-    current: bool,
     debug: bool,
     dry_run: bool,
     expect_pr: str | None,
@@ -194,8 +193,8 @@ def land(
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
             command_label="land",
-            current=current,
-            require_explicit=True,
+            default_revset="@-",
+            require_explicit=False,
             revset=revset,
         ),
     )

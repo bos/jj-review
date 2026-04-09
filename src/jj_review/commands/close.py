@@ -138,7 +138,6 @@ def close(
     *,
     cleanup: bool,
     config_path: Path | None,
-    current: bool,
     debug: bool,
     dry_run: bool,
     repository: Path | None,
@@ -170,8 +169,8 @@ def close(
                     else "close --dry-run"
                 )
             ),
-            current=current,
-            require_explicit=True,
+            default_revset="@-",
+            require_explicit=False,
             revset=revset,
         ),
     )

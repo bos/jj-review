@@ -4,7 +4,6 @@ from types import SimpleNamespace
 import pytest
 
 from jj_review.commands import cleanup as cleanup_module
-from jj_review.errors import CliError
 
 from .entrypoint_test_helpers import patch_bootstrap
 
@@ -43,7 +42,6 @@ def test_cleanup_mutates_by_default_and_passes_apply_to_prepare_cleanup(
 
     exit_code = cleanup_module.cleanup(
         config_path=None,
-        current=False,
         debug=False,
         dry_run=False,
         repository=tmp_path,
@@ -94,7 +92,6 @@ def test_cleanup_restack_mutates_by_default_and_passes_apply_and_revset_to_prepa
 
     exit_code = cleanup_module.cleanup(
         config_path=None,
-        current=False,
         debug=False,
         dry_run=False,
         repository=tmp_path,
@@ -107,34 +104,6 @@ def test_cleanup_restack_mutates_by_default_and_passes_apply_and_revset_to_prepa
     assert prepare_calls == [(True, "@-")]
     assert "Selected revset: @-" in captured.out
     assert "No merged changes on the selected stack need restacking." in captured.out
-
-
-def test_cleanup_restack_requires_explicit_revision_selection_when_mutating(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    patch_bootstrap(monkeypatch, cleanup_module, tmp_path)
-    prepare_called = False
-
-    def fake_prepare_restack(**kwargs):
-        nonlocal prepare_called
-        prepare_called = True
-        raise AssertionError("restack apply should not prepare without a selector")
-
-    monkeypatch.setattr(cleanup_module, "prepare_restack", fake_prepare_restack)
-
-    with pytest.raises(CliError, match="requires an explicit revision selection"):
-        cleanup_module.cleanup(
-            config_path=None,
-            current=False,
-            debug=False,
-            dry_run=False,
-            repository=tmp_path,
-            restack=True,
-            revset=None,
-        )
-
-    assert not prepare_called
 
 
 def test_cleanup_renders_planned_and_blocked_actions(
@@ -194,7 +163,6 @@ def test_cleanup_renders_planned_and_blocked_actions(
 
     exit_code = cleanup_module.cleanup(
         config_path=None,
-        current=False,
         debug=False,
         dry_run=True,
         repository=tmp_path,
@@ -271,7 +239,6 @@ def test_cleanup_restack_renders_next_step_and_policy_warning(
 
     exit_code = cleanup_module.cleanup(
         config_path=None,
-        current=False,
         debug=False,
         dry_run=True,
         repository=tmp_path,
@@ -334,7 +301,6 @@ def test_cleanup_prints_remote_and_github_before_stream_completes(
 
     exit_code = cleanup_module.cleanup(
         config_path=None,
-        current=False,
         debug=False,
         dry_run=True,
         repository=tmp_path,

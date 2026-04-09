@@ -26,7 +26,7 @@ def test_import_bootstraps_local_review_state_from_pull_request(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
     review_bookmarks = sorted(
         {
@@ -60,21 +60,18 @@ def test_import_bootstraps_local_review_state_from_pull_request(
     )
 
 
-def test_import_head_bootstraps_local_review_state_without_pull_requests(
+def test_import_current_rejects_remote_branches_without_pull_requests(
     tmp_path: Path,
     monkeypatch,
+    capsys,
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
-    stack = JjClient(repo).discover_review_stack()
-    top_change_id = stack.revisions[-1].change_id
-    top_bookmark = state_before.changes[top_change_id].bookmark
-    assert top_bookmark is not None
     review_bookmarks = sorted(
         {
             change.bookmark
@@ -87,24 +84,12 @@ def test_import_head_bootstraps_local_review_state_without_pull_requests(
         _run(["jj", "bookmark", "forget", bookmark], repo)
     resolve_state_path(repo).unlink()
 
-    exit_code = _main(repo, config_path, "import", "--fetch", "--head", top_bookmark)
+    exit_code = _main(repo, config_path, "import", "--fetch")
+    captured = capsys.readouterr()
 
-    assert exit_code == 0
-    state_after = ReviewStateStore.for_repo(repo).load()
-    assert sorted(
-        {
-            change.bookmark
-            for change in state_after.changes.values()
-            if change.bookmark is not None
-        }
-    ) == review_bookmarks
-    assert all(change.pr_number is None for change in state_after.changes.values())
-    assert all(change.pr_state is None for change in state_after.changes.values())
-    assert all(change.stack_comment_id is None for change in state_after.changes.values())
-    bookmark_states = JjClient(repo).list_bookmark_states(review_bookmarks)
-    assert all(
-        bookmark_states[bookmark].local_target is not None for bookmark in review_bookmarks
-    )
+    assert exit_code == 1
+    assert "selected head already has a pull request" in captured.err
+    assert ReviewStateStore.for_repo(repo).load().changes == {}
 
 
 def test_import_reports_up_to_date_when_selected_stack_is_already_imported(
@@ -117,15 +102,10 @@ def test_import_reports_up_to_date_when_selected_stack_is_already_imported(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
-    stack = JjClient(repo).discover_review_stack()
-    top_change_id = stack.revisions[-1].change_id
-    top_bookmark = ReviewStateStore.for_repo(repo).load().changes[top_change_id].bookmark
-    assert top_bookmark is not None
-
-    exit_code = _main(repo, config_path, "import", "--fetch", "--head", top_bookmark)
+    exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -145,7 +125,7 @@ def test_import_reports_github_inspection_progress(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
     review_bookmarks = sorted(
         {
@@ -173,7 +153,7 @@ def test_import_current_requires_discoverable_remote_review_link(
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    exit_code = _main(repo, config_path, "import", "--current")
+    exit_code = _main(repo, config_path, "import")
 
     assert exit_code == 1
 
@@ -193,7 +173,7 @@ def test_import_revset_fails_closed_without_remote_bookmark_identity(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "has no matching branch on the selected remote" in captured.err
+    assert "selected head already has a pull request" in captured.err
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert not {
         bookmark
@@ -202,7 +182,7 @@ def test_import_revset_fails_closed_without_remote_bookmark_identity(
     }
 
 
-def test_import_head_rejects_ambiguous_pull_request_link(
+def test_import_pull_request_rejects_ambiguous_head_branch_link(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -211,7 +191,7 @@ def test_import_head_rejects_ambiguous_pull_request_link(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     stack = JjClient(repo).discover_review_stack()
     top_change_id = stack.revisions[-1].change_id
     top_bookmark = ReviewStateStore.for_repo(repo).load().changes[top_change_id].bookmark
@@ -223,7 +203,7 @@ def test_import_head_rejects_ambiguous_pull_request_link(
         title="duplicate link",
     )
 
-    exit_code = _main(repo, config_path, "import", "--fetch", "--head", top_bookmark)
+    exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
 
     assert exit_code == 1
 
@@ -238,7 +218,7 @@ def test_import_fails_closed_when_stack_would_need_generated_bookmarks(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
     stack = JjClient(repo).discover_review_stack()
     bottom_change_id = stack.revisions[0].change_id
@@ -263,7 +243,7 @@ def test_import_fails_closed_when_stack_would_need_generated_bookmarks(
         repo,
     )
 
-    exit_code = _main(repo, config_path, "import", "--fetch", "--head", top_bookmark)
+    exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -285,7 +265,7 @@ def test_import_fails_closed_when_cached_bookmark_is_missing_on_selected_remote(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
     stack = JjClient(repo).discover_review_stack()
     bottom_change_id = stack.revisions[0].change_id
@@ -309,7 +289,7 @@ def test_import_fails_closed_when_cached_bookmark_is_missing_on_selected_remote(
         repo,
     )
 
-    exit_code = _main(repo, config_path, "import", "--fetch", "--head", top_bookmark)
+    exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -330,7 +310,7 @@ def test_import_fails_closed_without_partial_local_bookmark_updates(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
     stack = JjClient(repo).discover_review_stack()
     bottom_change_id = stack.revisions[0].change_id
@@ -345,7 +325,7 @@ def test_import_fails_closed_without_partial_local_bookmark_updates(
     main_target = JjClient(repo).resolve_revision("main").commit_id
     _run(["jj", "bookmark", "set", top_bookmark, "--revision", "main"], repo)
 
-    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+    exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -364,7 +344,7 @@ def test_import_prefers_exact_remote_bookmarks_over_stale_cached_names(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     state_store = ReviewStateStore.for_repo(repo)
     state_before = state_store.load()
     stack = JjClient(repo).discover_review_stack()
@@ -391,7 +371,7 @@ def test_import_prefers_exact_remote_bookmarks_over_stale_cached_names(
     for bookmark in (bottom_bookmark, top_bookmark):
         _run(["jj", "bookmark", "forget", bookmark], repo)
 
-    exit_code = _main(repo, config_path, "import", "--head", top_bookmark)
+    exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
 
     assert exit_code == 0
     state_after = state_store.load()
@@ -409,7 +389,7 @@ def test_import_current_rejects_cache_only_link(
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
     stack = JjClient(repo).discover_review_stack()
     change_id = stack.revisions[-1].change_id
@@ -430,7 +410,7 @@ def test_import_current_rejects_cache_only_link(
         repo,
     )
 
-    assert _main(repo, config_path, "import", "--fetch", "--current") == 1
+    assert _main(repo, config_path, "import", "--fetch") == 1
 
 
 def test_import_revset_rejects_generated_bookmarks_without_selected_remote(
@@ -443,7 +423,7 @@ def test_import_revset_rejects_generated_bookmarks_without_selected_remote(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
     stack = JjClient(repo).discover_review_stack()
     bottom_change_id = stack.revisions[0].change_id
@@ -469,79 +449,11 @@ def test_import_revset_rejects_generated_bookmarks_without_selected_remote(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "has no matching branch on the selected remote" in captured.err
+    assert "selected head already has a pull request" in captured.err
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, top_bookmark))
     assert bookmark_states[bottom_bookmark].local_target is None
     assert bookmark_states[top_bookmark].local_target is None
-
-
-def test_import_head_accepts_exact_custom_remote_branch_name(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
-
-    assert _main(repo, config_path, "submit", "--current") == 0
-    state_before = ReviewStateStore.for_repo(repo).load()
-    stack = JjClient(repo).discover_review_stack()
-    bottom_change_id = stack.revisions[0].change_id
-    top_change_id = stack.revisions[-1].change_id
-    bottom_bookmark = state_before.changes[bottom_change_id].bookmark
-    top_bookmark = state_before.changes[top_change_id].bookmark
-    assert bottom_bookmark is not None
-    assert top_bookmark is not None
-
-    custom_head = "custom/pr-head"
-    top_target = _run(
-        [
-            "git",
-            "--git-dir",
-            str(fake_repo.git_dir),
-            "rev-parse",
-            f"refs/heads/{top_bookmark}",
-        ],
-        repo,
-    ).stdout.strip()
-    _run(
-        [
-            "git",
-            "--git-dir",
-            str(fake_repo.git_dir),
-            "update-ref",
-            f"refs/heads/{custom_head}",
-            top_target,
-        ],
-        repo,
-    )
-    _run(
-        [
-            "git",
-            "--git-dir",
-            str(fake_repo.git_dir),
-            "update-ref",
-            "-d",
-            f"refs/heads/{top_bookmark}",
-        ],
-        repo,
-    )
-    fake_repo.pull_requests.clear()
-    for bookmark in (bottom_bookmark, top_bookmark):
-        _run(["jj", "bookmark", "forget", bookmark], repo)
-    resolve_state_path(repo).unlink()
-
-    exit_code = _main(repo, config_path, "import", "--fetch", "--head", custom_head)
-
-    assert exit_code == 0
-    state_after = ReviewStateStore.for_repo(repo).load()
-    assert state_after.changes[bottom_change_id].bookmark == bottom_bookmark
-    assert state_after.changes[top_change_id].bookmark == custom_head
-    bookmark_states = JjClient(repo).list_bookmark_states((bottom_bookmark, custom_head))
-    assert bookmark_states[bottom_bookmark].local_target is not None
-    assert bookmark_states[custom_head].local_target is not None
 
 
 def _configure_import_environment(

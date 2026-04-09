@@ -1,9 +1,10 @@
 """Find stale jj-review remote branches and saved local data left behind by
 earlier review work.
 
-By default, this removes the safe ones, and with `--restack` it can also
-restack local descendants after earlier pull requests were merged. Use
-`--dry-run` to preview those actions without mutating local or remote state.
+By default, this removes the safe stale data repo-wide, and with `--restack`
+it can also restack local descendants after earlier pull requests were merged.
+Use `--dry-run` to preview those actions without mutating local or remote
+state.
 """
 
 from __future__ import annotations
@@ -258,7 +259,6 @@ def render_restack_postamble(*, result: RestackResult) -> tuple[str, ...]:
 def cleanup(
     *,
     config_path: Path | None,
-    current: bool,
     debug: bool,
     dry_run: bool,
     repository: Path | None,
@@ -278,7 +278,6 @@ def cleanup(
             apply=apply,
             change_overrides=context.config.change,
             config=context.config.repo,
-            current=current,
             repo_root=context.repo_root,
             revset=revset,
         )
@@ -295,7 +294,6 @@ def _run_cleanup_restack_command(
     apply: bool,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
-    current: bool,
     repo_root: Path,
     revset: str | None,
 ) -> int:
@@ -303,8 +301,8 @@ def _run_cleanup_restack_command(
 
     selected_revset = resolve_selected_revset(
         command_label="cleanup --restack" if apply else "cleanup --restack --dry-run",
-        current=current,
-        require_explicit=apply,
+        default_revset="@-",
+        require_explicit=False,
         revset=revset,
     )
     try:

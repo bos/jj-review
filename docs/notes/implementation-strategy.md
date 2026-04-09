@@ -181,16 +181,15 @@ also returns existing published PRs on the selected stack to draft, and
 
 Command target selection should stay conservative at the CLI boundary:
 
-- `submit` and `relink` should require either an explicit `<revset>` or an
-  explicit `--current` opt-in instead of silently defaulting to the current
-  workspace path
-- `close` should require the same explicit selector
-- `cleanup --restack` should require the same explicit selector when it mutates
-- read-only inspection may stay ergonomic, so `status` and
-  `cleanup --restack --dry-run` may still omit a selector and inspect the
-  current stack by default
-- the lower-level `jj` adapter may keep its existing current-path resolution
-  helper so the CLI can opt into that behavior intentionally via `--current`
+- `submit`, `close`, `land`, and `cleanup --restack` may omit `<revset>` and
+  default to the stack headed by `@-`
+- omitted selectors should never silently target the working-copy commit; `@`
+  remains explicit user intent
+- `relink` and `unlink` still require an explicit `<revset>` because they are
+  repair-only commands
+- `status` may omit `<revset>` and inspect the current stack by default
+- `import` may omit explicit selector flags and default to the current stack
+  headed by `@-`, while still rejecting multiple selector flags
 
 ## Proposed Repository Layout
 
@@ -238,7 +237,8 @@ The CLI layer should be thin. It should:
 - build command dependencies
 - render user-facing output and diagnostics
 - for `submit`, avoid echoing explicit operator input back at them: only print a
-  selected-change banner when the head came from `--current`, and include short
+  selected-change banner when the head came from the default omitted selector,
+  and include short
   change IDs in the selected and trunk summaries
 - for inspection-style commands such as `status` and `cleanup`, print resolved
   local context promptly; `status` may buffer remote inspection long enough to
@@ -1045,7 +1045,7 @@ protection, and partial-stack semantics materially expand the product surface.
 
 The CLI contract should stay consistent with the rest of the tool:
 
-- `jj review land [--dry-run] [--expect-pr <pr>] [--current | <revset>]`
+- `jj review land [--dry-run] [--expect-pr <pr>] [<revset>]`
 - mutate by default, with `--dry-run` available for inspection
 - local-path-first target selection, with `--expect-pr` acting only as an
   optional guardrail that the operator is landing the intended review
@@ -1127,8 +1127,8 @@ separately from both read-only refresh and local ancestry repair.
 
 The CLI contract is:
 
-- `jj review import [--fetch] (--pull-request <pr> | --head <bookmark> |
-  --current | --revset <revset>)`
+- `jj review import [--fetch] [--pull-request <pr> | --revset <revset>]`
+- omitting selector flags defaults to the current stack headed by `@-`
 - no overloaded positional selector that could mean either a revset or a PR
 - no implicit workspace motion in the default mode
 
@@ -1142,11 +1142,11 @@ The product-level split is:
 
 The implementation uses explicit rules for what `import` may mutate:
 
-- without `--fetch`, use only locally available commits and a remembered PR or
-  branch match for the selected stack
-- with `--fetch`, refresh remote bookmark state and, for `--pull-request` and
-  `--head`, fetch only the needed branches for the selected stack so an
-  existing reviewed stack can be bootstrapped on a new machine
+- without `--fetch`, use only locally available commits and a remembered
+  pull-request match for the selected stack
+- with `--fetch`, refresh remote bookmark state and, for `--pull-request`,
+  fetch only the needed branches for the selected stack so an existing
+  reviewed stack can be bootstrapped on a new machine
 - refresh saved data only for the selected stack
 - create or refresh local bookmarks only when the target is
   exact and unambiguous
@@ -1163,7 +1163,7 @@ The implementation uses explicit rules for what `import` may mutate:
 This slice is done when:
 
 - a user can bootstrap an existing review stack on a new machine from an
-  explicit PR or branch selector with `--fetch`
+  explicit PR selector with `--fetch`
 - remote-only pull request branches can be imported into saved local data
   with `--fetch` and without inventing topology from saved data
 - bookmark conflicts, ambiguous PR matches, and unsupported stack
@@ -1172,10 +1172,10 @@ This slice is done when:
   tracking is already up to date instead of claiming the stack is empty
 - import output always reports GitHub availability explicitly, even when no
   selected remote or repository target is available
-- `--current` import failures are explicit when the current stack has no
-  matching remote pull request or branch
-- `import --current` rejects that missing-link case from fetched bookmark
-  state before waiting on GitHub inspection
+- default-current-stack import failures are explicit when the current stack has
+  no matching remote pull request
+- default-current-stack import rejects that missing-link case from fetched
+  bookmark state before waiting on GitHub inspection
 - import distinguishes a missing saved remote bookmark from a stale saved
   bookmark target so the repair path is easier to diagnose
 - import prints a brief progress note before live GitHub inspection so deep
@@ -1202,7 +1202,7 @@ entries when the tool can verify they belong to the stack.
 
 The CLI contract is:
 
-- `jj review close [--cleanup] [--dry-run] [--current | <revset>]`
+- `jj review close [--cleanup] [--dry-run] [<revset>]`
 
 The product split should stay explicit:
 
@@ -1245,7 +1245,7 @@ Done when:
 
 The CLI contract should be:
 
-- `jj review unlink [--current | <revset>]`
+- `jj review unlink <revset>`
 
 The state model needs to stay explicit about what is durable operator intent
 versus saved local data:

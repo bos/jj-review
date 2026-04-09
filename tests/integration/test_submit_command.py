@@ -62,7 +62,7 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    exit_code = _main(repo, config_path, "submit", "--current")
+    exit_code = _main(repo, config_path, "submit")
     captured = capsys.readouterr()
     stack = JjClient(repo).discover_review_stack()
     state = ReviewStateStore.for_repo(repo).load()
@@ -107,7 +107,7 @@ def test_submit_draft_creates_draft_pull_requests_and_persists_draft_state(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    exit_code = _main(repo, config_path, "submit", "--draft", "--current")
+    exit_code = _main(repo, config_path, "submit", "--draft")
     captured = capsys.readouterr()
     stack = JjClient(repo).discover_review_stack()
     change_id = stack.revisions[-1].change_id
@@ -128,7 +128,7 @@ def test_submit_draft_new_does_not_convert_published_pull_requests_back_to_draft
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     assert not fake_repo.pull_requests[1].is_draft
 
@@ -151,7 +151,7 @@ def test_submit_draft_all_converts_existing_published_stack_to_draft(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     assert fake_repo.pull_requests[1].is_draft is False
     assert fake_repo.pull_requests[2].is_draft is False
@@ -169,7 +169,7 @@ def test_submit_draft_all_converts_existing_published_stack_to_draft(
     assert refreshed_state.changes[stack.revisions[0].change_id].pr_is_draft is True
     assert refreshed_state.changes[stack.revisions[1].change_id].pr_is_draft is True
 
-def test_submit_requires_explicit_revision_selection(
+def test_submit_defaults_to_current_stack_when_revset_is_omitted(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -179,13 +179,12 @@ def test_submit_requires_explicit_revision_selection(
     _commit(repo, "feature 1", "feature-1.txt")
 
     exit_code = _main(repo, config_path, "submit")
-    captured = capsys.readouterr()
+    capsys.readouterr()
 
-    assert exit_code == 1
-    assert "requires an explicit revision selection" in captured.err
-    assert ReviewStateStore.for_repo(repo).load().changes == {}
-    assert set(_remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
-    assert fake_repo.pull_requests == {}
+    assert exit_code == 0
+    state = ReviewStateStore.for_repo(repo).load()
+    assert len(state.changes) == 1
+    assert fake_repo.pull_requests
 
 
 def test_submit_reports_missing_revset_without_wrapped_jj_command(
@@ -218,7 +217,7 @@ def test_submit_creates_stack_comment_only_for_selected_head_pull_request(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     stack = JjClient(repo).discover_review_stack()
     bottom_change_id = stack.revisions[0].change_id
@@ -247,7 +246,7 @@ def test_submit_skips_stack_comment_for_single_commit_stack(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     stack = JjClient(repo).discover_review_stack()
     change_id = stack.revisions[-1].change_id
@@ -310,7 +309,6 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
         repo,
         config_path,
         "submit",
-        "--current",
         "--describe-with",
         str(helper),
     )
@@ -377,7 +375,6 @@ def test_submit_describe_with_skips_stack_helper_for_single_commit_stack(
         repo,
         config_path,
         "submit",
-        "--current",
         "--describe-with",
         str(helper),
     ) == 0
@@ -416,7 +413,6 @@ def test_submit_describe_with_failure_aborts_before_mutation(
         repo,
         config_path,
         "submit",
-        "--current",
         "--describe-with",
         str(helper),
     )
@@ -461,7 +457,7 @@ def test_submit_batches_pull_request_discovery_with_graphql(
         client_type=TrackingGithubClient,
     )
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     state = ReviewStateStore.for_repo(repo).load()
 
@@ -493,7 +489,7 @@ def test_submit_batches_ordinary_pushes(
     monkeypatch.setattr(JjClient, "push_bookmarks", tracking_push_bookmarks)
     monkeypatch.setattr(JjClient, "push_bookmark", fail_push_bookmark)
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     state = ReviewStateStore.for_repo(repo).load()
 
@@ -539,7 +535,7 @@ def test_submit_limits_stack_comment_github_inspection_concurrency(
         concurrency_limits={"jj_review.commands.submit": 2},
     )
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     assert max_in_flight == 2
@@ -576,7 +572,7 @@ def test_submit_reports_repository_error_before_batched_pr_discovery(
         client_type=MissingRepositoryClient,
     )
 
-    exit_code = _main(repo, config_path, "submit", "--current")
+    exit_code = _main(repo, config_path, "submit")
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -595,7 +591,7 @@ def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
 
     initial_remote_refs = _remote_refs(fake_repo.git_dir)
 
-    exit_code = _main(repo, config_path, "submit", "--current", "--dry-run")
+    exit_code = _main(repo, config_path, "submit", "--dry-run")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -616,7 +612,7 @@ def test_submit_dry_run_keeps_revision_output_grouped(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    exit_code = _main(repo, config_path, "submit", "--current", "--dry-run")
+    exit_code = _main(repo, config_path, "submit", "--dry-run")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -644,7 +640,7 @@ def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -693,7 +689,7 @@ def test_submit_dry_run_warns_on_stale_intent_without_retiring_it(
     )
     old_intent_path = write_intent(state_dir, old_intent)
 
-    exit_code = _main(repo, config_path, "submit", "--current", "--dry-run")
+    exit_code = _main(repo, config_path, "submit", "--dry-run")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -711,7 +707,7 @@ def test_submit_rediscovers_and_regenerates_stack_comments_when_cache_is_missing
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     _approve_pull_requests(fake_repo, 1, 2)
 
@@ -764,7 +760,7 @@ def test_submit_moves_managed_stack_comment_to_new_selected_head(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     initial_stack = JjClient(repo).discover_review_stack()
     old_top_change_id = initial_stack.revisions[-1].change_id
@@ -778,7 +774,7 @@ def test_submit_moves_managed_stack_comment_to_new_selected_head(
 
     _commit(repo, "feature 3", "feature-3.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     refreshed_stack = JjClient(repo).discover_review_stack()
     refreshed_state = ReviewStateStore.for_repo(repo).load()
@@ -802,7 +798,7 @@ def test_submit_single_change_clears_stale_managed_stack_comment(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     stack = JjClient(repo).discover_review_stack()
     change_id = stack.revisions[-1].change_id
@@ -825,7 +821,7 @@ def test_submit_single_change_clears_stale_managed_stack_comment(
         )
     )
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     refreshed_state = state_store.load()
 
@@ -842,7 +838,7 @@ def test_submit_rejects_cached_stack_comment_id_for_non_stack_comment(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -880,7 +876,7 @@ def test_submit_rejects_ambiguous_discovered_stack_comments(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -917,7 +913,7 @@ def test_submit_reports_stack_comment_update_failures_without_traceback(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -960,7 +956,7 @@ def test_submit_reports_up_to_date_when_remote_bookmark_and_pr_already_match(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     first_output = capsys.readouterr().out
     first_refs = _remote_refs(fake_repo.git_dir)
     first_prs = {
@@ -968,7 +964,7 @@ def test_submit_reports_up_to_date_when_remote_bookmark_and_pr_already_match(
         for number, pull_request in fake_repo.pull_requests.items()
     }
 
-    exit_code = _main(repo, config_path, "submit", "--current")
+    exit_code = _main(repo, config_path, "submit")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -987,7 +983,7 @@ def test_submit_rejects_unlinked_change_until_relink(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
@@ -1012,7 +1008,7 @@ def test_submit_updates_existing_pull_request_after_change_rewrite(
     _write_file(repo / "feature-2.txt", "feature 2\n")
     _write_file(repo / "details.txt", "more detail\n")
     _run(["jj", "commit", "-m", "feature 2\n\nbody line"], repo)
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     first_stack = JjClient(repo).discover_review_stack()
@@ -1052,7 +1048,7 @@ def test_submit_updates_existing_untracked_remote_bookmark(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -1095,7 +1091,7 @@ def test_submit_rerun_recovers_after_failure_following_untracked_remote_update(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -1179,7 +1175,7 @@ def test_submit_rediscovers_review_branch_after_state_and_local_bookmark_loss(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -1224,7 +1220,7 @@ def test_submit_fails_closed_when_cached_pull_request_is_missing_on_github(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -1257,7 +1253,7 @@ def test_submit_fails_closed_when_github_reports_multiple_pull_requests(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -1330,7 +1326,7 @@ def test_submit_rejects_duplicate_bookmark_overrides_before_projection(
         ],
     )
 
-    exit_code = _main(repo, config_path, "submit", "--current")
+    exit_code = _main(repo, config_path, "submit")
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -1348,7 +1344,7 @@ def test_submit_preserves_cached_review_decision(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -1380,7 +1376,7 @@ def test_submit_publish_marks_existing_draft_pull_requests_ready_for_review(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--draft", "--current") == 0
+    assert _main(repo, config_path, "submit", "--draft") == 0
     capsys.readouterr()
     assert fake_repo.pull_requests[1].is_draft is True
 
@@ -1449,7 +1445,7 @@ def test_submit_checkpoints_successful_in_flight_pull_request_before_failure(
         client_type=FailSpecificPullRequestClient,
     )
 
-    exit_code = _main(repo, config_path, "submit", "--current")
+    exit_code = _main(repo, config_path, "submit")
     capsys.readouterr()
 
     assert exit_code != 0
@@ -1515,7 +1511,7 @@ def test_submit_rerun_converges_pull_request_metadata_after_partial_create_failu
         client_type=FlakyMetadataClient,
     )
 
-    assert _main(repo, config_path, "submit", "--current") == 1
+    assert _main(repo, config_path, "submit") == 1
     capsys.readouterr()
 
     state_after_failure = ReviewStateStore.for_repo(repo).load()
@@ -1527,7 +1523,7 @@ def test_submit_rerun_converges_pull_request_metadata_after_partial_create_failu
     for intent_path in resolve_state_path(repo).parent.glob("incomplete-*.toml"):
         intent_path.unlink()
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -1563,7 +1559,7 @@ def test_submit_unchanged_rerun_skips_pull_request_metadata_writes(
         modules=("jj_review.commands.submit",),
     )
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     metadata_write_calls: list[str] = []
@@ -1592,7 +1588,7 @@ def test_submit_unchanged_rerun_skips_pull_request_metadata_writes(
         client_type=NoMetadataWritesClient,
     )
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     assert metadata_write_calls == []
@@ -1633,7 +1629,6 @@ def test_submit_cli_reviewers_override_configured_reviewers(
         "carol,bob",
         "--team-reviewers",
         "infra,platform",
-        "--current",
     )
     captured = capsys.readouterr()
 
@@ -1652,7 +1647,7 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
     for index in range(3):
         _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     state_store = ReviewStateStore.for_repo(repo)
@@ -1719,7 +1714,7 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
         concurrency_limits={"jj_review.commands.submit": 2},
     )
 
-    assert _main(repo, config_path, "submit", "--current") == 1
+    assert _main(repo, config_path, "submit") == 1
     capsys.readouterr()
 
     refreshed_state = state_store.load()
@@ -1745,7 +1740,7 @@ def test_submit_writes_and_deletes_intent_file_on_success(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    exit_code = _main(repo, config_path, "submit", "--current")
+    exit_code = _main(repo, config_path, "submit")
     capsys.readouterr()
 
     assert exit_code == 0
@@ -1804,7 +1799,7 @@ def test_submit_leaves_intent_file_on_failure(
         client_type=FailOnFirstPRClient,
     )
 
-    exit_code = _main(repo, config_path, "submit", "--current")
+    exit_code = _main(repo, config_path, "submit")
     capsys.readouterr()
 
     assert exit_code != 0
@@ -1858,7 +1853,7 @@ def test_submit_resumes_and_retires_stale_intent(
     )
     old_intent_path = write_intent(state_dir, old_intent)
 
-    exit_code = _main(repo, config_path, "submit", "--current")
+    exit_code = _main(repo, config_path, "submit")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -1897,7 +1892,7 @@ def test_submit_warns_on_overlapping_stale_intent(
     )
     write_intent(state_dir, old_intent)
 
-    exit_code = _main(repo, config_path, "submit", "--current")
+    exit_code = _main(repo, config_path, "submit")
     capsys.readouterr()
 
     assert exit_code == 0

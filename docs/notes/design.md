@@ -327,8 +327,8 @@ persisted repo state rather than writing a fallback file into the working tree.
 Given a selected head revision:
 
 1. Resolve the selected head revision. When the operator explicitly asks to
-   use the current stack, default to `@-` if `@` is the empty working-copy
-   commit, else `@`.
+   submit the current stack by omitting `<revset>`, select `@-`. The
+   working-copy commit `@` remains explicit user intent.
 2. Walk parents back toward `trunk()`, building a linear chain of visible mutable changes.
 3. Reject ambiguous shapes instead of inventing metadata to patch around them.
 4. Resolve each change's bookmark by reuse-first, generation-second:
@@ -434,29 +434,28 @@ The recovery surface should be explicit and narrow:
   observations before inspecting GitHub PR state, then reports the selected
   stack and any saved or discovered PR state without mutating GitHub or local
   bookmarks
-- `jj review relink <pr> [--current | <revset>]` is an advanced repair-only
+- `jj review relink <pr> <revset>` is an advanced repair-only
   command that explicitly reassociates an existing PR and its same-repository
   head branch with a specific `jj` change when the operator intends that
   link; it should pin that branch locally and persist the PR identity so a
   later submit can update the relinked review instead of opening a replacement
   PR
 
-Mutating commands should not silently infer that target from the current
-workspace path. The CLI should require an explicit selector for commands that
-submit, relink, or rewrite one local stack:
+The normal user-facing commands may default to the current stack headed by
+`@-`, while repair-oriented commands should stay explicit:
 
-- `submit` requires either an explicit `<revset>` or an explicit `--current`
-  opt-in
-- `relink` requires either an explicit `<revset>` or an explicit `--current`
-  opt-in
-- `cleanup --restack` requires either an explicit `<revset>` or an explicit
-  `--current` opt-in when it mutates local history
+- `submit`, `close`, `land`, and `cleanup --restack` may omit `<revset>` and
+  default to the stack headed by `@-`
+- typing `@` should stay explicit user intent; omitted selectors should not
+  silently target the working-copy commit
+- `relink` and `unlink` require an explicit `<revset>` because they are
+  repair-only commands that operate on one exact change
 
 Read-only inspection may remain ergonomic:
 
 - `status` may omit `<revset>` and inspect the current stack by default
-- `cleanup --restack --dry-run` may omit `<revset>` and preview the current
-  stack by default
+- `import` may omit its explicit selector flags and default to the current
+  stack headed by `@-`
 
 `jj review status [<revset>]` should show the selected local stack, pinned or
 discovered bookmarks, and any saved or discovered GitHub PR link for those
@@ -531,25 +530,26 @@ work, or manual edits on GitHub.
 
 The explicit stack import command is:
 
-- `jj review import [--fetch] (--pull-request <pr> | --head <bookmark> |
-  --current | --revset <revset>)` resolves one exact review stack and
+- `jj review import [--fetch] [--pull-request <pr> | --revset <revset>]`
+  resolves one exact review stack and
   sets up saved local jj-review data for that stack without mutating
   GitHub
 
-The selector should stay explicit and collision-free. In particular, the
-command should not overload a bare positional argument to mean either a revset
-or a PR number.
+Selector handling should stay collision-free. In particular, the command
+should not overload a bare positional argument to mean either a revset or a PR
+number, and omitting selector flags should default to the current stack headed
+by `@-`.
 
 Its job is setting up local jj-review tracking, not workspace motion:
 
-- without `--fetch`, use only commits and matching PR or branch that are already
-  available locally
-- resolve the selected stack from a PR head branch, a specific branch,
-  or an explicitly selected local stack
+- without `--fetch`, use only commits and matching PR-backed review state that
+  are already available locally
+- resolve the selected stack from an explicit pull request or an explicitly
+  selected local stack
 - with `--fetch`, refresh remote bookmark observations and, for an explicit PR
-  or branch selector, fetch only the branches needed for the
-  selected stack so a reviewed stack that exists only on the remote can still
-  be set up in local jj-review tracking
+  selector, fetch only the branches needed for the selected stack so a
+  reviewed stack that exists only on the remote can still be set up in local
+  jj-review tracking
 - refresh saved local jj-review data only for that exact stack
 - create or refresh local bookmarks only when the target is
   exact, same-repository, and unambiguous
@@ -579,8 +579,8 @@ Failure guidance should stay narrow and specific:
 - if the fetched stack shape is unsupported locally, point the operator to
   `jj review cleanup --restack` only when the problem is local ancestry rather
   than remote identity
-- if `--current` was selected but the current stack has no matching remote pull
-  request or branch, say so explicitly instead of silently doing nothing
+- if import defaults to the current stack and that stack has no matching
+  remote pull request, say so explicitly instead of silently doing nothing
 - if a local bookmark already points somewhere else, stop and explain the exact
   bookmark conflict and the safe repair steps instead of taking it over
   silently
@@ -596,7 +596,7 @@ either command prematurely.
 
 The user-facing "stop reviewing this stack" command is `close`:
 
-- `jj review close [--cleanup] [--dry-run] [--current | <revset>]` ends active
+- `jj review close [--cleanup] [--dry-run] [<revset>]` ends active
   review for the selected local stack
 
 That command should stay stack-first rather than PR-number-first. Its job is to
@@ -639,7 +639,7 @@ heuristics.
 
 The repair-oriented inverse of `relink` is `unlink`:
 
-- `jj review unlink [--current | <revset>]` intentionally detaches one selected
+- `jj review unlink <revset>` intentionally detaches one selected
   change from active PR tracking without mutating GitHub
 
 `unlink` should remain an advanced repair command, not the normal way to end a
@@ -740,15 +740,14 @@ The tool can stay small. A reasonable surface would be:
 
 - `jj review submit [--draft[=new|all] | --publish]
   [--reviewers <login[,login...]>] [--team-reviewers <slug[,slug...]>]
-  [--current | <revset>]`
+  [<revset>]`
 - `jj review status [--fetch] [<revset>]`
-- `jj review relink <pr> [--current | <revset>]`
-- `jj review unlink [--current | <revset>]`
-- `jj review close [--cleanup] [--dry-run] [--current | <revset>]`
-- `jj review cleanup [--restack] [--dry-run] [--current | <revset>]`
-- `jj review import [--fetch] (--pull-request <pr> | --head <bookmark> |
-  --current | --revset <revset>)`
-- `jj review land [--dry-run] [--expect-pr <pr>] [--current | <revset>]`
+- `jj review relink <pr> <revset>`
+- `jj review unlink <revset>`
+- `jj review close [--cleanup] [--dry-run] [<revset>]`
+- `jj review cleanup [--restack] [--dry-run] [<revset>]`
+- `jj review import [--fetch] [--pull-request <pr> | --revset <revset>]`
+- `jj review land [--dry-run] [--expect-pr <pr>] [<revset>]`
 - `jj review completion <bash|zsh|fish>`
 
 The standalone executable may also expose `completion` as auxiliary CLI glue
@@ -771,19 +770,17 @@ Longer command help should preserve paragraph breaks in descriptions and wrapped
 help text so multi-paragraph guidance stays readable instead of collapsing into
 one block.
 
-Target selection should stay explicit:
+Target selection should stay simple:
 
-- `submit` and `relink` require one explicit selector, either `<revset>` or
-  `--current`
+- `submit`, `close`, `land`, and `cleanup --restack` default to the stack
+  headed by `@-` when `<revset>` is omitted
 - `submit --draft[=new|all]` and `submit --publish` are mutually exclusive
 - `submit --reviewers` and `submit --team-reviewers` override configured
   reviewer defaults for that invocation only
-- `unlink`, `close`, and `land` require the same explicit selector when run
-- `import` requires exactly one explicit selector
-- `cleanup --restack` likewise requires one explicit selector when it mutates
-- `status` and `cleanup --restack --dry-run` may still omit both and inspect
-  the current stack
-- passing both `<revset>` and `--current` is an error
+- `relink` and `unlink` require one explicit `<revset>`
+- `import` accepts at most one explicit selector flag and otherwise defaults to
+  the current stack headed by `@-`
+- `status` may omit `<revset>` and inspect the current stack
 
 Notably absent:
 

@@ -10,26 +10,17 @@ from jj_review.errors import CliError
 def resolve_selected_revset(
     *,
     command_label: str,
-    current: bool,
+    default_revset: str | None = None,
     require_explicit: bool,
     revset: str | None,
 ) -> str | None:
-    """Resolve `<revset>` versus `--current` for revision-oriented commands."""
+    """Resolve an optional `<revset>` for revision-oriented commands."""
 
-    if current and revset is not None:
-        raise CliError(
-            f"`{command_label}` accepts either `<revset>` or `--current`, not both."
-        )
-    if current:
-        return None
     if revset is not None:
         return revset
     if require_explicit:
-        raise CliError(
-            f"`{command_label}` requires an explicit revision selection; "
-            "pass `<revset>` or `--current`."
-        )
-    return None
+        raise CliError(f"`{command_label}` requires an explicit revision selection.")
+    return default_revset
 
 
 def parse_comma_separated_flag_values(

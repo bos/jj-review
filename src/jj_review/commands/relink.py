@@ -54,7 +54,6 @@ class RelinkResult:
 def relink(
     *,
     config_path: Path | None,
-    current: bool,
     debug: bool,
     pull_request: str,
     repository: Path | None,
@@ -74,7 +73,6 @@ def relink(
             repo_root=context.repo_root,
             revset=resolve_selected_revset(
                 command_label="relink",
-                current=current,
                 require_explicit=True,
                 revset=revset,
             ),

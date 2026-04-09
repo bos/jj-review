@@ -12,7 +12,7 @@ from jj_review.commands.import_ import (
     _parse_pull_request_reference,
     _prepared_status_has_discoverable_remote_link,
     _resolve_import_bookmark,
-    _resolve_remote_head,
+    _resolve_pull_request_selection,
     _run_import_async,
     _validate_bookmark_state,
 )
@@ -84,7 +84,7 @@ def test_resolve_import_bookmark_rejects_generated_bookmark_without_selected_rem
             selected_remote_name=None,
         )
 
-    assert "has no matching branch on the selected remote" in str(exc_info.value)
+    assert "has no matching pull request on the selected remote" in str(exc_info.value)
 
 
 def test_resolve_import_bookmark_rejects_missing_cached_remote_bookmark() -> None:
@@ -109,7 +109,7 @@ def test_resolve_import_bookmark_rejects_missing_cached_remote_bookmark() -> Non
         str(exc_info.value)
         == "Could not safely import the selected stack because saved branch "
         "'review/feature-aaaa' for aaaaaaaa is not present on the selected remote. "
-        "Refresh with `status --fetch` or select an exact branch or pull request."
+        "Refresh with `status --fetch` or select an exact pull request."
     )
 
 
@@ -172,11 +172,11 @@ def test_prepared_status_has_discoverable_remote_link_from_remote_bookmark() -> 
     )
 
 
-def test_resolve_remote_head_requires_fetch_when_remote_bookmark_is_not_remembered(
+def test_resolve_pull_request_selection_requires_fetch_when_remote_bookmark_is_not_remembered(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_list_pull_requests_by_head(**kwargs):
-        return ()
+        return (_pull_request(number=17, head_ref="review/feature-aaaaaaaa"),)
 
     monkeypatch.setattr(
         "jj_review.commands.import_.resolve_github_repository",
@@ -189,13 +189,17 @@ def test_resolve_remote_head_requires_fetch_when_remote_bookmark_is_not_remember
         ),
     )
     monkeypatch.setattr(
+        "jj_review.commands.import_._load_pull_request",
+        _fake_load_pull_request,
+    )
+    monkeypatch.setattr(
         "jj_review.commands.import_._list_pull_requests_by_head",
         fake_list_pull_requests_by_head,
     )
 
     with pytest.raises(CliError) as exc_info:
         asyncio.run(
-            _resolve_remote_head(
+            _resolve_pull_request_selection(
                 client=cast(
                     JjClient,
                     SimpleNamespace(
@@ -210,20 +214,20 @@ def test_resolve_remote_head_requires_fetch_when_remote_bookmark_is_not_remember
                 ),
                 config=RepoConfig(),
                 fetch=False,
-                head="review/feature-aaaaaaaa",
+                pull_request_reference="17",
             )
         )
 
     assert "Re-run `import --fetch`" in str(exc_info.value)
 
 
-def test_resolve_remote_head_fetches_selected_branch_when_requested(
+def test_resolve_pull_request_selection_fetches_selected_branch_when_requested(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fetch_calls: list[tuple[str, tuple[str, ...] | None]] = []
 
     async def fake_list_pull_requests_by_head(**kwargs):
-        return ()
+        return (_pull_request(number=17, head_ref="review/feature-aaaaaaaa"),)
 
     monkeypatch.setattr(
         "jj_review.commands.import_.resolve_github_repository",
@@ -236,12 +240,16 @@ def test_resolve_remote_head_fetches_selected_branch_when_requested(
         ),
     )
     monkeypatch.setattr(
+        "jj_review.commands.import_._load_pull_request",
+        _fake_load_pull_request,
+    )
+    monkeypatch.setattr(
         "jj_review.commands.import_._list_pull_requests_by_head",
         fake_list_pull_requests_by_head,
     )
 
     selection = asyncio.run(
-        _resolve_remote_head(
+        _resolve_pull_request_selection(
             client=cast(
                 JjClient,
                 SimpleNamespace(
@@ -261,7 +269,7 @@ def test_resolve_remote_head_fetches_selected_branch_when_requested(
             ),
             config=RepoConfig(),
             fetch=True,
-            head="review/feature-aaaaaaaa",
+            pull_request_reference="17",
         )
     )
 
@@ -295,7 +303,7 @@ def test_parse_pull_request_reference_rejects_wrong_repository() -> None:
         )
 
 
-def test_resolve_remote_head_rejects_pull_request_missing_after_head_resolution(
+def test_resolve_pull_request_selection_rejects_pull_request_missing_after_head_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
@@ -322,7 +330,7 @@ def test_resolve_remote_head_rejects_pull_request_missing_after_head_resolution(
         match="GitHub no longer reports a pull request for head branch",
     ):
         asyncio.run(
-            _resolve_remote_head(
+            _resolve_pull_request_selection(
                 client=cast(
                     JjClient,
                     SimpleNamespace(
@@ -344,7 +352,7 @@ def test_resolve_remote_head_rejects_pull_request_missing_after_head_resolution(
         )
 
 
-def test_resolve_remote_head_rejects_cross_repository_pull_request_head(
+def test_resolve_pull_request_selection_rejects_cross_repository_pull_request_head(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_cross_repo_pull_requests(**kwargs):
@@ -377,7 +385,7 @@ def test_resolve_remote_head_rejects_cross_repository_pull_request_head(
 
     with pytest.raises(CliError, match="Import only supports same-repository pull request"):
         asyncio.run(
-            _resolve_remote_head(
+            _resolve_pull_request_selection(
                 client=cast(
                     JjClient,
                     SimpleNamespace(
@@ -458,9 +466,10 @@ def test_run_import_current_rejects_before_github_inspection(
     )
     async def fake_resolve_selection(**kwargs):
         return SimpleNamespace(
-            selector="--current",
+            default_current_stack=True,
+            selector="default current stack (@-)",
             head_bookmark=None,
-            selected_revset=None,
+            selected_revset="@-",
         )
 
     monkeypatch.setattr("jj_review.commands.import_._resolve_selection", fake_resolve_selection)
@@ -493,16 +502,14 @@ def test_run_import_current_rejects_before_github_inspection(
             _run_import_async(
                 change_overrides={},
                 config=RepoConfig(),
-                current=True,
                 fetch=False,
-                head=None,
                 pull_request_reference=None,
                 repo_root=tmp_path,
                 revset=None,
             )
         )
 
-    assert "has no matching remote pull request or branch" in str(exc_info.value)
+    assert "has no matching remote pull request" in str(exc_info.value)
 
 
 async def _fake_load_pull_request(**kwargs):

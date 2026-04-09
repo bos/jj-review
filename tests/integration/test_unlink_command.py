@@ -31,7 +31,7 @@ def test_unlink_detaches_change_and_preserves_local_bookmark(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -67,7 +67,7 @@ def test_unlink_is_idempotent_for_unlinked_change(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id

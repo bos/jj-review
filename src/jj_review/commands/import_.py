@@ -1,10 +1,14 @@
-"""Set up local jj-review tracking for one existing reviewed stack.
+"""Set up local jj-review tracking for an existing reviewed stack.
 
-Without `--fetch`, this uses the selected stack only if its commits and
-matching pull request or branch are already available locally. With `--fetch`,
-it fetches the selected pull request or branch first so the stack can be set up
-in a repo that does not have it yet. Import does not rewrite commits, restack
-changes, or change GitHub.
+By default, `import` tries to match the current stack headed by `@-` to the
+existing pull requests for that stack.
+
+Use `--pull-request` to select a specific reviewed stack, or `--revset` to
+select a different local stack. Use `--fetch` when the stack is not available
+locally yet; for an explicit pull request, this fetches the needed review
+branches first and then imports the stack.
+
+`import` does not rewrite commits, restack changes, or modify GitHub.
 """
 
 from __future__ import annotations
@@ -20,7 +24,6 @@ from jj_review.bookmarks import (
     _discover_bookmarks_for_revisions,
 )
 from jj_review.bootstrap import bootstrap_context
-from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClientError
@@ -77,6 +80,7 @@ class ImportResult:
 
 @dataclass(frozen=True, slots=True)
 class _Selection:
+    default_current_stack: bool
     fetched_tip_commit: str | None
     selector: str
     head_bookmark: str | None
@@ -99,10 +103,8 @@ class _RevisionWithChangeId(Protocol):
 def import_(
     *,
     config_path: Path | None,
-    current: bool,
     debug: bool,
     fetch: bool,
-    head: str | None,
     pull_request: str | None,
     repository: Path | None,
     revset: str | None,
@@ -118,17 +120,10 @@ def import_(
         _run_import_async(
             change_overrides=context.config.change,
             config=context.config.repo,
-            current=current,
             fetch=fetch,
-            head=head,
             pull_request_reference=pull_request,
             repo_root=context.repo_root,
-            revset=resolve_selected_revset(
-                command_label="import",
-                current=current,
-                require_explicit=False,
-                revset=revset,
-            ),
+            revset=revset,
         )
     )
     print(f"Selected selector: {result.selector}")
@@ -165,9 +160,7 @@ async def _run_import_async(
     *,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
-    current: bool,
     fetch: bool,
-    head: str | None,
     pull_request_reference: str | None,
     repo_root: Path,
     revset: str | None,
@@ -176,9 +169,7 @@ async def _run_import_async(
     selection = await _resolve_selection(
         client=client,
         config=config,
-        current=current,
         fetch=fetch,
-        head=head,
         pull_request_reference=pull_request_reference,
         revset=revset,
     )
@@ -200,10 +191,14 @@ async def _run_import_async(
         repo_root=repo_root,
         revset=selection.selected_revset,
     )
-    if current and not _prepared_status_has_discoverable_remote_link(prepared_status):
+    if (
+        selection.default_current_stack
+        and selection.head_bookmark is None
+        and not _prepared_status_has_discoverable_remote_link(prepared_status)
+    ):
         raise CliError(
-            "`import --current` cannot proceed because the current stack has no "
-            "matching remote pull request or branch."
+            "`import` cannot proceed because the current stack has no matching "
+            "remote pull request."
         )
     print("Inspecting GitHub pull requests and branches...")
     status_result = await _stream_status_async(
@@ -211,6 +206,10 @@ async def _run_import_async(
         prepared_status=prepared_status,
         on_github_status=None,
         on_revision=None,
+    )
+    _ensure_selected_head_has_pull_request(
+        prepared_status=prepared_status,
+        status_result=status_result,
     )
 
     prepared = prepared_status.prepared
@@ -271,80 +270,64 @@ async def _resolve_selection(
     *,
     client: JjClient,
     config: RepoConfig,
-    current: bool,
     fetch: bool,
-    head: str | None,
     pull_request_reference: str | None,
     revset: str | None,
 ) -> _Selection:
     selector_count = sum(
         1
         for present in (
-            current,
-            head is not None,
             pull_request_reference is not None,
             revset is not None,
         )
         if present
     )
-    if selector_count != 1:
+    if selector_count > 1:
         raise CliError(
-            "`import` requires exactly one selector: `--pull-request`, `--head`, "
-            "`--current`, or `--revset`."
+            "`import` accepts at most one selector: `--pull-request` or `--revset`."
         )
 
-    if current:
+    if selector_count == 0:
         return _Selection(
+            default_current_stack=True,
             fetched_tip_commit=None,
-            selector="--current",
+            selector="default current stack (@-)",
             head_bookmark=None,
-            selected_revset=None,
+            selected_revset="@-",
         )
     if revset is not None:
         return _Selection(
+            default_current_stack=False,
             fetched_tip_commit=None,
             selector=f"--revset {revset}",
             head_bookmark=None,
             selected_revset=revset,
         )
     if pull_request_reference is not None:
-        return await _resolve_remote_head(
+        return await _resolve_pull_request_selection(
             client=client,
             config=config,
             fetch=fetch,
             pull_request_reference=pull_request_reference,
-        )
-    if head is not None:
-        return await _resolve_remote_head(
-            client=client,
-            config=config,
-            fetch=fetch,
-            head=head,
         )
     raise AssertionError("One selector is always required.")
 
 
-async def _resolve_remote_head(
+async def _resolve_pull_request_selection(
     *,
     client: JjClient,
     config: RepoConfig,
     fetch: bool,
-    head: str | None = None,
-    pull_request_reference: str | None = None,
+    pull_request_reference: str,
 ) -> _Selection:
     remotes = client.list_git_remotes()
     remote = select_submit_remote(config, remotes)
     github_repository = resolve_github_repository(config, remote)
-
-    if pull_request_reference is not None:
-        pull_request = await _load_pull_request(
-            github_repository=github_repository,
-            pull_request_reference=pull_request_reference,
-        )
-        head = pull_request.head.ref
-
-    if head is None:
-        raise AssertionError("A remote head bookmark must be selected.")
+    pull_request = await _load_pull_request(
+        github_repository=github_repository,
+        pull_request_reference=pull_request_reference,
+    )
+    head = pull_request.head.ref
     if fetch:
         client.fetch_remote(remote=remote.name, branches=(head,))
 
@@ -352,7 +335,7 @@ async def _resolve_remote_head(
         github_repository=github_repository,
         head=head,
     )
-    if pull_request_reference is not None and len(pull_requests) != 1:
+    if len(pull_requests) != 1:
         if not pull_requests:
             raise CliError(
                 f"GitHub no longer reports a pull request for head branch "
@@ -365,21 +348,13 @@ async def _resolve_remote_head(
             f"{github_repository.owner}:{head}: {numbers}. Inspect the PR link with "
             "`status --fetch` and repair it with `relink` before importing again."
         )
-    if pull_request_reference is None and len(pull_requests) > 1:
-        numbers = ", ".join(str(pull_request.number) for pull_request in pull_requests)
+    pull_request = pull_requests[0]
+    if pull_request.head.label != f"{github_repository.owner}:{head}":
         raise CliError(
-            f"GitHub reports multiple pull requests for head branch "
-            f"{github_repository.owner}:{head}: {numbers}. Inspect the PR link with "
-            "`status --fetch` and repair it with `relink` before importing again."
+            f"Pull request #{pull_request.number} head {pull_request.head.label!r} does "
+            f"not belong to {github_repository.full_name}. Import only supports "
+            "same-repository pull request branches."
         )
-    if len(pull_requests) == 1:
-        pull_request = pull_requests[0]
-        if pull_request.head.label != f"{github_repository.owner}:{head}":
-            raise CliError(
-                f"Pull request #{pull_request.number} head {pull_request.head.label!r} does "
-                f"not belong to {github_repository.full_name}. Import only supports "
-                "same-repository pull request branches."
-            )
 
     remote_state = client.get_bookmark_state(head).remote_target(remote.name)
     selected_revset = _remote_bookmark_commit_id(
@@ -389,12 +364,9 @@ async def _resolve_remote_head(
         head=head,
     )
     return _Selection(
+        default_current_stack=False,
         fetched_tip_commit=selected_revset if fetch else None,
-        selector=(
-            f"--pull-request {pull_request_reference}"
-            if pull_request_reference is not None
-            else f"--head {head}"
-        ),
+        selector=f"--pull-request {pull_request_reference}",
         head_bookmark=head,
         selected_revset=selected_revset,
     )
@@ -837,6 +809,36 @@ def _prepared_status_has_discoverable_remote_link(
     return False
 
 
+def _ensure_selected_head_has_pull_request(
+    *,
+    prepared_status: PreparedStatus,
+    status_result: StatusResult,
+) -> None:
+    if not status_result.revisions:
+        return
+
+    selected_head_change_id = prepared_status.prepared.stack.head.change_id
+    selected_head = next(
+        (
+            revision
+            for revision in status_result.revisions
+            if revision.change_id == selected_head_change_id
+        ),
+        None,
+    )
+    if selected_head is None:
+        raise AssertionError("Selected import head is missing from the status result.")
+    lookup = selected_head.pull_request_lookup
+    if lookup is not None and lookup.pull_request is not None:
+        return
+
+    raise CliError(
+        "`import` only supports stacks whose selected head already has a pull "
+        "request. Missing pull request for: "
+        f"{selected_head.subject} [{selected_head.change_id[:_DISPLAY_CHANGE_ID_LENGTH]}]."
+    )
+
+
 def _resolve_import_bookmark(
     *,
     bookmark_by_change_id: dict[str, str],
@@ -855,8 +857,8 @@ def _resolve_import_bookmark(
             raise CliError(
                 "Could not safely import the selected stack because "
                 f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} has no "
-                "matching branch on the selected remote. Refresh with `status --fetch` "
-                "or select an exact branch or pull request."
+                "matching pull request on the selected remote. Refresh with "
+                "`status --fetch` or select an exact pull request."
             )
     if selected_remote_name is None:
         return bookmark
@@ -868,7 +870,7 @@ def _resolve_import_bookmark(
             f"saved branch {bookmark!r} for "
             f"{prepared_revision.revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]} is not "
             "present on the selected remote. Refresh with `status --fetch` or select "
-            "an exact branch or pull request."
+            "an exact pull request."
         )
     if remote_state.target != prepared_revision.revision.commit_id:
         raise CliError(

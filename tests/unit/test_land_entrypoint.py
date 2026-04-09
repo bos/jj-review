@@ -4,12 +4,11 @@ from types import SimpleNamespace
 import pytest
 
 from jj_review.commands import land as land_module
-from jj_review.errors import CliError
 
 from .entrypoint_test_helpers import patch_bootstrap
 
 
-def test_land_requires_explicit_revision_selection(
+def test_land_defaults_to_current_stack_when_revset_is_omitted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -19,23 +18,37 @@ def test_land_requires_explicit_revision_selection(
     def fake_prepare_land(**kwargs):
         nonlocal run_called
         run_called = True
-        raise AssertionError("land should not run without an explicit selector")
+        assert kwargs["revset"] == "@-"
+        return SimpleNamespace()
 
     monkeypatch.setattr(land_module, "prepare_land", fake_prepare_land)
+    monkeypatch.setattr(
+        land_module,
+        "stream_land",
+        lambda **kwargs: SimpleNamespace(
+            actions=(),
+            applied=True,
+            blocked=False,
+            follow_up=None,
+            github_repository="octo-org/stacked-review",
+            remote_name="origin",
+            selected_revset="@-",
+            trunk_branch="main",
+            trunk_subject="base",
+        ),
+    )
 
-    with pytest.raises(CliError, match="requires an explicit revision selection"):
-        land_module.land(
-            bypass_readiness=False,
-            config_path=None,
-            current=False,
-            debug=False,
-            dry_run=False,
-            expect_pr=None,
-            repository=tmp_path,
-            revset=None,
-        )
+    land_module.land(
+        bypass_readiness=False,
+        config_path=None,
+        debug=False,
+        dry_run=False,
+        expect_pr=None,
+        repository=tmp_path,
+        revset=None,
+    )
 
-    assert not run_called
+    assert run_called
 
 
 def test_land_renders_planned_output(
@@ -83,7 +96,6 @@ def test_land_renders_planned_output(
     exit_code = land_module.land(
         bypass_readiness=False,
         config_path=None,
-        current=False,
         debug=False,
         dry_run=True,
         expect_pr="7",
@@ -134,7 +146,6 @@ def test_land_renders_blocked_output_without_apply_hint(
     exit_code = land_module.land(
         bypass_readiness=False,
         config_path=None,
-        current=False,
         debug=False,
         dry_run=True,
         expect_pr="7",
@@ -182,7 +193,6 @@ def test_land_passes_bypass_readiness_to_prepare_land(
     exit_code = land_module.land(
         bypass_readiness=True,
         config_path=None,
-        current=False,
         debug=False,
         dry_run=True,
         expect_pr="7",

@@ -36,7 +36,6 @@ class UnlinkResult:
 def unlink(
     *,
     config_path: Path | None,
-    current: bool,
     debug: bool,
     repository: Path | None,
     revset: str | None,
@@ -55,7 +54,6 @@ def unlink(
             repo_root=context.repo_root,
             revset=resolve_selected_revset(
                 command_label="unlink",
-                current=current,
                 require_explicit=True,
                 revset=revset,
             ),

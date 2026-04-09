@@ -94,8 +94,9 @@ def test_relink_reports_missing_pull_request_without_traceback(
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
 
-    exit_code = _main(repo, config_path, "relink", "--current", "999")
+    exit_code = _main(repo, config_path, "relink", "999", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -243,7 +244,7 @@ def test_relink_clears_unlinked_state(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id

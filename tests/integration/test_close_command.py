@@ -45,7 +45,7 @@ def test_close_apply_closes_pull_request_and_retires_active_state(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -73,7 +73,7 @@ def test_close_dry_run_leaves_remote_state_unchanged_and_reports_planned_actions
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -100,7 +100,7 @@ def test_close_apply_reports_blocked_when_github_is_unavailable(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -145,7 +145,7 @@ def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -210,7 +210,7 @@ def test_close_apply_rerun_is_idempotent(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -242,7 +242,7 @@ def test_close_apply_cleanup_rerun_completes_after_prior_close_when_pr_is_missin
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -276,7 +276,7 @@ def test_close_apply_blocks_when_github_no_longer_reports_the_cached_pull_reques
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -302,7 +302,7 @@ def test_close_apply_checkpoints_prior_progress_before_later_block(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -350,7 +350,7 @@ def test_close_apply_cleanup_rechecks_cached_comment_ownership_when_pr_is_missin
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -394,7 +394,7 @@ def test_close_apply_cleanup_keeps_comment_cleanup_after_bookmark_block(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -424,7 +424,7 @@ def test_close_apply_closes_discovered_pull_request_after_sparse_state_loss(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -451,7 +451,7 @@ def test_close_apply_cleanup_exits_nonzero_when_cleanup_is_blocked(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()

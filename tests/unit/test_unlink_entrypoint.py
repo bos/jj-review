@@ -26,7 +26,6 @@ def test_unlink_requires_explicit_revision_selection(
     with pytest.raises(CliError, match="requires an explicit revision selection"):
         unlink_module.unlink(
             config_path=None,
-            current=False,
             debug=False,
             repository=tmp_path,
             revset=None,
@@ -35,7 +34,7 @@ def test_unlink_requires_explicit_revision_selection(
     assert not run_called
 
 
-def test_unlink_current_passes_current_path_selection(
+def test_unlink_passes_explicit_revset_selection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -57,13 +56,12 @@ def test_unlink_current_passes_current_path_selection(
 
     exit_code = unlink_module.unlink(
         config_path=None,
-        current=True,
         debug=False,
         repository=tmp_path,
-        revset=None,
+        revset="@-",
     )
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert calls == [None]
+    assert calls == ["@-"]
     assert "Stopped review tracking for feature 1 [abcdefgh]" in captured.out

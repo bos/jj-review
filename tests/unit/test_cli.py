@@ -64,7 +64,7 @@ def test_main_help_command_prints_subcommand_help(
     assert "Create or update the GitHub pull requests for the selected stack of changes" in (
         captured.out
     )
-    assert "--current" in captured.out
+    assert "--current" not in captured.out
 
 
 @pytest.mark.parametrize(
@@ -93,8 +93,8 @@ def test_main_help_command_prints_subcommand_help(
         ),
         (
             "import",
-            "Without `--fetch`, this uses the selected stack only if its commits "
-            "and matching pull request or branch are already available locally",
+            "By default, `import` tries to match the current stack headed by `@-` "
+            "to the existing pull requests for that stack",
         ),
         (
             "relink",
@@ -241,16 +241,28 @@ def test_submit_help_describe_with_uses_change_ids() -> None:
     assert "`helper --pr <revset>`" not in submit_help
 
 
+def test_import_help_uses_pull_request_selector_only() -> None:
+    import_parser = _find_subcommand_parser(build_parser(), "import")
+
+    assert import_parser is not None
+    import_help = import_parser.format_help()
+
+    assert "--pull-request" in import_help
+    assert "--revset" in import_help
+    assert "--head" not in import_help
+
+
 @pytest.mark.parametrize(
     ("command", "expected"),
     [
-        ("submit", "Revision to submit; required unless --current is passed"),
-        ("unlink", "Revision to unlink; required unless --current is passed"),
-        ("land", "Revision to land; required unless --current is passed"),
-        ("close", "Revision to close; required unless --current is passed"),
+        ("submit", "Revision to submit; defaults to @- (the current stack head)"),
+        ("unlink", "Revision to unlink"),
+        ("land", "Revision to land; defaults to @- (the current stack head)"),
+        ("close", "Revision to close; defaults to @- (the current stack head)"),
         (
             "cleanup",
-            "when mutating with --restack, pass this or --current",
+            "Revision whose stack should be restacked; ignored unless "
+            "`--restack` is passed, and defaults to @- for restack",
         ),
         ("status", "Revision to inspect; defaults to the current stack"),
     ],
@@ -473,16 +485,9 @@ def test_main_submit_rejects_draft_and_publish_together() -> None:
     assert exc_info.value.code == 2
 
 
-def test_main_import_requires_exactly_one_selector() -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        build_parser().parse_args(["import"])
-
-    assert exc_info.value.code == 2
-
-
 def test_main_import_rejects_multiple_selectors() -> None:
     with pytest.raises(SystemExit) as exc_info:
-        build_parser().parse_args(["import", "--current", "--revset", "@"])
+        build_parser().parse_args(["import", "--pull-request", "7", "--revset", "@"])
 
     assert exc_info.value.code == 2
 

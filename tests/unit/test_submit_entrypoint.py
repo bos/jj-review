@@ -4,12 +4,11 @@ from types import SimpleNamespace
 import pytest
 
 from jj_review.commands import submit as submit_module
-from jj_review.errors import CliError
 
 from .entrypoint_test_helpers import fake_submit_state_store, patch_bootstrap
 
 
-def test_submit_requires_explicit_revision_selection(
+def test_submit_defaults_to_current_stack_when_revset_is_omitted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -24,50 +23,36 @@ def test_submit_requires_explicit_revision_selection(
     async def fake_run_submit(**kwargs):
         nonlocal run_called
         run_called = True
-        raise AssertionError("submit should not run without an explicit selector")
+        assert kwargs["revset"] == "@-"
+        return SimpleNamespace(
+            dry_run=False,
+            remote=SimpleNamespace(name="origin"),
+            revisions=(),
+            selected_change_id="abcdefghijkl",
+            selected_revset="@-",
+            selected_subject="feature 1",
+            trunk_change_id="basebasebase",
+            trunk_branch="main",
+            trunk_subject="base",
+        )
 
     monkeypatch.setattr(submit_module, "_run_submit_async", fake_run_submit)
 
-    with pytest.raises(CliError, match="requires an explicit revision selection"):
-        submit_module.submit(
-            config_path=None,
-            current=False,
-            debug=False,
-            describe_with=None,
-            draft=False,
-            draft_all=False,
-            dry_run=False,
-            publish=False,
-            repository=tmp_path,
-            reviewers=None,
-            revset=None,
-            team_reviewers=None,
-        )
+    submit_module.submit(
+        config_path=None,
+        debug=False,
+        describe_with=None,
+        draft=False,
+        draft_all=False,
+        dry_run=False,
+        publish=False,
+        repository=tmp_path,
+        reviewers=None,
+        revset=None,
+        team_reviewers=None,
+    )
 
-    assert not run_called
-
-
-def test_submit_rejects_revset_and_current_together(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    patch_bootstrap(monkeypatch, submit_module, tmp_path)
-
-    with pytest.raises(CliError, match="accepts either `<revset>` or `--current`, not both"):
-        submit_module.submit(
-            config_path=None,
-            current=True,
-            debug=False,
-            describe_with=None,
-            draft=False,
-            draft_all=False,
-            dry_run=False,
-            publish=False,
-            repository=tmp_path,
-            reviewers=None,
-            revset="@",
-            team_reviewers=None,
-        )
+    assert run_called
 
 
 def test_submit_passes_dry_run_and_renders_planned_output(
@@ -104,7 +89,7 @@ def test_submit_passes_dry_run_and_renders_planned_output(
                 ),
             ),
             selected_change_id="abcdefghijkl",
-            selected_revset="@",
+            selected_revset="@-",
             selected_subject="feature 1",
             trunk_change_id="basebasebase",
             trunk_branch="main",
@@ -115,7 +100,6 @@ def test_submit_passes_dry_run_and_renders_planned_output(
 
     exit_code = submit_module.submit(
         config_path=None,
-        current=True,
         debug=False,
         describe_with=None,
         draft=False,
@@ -131,7 +115,7 @@ def test_submit_passes_dry_run_and_renders_planned_output(
 
     assert exit_code == 0
     assert dry_run_calls == [True]
-    assert selected_revsets == [None]
+    assert selected_revsets == ["@-"]
     assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
     assert "Planned changes:" in captured.out
     assert "- feature 1 [abcdefgh]: new PR" in captured.out
@@ -180,7 +164,6 @@ def test_submit_passes_draft_modes_to_submit_runner(
 
     exit_code = submit_module.submit(
         config_path=None,
-        current=True,
         debug=False,
         describe_with=None,
         draft=draft,
@@ -230,7 +213,6 @@ def test_submit_passes_reviewer_overrides_to_submit_runner(
 
     exit_code = submit_module.submit(
         config_path=None,
-        current=True,
         debug=False,
         describe_with=None,
         draft=False,
@@ -280,7 +262,6 @@ def test_submit_passes_describe_with_to_submit_runner(
 
     exit_code = submit_module.submit(
         config_path=None,
-        current=True,
         debug=False,
         describe_with="scripts/describe_with_codex.py",
         draft=False,
@@ -341,7 +322,6 @@ def test_submit_prints_final_output_without_duplicate_lines(
 
     exit_code = submit_module.submit(
         config_path=None,
-        current=True,
         debug=False,
         describe_with=None,
         draft=False,
@@ -408,7 +388,6 @@ def test_submit_prints_top_pull_request_url_at_end(
 
     exit_code = submit_module.submit(
         config_path=None,
-        current=True,
         debug=False,
         describe_with=None,
         draft=False,

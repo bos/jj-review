@@ -4,12 +4,11 @@ from types import SimpleNamespace
 import pytest
 
 from jj_review.commands import close as close_module
-from jj_review.errors import CliError
 
 from .entrypoint_test_helpers import patch_bootstrap
 
 
-def test_close_requires_explicit_revision_selection(
+def test_close_defaults_to_current_stack_when_revset_is_omitted(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -19,40 +18,35 @@ def test_close_requires_explicit_revision_selection(
     def fake_prepare_close(**kwargs):
         nonlocal run_called
         run_called = True
-        raise AssertionError("close should not run without an explicit selector")
+        assert kwargs["revset"] == "@-"
+        return SimpleNamespace()
 
     monkeypatch.setattr(close_module, "prepare_close", fake_prepare_close)
+    monkeypatch.setattr(
+        close_module,
+        "stream_close",
+        lambda **kwargs: SimpleNamespace(
+            actions=(),
+            applied=True,
+            blocked=False,
+            github_error=None,
+            github_repository=None,
+            remote=None,
+            remote_error=None,
+            selected_revset="@-",
+        ),
+    )
 
-    with pytest.raises(CliError, match="requires an explicit revision selection"):
-        close_module.close(
-            cleanup=False,
-            config_path=None,
-            current=False,
-            debug=False,
-            dry_run=False,
-            repository=tmp_path,
-            revset=None,
-        )
+    close_module.close(
+        cleanup=False,
+        config_path=None,
+        debug=False,
+        dry_run=False,
+        repository=tmp_path,
+        revset=None,
+    )
 
-    assert not run_called
-
-
-def test_close_rejects_revset_and_current_together(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    patch_bootstrap(monkeypatch, close_module, tmp_path)
-
-    with pytest.raises(CliError, match="accepts either `<revset>` or `--current`, not both"):
-        close_module.close(
-            cleanup=False,
-            config_path=None,
-            current=True,
-            debug=False,
-            dry_run=False,
-            repository=tmp_path,
-            revset="@",
-        )
+    assert run_called
 
 
 def test_close_renders_planned_output(
@@ -99,7 +93,6 @@ def test_close_renders_planned_output(
     exit_code = close_module.close(
         cleanup=True,
         config_path=None,
-        current=False,
         debug=False,
         dry_run=True,
         repository=tmp_path,
@@ -142,7 +135,6 @@ def test_close_renders_apply_noop_output(
     exit_code = close_module.close(
         cleanup=False,
         config_path=None,
-        current=False,
         debug=False,
         dry_run=False,
         repository=tmp_path,

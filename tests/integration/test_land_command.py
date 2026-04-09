@@ -41,7 +41,7 @@ def test_land_blocks_unlinked_change(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
@@ -65,7 +65,7 @@ def test_land_dry_run_previews_then_apply_lands_trunk_open_prefix(
     for index in range(3):
         _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     _approve_pull_requests(fake_repo, 1, 2)
 
@@ -82,7 +82,7 @@ def test_land_dry_run_previews_then_apply_lands_trunk_open_prefix(
 
     fake_repo.pull_requests[3].state = "closed"
 
-    preview_exit_code = _main(repo, config_path, "land", "--current", "--dry-run")
+    preview_exit_code = _main(repo, config_path, "land", "--dry-run")
     preview = capsys.readouterr()
 
     assert preview_exit_code == 0
@@ -95,7 +95,7 @@ def test_land_dry_run_previews_then_apply_lands_trunk_open_prefix(
     assert "cleanup --restack @-" in preview.out
     assert "submit @-" in preview.out
 
-    apply_exit_code = _main(repo, config_path, "land", "--current")
+    apply_exit_code = _main(repo, config_path, "land")
     applied = capsys.readouterr()
 
     assert apply_exit_code == 0
@@ -130,10 +130,10 @@ def test_land_blocks_unapproved_prefix_by_default(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
-    exit_code = _main(repo, config_path, "land", "--current")
+    exit_code = _main(repo, config_path, "land")
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -149,7 +149,7 @@ def test_land_bypass_readiness_dry_run_then_apply_unapproved_change(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     stack = JjClient(repo).discover_review_stack()
 
@@ -158,7 +158,6 @@ def test_land_bypass_readiness_dry_run_then_apply_unapproved_change(
         config_path,
         "land",
         "--bypass-readiness",
-        "--current",
         "--dry-run",
     )
     preview = capsys.readouterr()
@@ -172,7 +171,6 @@ def test_land_bypass_readiness_dry_run_then_apply_unapproved_change(
         config_path,
         "land",
         "--bypass-readiness",
-        "--current",
     )
     applied = capsys.readouterr()
 
@@ -192,7 +190,7 @@ def test_land_restores_local_trunk_bookmark_when_push_fails(
     for index in range(2):
         _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     _approve_pull_requests(fake_repo, 1, 2)
 
@@ -206,7 +204,7 @@ def test_land_restores_local_trunk_bookmark_when_push_fails(
 
     monkeypatch.setattr(JjClient, "push_bookmark", fail_push_bookmark)
 
-    exit_code = _main(repo, config_path, "land", "--current")
+    exit_code = _main(repo, config_path, "land")
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -225,7 +223,7 @@ def test_land_restores_local_trunk_bookmark_when_push_is_interrupted(
     for index in range(2):
         _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     _approve_pull_requests(fake_repo, 1, 2)
 
@@ -238,7 +236,7 @@ def test_land_restores_local_trunk_bookmark_when_push_is_interrupted(
 
     monkeypatch.setattr(JjClient, "push_bookmark", interrupt_push_bookmark)
 
-    exit_code = _main(repo, config_path, "land", "--current")
+    exit_code = _main(repo, config_path, "land")
     captured = capsys.readouterr()
 
     assert exit_code == 130
@@ -256,7 +254,7 @@ def test_land_recomputes_plan_after_pre_push_interruption_when_state_changes(
     for index in range(2):
         _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     _approve_pull_requests(fake_repo, 1, 2)
     initial_stack = JjClient(repo).discover_review_stack()
@@ -274,7 +272,7 @@ def test_land_recomputes_plan_after_pre_push_interruption_when_state_changes(
 
     monkeypatch.setattr(JjClient, "push_bookmark", fail_first_push_bookmark)
 
-    first_exit_code = _main(repo, config_path, "land", "--current")
+    first_exit_code = _main(repo, config_path, "land")
     first_run = capsys.readouterr()
 
     assert first_exit_code == 1
@@ -288,7 +286,7 @@ def test_land_recomputes_plan_after_pre_push_interruption_when_state_changes(
 
     fake_repo.pull_requests[2].state = "closed"
 
-    second_exit_code = _main(repo, config_path, "land", "--current")
+    second_exit_code = _main(repo, config_path, "land")
     second_run = capsys.readouterr()
 
     assert second_exit_code == 0
@@ -306,7 +304,7 @@ def test_land_resumes_after_trunk_push_interruption(
     for index in range(2):
         _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
     _approve_pull_requests(fake_repo, 1, 2)
     submitted_stack = JjClient(repo).discover_review_stack()
@@ -332,7 +330,7 @@ def test_land_resumes_after_trunk_push_interruption(
         client_type=FailingFinalizeClient,
     )
 
-    first_exit_code = _main(repo, config_path, "land", "--current")
+    first_exit_code = _main(repo, config_path, "land")
     first_run = capsys.readouterr()
 
     assert first_exit_code == 1
@@ -351,7 +349,7 @@ def test_land_resumes_after_trunk_push_interruption(
         modules=("jj_review.commands.land",),
     )
 
-    second_exit_code = _main(repo, config_path, "land", "--current")
+    second_exit_code = _main(repo, config_path, "land")
     second_run = capsys.readouterr()
 
     assert second_exit_code == 0

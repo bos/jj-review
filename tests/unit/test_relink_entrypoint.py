@@ -26,7 +26,6 @@ def test_relink_requires_explicit_revision_selection(
     with pytest.raises(CliError, match="requires an explicit revision selection"):
         relink_module.relink(
             config_path=None,
-            current=False,
             debug=False,
             pull_request="123",
             repository=tmp_path,
@@ -36,7 +35,7 @@ def test_relink_requires_explicit_revision_selection(
     assert not run_called
 
 
-def test_relink_current_passes_current_path_selection(
+def test_relink_passes_explicit_revset_selection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -60,16 +59,15 @@ def test_relink_current_passes_current_path_selection(
 
     exit_code = relink_module.relink(
         config_path=None,
-        current=True,
         debug=False,
         pull_request="7",
         repository=tmp_path,
-        revset=None,
+        revset="@-",
     )
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert relink_calls == [None]
+    assert relink_calls == ["@-"]
     assert "Relinked PR #7 for feature 1 [abcdefgh] -> review/feature-abcdefgh" in (
         captured.out
     )

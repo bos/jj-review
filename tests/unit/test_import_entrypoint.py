@@ -16,7 +16,6 @@ def test_import_renders_up_to_date_output(
     patch_bootstrap(monkeypatch, import_module, tmp_path)
 
     async def fake_run_import_async(**kwargs):
-        assert kwargs["current"] is False
         assert kwargs["fetch"] is False
         return SimpleNamespace(
             actions=(),
@@ -27,25 +26,23 @@ def test_import_renders_up_to_date_output(
             remote_error=None,
             reviewable_revision_count=2,
             selected_revset="commit-2",
-            selector="--head review/feature-aaaaaaaa",
+            selector="--pull-request 2",
         )
 
     monkeypatch.setattr(import_module, "_run_import_async", fake_run_import_async)
 
     exit_code = import_module.import_(
         config_path=None,
-        current=False,
         debug=False,
         fetch=False,
-        head="review/feature-aaaaaaaa",
-        pull_request=None,
+        pull_request="2",
         repository=tmp_path,
         revset=None,
     )
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Selected selector: --head review/feature-aaaaaaaa" in captured.out
+    assert "Selected selector: --pull-request 2" in captured.out
     assert "Local jj-review tracking is already up to date for the selected stack." in (
         captured.out
     )
@@ -59,6 +56,7 @@ def test_import_renders_unavailable_github_line(
     patch_bootstrap(monkeypatch, import_module, tmp_path)
 
     async def fake_run_import_async(**kwargs):
+        assert kwargs["revset"] is None
         return SimpleNamespace(
             actions=(),
             fetched_tip_commit=None,
@@ -67,18 +65,16 @@ def test_import_renders_unavailable_github_line(
             remote=None,
             remote_error=None,
             reviewable_revision_count=0,
-            selected_revset="@",
-            selector="--current",
+            selected_revset="@-",
+            selector="default current stack (@-)",
         )
 
     monkeypatch.setattr(import_module, "_run_import_async", fake_run_import_async)
 
     exit_code = import_module.import_(
         config_path=None,
-        current=True,
         debug=False,
         fetch=False,
-        head=None,
         pull_request=None,
         repository=tmp_path,
         revset=None,
@@ -115,10 +111,8 @@ def test_import_fetch_renders_fetched_tip_commit(
 
     exit_code = import_module.import_(
         config_path=None,
-        current=False,
         debug=False,
         fetch=True,
-        head=None,
         pull_request="2",
         repository=tmp_path,
         revset=None,

@@ -44,7 +44,7 @@ def test_cleanup_prunes_unlinked_state_for_stale_change(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
@@ -69,7 +69,7 @@ def test_cleanup_restack_dry_run_and_mutation_rebase_survivor_after_merged_ances
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -117,7 +117,7 @@ def test_cleanup_reports_stale_cache_and_remote_branch_without_applying(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -152,7 +152,7 @@ def test_cleanup_removes_stale_cache_and_remote_branch(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -186,7 +186,7 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -227,7 +227,7 @@ def test_cleanup_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -268,7 +268,7 @@ def test_cleanup_apply_batches_remote_delete_local_forget_and_fetch(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -367,7 +367,7 @@ def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -433,7 +433,7 @@ def test_cleanup_apply_preserves_managed_stack_comment_for_closed_pull_request(
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -462,7 +462,7 @@ def test_cleanup_apply_preserves_discovered_stack_comment_when_cache_id_is_missi
     _commit(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -502,7 +502,7 @@ def test_cleanup_writes_and_deletes_intent_file_on_success(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -532,7 +532,7 @@ def test_cleanup_leaves_intent_file_on_failure(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -574,7 +574,7 @@ def test_cleanup_retires_prior_interrupted_intent_after_success(
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit", "--current") == 0
+    assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     state_dir = resolve_state_path(repo).parent

@@ -162,7 +162,6 @@ def build_parser() -> ArgumentParser:
         description_text=commands.submit.__doc__ or "",
         handler=lambda args: commands.submit.submit(
             config_path=args.config,
-            current=args.current,
             debug=args.debug,
             describe_with=args.describe_with,
             draft=args.draft,
@@ -174,17 +173,12 @@ def build_parser() -> ArgumentParser:
             revset=args.revset,
             team_reviewers=args.team_reviewers,
         ),
-        revset_help="Revision to submit; required unless --current is passed",
+        revset_help="Revision to submit; defaults to @- (the current stack head)",
     )
     submit_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the submit plan without mutating local, remote, or GitHub state",
-    )
-    submit_parser.add_argument(
-        "--current",
-        action="store_true",
-        help="Explicitly operate on the current stack instead of passing a revset",
     )
     submit_parser.add_argument(
         "-d",
@@ -274,31 +268,25 @@ def build_parser() -> ArgumentParser:
         description_text=commands.relink.__doc__ or "",
         handler=lambda args: commands.relink.relink(
             config_path=args.config,
-            current=args.current,
             debug=args.debug,
             pull_request=args.pull_request,
             repository=args.repository,
             revset=args.revset,
         ),
     )
-    unlink_parser = _add_revision_command(
+    _add_revision_command(
         subparsers,
         command="unlink",
         help_text=_normalized_help_text(commands.unlink.HELP),
         description_text=commands.unlink.__doc__ or "",
         handler=lambda args: commands.unlink.unlink(
             config_path=args.config,
-            current=args.current,
             debug=args.debug,
             repository=args.repository,
             revset=args.revset,
         ),
-        revset_help="Revision to unlink; required unless --current is passed",
-    )
-    unlink_parser.add_argument(
-        "--current",
-        action="store_true",
-        help="Explicitly operate on the current stack instead of passing a revset",
+        revset_nargs=None,
+        revset_help="Revision to unlink",
     )
     land_parser = _add_revision_command(
         subparsers,
@@ -309,13 +297,12 @@ def build_parser() -> ArgumentParser:
             dry_run=args.dry_run,
             bypass_readiness=args.bypass_readiness,
             config_path=args.config,
-            current=args.current,
             debug=args.debug,
             expect_pr=args.expect_pr,
             repository=args.repository,
             revset=args.revset,
         ),
-        revset_help="Revision to land; required unless --current is passed",
+        revset_help="Revision to land; defaults to @- (the current stack head)",
     )
     land_parser.add_argument(
         "--dry-run",
@@ -334,11 +321,6 @@ def build_parser() -> ArgumentParser:
             "normal safety checks"
         ),
     )
-    land_parser.add_argument(
-        "--current",
-        action="store_true",
-        help="Explicitly operate on the current stack instead of passing a revset",
-    )
     close_parser = _add_revision_command(
         subparsers,
         command="close",
@@ -348,12 +330,11 @@ def build_parser() -> ArgumentParser:
             dry_run=args.dry_run,
             cleanup=args.cleanup,
             config_path=args.config,
-            current=args.current,
             debug=args.debug,
             repository=args.repository,
             revset=args.revset,
         ),
-        revset_help="Revision to close; required unless --current is passed",
+        revset_help="Revision to close; defaults to @- (the current stack head)",
     )
     close_parser.add_argument(
         "--dry-run",
@@ -365,11 +346,6 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         help="Also clean up pull request branches and saved jj-review data for the stack",
     )
-    close_parser.add_argument(
-        "--current",
-        action="store_true",
-        help="Explicitly operate on the current stack instead of passing a revset",
-    )
     _add_import_parser(
         subparsers,
         command="import",
@@ -377,10 +353,8 @@ def build_parser() -> ArgumentParser:
         description_text=commands.import_.__doc__ or "",
         handler=lambda args: commands.import_.import_(
             config_path=args.config,
-            current=args.current,
             debug=args.debug,
             fetch=args.fetch,
-            head=args.head,
             pull_request=args.pull_request,
             repository=args.repository,
             revset=args.revset,
@@ -405,23 +379,17 @@ def build_parser() -> ArgumentParser:
         help="Preview or apply a local restack for merged changes on the selected stack",
     )
     cleanup_parser.add_argument(
-        "--current",
-        action="store_true",
-        help="Explicitly operate on the current stack instead of passing a revset",
-    )
-    cleanup_parser.add_argument(
         "revset",
         nargs="?",
         help=(
-            "Revision whose stack should be inspected or restacked; when "
-            "mutating with --restack, pass this or --current"
+            "Revision whose stack should be restacked; ignored unless "
+            "`--restack` is passed, and defaults to @- for restack"
         ),
     )
     cleanup_parser.set_defaults(
         handler=lambda args: commands.cleanup.cleanup(
             dry_run=args.dry_run,
             config_path=args.config,
-            current=args.current,
             debug=args.debug,
             repository=args.repository,
             restack=args.restack,
@@ -691,6 +659,7 @@ def _add_revision_command(
     help_text: str,
     description_text: str,
     handler,
+    revset_nargs: str | int | None = "?",
     revset_help: str = "Revision to operate on",
 ) -> SubparserT:
     parser = subparsers.add_parser(
@@ -700,7 +669,7 @@ def _add_revision_command(
     )
     _add_common_options(parser)
     _normalize_help_action_text(parser)
-    parser.add_argument("revset", nargs="?", help=revset_help)
+    parser.add_argument("revset", nargs=revset_nargs, help=revset_help)
     parser.set_defaults(handler=handler)
     return parser
 
@@ -722,13 +691,7 @@ def _add_relink_parser(
     _normalize_help_action_text(parser)
     parser.add_argument("pull_request", help="Pull request number or URL")
     parser.add_argument(
-        "--current",
-        action="store_true",
-        help="Explicitly operate on the current stack instead of passing a revset",
-    )
-    parser.add_argument(
         "revset",
-        nargs="?",
         help="Revision to reassociate with the pull request",
     )
     parser.set_defaults(handler=handler)
@@ -750,19 +713,10 @@ def _add_import_parser(
     )
     _add_common_options(parser)
     _normalize_help_action_text(parser)
-    selector = parser.add_mutually_exclusive_group(required=True)
+    selector = parser.add_mutually_exclusive_group(required=False)
     selector.add_argument(
         "--pull-request",
         help="Pull request number or URL",
-    )
-    selector.add_argument(
-        "--head",
-        help="Branch name to import",
-    )
-    selector.add_argument(
-        "--current",
-        action="store_true",
-        help="Import the current stack",
     )
     selector.add_argument(
         "--revset",
@@ -774,8 +728,8 @@ def _add_import_parser(
         help=_normalized_help_text(
             """
             Refresh the selected stack's remote bookmark state and, for
-            `--pull-request` or `--head`, fetch only the branches needed
-            to import that stack
+            `--pull-request`, fetch only the branches needed to import
+            that stack
             """
         ),
     )
@@ -876,6 +830,8 @@ def _time_output(*, enabled: bool):
         yield
     finally:
         builtins.print = original_print  # noqa: B010
+
+
 def _prefix_rendered_output(
     rendered: str,
     *,
