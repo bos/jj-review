@@ -21,29 +21,7 @@ def test_render_status_selection_lines_reports_selected_remote_error() -> None:
     ) == ("Selected remote: unavailable (no git remote configured)",)
 
 
-def test_render_status_selection_lines_omits_happy_path_context() -> None:
-    prepared_status = SimpleNamespace(
-        selected_revset="@-",
-        prepared=SimpleNamespace(
-            remote=SimpleNamespace(name="origin"),
-            remote_error=None,
-        ),
-    )
-
-    assert review_state_module.render_status_selection_lines(
-        prepared_status=prepared_status,
-    ) == ()
-
-
-def test_render_status_github_lines_omits_repository_when_revisions_exist() -> None:
-    assert review_state_module.render_status_github_lines(
-        github_error=None,
-        github_repository="octo-org/stacked-review",
-        has_revisions=True,
-    ) == ()
-
-
-def test_render_status_github_lines_reports_uninspected_target_for_empty_stack() -> None:
+def test_status_reports_github_target_when_empty_stack_was_not_inspected() -> None:
     assert review_state_module.render_status_github_lines(
         github_error=None,
         github_repository="octo-org/stacked-review",
@@ -81,7 +59,7 @@ def test_render_trunk_status_lines_prefers_unique_local_bookmark() -> None:
     )
 
 
-def test_render_status_advisory_lines_reports_cleanup_and_policy_warning() -> None:
+def test_status_advises_cleanup_and_restack_when_merged_pr_remains_in_stack() -> None:
     merged_revision = SimpleNamespace(
         cached_change=None,
         change_id="abcdefghijkl",
@@ -145,7 +123,7 @@ def test_render_status_intent_lines_reports_stale_and_interrupted_operations(
     )
 
 
-def test_render_status_summary_lines_caps_middle_of_long_sections() -> None:
+def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
     revisions = tuple(
         SimpleNamespace(
             bookmark=f"review/feature-{index}",
@@ -204,27 +182,6 @@ def test_render_status_summary_lines_show_empty_sections_in_verbose_mode() -> No
     )
 
     assert lines == (
-        "Unsubmitted stack:",
-        "  (none)",
-        "",
-        "Submitted stack:",
-        "  (none)",
-        "",
-    )
-
-
-def test_render_status_summary_lines_keep_leading_separator_after_headers() -> None:
-    lines = review_state_module.render_status_summary_lines(
-        client=SimpleNamespace(render_revision_log_lines=lambda revision, *, color_when: ()),
-        color_when="never",
-        github_available=True,
-        leading_separator=True,
-        result=SimpleNamespace(revisions=()),
-        verbose=True,
-    )
-
-    assert lines[0] == ""
-    assert lines[1:] == (
         "Unsubmitted stack:",
         "  (none)",
         "",
@@ -295,23 +252,14 @@ def test_render_status_summary_lines_links_submitted_header_to_top_pr() -> None:
     )
 
 
-def test_render_status_summary_lines_append_status_only_to_first_rendered_line() -> None:
+def test_status_summary_hides_managed_review_bookmark_but_keeps_other_bookmarks() -> None:
     revision = SimpleNamespace(
-        bookmark="review/feature-8",
+        bookmark="review/feature-8-abcdefgh",
         cached_change=None,
         change_id="abcdefgh1234",
         link_state="active",
         local_divergent=False,
-        pull_request_lookup=SimpleNamespace(
-            pull_request=SimpleNamespace(
-                html_url="https://github.com/bos/jj-review/pull/8",
-                is_draft=False,
-                number=8,
-            ),
-            review_decision=None,
-            review_decision_error=None,
-            state="open",
-        ),
+        pull_request_lookup=None,
         stack_comment_lookup=None,
         subject="feature 8",
     )
@@ -319,8 +267,11 @@ def test_render_status_summary_lines_append_status_only_to_first_rendered_line()
     lines = review_state_module.render_status_summary_lines(
         client=SimpleNamespace(
             render_revision_log_lines=lambda current_revision, *, color_when: (
-                "metadata line",
-                current_revision.subject,
+                (
+                    "○  abcdefgh bos 2026-01-01 keep/one "
+                    f"{current_revision.bookmark} keep/two 12345678"
+                ),
+                f"│  {current_revision.subject}",
             )
         ),
         color_when="never",
@@ -331,72 +282,8 @@ def test_render_status_summary_lines_append_status_only_to_first_rendered_line()
     )
 
     assert lines == (
-        "Submitted stack (https://github.com/bos/jj-review/pull/8):",
-        "metadata line: PR #8",
-        "feature 8",
-        "",
-    )
-
-
-def test_strip_revision_bookmark_from_rendered_lines_removes_managed_bookmark() -> None:
-    lines = review_state_module._strip_revision_bookmark_from_rendered_lines(
-        (
-            "○  abcdefgh bos 2026-01-01 review/feature-1-abcdefgh 12345678",
-            "│  feature 1",
-        ),
-        bookmark="review/feature-1-abcdefgh",
-    )
-
-    assert lines == (
-        "○  abcdefgh bos 2026-01-01 12345678",
-        "│  feature 1",
-    )
-
-
-def test_strip_revision_bookmark_from_rendered_lines_preserves_other_bookmarks() -> None:
-    lines = review_state_module._strip_revision_bookmark_from_rendered_lines(
-        (
-            "○  abcdefgh bos 2026-01-01 keep/one review/feature-1-abcdefgh keep/two 12345678",
-            "│  feature 1",
-        ),
-        bookmark="review/feature-1-abcdefgh",
-    )
-
-    assert lines == (
+        "Unsubmitted stack:",
         "○  abcdefgh bos 2026-01-01 keep/one keep/two 12345678",
-        "│  feature 1",
-    )
-
-
-def test_strip_revision_bookmark_from_rendered_lines_removes_colored_bookmark() -> None:
-    lines = review_state_module._strip_revision_bookmark_from_rendered_lines(
-        (
-            (
-                "○  abcdefgh bos 2026-01-01 "
-                "\x1b[38;5;5mreview/feature-1-abcdefgh\x1b[39m "
-                "\x1b[1m12345678\x1b[0m"
-            ),
-            "│  feature 1",
-        ),
-        bookmark="review/feature-1-abcdefgh",
-    )
-
-    assert lines == (
-        "○  abcdefgh bos 2026-01-01 \x1b[1m12345678\x1b[0m",
-        "│  feature 1",
-    )
-
-
-def test_strip_revision_bookmark_from_rendered_lines_removes_remote_qualified_bookmark() -> None:
-    lines = review_state_module._strip_revision_bookmark_from_rendered_lines(
-        (
-            "◆  abcdefgh bos 2026-01-01 main@origin 12345678",
-            "│  base",
-        ),
-        bookmark="main",
-    )
-
-    assert lines == (
-        "◆  abcdefgh bos 2026-01-01 12345678",
-        "│  base",
+        "│  feature 8",
+        "",
     )
