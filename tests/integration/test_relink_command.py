@@ -5,26 +5,16 @@ from pathlib import Path
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.jj import JjClient
 
-from .submit_command_helpers import (
-    commit as _commit,
+from ..support.integration_helpers import (
+    commit_file as _commit,
+    init_fake_github_repo as _init_repo,
+    run_command as _run,
+    write_file as _write_file,
 )
 from .submit_command_helpers import (
     configure_submit_environment as _configure_submit_environment,
-)
-from .submit_command_helpers import (
-    init_repo as _init_repo,
-)
-from .submit_command_helpers import (
     read_remote_ref as _read_remote_ref,
-)
-from .submit_command_helpers import (
-    run as _run,
-)
-from .submit_command_helpers import (
     run_main as _main,
-)
-from .submit_command_helpers import (
-    write_file_contents as _write_file,
 )
 
 

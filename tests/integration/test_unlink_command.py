@@ -5,19 +5,13 @@ from pathlib import Path
 from jj_review.cache import ReviewStateStore
 from jj_review.jj import JjClient
 
-from .submit_command_helpers import (
-    commit as _commit,
+from ..support.integration_helpers import (
+    commit_file as _commit,
+    init_fake_github_repo as _init_repo,
 )
 from .submit_command_helpers import (
     configure_submit_environment as _configure_submit_environment,
-)
-from .submit_command_helpers import (
-    init_repo as _init_repo,
-)
-from .submit_command_helpers import (
     issue_comments as _issue_comments,
-)
-from .submit_command_helpers import (
     run_main as _main,
 )
 

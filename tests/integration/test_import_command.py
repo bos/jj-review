@@ -327,7 +327,7 @@ def test_import_prefers_exact_remote_bookmarks_over_stale_cached_names(
     repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit") == 0
     state_store = ReviewStateStore.for_repo(repo)
@@ -372,7 +372,7 @@ def test_import_current_rejects_cache_only_link(
 ) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 1", "feature-1.txt")
 
     assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
@@ -403,7 +403,7 @@ def test_import_revset_rejects_generated_bookmarks_without_selected_remote(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
     commit_file(repo, "feature 2", "feature-2.txt")

@@ -9,11 +9,7 @@ from jj_review.jj import JjClient
 
 from ..support.integration_helpers import (
     commit_file as _commit,
-)
-from ..support.integration_helpers import (
     init_repo as _init_repo,
-)
-from ..support.integration_helpers import (
     run_command as _run,
 )
 

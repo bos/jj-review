@@ -31,16 +31,12 @@ from jj_review.stack_output import (
     display_change_id,
     format_pull_request_label,
     render_revision_with_suffix_lines,
-    strip_revision_bookmark_from_rendered_lines,
 )
 
 _SUMMARY_SECTION_HEAD_COUNT = 3
 _SUMMARY_SECTION_TAIL_COUNT = 3
 
 HELP = "Check the review status of a jj stack"
-
-_strip_revision_bookmark_from_rendered_lines = strip_revision_bookmark_from_rendered_lines
-
 
 def status(
     *,

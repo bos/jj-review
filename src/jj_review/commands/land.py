@@ -17,8 +17,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Sequence
-from dataclasses import dataclass
-from dataclasses import replace as dataclass_replace
+from dataclasses import dataclass, replace as dataclass_replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol

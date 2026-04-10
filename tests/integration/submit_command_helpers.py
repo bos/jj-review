@@ -10,12 +10,9 @@ from jj_review.github.client import GithubClient
 
 from ..support.fake_github import FakeGithubRepository
 from ..support.integration_helpers import (
-    commit_file as commit,
     configure_fake_github_environment,
-    init_fake_github_repo,
-    run_command as run,
+    run_command,
     write_fake_github_config,
-    write_file as write_file_contents,
 )
 
 
@@ -37,10 +34,6 @@ def configure_submit_environment(
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
     )
-
-
-def init_repo(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
-    return init_fake_github_repo(tmp_path)
 
 
 def approve_pull_requests(fake_repo: FakeGithubRepository, *pull_numbers: int) -> None:
@@ -124,4 +117,3 @@ def write_config(
         fake_repo,
         extra_lines=extra_lines,
     )
-
