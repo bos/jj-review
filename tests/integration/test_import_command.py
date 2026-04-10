@@ -21,7 +21,7 @@ def test_import_bootstraps_local_review_state_from_pull_request(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
     commit_file(repo, "feature 2", "feature-2.txt")
@@ -65,7 +65,7 @@ def test_import_current_rejects_remote_branches_without_pull_requests(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
     commit_file(repo, "feature 2", "feature-2.txt")
@@ -98,7 +98,7 @@ def test_import_reports_up_to_date_when_selected_stack_is_already_imported(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
     commit_file(repo, "feature 2", "feature-2.txt")
@@ -121,7 +121,7 @@ def test_import_current_fails_closed_when_head_has_no_discoverable_remote_review
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
 
@@ -167,7 +167,7 @@ def test_import_pull_request_fails_closed_when_head_branch_matches_multiple_pull
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
     commit_file(repo, "feature 2", "feature-2.txt")
@@ -198,7 +198,7 @@ def test_import_fails_closed_when_stack_would_need_generated_bookmarks(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
     commit_file(repo, "feature 2", "feature-2.txt")
@@ -245,7 +245,7 @@ def test_import_fails_closed_when_cached_bookmark_is_missing_on_selected_remote(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
     commit_file(repo, "feature 2", "feature-2.txt")
@@ -290,7 +290,7 @@ def test_import_fails_closed_without_partial_local_bookmark_updates(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
     commit_file(repo, "feature 2", "feature-2.txt")
@@ -324,7 +324,7 @@ def test_import_prefers_exact_remote_bookmarks_over_stale_cached_names(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
@@ -370,7 +370,7 @@ def test_import_current_rejects_cache_only_link(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     _commit(repo, "feature 1", "feature-1.txt")
 
@@ -456,10 +456,6 @@ def _configure_import_environment(
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
     )
-
-
-def _init_repo(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
-    return init_fake_github_repo(tmp_path)
 
 
 def _init_repo_without_remote(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
