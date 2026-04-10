@@ -210,10 +210,10 @@ def test_land_restores_local_trunk_bookmark_when_push_does_not_complete(
     trunk_before = client.get_bookmark_state("main").local_target
     remote_before = _read_remote_ref(fake_repo.git_dir, "main")
 
-    def fail_push_bookmark(self, *, remote: str, bookmark: str) -> None:
+    def fail_push_bookmarks(self, *, remote: str, bookmarks) -> None:
         raise push_error
 
-    monkeypatch.setattr(JjClient, "push_bookmark", fail_push_bookmark)
+    monkeypatch.setattr(JjClient, "push_bookmarks", fail_push_bookmarks)
 
     exit_code = _main(repo, config_path, "land")
     captured = capsys.readouterr()

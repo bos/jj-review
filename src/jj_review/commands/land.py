@@ -151,8 +151,8 @@ class _BookmarkStateReader(Protocol):
 class _BookmarkRestorer(Protocol):
     """Subset of the jj client interface needed for local trunk restoration."""
 
-    def forget_bookmark(self, bookmark: str) -> None:
-        """Forget a local bookmark."""
+    def forget_bookmarks(self, bookmarks: Sequence[str]) -> None:
+        """Forget local bookmarks."""
 
     def set_bookmark(
         self,

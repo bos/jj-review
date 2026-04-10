@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -676,8 +677,8 @@ class _BookmarkRestorerStub:
         self.forget_calls: list[str] = []
         self.set_calls: list[tuple[str, str, bool]] = []
 
-    def forget_bookmark(self, bookmark: str) -> None:
-        self.forget_calls.append(bookmark)
+    def forget_bookmarks(self, bookmarks: Sequence[str]) -> None:
+        self.forget_calls.extend(bookmarks)
 
     def set_bookmark(
         self,
