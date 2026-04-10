@@ -235,11 +235,6 @@ class JjClient:
             for change_id in ordered_change_ids
         }
 
-    def resolve_trunk(self) -> LocalRevision:
-        """Resolve `trunk()` and reject the implicit root fallback."""
-
-        return self._resolve_trunk()
-
     def query_ancestor_revisions(
         self,
         commit_ids: Sequence[str],
