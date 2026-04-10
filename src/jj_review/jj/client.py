@@ -561,11 +561,6 @@ class JjClient:
             return
         self._run_jj(("bookmark", "forget", *ordered_bookmarks))
 
-    def push_bookmark(self, *, remote: str, bookmark: str) -> None:
-        """Push one bookmark to the selected remote."""
-
-        self.push_bookmarks(remote=remote, bookmarks=(bookmark,))
-
     def push_bookmarks(
         self,
         *,

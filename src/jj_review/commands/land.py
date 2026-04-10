@@ -412,7 +412,10 @@ async def _stream_land_async(
                         trunk_branch,
                         execution_plan.landed_revisions[-1].commit_id,
                     )
-                    prepared.client.push_bookmark(remote=remote.name, bookmark=trunk_branch)
+                    prepared.client.push_bookmarks(
+                        remote=remote.name,
+                        bookmarks=(trunk_branch,),
+                    )
                 except BaseException:
                     _restore_local_trunk_bookmark(
                         client=prepared.client,

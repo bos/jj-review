@@ -240,16 +240,16 @@ def test_land_replans_after_interrupted_push_when_landable_prefix_changes(
     first_landable_commit_id = initial_stack.revisions[0].commit_id
 
     push_calls = 0
-    original_push_bookmark = JjClient.push_bookmark
+    original_push_bookmarks = JjClient.push_bookmarks
 
-    def fail_first_push_bookmark(self, *, remote: str, bookmark: str) -> None:
+    def fail_first_push_bookmarks(self, *, remote: str, bookmarks) -> None:
         nonlocal push_calls
         push_calls += 1
         if push_calls == 1:
             raise JjCommandError("simulated trunk push failure")
-        original_push_bookmark(self, remote=remote, bookmark=bookmark)
+        original_push_bookmarks(self, remote=remote, bookmarks=bookmarks)
 
-    monkeypatch.setattr(JjClient, "push_bookmark", fail_first_push_bookmark)
+    monkeypatch.setattr(JjClient, "push_bookmarks", fail_first_push_bookmarks)
 
     first_exit_code = _main(repo, config_path, "land")
     first_run = capsys.readouterr()
