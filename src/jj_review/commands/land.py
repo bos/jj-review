@@ -275,9 +275,21 @@ def prepare_land(
 
     expect_pr_number = None
     if expect_pr_reference is not None:
-        expect_pr_number = _parse_pull_request_reference(
+        expect_pr_number = parse_repository_pull_request_reference(
             reference=expect_pr_reference,
             github_repository=prepared_status.github_repository,
+            invalid_reference_message=(
+                f"`--expect-pr` must be a pull request number or a URL for "
+                f"{prepared_status.github_repository.full_name}."
+            ),
+            wrong_host_message=(
+                f"`--expect-pr` must be a pull request number or a URL for "
+                f"{prepared_status.github_repository.full_name}."
+            ),
+            wrong_repository_message=(
+                f"`--expect-pr` must be a pull request number or a URL for "
+                f"{prepared_status.github_repository.full_name}."
+            ),
         )
 
     state_dir = (
@@ -1207,26 +1219,3 @@ def _normalize_pull_request_state(pull_request):
 
 def _short_change_id(change_id: str) -> str:
     return change_id[:8]
-
-
-def _parse_pull_request_reference(
-    *,
-    reference: str,
-    github_repository: ResolvedGithubRepository,
-) -> int:
-    return parse_repository_pull_request_reference(
-        reference=reference,
-        github_repository=github_repository,
-        invalid_reference_message=(
-            f"`--expect-pr` must be a pull request number or a URL for "
-            f"{github_repository.full_name}."
-        ),
-        wrong_host_message=(
-            f"`--expect-pr` must be a pull request number or a URL for "
-            f"{github_repository.full_name}."
-        ),
-        wrong_repository_message=(
-            f"`--expect-pr` must be a pull request number or a URL for "
-            f"{github_repository.full_name}."
-        ),
-    )

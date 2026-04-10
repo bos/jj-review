@@ -489,9 +489,12 @@ async def _load_pull_request(
     github_repository: ResolvedGithubRepository,
     pull_request_reference: str,
 ) -> GithubPullRequest:
-    pull_request_number = _parse_pull_request_reference(
+    pull_request_number = parse_repository_pull_request_reference(
         reference=pull_request_reference,
         github_repository=github_repository,
+        invalid_reference_message=(
+            f"Pull request reference {pull_request_reference!r} is not a PR number or URL."
+        ),
     )
     async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
         try:
@@ -878,17 +881,3 @@ def _resolve_import_bookmark(
             "`status --fetch` or repair the stale remote match before importing again."
         )
     return bookmark
-
-
-def _parse_pull_request_reference(
-    *,
-    reference: str,
-    github_repository: ResolvedGithubRepository,
-) -> int:
-    return parse_repository_pull_request_reference(
-        reference=reference,
-        github_repository=github_repository,
-        invalid_reference_message=(
-            f"Pull request reference {reference!r} is not a PR number or URL."
-        ),
-    )

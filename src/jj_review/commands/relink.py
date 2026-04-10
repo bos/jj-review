@@ -19,7 +19,6 @@ from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClientError
 from jj_review.github_resolution import (
-    ResolvedGithubRepository,
     _build_github_client,
     resolve_github_repository,
     select_submit_remote,
@@ -108,9 +107,20 @@ async def _run_relink_async(
     remote = select_submit_remote(config, remotes)
     client.fetch_remote(remote=remote.name)
     github_repository = resolve_github_repository(config, remote)
-    pull_request_number = _parse_pull_request_reference(
+    pull_request_number = parse_repository_pull_request_reference(
         reference=pull_request_reference,
         github_repository=github_repository,
+        invalid_reference_message=(
+            f"`{pull_request_reference}` is not a pull request number or URL for "
+            f"{github_repository.full_name}."
+        ),
+        wrong_host_message=(
+            f"`{pull_request_reference}` is not a pull request number or URL for "
+            f"{github_repository.full_name}."
+        ),
+        wrong_repository_message=(
+            f"`{pull_request_reference}` does not belong to {github_repository.full_name}."
+        ),
     )
 
     async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
@@ -225,28 +235,6 @@ async def _run_relink_async(
     finally:
         if relink_succeeded:
             delete_intent(intent_path)
-
-
-def _parse_pull_request_reference(
-    *,
-    reference: str,
-    github_repository: ResolvedGithubRepository,
-) -> int:
-    return parse_repository_pull_request_reference(
-        reference=reference,
-        github_repository=github_repository,
-        invalid_reference_message=(
-            f"`{reference}` is not a pull request number or URL for "
-            f"{github_repository.full_name}."
-        ),
-        wrong_host_message=(
-            f"`{reference}` is not a pull request number or URL for "
-            f"{github_repository.full_name}."
-        ),
-        wrong_repository_message=(
-            f"`{reference}` does not belong to {github_repository.full_name}."
-        ),
-    )
 
 
 def _ensure_relinkable_cached_link(

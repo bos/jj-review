@@ -11,14 +11,12 @@ from jj_review.commands.land import (
     _build_land_plan,
     _ensure_trunk_branch_matches_selected_trunk,
     _find_resume_land_intent,
-    _parse_pull_request_reference,
     _remote_trunk_matches_commit,
     _restore_local_trunk_bookmark,
     _resume_land_plan,
     _updated_landed_change,
 )
 from jj_review.errors import CliError
-from jj_review.github_resolution import ResolvedGithubRepository
 from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
 from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
@@ -302,20 +300,6 @@ def test_updated_landed_change_marks_pr_merged_and_clears_stack_comment() -> Non
     assert updated.pr_review_decision is None
     assert updated.pr_state == "merged"
     assert updated.stack_comment_id is None
-
-
-def test_parse_pull_request_reference_rejects_wrong_repo() -> None:
-    with pytest.raises(CliError, match="`--expect-pr`"):
-        _parse_pull_request_reference(
-            reference="https://github.test/other-org/stacked-review/pull/17",
-            github_repository=ResolvedGithubRepository(
-                host="github.test",
-                owner="octo-org",
-                repo="stacked-review",
-            ),
-        )
-
-
 def test_find_resume_land_intent_matches_exact_path() -> None:
     prepared_status = _prepared_status(("change-1", "change-2"))
     loaded_intent = _loaded_land_intent(
