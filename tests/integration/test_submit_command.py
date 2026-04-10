@@ -1526,7 +1526,7 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
     assert len(_issue_comments(fake_repo, issue_number_2)) == 1
     assert len(_issue_comments(fake_repo, issue_number_3)) == 1
 
-def test_submit_writes_and_deletes_intent_file_on_success(
+def test_submit_deletes_intent_file_after_successful_submit(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1543,7 +1543,7 @@ def test_submit_writes_and_deletes_intent_file_on_success(
     intent_files = list(state_dir.glob("incomplete-*.toml"))
     assert intent_files == [], f"Expected no intent files, found: {intent_files}"
 
-def test_submit_leaves_intent_file_on_failure(
+def test_submit_retains_intent_file_after_failed_submit(
     tmp_path: Path,
     monkeypatch,
     capsys,

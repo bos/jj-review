@@ -55,7 +55,7 @@ def test_land_blocks_unlinked_change(
     assert "Land blocked:" in captured.out
     assert "unlinked from review tracking" in captured.out
 
-def test_land_dry_run_previews_then_apply_lands_trunk_open_prefix(
+def test_land_previews_and_finalizes_maximal_ready_prefix(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -140,7 +140,7 @@ def test_land_blocks_unapproved_prefix_by_default(
     assert "Land blocked:" in captured.out
     assert "PR #1 is not approved" in captured.out
 
-def test_land_bypass_readiness_dry_run_then_apply_unapproved_change(
+def test_land_bypass_readiness_previews_and_finalizes_unapproved_change(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -244,7 +244,7 @@ def test_land_restores_local_trunk_bookmark_when_push_is_interrupted(
     assert JjClient(repo).get_bookmark_state("main").local_target == trunk_before
     assert _read_remote_ref(fake_repo.git_dir, "main") == remote_before
 
-def test_land_recomputes_plan_after_pre_push_interruption_when_state_changes(
+def test_land_replans_after_interrupted_push_when_landable_prefix_changes(
     tmp_path: Path,
     monkeypatch,
     capsys,

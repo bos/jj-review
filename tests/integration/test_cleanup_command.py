@@ -59,7 +59,7 @@ def test_cleanup_prunes_unlinked_state_for_stale_change(
     assert "remove saved jj-review data" in captured.out
     assert change_id not in ReviewStateStore.for_repo(repo).load().changes
 
-def test_cleanup_restack_dry_run_and_mutation_rebase_survivor_after_merged_ancestor(
+def test_cleanup_restack_previews_and_rebases_survivor_above_merged_ancestor(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -108,7 +108,7 @@ def test_cleanup_restack_dry_run_and_mutation_rebase_survivor_after_merged_ances
     assert rewritten_top.only_parent_commit_id() == trunk_commit_id
     assert JjClient(repo).resolve_revision(bottom_change_id).commit_id != rewritten_top.commit_id
 
-def test_cleanup_reports_stale_cache_and_remote_branch_without_applying(
+def test_cleanup_dry_run_reports_stale_tracking_and_remote_branch_without_mutation(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -143,7 +143,7 @@ def test_cleanup_reports_stale_cache_and_remote_branch_without_applying(
     assert change_id in state_store.load().changes
     assert f"refs/heads/{bookmark}" in _remote_refs(fake_repo.git_dir)
 
-def test_cleanup_removes_stale_cache_and_remote_branch(
+def test_cleanup_applies_stale_tracking_and_remote_branch_removal(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -492,7 +492,7 @@ def test_cleanup_apply_preserves_discovered_stack_comment_when_cache_id_is_missi
     assert refreshed_state.changes[change_id].stack_comment_id is None
     assert len(_issue_comments(fake_repo, 2)) == 1
 
-def test_cleanup_writes_and_deletes_intent_file_on_success(
+def test_cleanup_deletes_intent_file_after_successful_apply(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -522,7 +522,7 @@ def test_cleanup_writes_and_deletes_intent_file_on_success(
     intent_files = list(state_dir.glob("incomplete-*.toml"))
     assert intent_files == [], f"Expected no intent files after success, found: {intent_files}"
 
-def test_cleanup_leaves_intent_file_on_failure(
+def test_cleanup_retains_intent_file_after_failed_apply(
     tmp_path: Path,
     monkeypatch,
     capsys,

@@ -262,7 +262,7 @@ def test_relink_clears_unlinked_state(
     assert relinked_change.pr_number == 1
     assert relinked_change.pr_state == "open"
 
-def test_relink_writes_and_deletes_intent_file_on_success(
+def test_relink_deletes_intent_file_after_successful_relink(
     tmp_path: Path,
     monkeypatch,
     capsys,
