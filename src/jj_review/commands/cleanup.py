@@ -508,11 +508,15 @@ def stream_restack(
                 status="blocked",
             )
         )
-        return _build_restack_result(
+        return RestackResult(
             actions=tuple(actions),
+            applied=prepared_restack.apply,
             blocked=True,
-            prepared_restack=prepared_restack,
-            status_result=status_result,
+            github_error=status_result.github_error,
+            github_repository=status_result.github_repository,
+            remote=status_result.remote,
+            remote_error=status_result.remote_error,
+            selected_revset=status_result.selected_revset,
         )
 
     operation_plan = _plan_restack_operations(
@@ -522,11 +526,15 @@ def stream_restack(
     blocked = operation_plan.blocked
     merged_revisions = operation_plan.merged_revisions
     if not merged_revisions:
-        return _build_restack_result(
+        return RestackResult(
             actions=(),
+            applied=prepared_restack.apply,
             blocked=False,
-            prepared_restack=prepared_restack,
-            status_result=status_result,
+            github_error=status_result.github_error,
+            github_repository=status_result.github_repository,
+            remote=status_result.remote,
+            remote_error=status_result.remote_error,
+            selected_revset=status_result.selected_revset,
         )
 
     closed_unmerged_revisions = operation_plan.closed_unmerged_revisions
@@ -568,11 +576,15 @@ def stream_restack(
             )
 
         _restack_succeeded = True
-        return _build_restack_result(
+        return RestackResult(
             actions=tuple(actions),
+            applied=prepared_restack.apply,
             blocked=blocked,
-            prepared_restack=prepared_restack,
-            status_result=status_result,
+            github_error=status_result.github_error,
+            github_repository=status_result.github_repository,
+            remote=status_result.remote,
+            remote_error=status_result.remote_error,
+            selected_revset=status_result.selected_revset,
         )
     finally:
         if (
@@ -585,27 +597,6 @@ def stream_restack(
                 restack_intent_state.intent,
             )
             delete_intent(restack_intent_state.intent_path)
-
-
-def _build_restack_result(
-    *,
-    actions: tuple[CleanupAction, ...],
-    blocked: bool,
-    prepared_restack: PreparedRestack,
-    status_result,
-) -> RestackResult:
-    """Render a restack result from the shared status context."""
-
-    return RestackResult(
-        actions=actions,
-        applied=prepared_restack.apply,
-        blocked=blocked,
-        github_error=status_result.github_error,
-        github_repository=status_result.github_repository,
-        remote=status_result.remote,
-        remote_error=status_result.remote_error,
-        selected_revset=status_result.selected_revset,
-    )
 
 
 def _start_restack_intent(
