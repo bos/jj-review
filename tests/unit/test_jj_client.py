@@ -512,10 +512,9 @@ def test_delete_remote_bookmark_pushes_with_lease_and_fetches() -> None:
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
     client = JjClient(Path("/repo"), runner=run)
-    client.delete_remote_bookmark(
+    client.delete_remote_bookmarks(
         remote="origin",
-        bookmark="review/foo",
-        expected_remote_target="old456",
+        deletions=(("review/foo", "old456"),),
     )
 
     assert commands == [

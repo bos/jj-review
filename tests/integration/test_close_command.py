@@ -154,22 +154,22 @@ def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
     assert bookmark is not None
     state_store = ReviewStateStore.for_repo(repo)
     action_order: list[str] = []
-    original_delete_remote_bookmark = JjClient.delete_remote_bookmark
+    original_delete_remote_bookmarks = JjClient.delete_remote_bookmarks
     original_forget_bookmarks = JjClient.forget_bookmarks
 
-    def tracking_delete_remote_bookmark(
+    def tracking_delete_remote_bookmarks(
         self,
         *,
         remote: str,
-        bookmark: str,
-        expected_remote_target: str,
+        deletions,
+        fetch=True,
     ) -> None:
         action_order.append("remote")
-        return original_delete_remote_bookmark(
+        return original_delete_remote_bookmarks(
             self,
             remote=remote,
-            bookmark=bookmark,
-            expected_remote_target=expected_remote_target,
+            deletions=deletions,
+            fetch=fetch,
         )
 
     def tracking_forget_bookmarks(self, bookmarks) -> None:
@@ -178,8 +178,8 @@ def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
 
     monkeypatch.setattr(
         JjClient,
-        "delete_remote_bookmark",
-        tracking_delete_remote_bookmark,
+        "delete_remote_bookmarks",
+        tracking_delete_remote_bookmarks,
     )
     monkeypatch.setattr(
         JjClient,

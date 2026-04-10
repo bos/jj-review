@@ -900,10 +900,9 @@ def _apply_review_bookmark_cleanup(
         if context.apply:
             if context.remote_name is None or commit_id is None:
                 raise AssertionError("Planned remote branch deletion requires a target.")
-            context.jj_client.delete_remote_bookmark(
+            context.jj_client.delete_remote_bookmarks(
                 remote=context.remote_name,
-                bookmark=bookmark,
-                expected_remote_target=commit_id,
+                deletions=((bookmark, commit_id),),
             )
 
     if cleanup_plan.local_forget:

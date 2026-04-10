@@ -636,20 +636,6 @@ class JjClient:
         self.fetch_remote(remote=remote)
         self.track_bookmark(remote=remote, bookmark=bookmark)
 
-    def delete_remote_bookmark(
-        self,
-        *,
-        remote: str,
-        bookmark: str,
-        expected_remote_target: str,
-    ) -> None:
-        """Delete one remote bookmark by name."""
-
-        self.delete_remote_bookmarks(
-            remote=remote,
-            deletions=((bookmark, expected_remote_target),),
-        )
-
     def delete_remote_bookmarks(
         self,
         *,

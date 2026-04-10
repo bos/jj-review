@@ -1574,10 +1574,14 @@ def _process_remote_branch_cleanup(
         and remote is not None
         and remote_plan.expected_remote_target is not None
     ):
-        jj_client.delete_remote_bookmark(
+        jj_client.delete_remote_bookmarks(
             remote=remote.name,
-            bookmark=cached_change.bookmark or "",
-            expected_remote_target=remote_plan.expected_remote_target,
+            deletions=(
+                (
+                    cached_change.bookmark or "",
+                    remote_plan.expected_remote_target,
+                ),
+            ),
         )
         remote_action = CleanupAction(
             kind=remote_action.kind,
