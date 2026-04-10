@@ -184,21 +184,6 @@ class _RestackIntentState:
     stale_intents: list[LoadedIntent]
 
 
-def render_cleanup_preamble(*, prepared_cleanup: PreparedCleanup) -> tuple[str, ...]:
-    """Render the non-streaming cleanup context lines for the CLI."""
-
-    return _render_remote_and_github_lines(
-        remote=prepared_cleanup.remote,
-        remote_error=prepared_cleanup.remote_error,
-        github_repository=(
-            prepared_cleanup.github_repository.full_name
-            if prepared_cleanup.github_repository is not None
-            else None
-        ),
-        github_error=prepared_cleanup.github_repository_error,
-    )
-
-
 def render_cleanup_action_header(*, apply: bool) -> str:
     """Render the cleanup action section header."""
 
@@ -350,7 +335,16 @@ def _run_cleanup_command(
         config=config,
         repo_root=repo_root,
     )
-    for line in render_cleanup_preamble(prepared_cleanup=prepared_cleanup):
+    for line in _render_remote_and_github_lines(
+        remote=prepared_cleanup.remote,
+        remote_error=prepared_cleanup.remote_error,
+        github_repository=(
+            prepared_cleanup.github_repository.full_name
+            if prepared_cleanup.github_repository is not None
+            else None
+        ),
+        github_error=prepared_cleanup.github_repository_error,
+    ):
         print(line)
 
     result = stream_cleanup(
