@@ -548,11 +548,6 @@ class JjClient:
         command.extend((bookmark, "-r", revision))
         self._run_jj(command)
 
-    def forget_bookmark(self, bookmark: str) -> None:
-        """Forget a local bookmark without scheduling a remote deletion."""
-
-        self.forget_bookmarks((bookmark,))
-
     def forget_bookmarks(self, bookmarks: Sequence[str]) -> None:
         """Forget one or more local bookmarks without scheduling remote deletions."""
 

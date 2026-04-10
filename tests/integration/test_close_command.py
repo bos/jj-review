@@ -155,7 +155,7 @@ def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
     state_store = ReviewStateStore.for_repo(repo)
     action_order: list[str] = []
     original_delete_remote_bookmark = JjClient.delete_remote_bookmark
-    original_forget_bookmark = JjClient.forget_bookmark
+    original_forget_bookmarks = JjClient.forget_bookmarks
 
     def tracking_delete_remote_bookmark(
         self,
@@ -172,9 +172,9 @@ def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
             expected_remote_target=expected_remote_target,
         )
 
-    def tracking_forget_bookmark(self, bookmark: str) -> None:
+    def tracking_forget_bookmarks(self, bookmarks) -> None:
         action_order.append("local")
-        return original_forget_bookmark(self, bookmark)
+        return original_forget_bookmarks(self, bookmarks)
 
     monkeypatch.setattr(
         JjClient,
@@ -183,8 +183,8 @@ def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
     )
     monkeypatch.setattr(
         JjClient,
-        "forget_bookmark",
-        tracking_forget_bookmark,
+        "forget_bookmarks",
+        tracking_forget_bookmarks,
     )
 
     exit_code = _main(repo, config_path, "close", "--cleanup", change_id)

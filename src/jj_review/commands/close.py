@@ -915,7 +915,7 @@ def _apply_review_bookmark_cleanup(
             )
         )
         if context.apply:
-            context.jj_client.forget_bookmark(bookmark)
+            context.jj_client.forget_bookmarks((bookmark,))
 
 
 async def _find_stack_summary_comment(

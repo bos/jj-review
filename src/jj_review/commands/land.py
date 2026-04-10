@@ -983,7 +983,7 @@ def _restore_local_trunk_bookmark(
     trunk_branch: str,
 ) -> None:
     if original_target is None:
-        client.forget_bookmark(trunk_branch)
+        client.forget_bookmarks((trunk_branch,))
         return
     client.set_bookmark(trunk_branch, original_target, allow_backwards=True)
 

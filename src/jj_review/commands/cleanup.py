@@ -1549,7 +1549,7 @@ def _process_local_bookmark_cleanup(
         bookmark = cached_change.bookmark
         if bookmark is None:
             raise AssertionError("Planned local bookmark cleanup requires a bookmark.")
-        jj_client.forget_bookmark(bookmark)
+        jj_client.forget_bookmarks((bookmark,))
         local_action = CleanupAction(
             kind=local_action.kind,
             message=local_action.message,
