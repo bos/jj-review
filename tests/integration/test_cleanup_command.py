@@ -10,16 +10,16 @@ from jj_review.jj import JjClient
 from jj_review.models.intent import CleanupApplyIntent
 
 from ..support.integration_helpers import (
-    commit_file as _commit,
-    init_fake_github_repo as _init_repo,
-    run_command as _run,
+    commit_file,
+    init_fake_github_repo,
+    run_command,
 )
 from .submit_command_helpers import (
-    configure_submit_environment as _configure_submit_environment,
-    issue_comments as _issue_comments,
-    read_remote_ref as _read_remote_ref,
-    remote_refs as _remote_refs,
-    run_main as _main,
+    configure_submit_environment,
+    issue_comments,
+    read_remote_ref,
+    remote_refs,
+    run_main,
 )
 
 
@@ -28,19 +28,19 @@ def test_cleanup_prunes_unlinked_state_for_stale_change(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
-    assert _main(repo, config_path, "unlink", change_id) == 0
+    assert run_main(repo, config_path, "unlink", change_id) == 0
     capsys.readouterr()
-    _run(["jj", "abandon", change_id], repo)
+    run_command(["jj", "abandon", change_id], repo)
 
-    exit_code = _main(repo, config_path, "cleanup")
+    exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -52,12 +52,12 @@ def test_cleanup_restack_previews_and_rebases_survivor_above_merged_ancestor(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -67,7 +67,7 @@ def test_cleanup_restack_previews_and_rebases_survivor_above_merged_ancestor(
     fake_repo.pull_requests[1].state = "closed"
     fake_repo.pull_requests[1].merged_at = "2026-03-16T12:00:00Z"
 
-    preview_exit_code = _main(
+    preview_exit_code = run_main(
         repo,
         config_path,
         "cleanup",
@@ -81,7 +81,7 @@ def test_cleanup_restack_previews_and_rebases_survivor_above_merged_ancestor(
     assert "Planned restack actions:" in preview.out
     assert f"rebase {top_change_id[:8]} onto trunk()" in preview.out
 
-    apply_exit_code = _main(
+    apply_exit_code = run_main(
         repo,
         config_path,
         "cleanup",
@@ -101,11 +101,11 @@ def test_cleanup_dry_run_reports_stale_tracking_and_remote_branch_without_mutati
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -115,10 +115,10 @@ def test_cleanup_dry_run_reports_stale_tracking_and_remote_branch_without_mutati
     bookmark = initial_state.changes[change_id].bookmark
     assert bookmark is not None
 
-    _run(["jj", "abandon", change_id], repo)
-    _run(["jj", "bookmark", "delete", bookmark], repo)
+    run_command(["jj", "abandon", change_id], repo)
+    run_command(["jj", "bookmark", "delete", bookmark], repo)
 
-    exit_code = _main(repo, config_path, "cleanup", "--dry-run")
+    exit_code = run_main(repo, config_path, "cleanup", "--dry-run")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -129,18 +129,18 @@ def test_cleanup_dry_run_reports_stale_tracking_and_remote_branch_without_mutati
     )
     assert "cleanup --apply" not in captured.out
     assert change_id in state_store.load().changes
-    assert f"refs/heads/{bookmark}" in _remote_refs(fake_repo.git_dir)
+    assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
 
 def test_cleanup_applies_stale_tracking_and_remote_branch_removal(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -150,10 +150,10 @@ def test_cleanup_applies_stale_tracking_and_remote_branch_removal(
     bookmark = initial_state.changes[change_id].bookmark
     assert bookmark is not None
 
-    _run(["jj", "abandon", change_id], repo)
-    _run(["jj", "bookmark", "delete", bookmark], repo)
+    run_command(["jj", "abandon", change_id], repo)
+    run_command(["jj", "bookmark", "delete", bookmark], repo)
 
-    exit_code = _main(repo, config_path, "cleanup")
+    exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -162,7 +162,7 @@ def test_cleanup_applies_stale_tracking_and_remote_branch_removal(
         captured.out
     )
     assert change_id not in state_store.load().changes
-    assert f"refs/heads/{bookmark}" not in _remote_refs(fake_repo.git_dir)
+    assert f"refs/heads/{bookmark}" not in remote_refs(fake_repo.git_dir)
 
 
 def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
@@ -170,11 +170,11 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -183,7 +183,7 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
     bookmark = state_store.load().changes[change_id].bookmark
     assert bookmark is not None
 
-    _run(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
+    run_command(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
     monkeypatch.setattr(
         "jj_review.commands.cleanup._stale_change_reasons",
         lambda **kwargs: {
@@ -192,7 +192,7 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
         },
     )
 
-    exit_code = _main(repo, config_path, "cleanup", "--dry-run")
+    exit_code = run_main(repo, config_path, "cleanup", "--dry-run")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -202,8 +202,8 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
         captured.out
     )
     assert "[blocked] remote branch" not in captured.out
-    assert bookmark in _run(["jj", "bookmark", "list", bookmark], repo).stdout
-    assert f"refs/heads/{bookmark}" in _remote_refs(fake_repo.git_dir)
+    assert bookmark in run_command(["jj", "bookmark", "list", bookmark], repo).stdout
+    assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
 
 
 def test_cleanup_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
@@ -211,11 +211,11 @@ def test_cleanup_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -224,7 +224,7 @@ def test_cleanup_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
     bookmark = state_store.load().changes[change_id].bookmark
     assert bookmark is not None
 
-    _run(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
+    run_command(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
     monkeypatch.setattr(
         "jj_review.commands.cleanup._stale_change_reasons",
         lambda **kwargs: {
@@ -233,7 +233,7 @@ def test_cleanup_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
         },
     )
 
-    exit_code = _main(repo, config_path, "cleanup")
+    exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -242,8 +242,8 @@ def test_cleanup_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
         captured.out
     )
     assert change_id not in state_store.load().changes
-    assert bookmark not in _run(["jj", "bookmark", "list", bookmark], repo).stdout
-    assert f"refs/heads/{bookmark}" not in _remote_refs(fake_repo.git_dir)
+    assert bookmark not in run_command(["jj", "bookmark", "list", bookmark], repo).stdout
+    assert f"refs/heads/{bookmark}" not in remote_refs(fake_repo.git_dir)
 
 
 def test_cleanup_apply_batches_remote_delete_local_forget_and_fetch(
@@ -251,12 +251,12 @@ def test_cleanup_apply_batches_remote_delete_local_forget_and_fetch(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -270,7 +270,7 @@ def test_cleanup_apply_batches_remote_delete_local_forget_and_fetch(
 
     for change_id, bookmark in zip(change_ids, bookmarks, strict=True):
         assert bookmark is not None
-        _run(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
+        run_command(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
 
     monkeypatch.setattr(
         "jj_review.commands.cleanup._stale_change_reasons",
@@ -321,7 +321,7 @@ def test_cleanup_apply_batches_remote_delete_local_forget_and_fetch(
         tracking_fetch_remote,
     )
 
-    exit_code = _main(repo, config_path, "cleanup")
+    exit_code = run_main(repo, config_path, "cleanup")
     capsys.readouterr()
 
     assert exit_code == 0
@@ -351,11 +351,11 @@ def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -365,8 +365,8 @@ def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
     bookmark = initial_state.changes[change_id].bookmark
     assert bookmark is not None
 
-    _run(["jj", "abandon", change_id], repo)
-    _run(["jj", "bookmark", "delete", bookmark], repo)
+    run_command(["jj", "abandon", change_id], repo)
+    run_command(["jj", "bookmark", "delete", bookmark], repo)
 
     original_delete_remote_bookmarks = JjClient.delete_remote_bookmarks
 
@@ -378,14 +378,14 @@ def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
         fetch: bool = True,
     ) -> None:
         bookmark, _expected_remote_target = tuple(deletions)[0]
-        _run(
+        run_command(
             [
                 "git",
                 "--git-dir",
                 str(fake_repo.git_dir),
                 "update-ref",
                 f"refs/heads/{bookmark}",
-                _read_remote_ref(fake_repo.git_dir, "main"),
+                read_remote_ref(fake_repo.git_dir, "main"),
             ],
             fake_repo.git_dir.parent,
         )
@@ -401,12 +401,12 @@ def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
         delete_remote_bookmarks_with_race,
     )
 
-    exit_code = _main(repo, config_path, "cleanup")
+    exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
 
     assert exit_code == 1
     assert change_id in state_store.load().changes
-    assert _read_remote_ref(fake_repo.git_dir, bookmark) == _read_remote_ref(
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == read_remote_ref(
         fake_repo.git_dir, "main"
     )
     assert "force-with-lease" in captured.err
@@ -416,12 +416,12 @@ def test_cleanup_apply_preserves_managed_stack_comment_for_closed_pull_request(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -429,7 +429,7 @@ def test_cleanup_apply_preserves_managed_stack_comment_for_closed_pull_request(
     state_store = ReviewStateStore.for_repo(repo)
     fake_repo.pull_requests[2].state = "closed"
 
-    exit_code = _main(repo, config_path, "cleanup")
+    exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
     refreshed_state = state_store.load()
 
@@ -437,7 +437,7 @@ def test_cleanup_apply_preserves_managed_stack_comment_for_closed_pull_request(
     assert "stack summary comment" not in captured.out
     assert refreshed_state.changes[change_id].pr_number == 2
     assert refreshed_state.changes[change_id].stack_comment_id == 1
-    assert len(_issue_comments(fake_repo, 2)) == 1
+    assert len(issue_comments(fake_repo, 2)) == 1
 
 
 def test_cleanup_apply_preserves_discovered_stack_comment_when_cache_id_is_missing(
@@ -445,12 +445,12 @@ def test_cleanup_apply_preserves_discovered_stack_comment_when_cache_id_is_missi
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -471,14 +471,14 @@ def test_cleanup_apply_preserves_discovered_stack_comment_when_cache_id_is_missi
         )
     )
 
-    exit_code = _main(repo, config_path, "cleanup")
+    exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
     refreshed_state = state_store.load()
 
     assert exit_code == 0
     assert "stack summary comment" not in captured.out
     assert refreshed_state.changes[change_id].stack_comment_id is None
-    assert len(_issue_comments(fake_repo, 2)) == 1
+    assert len(issue_comments(fake_repo, 2)) == 1
 
 def test_cleanup_deletes_intent_file_after_successful_apply(
     tmp_path: Path,
@@ -486,11 +486,11 @@ def test_cleanup_deletes_intent_file_after_successful_apply(
     capsys,
 ) -> None:
     """cleanup deletes its intent file on success."""
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -499,10 +499,10 @@ def test_cleanup_deletes_intent_file_after_successful_apply(
     assert bookmark is not None
 
     # Abandon the change and delete the bookmark to make it stale
-    _run(["jj", "abandon", change_id], repo)
-    _run(["jj", "bookmark", "delete", bookmark], repo)
+    run_command(["jj", "abandon", change_id], repo)
+    run_command(["jj", "bookmark", "delete", bookmark], repo)
 
-    exit_code = _main(repo, config_path, "cleanup")
+    exit_code = run_main(repo, config_path, "cleanup")
     capsys.readouterr()
 
     assert exit_code == 0
@@ -516,11 +516,11 @@ def test_cleanup_retains_intent_file_after_failed_apply(
     capsys,
 ) -> None:
     """cleanup leaves its intent file behind when it fails mid-way."""
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -528,8 +528,8 @@ def test_cleanup_retains_intent_file_after_failed_apply(
     bookmark = ReviewStateStore.for_repo(repo).load().changes[change_id].bookmark
     assert bookmark is not None
 
-    _run(["jj", "abandon", change_id], repo)
-    _run(["jj", "bookmark", "delete", bookmark], repo)
+    run_command(["jj", "abandon", change_id], repo)
+    run_command(["jj", "bookmark", "delete", bookmark], repo)
 
     def failing_delete_remote_bookmarks(self, *, remote, deletions, fetch=True):
         raise RuntimeError("Simulated failure during cleanup apply")
@@ -540,7 +540,7 @@ def test_cleanup_retains_intent_file_after_failed_apply(
     )
 
     with pytest.raises(RuntimeError, match="Simulated failure"):
-        _main(repo, config_path, "cleanup")
+        run_main(repo, config_path, "cleanup")
     capsys.readouterr()
 
     state_dir = resolve_state_path(repo).parent
@@ -558,11 +558,11 @@ def test_cleanup_retires_prior_interrupted_intent_after_success(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     state_dir = resolve_state_path(repo).parent
@@ -574,7 +574,7 @@ def test_cleanup_retires_prior_interrupted_intent_after_success(
     )
     stale_path = write_intent(state_dir, stale_intent)
 
-    exit_code = _main(repo, config_path, "cleanup")
+    exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
 
     assert exit_code == 0

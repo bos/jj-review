@@ -8,9 +8,9 @@ from jj_review.cli import main
 from jj_review.jj import JjClient
 
 from ..support.integration_helpers import (
-    commit_file as _commit,
-    init_repo as _init_repo,
-    run_command as _run,
+    commit_file,
+    init_repo,
+    run_command,
 )
 
 
@@ -19,9 +19,9 @@ def test_bookmark_pins_survive_subject_rewrites(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    repo = _init_repo(tmp_path)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    repo = init_repo(tmp_path)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
     state_store = ReviewStateStore.for_repo(repo)
 
     first_stack = JjClient(repo).discover_review_stack()
@@ -30,7 +30,7 @@ def test_bookmark_pins_survive_subject_rewrites(
     top_change_id = first_stack.revisions[-1].change_id
     initial_bookmark = first_result.resolutions[-1].bookmark
 
-    _run(["jj", "describe", "-r", top_change_id, "-m", "renamed feature 2"], repo)
+    run_command(["jj", "describe", "-r", top_change_id, "-m", "renamed feature 2"], repo)
 
     second_stack = JjClient(repo).discover_review_stack(top_change_id)
     second_result = BookmarkResolver(state_store.load()).pin_revisions(second_stack.revisions)
@@ -44,9 +44,9 @@ def test_status_persists_generated_bookmark_pins(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    repo = _init_repo(tmp_path)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    repo = init_repo(tmp_path)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
     stack = JjClient(repo).discover_review_stack()
 
     exit_code = main(["--repository", str(repo), "status"])
@@ -67,8 +67,8 @@ def test_status_continues_when_review_state_persistence_is_unavailable(
     capsys,
 ) -> None:
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    repo = _init_repo(tmp_path)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo = init_repo(tmp_path)
+    commit_file(repo, "feature 1", "feature-1.txt")
     monkeypatch.setattr(
         "jj_review.cache._resolve_repo_id",
         lambda _: (_ for _ in ()).throw(ReviewStateUnavailable("repo config ID missing")),

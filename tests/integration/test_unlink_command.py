@@ -6,13 +6,13 @@ from jj_review.cache import ReviewStateStore
 from jj_review.jj import JjClient
 
 from ..support.integration_helpers import (
-    commit_file as _commit,
-    init_fake_github_repo as _init_repo,
+    commit_file,
+    init_fake_github_repo,
 )
 from .submit_command_helpers import (
-    configure_submit_environment as _configure_submit_environment,
-    issue_comments as _issue_comments,
-    run_main as _main,
+    configure_submit_environment,
+    issue_comments,
+    run_main,
 )
 
 
@@ -21,11 +21,11 @@ def test_unlink_detaches_change_and_preserves_local_bookmark(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     stack = JjClient(repo).discover_review_stack()
@@ -34,7 +34,7 @@ def test_unlink_detaches_change_and_preserves_local_bookmark(
     bookmark = state_store.load().changes[change_id].bookmark
     assert bookmark is not None
 
-    exit_code = _main(repo, config_path, "unlink", change_id)
+    exit_code = run_main(repo, config_path, "unlink", change_id)
     captured = capsys.readouterr()
     unlinked_change = state_store.load().changes[change_id]
 
@@ -50,25 +50,25 @@ def test_unlink_detaches_change_and_preserves_local_bookmark(
     assert unlinked_change.stack_comment_id is None
     assert JjClient(repo).get_bookmark_state(bookmark).local_target is not None
     assert fake_repo.pull_requests[1].state == "open"
-    assert _issue_comments(fake_repo, 1) == []
+    assert issue_comments(fake_repo, 1) == []
 
 def test_unlink_is_idempotent_for_unlinked_change(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
-    assert _main(repo, config_path, "submit") == 0
+    assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
     change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
 
-    assert _main(repo, config_path, "unlink", change_id) == 0
+    assert run_main(repo, config_path, "unlink", change_id) == 0
     capsys.readouterr()
-    exit_code = _main(repo, config_path, "unlink", change_id)
+    exit_code = run_main(repo, config_path, "unlink", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 0
@@ -79,13 +79,13 @@ def test_unlink_rejects_change_without_active_review_link(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
     change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
 
-    exit_code = _main(repo, config_path, "unlink", change_id)
+    exit_code = run_main(repo, config_path, "unlink", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 1

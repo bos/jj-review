@@ -7,16 +7,16 @@ import pytest
 from jj_review.jj import JjClient, UnsupportedStackError
 
 from ..support.integration_helpers import (
-    commit_file as _commit,
-    init_repo as _init_repo,
-    run_command as _run,
+    commit_file,
+    init_repo,
+    run_command,
 )
 
 
 def test_discover_review_stack_walks_linear_history_from_default_head(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    repo = init_repo(tmp_path)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
     stack = JjClient(repo).discover_review_stack()
 
@@ -25,8 +25,8 @@ def test_discover_review_stack_walks_linear_history_from_default_head(tmp_path: 
 
 
 def test_discover_review_stack_rejects_root_fallback_trunk(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path, configure_trunk=False)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo = init_repo(tmp_path, configure_trunk=False)
+    commit_file(repo, "feature 1", "feature-1.txt")
 
     with pytest.raises(
         UnsupportedStackError,
@@ -36,13 +36,13 @@ def test_discover_review_stack_rejects_root_fallback_trunk(tmp_path: Path) -> No
 
 
 def test_discover_review_stack_ignores_off_path_reviewable_child(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo = init_repo(tmp_path)
+    commit_file(repo, "feature 1", "feature-1.txt")
     feature_1 = _current_parent_commit_id(repo)
-    _commit(repo, "feature 2", "feature-2.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
     feature_2 = _current_parent_commit_id(repo)
     _new_child(repo, feature_1)
-    _commit(repo, "feature side", "feature-side.txt")
+    commit_file(repo, "feature side", "feature-side.txt")
 
     stack = JjClient(repo).discover_review_stack(feature_2)
 
@@ -50,7 +50,7 @@ def test_discover_review_stack_ignores_off_path_reviewable_child(tmp_path: Path)
 
 
 def test_discover_review_stack_returns_empty_when_head_is_trunk(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
+    repo = init_repo(tmp_path)
     # No commits beyond trunk; the selected revset resolves to trunk itself.
     stack = JjClient(repo).discover_review_stack("main")
 
@@ -63,19 +63,19 @@ def test_discover_review_stack_fails_with_root_before_trunk(tmp_path: Path) -> N
     # walk should fail with a targeted UnsupportedStackError rather than
     # silently producing a corrupted stack.  We set trunk() to a bookmark
     # that is NOT an ancestor of the selected head.
-    repo = _init_repo(tmp_path, configure_trunk=False)
+    repo = init_repo(tmp_path, configure_trunk=False)
     # Create a unlinked bookmark that lives on @- (the base commit).
-    _run(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
+    run_command(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
     # Create a sibling branch starting from the root commit, not from main.
-    _run(["jj", "new", "root()"], repo)
-    _run(["jj", "bookmark", "create", "trunk-alias", "-r", "@"], repo)
-    _run(
+    run_command(["jj", "new", "root()"], repo)
+    run_command(["jj", "bookmark", "create", "trunk-alias", "-r", "@"], repo)
+    run_command(
         ["jj", "config", "set", "--repo", 'revset-aliases."trunk()"', "trunk-alias"],
         repo,
     )
     # Now go back and add a commit on the main branch.
-    _run(["jj", "new", "main"], repo)
-    _commit(repo, "feature on main", "feature.txt")
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "feature on main", "feature.txt")
     head = _current_parent_commit_id(repo)
 
     with pytest.raises(
@@ -88,14 +88,14 @@ def test_discover_review_stack_fails_with_root_before_trunk(tmp_path: Path) -> N
 def test_discover_review_stack_rejects_shared_trunk_ancestor_without_merge(
     tmp_path: Path,
 ) -> None:
-    repo = _init_repo(tmp_path)
+    repo = init_repo(tmp_path)
     base = _current_parent_commit_id(repo)
 
-    _commit(repo, "trunk 1", "trunk-1.txt")
-    _run(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
+    commit_file(repo, "trunk 1", "trunk-1.txt")
+    run_command(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
 
-    _run(["jj", "new", base], repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    run_command(["jj", "new", base], repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
     head = _current_parent_commit_id(repo)
 
     with pytest.raises(
@@ -110,11 +110,11 @@ def test_discover_review_stack_rejects_shared_trunk_ancestor_without_merge(
 
 
 def test_discover_review_stack_rejects_immutable_revisions(tmp_path: Path) -> None:
-    repo = _init_repo(tmp_path)
-    _commit(repo, "feature 1", "feature-1.txt")
+    repo = init_repo(tmp_path)
+    commit_file(repo, "feature 1", "feature-1.txt")
     feature_1 = _current_parent_commit_id(repo)
-    _commit(repo, "feature 2", "feature-2.txt")
-    _run(
+    commit_file(repo, "feature 2", "feature-2.txt")
+    run_command(
         [
             "jj",
             "config",
@@ -132,7 +132,7 @@ def test_discover_review_stack_rejects_immutable_revisions(tmp_path: Path) -> No
     ):
         JjClient(repo).discover_review_stack()
 def _current_parent_commit_id(repo: Path) -> str:
-    completed = _run(
+    completed = run_command(
         [
             "jj",
             "log",
@@ -148,4 +148,4 @@ def _current_parent_commit_id(repo: Path) -> str:
 
 
 def _new_child(repo: Path, parent_commit_id: str) -> None:
-    _run(["jj", "new", parent_commit_id], repo)
+    run_command(["jj", "new", parent_commit_id], repo)
