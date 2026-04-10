@@ -31,11 +31,3 @@ def patch_bootstrap(
         "bootstrap_context",
         lambda **kwargs: app_context(tmp_path, repo_config=repo_config),
     )
-
-
-def fake_submit_state_store(tmp_path: Path) -> SimpleNamespace:
-    state_dir = tmp_path / "jj-review-state"
-    return SimpleNamespace(
-        state_dir=state_dir,
-        require_writable=lambda: state_dir,
-    )
