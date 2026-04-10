@@ -10,9 +10,9 @@ from jj_review.errors import CliError
 from jj_review.github_resolution import (
     _github_hostname_from_api_base_url,
     _github_token_for_base_url,
-    _github_token_from_env,
     _github_token_from_gh_cli,
     build_github_client,
+    github_token_from_env,
     resolve_github_repository,
     resolve_trunk_branch,
     select_submit_remote,
@@ -131,7 +131,7 @@ def test_github_token_from_env_prefers_github_token(
     monkeypatch.setenv("GITHUB_TOKEN", "github-token")
     monkeypatch.setenv("GH_TOKEN", "gh-token")
 
-    assert _github_token_from_env() == "github-token"
+    assert github_token_from_env() == "github-token"
 
 
 def test_github_token_from_env_falls_back_to_gh_token(
@@ -140,7 +140,7 @@ def test_github_token_from_env_falls_back_to_gh_token(
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setenv("GH_TOKEN", "gh-token")
 
-    assert _github_token_from_env() == "gh-token"
+    assert github_token_from_env() == "gh-token"
 
 
 def test_build_github_client_reads_token_from_environment(

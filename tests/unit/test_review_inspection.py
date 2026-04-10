@@ -16,13 +16,13 @@ from jj_review.models.cache import ReviewState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
 from jj_review.models.stack import LocalRevision, LocalStack
 from jj_review.review_inspection import (
+    PreparedStack,
     PreparedStatus,
     PullRequestLookup,
     ReviewStatusRevision,
     _classify_status_intents,
-    _PreparedStack,
     _status_is_incomplete,
-    _stream_status_async,
+    stream_status_async,
 )
 
 
@@ -39,7 +39,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
         github_repository_error=None,
         outstanding_intents=(),
         prepared=cast(
-            _PreparedStack,
+            PreparedStack,
             SimpleNamespace(
                 remote=remote,
                 remote_error=None,
@@ -102,7 +102,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
         github_status_calls.append((github_repository, github_error))
 
     result = asyncio.run(
-        _stream_status_async(
+        stream_status_async(
             on_github_status=on_github_status,
             on_revision=lambda revision, github_available: streamed_revisions.append(
                 (revision.change_id, github_available)
@@ -142,7 +142,7 @@ def test_classify_status_intents_separates_stale_intents_from_live_ones(
     fresh = cast(object, SimpleNamespace(intent=SimpleNamespace(label="fresh")))
     stale = cast(object, SimpleNamespace(intent=SimpleNamespace(label="stale")))
     prepared = cast(
-        _PreparedStack,
+        PreparedStack,
         SimpleNamespace(
             client=object(),
             state_store=SimpleNamespace(state_dir=Path("/tmp/state")),
@@ -175,7 +175,7 @@ def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> No
         github_repository_error=None,
         outstanding_intents=(),
         prepared=cast(
-            _PreparedStack,
+            PreparedStack,
             SimpleNamespace(
                 remote=remote,
                 remote_error=None,
@@ -189,7 +189,7 @@ def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> No
     github_status_calls: list[tuple[str | None, str | None]] = []
 
     result = asyncio.run(
-        _stream_status_async(
+        stream_status_async(
             on_github_status=lambda github_repository, github_error: github_status_calls.append(
                 (github_repository, github_error)
             ),
@@ -277,7 +277,7 @@ def test_stream_status_marks_missing_remote_as_incomplete() -> None:
         github_repository_error=None,
         outstanding_intents=(),
         prepared=cast(
-            _PreparedStack,
+            PreparedStack,
             SimpleNamespace(
                 client=SimpleNamespace(list_bookmark_states=lambda bookmarks=None: {}),
                 remote=None,
@@ -317,7 +317,7 @@ def test_stream_status_marks_missing_remote_as_incomplete() -> None:
     )
 
     result = asyncio.run(
-        _stream_status_async(
+        stream_status_async(
             on_github_status=None,
             on_revision=None,
             prepared_status=prepared_status,
@@ -338,7 +338,7 @@ def test_stream_status_marks_missing_github_target_as_incomplete(monkeypatch) ->
         github_repository_error="repo not found or inaccessible",
         outstanding_intents=(),
         prepared=cast(
-            _PreparedStack,
+            PreparedStack,
             SimpleNamespace(
                 remote=remote,
                 remote_error=None,
@@ -381,7 +381,7 @@ def test_stream_status_marks_missing_github_target_as_incomplete(monkeypatch) ->
     )
 
     result = asyncio.run(
-        _stream_status_async(
+        stream_status_async(
             on_github_status=None,
             on_revision=None,
             prepared_status=prepared_status,

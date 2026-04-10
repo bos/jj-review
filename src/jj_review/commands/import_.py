@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from jj_review.bookmarks import (
-    _bookmark_matches_generated_change_id,
-    _discover_bookmarks_for_revisions,
+    bookmark_matches_generated_change_id,
+    discover_bookmarks_for_revisions,
 )
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import ChangeConfig, RepoConfig
@@ -41,8 +41,8 @@ from jj_review.pull_request_references import parse_repository_pull_request_refe
 from jj_review.review_inspection import (
     PreparedStatus,
     StatusResult,
-    _stream_status_async,
     prepare_status,
+    stream_status_async,
 )
 
 HELP = "Set up local jj-review tracking for an existing stack"
@@ -198,7 +198,7 @@ async def _run_import_async(
             "remote pull request."
         )
     print("Inspecting GitHub pull requests and branches...")
-    status_result = await _stream_status_async(
+    status_result = await stream_status_async(
         persist_cache_updates=False,
         prepared_status=prepared_status,
         on_github_status=None,
@@ -231,7 +231,7 @@ async def _run_import_async(
     bookmark_by_change_id: dict[str, str] = {}
     if prepared.remote is not None:
         bookmark_by_change_id.update(
-            _discover_bookmarks_for_revisions(
+            discover_bookmarks_for_revisions(
                 bookmark_states=bookmark_states,
                 remote_name=prepared.remote.name,
                 revisions=prepared.stack.revisions,
@@ -403,7 +403,7 @@ def _fetch_selected_stack_bookmarks(
         candidates = sorted(
             name
             for name in remote_branches
-            if _bookmark_matches_generated_change_id(name, change_id)
+            if bookmark_matches_generated_change_id(name, change_id)
         )
         if len(candidates) > 1:
             raise CliError(

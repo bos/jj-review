@@ -132,7 +132,7 @@ def generate_bookmark_name(revision: LocalRevision) -> str:
     return f"{_REVIEW_NAMESPACE}/{slug}-{short_change_id}"
 
 
-def _discover_bookmarks_for_revisions(
+def discover_bookmarks_for_revisions(
     *,
     bookmark_states: dict[str, BookmarkState],
     remote_name: str,
@@ -143,7 +143,7 @@ def _discover_bookmarks_for_revisions(
         candidates = [
             bookmark
             for bookmark, bookmark_state in bookmark_states.items()
-            if _bookmark_matches_generated_change_id(bookmark, revision.change_id)
+            if bookmark_matches_generated_change_id(bookmark, revision.change_id)
             and _bookmark_state_is_discoverable(bookmark_state, remote_name)
         ]
         if not candidates:
@@ -159,7 +159,7 @@ def _discover_bookmarks_for_revisions(
     return discovered
 
 
-def _ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
+def ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
     bookmarks_to_changes: dict[str, list[str]] = {}
     for resolution in resolutions:
         bookmarks_to_changes.setdefault(resolution.bookmark, []).append(resolution.change_id)
@@ -183,7 +183,7 @@ def _ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
     )
 
 
-def _bookmark_matches_generated_change_id(bookmark: str, change_id: str) -> bool:
+def bookmark_matches_generated_change_id(bookmark: str, change_id: str) -> bool:
     return bookmark.startswith("review/") and bookmark.endswith(f"-{change_id[:8]}")
 
 

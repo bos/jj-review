@@ -17,7 +17,7 @@ from jj_review.commands.review_state import display_change_id
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.models.cache import CachedChange
-from jj_review.review_inspection import _stream_status_async, prepare_status
+from jj_review.review_inspection import prepare_status, stream_status_async
 
 HELP = "Stop managing one local change as part of review"
 
@@ -98,7 +98,7 @@ async def _run_unlink_async(
     if not prepared.status_revisions:
         raise CliError("No reviewable commits between the selected revision and `trunk()`.")
 
-    status_result = await _stream_status_async(
+    status_result = await stream_status_async(
         persist_cache_updates=False,
         prepared_status=prepared_status,
         on_github_status=None,

@@ -5,8 +5,8 @@ import pytest
 from jj_review.bookmarks import (
     BookmarkResolver,
     ResolvedBookmark,
-    _discover_bookmarks_for_revisions,
-    _ensure_unique_bookmarks,
+    discover_bookmarks_for_revisions,
+    ensure_unique_bookmarks,
     generate_bookmark_name,
 )
 from jj_review.config import ChangeConfig
@@ -115,7 +115,7 @@ def test_bookmark_resolver_reuses_discovered_bookmark_when_cache_is_missing() ->
 
 def test_discover_bookmarks_reuses_unique_remote_bookmark_with_matching_change_id_suffix(
 ) -> None:
-    bookmarks = _discover_bookmarks_for_revisions(
+    bookmarks = discover_bookmarks_for_revisions(
         bookmark_states={
             "review/original-title-zvlywqkx": BookmarkState(
                 name="review/original-title-zvlywqkx",
@@ -136,7 +136,7 @@ def test_discover_bookmarks_for_revisions_rejects_ambiguous_matches() -> None:
         CliError,
         match="multiple existing bookmarks match",
     ):
-        _discover_bookmarks_for_revisions(
+        discover_bookmarks_for_revisions(
             bookmark_states={
                 "review/first-zvlywqkx": BookmarkState(
                     name="review/first-zvlywqkx",
@@ -176,7 +176,7 @@ def test_ensure_unique_bookmarks_rejects_multiple_changes_resolving_to_same_book
         CliError,
         match="multiple changes to the same bookmark",
     ):
-        _ensure_unique_bookmarks(resolutions)
+        ensure_unique_bookmarks(resolutions)
 
 
 def _revision(*, change_id: str, description: str) -> LocalRevision:

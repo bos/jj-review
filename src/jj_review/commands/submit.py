@@ -22,8 +22,8 @@ from jj_review.bookmarks import (
     BookmarkResolutionResult,
     BookmarkResolver,
     BookmarkSource,
-    _discover_bookmarks_for_revisions,
-    _ensure_unique_bookmarks,
+    discover_bookmarks_for_revisions,
+    ensure_unique_bookmarks,
 )
 from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
@@ -41,8 +41,8 @@ from jj_review.github_helpers import (
 )
 from jj_review.github_resolution import (
     ResolvedGithubRepository,
-    _remote_bookmarks_pointing_at_trunk,
     build_github_client,
+    remote_bookmarks_pointing_at_trunk,
     resolve_github_repository,
     resolve_trunk_branch,
     select_submit_remote,
@@ -510,7 +510,7 @@ def _prepare_submit_inputs(
             bool(stack.revisions),
         )
     state = state_store.load()
-    discovered_bookmarks = _discover_bookmarks_for_revisions(
+    discovered_bookmarks = discover_bookmarks_for_revisions(
         bookmark_states=client.list_bookmark_states(),
         remote_name=remote.name,
         revisions=stack.revisions,
@@ -520,7 +520,7 @@ def _prepare_submit_inputs(
         change_overrides,
         discovered_bookmarks=discovered_bookmarks,
     ).pin_revisions(stack.revisions)
-    _ensure_unique_bookmarks(bookmark_result.resolutions)
+    ensure_unique_bookmarks(bookmark_result.resolutions)
     _preflight_private_commits(client, stack.revisions)
     (
         generated_pull_request_descriptions,
@@ -731,7 +731,7 @@ async def _run_submit_async(
             state_store.save(bookmark_result.state)
         trunk_branch = config.trunk_branch
         if trunk_branch is None:
-            remote_bookmarks = _remote_bookmarks_pointing_at_trunk(
+            remote_bookmarks = remote_bookmarks_pointing_at_trunk(
                 client=client,
                 remote_name=remote.name,
                 trunk_commit_id=stack.trunk.commit_id,

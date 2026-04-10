@@ -47,10 +47,10 @@ from jj_review.models.github import GithubPullRequest
 from jj_review.models.intent import LandIntent, LoadedIntent
 from jj_review.pull_request_references import parse_repository_pull_request_reference
 from jj_review.review_inspection import (
+    PreparedRevision,
     PreparedStatus,
     ReviewStatusRevision,
     StatusResult,
-    _PreparedRevision,
     prepare_status,
     stream_status,
 )
@@ -694,11 +694,11 @@ def _resolve_land_path_revisions(
     *,
     prepared_status: PreparedStatus,
     status_result: StatusResult,
-) -> tuple[tuple[_PreparedRevision, ReviewStatusRevision], ...]:
+) -> tuple[tuple[PreparedRevision, ReviewStatusRevision], ...]:
     revisions_by_change_id = {
         revision.change_id: revision for revision in status_result.revisions
     }
-    path_revisions: list[tuple[_PreparedRevision, ReviewStatusRevision]] = []
+    path_revisions: list[tuple[PreparedRevision, ReviewStatusRevision]] = []
     for prepared_revision in prepared_status.prepared.status_revisions:
         change_id = prepared_revision.revision.change_id
         revision = revisions_by_change_id.get(change_id)
@@ -713,7 +713,7 @@ def _resolve_land_path_revisions(
 def _collect_landable_prefix(
     *,
     bypass_readiness: bool,
-    path_revisions: tuple[tuple[_PreparedRevision, ReviewStatusRevision], ...],
+    path_revisions: tuple[tuple[PreparedRevision, ReviewStatusRevision], ...],
 ) -> tuple[tuple[_LandRevision, ...], LandAction | None]:
     landed_revisions: list[_LandRevision] = []
     for prepared_revision, revision in path_revisions:
@@ -746,7 +746,7 @@ def _collect_landable_prefix(
 def _land_boundary_message(
     *,
     bypass_readiness: bool,
-    prepared_revision: _PreparedRevision,
+    prepared_revision: PreparedRevision,
     revision: ReviewStatusRevision,
 ) -> str | None:
     if revision.link_state == "unlinked":

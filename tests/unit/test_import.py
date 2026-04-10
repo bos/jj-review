@@ -463,7 +463,7 @@ def test_run_import_current_rejects_before_github_inspection(
         raise AssertionError("GitHub inspection should not run for this failure path.")
 
     monkeypatch.setattr(
-        "jj_review.commands.import_._stream_status_async",
+        "jj_review.commands.import_.stream_status_async",
         fail_stream_status_async,
     )
 

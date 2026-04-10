@@ -136,7 +136,7 @@ def resolve_trunk_branch(
     if github_repository_state.default_branch:
         return github_repository_state.default_branch
 
-    remote_bookmarks = _remote_bookmarks_pointing_at_trunk(
+    remote_bookmarks = remote_bookmarks_pointing_at_trunk(
         client=client,
         remote_name=remote.name,
         trunk_commit_id=stack.trunk.commit_id,
@@ -162,7 +162,7 @@ def build_github_client(*, base_url: str) -> GithubClient:
     )
 
 
-def _github_token_from_env() -> str | None:
+def github_token_from_env() -> str | None:
     token = os.environ.get("GITHUB_TOKEN")
     if token:
         return token
@@ -173,7 +173,7 @@ def _github_token_from_env() -> str | None:
 
 
 def _github_token_for_base_url(base_url: str) -> str | None:
-    token = _github_token_from_env()
+    token = github_token_from_env()
     if token is not None:
         return token
     hostname = _github_hostname_from_api_base_url(base_url)
@@ -211,7 +211,7 @@ def _github_token_from_gh_cli(hostname: str) -> str | None:
     return token
 
 
-def _remote_bookmarks_pointing_at_trunk(
+def remote_bookmarks_pointing_at_trunk(
     *,
     client: BookmarkStateReader,
     remote_name: str,

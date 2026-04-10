@@ -13,8 +13,8 @@ from typing import Literal
 from jj_review.bookmarks import (
     BookmarkResolver,
     BookmarkSource,
-    _discover_bookmarks_for_revisions,
-    _ensure_unique_bookmarks,
+    discover_bookmarks_for_revisions,
+    ensure_unique_bookmarks,
 )
 from jj_review.cache import ReviewStateStore
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY
@@ -23,8 +23,8 @@ from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_resolution import (
     ResolvedGithubRepository,
-    _github_token_from_env,
     build_github_client,
+    github_token_from_env,
     select_submit_remote,
     try_resolve_github_repository,
 )
@@ -105,14 +105,16 @@ class PreparedStatus:
     github_repository: ResolvedGithubRepository | None
     github_repository_error: str | None
     outstanding_intents: tuple[LoadedIntent, ...]
-    prepared: _PreparedStack
+    prepared: PreparedStack
     selected_revset: str
     stale_intents: tuple[LoadedIntent, ...]
     trunk_subject: str
 
 
 @dataclass(frozen=True, slots=True)
-class _PreparedStack:
+class PreparedStack:
+    """Prepared local stack inputs shared across inspection-driven commands."""
+
     bookmark_result_changed: bool
     client: JjClient
     remote: GitRemote | None
@@ -121,11 +123,11 @@ class _PreparedStack:
     state: ReviewState
     state_changes: dict[str, CachedChange]
     state_store: ReviewStateStore
-    status_revisions: tuple[_PreparedRevision, ...]
+    status_revisions: tuple[PreparedRevision, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class _PreparedRevision:
+class PreparedRevision:
     """Local review revision with resolved bookmark and cached state."""
 
     bookmark: str
@@ -177,7 +179,7 @@ def prepare_status(
 
 
 def _classify_status_intents(
-    prepared: _PreparedStack,
+    prepared: PreparedStack,
 ) -> tuple[tuple[LoadedIntent, ...], tuple[LoadedIntent, ...]]:
     state_dir = prepared.state_store.state_dir
     if state_dir is None:
@@ -209,7 +211,7 @@ def stream_status(
     """Inspect GitHub state for a prepared stack and optionally stream results out."""
 
     return asyncio.run(
-        _stream_status_async(
+        stream_status_async(
             on_github_status=on_github_status,
             on_revision=on_revision,
             persist_cache_updates=persist_cache_updates,
@@ -218,7 +220,7 @@ def stream_status(
     )
 
 
-async def _stream_status_async(
+async def stream_status_async(
     *,
     on_github_status: Callable[[str | None, str | None], None] | None,
     on_revision: Callable[[ReviewStatusRevision, bool], None] | None,
@@ -357,7 +359,7 @@ def _prepare_stack(
     repo_root: Path,
     require_remote: bool,
     revset: str | None,
-) -> _PreparedStack:
+) -> PreparedStack:
     client = JjClient(repo_root)
     stack = client.discover_review_stack(
         revset,
@@ -388,7 +390,7 @@ def _prepare_stack(
 
     discovered_bookmarks: dict[str, str] = {}
     if remote is not None:
-        discovered_bookmarks = _discover_bookmarks_for_revisions(
+        discovered_bookmarks = discover_bookmarks_for_revisions(
             bookmark_states=client.list_bookmark_states(),
             remote_name=remote.name,
             revisions=stack.revisions,
@@ -399,13 +401,13 @@ def _prepare_stack(
         change_overrides,
         discovered_bookmarks=discovered_bookmarks,
     ).pin_revisions(stack.revisions)
-    _ensure_unique_bookmarks(bookmark_result.resolutions)
+    ensure_unique_bookmarks(bookmark_result.resolutions)
     if persist_bookmarks and bookmark_result.changed:
         state_store.save(bookmark_result.state)
 
     state_changes = dict(bookmark_result.state.changes if persist_bookmarks else state.changes)
     status_revisions = tuple(
-        _PreparedRevision(
+        PreparedRevision(
             bookmark=resolution.bookmark,
             bookmark_source=resolution.source,
             cached_change=(
@@ -420,7 +422,7 @@ def _prepare_stack(
             strict=True,
         )
     )
-    return _PreparedStack(
+    return PreparedStack(
         bookmark_result_changed=persist_bookmarks and bookmark_result.changed,
         client=client,
         remote=remote,
@@ -434,7 +436,7 @@ def _prepare_stack(
 
 
 def _build_status_revisions_without_github(
-    prepared: _PreparedStack,
+    prepared: PreparedStack,
 ) -> tuple[ReviewStatusRevision, ...]:
     bookmark_states = prepared.client.list_bookmark_states(
         tuple(revision.bookmark for revision in prepared.status_revisions)
@@ -535,7 +537,7 @@ def _resolved_review_decision(
 
 def _persist_status_cache_updates(
     *,
-    prepared: _PreparedStack,
+    prepared: PreparedStack,
     revisions: tuple[ReviewStatusRevision, ...],
 ) -> None:
     state_changes = dict(prepared.state_changes)
@@ -606,7 +608,7 @@ async def _iter_status_revisions_with_github(
     *,
     github_repository: ResolvedGithubRepository,
     on_github_status: Callable[[str | None], None] | None,
-    prepared: _PreparedStack,
+    prepared: PreparedStack,
 ) -> AsyncIterator[ReviewStatusRevision]:
     ordered_prepared_revisions = tuple(reversed(prepared.status_revisions))
     bookmark_states = prepared.client.list_bookmark_states(
@@ -655,8 +657,8 @@ async def _inspect_revision_with_github(
     bookmark_states: dict[str, BookmarkState],
     github_client: GithubClient,
     github_repository,
-    prepared: _PreparedStack,
-    prepared_revision: _PreparedRevision,
+    prepared: PreparedStack,
+    prepared_revision: PreparedRevision,
     pull_request_lookup: PullRequestLookup,
     semaphore: asyncio.Semaphore,
 ) -> ReviewStatusRevision:
@@ -709,7 +711,7 @@ async def _discover_pull_request_lookups(
     *,
     github_client: GithubClient,
     github_repository,
-    prepared_revisions: tuple[_PreparedRevision, ...],
+    prepared_revisions: tuple[PreparedRevision, ...],
 ) -> dict[str, PullRequestLookup]:
     bookmarks = tuple(prepared_revision.bookmark for prepared_revision in prepared_revisions)
     if not bookmarks:
@@ -927,7 +929,7 @@ def _is_repository_level_github_lookup_error(error: GithubClientError) -> bool:
 
 
 def _github_auth_failure_message(message: str) -> str:
-    if _github_token_from_env() is None:
+    if github_token_from_env() is None:
         return f"{message} - check GITHUB_TOKEN or gh auth"
     return message
 
