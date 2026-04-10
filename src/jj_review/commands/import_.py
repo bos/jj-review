@@ -37,10 +37,7 @@ from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubPullRequest
-from jj_review.pull_request_references import (
-    parse_pull_request_number,
-    parse_pull_request_url,
-)
+from jj_review.pull_request_references import parse_repository_pull_request_reference
 from jj_review.review_inspection import (
     PreparedStatus,
     StatusResult,
@@ -888,25 +885,10 @@ def _parse_pull_request_reference(
     reference: str,
     github_repository: ResolvedGithubRepository,
 ) -> int:
-    parsed = parse_pull_request_number(reference)
-    if parsed is not None:
-        return parsed
-    pull_request_url = parse_pull_request_url(reference)
-    if pull_request_url is None:
-        raise CliError(
+    return parse_repository_pull_request_reference(
+        reference=reference,
+        github_repository=github_repository,
+        invalid_reference_message=(
             f"Pull request reference {reference!r} is not a PR number or URL."
-        )
-    if pull_request_url.host != github_repository.host:
-        raise CliError(
-            f"Pull request URL {reference!r} does not match configured host "
-            f"{github_repository.host!r}."
-        )
-    if (
-        pull_request_url.owner != github_repository.owner
-        or pull_request_url.repo != github_repository.repo
-    ):
-        raise CliError(
-            f"Pull request URL {reference!r} does not match configured repository "
-            f"{github_repository.full_name!r}."
-        )
-    return pull_request_url.number
+        ),
+    )

@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from jj_review.jj import JjClient, UnsupportedStackError
+
+from ..support.integration_helpers import (
+    commit_file as _commit,
+)
+from ..support.integration_helpers import (
+    init_repo as _init_repo,
+)
+from ..support.integration_helpers import (
+    run_command as _run,
+)
 
 
 def test_discover_review_stack_walks_linear_history_from_default_head(tmp_path: Path) -> None:
@@ -126,26 +135,6 @@ def test_discover_review_stack_rejects_immutable_revisions(tmp_path: Path) -> No
         match="immutable commits are not reviewable",
     ):
         JjClient(repo).discover_review_stack()
-
-
-def _init_repo(tmp_path: Path, *, configure_trunk: bool = True) -> Path:
-    repo = tmp_path / "repo"
-    _run(["jj", "git", "init", str(repo)], tmp_path)
-    _run(["jj", "config", "set", "--repo", "user.name", "Test User"], repo)
-    _run(["jj", "config", "set", "--repo", "user.email", "test@example.com"], repo)
-    _write_file(repo / "README.md", "base\n")
-    _run(["jj", "commit", "-m", "base"], repo)
-    if configure_trunk:
-        _run(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
-        _run(["jj", "config", "set", "--repo", 'revset-aliases."trunk()"', "main"], repo)
-    return repo
-
-
-def _commit(repo: Path, message: str, filename: str) -> None:
-    _write_file(repo / filename, f"{message}\n")
-    _run(["jj", "commit", "-m", message], repo)
-
-
 def _current_parent_commit_id(repo: Path) -> str:
     completed = _run(
         [
@@ -164,22 +153,3 @@ def _current_parent_commit_id(repo: Path) -> str:
 
 def _new_child(repo: Path, parent_commit_id: str) -> None:
     _run(["jj", "new", parent_commit_id], repo)
-
-
-def _run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        check=False,
-        cwd=cwd,
-        text=True,
-    )
-    if completed.returncode != 0:
-        raise AssertionError(
-            f"{command!r} failed:\nstdout={completed.stdout}\nstderr={completed.stderr}"
-        )
-    return completed
-
-
-def _write_file(path: Path, contents: str) -> None:
-    path.write_text(contents, encoding="utf-8")

@@ -28,10 +28,7 @@ from jj_review.intent import check_same_kind_intent, delete_intent, write_intent
 from jj_review.jj import JjClient
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.intent import RelinkIntent
-from jj_review.pull_request_references import (
-    parse_pull_request_number,
-    parse_pull_request_url,
-)
+from jj_review.pull_request_references import parse_repository_pull_request_reference
 
 HELP = "Reconnect an existing pull request to a local change"
 
@@ -235,23 +232,21 @@ def _parse_pull_request_reference(
     reference: str,
     github_repository: ResolvedGithubRepository,
 ) -> int:
-    parsed = parse_pull_request_number(reference)
-    if parsed is not None:
-        return parsed
-    pull_request_url = parse_pull_request_url(reference)
-    if pull_request_url is None or pull_request_url.host != github_repository.host:
-        raise CliError(
+    return parse_repository_pull_request_reference(
+        reference=reference,
+        github_repository=github_repository,
+        invalid_reference_message=(
             f"`{reference}` is not a pull request number or URL for "
             f"{github_repository.full_name}."
-        )
-    if (
-        pull_request_url.owner != github_repository.owner
-        or pull_request_url.repo != github_repository.repo
-    ):
-        raise CliError(
+        ),
+        wrong_host_message=(
+            f"`{reference}` is not a pull request number or URL for "
+            f"{github_repository.full_name}."
+        ),
+        wrong_repository_message=(
             f"`{reference}` does not belong to {github_repository.full_name}."
-        )
-    return pull_request_url.number
+        ),
+    )
 
 
 def _ensure_relinkable_cached_link(

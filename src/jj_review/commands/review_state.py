@@ -21,7 +21,12 @@ from jj_review.bootstrap import bootstrap_context
 from jj_review.errors import CliError
 from jj_review.intent import intent_change_ids, pid_is_alive
 from jj_review.jj import UnsupportedStackError
-from jj_review.review_inspection import prepare_status, stream_status
+from jj_review.review_inspection import (
+    prepare_status,
+    revision_has_merged_pull_request,
+    revision_pull_request_number,
+    stream_status,
+)
 from jj_review.stack_output import (
     display_change_id,
     format_pull_request_label,
@@ -341,13 +346,15 @@ def render_status_advisory_lines(*, result) -> tuple[str, ...]:
         return ()
 
     cleanup_revisions = [
-        revision for revision in result.revisions if _revision_has_merged_pull_request(revision)
+        revision
+        for revision in result.revisions
+        if revision_has_merged_pull_request(revision)
     ]
     divergent_revisions = [
         revision
         for revision in result.revisions
         if getattr(revision, "local_divergent", False)
-        and not _revision_has_merged_pull_request(revision)
+        and not revision_has_merged_pull_request(revision)
     ]
     link_revisions = [
         revision
@@ -387,7 +394,7 @@ def render_status_advisory_lines(*, result) -> tuple[str, ...]:
             )
         )
         for revision in cleanup_revisions:
-            pull_request_number = _revision_pull_request_number(revision)
+            pull_request_number = revision_pull_request_number(revision)
             pull_request_label = (
                 f"PR #{pull_request_number}" if pull_request_number is not None else "merged PR"
             )
@@ -418,7 +425,7 @@ def render_status_advisory_lines(*, result) -> tuple[str, ...]:
 
     for revision in policy_warnings:
         base_ref = revision.pull_request_lookup.pull_request.base.ref
-        pull_request_number = _revision_pull_request_number(revision)
+        pull_request_number = revision_pull_request_number(revision)
         lines.append(
             _wrap_advisory(
                 f"Repository policy warning: PR #{pull_request_number} merged into "
@@ -647,7 +654,7 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
         else:
             summary = message
 
-    if getattr(revision, "local_divergent", False) and not _revision_has_merged_pull_request(
+    if getattr(revision, "local_divergent", False) and not revision_has_merged_pull_request(
         revision
     ):
         summary = f"{summary}, multiple visible revisions"
@@ -712,23 +719,6 @@ def _wrap_advisory(message: str) -> str:
 
 def _status_revision_label(revision) -> str:
     return f"[{display_change_id(revision.change_id)}]"
-
-
-def _revision_has_merged_pull_request(revision) -> bool:
-    lookup = revision.pull_request_lookup
-    return (
-        lookup is not None
-        and lookup.state == "closed"
-        and lookup.pull_request is not None
-        and lookup.pull_request.state == "merged"
-    )
-
-
-def _revision_pull_request_number(revision) -> int | None:
-    lookup = revision.pull_request_lookup
-    if lookup is None or lookup.pull_request is None:
-        return None
-    return lookup.pull_request.number
 
 
 def _revision_has_link_advisory(revision) -> bool:

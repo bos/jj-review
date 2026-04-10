@@ -28,6 +28,7 @@ from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.github_helpers import load_github_repository
 from jj_review.github_resolution import (
     ResolvedGithubRepository,
     _build_github_client,
@@ -45,10 +46,7 @@ from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubPullRequest
 from jj_review.models.intent import LandIntent, LoadedIntent
-from jj_review.pull_request_references import (
-    parse_pull_request_number,
-    parse_pull_request_url,
-)
+from jj_review.pull_request_references import parse_repository_pull_request_reference
 from jj_review.review_inspection import (
     PreparedStatus,
     ReviewStatusRevision,
@@ -328,7 +326,7 @@ async def _stream_land_async(
         raise AssertionError("Prepared land requires resolved GitHub and remote targets.")
 
     async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
-        github_repository_state = await _get_github_repository(
+        github_repository_state = await load_github_repository(
             github_client=github_client,
             github_repository=github_repository,
         )
@@ -650,22 +648,6 @@ def _report_stale_land_intents(
             )
         else:
             print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
-
-
-async def _get_github_repository(
-    *,
-    github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
-):
-    try:
-        return await github_client.get_repository(
-            github_repository.owner,
-            github_repository.repo,
-        )
-    except GithubClientError as error:
-        raise CliError(
-            f"Could not load GitHub repository {github_repository.full_name}: {error}"
-        ) from error
 
 
 def _build_land_plan(
@@ -1232,18 +1214,19 @@ def _parse_pull_request_reference(
     reference: str,
     github_repository: ResolvedGithubRepository,
 ) -> int:
-    parsed = parse_pull_request_number(reference)
-    if parsed is not None:
-        return parsed
-    pull_request_url = parse_pull_request_url(reference)
-    if (
-        pull_request_url is None
-        or pull_request_url.host != github_repository.host
-        or pull_request_url.owner != github_repository.owner
-        or pull_request_url.repo != github_repository.repo
-    ):
-        raise CliError(
+    return parse_repository_pull_request_reference(
+        reference=reference,
+        github_repository=github_repository,
+        invalid_reference_message=(
             f"`--expect-pr` must be a pull request number or a URL for "
             f"{github_repository.full_name}."
-        )
-    return pull_request_url.number
+        ),
+        wrong_host_message=(
+            f"`--expect-pr` must be a pull request number or a URL for "
+            f"{github_repository.full_name}."
+        ),
+        wrong_repository_message=(
+            f"`--expect-pr` must be a pull request number or a URL for "
+            f"{github_repository.full_name}."
+        ),
+    )

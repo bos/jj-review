@@ -7,7 +7,10 @@ from typing import cast
 
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
-from jj_review.github_resolution import ResolvedGithubRepository
+from jj_review.github_resolution import (
+    ResolvedGithubRepository,
+    try_resolve_github_repository,
+)
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import ReviewState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
@@ -18,7 +21,6 @@ from jj_review.review_inspection import (
     ReviewStatusRevision,
     _classify_status_intents,
     _PreparedStack,
-    _resolve_status_github_repository,
     _status_is_incomplete,
     _stream_status_async,
 )
@@ -124,9 +126,9 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
 
 
 def test_resolve_status_github_repository_returns_resolution_error() -> None:
-    github_repository, github_repository_error = _resolve_status_github_repository(
-        config=RepoConfig(),
-        remote=GitRemote(name="origin", url="ssh://example.com/not-github.git"),
+    github_repository, github_repository_error = try_resolve_github_repository(
+        RepoConfig(),
+        GitRemote(name="origin", url="ssh://example.com/not-github.git"),
     )
 
     assert github_repository is None

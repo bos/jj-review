@@ -25,11 +25,12 @@ from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.github_helpers import list_pull_request_issue_comments
 from jj_review.github_resolution import (
     ResolvedGithubRepository,
     _build_github_client,
-    resolve_github_repository,
     select_submit_remote,
+    try_resolve_github_repository,
 )
 from jj_review.intent import (
     check_same_kind_intent,
@@ -48,6 +49,8 @@ from jj_review.review_inspection import (
     PreparedStatus,
     ReviewStatusRevision,
     prepare_status,
+    revision_has_merged_pull_request,
+    revision_pull_request_number,
     stream_status,
 )
 from jj_review.stack_comments import is_stack_summary_comment
@@ -416,10 +419,7 @@ def prepare_cleanup(
     state_dir = state_store.require_writable() if apply else state_store.state_dir
 
     remote, remote_error = _resolve_remote(config=config, jj_client=jj_client)
-    github_repository, github_error = _resolve_github_repository(
-        config=config,
-        remote=remote,
-    )
+    github_repository, github_error = try_resolve_github_repository(config, remote)
     bookmark_states = _load_bookmark_states(
         jj_client=jj_client,
         remote=remote,
@@ -672,7 +672,7 @@ def _record_restack_policy_actions(
     """Warn when a merged PR targeted another review branch."""
 
     for revision in merged_revisions:
-        pull_request_number = _revision_pull_request_number(revision)
+        pull_request_number = revision_pull_request_number(revision)
         if pull_request_number is None:
             continue
         base_ref = _revision_pull_request_base_ref(revision)
@@ -793,7 +793,9 @@ def _plan_restack_operations(
     prepared_status: PreparedStatus,
 ) -> _RestackOperationPlan:
     merged_revisions = tuple(
-        revision for revision in path_revisions if _revision_has_merged_pull_request(revision)
+        revision
+        for revision in path_revisions
+        if revision_has_merged_pull_request(revision)
     )
     closed_unmerged_revisions = tuple(
         revision for revision in path_revisions if _revision_is_closed_unmerged(revision)
@@ -842,7 +844,7 @@ def _collect_restack_pre_actions(
                 kind="restack",
                 message=(
                     f"cannot restack past {_revision_label(revision)} because PR "
-                    f"#{_revision_pull_request_number(revision)} is closed without merge; "
+                    f"#{revision_pull_request_number(revision)} is closed without merge; "
                     "decide whether to keep or drop that change first"
                 ),
                 status="blocked",
@@ -886,7 +888,7 @@ def _plan_restack_rebases(
         revision = revisions_by_change_id.get(prepared_revision.revision.change_id)
         if revision is None:
             continue
-        if _revision_has_merged_pull_request(revision):
+        if revision_has_merged_pull_request(revision):
             continue
         if _revision_is_closed_unmerged(revision):
             continue
@@ -926,18 +928,8 @@ def _restack_parent_is_merged(
         if candidate.revision.commit_id != parent_commit_id:
             continue
         revision = revisions_by_change_id.get(candidate.revision.change_id)
-        return revision is not None and _revision_has_merged_pull_request(revision)
+        return revision is not None and revision_has_merged_pull_request(revision)
     return False
-
-
-def _revision_has_merged_pull_request(revision: ReviewStatusRevision) -> bool:
-    lookup = revision.pull_request_lookup
-    return (
-        lookup is not None
-        and lookup.state == "closed"
-        and lookup.pull_request is not None
-        and lookup.pull_request.state == "merged"
-    )
 
 
 def _revision_is_closed_unmerged(revision: ReviewStatusRevision) -> bool:
@@ -948,13 +940,6 @@ def _revision_is_closed_unmerged(revision: ReviewStatusRevision) -> bool:
         and lookup.pull_request is not None
         and lookup.pull_request.state != "merged"
     )
-
-
-def _revision_pull_request_number(revision: ReviewStatusRevision) -> int | None:
-    lookup = revision.pull_request_lookup
-    if lookup is None or lookup.pull_request is None:
-        return None
-    return lookup.pull_request.number
 
 
 def _revision_pull_request_base_ref(revision: ReviewStatusRevision) -> str | None:
@@ -1399,19 +1384,6 @@ def _resolve_remote(
         return None, str(error)
 
 
-def _resolve_github_repository(
-    *,
-    config: RepoConfig,
-    remote: GitRemote | None,
-):
-    if remote is None:
-        return None, None
-    try:
-        return resolve_github_repository(config, remote), None
-    except CliError as error:
-        return None, str(error)
-
-
 def _load_bookmark_states(
     *,
     jj_client: JjClient,
@@ -1770,7 +1742,7 @@ async def _resolve_stack_summary_comment(
     github_repository,
     pull_request_number: int,
 ) -> GithubIssueComment | CleanupAction | None:
-    comments = await _list_issue_comments(
+    comments = await list_pull_request_issue_comments(
         github_client=github_client,
         github_repository=github_repository,
         pull_request_number=pull_request_number,
@@ -1848,25 +1820,6 @@ async def _resolve_unlinked_pull_request_number(
             status="blocked",
         )
     return pull_requests[0].number
-
-
-async def _list_issue_comments(
-    *,
-    github_client: GithubClient,
-    github_repository,
-    pull_request_number: int,
-) -> tuple[GithubIssueComment, ...]:
-    try:
-        return await github_client.list_issue_comments(
-            github_repository.owner,
-            github_repository.repo,
-            issue_number=pull_request_number,
-        )
-    except GithubClientError as error:
-        raise CliError(
-            f"Could not list stack summary comments for pull request #{pull_request_number}: "
-            f"{error}"
-        ) from error
 
 
 async def _delete_issue_comment(

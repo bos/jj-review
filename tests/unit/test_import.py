@@ -9,7 +9,6 @@ import pytest
 
 from jj_review.commands.import_ import (
     _fetch_selected_stack_bookmarks,
-    _parse_pull_request_reference,
     _prepared_status_has_discoverable_remote_link,
     _resolve_import_bookmark,
     _resolve_pull_request_selection,
@@ -18,7 +17,6 @@ from jj_review.commands.import_ import (
 )
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
-from jj_review.github_resolution import ResolvedGithubRepository
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
@@ -275,20 +273,6 @@ def test_resolve_pull_request_selection_fetches_selected_branch_when_requested(
 
     assert fetch_calls == [("origin", ("review/feature-aaaaaaaa",))]
     assert selection.fetched_tip_commit == "commit-2"
-
-
-def test_parse_pull_request_reference_rejects_wrong_repository() -> None:
-    with pytest.raises(CliError, match="does not match configured repository"):
-        _parse_pull_request_reference(
-            reference="https://github.test/other-org/stacked-review/pull/17",
-            github_repository=ResolvedGithubRepository(
-                host="github.test",
-                owner="octo-org",
-                repo="stacked-review",
-            ),
-        )
-
-
 def test_resolve_pull_request_selection_rejects_pull_request_missing_after_head_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

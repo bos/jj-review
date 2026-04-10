@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import pytest
+
+from jj_review.errors import CliError
+from jj_review.github_resolution import ResolvedGithubRepository
 from jj_review.pull_request_references import (
     ParsedPullRequestUrl,
     parse_pull_request_number,
     parse_pull_request_url,
+    parse_repository_pull_request_reference,
 )
 
 
@@ -28,3 +33,31 @@ def test_parse_pull_request_url_accepts_standard_pull_request_url() -> None:
 
 def test_parse_pull_request_url_rejects_non_pull_request_urls() -> None:
     assert parse_pull_request_url("https://github.test/octo-org/stacked-review/issues/17") is None
+
+
+def test_parse_repository_pull_request_reference_accepts_matching_url() -> None:
+    assert (
+        parse_repository_pull_request_reference(
+            reference="https://github.test/octo-org/stacked-review/pull/17",
+            github_repository=ResolvedGithubRepository(
+                host="github.test",
+                owner="octo-org",
+                repo="stacked-review",
+            ),
+            invalid_reference_message="invalid",
+        )
+        == 17
+    )
+
+
+def test_parse_repository_pull_request_reference_rejects_wrong_repository() -> None:
+    with pytest.raises(CliError, match="does not match configured repository"):
+        parse_repository_pull_request_reference(
+            reference="https://github.test/other-org/stacked-review/pull/17",
+            github_repository=ResolvedGithubRepository(
+                host="github.test",
+                owner="octo-org",
+                repo="stacked-review",
+            ),
+            invalid_reference_message="invalid",
+        )

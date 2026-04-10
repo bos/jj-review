@@ -109,6 +109,18 @@ def resolve_github_repository(
     )
 
 
+def try_resolve_github_repository(
+    config: RepoConfig,
+    remote: GitRemote | None,
+) -> tuple[ResolvedGithubRepository | None, str | None]:
+    if remote is None:
+        return None, None
+    try:
+        return resolve_github_repository(config, remote), None
+    except CliError as error:
+        return None, str(error)
+
+
 def resolve_trunk_branch(
     *,
     client: BookmarkStateReader,

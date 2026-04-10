@@ -66,6 +66,23 @@ def init_fake_github_repo(
     return repo, fake_repo
 
 
+def init_repo(
+    tmp_path: Path,
+    *,
+    configure_trunk: bool = True,
+) -> Path:
+    repo = tmp_path / "repo"
+    run_command(["jj", "git", "init", str(repo)], tmp_path)
+    run_command(["jj", "config", "set", "--repo", "user.name", "Test User"], repo)
+    run_command(["jj", "config", "set", "--repo", "user.email", "test@example.com"], repo)
+    write_file(repo / "README.md", "base\n")
+    run_command(["jj", "commit", "-m", "base"], repo)
+    if configure_trunk:
+        run_command(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
+        run_command(["jj", "config", "set", "--repo", 'revset-aliases."trunk()"', "main"], repo)
+    return repo
+
+
 def write_fake_github_config(
     tmp_path: Path,
     fake_repo: FakeGithubRepository,

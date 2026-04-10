@@ -957,67 +957,55 @@ def test_query_ancestor_revisions_and_children_by_parent_for_commit_ids() -> Non
     ]
 
 
-def test_resolve_revision_reports_missing_revset_without_wrapped_command() -> None:
-    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-        assert tuple(command) == (
-            "jj",
-            "log",
-            "--no-graph",
-            "-r",
+@pytest.mark.parametrize(
+    ("revset", "stderr", "expected_message"),
+    [
+        pytest.param(
             "missing-change-id",
-            "-T",
-            _template(),
-            "--limit",
-            "2",
-        )
-        assert cwd == Path("/repo")
-        return subprocess.CompletedProcess(
-            command,
-            1,
-            stdout="",
-            stderr="Error: Revision `missing-change-id` doesn't exist\n",
-        )
-
-    client = JjClient(Path("/repo"), runner=run)
-
-    with pytest.raises(
-        CliError,
-        match=r"Revision `missing-change-id` doesn't exist",
-    ):
-        client.resolve_revision("missing-change-id")
-
-
-def test_resolve_revision_reports_invalid_revset_without_wrapped_command() -> None:
-    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-        assert tuple(command) == (
-            "jj",
-            "log",
-            "--no-graph",
-            "-r",
+            "Error: Revision `missing-change-id` doesn't exist\n",
+            r"Revision `missing-change-id` doesn't exist",
+            id="missing-revset",
+        ),
+        pytest.param(
             "x(",
-            "-T",
-            _template(),
-            "--limit",
-            "2",
-        )
-        assert cwd == Path("/repo")
-        return subprocess.CompletedProcess(
-            command,
-            1,
-            stdout="",
-            stderr=(
+            (
                 "Error: Failed to parse revset: Syntax error\n"
                 "Hint: See https://docs.jj-vcs.dev/latest/revsets/\n"
             ),
+            r"Invalid revset 'x\(': Failed to parse revset: Syntax error\.",
+            id="invalid-revset",
+        ),
+    ],
+)
+def test_resolve_revision_reports_revset_errors_without_wrapped_command(
+    revset: str,
+    stderr: str,
+    expected_message: str,
+) -> None:
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        assert tuple(command) == (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            revset,
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        )
+        assert cwd == Path("/repo")
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr=stderr,
         )
 
     client = JjClient(Path("/repo"), runner=run)
 
-    with pytest.raises(
-        CliError,
-        match=r"Invalid revset 'x\(': Failed to parse revset: Syntax error\.",
-    ):
-        client.resolve_revision("x(")
+    with pytest.raises(CliError, match=expected_message):
+        client.resolve_revision(revset)
 
 
 def _template() -> str:

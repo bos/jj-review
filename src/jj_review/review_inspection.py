@@ -25,8 +25,8 @@ from jj_review.github_resolution import (
     ResolvedGithubRepository,
     _build_github_client,
     _github_token_from_env,
-    resolve_github_repository,
     select_submit_remote,
+    try_resolve_github_repository,
 )
 from jj_review.intent import intent_is_stale, scan_intents
 from jj_review.jj import JjClient
@@ -159,9 +159,9 @@ def prepare_status(
         len(prepared.status_revisions),
         prepared.remote.name if prepared.remote is not None else "unavailable",
     )
-    github_repository, github_repository_error = _resolve_status_github_repository(
-        config=config,
-        remote=prepared.remote,
+    github_repository, github_repository_error = try_resolve_github_repository(
+        config,
+        prepared.remote,
     )
     outstanding_intents, stale_intents = _classify_status_intents(prepared)
 
@@ -174,19 +174,6 @@ def prepare_status(
         stale_intents=stale_intents,
         trunk_subject=prepared.stack.trunk.subject,
     )
-
-
-def _resolve_status_github_repository(
-    *,
-    config: RepoConfig,
-    remote: GitRemote | None,
-) -> tuple[ResolvedGithubRepository | None, str | None]:
-    if remote is None:
-        return None, None
-    try:
-        return resolve_github_repository(config, remote), None
-    except CliError as error:
-        return None, str(error)
 
 
 def _classify_status_intents(
@@ -494,7 +481,7 @@ def _status_revisions_in_display_order(
 
 def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
     for revision in revisions:
-        if revision.local_divergent and not _revision_has_merged_pull_request(revision):
+        if revision.local_divergent and not revision_has_merged_pull_request(revision):
             return True
         pull_request_lookup = revision.pull_request_lookup
         if pull_request_lookup is not None and (
@@ -520,7 +507,7 @@ def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
     return False
 
 
-def _revision_has_merged_pull_request(revision: ReviewStatusRevision) -> bool:
+def revision_has_merged_pull_request(revision: ReviewStatusRevision) -> bool:
     lookup = revision.pull_request_lookup
     return (
         lookup is not None
@@ -528,6 +515,13 @@ def _revision_has_merged_pull_request(revision: ReviewStatusRevision) -> bool:
         and lookup.pull_request is not None
         and lookup.pull_request.state == "merged"
     )
+
+
+def revision_pull_request_number(revision: ReviewStatusRevision) -> int | None:
+    lookup = revision.pull_request_lookup
+    if lookup is None or lookup.pull_request is None:
+        return None
+    return lookup.pull_request.number
 
 
 def _resolved_review_decision(
