@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.jj import JjClient
@@ -180,10 +182,20 @@ def test_land_bypass_readiness_previews_and_finalizes_unapproved_change(
     assert fake_repo.pull_requests[1].merged_at is not None
     assert _read_remote_ref(fake_repo.git_dir, "main") == stack.revisions[0].commit_id
 
-def test_land_restores_local_trunk_bookmark_when_push_fails(
+@pytest.mark.parametrize(
+    ("push_error", "expected_exit_code", "expected_error"),
+    [
+        (JjCommandError("simulated trunk push failure"), 1, "simulated trunk push failure"),
+        (KeyboardInterrupt(), 130, "Interrupted."),
+    ],
+)
+def test_land_restores_local_trunk_bookmark_when_push_does_not_complete(
     tmp_path: Path,
     monkeypatch,
     capsys,
+    push_error: BaseException,
+    expected_exit_code: int,
+    expected_error: str,
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
@@ -197,50 +209,17 @@ def test_land_restores_local_trunk_bookmark_when_push_fails(
     client = JjClient(repo)
     trunk_before = client.get_bookmark_state("main").local_target
     remote_before = _read_remote_ref(fake_repo.git_dir, "main")
-    original_push_bookmark = JjClient.push_bookmark
 
     def fail_push_bookmark(self, *, remote: str, bookmark: str) -> None:
-        raise JjCommandError("simulated trunk push failure")
+        raise push_error
 
     monkeypatch.setattr(JjClient, "push_bookmark", fail_push_bookmark)
 
     exit_code = _main(repo, config_path, "land")
     captured = capsys.readouterr()
 
-    assert exit_code == 1
-    assert "simulated trunk push failure" in captured.err
-    assert JjClient(repo).get_bookmark_state("main").local_target == trunk_before
-    assert _read_remote_ref(fake_repo.git_dir, "main") == remote_before
-    monkeypatch.setattr(JjClient, "push_bookmark", original_push_bookmark)
-
-def test_land_restores_local_trunk_bookmark_when_push_is_interrupted(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = _init_repo(tmp_path)
-    config_path = _configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    for index in range(2):
-        _commit(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
-
-    assert _main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-    _approve_pull_requests(fake_repo, 1, 2)
-
-    client = JjClient(repo)
-    trunk_before = client.get_bookmark_state("main").local_target
-    remote_before = _read_remote_ref(fake_repo.git_dir, "main")
-
-    def interrupt_push_bookmark(self, *, remote: str, bookmark: str) -> None:
-        raise KeyboardInterrupt()
-
-    monkeypatch.setattr(JjClient, "push_bookmark", interrupt_push_bookmark)
-
-    exit_code = _main(repo, config_path, "land")
-    captured = capsys.readouterr()
-
-    assert exit_code == 130
-    assert "Interrupted." in captured.err
+    assert exit_code == expected_exit_code
+    assert expected_error in captured.err
     assert JjClient(repo).get_bookmark_state("main").local_target == trunk_before
     assert _read_remote_ref(fake_repo.git_dir, "main") == remote_before
 
