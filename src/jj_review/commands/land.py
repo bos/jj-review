@@ -216,36 +216,6 @@ def land(
     return 1 if result.blocked else 0
 
 
-def _build_land_result(
-    *,
-    actions: tuple[LandAction, ...],
-    applied: bool,
-    blocked: bool,
-    follow_up: str | None,
-    github_repository: ResolvedGithubRepository,
-    prepared_land: PreparedLand,
-    remote_name: str,
-    selected_revset: str,
-    trunk_branch: str,
-    trunk_subject: str,
-) -> LandResult:
-    """Render one land result from the shared execution context."""
-
-    return LandResult(
-        actions=actions,
-        applied=applied,
-        bypass_readiness=prepared_land.bypass_readiness,
-        blocked=blocked,
-        expect_pr_number=prepared_land.expect_pr_number,
-        follow_up=follow_up,
-        github_repository=github_repository.full_name,
-        remote_name=remote_name,
-        selected_revset=selected_revset,
-        trunk_branch=trunk_branch,
-        trunk_subject=trunk_subject,
-    )
-
-
 def prepare_land(
     *,
     apply: bool,
@@ -368,13 +338,14 @@ async def _stream_land_async(
             total_change_count=len(prepared_status.prepared.status_revisions),
         )
         if not prepared_land.apply:
-            return _build_land_result(
+            return LandResult(
                 actions=_planned_land_actions(plan=plan),
                 applied=False,
+                bypass_readiness=prepared_land.bypass_readiness,
                 blocked=plan.blocked,
+                expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=None if plan.blocked else follow_up,
-                github_repository=github_repository,
-                prepared_land=prepared_land,
+                github_repository=github_repository.full_name,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
                 trunk_branch=trunk_branch,
@@ -398,13 +369,14 @@ async def _stream_land_async(
         execution_plan = execution_state.execution_plan
         follow_up = execution_state.follow_up
         if execution_plan.blocked:
-            return _build_land_result(
+            return LandResult(
                 actions=_planned_land_actions(plan=execution_plan),
                 applied=False,
+                bypass_readiness=prepared_land.bypass_readiness,
                 blocked=True,
+                expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=None,
-                github_repository=github_repository,
-                prepared_land=prepared_land,
+                github_repository=github_repository.full_name,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
                 trunk_branch=trunk_branch,
@@ -502,13 +474,14 @@ async def _stream_land_async(
                 )
                 replace_intent(intent_path, land_intent)
             succeeded = True
-            return _build_land_result(
+            return LandResult(
                 actions=tuple(actions),
                 applied=True,
+                bypass_readiness=prepared_land.bypass_readiness,
                 blocked=False,
+                expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=follow_up,
-                github_repository=github_repository,
-                prepared_land=prepared_land,
+                github_repository=github_repository.full_name,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
                 trunk_branch=trunk_branch,
@@ -587,7 +560,7 @@ def _prepare_land_execution_state(
             retire_superseded_intents(stale_intents, resume_intent.intent)
             delete_intent(resume_intent.path)
         raise _CompletedLandResume(
-            _build_land_result(
+            LandResult(
                 actions=(
                     LandAction(
                         kind="resume",
@@ -596,10 +569,11 @@ def _prepare_land_execution_state(
                     ),
                 ),
                 applied=True,
+                bypass_readiness=prepared_land.bypass_readiness,
                 blocked=False,
+                expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=follow_up,
-                github_repository=github_repository,
-                prepared_land=prepared_land,
+                github_repository=github_repository.full_name,
                 remote_name=remote_name,
                 selected_revset=selected_revset,
                 trunk_branch=trunk_branch,
