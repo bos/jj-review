@@ -9,6 +9,7 @@ import pytest
 from jj_review.errors import CliError
 from jj_review.jj import JjClient, JjCommandError, StaleWorkspaceError, UnsupportedStackError
 from jj_review.models.stack import LocalRevision
+from tests.support.revision_helpers import make_revision
 
 
 def _revision_line(
@@ -707,7 +708,7 @@ def test_resolve_color_when_maps_auto_to_terminal_capability() -> None:
 
 
 def test_render_revision_log_lines_uses_native_jj_log_output() -> None:
-    revision = _make_revision(
+    revision = make_revision(
         commit_id="head",
         change_id="head-change",
         description="subject\n",
@@ -733,30 +734,14 @@ def test_render_revision_log_lines_uses_native_jj_log_output() -> None:
     )
 
     assert lines == ("rendered head", "body line")
-
-
-def _make_revision(*, commit_id: str, change_id: str, description: str) -> LocalRevision:
-    return LocalRevision(
-        change_id=change_id,
-        commit_id=commit_id,
-        current_working_copy=False,
-        description=description,
-        divergent=False,
-        empty=False,
-        hidden=False,
-        immutable=False,
-        parents=("trunk",),
-    )
-
-
 def test_find_private_commits_returns_empty_when_config_is_unset() -> None:
     def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         assert tuple(command) == ("jj", "config", "get", "git.private-commits")
         return subprocess.CompletedProcess(command, 1, stdout="", stderr="no config\n")
 
     revisions = (
-        _make_revision(commit_id="head", change_id="head-change", description="head\n"),
-        _make_revision(commit_id="parent", change_id="parent-change", description="parent\n"),
+        make_revision(commit_id="head", change_id="head-change", description="head\n"),
+        make_revision(commit_id="parent", change_id="parent-change", description="parent\n"),
     )
     result = JjClient(Path("/repo"), runner=run).find_private_commits(revisions)
 
@@ -778,8 +763,8 @@ def test_find_private_commits_returns_matching_revisions() -> None:
     }
 
     revisions = (
-        _make_revision(commit_id="head", change_id="head-change", description="head\n"),
-        _make_revision(commit_id="parent", change_id="parent-change", description="parent\n"),
+        make_revision(commit_id="head", change_id="head-change", description="head\n"),
+        make_revision(commit_id="parent", change_id="parent-change", description="parent\n"),
     )
     result = JjClient(Path("/repo"), runner=_runner(responses)).find_private_commits(revisions)
 
@@ -802,8 +787,8 @@ def test_find_private_commits_returns_empty_when_no_revision_matches() -> None:
     }
 
     revisions = (
-        _make_revision(commit_id="head", change_id="head-change", description="head\n"),
-        _make_revision(commit_id="parent", change_id="parent-change", description="parent\n"),
+        make_revision(commit_id="head", change_id="head-change", description="head\n"),
+        make_revision(commit_id="parent", change_id="parent-change", description="parent\n"),
     )
     result = JjClient(Path("/repo"), runner=_runner(responses)).find_private_commits(revisions)
 

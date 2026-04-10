@@ -26,6 +26,7 @@ from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
 from jj_review.models.intent import SubmitIntent
 from jj_review.models.stack import LocalRevision
+from tests.support.revision_helpers import make_revision
 
 
 def test_run_description_command_returns_title_and_body(
@@ -106,7 +107,7 @@ def test_run_description_command_passes_extra_env(
 
 def test_resolve_generated_descriptions_uses_default_commit_mapping(tmp_path: Path) -> None:
     revisions = (
-        _make_revision(
+        make_revision(
             commit_id="head",
             change_id="head-change",
             description="feature\n\nbody line\n",
@@ -131,12 +132,12 @@ def test_resolve_generated_descriptions_passes_generated_pr_data_to_stack_helper
     tmp_path: Path,
 ) -> None:
     revisions = (
-        _make_revision(
+        make_revision(
             commit_id="bottom",
             change_id="bottom-change",
             description="bottom feature\n\nbottom body\n",
         ),
-        _make_revision(
+        make_revision(
             commit_id="top",
             change_id="top-change",
             description="top feature\n\ntop body\n",
@@ -396,20 +397,6 @@ def test_pull_request_link_rejects_mismatched_pull_request_number() -> None:
         )
 
 
-def _make_revision(*, commit_id: str, change_id: str, description: str) -> LocalRevision:
-    return LocalRevision(
-        change_id=change_id,
-        commit_id=commit_id,
-        current_working_copy=False,
-        description=description,
-        divergent=False,
-        empty=False,
-        hidden=False,
-        immutable=False,
-        parents=("trunk",),
-    )
-
-
 class _FakeJjClientWithPrivateCommits:
     def __init__(self, private_revisions: tuple[LocalRevision, ...]) -> None:
         self._private_revisions = private_revisions
@@ -423,14 +410,14 @@ class _FakeJjClientWithPrivateCommits:
 def test_preflight_private_commits_passes_when_no_private_commits() -> None:
     client = _FakeJjClientWithPrivateCommits(())
     revisions = (
-        _make_revision(commit_id="head", change_id="head-change", description="feature\n"),
+        make_revision(commit_id="head", change_id="head-change", description="feature\n"),
     )
 
     _preflight_private_commits(client, revisions)  # no exception
 
 
 def test_preflight_private_commits_raises_on_private_commit() -> None:
-    private = _make_revision(
+    private = make_revision(
         commit_id="head", change_id="head-change", description="private thing\n"
     )
     client = _FakeJjClientWithPrivateCommits((private,))
@@ -440,7 +427,7 @@ def test_preflight_private_commits_raises_on_private_commit() -> None:
 
 
 def test_preflight_private_commits_error_names_the_blocked_changes() -> None:
-    private = _make_revision(
+    private = make_revision(
         commit_id="abc12345", change_id="abcd1234", description="secret work\n"
     )
     client = _FakeJjClientWithPrivateCommits((private,))
