@@ -1265,25 +1265,14 @@ def _apply_stale_cleanup_mutation_plans(
         )
 
 
-def _save_cleanup_state(
-    *,
-    next_changes: dict[str, CachedChange],
-    prepared_cleanup: PreparedCleanup,
-) -> None:
-    prepared_cleanup.state_store.save(
-        prepared_cleanup.state.model_copy(update={"changes": dict(next_changes)})
-    )
-
-
 def _save_cleanup_state_if_changed(
     *,
     next_changes: dict[str, CachedChange],
     prepared_cleanup: PreparedCleanup,
 ) -> None:
     if prepared_cleanup.apply and next_changes != prepared_cleanup.state.changes:
-        _save_cleanup_state(
-            next_changes=next_changes,
-            prepared_cleanup=prepared_cleanup,
+        prepared_cleanup.state_store.save(
+            prepared_cleanup.state.model_copy(update={"changes": dict(next_changes)})
         )
 
 
@@ -1361,9 +1350,8 @@ async def _apply_stack_comment_cleanup_action(
         )
     record_action(comment_action)
     if prepared_cleanup.apply:
-        _save_cleanup_state(
-            next_changes=next_changes,
-            prepared_cleanup=prepared_cleanup,
+        prepared_cleanup.state_store.save(
+            prepared_cleanup.state.model_copy(update={"changes": dict(next_changes)})
         )
 
 
