@@ -155,7 +155,7 @@ def resolve_trunk_branch(
     )
 
 
-def _build_github_client(*, base_url: str) -> GithubClient:
+def build_github_client(*, base_url: str) -> GithubClient:
     return GithubClient(
         base_url=base_url,
         token=_github_token_for_base_url(base_url),

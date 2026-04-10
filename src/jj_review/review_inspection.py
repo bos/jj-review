@@ -23,8 +23,8 @@ from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_resolution import (
     ResolvedGithubRepository,
-    _build_github_client,
     _github_token_from_env,
+    build_github_client,
     select_submit_remote,
     try_resolve_github_repository,
 )
@@ -612,7 +612,7 @@ async def _iter_status_revisions_with_github(
     bookmark_states = prepared.client.list_bookmark_states(
         tuple(revision.bookmark for revision in ordered_prepared_revisions)
     )
-    async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+    async with build_github_client(base_url=github_repository.api_base_url) as github_client:
         pull_request_lookups = await _discover_pull_request_lookups(
             github_client=github_client,
             github_repository=github_repository,

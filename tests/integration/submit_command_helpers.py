@@ -99,7 +99,7 @@ def patch_github_client_builders(
         )
 
     for module in modules:
-        monkeypatch.setattr(f"{module}._build_github_client", build_github_client)
+        monkeypatch.setattr(f"{module}.build_github_client", build_github_client)
     if concurrency_limits is None:
         return
     for module, limit in concurrency_limits.items():

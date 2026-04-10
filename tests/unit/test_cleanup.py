@@ -294,7 +294,7 @@ def test_stream_cleanup_limits_stack_comment_github_inspection_concurrency(
         return None
 
     monkeypatch.setattr(
-        "jj_review.commands.cleanup._build_github_client",
+        "jj_review.commands.cleanup.build_github_client",
         lambda **kwargs: FakeGithubClientContext(),
     )
     monkeypatch.setattr(
@@ -391,7 +391,7 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
         await task
 
     monkeypatch.setattr(
-        "jj_review.commands.cleanup._build_github_client",
+        "jj_review.commands.cleanup.build_github_client",
         lambda **kwargs: FakeGithubClientContext(),
     )
     monkeypatch.setattr(
@@ -464,7 +464,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
         deleted_comment_ids.append(kwargs["comment_id"])
 
     monkeypatch.setattr(
-        "jj_review.commands.cleanup._build_github_client",
+        "jj_review.commands.cleanup.build_github_client",
         lambda **kwargs: FakeGithubClientContext(),
     )
     monkeypatch.setattr(

@@ -29,7 +29,7 @@ from jj_review.errors import CliError
 from jj_review.github.client import GithubClientError
 from jj_review.github_resolution import (
     ResolvedGithubRepository,
-    _build_github_client,
+    build_github_client,
     resolve_github_repository,
     select_submit_remote,
 )
@@ -496,7 +496,7 @@ async def _load_pull_request(
             f"Pull request reference {pull_request_reference!r} is not a PR number or URL."
         ),
     )
-    async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+    async with build_github_client(base_url=github_repository.api_base_url) as github_client:
         try:
             pull_request = await github_client.get_pull_request(
                 github_repository.owner,
@@ -522,7 +522,7 @@ async def _list_pull_requests_by_head(
     github_repository: ResolvedGithubRepository,
     head: str,
 ) -> tuple[GithubPullRequest, ...]:
-    async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+    async with build_github_client(base_url=github_repository.api_base_url) as github_client:
         try:
             pull_requests = await github_client.list_pull_requests(
                 github_repository.owner,

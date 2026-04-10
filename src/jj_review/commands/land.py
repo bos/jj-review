@@ -30,7 +30,7 @@ from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_helpers import load_github_repository
 from jj_review.github_resolution import (
     ResolvedGithubRepository,
-    _build_github_client,
+    build_github_client,
     resolve_trunk_branch,
 )
 from jj_review.intent import (
@@ -306,7 +306,7 @@ async def _stream_land_async(
     if github_repository is None or remote is None:
         raise AssertionError("Prepared land requires resolved GitHub and remote targets.")
 
-    async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+    async with build_github_client(base_url=github_repository.api_base_url) as github_client:
         github_repository_state = await load_github_repository(
             github_client=github_client,
             github_repository=github_repository,

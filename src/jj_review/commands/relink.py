@@ -19,7 +19,7 @@ from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClientError
 from jj_review.github_resolution import (
-    _build_github_client,
+    build_github_client,
     resolve_github_repository,
     select_submit_remote,
 )
@@ -123,7 +123,7 @@ async def _run_relink_async(
         ),
     )
 
-    async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+    async with build_github_client(base_url=github_repository.api_base_url) as github_client:
         try:
             pull_request = await github_client.get_pull_request(
                 github_repository.owner,

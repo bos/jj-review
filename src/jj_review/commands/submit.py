@@ -41,8 +41,8 @@ from jj_review.github_helpers import (
 )
 from jj_review.github_resolution import (
     ResolvedGithubRepository,
-    _build_github_client,
     _remote_bookmarks_pointing_at_trunk,
+    build_github_client,
     resolve_github_repository,
     resolve_trunk_branch,
     select_submit_remote,
@@ -770,7 +770,7 @@ async def _run_submit_async(
     succeeded = False
     submitted_revisions: tuple[SubmittedRevision, ...] = ()
     try:
-        async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+        async with build_github_client(base_url=github_repository.api_base_url) as github_client:
             github_repository_state = await load_github_repository(
                 github_client=github_client,
                 github_repository=github_repository,

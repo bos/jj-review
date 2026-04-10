@@ -8,11 +8,11 @@ import jj_review.github_resolution as github_resolution_module
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.github_resolution import (
-    _build_github_client,
     _github_hostname_from_api_base_url,
     _github_token_for_base_url,
     _github_token_from_env,
     _github_token_from_gh_cli,
+    build_github_client,
     resolve_github_repository,
     resolve_trunk_branch,
     select_submit_remote,
@@ -148,7 +148,7 @@ def test_build_github_client_reads_token_from_environment(
 ) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "github-token")
 
-    client = _build_github_client(base_url="https://api.github.test")
+    client = build_github_client(base_url="https://api.github.test")
     try:
         assert client._client.headers["Authorization"] == "Bearer github-token"
     finally:

@@ -28,7 +28,7 @@ from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_helpers import list_pull_request_issue_comments
 from jj_review.github_resolution import (
     ResolvedGithubRepository,
-    _build_github_client,
+    build_github_client,
     select_submit_remote,
     try_resolve_github_repository,
 )
@@ -1002,7 +1002,7 @@ async def _stream_cleanup_async(
             )
 
         github_repository = prepared_cleanup.github_repository
-        async with _build_github_client(base_url=github_repository.api_base_url) as github_client:
+        async with build_github_client(base_url=github_repository.api_base_url) as github_client:
             prepared_changes = _run_local_cleanup_pass(
                 next_changes=next_changes,
                 prepared_cleanup=prepared_cleanup,

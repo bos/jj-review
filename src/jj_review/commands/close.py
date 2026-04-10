@@ -20,7 +20,7 @@ from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.github.client import GithubClient, GithubClientError
-from jj_review.github_resolution import _build_github_client
+from jj_review.github_resolution import build_github_client
 from jj_review.intent import (
     check_same_kind_intent,
     delete_intent,
@@ -310,7 +310,7 @@ async def _stream_close_async(
             revisions=status_result.revisions,
         )
 
-        async with _build_github_client(
+        async with build_github_client(
             base_url=github_repository.api_base_url
         ) as github_client:
             blocked = await _process_close_revisions(

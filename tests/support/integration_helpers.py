@@ -38,7 +38,7 @@ def configure_fake_github_environment(
         )
 
     for module in command_modules:
-        monkeypatch.setattr(f"{module}._build_github_client", build_github_client)
+        monkeypatch.setattr(f"{module}.build_github_client", build_github_client)
     return config_path
 
 
