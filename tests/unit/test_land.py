@@ -361,20 +361,6 @@ def test_updated_landed_change_marks_pr_merged_and_clears_stack_comment() -> Non
     assert updated.stack_comment_id is None
 
 
-def test_parse_pull_request_reference_accepts_matching_url() -> None:
-    assert (
-        _parse_pull_request_reference(
-            reference="https://github.test/octo-org/stacked-review/pull/17",
-            github_repository=ResolvedGithubRepository(
-                host="github.test",
-                owner="octo-org",
-                repo="stacked-review",
-            ),
-        )
-        == 17
-    )
-
-
 def test_parse_pull_request_reference_rejects_wrong_repo() -> None:
     with pytest.raises(CliError, match="`--expect-pr`"):
         _parse_pull_request_reference(

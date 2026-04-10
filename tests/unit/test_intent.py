@@ -1,4 +1,5 @@
 """Unit tests for the intent file module."""
+
 from __future__ import annotations
 
 import os
@@ -139,53 +140,29 @@ def _make_land_intent(
 # Naming
 # ---------------------------------------------------------------------------
 
-def test_submit_intent_round_trips(tmp_path: Path) -> None:
-    intent = _make_submit_intent()
+@pytest.mark.parametrize(
+    ("intent_factory", "test_id"),
+    [
+        (_make_submit_intent, "submit"),
+        (_make_cleanup_apply_intent, "cleanup-apply"),
+        (_make_cleanup_restack_intent, "cleanup-restack"),
+        (lambda: _make_close_intent(cleanup=True), "close"),
+        (_make_relink_intent, "relink"),
+        (_make_land_intent, "land"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_write_intent_round_trips_supported_intent_kinds(
+    tmp_path: Path,
+    intent_factory,
+    test_id: str,
+) -> None:
+    del test_id
+    intent = intent_factory()
     path = write_intent(tmp_path, intent)
     results = scan_intents(tmp_path)
     assert len(results) == 1
-    loaded = results[0]
-    assert loaded.path == path
-    assert loaded.intent == intent
-
-
-def test_cleanup_apply_intent_round_trips(tmp_path: Path) -> None:
-    intent = _make_cleanup_apply_intent()
-    write_intent(tmp_path, intent)
-    results = scan_intents(tmp_path)
-    assert len(results) == 1
-    assert results[0].intent == intent
-
-
-def test_cleanup_restack_intent_round_trips(tmp_path: Path) -> None:
-    intent = _make_cleanup_restack_intent()
-    write_intent(tmp_path, intent)
-    results = scan_intents(tmp_path)
-    assert len(results) == 1
-    assert results[0].intent == intent
-
-
-def test_close_intent_round_trips(tmp_path: Path) -> None:
-    intent = _make_close_intent(cleanup=True)
-    write_intent(tmp_path, intent)
-    results = scan_intents(tmp_path)
-    assert len(results) == 1
-    assert results[0].intent == intent
-
-
-def test_relink_intent_round_trips(tmp_path: Path) -> None:
-    intent = _make_relink_intent()
-    write_intent(tmp_path, intent)
-    results = scan_intents(tmp_path)
-    assert len(results) == 1
-    assert results[0].intent == intent
-
-
-def test_land_intent_round_trips(tmp_path: Path) -> None:
-    intent = _make_land_intent()
-    write_intent(tmp_path, intent)
-    results = scan_intents(tmp_path)
-    assert len(results) == 1
+    assert results[0].path == path
     assert results[0].intent == intent
 
 
@@ -302,61 +279,73 @@ def test_stack_intent_stays_live_when_any_change_id_still_resolves(tmp_path: Pat
     assert intent_is_stale(intent, lambda cid: cid == "aaaa") is False
 
 
-def test_cleanup_apply_intent_is_not_stale_when_recent_and_pid_dead(
+@pytest.mark.parametrize(
+    ("intent_factory", "pid", "pid_alive", "now", "expected_stale", "test_id"),
+    [
+        (
+            _make_cleanup_apply_intent,
+            99999999,
+            False,
+            datetime(2026, 1, 2, tzinfo=UTC),
+            False,
+            "cleanup-apply-recent-dead-pid",
+        ),
+        (
+            _make_cleanup_apply_intent,
+            12345,
+            True,
+            datetime(2030, 1, 1, tzinfo=UTC),
+            False,
+            "cleanup-apply-live-pid",
+        ),
+        (
+            _make_cleanup_apply_intent,
+            99999999,
+            False,
+            datetime(2026, 1, 9, tzinfo=UTC),
+            True,
+            "cleanup-apply-old-dead-pid",
+        ),
+        (
+            _make_relink_intent,
+            12345,
+            True,
+            datetime(2030, 1, 1, tzinfo=UTC),
+            False,
+            "relink-live-pid",
+        ),
+        (
+            _make_relink_intent,
+            99999999,
+            False,
+            datetime(2026, 1, 2, tzinfo=UTC),
+            False,
+            "relink-recent-dead-pid",
+        ),
+        (
+            _make_relink_intent,
+            99999999,
+            False,
+            datetime(2026, 1, 9, tzinfo=UTC),
+            True,
+            "relink-old-dead-pid",
+        ),
+    ],
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_pid_based_intents_become_stale_only_when_old_and_dead(
     monkeypatch: pytest.MonkeyPatch,
+    intent_factory,
+    pid: int,
+    pid_alive: bool,
+    now: datetime,
+    expected_stale: bool,
+    test_id: str,
 ) -> None:
-    # Dead PID, but only 1 day old — not stale yet (started_at = 2026-01-01)
-    monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
-    intent = _make_cleanup_apply_intent(pid=99999999)
-    one_day_after = datetime(2026, 1, 2, tzinfo=UTC)
-    assert intent_is_stale(intent, lambda cid: False, now=one_day_after) is False
-
-
-def test_cleanup_apply_intent_stays_live_while_pid_is_alive(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: True)
-    intent = _make_cleanup_apply_intent(pid=12345)
-    # Even very old, if PID is alive → not stale
-    old_time = datetime(2030, 1, 1, tzinfo=UTC)
-    assert intent_is_stale(intent, lambda cid: False, now=old_time) is False
-
-
-def test_cleanup_apply_intent_stale_when_old_and_pid_dead(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
-    intent = _make_cleanup_apply_intent(pid=99999999)
-    # 8 days after started_at (2026-01-01) → stale
-    eight_days_after = datetime(2026, 1, 9, tzinfo=UTC)
-    assert intent_is_stale(intent, lambda cid: False, now=eight_days_after) is True
-
-
-def test_relink_intent_stays_live_while_pid_is_alive(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: True)
-    intent = _make_relink_intent(pid=12345)
-    old_time = datetime(2030, 1, 1, tzinfo=UTC)
-    assert intent_is_stale(intent, lambda cid: False, now=old_time) is False
-
-
-def test_relink_intent_not_stale_when_recent_and_pid_dead(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
-    intent = _make_relink_intent(pid=99999999)
-    one_day_after = datetime(2026, 1, 2, tzinfo=UTC)
-    assert intent_is_stale(intent, lambda cid: False, now=one_day_after) is False
-
-
-def test_relink_intent_stale_when_old_and_pid_dead(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
-    intent = _make_relink_intent(pid=99999999)
-    eight_days_after = datetime(2026, 1, 9, tzinfo=UTC)
-    assert intent_is_stale(intent, lambda cid: False, now=eight_days_after) is True
+    del test_id
+    monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda actual_pid: pid_alive)
+    intent = intent_factory(pid=pid)
+    assert intent_is_stale(intent, lambda cid: False, now=now) is expected_stale
 
 
 # ---------------------------------------------------------------------------

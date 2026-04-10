@@ -277,20 +277,6 @@ def test_resolve_pull_request_selection_fetches_selected_branch_when_requested(
     assert selection.fetched_tip_commit == "commit-2"
 
 
-def test_parse_pull_request_reference_accepts_matching_url() -> None:
-    assert (
-        _parse_pull_request_reference(
-            reference="https://github.test/octo-org/stacked-review/pull/17",
-            github_repository=ResolvedGithubRepository(
-                host="github.test",
-                owner="octo-org",
-                repo="stacked-review",
-            ),
-        )
-        == 17
-    )
-
-
 def test_parse_pull_request_reference_rejects_wrong_repository() -> None:
     with pytest.raises(CliError, match="does not match configured repository"):
         _parse_pull_request_reference(

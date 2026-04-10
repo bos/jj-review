@@ -114,20 +114,18 @@ def test_main_reports_invalid_logging_level_without_traceback(
     assert "Traceback" not in captured.err
 
 
-def test_normalize_cli_args_rewrites_draft_new() -> None:
-    assert _normalize_cli_args(["submit", "--draft=new", "@"]) == [
-        "submit",
-        "--draft",
-        "@",
-    ]
-
-
-def test_normalize_cli_args_rewrites_draft_all() -> None:
-    assert _normalize_cli_args(["submit", "--draft=all", "@"]) == [
-        "submit",
-        "--draft-all",
-        "@",
-    ]
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        (["submit", "--draft=new", "@"], ["submit", "--draft", "@"]),
+        (["submit", "--draft=all", "@"], ["submit", "--draft-all", "@"]),
+    ],
+)
+def test_normalize_cli_args_rewrites_supported_draft_modes(
+    args: list[str],
+    expected: list[str],
+) -> None:
+    assert _normalize_cli_args(args) == expected
 
 
 def test_normalize_cli_args_rejects_invalid_draft_mode() -> None:
