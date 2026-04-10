@@ -227,42 +227,26 @@ def test_pid_is_alive_returns_false_for_missing_process(
 # Retirement
 # ---------------------------------------------------------------------------
 
-def test_retire_superseded_intents_removes_exact_submit_match(tmp_path: Path) -> None:
-    old = _make_submit_intent(("a", "b"))
-    path = write_intent(tmp_path, old)
-    loaded = LoadedIntent(path=path, intent=old)
-    new = _make_submit_intent(("a", "b"))
-    retire_superseded_intents([loaded], new)
-    assert not path.exists()
-
-
-def test_retire_superseded_submit_intent_when_new_stack_extends_it(
+@pytest.mark.parametrize(
+    ("new_ordered_change_ids", "should_exist"),
+    [
+        pytest.param(("a", "b"), False, id="exact-match"),
+        pytest.param(("a", "b", "c"), False, id="extended-prefix"),
+        pytest.param(("b", "c"), True, id="non-prefix-overlap"),
+        pytest.param(("c", "d"), True, id="disjoint"),
+    ],
+)
+def test_retire_superseded_submit_intents_matches_stack_prefix(
     tmp_path: Path,
+    new_ordered_change_ids: tuple[str, ...],
+    should_exist: bool,
 ) -> None:
     old = _make_submit_intent(("a", "b"))
     path = write_intent(tmp_path, old)
     loaded = LoadedIntent(path=path, intent=old)
-    new = _make_submit_intent(("a", "b", "c"))
+    new = _make_submit_intent(new_ordered_change_ids)
     retire_superseded_intents([loaded], new)
-    assert not path.exists()
-
-
-def test_retire_superseded_intents_keeps_non_prefix_overlap(tmp_path: Path) -> None:
-    old = _make_submit_intent(("a", "b"))
-    path = write_intent(tmp_path, old)
-    loaded = LoadedIntent(path=path, intent=old)
-    new = _make_submit_intent(("b", "c"))
-    retire_superseded_intents([loaded], new)
-    assert path.exists()
-
-
-def test_retire_superseded_intents_keeps_disjoint_stacks(tmp_path: Path) -> None:
-    old = _make_submit_intent(("a", "b"))
-    path = write_intent(tmp_path, old)
-    loaded = LoadedIntent(path=path, intent=old)
-    new = _make_submit_intent(("c", "d"))
-    retire_superseded_intents([loaded], new)
-    assert path.exists()
+    assert path.exists() is should_exist
 
 
 # ---------------------------------------------------------------------------

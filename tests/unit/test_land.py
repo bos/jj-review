@@ -132,26 +132,92 @@ def test_build_land_plan_blocks_expect_pr_mismatch() -> None:
     assert "`--expect-pr 9`" in plan.boundary_action.message
 
 
-def test_build_land_plan_blocks_unlinked_change() -> None:
+@pytest.mark.parametrize(
+    ("bypass_readiness", "revision_factory", "expected_message"),
+    [
+        pytest.param(
+            False,
+            lambda: _status_revision(
+                change_id="change-1",
+                commit_id="commit-1",
+                link_state="unlinked",
+                pull_request=_pull_request(number=7),
+                pull_request_state="open",
+                subject="feature 1",
+            ),
+            "unlinked from review tracking",
+            id="unlinked",
+        ),
+        pytest.param(
+            False,
+            lambda: _status_revision(
+                change_id="change-1",
+                commit_id="commit-1",
+                pull_request=_pull_request(number=7),
+                pull_request_state="open",
+                subject="feature 1",
+            ),
+            "PR #7 is not approved",
+            id="unapproved-open",
+        ),
+        pytest.param(
+            False,
+            lambda: _status_revision(
+                change_id="change-1",
+                commit_id="commit-1",
+                pull_request=_pull_request(number=7, draft=True),
+                pull_request_state="open",
+                review_decision="approved",
+                subject="feature 1",
+            ),
+            "PR #7 is still a draft",
+            id="draft",
+        ),
+        pytest.param(
+            False,
+            lambda: _status_revision(
+                change_id="change-1",
+                commit_id="commit-1",
+                pull_request=_pull_request(number=7),
+                pull_request_state="open",
+                review_decision="changes_requested",
+                subject="feature 1",
+            ),
+            "PR #7 has changes requested",
+            id="changes-requested",
+        ),
+        pytest.param(
+            True,
+            lambda: _status_revision(
+                change_id="change-1",
+                commit_id="commit-1",
+                pull_request=_pull_request(number=7),
+                pull_request_state="open",
+                review_decision_error="review decision lookup failed",
+                subject="feature 1",
+            ),
+            "review decision lookup failed",
+            id="review-decision-error",
+        ),
+    ],
+)
+def test_build_land_plan_blocks_unready_boundary_changes(
+    bypass_readiness: bool,
+    revision_factory,
+    expected_message: str,
+) -> None:
     prepared_status = _prepared_status(("change-1",))
     status_result = cast(
         StatusResult,
         SimpleNamespace(
             revisions=(
-                _status_revision(
-                    change_id="change-1",
-                    commit_id="commit-1",
-                    link_state="unlinked",
-                    pull_request=_pull_request(number=7),
-                    pull_request_state="open",
-                    subject="feature 1",
-                ),
+                revision_factory(),
             )
         ),
     )
 
     plan = _build_land_plan(
-        bypass_readiness=False,
+        bypass_readiness=bypass_readiness,
         expect_pr_number=None,
         prepared_status=prepared_status,
         status_result=status_result,
@@ -160,130 +226,7 @@ def test_build_land_plan_blocks_unlinked_change() -> None:
 
     assert plan.blocked is True
     assert plan.boundary_action is not None
-    assert "unlinked from review tracking" in plan.boundary_action.message
-
-
-def test_build_land_plan_blocks_unapproved_open_change() -> None:
-    prepared_status = _prepared_status(("change-1",))
-    status_result = cast(
-        StatusResult,
-        SimpleNamespace(
-            revisions=(
-                _status_revision(
-                    change_id="change-1",
-                    commit_id="commit-1",
-                    pull_request=_pull_request(number=7),
-                    pull_request_state="open",
-                    subject="feature 1",
-                ),
-            )
-        ),
-    )
-
-    plan = _build_land_plan(
-        bypass_readiness=False,
-        expect_pr_number=None,
-        prepared_status=prepared_status,
-        status_result=status_result,
-        trunk_branch="main",
-    )
-
-    assert plan.blocked is True
-    assert plan.boundary_action is not None
-    assert "PR #7 is not approved" in plan.boundary_action.message
-
-
-def test_build_land_plan_blocks_draft_change() -> None:
-    prepared_status = _prepared_status(("change-1",))
-    status_result = cast(
-        StatusResult,
-        SimpleNamespace(
-            revisions=(
-                _status_revision(
-                    change_id="change-1",
-                    commit_id="commit-1",
-                    pull_request=_pull_request(number=7, draft=True),
-                    pull_request_state="open",
-                    review_decision="approved",
-                    subject="feature 1",
-                ),
-            )
-        ),
-    )
-
-    plan = _build_land_plan(
-        bypass_readiness=False,
-        expect_pr_number=None,
-        prepared_status=prepared_status,
-        status_result=status_result,
-        trunk_branch="main",
-    )
-
-    assert plan.blocked is True
-    assert plan.boundary_action is not None
-    assert "PR #7 is still a draft" in plan.boundary_action.message
-
-
-def test_build_land_plan_blocks_changes_requested() -> None:
-    prepared_status = _prepared_status(("change-1",))
-    status_result = cast(
-        StatusResult,
-        SimpleNamespace(
-            revisions=(
-                _status_revision(
-                    change_id="change-1",
-                    commit_id="commit-1",
-                    pull_request=_pull_request(number=7),
-                    pull_request_state="open",
-                    review_decision="changes_requested",
-                    subject="feature 1",
-                ),
-            )
-        ),
-    )
-
-    plan = _build_land_plan(
-        bypass_readiness=False,
-        expect_pr_number=None,
-        prepared_status=prepared_status,
-        status_result=status_result,
-        trunk_branch="main",
-    )
-
-    assert plan.blocked is True
-    assert plan.boundary_action is not None
-    assert "PR #7 has changes requested" in plan.boundary_action.message
-
-
-def test_build_land_plan_keeps_review_decision_lookup_errors_blocking() -> None:
-    prepared_status = _prepared_status(("change-1",))
-    status_result = cast(
-        StatusResult,
-        SimpleNamespace(
-            revisions=(
-                _status_revision(
-                    change_id="change-1",
-                    commit_id="commit-1",
-                    pull_request=_pull_request(number=7),
-                    pull_request_state="open",
-                    review_decision_error="review decision lookup failed",
-                    subject="feature 1",
-                ),
-            )
-        ),
-    )
-
-    plan = _build_land_plan(
-        bypass_readiness=True,
-        expect_pr_number=None,
-        prepared_status=prepared_status,
-        status_result=status_result,
-        trunk_branch="main",
-    )
-
-    assert plan.blocked is True
-    assert plan.boundary_action is not None
-    assert "review decision lookup failed" in plan.boundary_action.message
+    assert expected_message in plan.boundary_action.message
 
 
 def test_build_land_plan_bypass_readiness_uses_maximal_open_prefix() -> None:
@@ -534,42 +477,6 @@ def test_restore_local_trunk_bookmark_forgets_bookmark_when_original_target_miss
     assert client.set_calls == []
 
 
-def test_ensure_trunk_branch_matches_selected_trunk_rejects_conflicted_local_bookmark() -> None:
-    client = _BookmarkClientStub(
-        BookmarkState(
-            name="main",
-            local_targets=("commit-1", "commit-2"),
-            remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
-        )
-    )
-
-    with pytest.raises(CliError, match="Local trunk bookmark 'main' is conflicted"):
-        _ensure_trunk_branch_matches_selected_trunk(
-            client=client,
-            remote_name="origin",
-            trunk_branch="main",
-            trunk_commit_id="commit-1",
-        )
-
-
-def test_ensure_trunk_branch_matches_selected_trunk_rejects_moved_local_bookmark() -> None:
-    client = _BookmarkClientStub(
-        BookmarkState(
-            name="main",
-            local_targets=("commit-2",),
-            remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
-        )
-    )
-
-    with pytest.raises(CliError, match="Local trunk bookmark 'main' no longer matches"):
-        _ensure_trunk_branch_matches_selected_trunk(
-            client=client,
-            remote_name="origin",
-            trunk_branch="main",
-            trunk_commit_id="commit-1",
-        )
-
-
 def test_ensure_trunk_branch_matches_selected_trunk_rejects_missing_remote_bookmark() -> None:
     client = _BookmarkClientStub(BookmarkState(name="main", local_targets=("commit-1",)))
 
@@ -582,36 +489,60 @@ def test_ensure_trunk_branch_matches_selected_trunk_rejects_missing_remote_bookm
         )
 
 
-def test_ensure_trunk_branch_matches_selected_trunk_rejects_conflicted_remote_bookmark() -> None:
-    client = _BookmarkClientStub(
-        BookmarkState(
-            name="main",
-            local_targets=("commit-1",),
-            remote_targets=(
-                RemoteBookmarkState(remote="origin", targets=("commit-1", "commit-2")),
+@pytest.mark.parametrize(
+    ("bookmark_state", "message"),
+    [
+        pytest.param(
+            BookmarkState(
+                name="main",
+                local_targets=("commit-1", "commit-2"),
+                remote_targets=(
+                    RemoteBookmarkState(remote="origin", targets=("commit-1",)),
+                ),
             ),
-        )
-    )
+            "Local trunk bookmark 'main' is conflicted",
+            id="conflicted-local",
+        ),
+        pytest.param(
+            BookmarkState(
+                name="main",
+                local_targets=("commit-2",),
+                remote_targets=(
+                    RemoteBookmarkState(remote="origin", targets=("commit-1",)),
+                ),
+            ),
+            "Local trunk bookmark 'main' no longer matches",
+            id="moved-local",
+        ),
+        pytest.param(
+            BookmarkState(
+                name="main",
+                local_targets=("commit-1",),
+                remote_targets=(
+                    RemoteBookmarkState(remote="origin", targets=("commit-1", "commit-2")),
+                ),
+            ),
+            "Remote trunk bookmark 'main'@origin is conflicted",
+            id="conflicted-remote",
+        ),
+        pytest.param(
+            BookmarkState(
+                name="main",
+                local_targets=("commit-1",),
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-2",)),),
+            ),
+            "Remote trunk bookmark 'main'@origin moved",
+            id="moved-remote",
+        ),
+    ],
+)
+def test_ensure_trunk_branch_matches_selected_trunk_rejects_unsafe_bookmarks(
+    bookmark_state: BookmarkState,
+    message: str,
+) -> None:
+    client = _BookmarkClientStub(bookmark_state)
 
-    with pytest.raises(CliError, match="Remote trunk bookmark 'main'@origin is conflicted"):
-        _ensure_trunk_branch_matches_selected_trunk(
-            client=client,
-            remote_name="origin",
-            trunk_branch="main",
-            trunk_commit_id="commit-1",
-        )
-
-
-def test_ensure_trunk_branch_matches_selected_trunk_rejects_moved_remote_bookmark() -> None:
-    client = _BookmarkClientStub(
-        BookmarkState(
-            name="main",
-            local_targets=("commit-1",),
-            remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-2",)),),
-        )
-    )
-
-    with pytest.raises(CliError, match="Remote trunk bookmark 'main'@origin moved"):
+    with pytest.raises(CliError, match=message):
         _ensure_trunk_branch_matches_selected_trunk(
             client=client,
             remote_name="origin",

@@ -4,6 +4,8 @@ import asyncio
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
+
 from jj_review.commands.close import CloseAction, _cleanup_revision, _CloseCleanupContext
 from jj_review.github.client import GithubClient
 from jj_review.jj import JjClient
@@ -11,110 +13,92 @@ from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
 from jj_review.models.cache import CachedChange
 
 
-def test_cleanup_revision_blocks_conflicted_local_bookmark() -> None:
-    result = asyncio.run(
-        _run_cleanup_revision(
-            bookmark_state=BookmarkState(
+@pytest.mark.parametrize(
+    ("bookmark_state", "expected_action"),
+    [
+        pytest.param(
+            BookmarkState(
                 name="review/feature-aaaaaaaa",
                 local_targets=("commit-1", "commit-2"),
                 remote_targets=(
                     RemoteBookmarkState(remote="origin", targets=("commit-1",)),
                 ),
-            )
-        )
-    )
-
-    assert result.actions == [
-        CloseAction(
-            kind="local bookmark",
-            message=(
-                "cannot forget local bookmark 'review/feature-aaaaaaaa' because it is "
-                "conflicted"
             ),
-            status="blocked",
-        )
-    ]
-    assert result.jj_client.delete_calls == []
-    assert result.jj_client.forget_calls == []
-
-
-def test_cleanup_revision_blocks_moved_local_bookmark() -> None:
-    result = asyncio.run(
-        _run_cleanup_revision(
-            bookmark_state=BookmarkState(
+            CloseAction(
+                kind="local bookmark",
+                message=(
+                    "cannot forget local bookmark 'review/feature-aaaaaaaa' because it is "
+                    "conflicted"
+                ),
+                status="blocked",
+            ),
+            id="conflicted-local",
+        ),
+        pytest.param(
+            BookmarkState(
                 name="review/feature-aaaaaaaa",
                 local_targets=("other-commit",),
                 remote_targets=(
                     RemoteBookmarkState(remote="origin", targets=("commit-1",)),
                 ),
-            )
-        )
-    )
-
-    assert result.actions == [
-        CloseAction(
-            kind="local bookmark",
-            message=(
-                "cannot forget local bookmark 'review/feature-aaaaaaaa' because it already "
-                "points to a different revision"
             ),
-            status="blocked",
-        )
-    ]
-    assert result.jj_client.delete_calls == []
-    assert result.jj_client.forget_calls == []
-
-
-def test_cleanup_revision_blocks_conflicted_remote_bookmark() -> None:
-    result = asyncio.run(
-        _run_cleanup_revision(
-            bookmark_state=BookmarkState(
+            CloseAction(
+                kind="local bookmark",
+                message=(
+                    "cannot forget local bookmark 'review/feature-aaaaaaaa' because it "
+                    "already points to a different revision"
+                ),
+                status="blocked",
+            ),
+            id="moved-local",
+        ),
+        pytest.param(
+            BookmarkState(
                 name="review/feature-aaaaaaaa",
                 local_targets=("commit-1",),
                 remote_targets=(
                     RemoteBookmarkState(remote="origin", targets=("commit-1", "commit-2")),
                 ),
-            )
-        )
-    )
-
-    assert result.actions == [
-        CloseAction(
-            kind="remote branch",
-            message=(
-                "cannot delete remote branch review/feature-aaaaaaaa@origin because the "
-                "remote bookmark is conflicted"
             ),
-            status="blocked",
-        )
-    ]
-    assert result.jj_client.delete_calls == []
-    assert result.jj_client.forget_calls == []
-
-
-def test_cleanup_revision_blocks_moved_remote_bookmark() -> None:
-    result = asyncio.run(
-        _run_cleanup_revision(
-            bookmark_state=BookmarkState(
+            CloseAction(
+                kind="remote branch",
+                message=(
+                    "cannot delete remote branch review/feature-aaaaaaaa@origin because "
+                    "the remote bookmark is conflicted"
+                ),
+                status="blocked",
+            ),
+            id="conflicted-remote",
+        ),
+        pytest.param(
+            BookmarkState(
                 name="review/feature-aaaaaaaa",
                 local_targets=("commit-1",),
                 remote_targets=(
                     RemoteBookmarkState(remote="origin", targets=("other-commit",)),
                 ),
-            )
-        )
+            ),
+            CloseAction(
+                kind="remote branch",
+                message=(
+                    "cannot delete remote branch review/feature-aaaaaaaa@origin because "
+                    "it already points to a different revision"
+                ),
+                status="blocked",
+            ),
+            id="moved-remote",
+        ),
+    ],
+)
+def test_cleanup_revision_blocks_unsafe_bookmarks(
+    bookmark_state: BookmarkState,
+    expected_action: CloseAction,
+) -> None:
+    result = asyncio.run(
+        _run_cleanup_revision(bookmark_state=bookmark_state)
     )
 
-    assert result.actions == [
-        CloseAction(
-            kind="remote branch",
-            message=(
-                "cannot delete remote branch review/feature-aaaaaaaa@origin because it "
-                "already points to a different revision"
-            ),
-            status="blocked",
-        )
-    ]
+    assert result.actions == [expected_action]
     assert result.jj_client.delete_calls == []
     assert result.jj_client.forget_calls == []
 
