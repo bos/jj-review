@@ -10,7 +10,7 @@ from jj_review.github.client import GithubClient
 
 from ..support.fake_github import FakeGithubRepository
 from ..support.integration_helpers import (
-    commit_file,
+    commit_file as commit,
     configure_fake_github_environment,
     init_fake_github_repo,
     run_command,
@@ -41,10 +41,6 @@ def configure_submit_environment(
 
 def init_repo(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
     return init_fake_github_repo(tmp_path)
-
-
-def commit(repo: Path, message: str, filename: str) -> None:
-    commit_file(repo, message, filename)
 
 
 def approve_pull_requests(fake_repo: FakeGithubRepository, *pull_numbers: int) -> None:
