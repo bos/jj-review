@@ -23,8 +23,8 @@ def test_import_bootstraps_local_review_state_from_pull_request(
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
@@ -67,8 +67,8 @@ def test_import_current_rejects_remote_branches_without_pull_requests(
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
@@ -100,8 +100,8 @@ def test_import_reports_up_to_date_when_selected_stack_is_already_imported(
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit") == 0
     capsys.readouterr()
@@ -123,7 +123,7 @@ def test_import_current_fails_closed_when_head_has_no_discoverable_remote_review
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 1", "feature-1.txt")
 
     exit_code = _main(repo, config_path, "import")
     captured = capsys.readouterr()
@@ -145,7 +145,7 @@ def test_import_revset_fails_closed_without_remote_bookmark_identity(
 ) -> None:
     repo, fake_repo = _init_repo_without_remote(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 1", "feature-1.txt")
 
     change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
 
@@ -169,8 +169,8 @@ def test_import_pull_request_fails_closed_when_head_branch_matches_multiple_pull
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit") == 0
     stack = JjClient(repo).discover_review_stack()
@@ -200,8 +200,8 @@ def test_import_fails_closed_when_stack_would_need_generated_bookmarks(
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
@@ -247,8 +247,8 @@ def test_import_fails_closed_when_cached_bookmark_is_missing_on_selected_remote(
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
@@ -292,8 +292,8 @@ def test_import_fails_closed_without_partial_local_bookmark_updates(
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
@@ -326,7 +326,7 @@ def test_import_prefers_exact_remote_bookmarks_over_stale_cached_names(
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 1", "feature-1.txt")
     _commit(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit") == 0
@@ -405,8 +405,8 @@ def test_import_revset_rejects_generated_bookmarks_without_selected_remote(
 ) -> None:
     repo, fake_repo = _init_repo(tmp_path)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
-    _commit(repo, "feature 1", "feature-1.txt")
-    _commit(repo, "feature 2", "feature-2.txt")
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
 
     assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
@@ -464,10 +464,6 @@ def _init_repo(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
 
 def _init_repo_without_remote(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
     return init_fake_github_repo(tmp_path, with_remote=False)
-
-
-def _commit(repo: Path, message: str, filename: str) -> None:
-    commit_file(repo, message, filename)
 
 
 def _main(repo: Path, config_path: Path, command: str, *command_args: str) -> int:
