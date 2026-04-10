@@ -143,7 +143,7 @@ def test_import_revset_fails_closed_without_remote_bookmark_identity(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = _init_repo_without_remote(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path, with_remote=False)
     config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
 
@@ -456,10 +456,6 @@ def _configure_import_environment(
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
     )
-
-
-def _init_repo_without_remote(tmp_path: Path) -> tuple[Path, FakeGithubRepository]:
-    return init_fake_github_repo(tmp_path, with_remote=False)
 
 
 def _main(repo: Path, config_path: Path, command: str, *command_args: str) -> int:
