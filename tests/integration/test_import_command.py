@@ -36,7 +36,7 @@ def test_import_bootstraps_local_review_state_from_pull_request(
         }
     )
     for bookmark in review_bookmarks:
-        _run(["jj", "bookmark", "forget", bookmark], repo)
+        run_command(["jj", "bookmark", "forget", bookmark], repo)
     resolve_state_path(repo).unlink()
     capsys.readouterr()
 
@@ -81,7 +81,7 @@ def test_import_current_rejects_remote_branches_without_pull_requests(
     )
     fake_repo.pull_requests.clear()
     for bookmark in review_bookmarks:
-        _run(["jj", "bookmark", "forget", bookmark], repo)
+        run_command(["jj", "bookmark", "forget", bookmark], repo)
     resolve_state_path(repo).unlink()
 
     exit_code = _main(repo, config_path, "import", "--fetch")
@@ -214,9 +214,9 @@ def test_import_fails_closed_when_stack_would_need_generated_bookmarks(
     assert top_bookmark is not None
 
     for bookmark in (bottom_bookmark, top_bookmark):
-        _run(["jj", "bookmark", "forget", bookmark], repo)
+        run_command(["jj", "bookmark", "forget", bookmark], repo)
     resolve_state_path(repo).unlink()
-    _run(
+    run_command(
         [
             "git",
             "--git-dir",
@@ -261,8 +261,8 @@ def test_import_fails_closed_when_cached_bookmark_is_missing_on_selected_remote(
     assert top_bookmark is not None
 
     for bookmark in (bottom_bookmark, top_bookmark):
-        _run(["jj", "bookmark", "forget", bookmark], repo)
-    _run(
+        run_command(["jj", "bookmark", "forget", bookmark], repo)
+    run_command(
         [
             "git",
             "--git-dir",
@@ -306,9 +306,9 @@ def test_import_fails_closed_without_partial_local_bookmark_updates(
     assert top_bookmark is not None
 
     for bookmark in (bottom_bookmark, top_bookmark):
-        _run(["jj", "bookmark", "forget", bookmark], repo)
+        run_command(["jj", "bookmark", "forget", bookmark], repo)
     main_target = JjClient(repo).resolve_revision("main").commit_id
-    _run(["jj", "bookmark", "set", top_bookmark, "--revision", "main"], repo)
+    run_command(["jj", "bookmark", "set", top_bookmark, "--revision", "main"], repo)
 
     exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
     captured = capsys.readouterr()
@@ -354,7 +354,7 @@ def test_import_prefers_exact_remote_bookmarks_over_stale_cached_names(
         )
     )
     for bookmark in (bottom_bookmark, top_bookmark):
-        _run(["jj", "bookmark", "forget", bookmark], repo)
+        run_command(["jj", "bookmark", "forget", bookmark], repo)
 
     exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
 
@@ -381,9 +381,9 @@ def test_import_current_rejects_cache_only_link(
     bookmark = state_before.changes[change_id].bookmark
     assert bookmark is not None
 
-    _run(["jj", "bookmark", "forget", bookmark], repo)
+    run_command(["jj", "bookmark", "forget", bookmark], repo)
     fake_repo.pull_requests.clear()
-    _run(
+    run_command(
         [
             "git",
             "--git-dir",
@@ -419,7 +419,7 @@ def test_import_revset_rejects_generated_bookmarks_without_selected_remote(
     assert top_bookmark is not None
 
     for bookmark in (bottom_bookmark, top_bookmark):
-        _run(["jj", "bookmark", "forget", bookmark], repo)
+        run_command(["jj", "bookmark", "forget", bookmark], repo)
     resolve_state_path(repo).unlink()
 
     def _no_selected_remote(*args, **kwargs):
@@ -468,10 +468,6 @@ def _init_repo_without_remote(tmp_path: Path) -> tuple[Path, FakeGithubRepositor
 
 def _commit(repo: Path, message: str, filename: str) -> None:
     commit_file(repo, message, filename)
-
-
-def _run(command: list[str], cwd: Path):
-    return run_command(command, cwd)
 
 
 def _main(repo: Path, config_path: Path, command: str, *command_args: str) -> int:
