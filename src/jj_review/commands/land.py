@@ -625,7 +625,10 @@ def _report_stale_land_intents(
             continue
         match = match_ordered_change_ids(
             loaded.intent.ordered_change_ids,
-            _ordered_change_ids(prepared_status),
+            tuple(
+                prepared_revision.revision.change_id
+                for prepared_revision in prepared_status.prepared.status_revisions
+            ),
         )
         if match == "exact" and loaded.intent.landed_change_ids == current_landed_change_ids:
             print(f"Resuming interrupted {loaded.intent.label}")
@@ -868,21 +871,6 @@ def _planned_land_actions(*, plan: _LandPlan) -> tuple[LandAction, ...]:
         actions.append(plan.boundary_action)
     return tuple(actions)
 
-
-def _ordered_change_ids(prepared_status: PreparedStatus) -> tuple[str, ...]:
-    return tuple(
-        prepared_revision.revision.change_id
-        for prepared_revision in prepared_status.prepared.status_revisions
-    )
-
-
-def _ordered_commit_ids(prepared_status: PreparedStatus) -> tuple[str, ...]:
-    return tuple(
-        prepared_revision.revision.commit_id
-        for prepared_revision in prepared_status.prepared.status_revisions
-    )
-
-
 def _find_resume_land_intent(
     *,
     bypass_readiness: bool,
@@ -892,8 +880,14 @@ def _find_resume_land_intent(
     stale_intents: Sequence[LoadedIntent],
     trunk_branch: str,
 ) -> _ResumeLandIntent | None:
-    current_change_ids = _ordered_change_ids(prepared_status)
-    current_commit_ids = _ordered_commit_ids(prepared_status)
+    current_change_ids = tuple(
+        prepared_revision.revision.change_id
+        for prepared_revision in prepared_status.prepared.status_revisions
+    )
+    current_commit_ids = tuple(
+        prepared_revision.revision.commit_id
+        for prepared_revision in prepared_status.prepared.status_revisions
+    )
     tail_match: _ResumeLandIntent | None = None
     for loaded in stale_intents:
         if not isinstance(loaded.intent, LandIntent):
@@ -1149,8 +1143,14 @@ def _build_land_intent(
     prepared_status: PreparedStatus,
     trunk_branch: str,
 ) -> LandIntent:
-    ordered_change_ids = _ordered_change_ids(prepared_status)
-    ordered_commit_ids = _ordered_commit_ids(prepared_status)
+    ordered_change_ids = tuple(
+        prepared_revision.revision.change_id
+        for prepared_revision in prepared_status.prepared.status_revisions
+    )
+    ordered_commit_ids = tuple(
+        prepared_revision.revision.commit_id
+        for prepared_revision in prepared_status.prepared.status_revisions
+    )
     landed_change_ids = tuple(revision.change_id for revision in landed_revisions)
     landed_commit_id = (
         landed_revisions[-1].commit_id

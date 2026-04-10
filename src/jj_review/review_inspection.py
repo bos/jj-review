@@ -234,9 +234,7 @@ async def stream_status_async(
     github_repository_error = prepared_status.github_repository_error
 
     if prepared.remote is None:
-        display_revisions = _status_revisions_in_display_order(
-            _build_status_revisions_without_github(prepared)
-        )
+        display_revisions = tuple(reversed(_build_status_revisions_without_github(prepared)))
         if on_github_status is not None:
             on_github_status(None, None)
         for revision in display_revisions:
@@ -255,9 +253,7 @@ async def stream_status_async(
 
     if github_repository is None:
         logger.debug("status github target unavailable: %s", github_repository_error)
-        display_revisions = _status_revisions_in_display_order(
-            _build_status_revisions_without_github(prepared)
-        )
+        display_revisions = tuple(reversed(_build_status_revisions_without_github(prepared)))
         if on_github_status is not None:
             on_github_status(None, github_repository_error)
         for revision in display_revisions:
@@ -314,9 +310,7 @@ async def stream_status_async(
     except CliError as error:
         if not github_status_reported:
             emit_github_status(None)
-        fallback_revisions = _status_revisions_in_display_order(
-            _build_status_revisions_without_github(prepared)
-        )
+        fallback_revisions = tuple(reversed(_build_status_revisions_without_github(prepared)))
         github_error = str(error)
         logger.debug("status github inspection failed: %s", github_error)
         streamed_change_ids = {revision.change_id for revision in revisions}
@@ -470,13 +464,6 @@ def _build_status_revisions_without_github(
         )
         for revision in prepared.status_revisions
     )
-
-
-def _status_revisions_in_display_order(
-    revisions: tuple[ReviewStatusRevision, ...],
-) -> tuple[ReviewStatusRevision, ...]:
-    return tuple(reversed(revisions))
-
 
 def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
     for revision in revisions:
