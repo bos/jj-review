@@ -13,7 +13,7 @@ from ..support.integration_helpers import (
     commit_file as commit,
     configure_fake_github_environment,
     init_fake_github_repo,
-    run_command,
+    run_command as run,
     write_fake_github_config,
     write_file,
 )
@@ -83,10 +83,6 @@ def remote_refs(remote: Path) -> dict[str, str]:
         commit_id, ref_name = line.split(" ", maxsplit=1)
         refs[ref_name] = commit_id
     return refs
-
-
-def run(command: list[str], cwd: Path):
-    return run_command(command, cwd)
 
 
 def run_main(repo: Path, config_path: Path, command: str, *command_args: str) -> int:
