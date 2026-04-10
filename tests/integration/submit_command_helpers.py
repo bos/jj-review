@@ -15,7 +15,7 @@ from ..support.integration_helpers import (
     init_fake_github_repo,
     run_command as run,
     write_fake_github_config,
-    write_file,
+    write_file as write_file_contents,
 )
 
 
@@ -125,6 +125,3 @@ def write_config(
         extra_lines=extra_lines,
     )
 
-
-def write_file_contents(path: Path, contents: str) -> None:
-    write_file(path, contents)
