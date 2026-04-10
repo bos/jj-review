@@ -187,13 +187,10 @@ def _classify_status_intents(
     stale_intents: list[LoadedIntent] = []
     now = datetime.now(UTC)
 
-    def change_id_resolves(change_id: str) -> bool:
-        return _change_id_resolves(prepared.client, change_id)
-
     for loaded in scan_intents(state_dir):
         if intent_is_stale(
             loaded.intent,
-            change_id_resolves,
+            lambda change_id: _change_id_resolves(prepared.client, change_id),
             now=now,
         ):
             stale_intents.append(loaded)
