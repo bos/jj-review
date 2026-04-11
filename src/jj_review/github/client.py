@@ -14,12 +14,13 @@ from typing import Any, TypeVar
 from urllib.parse import urlparse
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ValidationError
 
 from jj_review.models.github import (
     GithubIssueComment,
     GithubPullRequest,
     GithubPullRequestReview,
+    GithubPullRequestReviewUser,
     GithubRepository,
 )
 
@@ -47,43 +48,16 @@ class GithubClientError(RuntimeError):
         self.status_code = status_code
 
 
-class _GraphqlModel(BaseModel):
-    """Shared parsing defaults for GitHub GraphQL payload fragments."""
-
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
-
-
-class _GraphqlActor(_GraphqlModel):
-    login: str | None = None
-
-
-class _GraphqlPullRequest(_GraphqlModel):
-    base_ref_name: str = Field(alias="baseRefName")
-    body: str | None = None
-    head_ref_name: str = Field(alias="headRefName")
-    head_repository_owner: _GraphqlActor | None = Field(
-        default=None,
-        alias="headRepositoryOwner",
-    )
-    id: str | None = None
-    is_draft: bool | None = Field(default=None, alias="isDraft")
-    merged_at: str | None = Field(default=None, alias="mergedAt")
-    number: int
-    state: str | None = None
-    title: str
-    url: str
-
-
-class _GraphqlPullRequestConnection(_GraphqlModel):
+class _GraphqlPullRequestConnection(BaseModel):
     nodes: tuple[object, ...] | None = None
 
 
-class _GraphqlReview(_GraphqlModel):
-    author: _GraphqlActor | None = None
+class _GraphqlReview(BaseModel):
+    author: GithubPullRequestReviewUser | None = None
     state: str
 
 
-class _GraphqlReviewConnection(_GraphqlModel):
+class _GraphqlReviewConnection(BaseModel):
     nodes: tuple[object, ...] | None = None
 
 
@@ -189,8 +163,9 @@ class GithubClient:
                 if raw_pull_request is None:
                     results[number] = None
                     continue
-                results[number] = _pull_request_from_graphql(
+                results[number] = _validate_graphql_model(
                     raw_pull_request,
+                    model=GithubPullRequest,
                     error_message=(
                         "GitHub pull request batch lookup response had invalid pull request "
                         f"payload for #{number}."
@@ -678,8 +653,9 @@ def _graphql_mutation_pull_request_payload(
         raise GithubClientError(
             f"GitHub {response_name} response was missing a pull request payload."
         )
-    return _pull_request_from_graphql(
+    return _validate_graphql_model(
         raw_pull_request,
+        model=GithubPullRequest,
         error_message=f"GitHub {response_name} response had invalid mutation data.",
     )
 
@@ -797,52 +773,6 @@ def _pull_request_graphql_selection(*, indent: str) -> str:
         ]
     )
 
-
-def _actor_login(actor: _GraphqlActor | None) -> str | None:
-    if actor is None:
-        return None
-    return actor.login
-
-
-def _pull_request_from_graphql(
-    payload: object,
-    *,
-    error_message: str,
-) -> GithubPullRequest:
-    pull_request = _validate_graphql_model(
-        payload,
-        model=_GraphqlPullRequest,
-        error_message=error_message,
-    )
-    github_payload: dict[str, object] = {
-        "base": {"ref": pull_request.base_ref_name},
-        "body": pull_request.body,
-        "head": {
-            "label": _head_label(
-                head_owner=_actor_login(pull_request.head_repository_owner),
-                head_ref=pull_request.head_ref_name,
-            ),
-            "ref": pull_request.head_ref_name,
-        },
-        "html_url": pull_request.url,
-        "merged_at": pull_request.merged_at,
-        "number": pull_request.number,
-        "state": (pull_request.state or "").lower(),
-        "title": pull_request.title,
-    }
-    if pull_request.is_draft is not None:
-        github_payload["draft"] = pull_request.is_draft
-    if pull_request.id is not None:
-        github_payload["node_id"] = pull_request.id
-    return GithubPullRequest.model_validate(github_payload)
-
-
-def _head_label(*, head_owner: str | None, head_ref: object) -> str | None:
-    if head_owner is None or not isinstance(head_ref, str):
-        return None
-    return f"{head_owner}:{head_ref}"
-
-
 def _pull_request_connection_from_graphql(
     *,
     alias: str,
@@ -863,8 +793,9 @@ def _pull_request_connection_from_graphql(
         return ()
     pull_requests: list[GithubPullRequest] = []
     for raw_node in parsed.nodes:
-        pull_request = _pull_request_from_graphql(
+        pull_request = _validate_graphql_model(
             raw_node,
+            model=GithubPullRequest,
             error_message=(
                 f"GitHub {response_name} response had invalid pull request payload for {alias!r}."
             ),
@@ -957,7 +888,7 @@ def _review_decision_from_graphql(
                 f"GitHub {response_name} response had invalid review payload for {alias!r}."
             ),
         )
-        if _actor_login(review.author) is None:
+        if review.author is None:
             continue
         normalized_state = review.state.upper()
         if normalized_state not in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}:

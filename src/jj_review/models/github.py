@@ -1,6 +1,8 @@
 """GitHub API response models."""
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
 class GithubRepository(BaseModel):
@@ -42,6 +44,34 @@ class GithubPullRequest(BaseModel):
     state: str
     title: str
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_graphql_payload(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or "baseRefName" not in value:
+            return value
+
+        head_ref = value.get("headRefName")
+        payload: dict[str, Any] = {
+            "base": {"ref": value.get("baseRefName")},
+            "body": value.get("body"),
+            "head": {
+                "label": _graphql_head_label(value),
+                "ref": head_ref,
+            },
+            "html_url": value.get("url"),
+            "merged_at": value.get("mergedAt"),
+            "number": value.get("number"),
+            "state": value.get("state", ""),
+            "title": value.get("title"),
+        }
+        if isinstance(payload["state"], str):
+            payload["state"] = payload["state"].lower()
+        if "isDraft" in value:
+            payload["draft"] = value.get("isDraft")
+        if "id" in value:
+            payload["node_id"] = value.get("id")
+        return payload
+
 
 class GithubPullRequestReviewUser(BaseModel):
     """Subset of review-author fields used to summarize PR reviews."""
@@ -69,3 +99,29 @@ class GithubIssueComment(BaseModel):
     body: str
     html_url: str
     id: int
+
+
+def _graphql_head_label(raw_pull_request: dict[str, Any]) -> str | None:
+    try:
+        parts = _GraphqlHeadLabelParts.model_validate(raw_pull_request)
+    except ValidationError as error:
+        raise ValueError("GitHub pull request GraphQL response had invalid head data.") from error
+    if parts.head_repository_owner is None or parts.head_repository_owner.login is None:
+        return None
+    if parts.head_ref_name is None:
+        return None
+    return f"{parts.head_repository_owner.login}:{parts.head_ref_name}"
+
+
+class _GraphqlHeadRepositoryOwner(BaseModel):
+    login: str | None = None
+
+
+class _GraphqlHeadLabelParts(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    head_ref_name: str | None = Field(default=None, alias="headRefName")
+    head_repository_owner: _GraphqlHeadRepositoryOwner | None = Field(
+        default=None,
+        alias="headRepositoryOwner",
+    )

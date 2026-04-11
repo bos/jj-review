@@ -112,8 +112,9 @@ Recent refactor slices:
   as stack discovery, so off-path sibling stacks no longer cause valid cached
   review state to be classified as stale.
 - GitHub GraphQL pull request and review lookups now validate their JSON
-  payloads through private `pydantic` models at the client boundary instead of
-  repeating ad hoc nested `isinstance` checks in each response helper.
+  payloads through `pydantic` normalization at the model and helper boundary
+  instead of repeating ad hoc nested `isinstance` checks in each response
+  helper.
 - shared revset-selection coverage now lives in dedicated `command_ui` unit
   tests so command entrypoint suites do not each repeat the same wrapper-only
   assertions
