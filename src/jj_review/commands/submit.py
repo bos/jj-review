@@ -43,7 +43,7 @@ from jj_review.github.client import GithubClient, GithubClientError, build_githu
 from jj_review.github.resolution import (
     ParsedGithubRepo,
     parse_github_repo,
-    remote_bookmarks_pointing_at_trunk,
+    remote_bookmarks_pointing_at_commit,
     resolve_trunk_branch,
     select_submit_remote,
 )
@@ -715,10 +715,10 @@ async def _run_submit_async(
         if bookmark_result.changed and not dry_run:
             state_store.save(bookmark_result.state)
         trunk_branch = stack.trunk.subject
-        remote_bookmarks = remote_bookmarks_pointing_at_trunk(
-            client=client,
+        remote_bookmarks = remote_bookmarks_pointing_at_commit(
+            bookmark_states=client.list_bookmark_states(),
             remote_name=remote.name,
-            trunk_commit_id=stack.trunk.commit_id,
+            commit_id=stack.trunk.commit_id,
         )
         if len(remote_bookmarks) == 1:
             trunk_branch = remote_bookmarks[0]
@@ -769,10 +769,10 @@ async def _run_submit_async(
                     f"{github_repository.full_name}: {error}"
                 ) from error
             trunk_branch = resolve_trunk_branch(
-                client=client,
+                bookmark_states=client.list_bookmark_states(),
                 github_repository_state=github_repository_state,
-                remote=remote,
-                stack=stack,
+                remote_name=remote.name,
+                trunk_commit_id=stack.trunk.commit_id,
             )
             discovered_pull_requests = await _discover_pull_requests_by_bookmark(
                 github_client=github_client,

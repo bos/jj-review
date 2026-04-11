@@ -309,10 +309,10 @@ async def _stream_land_async(
                 f"Could not load GitHub repository {github_repository.full_name}: {error}"
             ) from error
         trunk_branch = resolve_trunk_branch(
-            client=prepared.client,
+            bookmark_states=prepared.client.list_bookmark_states(),
             github_repository_state=github_repository_state,
-            remote=remote,
-            stack=prepared.stack,
+            remote_name=remote.name,
+            trunk_commit_id=prepared.stack.trunk.commit_id,
         )
         _ensure_trunk_branch_matches_selected_trunk(
             client=prepared.client,

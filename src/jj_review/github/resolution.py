@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Protocol
 from urllib.parse import urlparse
 
 from jj_review.errors import CliError
@@ -30,26 +30,6 @@ class ParsedGithubRepo:
     @property
     def full_name(self) -> str:
         return f"{self.owner}/{self.repo}"
-
-
-class BookmarkStateReader(Protocol):
-    """Minimal bookmark reader needed for trunk resolution."""
-
-    def list_bookmark_states(self) -> dict[str, BookmarkState]: ...
-
-
-class _TrunkRevisionLike(Protocol):
-    """Minimal trunk revision shape needed for base-branch fallback."""
-
-    @property
-    def commit_id(self) -> str: ...
-
-
-class StackWithTrunk(Protocol):
-    """Minimal stack shape needed for resolving the trunk bookmark."""
-
-    @property
-    def trunk(self) -> _TrunkRevisionLike: ...
 
 
 def select_submit_remote(remotes: tuple[GitRemote, ...]) -> GitRemote:
@@ -89,45 +69,45 @@ def parse_github_repo(remote: GitRemote) -> ParsedGithubRepo | None:
 
 def resolve_trunk_branch(
     *,
-    client: BookmarkStateReader,
+    bookmark_states: Mapping[str, BookmarkState],
     github_repository_state: GithubRepository,
-    remote: GitRemote,
-    stack: StackWithTrunk,
+    remote_name: str,
+    trunk_commit_id: str,
 ) -> str:
     """Resolve the GitHub base branch used for bottom-of-stack pull requests."""
 
     if github_repository_state.default_branch:
         return github_repository_state.default_branch
 
-    remote_bookmarks = remote_bookmarks_pointing_at_trunk(
-        client=client,
-        remote_name=remote.name,
-        trunk_commit_id=stack.trunk.commit_id,
+    remote_bookmarks = remote_bookmarks_pointing_at_commit(
+        bookmark_states=bookmark_states,
+        remote_name=remote_name,
+        commit_id=trunk_commit_id,
     )
     if len(remote_bookmarks) == 1:
         return remote_bookmarks[0]
     if len(remote_bookmarks) > 1:
         raise CliError(
             "Could not determine the trunk branch because multiple remote bookmarks on "
-            f"{remote.name!r} point at `trunk()`: {', '.join(remote_bookmarks)}."
+            f"{remote_name!r} point at `trunk()`: {', '.join(remote_bookmarks)}."
         )
     raise CliError(
-        f"Could not determine the trunk branch for remote {remote.name!r}. Ensure the "
+        f"Could not determine the trunk branch for remote {remote_name!r}. Ensure the "
         "GitHub repository exposes a default branch or create one remote bookmark that "
         "points at `trunk()`."
     )
 
-def remote_bookmarks_pointing_at_trunk(
+
+def remote_bookmarks_pointing_at_commit(
     *,
-    client: BookmarkStateReader,
+    bookmark_states: Mapping[str, BookmarkState],
     remote_name: str,
-    trunk_commit_id: str,
+    commit_id: str,
 ) -> tuple[str, ...]:
-    states = client.list_bookmark_states()
     matches = [
         name
-        for name, bookmark_state in states.items()
+        for name, bookmark_state in bookmark_states.items()
         if (remote_state := bookmark_state.remote_target(remote_name)) is not None
-        and remote_state.target == trunk_commit_id
+        and remote_state.target == commit_id
     ]
     return tuple(sorted(matches))

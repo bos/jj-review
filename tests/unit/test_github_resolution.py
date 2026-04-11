@@ -15,12 +15,12 @@ from jj_review.github.client import (
 )
 from jj_review.github.resolution import (
     parse_github_repo,
+    remote_bookmarks_pointing_at_commit,
     resolve_trunk_branch,
     select_submit_remote,
 )
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.github import GithubRepository
-from jj_review.models.stack import LocalRevision, LocalStack
 
 
 def test_select_submit_remote_uses_origin_when_multiple_remotes_exist() -> None:
@@ -167,10 +167,10 @@ def test_github_token_for_base_url_prefers_environment_over_gh_cli(
 
 def test_resolve_trunk_branch_uses_repository_default_branch() -> None:
     branch = resolve_trunk_branch(
-        client=_FakeJjClient({}),
+        bookmark_states={},
         github_repository_state=_github_repository(default_branch="main"),
-        remote=GitRemote(name="origin", url="git@example.com:org/repo.git"),
-        stack=_stack("trunk123"),
+        remote_name="origin",
+        trunk_commit_id="trunk123",
     )
 
     assert branch == "main"
@@ -178,17 +178,15 @@ def test_resolve_trunk_branch_uses_repository_default_branch() -> None:
 
 def test_resolve_trunk_branch_falls_back_to_unique_remote_bookmark() -> None:
     branch = resolve_trunk_branch(
-        client=_FakeJjClient(
-            {
-                "main": BookmarkState(
-                    name="main",
-                    remote_targets=(RemoteBookmarkState(remote="origin", targets=("trunk123",)),),
-                )
-            }
-        ),
+        bookmark_states={
+            "main": BookmarkState(
+                name="main",
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("trunk123",)),),
+            )
+        },
         github_repository_state=_github_repository(default_branch=""),
-        remote=GitRemote(name="origin", url="git@example.com:org/repo.git"),
-        stack=_stack("trunk123"),
+        remote_name="origin",
+        trunk_commit_id="trunk123",
     )
 
     assert branch == "main"
@@ -200,34 +198,45 @@ def test_resolve_trunk_branch_rejects_ambiguous_remote_bookmarks() -> None:
         match="multiple remote bookmarks",
     ):
         resolve_trunk_branch(
-            client=_FakeJjClient(
-                {
-                    "main": BookmarkState(
-                        name="main",
-                        remote_targets=(
-                            RemoteBookmarkState(remote="origin", targets=("trunk123",)),
-                        ),
+            bookmark_states={
+                "main": BookmarkState(
+                    name="main",
+                    remote_targets=(
+                        RemoteBookmarkState(remote="origin", targets=("trunk123",)),
                     ),
-                    "stable": BookmarkState(
-                        name="stable",
-                        remote_targets=(
-                            RemoteBookmarkState(remote="origin", targets=("trunk123",)),
-                        ),
+                ),
+                "stable": BookmarkState(
+                    name="stable",
+                    remote_targets=(
+                        RemoteBookmarkState(remote="origin", targets=("trunk123",)),
                     ),
-                }
-            ),
+                ),
+            },
             github_repository_state=_github_repository(default_branch=""),
-            remote=GitRemote(name="origin", url="git@example.com:org/repo.git"),
-            stack=_stack("trunk123"),
+            remote_name="origin",
+            trunk_commit_id="trunk123",
         )
 
 
-class _FakeJjClient:
-    def __init__(self, states: dict[str, BookmarkState]) -> None:
-        self._states = states
-
-    def list_bookmark_states(self) -> dict[str, BookmarkState]:
-        return self._states
+def test_remote_bookmarks_pointing_at_commit_returns_sorted_matches() -> None:
+    assert remote_bookmarks_pointing_at_commit(
+        bookmark_states={
+            "stable": BookmarkState(
+                name="stable",
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("trunk123",)),),
+            ),
+            "main": BookmarkState(
+                name="main",
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("trunk123",)),),
+            ),
+            "topic": BookmarkState(
+                name="topic",
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("other456",)),),
+            ),
+        },
+        remote_name="origin",
+        commit_id="trunk123",
+    ) == ("main", "stable")
 
 
 def _github_repository(default_branch: str) -> GithubRepository:
@@ -239,24 +248,4 @@ def _github_repository(default_branch: str) -> GithubRepository:
         name="repo",
         private=True,
         url="https://api.github.test/repos/octo-org/repo",
-    )
-
-
-def _stack(trunk_commit_id: str) -> LocalStack:
-    trunk = LocalRevision(
-        change_id="trunk-change",
-        commit_id=trunk_commit_id,
-        current_working_copy=False,
-        description="trunk",
-        divergent=False,
-        empty=False,
-        hidden=False,
-        immutable=False,
-        parents=("root",),
-    )
-    return LocalStack(
-        head=trunk,
-        revisions=(),
-        selected_revset="trunk()",
-        trunk=trunk,
     )
