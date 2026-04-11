@@ -89,10 +89,10 @@ def write_fake_github_config(
     *,
     extra_lines: list[str] | None = None,
 ) -> Path:
-    config_path = tmp_path / "config-home" / "jj-review" / "config.toml"
+    config_path = tmp_path / "jj-review-config.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     lines = [
-        "[repo]",
+        "[jj-review.repo]",
         'github_host = "github.test"',
         f'github_owner = "{fake_repo.owner}"',
         f'github_repo = "{fake_repo.name}"',

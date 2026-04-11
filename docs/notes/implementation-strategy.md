@@ -117,6 +117,9 @@ Recent refactor slices:
 - machine-written persisted data now uses JSON plus `pydantic` validation for
   both repo state and resumable intent files, while TOML remains reserved for
   human-authored config
+- human-authored config now loads from jj's user, repo, and workspace config
+  scopes under the `jj-review` namespace instead of a separate path-matched
+  config file
 
 ## Executable Surface
 
@@ -337,9 +340,10 @@ jj-review data.
 
 For now:
 
-- config should live in `~/.config/jj-review/config.toml`
-- repo-specific config should be expressed in that file with path-based
-  conditional matching
+- config should live in jj's normal config scopes under the `jj-review`
+  namespace
+- repo-specific defaults should use jj's built-in user/repo/workspace
+  precedence instead of path-based conditional matching
 - machine-written jj-review data should live in
   `~/.local/state/jj-review/repos/<repo-id>/state.json`
 - `<repo-id>` should come from hashing the canonical `.jj/repo` storage path so

@@ -302,12 +302,19 @@ Tracked workspace files are the wrong default for both:
 
 Instead, split storage into two locations:
 
-- user config in `~/.config/jj-review/config.toml`
+- human-authored config in jj's normal config scopes under the `jj-review`
+  namespace
 - machine-written jj-review data in
   `~/.local/state/jj-review/repos/<repo-id>/state.json`
 
-For now, repo-specific config should live in the main user config file via
-path-based conditional matching rather than a separate repo-local config file.
+Repo defaults should follow jj's own precedence rules:
+
+- user config from `jj config edit --user`
+- repo config from `jj config edit --repo`
+- workspace config from `jj config edit --workspace`
+
+That keeps `jj-review` aligned with jj's existing repo/workspace config model
+without inventing a second conditional-matching system on top.
 
 For machine-written jj-review data, derive `<repo-id>` from the canonical
 `.jj/repo` storage path for the repository.
@@ -1080,10 +1087,20 @@ Semantics:
 - deleting the file must never break the review stack model, though it may
   force rediscovery or manual reattachment of bookmarks
 
-Suggested config path:
+Suggested config scopes:
 
 ```text
-~/.config/jj-review/config.toml
+jj config edit --user
+jj config edit --repo
+jj config edit --workspace
+```
+
+Store `jj-review` settings under the `jj-review` namespace, for example:
+
+```toml
+[jj-review.repo]
+remote = "origin"
+trunk_branch = "main"
 ```
 
 User-authored per-change overrides such as `bookmark_override` belong in

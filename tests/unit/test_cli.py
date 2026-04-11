@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 
 from jj_review.cli import _normalize_cli_args, build_parser, main
-from jj_review.config import CONFIG_DIRNAME, CONFIG_FILENAME
 from jj_review.errors import CliError
 
 
@@ -68,7 +67,7 @@ def test_main_reports_invalid_config_without_traceback(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     config_path = tmp_path / "bad.toml"
-    config_path.write_text("[repo]\nremote = [\n", encoding="utf-8")
+    config_path.write_text("[jj-review.repo]\nremote = [\n", encoding="utf-8")
 
     exit_code = main(["--config", str(config_path), "submit"])
     captured = capsys.readouterr()
@@ -96,16 +95,12 @@ def test_main_reports_missing_repository_without_traceback(
 
 def test_main_reports_invalid_logging_level_without_traceback(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config_path = tmp_path / "config-home" / CONFIG_DIRNAME / CONFIG_FILENAME
-    config_path.parent.mkdir(parents=True)
-    config_path.write_text('[logging]\nlevel = "DEBIG"\n', encoding="utf-8")
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
-    monkeypatch.setattr("jj_review.bootstrap.resolve_repo_root", lambda _: tmp_path)
+    config_path = tmp_path / "bad-logging.toml"
+    config_path.write_text('[jj-review.logging]\nlevel = "DEBIG"\n', encoding="utf-8")
 
-    exit_code = main(["--repository", str(tmp_path), "submit"])
+    exit_code = main(["--config", str(config_path), "submit"])
     captured = capsys.readouterr()
 
     assert exit_code == 1

@@ -1097,10 +1097,10 @@ def test_submit_rejects_duplicate_bookmark_overrides_before_projection(
         tmp_path,
         fake_repo,
         extra_lines=[
-            f'[change."{stack.revisions[0].change_id}"]',
+            f'[jj-review.change."{stack.revisions[0].change_id}"]',
             'bookmark_override = "review/same"',
             "",
-            f'[change."{stack.revisions[1].change_id}"]',
+            f'[jj-review.change."{stack.revisions[1].change_id}"]',
             'bookmark_override = "review/same"',
         ],
     )

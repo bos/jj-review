@@ -752,7 +752,7 @@ def _add_common_options(
         "--config",
         type=Path,
         default=SUPPRESS if suppress_defaults else None,
-        help="Use this config file",
+        help="Use this jj config file instead of the default jj config scopes",
     )
     parser.add_argument(
         "--debug",
