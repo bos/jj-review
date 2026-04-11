@@ -304,7 +304,7 @@ Instead, split storage into two locations:
 
 - user config in `~/.config/jj-review/config.toml`
 - machine-written jj-review data in
-  `~/.local/state/jj-review/repos/<repo-id>/state.toml`
+  `~/.local/state/jj-review/repos/<repo-id>/state.json`
 
 For now, repo-specific config should live in the main user config file via
 path-based conditional matching rather than a separate repo-local config file.
@@ -1041,25 +1041,29 @@ Broader cleanup remains the job of `cleanup`:
 
 If a machine-written jj-review data file exists, keep it minimal:
 
-```toml
-version = 1
-
-[change."<full-change-id>"]
-bookmark = "review/fix-bookmark-resolution-ypvmkkuo"
-unlinked_at = "2026-03-22T12:34:56+00:00"
-link_state = "active"
-pr_number = 123
-pr_review_decision = "approved"
-pr_state = "open"
-pr_url = "https://github.com/org/repo/pull/123"
-stack_comment_id = 456789
-last_submitted_commit_id = "0123456789abcdef"
+```json
+{
+  "version": 1,
+  "changes": {
+    "<full-change-id>": {
+      "bookmark": "review/fix-bookmark-resolution-ypvmkkuo",
+      "unlinked_at": "2026-03-22T12:34:56+00:00",
+      "link_state": "active",
+      "pr_number": 123,
+      "pr_review_decision": "approved",
+      "pr_state": "open",
+      "pr_url": "https://github.com/org/repo/pull/123",
+      "stack_comment_id": 456789,
+      "last_submitted_commit_id": "0123456789abcdef"
+    }
+  }
+}
 ```
 
 Suggested path:
 
 ```text
-~/.local/state/jj-review/repos/<repo-id>/state.toml
+~/.local/state/jj-review/repos/<repo-id>/state.json
 ```
 
 Semantics:
@@ -1070,6 +1074,8 @@ Semantics:
 - if the machine-written data file is unreadable or partially written, treat
   it as missing saved data for recovery purposes, warn once, and fall back to
   rediscovery where the command can do so safely
+- machine-written state should use JSON and schema validation through typed
+  models; TOML is reserved for human-authored config
 - `link_state = "unlinked"` is durable operator intent and suppresses
   automatic reattachment until the user runs `relink`
 - saved `pr_state` and `pr_review_decision` are advisory last-known GitHub

@@ -167,8 +167,8 @@ def test_write_intent_round_trips_supported_intent_kinds(
 
 
 def test_scan_intents_ignores_unparseable_files(tmp_path: Path) -> None:
-    bad = tmp_path / "incomplete-2026-01-15-10-30.01.toml"
-    bad.write_text("not valid toml ][", encoding="utf-8")
+    bad = tmp_path / "incomplete-2026-01-15-10-30.01.json"
+    bad.write_text('{"not valid json"', encoding="utf-8")
     results = scan_intents(tmp_path)
     assert results == []
 

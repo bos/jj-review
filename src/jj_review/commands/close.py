@@ -23,7 +23,6 @@ from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_resolution import build_github_client
 from jj_review.intent import (
     check_same_kind_intent,
-    delete_intent,
     retire_superseded_intents,
     write_intent,
 )
@@ -337,7 +336,7 @@ async def _stream_close_async(
     finally:
         if completed and intent_state.intent_path is not None and intent_state.intent is not None:
             retire_superseded_intents(intent_state.stale_intents, intent_state.intent)
-            delete_intent(intent_state.intent_path)
+            intent_state.intent_path.unlink(missing_ok=True)
 
 
 def _prepare_close_execution_state(*, prepared_close: PreparedClose) -> _CloseExecutionState:

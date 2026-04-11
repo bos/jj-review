@@ -323,7 +323,7 @@ def test_close_apply_checkpoints_prior_progress_before_later_block(
     assert checkpointed_state.changes[head_change_id].pr_state == "closed"
     assert fake_repo.pull_requests[1].state == "open"
     assert fake_repo.pull_requests[2].state == "closed"
-    assert list(state_dir.glob("incomplete-*.toml")) == []
+    assert list(state_dir.glob("incomplete-*.json")) == []
     assert "previous close was interrupted" not in second_run.out
     assert f"close PR #{head_pr_number}" not in second_run.out
 

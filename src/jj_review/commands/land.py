@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Sequence
-from dataclasses import dataclass, replace as dataclass_replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
@@ -35,10 +35,9 @@ from jj_review.github_resolution import (
 )
 from jj_review.intent import (
     check_same_kind_intent,
-    delete_intent,
     match_ordered_change_ids,
-    replace_intent,
     retire_superseded_intents,
+    save_intent,
     write_intent,
 )
 from jj_review.models.bookmarks import BookmarkState
@@ -466,15 +465,16 @@ async def _stream_land_async(
                 prepared.state_store.save(
                     state.model_copy(update={"changes": dict(state_changes)})
                 )
-                land_intent = dataclass_replace(
-                    land_intent,
-                    completed_change_ids=tuple(
-                        dict.fromkeys(
-                            (*land_intent.completed_change_ids, landed_revision.change_id)
+                land_intent = land_intent.model_copy(
+                    update={
+                        "completed_change_ids": tuple(
+                            dict.fromkeys(
+                                (*land_intent.completed_change_ids, landed_revision.change_id)
+                            )
                         )
-                    ),
+                    }
                 )
-                replace_intent(intent_path, land_intent)
+                save_intent(intent_path, land_intent)
             succeeded = True
             return LandResult(
                 actions=tuple(actions),
@@ -492,7 +492,7 @@ async def _stream_land_async(
         finally:
             if succeeded:
                 retire_superseded_intents(execution_state.stale_intents, land_intent)
-                delete_intent(intent_path)
+                intent_path.unlink(missing_ok=True)
 def _prepare_land_execution_state(
     *,
     follow_up: str | None,
@@ -560,7 +560,7 @@ def _prepare_land_execution_state(
     if not execution_plan.landed_revisions and not execution_plan.push_trunk:
         if resume_intent is not None:
             retire_superseded_intents(stale_intents, resume_intent.intent)
-            delete_intent(resume_intent.path)
+            resume_intent.path.unlink(missing_ok=True)
         raise _CompletedLandResume(
             LandResult(
                 actions=(

@@ -34,7 +34,6 @@ from jj_review.github_resolution import (
 )
 from jj_review.intent import (
     check_same_kind_intent,
-    delete_intent,
     match_ordered_change_ids,
     retire_superseded_intents,
     write_intent,
@@ -596,7 +595,7 @@ def stream_restack(
                 restack_intent_state.stale_intents,
                 restack_intent_state.intent,
             )
-            delete_intent(restack_intent_state.intent_path)
+            restack_intent_state.intent_path.unlink(missing_ok=True)
 
 
 def _start_restack_intent(
@@ -1034,8 +1033,8 @@ async def _stream_cleanup_async(
     finally:
         if _cleanup_succeeded and intent_path is not None:
             for loaded in stale_intents:
-                delete_intent(loaded.path)
-            delete_intent(intent_path)
+                loaded.path.unlink(missing_ok=True)
+            intent_path.unlink(missing_ok=True)
 
 
 def _prepare_cleanup_change(

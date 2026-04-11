@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -427,10 +426,7 @@ def test_resume_land_plan_rejects_incomplete_intent_data() -> None:
             landed_change_ids=("change-1", "change-2"),
         ).intent,
     )
-    broken_intent = dataclass_replace(
-        intent,
-        landed_subjects={"change-1": "feature 1"},
-    )
+    broken_intent = intent.model_copy(update={"landed_subjects": {"change-1": "feature 1"}})
 
     with pytest.raises(CliError, match="Interrupted land intent"):
         _resume_land_plan(intent=broken_intent, trunk_branch="main")
@@ -625,7 +621,7 @@ def _loaded_land_intent(
     trunk_branch: str = "main",
 ) -> LoadedIntent:
     return LoadedIntent(
-        path=Path("/tmp/incomplete-land.toml"),
+        path=Path("/tmp/incomplete-land.json"),
         intent=LandIntent(
             kind="land",
             pid=123,

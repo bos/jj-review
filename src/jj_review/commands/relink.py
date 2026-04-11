@@ -23,7 +23,7 @@ from jj_review.github_resolution import (
     resolve_github_repository,
     select_submit_remote,
 )
-from jj_review.intent import check_same_kind_intent, delete_intent, write_intent
+from jj_review.intent import check_same_kind_intent, write_intent
 from jj_review.jj import JjClient
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.intent import RelinkIntent
@@ -234,7 +234,7 @@ async def _run_relink_async(
         )
     finally:
         if relink_succeeded:
-            delete_intent(intent_path)
+            intent_path.unlink(missing_ok=True)
 
 
 def _ensure_relinkable_cached_link(

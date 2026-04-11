@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -507,7 +508,7 @@ def test_cleanup_deletes_intent_file_after_successful_apply(
 
     assert exit_code == 0
     state_dir = resolve_state_path(repo).parent
-    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    intent_files = list(state_dir.glob("incomplete-*.json"))
     assert intent_files == [], f"Expected no intent files after success, found: {intent_files}"
 
 def test_cleanup_retains_intent_file_after_failed_apply(
@@ -544,12 +545,10 @@ def test_cleanup_retains_intent_file_after_failed_apply(
     capsys.readouterr()
 
     state_dir = resolve_state_path(repo).parent
-    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    intent_files = list(state_dir.glob("incomplete-*.json"))
     assert len(intent_files) == 1, f"Expected 1 intent file after failure, found: {intent_files}"
 
-    import tomllib
-    with intent_files[0].open("rb") as f:
-        data = tomllib.load(f)
+    data = json.loads(intent_files[0].read_text(encoding="utf-8"))
     assert data["kind"] == "cleanup-apply"
 
 
@@ -581,4 +580,4 @@ def test_cleanup_retires_prior_interrupted_intent_after_success(
     assert "Note: a previous cleanup was interrupted (cleanup)" in captured.out
     assert "No cleanup actions needed." in captured.out
     assert not stale_path.exists()
-    assert list(state_dir.glob("incomplete-*.toml")) == []
+    assert list(state_dir.glob("incomplete-*.json")) == []

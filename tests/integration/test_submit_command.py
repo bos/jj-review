@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import os
+import json
 from pathlib import Path
 
 import pytest
@@ -445,7 +445,7 @@ def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
     assert fake_repo.pull_requests[1].title == "feature 1"
     assert remote_refs(fake_repo.git_dir) == remote_refs_before
     assert ReviewStateStore.for_repo(repo).load() == state_before
-    assert list(resolve_state_path(repo).parent.glob("incomplete-*.toml")) == []
+    assert list(resolve_state_path(repo).parent.glob("incomplete-*.json")) == []
 
 def test_submit_dry_run_warns_on_stale_intent_without_retiring_it(
     tmp_path: Path,
@@ -927,12 +927,10 @@ def test_submit_rerun_recovers_after_failure_following_untracked_remote_update(
     assert remote_state.is_tracked is True
 
     state_dir = resolve_state_path(repo).parent
-    [intent_path] = state_dir.glob("incomplete-*.toml")
-    intent_text = intent_path.read_text(encoding="utf-8")
-    intent_path.write_text(
-        intent_text.replace(f"pid = {os.getpid()}", "pid = 99999999"),
-        encoding="utf-8",
-    )
+    [intent_path] = state_dir.glob("incomplete-*.json")
+    intent_data = json.loads(intent_path.read_text(encoding="utf-8"))
+    intent_data["pid"] = 99999999
+    intent_path.write_text(json.dumps(intent_data, indent=2) + "\n", encoding="utf-8")
 
     monkeypatch.setattr(
         "jj_review.commands.submit.JjClient.update_untracked_remote_bookmark",
@@ -1301,7 +1299,7 @@ def test_submit_rerun_converges_pull_request_metadata_after_partial_create_failu
     assert fake_repo.pull_requests[1].requested_reviewers == ["alice"]
     assert fake_repo.pull_requests[1].requested_team_reviewers == ["platform"]
     assert fake_repo.pull_requests[1].labels == []
-    for intent_path in resolve_state_path(repo).parent.glob("incomplete-*.toml"):
+    for intent_path in resolve_state_path(repo).parent.glob("incomplete-*.json"):
         intent_path.unlink()
 
     assert run_main(repo, config_path, "submit") == 0
@@ -1526,7 +1524,7 @@ def test_submit_deletes_intent_file_after_successful_submit(
 
     assert exit_code == 0
     state_dir = resolve_state_path(repo).parent
-    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    intent_files = list(state_dir.glob("incomplete-*.json"))
     assert intent_files == [], f"Expected no intent files, found: {intent_files}"
 
 def test_submit_retains_intent_file_after_failed_submit(
@@ -1594,12 +1592,10 @@ def test_submit_retains_intent_file_after_failed_submit(
         revision.commit_id for revision in stack.revisions
     }
     state_dir = resolve_state_path(repo).parent
-    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    intent_files = list(state_dir.glob("incomplete-*.json"))
     assert len(intent_files) == 1
 
-    import tomllib
-    with intent_files[0].open("rb") as f:
-        data = tomllib.load(f)
+    data = json.loads(intent_files[0].read_text(encoding="utf-8"))
     assert data["kind"] == "submit"
     stored_ids = data.get("ordered_change_ids", [])
     assert change_id_1 in stored_ids
@@ -1642,7 +1638,7 @@ def test_submit_resumes_and_retires_stale_intent(
     # Old intent file should be gone after success
     assert not old_intent_path.exists()
     # No intent files remain
-    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    intent_files = list(state_dir.glob("incomplete-*.json"))
     assert intent_files == []
 
 def test_submit_warns_on_overlapping_stale_intent(
@@ -1681,5 +1677,5 @@ def test_submit_warns_on_overlapping_stale_intent(
     # No warning should appear for superset (it proceeds silently)
     # Actually: old=(change_id_1,), new=(change_id_1, change_id_2)
     # match_ordered_change_ids(old, new) == "superset" => silent retirement
-    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    intent_files = list(state_dir.glob("incomplete-*.json"))
     assert intent_files == []

@@ -35,7 +35,7 @@ class CachedChange(BaseModel):
 class ReviewState(BaseModel):
     """Saved local jj-review data and user overrides."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: int = 1
-    changes: dict[str, CachedChange] = Field(default_factory=dict, alias="change")
+    version: Literal[1] = 1
+    changes: dict[str, CachedChange] = Field(default_factory=dict)

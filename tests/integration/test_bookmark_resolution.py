@@ -80,4 +80,4 @@ def test_status_continues_when_review_state_persistence_is_unavailable(
     assert exit_code == 1
     assert "Unsubmitted stack:" in captured.out
     assert ": GitHub status unknown" in captured.out
-    assert not list((tmp_path / "state-home").rglob("state.toml"))
+    assert not list((tmp_path / "state-home").rglob("state.json"))

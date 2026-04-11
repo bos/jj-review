@@ -256,7 +256,7 @@ def test_stream_cleanup_limits_stack_comment_github_inspection_concurrency(
     }
     state = ReviewState.model_validate(
         {
-            "change": state_changes,
+            "changes": state_changes,
         }
     )
     prepared_cleanup = PreparedCleanup(
@@ -325,7 +325,7 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
 ) -> None:
     state = ReviewState.model_validate(
         {
-            "change": {
+            "changes": {
                 "change-1": CachedChange(
                     bookmark="review/feature-1",
                     pr_number=1,
@@ -414,7 +414,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
 ) -> None:
     state = ReviewState.model_validate(
         {
-            "change": {
+            "changes": {
                 "change-1": CachedChange(
                     bookmark="review/feature-1",
                     pr_number=1,
@@ -489,10 +489,6 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
         "jj_review.commands.cleanup.write_intent",
         lambda *args, **kwargs: None,
     )
-    monkeypatch.setattr(
-        "jj_review.commands.cleanup.delete_intent",
-        lambda *args, **kwargs: None,
-    )
 
     result = asyncio.run(
         _stream_cleanup_async(
@@ -520,7 +516,7 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
 ) -> None:
     state = ReviewState.model_validate(
         {
-            "change": {
+            "changes": {
                 "stale-change": CachedChange(
                     bookmark="review/feature-stale",
                 ).model_dump(exclude_none=True),
@@ -561,10 +557,6 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
     )
     monkeypatch.setattr(
         "jj_review.commands.cleanup.write_intent",
-        lambda *args, **kwargs: None,
-    )
-    monkeypatch.setattr(
-        "jj_review.commands.cleanup.delete_intent",
         lambda *args, **kwargs: None,
     )
 

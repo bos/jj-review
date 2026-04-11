@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+import json
 from pathlib import Path
 
 import pytest
@@ -246,12 +246,10 @@ def test_land_replans_after_interrupted_push_when_landable_prefix_changes(
 
     assert first_exit_code == 1
     assert "simulated trunk push failure" in first_run.err
-    [intent_path] = resolve_state_path(repo).parent.glob("incomplete-*.toml")
-    intent_text = intent_path.read_text(encoding="utf-8")
-    intent_path.write_text(
-        intent_text.replace(f"pid = {os.getpid()}", "pid = 99999999"),
-        encoding="utf-8",
-    )
+    [intent_path] = resolve_state_path(repo).parent.glob("incomplete-*.json")
+    intent_data = json.loads(intent_path.read_text(encoding="utf-8"))
+    intent_data["pid"] = 99999999
+    intent_path.write_text(json.dumps(intent_data, indent=2) + "\n", encoding="utf-8")
 
     fake_repo.pull_requests[2].state = "closed"
 
@@ -305,12 +303,10 @@ def test_land_resumes_after_trunk_push_interruption(
     assert first_exit_code == 1
     assert "simulated PR finalization failure" in first_run.err
     assert read_remote_ref(fake_repo.git_dir, "main") == landed_commit_id
-    [intent_path] = resolve_state_path(repo).parent.glob("incomplete-*.toml")
-    intent_text = intent_path.read_text(encoding="utf-8")
-    intent_path.write_text(
-        intent_text.replace(f"pid = {os.getpid()}", "pid = 99999999"),
-        encoding="utf-8",
-    )
+    [intent_path] = resolve_state_path(repo).parent.glob("incomplete-*.json")
+    intent_data = json.loads(intent_path.read_text(encoding="utf-8"))
+    intent_data["pid"] = 99999999
+    intent_path.write_text(json.dumps(intent_data, indent=2) + "\n", encoding="utf-8")
 
     patch_github_client_builders(
         monkeypatch,
@@ -331,4 +327,4 @@ def test_land_resumes_after_trunk_push_interruption(
     assert fake_repo.pull_requests[2].merged_at is not None
     assert state.changes[first_change_id].pr_state == "merged"
     assert state.changes[second_change_id].pr_state == "merged"
-    assert list(resolve_state_path(repo).parent.glob("incomplete-*.toml")) == []
+    assert list(resolve_state_path(repo).parent.glob("incomplete-*.json")) == []

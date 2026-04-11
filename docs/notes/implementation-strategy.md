@@ -110,6 +110,9 @@ Recent refactor slices:
 - shared revset-selection coverage now lives in dedicated `command_ui` unit
   tests so command entrypoint suites do not each repeat the same wrapper-only
   assertions
+- machine-written persisted data now uses JSON plus `pydantic` validation for
+  both repo state and resumable intent files, while TOML remains reserved for
+  human-authored config
 
 ## Executable Surface
 
@@ -334,7 +337,7 @@ For now:
 - repo-specific config should be expressed in that file with path-based
   conditional matching
 - machine-written jj-review data should live in
-  `~/.local/state/jj-review/repos/<repo-id>/state.toml`
+  `~/.local/state/jj-review/repos/<repo-id>/state.json`
 - `<repo-id>` should come from `jj`'s repo config identity; if
   `.jj/repo/config-id` is missing, the client should run
   `jj config path --repo` and then read the resulting ID
@@ -342,8 +345,9 @@ For now:
   jj-review data persistence disabled for that repo
 
 That jj-review data remains minimal, optional, and non-authoritative. The
-implementation should model it as a small, versioned state file with typed
-persistence.
+implementation should model it as a small, versioned JSON state file validated
+through `pydantic`. Human-authored config stays in TOML; machine-written state
+and resumable intent files should not use hand-rolled parsing or rendering.
 
 ## Data Model
 

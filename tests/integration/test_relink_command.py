@@ -284,5 +284,5 @@ def test_relink_deletes_intent_file_after_successful_relink(
 
     assert exit_code == 0
     state_dir = resolve_state_path(repo).parent
-    intent_files = list(state_dir.glob("incomplete-*.toml"))
+    intent_files = list(state_dir.glob("incomplete-*.json"))
     assert intent_files == [], f"Expected no intent files after success, found: {intent_files}"

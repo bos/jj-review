@@ -54,7 +54,7 @@ def test_bookmark_resolver_generates_and_pins_bookmark_when_no_mapping_exists() 
 
 def test_bookmark_resolver_keeps_cached_bookmark_stable_after_subject_change() -> None:
     state = ReviewState(
-        change={
+        changes={
             "zvlywqkxtmnpqrstu": CachedChange(bookmark="review/fix-cache-invalidation-zvlywqkx")
         }
     )
@@ -72,7 +72,7 @@ def test_bookmark_resolver_keeps_cached_bookmark_stable_after_subject_change() -
 
 def test_bookmark_resolver_prefers_override_over_cached_bookmark() -> None:
     state = ReviewState(
-        change={
+        changes={
             "zvlywqkxtmnpqrstu": CachedChange(bookmark="review/fix-cache-invalidation-zvlywqkx")
         }
     )

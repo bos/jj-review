@@ -263,7 +263,7 @@ def test_ensure_remote_can_be_updated_rejects_conflicted_remote_bookmark() -> No
                 targets=("abc123", "def456"),
                 tracking_targets=("abc123", "def456"),
             ),
-            state=ReviewState(change={"change-a": CachedChange(bookmark="review/foo")}),
+            state=ReviewState(changes={"change-a": CachedChange(bookmark="review/foo")}),
         )
 
 

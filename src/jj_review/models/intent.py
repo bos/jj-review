@@ -1,13 +1,19 @@
 """Data models for per-operation intent files."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal, TypeAlias
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
-@dataclass(frozen=True, slots=True)
-class SubmitIntent:
+class IntentBase(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    version: Literal[1] = 1
+
+
+class SubmitIntent(IntentBase):
     kind: Literal["submit"]
     pid: int
     label: str
@@ -15,20 +21,18 @@ class SubmitIntent:
     head_change_id: str
     ordered_change_ids: tuple[str, ...]
     bookmarks: dict[str, str]   # change_id → bookmark
-    bases: dict[str, str]       # change_id → base_branch (may be empty until --abort is designed)
-    started_at: str             # ISO 8601
+    bases: dict[str, str]  # change_id → base_branch (may be empty until --abort is designed)
+    started_at: str  # ISO 8601
 
 
-@dataclass(frozen=True, slots=True)
-class CleanupApplyIntent:
+class CleanupApplyIntent(IntentBase):
     kind: Literal["cleanup-apply"]
     pid: int
     label: str
     started_at: str
 
 
-@dataclass(frozen=True, slots=True)
-class CleanupRestackIntent:
+class CleanupRestackIntent(IntentBase):
     kind: Literal["cleanup-restack"]
     pid: int
     label: str
@@ -37,8 +41,7 @@ class CleanupRestackIntent:
     started_at: str
 
 
-@dataclass(frozen=True, slots=True)
-class CloseIntent:
+class CloseIntent(IntentBase):
     kind: Literal["close"]
     pid: int
     label: str
@@ -48,8 +51,7 @@ class CloseIntent:
     started_at: str
 
 
-@dataclass(frozen=True, slots=True)
-class RelinkIntent:
+class RelinkIntent(IntentBase):
     kind: Literal["relink"]
     pid: int
     label: str
@@ -57,8 +59,7 @@ class RelinkIntent:
     started_at: str
 
 
-@dataclass(frozen=True, slots=True)
-class LandIntent:
+class LandIntent(IntentBase):
     kind: Literal["land"]
     pid: int
     label: str
@@ -75,29 +76,26 @@ class LandIntent:
     trunk_branch: str
     trunk_commit_id: str
     landed_commit_id: str
-    expected_pr_number: int | None
+    expected_pr_number: int | None = None
     started_at: str
 
 
-@dataclass(frozen=True, slots=True)
-class LoadedIntent:
-    path: Path
-    intent: (
-        SubmitIntent
-        | CleanupApplyIntent
-        | CleanupRestackIntent
-        | CloseIntent
-        | RelinkIntent
-        | LandIntent
-    )
-
-
-IntentFile = (
+IntentFile: TypeAlias = Annotated[
     SubmitIntent
     | CleanupApplyIntent
     | CleanupRestackIntent
     | CloseIntent
     | RelinkIntent
-    | LandIntent
-)
+    | LandIntent,
+    Field(discriminator="kind"),
+]
+
+
+class LoadedIntent(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: Path
+    intent: IntentFile
+
+
 MatchResult = Literal["exact", "superset", "overlap", "disjoint"]

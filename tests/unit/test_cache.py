@@ -10,12 +10,12 @@ from jj_review.models.cache import CachedChange, ReviewState
 
 
 def test_review_state_store_round_trips_and_creates_parent_directories(tmp_path: Path) -> None:
-    state_path = tmp_path / "state" / "jj-review" / "repos" / "repo-id" / "state.toml"
+    state_path = tmp_path / "state" / "jj-review" / "repos" / "repo-id" / "state.json"
     store = ReviewStateStore(state_path)
 
     store.save(
         ReviewState(
-            change={
+            changes={
                 "zvlywqkxtmnpqrstu": CachedChange(
                     bookmark="review/fix-cache-invalidation-zvlywqkx",
                     pr_review_decision="approved",
@@ -36,12 +36,12 @@ def test_review_state_store_round_trips_and_creates_parent_directories(tmp_path:
 
 
 def test_review_state_store_preserves_unlinked_change_metadata(tmp_path: Path) -> None:
-    state_path = tmp_path / "state.toml"
+    state_path = tmp_path / "state.json"
     store = ReviewStateStore(state_path)
 
     store.save(
         ReviewState(
-            change={
+            changes={
                 "zvlywqkxtmnpqrstu": CachedChange(
                     bookmark="review/fix-cache-invalidation-zvlywqkx",
                     unlinked_at="2026-03-22T12:34:56+00:00",
@@ -59,22 +59,24 @@ def test_review_state_store_preserves_unlinked_change_metadata(tmp_path: Path) -
 
 
 def test_review_state_store_returns_defaults_when_file_is_missing(tmp_path: Path) -> None:
-    state = ReviewStateStore(tmp_path / "missing" / "state.toml").load()
+    state = ReviewStateStore(tmp_path / "missing" / "state.json").load()
 
     assert state.version == 1
     assert state.changes == {}
 
 
 def test_review_state_store_rejects_unknown_fields(tmp_path: Path) -> None:
-    state_path = tmp_path / "state.toml"
+    state_path = tmp_path / "state.json"
     state_path.write_text(
-        "\n".join(
-            [
-                "version = 1",
-                "",
-                '[change."zvlywqkxtmnpqrstu"]',
-                'bookmark_override = "review/custom-name"',
-            ]
+        (
+            '{\n'
+            '  "version": 1,\n'
+            '  "changes": {\n'
+            '    "zvlywqkxtmnpqrstu": {\n'
+            '      "bookmark_override": "review/custom-name"\n'
+            "    }\n"
+            "  }\n"
+            "}\n"
         ),
         encoding="utf-8",
     )

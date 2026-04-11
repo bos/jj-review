@@ -1,18 +1,16 @@
 """Filesystem operations and logic for per-operation intent files."""
 from __future__ import annotations
 
-import dataclasses
-import json
 import logging
 import os
-import re
 import sys
 import tempfile
 import time
-import tomllib
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+
+from pydantic import TypeAdapter, ValidationError
 
 from jj_review.models.intent import (
     CleanupApplyIntent,
@@ -27,14 +25,7 @@ from jj_review.models.intent import (
 )
 
 logger = logging.getLogger(__name__)
-
-_SIMPLE_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-
-
-def _quote_key(key: str) -> str:
-    if _SIMPLE_KEY_RE.fullmatch(key):
-        return key
-    return json.dumps(key)
+_INTENT_ADAPTER = TypeAdapter(IntentFile)
 
 
 # ---------------------------------------------------------------------------
@@ -44,220 +35,65 @@ def _quote_key(key: str) -> str:
 def _intent_filename(state_dir: Path, now: datetime) -> Path:
     base = now.strftime("%Y-%m-%d-%H-%M")
     for nn in range(1, 100):
-        candidate = state_dir / f"incomplete-{base}.{nn:02d}.toml"
+        candidate = state_dir / f"incomplete-{base}.{nn:02d}.json"
         if not candidate.exists():
             return candidate
     raise RuntimeError("Could not allocate intent file name (100 collisions).")
-
-
-# ---------------------------------------------------------------------------
-# TOML serialisation
-# ---------------------------------------------------------------------------
-
-def _render_intent_toml(data: dict) -> str:
-    lines: list[str] = []
-    scalar_items = [
-        (k, v) for k, v in data.items()
-        if not isinstance(v, dict) and v is not None
-    ]
-    sub_table_items = [
-        (k, v) for k, v in data.items()
-        if isinstance(v, dict)
-    ]
-
-    for key, value in scalar_items:
-        lines.append(f"{_quote_key(key)} = {_render_intent_value(value)}")
-
-    for key, sub in sub_table_items:
-        if lines:
-            lines.append("")
-        lines.append(f"[{_quote_key(key)}]")
-        for sub_key, sub_value in sub.items():
-            lines.append(f"{_quote_key(sub_key)} = {_render_intent_value(sub_value)}")
-
-    return "\n".join(lines).rstrip() + "\n"
-
-
-def _render_intent_value(value) -> str:
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, int):
-        return str(value)
-    if isinstance(value, str):
-        return json.dumps(value)
-    if isinstance(value, list | tuple):
-        items = ", ".join(json.dumps(item) for item in value)
-        return f"[{items}]"
-    raise TypeError(f"Unsupported intent TOML value type: {type(value)!r}")
 
 
 def write_intent(state_dir: Path, intent: IntentFile) -> Path:
     """Write an intent file atomically. Returns the path of the created file."""
     state_dir.mkdir(parents=True, exist_ok=True)
     dest = _intent_filename(state_dir, datetime.now(UTC))
-    _write_intent_file(dest, intent)
+    save_intent(dest, intent)
     logger.debug("Wrote intent file %s", dest.name)
     return dest
 
 
-def replace_intent(path: Path, intent: IntentFile) -> None:
-    """Rewrite an existing intent file atomically."""
+def save_intent(path: Path, intent: IntentFile) -> None:
+    """Persist an intent atomically at a known path."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
     _write_intent_file(path, intent)
-    logger.debug("Updated intent file %s", path.name)
 
 
 def _write_intent_file(path: Path, intent: IntentFile) -> None:
-    data = dataclasses.asdict(intent)
-    rendered = _render_intent_toml(data)
-    fd, tmp_path_str = tempfile.mkstemp(dir=path.parent, suffix=".toml.tmp")
+    rendered = intent.model_dump_json(exclude_none=True, indent=2) + "\n"
+    fd, tmp_path_str = tempfile.mkstemp(dir=path.parent, suffix=".json.tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(rendered)
         Path(tmp_path_str).replace(path)
     except Exception:
-        _remove_temporary_intent_file(Path(tmp_path_str))
+        try:
+            Path(tmp_path_str).unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            logger.warning(
+                "Could not remove temporary intent file %s: %s",
+                tmp_path_str,
+                error,
+            )
         raise
-
-
-def _remove_temporary_intent_file(path: Path) -> None:
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        return
-    except OSError as error:
-        logger.warning("Could not remove temporary intent file %s: %s", path, error)
-
-
-# ---------------------------------------------------------------------------
-# Read / Scan
-# ---------------------------------------------------------------------------
-
-def _parse_intent(data: dict, path: Path) -> LoadedIntent | None:
-    """Parse raw TOML dict into a LoadedIntent. Returns None on parse error."""
-    kind = data.get("kind")
-    try:
-        if kind == "submit":
-            intent = SubmitIntent(
-                kind="submit",
-                pid=int(data["pid"]),
-                label=str(data["label"]),
-                display_revset=str(data["display_revset"]),
-                head_change_id=str(data["head_change_id"]),
-                ordered_change_ids=tuple(str(x) for x in data.get("ordered_change_ids", [])),
-                bookmarks=dict(data.get("bookmarks", {})),
-                bases=dict(data.get("bases", {})),
-                started_at=str(data["started_at"]),
-            )
-        elif kind == "cleanup-apply":
-            intent = CleanupApplyIntent(
-                kind="cleanup-apply",
-                pid=int(data["pid"]),
-                label=str(data["label"]),
-                started_at=str(data["started_at"]),
-            )
-        elif kind == "cleanup-restack":
-            intent = CleanupRestackIntent(
-                kind="cleanup-restack",
-                pid=int(data["pid"]),
-                label=str(data.get("label", data["display_revset"])),
-                display_revset=str(data["display_revset"]),
-                ordered_change_ids=tuple(str(x) for x in data.get("ordered_change_ids", [])),
-                started_at=str(data["started_at"]),
-            )
-        elif kind == "close":
-            intent = CloseIntent(
-                kind="close",
-                pid=int(data["pid"]),
-                label=str(data["label"]),
-                display_revset=str(data["display_revset"]),
-                ordered_change_ids=tuple(str(x) for x in data.get("ordered_change_ids", [])),
-                cleanup=bool(data["cleanup"]),
-                started_at=str(data["started_at"]),
-            )
-        elif kind == "relink":
-            intent = RelinkIntent(
-                kind="relink",
-                pid=int(data["pid"]),
-                label=str(data["label"]),
-                change_id=str(data["change_id"]),
-                started_at=str(data["started_at"]),
-            )
-        elif kind == "land":
-            expected_pr_number = data.get("expected_pr_number")
-            intent = LandIntent(
-                kind="land",
-                pid=int(data["pid"]),
-                label=str(data["label"]),
-                bypass_readiness=bool(data.get("bypass_readiness", False)),
-                display_revset=str(data["display_revset"]),
-                ordered_change_ids=tuple(str(x) for x in data.get("ordered_change_ids", [])),
-                ordered_commit_ids=tuple(str(x) for x in data.get("ordered_commit_ids", [])),
-                landed_change_ids=tuple(str(x) for x in data.get("landed_change_ids", [])),
-                landed_bookmarks={
-                    str(key): str(value)
-                    for key, value in dict(data.get("landed_bookmarks", {})).items()
-                },
-                landed_commit_ids={
-                    str(key): str(value)
-                    for key, value in dict(data.get("landed_commit_ids", {})).items()
-                },
-                landed_pull_request_numbers={
-                    str(key): int(value)
-                    for key, value in dict(
-                        data.get("landed_pull_request_numbers", {})
-                    ).items()
-                },
-                landed_subjects={
-                    str(key): str(value)
-                    for key, value in dict(data.get("landed_subjects", {})).items()
-                },
-                completed_change_ids=tuple(
-                    str(x) for x in data.get("completed_change_ids", [])
-                ),
-                trunk_branch=str(data["trunk_branch"]),
-                trunk_commit_id=str(data["trunk_commit_id"]),
-                landed_commit_id=str(data["landed_commit_id"]),
-                expected_pr_number=(
-                    None if expected_pr_number is None else int(expected_pr_number)
-                ),
-                started_at=str(data["started_at"]),
-            )
-        else:
-            logger.debug("Unknown intent kind %r in %s, skipping", kind, path)
-            return None
-        return LoadedIntent(path=path, intent=intent)
-    except (KeyError, ValueError, TypeError) as error:
-        logger.debug("Could not parse intent file %s: %s", path, error)
-        return None
 
 
 def scan_intents(state_dir: Path) -> list[LoadedIntent]:
     results = []
-    for p in sorted(state_dir.glob("incomplete-*.toml")):
+    for p in sorted(state_dir.glob("incomplete-*.json")):
         try:
-            with p.open("rb") as f:
-                data = tomllib.load(f)
-        except (tomllib.TOMLDecodeError, OSError) as error:
-            logger.debug("Could not read intent file %s: %s", p, error)
+            loaded = LoadedIntent(
+                path=p,
+                intent=_INTENT_ADAPTER.validate_json(p.read_text(encoding="utf-8")),
+            )
+        except OSError as error:
+            logger.error("Could not read intent file %s: %s", p, error)
             continue
-        loaded = _parse_intent(data, p)
-        if loaded is not None:
-            results.append(loaded)
+        except ValidationError as error:
+            logger.error("Could not parse intent file %s: %s", p, error)
+            continue
+        results.append(loaded)
     return results
-
-
-# ---------------------------------------------------------------------------
-# Delete
-# ---------------------------------------------------------------------------
-
-def delete_intent(path: Path) -> None:
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        pass
-
 
 # ---------------------------------------------------------------------------
 # PID liveness
@@ -357,7 +193,7 @@ def intent_change_ids(intent: IntentFile) -> frozenset[str]:
     return frozenset()
 
 
-# Keep private alias for backward compat within this module
+# Keep private alias so internal callers can continue to use the clearer public name.
 _intent_change_ids = intent_change_ids
 
 
@@ -414,5 +250,5 @@ def retire_superseded_intents(
             continue
         result = match_ordered_change_ids(old.ordered_change_ids, new_ids)
         if result in ("exact", "superset"):
-            delete_intent(loaded.path)
+            loaded.path.unlink(missing_ok=True)
             logger.debug("Retired superseded intent %s", loaded.path.name)
