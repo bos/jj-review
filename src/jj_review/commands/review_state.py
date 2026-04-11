@@ -95,7 +95,6 @@ def status(
         for line in render_empty_status_lines(
             color_when=color_when,
             prepared_status=prepared_status,
-            configured_trunk_branch=context.config.repo.trunk_branch,
         ):
             print(line)
         return 0
@@ -113,7 +112,6 @@ def status(
     for line in render_trunk_status_lines(
         color_when=color_when,
         prepared=prepared_status.prepared,
-        configured_trunk_branch=context.config.repo.trunk_branch,
     ):
         print(line)
     for line in render_status_advisory_lines(result=result):
@@ -259,11 +257,9 @@ def render_trunk_status_lines(
     *,
     color_when: str,
     prepared,
-    configured_trunk_branch: str | None,
 ) -> tuple[str, ...]:
     """Render the trunk footer with native `jj log` formatting."""
 
-    del configured_trunk_branch
     trunk = prepared.stack.trunk
     return tuple(
         prepared.client.render_revision_log_lines(
@@ -276,7 +272,6 @@ def render_trunk_status_lines(
 def render_empty_status_lines(
     *,
     color_when: str,
-    configured_trunk_branch: str | None,
     prepared_status,
 ) -> tuple[str, ...]:
     """Render the empty-stack footer and explanation."""
@@ -285,7 +280,6 @@ def render_empty_status_lines(
         *render_trunk_status_lines(
             color_when=color_when,
             prepared=prepared_status.prepared,
-            configured_trunk_branch=configured_trunk_branch,
         ),
         "No reviewable commits between the selected revision and `trunk()`.",
     )
@@ -465,43 +459,6 @@ def render_status_intent_lines(*, prepared_status) -> tuple[str, ...]:
                     f"  {loaded.intent.label}  [interrupted, re-run to complete]"
                 )
     return tuple(lines)
-
-
-def _resolve_status_trunk_name(
-    prepared,
-    *,
-    configured_trunk_branch: str | None,
-) -> str | None:
-    if configured_trunk_branch:
-        return configured_trunk_branch
-
-    trunk_commit_id = prepared.stack.trunk.commit_id
-    bookmark_states = prepared.client.list_bookmark_states()
-    local_matches = tuple(
-        sorted(
-            name
-            for name, bookmark_state in bookmark_states.items()
-            if bookmark_state.local_target == trunk_commit_id
-        )
-    )
-    if len(local_matches) == 1:
-        return local_matches[0]
-
-    remote = prepared.remote
-    if remote is None:
-        return None
-
-    remote_matches = tuple(
-        sorted(
-            name
-            for name, bookmark_state in bookmark_states.items()
-            if (remote_state := bookmark_state.remote_target(remote.name)) is not None
-            and remote_state.target == trunk_commit_id
-        )
-    )
-    if len(remote_matches) == 1:
-        return remote_matches[0]
-    return None
 
 
 def _render_summary_revision_lines(

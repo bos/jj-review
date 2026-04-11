@@ -14,7 +14,7 @@ def app_context(
         config=SimpleNamespace(
             change={},
             logging=SimpleNamespace(level="WARNING"),
-            repo=repo_config if repo_config is not None else SimpleNamespace(trunk_branch=None),
+            repo=repo_config if repo_config is not None else SimpleNamespace(),
         ),
     )
 

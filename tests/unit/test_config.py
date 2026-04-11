@@ -4,39 +4,43 @@ from pathlib import Path
 
 import pytest
 
+import jj_review.config as config_module
 from jj_review.config import load_config
 from jj_review.errors import CliError
-from tests.support.integration_helpers import init_repo, run_command
 
 
 def test_load_config_returns_defaults_when_jj_config_is_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
-    repo = init_repo(tmp_path)
+    monkeypatch.setattr(
+        config_module,
+        "_default_config_paths",
+        lambda repo_root: (tmp_path / "user.toml", tmp_path / "repo.toml"),
+    )
 
-    config = load_config(repo_root=repo)
+    config = load_config(repo_root=tmp_path)
 
     assert config.logging.level == "WARNING"
-    assert config.repo.github_host == "github.com"
-    assert config.repo.remote is None
+    assert config.repo.labels == []
 
 
-def test_load_config_merges_user_repo_and_workspace_jj_config(
+def test_load_config_merges_jj_config_layers(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
-    repo = init_repo(tmp_path)
     change_id = "zvlywqkxtmnpqrstu"
-
+    user_path = tmp_path / "user.toml"
+    repo_path = tmp_path / "repo.toml"
+    workspace_path = tmp_path / "workspace.toml"
+    monkeypatch.setattr(
+        config_module,
+        "_default_config_paths",
+        lambda repo_root: (user_path, repo_path, workspace_path),
+    )
     _write_config(
-        _jj_config_path("user"),
+        user_path,
         [
-            "[jj-review.repo]",
-            'remote = "origin"',
-            "",
             "[jj-review.logging]",
             'level = "info"',
             "",
@@ -45,93 +49,84 @@ def test_load_config_merges_user_repo_and_workspace_jj_config(
         ],
     )
     _write_config(
-        _jj_config_path("repo", repo),
+        repo_path,
         [
             "[jj-review.repo]",
-            'trunk_branch = "main"',
             'reviewers = ["octocat"]',
+            'team_reviewers = ["platform"]',
         ],
     )
     _write_config(
-        _jj_config_path("workspace", repo),
+        workspace_path,
         [
             "[jj-review.repo]",
-            'remote = "upstream"',
+            'labels = ["needs-review"]',
         ],
     )
 
-    config = load_config(repo_root=repo)
+    config = load_config(repo_root=tmp_path)
 
-    assert config.repo.remote == "upstream"
-    assert config.repo.trunk_branch == "main"
-    assert config.repo.reviewers == ["octocat"]
     assert config.logging.level == "INFO"
+    assert config.repo.reviewers == ["octocat"]
+    assert config.repo.team_reviewers == ["platform"]
+    assert config.repo.labels == ["needs-review"]
     assert config.change[change_id].bookmark_override == "review/from-user"
 
 
 def test_load_config_reads_explicit_jj_review_config_file(tmp_path: Path) -> None:
     config_path = tmp_path / "explicit.toml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "[jj-review.repo]",
-                'remote = "origin"',
-                'trunk_branch = "main"',
-                "",
-                "[jj-review.logging]",
-                'level = "DEBUG"',
-            ]
-        ),
-        encoding="utf-8",
+    _write_config(
+        config_path,
+        [
+            "[jj-review.repo]",
+            'labels = ["needs-review"]',
+            "",
+            "[jj-review.logging]",
+            'level = "DEBUG"',
+        ],
     )
 
     config = load_config(repo_root=None, config_path=config_path)
 
-    assert config.repo.remote == "origin"
-    assert config.repo.trunk_branch == "main"
+    assert config.repo.labels == ["needs-review"]
     assert config.logging.level == "DEBUG"
 
 
 def test_load_config_rejects_missing_explicit_config_path(tmp_path: Path) -> None:
-    config_path = tmp_path / "missing.toml"
-
     with pytest.raises(CliError, match="Config file does not exist"):
-        load_config(repo_root=None, config_path=config_path)
+        load_config(repo_root=None, config_path=tmp_path / "missing.toml")
 
 
 def test_load_config_ignores_unrelated_jj_config_keys(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
-    repo = init_repo(tmp_path)
+    config_path = tmp_path / "user.toml"
+    monkeypatch.setattr(config_module, "_default_config_paths", lambda repo_root: (config_path,))
     _write_config(
-        _jj_config_path("user"),
+        config_path,
         [
             "[git]",
             'push-new-bookmarks = true',
         ],
     )
 
-    config = load_config(repo_root=repo)
+    config = load_config(repo_root=tmp_path)
 
     assert config.logging.level == "WARNING"
-    assert config.repo.github_host == "github.com"
-    assert config.repo.remote is None
+    assert config.repo.labels == []
 
 
 def test_load_config_rejects_invalid_keys_inside_jj_review_section(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "invalid.toml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "[jj-review]",
-                'remote = "origin"',
-            ]
-        ),
-        encoding="utf-8",
+    _write_config(
+        config_path,
+        [
+            "[jj-review]",
+            'remote = "origin"',
+        ],
     )
 
     with pytest.raises(CliError, match="Extra inputs are not permitted"):
@@ -142,26 +137,16 @@ def test_load_config_rejects_invalid_logging_level_in_jj_review_section(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "invalid-logging.toml"
-    config_path.write_text(
-        "\n".join(
-            [
-                "[jj-review.logging]",
-                'level = "DEBIG"',
-            ]
-        ),
-        encoding="utf-8",
+    _write_config(
+        config_path,
+        [
+            "[jj-review.logging]",
+            'level = "DEBIG"',
+        ],
     )
 
     with pytest.raises(CliError, match="Invalid logging level"):
         load_config(repo_root=None, config_path=config_path)
-
-
-def _jj_config_path(scope: str, repo_root: Path | None = None) -> Path:
-    command = ["jj", "config", "path", f"--{scope}"]
-    if repo_root is not None:
-        command.extend(["-R", str(repo_root)])
-    completed = run_command(command, repo_root or Path.cwd())
-    return Path(completed.stdout.strip())
 
 
 def _write_config(config_path: Path, lines: list[str]) -> None:

@@ -110,15 +110,17 @@ uv tool update-shell
 
 ### Minimal setup
 
-For many GitHub repos, you won't need any configuration. If your Git remote is
-non-standard, pin the GitHub target explicitly:
+For many GitHub repos, you won't need any configuration. `jj-review` derives
+the selected remote, GitHub repository, and trunk branch from the repo state
+and fails closed if that resolution is ambiguous.
+
+Repository-level `jj-review` config is only for tool-specific defaults such as
+reviewers and labels:
 
 ```toml
-[repo]
-remote = "origin"
-trunk_branch = "main"
-github_owner = "your-org"
-github_repo = "your-repo"
+[jj-review.repo]
+reviewers = ["octocat"]
+labels = ["needs-review"]
 ```
 
 For authentication, `jj-review` checks `GH_TOKEN`, then `GITHUB_TOKEN`, then

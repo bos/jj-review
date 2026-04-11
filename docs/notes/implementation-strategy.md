@@ -394,12 +394,12 @@ into a full repository-resolution order.
 
 The resolution order should be:
 
-- selected remote: command-line flag, then local config, then `origin` if it
-  exists, then the only remote if exactly one exists, otherwise fail
-- trunk branch: command-line flag, then local config, then the selected
-  remote's default branch if it can be found, then one remote bookmark on the
-  selected remote that points at `trunk()`, otherwise fail
-- GitHub owner/repo: derive from the selected remote URL, otherwise fail
+- selected remote: `origin` if it exists, then the only remote if exactly one
+  exists, otherwise fail
+- trunk branch: the selected remote's default branch if it can be found, then
+  one remote bookmark on the selected remote that points at `trunk()`,
+  otherwise fail
+- GitHub host/owner/repo: derive from the selected remote URL, otherwise fail
 
 Ambiguity should be a hard stop, not something the tool guesses past.
 

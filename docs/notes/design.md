@@ -198,7 +198,7 @@ such as `main@origin`.
 
 For now, require one of:
 
-- an explicit repo override such as `trunk_branch = "main"`
+- the selected remote's default branch as reported by GitHub
 - or an unambiguous remote bookmark on the selected remote whose target is
   `trunk()`
 
@@ -258,8 +258,7 @@ head branch matches the saved bookmark name.
 User-authored settings and overrides are a separate category and should not be
 mixed into machine-written jj-review data. Those include:
 
-- repo defaults such as preferred remote, trunk branch, or GitHub owner/repo
-  override
+- repo defaults such as reviewer or label preferences
 - explicit bookmark-name override for a specific change
 - per-change user preferences (future extension point; no current examples yet)
 
@@ -1099,8 +1098,8 @@ Store `jj-review` settings under the `jj-review` namespace, for example:
 
 ```toml
 [jj-review.repo]
-remote = "origin"
-trunk_branch = "main"
+reviewers = ["octocat"]
+labels = ["needs-review"]
 ```
 
 User-authored per-change overrides such as `bookmark_override` belong in

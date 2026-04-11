@@ -54,7 +54,6 @@ def test_render_trunk_status_lines_prefers_unique_local_bookmark() -> None:
         review_state_module.render_trunk_status_lines(
             color_when="never",
             prepared=prepared,
-            configured_trunk_branch=None,
         )
         == ("◆ base [trunkcha]",)
     )
