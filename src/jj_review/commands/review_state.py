@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from jj_review.bootstrap import bootstrap_context
 from jj_review.errors import CliError
-from jj_review.intent import intent_change_ids, pid_is_alive
+from jj_review.intent import pid_is_alive
 from jj_review.jj import UnsupportedStackError
 from jj_review.review_inspection import (
     prepare_status,
@@ -124,7 +124,7 @@ def status(
     exit_code = 1 if result.incomplete else 0
     selected_change_ids = {revision.change_id for revision in getattr(result, "revisions", ())}
     overlapping = any(
-        intent_change_ids(loaded.intent) & selected_change_ids
+        loaded.intent.change_ids() & selected_change_ids
         for loaded in prepared_status.outstanding_intents
     )
     if overlapping:

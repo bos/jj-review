@@ -38,7 +38,7 @@ from jj_review.intent import (
     match_ordered_change_ids,
     retire_superseded_intents,
     save_intent,
-    write_intent,
+    write_new_intent,
 )
 from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.cache import CachedChange
@@ -397,7 +397,7 @@ async def _stream_land_async(
         intent_path = (
             execution_state.resume_intent.path
             if execution_state.resume_intent is not None
-            else write_intent(execution_state.state_dir, land_intent)
+            else write_new_intent(execution_state.state_dir, land_intent)
         )
 
         actions: list[LandAction] = []

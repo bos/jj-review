@@ -36,7 +36,7 @@ from jj_review.intent import (
     check_same_kind_intent,
     match_ordered_change_ids,
     retire_superseded_intents,
-    write_intent,
+    write_new_intent,
 )
 from jj_review.jj import JjClient
 from jj_review.jj.client import UnsupportedStackError
@@ -643,7 +643,7 @@ def _start_restack_intent(
             print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
     return _RestackIntentState(
         intent=intent,
-        intent_path=write_intent(prepared_restack.state_dir, intent),
+        intent_path=write_new_intent(prepared_restack.state_dir, intent),
         stale_intents=stale_intents,
     )
 
@@ -976,7 +976,7 @@ async def _stream_cleanup_async(
         stale_intents = check_same_kind_intent(prepared_cleanup.state_dir, _intent)
         for _loaded in stale_intents:
             print(f"Note: a previous cleanup was interrupted ({_loaded.intent.label})")
-        intent_path = write_intent(prepared_cleanup.state_dir, _intent)
+        intent_path = write_new_intent(prepared_cleanup.state_dir, _intent)
 
     try:
         if prepared_cleanup.github_repository is None:

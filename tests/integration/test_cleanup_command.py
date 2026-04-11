@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from jj_review.cache import ReviewStateStore, resolve_state_path
-from jj_review.intent import write_intent
+from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
 from jj_review.models.intent import CleanupApplyIntent
 
@@ -571,7 +571,7 @@ def test_cleanup_retires_prior_interrupted_intent_after_success(
         label="cleanup",
         started_at="2026-04-07T00:24:40+00:00",
     )
-    stale_path = write_intent(state_dir, stale_intent)
+    stale_path = write_new_intent(state_dir, stale_intent)
 
     exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()

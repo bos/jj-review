@@ -41,7 +41,7 @@ def _intent_filename(state_dir: Path, now: datetime) -> Path:
     raise RuntimeError("Could not allocate intent file name (100 collisions).")
 
 
-def write_intent(state_dir: Path, intent: IntentFile) -> Path:
+def write_new_intent(state_dir: Path, intent: IntentFile) -> Path:
     """Write an intent file atomically. Returns the path of the created file."""
     state_dir.mkdir(parents=True, exist_ok=True)
     dest = _intent_filename(state_dir, datetime.now(UTC))
@@ -183,20 +183,6 @@ def match_ordered_change_ids(
 # Stale intent check
 # ---------------------------------------------------------------------------
 
-def intent_change_ids(intent: IntentFile) -> frozenset[str]:
-    if isinstance(intent, SubmitIntent | CleanupRestackIntent | LandIntent):
-        return frozenset(intent.ordered_change_ids)
-    if isinstance(intent, CloseIntent):
-        return frozenset(intent.ordered_change_ids)
-    if isinstance(intent, RelinkIntent):
-        return frozenset([intent.change_id])
-    return frozenset()
-
-
-# Keep private alias so internal callers can continue to use the clearer public name.
-_intent_change_ids = intent_change_ids
-
-
 def intent_is_stale(
     intent: IntentFile,
     resolve_change_id: Callable[[str], bool],
@@ -205,9 +191,10 @@ def intent_is_stale(
 ) -> bool:
     """Return True if the intent is considered stale.
 
-    For intents with change IDs (SubmitIntent, CleanupRestackIntent):
+    For intents backed by review-stack change IDs
+    (SubmitIntent, CleanupRestackIntent, CloseIntent, LandIntent):
         stale if none of the change IDs resolve in the local repo.
-    For CleanupApplyIntent and RelinkIntent (no useful change IDs):
+    For CleanupApplyIntent and RelinkIntent:
         stale if the PID is dead AND the intent is older than 7 days.
     """
     if isinstance(intent, CleanupApplyIntent | RelinkIntent):
@@ -223,7 +210,7 @@ def intent_is_stale(
             return True  # can't parse → treat as stale
         return (now - started).days >= 7
 
-    ids = intent_change_ids(intent)
+    ids = intent.change_ids()
     if not ids:
         return False
     return not any(resolve_change_id(cid) for cid in ids)

@@ -20,7 +20,7 @@ from jj_review.commands.submit import (
     _run_description_command,
 )
 from jj_review.errors import CliError
-from jj_review.intent import write_intent
+from jj_review.intent import write_new_intent
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
@@ -339,7 +339,7 @@ def test_repair_interrupted_untracked_remote_bookmarks_tracks_matching_remote_ta
         def track_bookmark(self, *, remote: str, bookmark: str) -> None:
             calls.append(("track", remote, bookmark))
 
-    write_intent(
+    write_new_intent(
         tmp_path,
         SubmitIntent(
             kind="submit",

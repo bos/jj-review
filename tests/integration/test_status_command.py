@@ -4,7 +4,7 @@ from pathlib import Path
 
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.github.client import GithubClient, GithubClientError
-from jj_review.intent import write_intent
+from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
 from jj_review.models.intent import SubmitIntent
 
@@ -628,7 +628,7 @@ def test_status_shows_outstanding_submit_intent(
         bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
-    write_intent(state_dir, intent)
+    write_new_intent(state_dir, intent)
 
     run_main(repo, config_path, "status")
     captured = capsys.readouterr()
@@ -665,7 +665,7 @@ def test_status_exits_nonzero_for_overlapping_intent(
         bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
-    write_intent(state_dir, intent)
+    write_new_intent(state_dir, intent)
 
     exit_code = run_main(repo, config_path, "status")
     capsys.readouterr()
@@ -700,7 +700,7 @@ def test_status_exits_zero_for_stale_intent(
         bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
-    write_intent(state_dir, intent)
+    write_new_intent(state_dir, intent)
 
     exit_code = run_main(repo, config_path, "status")
     capsys.readouterr()
@@ -753,7 +753,7 @@ def test_status_exits_zero_for_disjoint_intent(
         bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
-    write_intent(state_dir, intent)
+    write_new_intent(state_dir, intent)
 
     # Run status scoped to feature-2 stack — the intent is outstanding but disjoint
     exit_code = run_main(repo, config_path, "status", feature_2_change_id)

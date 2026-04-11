@@ -12,60 +12,55 @@ class IntentBase(BaseModel):
 
     version: Literal[1] = 1
 
+    def change_ids(self) -> frozenset[str]:
+        return frozenset()
 
-class SubmitIntent(IntentBase):
-    kind: Literal["submit"]
+
+class OperationIntent(IntentBase):
     pid: int
     label: str
-    display_revset: str
-    head_change_id: str
-    ordered_change_ids: tuple[str, ...]
-    bookmarks: dict[str, str]   # change_id → bookmark
-    bases: dict[str, str]  # change_id → base_branch (may be empty until --abort is designed)
     started_at: str  # ISO 8601
 
 
-class CleanupApplyIntent(IntentBase):
+class OrderedChangeIdsIntent(OperationIntent):
+    display_revset: str
+    ordered_change_ids: tuple[str, ...]
+
+    def change_ids(self) -> frozenset[str]:
+        return frozenset(self.ordered_change_ids)
+
+
+class SubmitIntent(OrderedChangeIdsIntent):
+    kind: Literal["submit"]
+    head_change_id: str
+    bookmarks: dict[str, str]   # change_id → bookmark
+    bases: dict[str, str]  # change_id → base_branch (may be empty until --abort is designed)
+
+
+class CleanupApplyIntent(OperationIntent):
     kind: Literal["cleanup-apply"]
-    pid: int
-    label: str
-    started_at: str
 
 
-class CleanupRestackIntent(IntentBase):
+class CleanupRestackIntent(OrderedChangeIdsIntent):
     kind: Literal["cleanup-restack"]
-    pid: int
-    label: str
-    display_revset: str
-    ordered_change_ids: tuple[str, ...]
-    started_at: str
 
 
-class CloseIntent(IntentBase):
+class CloseIntent(OrderedChangeIdsIntent):
     kind: Literal["close"]
-    pid: int
-    label: str
-    display_revset: str
-    ordered_change_ids: tuple[str, ...]
     cleanup: bool
-    started_at: str
 
 
-class RelinkIntent(IntentBase):
+class RelinkIntent(OperationIntent):
     kind: Literal["relink"]
-    pid: int
-    label: str
     change_id: str
-    started_at: str
+
+    def change_ids(self) -> frozenset[str]:
+        return frozenset([self.change_id])
 
 
-class LandIntent(IntentBase):
+class LandIntent(OrderedChangeIdsIntent):
     kind: Literal["land"]
-    pid: int
-    label: str
     bypass_readiness: bool
-    display_revset: str
-    ordered_change_ids: tuple[str, ...]
     ordered_commit_ids: tuple[str, ...]
     landed_change_ids: tuple[str, ...]
     landed_bookmarks: dict[str, str]
@@ -77,7 +72,6 @@ class LandIntent(IntentBase):
     trunk_commit_id: str
     landed_commit_id: str
     expected_pr_number: int | None = None
-    started_at: str
 
 
 IntentFile: TypeAlias = Annotated[

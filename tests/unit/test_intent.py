@@ -15,7 +15,7 @@ from jj_review.intent import (
     pid_is_alive,
     retire_superseded_intents,
     scan_intents,
-    write_intent,
+    write_new_intent,
 )
 from jj_review.models.intent import (
     CleanupApplyIntent,
@@ -159,7 +159,7 @@ def test_write_intent_round_trips_supported_intent_kinds(
 ) -> None:
     del test_id
     intent = intent_factory()
-    path = write_intent(tmp_path, intent)
+    path = write_new_intent(tmp_path, intent)
     results = scan_intents(tmp_path)
     assert len(results) == 1
     assert results[0].path == path
@@ -242,7 +242,7 @@ def test_retire_superseded_submit_intents_matches_stack_prefix(
     should_exist: bool,
 ) -> None:
     old = _make_submit_intent(("a", "b"))
-    path = write_intent(tmp_path, old)
+    path = write_new_intent(tmp_path, old)
     loaded = LoadedIntent(path=path, intent=old)
     new = _make_submit_intent(new_ordered_change_ids)
     retire_superseded_intents([loaded], new)
@@ -343,7 +343,7 @@ def test_check_same_kind_intent_returns_stale_dead_pid_intents(
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
     monkeypatch.setattr("jj_review.intent.time.sleep", lambda s: None)
     old_intent = _make_submit_intent(("aaaa", "bbbb"), pid=99999999)
-    write_intent(tmp_path, old_intent)
+    write_new_intent(tmp_path, old_intent)
 
     new_intent = _make_submit_intent(("aaaa", "bbbb"))
     result = check_same_kind_intent(tmp_path, new_intent)
@@ -359,7 +359,7 @@ def test_check_same_kind_intent_ignores_different_kind(
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
     # Write a cleanup-apply intent (different kind)
     cleanup_intent = _make_cleanup_apply_intent(pid=99999999)
-    write_intent(tmp_path, cleanup_intent)
+    write_new_intent(tmp_path, cleanup_intent)
 
     # Check for submit kind — should return nothing
     new_submit_intent = _make_submit_intent()
@@ -385,7 +385,7 @@ def test_check_same_kind_intent_waits_for_live_same_kind_intent_to_finish(
     monkeypatch.setattr("jj_review.intent.time.sleep", lambda s: sleep_calls.append(s))
 
     old_intent = _make_submit_intent(("aaaa", "bbbb"), pid=99999999)
-    write_intent(tmp_path, old_intent)
+    write_new_intent(tmp_path, old_intent)
 
     new_intent = _make_submit_intent(("cccc", "dddd"))
     result = check_same_kind_intent(tmp_path, new_intent)

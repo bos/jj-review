@@ -53,7 +53,7 @@ from jj_review.intent import (
     pid_is_alive,
     retire_superseded_intents,
     scan_intents,
-    write_intent,
+    write_new_intent,
 )
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
@@ -591,7 +591,7 @@ def _start_submit_intent(
     )
     return _SubmitIntentState(
         intent=intent,
-        intent_path=write_intent(state_dir, intent),
+        intent_path=write_new_intent(state_dir, intent),
         stale_intents=stale_intents,
     )
 

@@ -24,7 +24,7 @@ from jj_review.github_resolution import build_github_client
 from jj_review.intent import (
     check_same_kind_intent,
     retire_superseded_intents,
-    write_intent,
+    write_new_intent,
 )
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote
@@ -399,7 +399,7 @@ def _start_close_intent(
         print(f"Note: a previous close was interrupted ({loaded.intent.label})")
     return _CloseIntentState(
         intent=intent,
-        intent_path=write_intent(prepared_close.state_dir, intent),
+        intent_path=write_new_intent(prepared_close.state_dir, intent),
         stale_intents=stale_intents,
     )
 

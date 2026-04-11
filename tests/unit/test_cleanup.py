@@ -486,7 +486,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
         lambda *args, **kwargs: (),
     )
     monkeypatch.setattr(
-        "jj_review.commands.cleanup.write_intent",
+        "jj_review.commands.cleanup.write_new_intent",
         lambda *args, **kwargs: None,
     )
 
@@ -556,7 +556,7 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
         lambda *args, **kwargs: (),
     )
     monkeypatch.setattr(
-        "jj_review.commands.cleanup.write_intent",
+        "jj_review.commands.cleanup.write_new_intent",
         lambda *args, **kwargs: None,
     )
 

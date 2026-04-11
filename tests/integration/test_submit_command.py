@@ -9,7 +9,7 @@ import pytest
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.commands.review_state import display_change_id
 from jj_review.github.client import GithubClient, GithubClientError
-from jj_review.intent import write_intent
+from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
 from jj_review.models.intent import SubmitIntent
 
@@ -472,7 +472,7 @@ def test_submit_dry_run_warns_on_stale_intent_without_retiring_it(
         bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
-    old_intent_path = write_intent(state_dir, old_intent)
+    old_intent_path = write_new_intent(state_dir, old_intent)
 
     exit_code = run_main(repo, config_path, "submit", "--dry-run")
     captured = capsys.readouterr()
@@ -1628,7 +1628,7 @@ def test_submit_resumes_and_retires_stale_intent(
         bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
-    old_intent_path = write_intent(state_dir, old_intent)
+    old_intent_path = write_new_intent(state_dir, old_intent)
 
     exit_code = run_main(repo, config_path, "submit")
     captured = capsys.readouterr()
@@ -1667,7 +1667,7 @@ def test_submit_warns_on_overlapping_stale_intent(
         bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
-    write_intent(state_dir, old_intent)
+    write_new_intent(state_dir, old_intent)
 
     exit_code = run_main(repo, config_path, "submit")
     capsys.readouterr()

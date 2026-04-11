@@ -23,7 +23,7 @@ from jj_review.github_resolution import (
     resolve_github_repository,
     select_submit_remote,
 )
-from jj_review.intent import check_same_kind_intent, write_intent
+from jj_review.intent import check_same_kind_intent, write_new_intent
 from jj_review.jj import JjClient
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.intent import RelinkIntent
@@ -193,7 +193,7 @@ async def _run_relink_async(
     stale_intents = check_same_kind_intent(state_dir, intent)
     for loaded in stale_intents:
         print(f"Warning: a previous relink was interrupted ({loaded.intent.label})")
-    intent_path = write_intent(state_dir, intent)
+    intent_path = write_new_intent(state_dir, intent)
 
     relink_succeeded = False
     try:
