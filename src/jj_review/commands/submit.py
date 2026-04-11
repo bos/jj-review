@@ -42,8 +42,8 @@ from jj_review.formatting import (
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
-    parse_github_repo,
     remote_bookmarks_pointing_at_commit,
+    require_github_repo,
     resolve_trunk_branch,
     select_submit_remote,
 )
@@ -738,12 +738,7 @@ async def _run_submit_async(
             trunk_branch=trunk_branch,
         )
 
-    github_repository = parse_github_repo(remote)
-    if github_repository is None:
-        raise CliError(
-            f"Could not determine the GitHub repository for remote {remote.name!r}. "
-            "Use a GitHub remote URL."
-        )
+    github_repository = require_github_repo(remote)
     resolved_reviewers = config.reviewers if reviewers is None else reviewers
     resolved_team_reviewers = config.team_reviewers if team_reviewers is None else team_reviewers
     state_changes = dict(bookmark_result.state.changes)

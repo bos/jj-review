@@ -111,12 +111,8 @@ def patch_github_client_builders(
     for module in modules:
         module_object = importlib.import_module(module)
         monkeypatch.setattr(module_object, "build_github_client", build_github_client)
-        if hasattr(module_object, "parse_github_repo"):
-            monkeypatch.setattr(
-                module_object,
-                "parse_github_repo",
-                parse_github_repo,
-            )
+        monkeypatch.setattr(module_object, "parse_github_repo", parse_github_repo, raising=False)
+        monkeypatch.setattr(module_object, "require_github_repo", parse_github_repo, raising=False)
     if concurrency_limits is None:
         return
     for module, limit in concurrency_limits.items():

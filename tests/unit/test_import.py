@@ -177,7 +177,7 @@ def test_resolve_pull_request_selection_requires_fetch_when_remote_bookmark_is_n
         return (_pull_request(number=17, head_ref="review/feature-aaaaaaaa"),)
 
     monkeypatch.setattr(
-        "jj_review.commands.import_.parse_github_repo",
+        "jj_review.commands.import_.require_github_repo",
         lambda remote: SimpleNamespace(
             api_base_url="https://github.test/api/v3",
             full_name="octo-org/stacked-review",
@@ -227,7 +227,7 @@ def test_resolve_pull_request_selection_fetches_selected_branch_when_requested(
         return (_pull_request(number=17, head_ref="review/feature-aaaaaaaa"),)
 
     monkeypatch.setattr(
-        "jj_review.commands.import_.parse_github_repo",
+        "jj_review.commands.import_.require_github_repo",
         lambda remote: SimpleNamespace(
             api_base_url="https://github.test/api/v3",
             full_name="octo-org/stacked-review",
@@ -275,7 +275,7 @@ def test_resolve_pull_request_selection_rejects_pull_request_missing_after_head_
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "jj_review.commands.import_.parse_github_repo",
+        "jj_review.commands.import_.require_github_repo",
         lambda remote: SimpleNamespace(
             api_base_url="https://github.test/api/v3",
             full_name="octo-org/stacked-review",
@@ -332,7 +332,7 @@ def test_resolve_pull_request_selection_rejects_cross_repository_pull_request_he
         )
 
     monkeypatch.setattr(
-        "jj_review.commands.import_.parse_github_repo",
+        "jj_review.commands.import_.require_github_repo",
         lambda remote: SimpleNamespace(
             api_base_url="https://github.test/api/v3",
             full_name="octo-org/stacked-review",

@@ -19,7 +19,7 @@ from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClientError, build_github_client
 from jj_review.github.resolution import (
-    parse_github_repo,
+    require_github_repo,
     select_submit_remote,
 )
 from jj_review.intent import check_same_kind_intent, write_new_intent
@@ -101,12 +101,7 @@ async def _run_relink_async(
     remotes = client.list_git_remotes()
     remote = select_submit_remote(remotes)
     client.fetch_remote(remote=remote.name)
-    github_repository = parse_github_repo(remote)
-    if github_repository is None:
-        raise CliError(
-            f"Could not determine the GitHub repository for remote {remote.name!r}. "
-            "Use a GitHub remote URL."
-        )
+    github_repository = require_github_repo(remote)
     pull_request_number = parse_repository_pull_request_reference(
         reference=pull_request_reference,
         github_repository=github_repository,

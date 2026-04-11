@@ -67,6 +67,18 @@ def parse_github_repo(remote: GitRemote) -> ParsedGithubRepo | None:
     return ParsedGithubRepo(host=host, owner=owner, repo=repo)
 
 
+def require_github_repo(remote: GitRemote) -> ParsedGithubRepo:
+    """Parse a GitHub repository target or raise a user-facing CLI error."""
+
+    github_repository = parse_github_repo(remote)
+    if github_repository is not None:
+        return github_repository
+    raise CliError(
+        f"Could not determine the GitHub repository for remote {remote.name!r}. "
+        "Use a GitHub remote URL."
+    )
+
+
 def resolve_trunk_branch(
     *,
     bookmark_states: Mapping[str, BookmarkState],

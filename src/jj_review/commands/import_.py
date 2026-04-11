@@ -29,7 +29,7 @@ from jj_review.errors import CliError
 from jj_review.github.client import GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
-    parse_github_repo,
+    require_github_repo,
     select_submit_remote,
 )
 from jj_review.jj import JjClient
@@ -314,12 +314,7 @@ async def _resolve_pull_request_selection(
 ) -> _Selection:
     remotes = client.list_git_remotes()
     remote = select_submit_remote(remotes)
-    github_repository = parse_github_repo(remote)
-    if github_repository is None:
-        raise CliError(
-            f"Could not determine the GitHub repository for remote {remote.name!r}. "
-            "Use a GitHub remote URL."
-        )
+    github_repository = require_github_repo(remote)
     pull_request = await _load_pull_request(
         github_repository=github_repository,
         pull_request_reference=pull_request_reference,
