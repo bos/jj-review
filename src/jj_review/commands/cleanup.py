@@ -27,7 +27,7 @@ from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
-    GithubRepo,
+    ParsedGithubRepo,
     parse_github_repo,
     select_submit_remote,
 )
@@ -86,7 +86,7 @@ class PreparedCleanup:
 
     dry_run: bool
     bookmark_states: dict[str, BookmarkState]
-    github_repository: GithubRepo | None
+    github_repository: ParsedGithubRepo | None
     github_repository_error: str | None
     jj_client: JjClient
     remote: GitRemote | None
@@ -1253,7 +1253,7 @@ def _save_cleanup_state_if_changed(
 async def _run_stack_comment_cleanup_pass(
     *,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     next_changes: dict[str, CachedChange],
     prepared_changes: tuple[PreparedCleanupChange, ...],
     prepared_cleanup: PreparedCleanup,
@@ -1297,7 +1297,7 @@ async def _apply_stack_comment_cleanup_action(
     comment_plan: StackCommentCleanupPlan,
     change_id: str,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     next_changes: dict[str, CachedChange],
     prepared_cleanup: PreparedCleanup,
     record_action: Callable[[CleanupAction], None],

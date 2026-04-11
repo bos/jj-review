@@ -7,7 +7,7 @@ from typing import cast
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.resolution import (
-    GithubRepo,
+    ParsedGithubRepo,
     parse_github_repo,
 )
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
@@ -30,7 +30,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
 ) -> None:
     remote = GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git")
     prepared_status = PreparedStatus(
-        github_repository=GithubRepo(
+        github_repository=ParsedGithubRepo(
             host="github.com",
             owner="octo-org",
             repo="stacked-review",
@@ -156,7 +156,7 @@ def test_classify_status_intents_separates_stale_intents_from_live_ones(
 def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> None:
     remote = GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git")
     prepared_status = PreparedStatus(
-        github_repository=GithubRepo(
+        github_repository=ParsedGithubRepo(
             host="github.com",
             owner="octo-org",
             repo="stacked-review",

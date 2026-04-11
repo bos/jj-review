@@ -41,7 +41,7 @@ from jj_review.formatting import (
 )
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
-    GithubRepo,
+    ParsedGithubRepo,
     parse_github_repo,
     remote_bookmarks_pointing_at_trunk,
     resolve_trunk_branch,
@@ -1018,7 +1018,7 @@ def _preflight_private_commits(
 async def _discover_pull_requests_by_bookmark(
     *,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     bookmarks: tuple[str, ...],
 ) -> dict[str, GithubPullRequest | None]:
     if not bookmarks:
@@ -1255,7 +1255,7 @@ async def _sync_pull_requests(
     dry_run: bool,
     generated_descriptions: dict[str, GeneratedDescription],
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     labels: list[str],
     prepared_revisions: tuple[PreparedSubmitRevision, ...],
     reviewers: list[str],
@@ -1322,7 +1322,7 @@ async def _sync_pull_request_task(
     draft_mode: SubmitDraftMode,
     dry_run: bool,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     labels: list[str],
     pending_sync: PendingPullRequestSync,
     reviewers: list[str],
@@ -1391,7 +1391,7 @@ async def _sync_pull_request(
     dry_run: bool,
     generated_description: GeneratedDescription,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     labels: list[str],
     reviewers: list[str],
     revision: LocalRevision,
@@ -1583,7 +1583,7 @@ async def _create_pull_request(
     body: str,
     draft: bool,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     head_branch: str,
     title: str,
 ) -> GithubPullRequest:
@@ -1606,7 +1606,7 @@ async def _create_pull_request(
 async def _sync_pull_request_metadata(
     *,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     labels: list[str],
     pull_request_number: int,
     reviewers: list[str],
@@ -1637,7 +1637,7 @@ async def _sync_pull_request_metadata(
 async def _mark_pull_request_ready_for_review(
     *,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     pull_request: GithubPullRequest,
 ) -> GithubPullRequest:
     if pull_request.node_id is None:
@@ -1659,7 +1659,7 @@ async def _mark_pull_request_ready_for_review(
 async def _convert_pull_request_to_draft(
     *,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     pull_request: GithubPullRequest,
 ) -> GithubPullRequest:
     if pull_request.node_id is None:
@@ -1683,7 +1683,7 @@ async def _update_pull_request(
     base_branch: str,
     body: str,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     pull_request: GithubPullRequest,
     title: str,
 ) -> GithubPullRequest:
@@ -1707,7 +1707,7 @@ async def _sync_stack_comments(
     dry_run: bool,
     generated_stack_description: GeneratedDescription | None,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     revisions: tuple[SubmittedRevision, ...],
     state: ReviewState,
     state_changes: dict[str, CachedChange],
@@ -1789,7 +1789,7 @@ async def _sync_stack_comment_task(
     *,
     dry_run: bool,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     pending_sync: PendingStackCommentSync,
 ) -> tuple[str, CachedChange]:
     if pending_sync.comment_body is None:
@@ -1820,7 +1820,7 @@ async def _clear_stack_comment(
     cached_change: CachedChange,
     dry_run: bool,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     pull_request_number: int,
 ) -> CachedChange:
     try:
@@ -1875,7 +1875,7 @@ async def _upsert_stack_comment(
     comment_body: str,
     dry_run: bool,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     pull_request_number: int,
 ) -> GithubIssueComment | None:
     try:
@@ -1960,7 +1960,7 @@ async def _create_stack_comment(
     *,
     comment_body: str,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     pull_request_number: int,
 ) -> GithubIssueComment:
     try:
@@ -1982,7 +1982,7 @@ async def _update_stack_comment(
     comment_body: str,
     comment_id: int,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
 ) -> GithubIssueComment:
     try:
         return await github_client.update_issue_comment(
@@ -2001,7 +2001,7 @@ async def _delete_stack_comment(
     *,
     comment_id: int,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
 ) -> None:
     try:
         await github_client.delete_issue_comment(

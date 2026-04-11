@@ -29,7 +29,7 @@ from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
-    GithubRepo,
+    ParsedGithubRepo,
     resolve_trunk_branch,
 )
 from jj_review.intent import (
@@ -495,7 +495,7 @@ async def _stream_land_async(
 def _prepare_land_execution_state(
     *,
     follow_up: str | None,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     plan: _LandPlan,
     prepared_land: PreparedLand,
     prepared_status: PreparedStatus,
@@ -1038,7 +1038,7 @@ async def _finalize_landed_pull_request(
     *,
     cached_change: CachedChange | None,
     github_client: GithubClient,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     landed_revision: _LandRevision,
     trunk_branch: str,
 ) -> GithubPullRequest:

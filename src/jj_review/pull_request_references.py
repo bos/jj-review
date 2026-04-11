@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from jj_review.errors import CliError
-from jj_review.github.resolution import GithubRepo
+from jj_review.github.resolution import ParsedGithubRepo
 
 _PULL_REQUEST_URL_RE = re.compile(
     r"^/(?P<owner>[^/]+)/(?P<repo>[^/]+)/pull/(?P<number>[0-9]+)/?$"
@@ -45,7 +45,7 @@ def parse_pull_request_url(reference: str) -> ParsedPullRequestUrl | None:
 
 def parse_repository_pull_request_reference(
     *,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     invalid_reference_message: str,
     reference: str,
     wrong_host_message: str | None = None,

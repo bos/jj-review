@@ -8,7 +8,7 @@ import httpx
 
 from jj_review.cli import main
 from jj_review.github.client import GithubClient
-from jj_review.github.resolution import GithubRepo
+from jj_review.github.resolution import ParsedGithubRepo
 
 from ..support.fake_github import FakeGithubRepository
 from ..support.integration_helpers import (
@@ -101,8 +101,8 @@ def patch_github_client_builders(
             transport=httpx.ASGITransport(app=app),
         )
 
-    def parse_github_repo(*_args, **_kwargs) -> GithubRepo:
-        return GithubRepo(
+    def parse_github_repo(*_args, **_kwargs) -> ParsedGithubRepo:
+        return ParsedGithubRepo(
             host="github.test",
             owner=fake_repo.owner,
             repo=fake_repo.name,

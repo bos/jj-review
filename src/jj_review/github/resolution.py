@@ -14,8 +14,8 @@ _DEFAULT_GITHUB_HOST = "github.com"
 
 
 @dataclass(frozen=True, slots=True)
-class GithubRepo:
-    """Resolved GitHub repository target for the selected remote."""
+class ParsedGithubRepo:
+    """GitHub repository coordinates parsed from a Git remote URL."""
 
     host: str
     owner: str
@@ -66,7 +66,7 @@ def select_submit_remote(remotes: tuple[GitRemote, ...]) -> GitRemote:
     )
 
 
-def parse_github_repo(remote: GitRemote) -> GithubRepo | None:
+def parse_github_repo(remote: GitRemote) -> ParsedGithubRepo | None:
     """Parse a GitHub repository target from a Git remote URL."""
 
     parsed = urlparse(remote.url)
@@ -84,7 +84,7 @@ def parse_github_repo(remote: GitRemote) -> GithubRepo | None:
     if len(parts) != 2:
         return None
     owner, repo = parts
-    return GithubRepo(host=host, owner=owner, repo=repo)
+    return ParsedGithubRepo(host=host, owner=owner, repo=repo)
 
 
 def resolve_trunk_branch(

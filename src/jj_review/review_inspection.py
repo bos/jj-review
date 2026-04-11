@@ -28,7 +28,7 @@ from jj_review.github.client import (
     github_token_from_env,
 )
 from jj_review.github.resolution import (
-    GithubRepo,
+    ParsedGithubRepo,
     parse_github_repo,
     select_submit_remote,
 )
@@ -106,7 +106,7 @@ class StatusResult:
 class PreparedStatus:
     """Locally prepared status inputs before any GitHub inspection."""
 
-    github_repository: GithubRepo | None
+    github_repository: ParsedGithubRepo | None
     github_repository_error: str | None
     outstanding_intents: tuple[LoadedIntent, ...]
     prepared: PreparedStack
@@ -594,7 +594,7 @@ def _persist_status_cache_updates(
 
 async def _iter_status_revisions_with_github(
     *,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     on_github_status: Callable[[str | None], None] | None,
     prepared: PreparedStack,
 ) -> AsyncIterator[ReviewStatusRevision]:

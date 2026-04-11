@@ -28,7 +28,7 @@ from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClientError, build_github_client
 from jj_review.github.resolution import (
-    GithubRepo,
+    ParsedGithubRepo,
     parse_github_repo,
     select_submit_remote,
 )
@@ -486,7 +486,7 @@ def _apply_authoritative_remote_targets(
 
 async def _load_pull_request(
     *,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     pull_request_reference: str,
 ) -> GithubPullRequest:
     pull_request_number = parse_repository_pull_request_reference(
@@ -519,7 +519,7 @@ async def _load_pull_request(
 
 async def _list_pull_requests_by_head(
     *,
-    github_repository: GithubRepo,
+    github_repository: ParsedGithubRepo,
     head: str,
 ) -> tuple[GithubPullRequest, ...]:
     async with build_github_client(base_url=github_repository.api_base_url) as github_client:
