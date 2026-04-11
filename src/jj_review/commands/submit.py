@@ -286,14 +286,10 @@ def submit(
         del has_revisions, selected_revset
         nonlocal emitted_prepared
         if revset is None:
-            print(
-                f"Selected: {selected_subject} "
-                f"[{display_change_id(selected_change_id)}]"
-            )
+            print(f"Selected: {selected_subject} [{display_change_id(selected_change_id)}]")
         emitted_prepared = True
 
     state_store = ReviewStateStore.for_repo(context.repo_root)
-    state_dir = state_store.require_writable() if not dry_run else state_store.state_dir
     result = asyncio.run(
         _run_submit_async(
             change_overrides=context.config.change,
@@ -310,7 +306,6 @@ def submit(
             repo_root=context.repo_root,
             revset=selected_revset,
             reviewers=reviewer_list,
-            state_dir=state_dir,
             state_store=state_store,
             team_reviewers=team_reviewer_list,
         )
@@ -425,9 +420,9 @@ def _render_submit_revision_summary(revision) -> str:
             parts.append("pushed")
     parts.append(
         _render_submit_pr_suffix(
-        action=revision.pull_request_action,
-        is_draft=getattr(revision, "pull_request_is_draft", None),
-        pull_request_number=revision.pull_request_number,
+            action=revision.pull_request_action,
+            is_draft=getattr(revision, "pull_request_is_draft", None),
+            pull_request_number=revision.pull_request_number,
         )
     )
     return ", ".join(parts)
@@ -487,7 +482,6 @@ def _prepare_submit_inputs(
     on_prepared: Callable[[str, str, str, bool], None] | None,
     repo_root: Path,
     revset: str | None,
-    state_dir: Path | None,
     state_store: ReviewStateStore,
 ) -> _PreparedSubmitInputs:
     """Load local submit state before any GitHub mutation begins."""
@@ -498,7 +492,7 @@ def _prepare_submit_inputs(
         _repair_interrupted_untracked_remote_bookmarks(
             client=client,
             remote=remote,
-            state_dir=state_dir,
+            state_dir=state_store.require_writable(),
         )
     stack = client.discover_review_stack(revset)
     if on_prepared is not None:
@@ -546,7 +540,7 @@ def _start_submit_intent(
     bookmark_result: BookmarkResolutionResult,
     dry_run: bool,
     stack: LocalStack,
-    state_dir: Path | None,
+    state_store: ReviewStateStore,
 ) -> _SubmitIntentState:
     """Prepare submit intent state before any remote mutation begins."""
 
@@ -573,7 +567,7 @@ def _start_submit_intent(
     )
     if dry_run:
         stale_intents = _list_stale_submit_intents_without_waiting(
-            state_dir=state_dir,
+            state_store=state_store,
             intent=intent,
         )
         _report_stale_submit_intents(
@@ -582,8 +576,7 @@ def _start_submit_intent(
         )
         return _SubmitIntentState(intent=intent, intent_path=None, stale_intents=stale_intents)
 
-    if state_dir is None:
-        raise AssertionError("Live submit requires a writable state directory.")
+    state_dir = state_store.require_writable()
     stale_intents = check_same_kind_intent(state_dir, intent)
     _report_stale_submit_intents(
         ordered_change_ids=ordered_change_ids,
@@ -618,7 +611,7 @@ def _report_stale_submit_intents(
             )
         else:
             print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
- 
+
 
 def _prepare_submit_revisions(
     *,
@@ -704,7 +697,6 @@ async def _run_submit_async(
     repo_root: Path,
     revset: str | None,
     reviewers: list[str] | None,
-    state_dir: Path | None,
     state_store: ReviewStateStore,
     team_reviewers: list[str] | None,
 ) -> SubmitResult:
@@ -716,7 +708,6 @@ async def _run_submit_async(
         on_prepared=on_prepared,
         repo_root=repo_root,
         revset=revset,
-        state_dir=state_dir,
         state_store=state_store,
     )
     client = prepared_inputs.client
@@ -755,15 +746,13 @@ async def _run_submit_async(
 
     github_repository = resolve_github_repository(config, remote)
     resolved_reviewers = config.reviewers if reviewers is None else reviewers
-    resolved_team_reviewers = (
-        config.team_reviewers if team_reviewers is None else team_reviewers
-    )
+    resolved_team_reviewers = config.team_reviewers if team_reviewers is None else team_reviewers
     state_changes = dict(bookmark_result.state.changes)
     intent_state = _start_submit_intent(
         bookmark_result=bookmark_result,
         dry_run=dry_run,
         stack=stack,
-        state_dir=state_dir,
+        state_store=state_store,
     )
 
     succeeded = False
@@ -861,14 +850,12 @@ async def _run_submit_async(
 
 def _list_stale_submit_intents_without_waiting(
     *,
-    state_dir: Path | None,
+    state_store: ReviewStateStore,
     intent: SubmitIntent,
 ) -> list[LoadedIntent]:
-    if state_dir is None:
-        return []
     return [
         loaded
-        for loaded in scan_intents(state_dir)
+        for loaded in state_store.list_intents()
         if loaded.intent.kind == intent.kind and not pid_is_alive(loaded.intent.pid)
     ]
 
@@ -877,10 +864,8 @@ def _repair_interrupted_untracked_remote_bookmarks(
     *,
     client: InterruptedRemoteBookmarkRepairer,
     remote: GitRemote,
-    state_dir: Path | None,
+    state_dir: Path,
 ) -> None:
-    if state_dir is None:
-        return
     stale_submit_intents = [
         loaded
         for loaded in scan_intents(state_dir)
@@ -1042,10 +1027,7 @@ async def _discover_pull_requests_by_bookmark(
             head_refs=bookmarks,
         )
     except GithubClientError as error:
-        raise CliError(
-            "Could not batch pull request discovery for branches: "
-            f"{error}"
-        ) from error
+        raise CliError(f"Could not batch pull request discovery for branches: {error}") from error
 
     return {
         bookmark: _select_discovered_pull_request(
@@ -1184,14 +1166,10 @@ def _describe_with_diffstat(*, repo_root: Path, revset: str) -> str:
             text=True,
         )
     except OSError as error:
-        raise CliError(
-            f"Could not collect diffstat for --stack {revset!r}: {error}"
-        ) from error
+        raise CliError(f"Could not collect diffstat for --stack {revset!r}: {error}") from error
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip() or "unknown jj failure"
-        raise CliError(
-            f"Could not collect diffstat for --stack {revset!r}: {detail}"
-        )
+        raise CliError(f"Could not collect diffstat for --stack {revset!r}: {detail}")
 
     lines = completed.stdout.rstrip().splitlines()
     diffstat_lines: list[str] = []
@@ -1229,40 +1207,30 @@ def _run_description_command(
             text=True,
         )
     except FileNotFoundError as error:
-        raise CliError(
-            f"Describe helper {command!r} was not found."
-        ) from error
+        raise CliError(f"Describe helper {command!r} was not found.") from error
     except OSError as error:
-        raise CliError(
-            f"Could not run describe helper {command!r}: {error}"
-        ) from error
+        raise CliError(f"Could not run describe helper {command!r}: {error}") from error
 
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
         if not detail:
             detail = f"exit status {completed.returncode}"
-        raise CliError(
-            f"Describe helper {command!r} failed for --{kind} {revset!r}: {detail}"
-        )
+        raise CliError(f"Describe helper {command!r} failed for --{kind} {revset!r}: {detail}")
 
     output = completed.stdout.strip()
     if not output:
-        raise CliError(
-            f"Describe helper {command!r} produced no JSON for --{kind} {revset!r}."
-        )
+        raise CliError(f"Describe helper {command!r} produced no JSON for --{kind} {revset!r}.")
 
     try:
         payload = json.loads(output)
     except json.JSONDecodeError as error:
         raise CliError(
-            f"Describe helper {command!r} returned invalid JSON for --{kind} "
-            f"{revset!r}: {error}"
+            f"Describe helper {command!r} returned invalid JSON for --{kind} {revset!r}: {error}"
         ) from error
 
     if not isinstance(payload, dict):
         raise CliError(
-            f"Describe helper {command!r} must return a JSON object for --{kind} "
-            f"{revset!r}."
+            f"Describe helper {command!r} must return a JSON object for --{kind} {revset!r}."
         )
 
     title = payload.get("title")
@@ -1470,10 +1438,7 @@ async def _sync_pull_request(
             )
         action = "updated"
 
-    if (
-        pull_request is not None
-        and pull_request.state == "open"
-    ):
+    if pull_request is not None and pull_request.state == "open":
         if draft_mode == "publish" and pull_request.is_draft:
             if not dry_run:
                 pull_request = await _mark_pull_request_ready_for_review(
@@ -1533,6 +1498,8 @@ def _should_sync_pull_request_metadata(
     if cached_change is None:
         return True
     return cached_change.pr_number is None and cached_change.pr_url is None
+
+
 def _select_discovered_pull_request(
     *,
     head_label: str,
@@ -1658,8 +1625,7 @@ async def _sync_pull_request_metadata(
             )
     except GithubClientError as error:
         raise CliError(
-            f"Could not synchronize metadata for pull request #{pull_request_number}: "
-            f"{error}"
+            f"Could not synchronize metadata for pull request #{pull_request_number}: {error}"
         ) from error
 
 
@@ -1859,11 +1825,7 @@ async def _clear_stack_comment(
     )
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
-            (
-                comment
-                for comment in comments
-                if comment.id == cached_change.stack_comment_id
-            ),
+            (comment for comment in comments if comment.id == cached_change.stack_comment_id),
             None,
         )
         if cached_comment is not None:
@@ -1912,11 +1874,7 @@ async def _upsert_stack_comment(
     )
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
-            (
-                comment
-                for comment in comments
-                if comment.id == cached_change.stack_comment_id
-            ),
+            (comment for comment in comments if comment.id == cached_change.stack_comment_id),
             None,
         )
         if cached_comment is not None:

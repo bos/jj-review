@@ -28,7 +28,7 @@ from jj_review.github_resolution import (
     select_submit_remote,
     try_resolve_github_repository,
 )
-from jj_review.intent import intent_is_stale, scan_intents
+from jj_review.intent import intent_is_stale
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, LinkState, ReviewState
@@ -135,6 +135,7 @@ class PreparedRevision:
     cached_change: CachedChange | None
     revision: LocalRevision
 
+
 def prepare_status(
     *,
     change_overrides: dict[str, ChangeConfig],
@@ -181,15 +182,11 @@ def prepare_status(
 def _classify_status_intents(
     prepared: PreparedStack,
 ) -> tuple[tuple[LoadedIntent, ...], tuple[LoadedIntent, ...]]:
-    state_dir = prepared.state_store.state_dir
-    if state_dir is None:
-        return (), ()
-
     outstanding_intents: list[LoadedIntent] = []
     stale_intents: list[LoadedIntent] = []
     now = datetime.now(UTC)
 
-    for loaded in scan_intents(state_dir):
+    for loaded in prepared.state_store.list_intents():
         if intent_is_stale(
             loaded.intent,
             lambda change_id: _change_id_resolves(prepared.client, change_id),
@@ -405,8 +402,7 @@ def _prepare_stack(
             bookmark=resolution.bookmark,
             bookmark_source=resolution.source,
             cached_change=(
-                state_changes.get(revision.change_id)
-                or state.changes.get(revision.change_id)
+                state_changes.get(revision.change_id) or state.changes.get(revision.change_id)
             ),
             revision=revision,
         )
@@ -453,9 +449,7 @@ def _build_status_revisions_without_github(
                 bookmark_states.get(
                     revision.bookmark,
                     BookmarkState(name=revision.bookmark),
-                ).remote_target(
-                    prepared.remote.name
-                )
+                ).remote_target(prepared.remote.name)
                 if prepared.remote is not None
                 else None
             ),
@@ -464,6 +458,7 @@ def _build_status_revisions_without_github(
         )
         for revision in prepared.status_revisions
     )
+
 
 def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
     for revision in revisions:
@@ -529,9 +524,8 @@ def _persist_status_cache_updates(
 ) -> None:
     state_changes = dict(prepared.state_changes)
     for revision in revisions:
-        cached_change = (
-            state_changes.get(revision.change_id)
-            or prepared.state.changes.get(revision.change_id)
+        cached_change = state_changes.get(revision.change_id) or prepared.state.changes.get(
+            revision.change_id
         )
         updated_change = cached_change or CachedChange(bookmark=revision.bookmark)
         if cached_change is not None and cached_change.is_unlinked:
@@ -568,9 +562,7 @@ def _persist_status_cache_updates(
                     }
                 )
                 if pull_request_lookup.state != "open":
-                    updated_change = updated_change.model_copy(
-                        update={"stack_comment_id": None}
-                    )
+                    updated_change = updated_change.model_copy(update={"stack_comment_id": None})
         stack_comment_lookup = revision.stack_comment_lookup
         if stack_comment_lookup is not None:
             if stack_comment_lookup.state == "present":
@@ -655,9 +647,7 @@ async def _inspect_revision_with_github(
             BookmarkState(name=prepared_revision.bookmark),
         )
         remote_state = (
-            bookmark_state.remote_target(prepared.remote.name)
-            if prepared.remote
-            else None
+            bookmark_state.remote_target(prepared.remote.name) if prepared.remote else None
         )
         stack_comment_lookup: StackCommentLookup | None = None
         if pull_request_lookup.state == "open":
@@ -775,10 +765,7 @@ async def _attach_review_decisions_to_pull_request_lookups(
                 review_decision=review_decisions.get(pull_request.number),
                 review_decision_error=None,
             )
-            if (
-                lookup.state == "open"
-                and (pull_request := lookup.pull_request) is not None
-            )
+            if (lookup.state == "open" and (pull_request := lookup.pull_request) is not None)
             else lookup
         )
         for bookmark, lookup in pull_request_lookups.items()
@@ -836,6 +823,7 @@ def _normalize_pull_request_state(pull_request: GithubPullRequest) -> GithubPull
     if pull_request.state != "closed" or pull_request.merged_at is None:
         return pull_request
     return pull_request.model_copy(update={"state": "merged"})
+
 
 async def _inspect_stack_comment(
     *,

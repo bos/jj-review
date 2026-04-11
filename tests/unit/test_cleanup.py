@@ -269,7 +269,6 @@ def test_stream_cleanup_limits_stack_comment_github_inspection_concurrency(
         remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
         remote_error=None,
         state=state,
-        state_dir=None,
         state_store=cast(ReviewStateStore, SimpleNamespace(save=lambda state: None)),
     )
     active = 0
@@ -349,7 +348,6 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
         remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
         remote_error=None,
         state=state,
-        state_dir=None,
         state_store=cast(ReviewStateStore, SimpleNamespace(save=lambda state: None)),
     )
     streamed_actions: list[str] = []
@@ -421,6 +419,13 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     )
     saved_states: list[ReviewState] = []
     deleted_comment_ids: list[int] = []
+    state_store = cast(
+        ReviewStateStore,
+        SimpleNamespace(
+            require_writable=lambda: Path("/tmp"),
+            save=saved_states.append,
+        ),
+    )
     prepared_cleanup = PreparedCleanup(
         dry_run=False,
         bookmark_states={},
@@ -434,8 +439,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
         remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
         remote_error=None,
         state=state,
-        state_dir=Path("/tmp"),
-        state_store=cast(ReviewStateStore, SimpleNamespace(save=saved_states.append)),
+        state_store=state_store,
     )
 
     class FakeGithubClientContext:
@@ -520,6 +524,13 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
         }
     )
     saved_states: list[ReviewState] = []
+    state_store = cast(
+        ReviewStateStore,
+        SimpleNamespace(
+            require_writable=lambda: Path("/tmp"),
+            save=saved_states.append,
+        ),
+    )
     prepared_cleanup = PreparedCleanup(
         dry_run=False,
         bookmark_states={},
@@ -529,8 +540,7 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
         remote=None,
         remote_error=None,
         state=state,
-        state_dir=Path("/tmp"),
-        state_store=cast(ReviewStateStore, SimpleNamespace(save=saved_states.append)),
+        state_store=state_store,
     )
 
     monkeypatch.setattr(
@@ -626,7 +636,6 @@ def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
                 ),
             ),
         ),
-        state_dir=None,
     )
 
     monkeypatch.setattr(
@@ -728,6 +737,7 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
             SimpleNamespace(
                 prepared=SimpleNamespace(
                     client=FakeClient(),
+                    state_store=SimpleNamespace(require_writable=lambda: Path("/tmp")),
                     stack=SimpleNamespace(trunk=SimpleNamespace(commit_id="trunk-commit")),
                     status_revisions=(
                         SimpleNamespace(
@@ -748,7 +758,6 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
                 ),
             ),
         ),
-        state_dir=None,
     )
 
     monkeypatch.setattr(

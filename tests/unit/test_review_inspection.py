@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
@@ -145,13 +144,8 @@ def test_classify_status_intents_separates_stale_intents_from_live_ones(
         PreparedStack,
         SimpleNamespace(
             client=object(),
-            state_store=SimpleNamespace(state_dir=Path("/tmp/state")),
+            state_store=SimpleNamespace(list_intents=lambda: [fresh, stale]),
         ),
-    )
-
-    monkeypatch.setattr(
-        "jj_review.review_inspection.scan_intents",
-        lambda state_dir: [fresh, stale],
     )
     monkeypatch.setattr(
         "jj_review.review_inspection.intent_is_stale",
@@ -461,22 +455,22 @@ def test_prepare_status_fetches_before_remote_bookmark_discovery(
             return {
                 discovered_bookmark: BookmarkState(
                     name=discovered_bookmark,
-                    remote_targets=(
-                        RemoteBookmarkState(remote="origin", targets=("commit-1",)),
-                    ),
+                    remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
                 )
             }
 
     class FakeStateStore:
         def __init__(self) -> None:
             self.state = ReviewState()
-            self.state_dir = None
 
         def load(self) -> ReviewState:
             return self.state
 
         def save(self, state: ReviewState) -> None:
             self.state = state
+
+        def list_intents(self) -> list[object]:
+            return []
 
     def build_status(*, fetch_remote_state: bool):
         client = FakeClient()

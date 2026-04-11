@@ -309,18 +309,15 @@ Instead, split storage into two locations:
 For now, repo-specific config should live in the main user config file via
 path-based conditional matching rather than a separate repo-local config file.
 
-For machine-written jj-review data, reuse `jj`'s repo config identity:
+For machine-written jj-review data, derive `<repo-id>` from the canonical
+`.jj/repo` storage path for the repository.
 
-1. if `.jj/repo/config-id` exists, use it as `<repo-id>`
-2. otherwise run `jj config path --repo` to ask `jj` to create its repo
-   config identity
-3. then read `.jj/repo/config-id` and use that as `<repo-id>`
+That keeps the state repo-scoped across workspaces without depending on
+`config-id` creation as a separate step and without writing any tool-specific
+file into the workspace.
 
-That follows `jj`'s repo-scoped identity model without writing any
-tool-specific file into the workspace.
-
-If `jj` still cannot provide a repo config ID, the tool should continue without
-persisted repo state rather than writing a fallback file into the working tree.
+Reads should treat missing state files as empty state. Writes should create the
+parent directory on demand and fail only if the filesystem refuses that write.
 
 ## Submission Algorithm
 

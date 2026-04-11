@@ -104,6 +104,10 @@ Recent refactor slices:
 - `submit` now prepares local stack inputs, resumable intent state, and
   per-revision bookmark push plans through separate helpers before touching
   GitHub.
+- repo-scoped jj-review state now derives its storage path directly from the
+  canonical `.jj/repo` location, so commands no longer thread optional
+  `state_dir` plumbing or depend on `config-id` bootstrap before reads and
+  writes
 - `cleanup` stale-state checks now reuse the same selected-stack path semantics
   as stack discovery, so off-path sibling stacks no longer cause valid cached
   review state to be classified as stale.
@@ -338,11 +342,12 @@ For now:
   conditional matching
 - machine-written jj-review data should live in
   `~/.local/state/jj-review/repos/<repo-id>/state.json`
-- `<repo-id>` should come from `jj`'s repo config identity; if
-  `.jj/repo/config-id` is missing, the client should run
-  `jj config path --repo` and then read the resulting ID
-- if `jj` still cannot provide a repo config ID, commands should continue with
-  jj-review data persistence disabled for that repo
+- `<repo-id>` should come from hashing the canonical `.jj/repo` storage path so
+  every workspace for the same repo shares one state location without an extra
+  bootstrap step
+- reads should treat a missing state file or missing intent files as empty
+  state, and writes should create parent directories on demand and fail only if
+  the filesystem refuses the write
 
 That jj-review data remains minimal, optional, and non-authoritative. The
 implementation should model it as a small, versioned JSON state file validated

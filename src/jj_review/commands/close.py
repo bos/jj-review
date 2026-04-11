@@ -70,7 +70,6 @@ class PreparedClose:
     dry_run: bool
     cleanup: bool
     prepared_status: PreparedStatus
-    state_dir: Path | None
 
 
 @dataclass(slots=True)
@@ -218,7 +217,8 @@ def prepare_close(
     """Resolve local close inputs before any GitHub inspection."""
 
     state_store = ReviewStateStore.for_repo(repo_root)
-    state_dir = state_store.state_dir if dry_run else state_store.require_writable()
+    if not dry_run:
+        state_store.require_writable()
     return PreparedClose(
         dry_run=dry_run,
         cleanup=cleanup,
@@ -230,7 +230,6 @@ def prepare_close(
             repo_root=repo_root,
             revset=revset,
         ),
-        state_dir=state_dir,
     )
 
 
@@ -374,10 +373,11 @@ def _start_close_intent(
 ) -> _CloseIntentState:
     """Write close intent metadata for resumable live runs."""
 
-    if prepared_close.dry_run or prepared_close.state_dir is None:
+    if prepared_close.dry_run:
         return _CloseIntentState(intent=None, intent_path=None, stale_intents=[])
 
     prepared_status = prepared_close.prepared_status
+    state_dir = prepared_status.prepared.state_store.require_writable()
     intent = CloseIntent(
         kind="close",
         pid=os.getpid(),
@@ -388,12 +388,12 @@ def _start_close_intent(
         cleanup=prepared_close.cleanup,
         started_at=datetime.now(UTC).isoformat(),
     )
-    stale_intents = check_same_kind_intent(prepared_close.state_dir, intent)
+    stale_intents = check_same_kind_intent(state_dir, intent)
     for loaded in stale_intents:
         print(f"Note: a previous close was interrupted ({loaded.intent.label})")
     return _CloseIntentState(
         intent=intent,
-        intent_path=write_new_intent(prepared_close.state_dir, intent),
+        intent_path=write_new_intent(state_dir, intent),
         stale_intents=stale_intents,
     )
 

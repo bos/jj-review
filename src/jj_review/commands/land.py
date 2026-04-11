@@ -94,7 +94,6 @@ class PreparedLand:
     config: RepoConfig
     expect_pr_number: int | None
     prepared_status: PreparedStatus
-    state_dir: Path | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,16 +258,14 @@ def prepare_land(
             ),
         )
 
-    state_dir = (
-        prepared.state_store.state_dir if dry_run else prepared.state_store.require_writable()
-    )
+    if not dry_run:
+        prepared.state_store.require_writable()
     return PreparedLand(
         dry_run=dry_run,
         bypass_readiness=bypass_readiness,
         config=config,
         expect_pr_number=expect_pr_number,
         prepared_status=prepared_status,
-        state_dir=state_dir,
     )
 
 
@@ -506,9 +503,7 @@ def _prepare_land_execution_state(
 ) -> _LandExecutionState:
     """Resolve resume state before live execution."""
 
-    state_dir = prepared_land.state_dir
-    if state_dir is None:
-        raise AssertionError("Live execution requires a writable state directory.")
+    state_dir = prepared_status.prepared.state_store.require_writable()
 
     current_landed_change_ids = tuple(revision.change_id for revision in plan.landed_revisions)
     stale_intents = check_same_kind_intent(

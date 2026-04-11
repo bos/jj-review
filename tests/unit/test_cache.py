@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import pytest
 
-from jj_review.cache import ReviewStateError, ReviewStateStore, ReviewStateUnavailable
+from jj_review.cache import ReviewStateError, ReviewStateStore
 from jj_review.models.cache import CachedChange, ReviewState
 
 
@@ -69,7 +68,7 @@ def test_review_state_store_rejects_unknown_fields(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     state_path.write_text(
         (
-            '{\n'
+            "{\n"
             '  "version": 1,\n'
             '  "changes": {\n'
             '    "zvlywqkxtmnpqrstu": {\n'
@@ -85,30 +84,22 @@ def test_review_state_store_rejects_unknown_fields(tmp_path: Path) -> None:
         ReviewStateStore(state_path).load()
 
 
-def test_require_writable_raises_when_disabled(tmp_path: Path) -> None:
-    store = ReviewStateStore(None, disabled_reason="test reason")
-    with pytest.raises(ReviewStateUnavailable, match="test reason"):
-        store.require_writable()
+def test_require_writable_creates_missing_parent_directories(tmp_path: Path) -> None:
+    state_path = tmp_path / "state" / "jj-review" / "repos" / "repo-id" / "state.json"
+    store = ReviewStateStore(state_path)
+
+    writable_dir = store.require_writable()
+
+    assert writable_dir == state_path.parent
+    assert writable_dir.exists()
 
 
-def test_review_state_store_disables_persistence_when_repo_id_is_unavailable(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+def test_review_state_store_for_repo_does_not_depend_on_config_id(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
-    repo.mkdir()
+    (repo / ".jj" / "repo").mkdir(parents=True)
 
-    def fail_resolve_state_path(_: Path) -> Path:
-        raise ReviewStateUnavailable("repo config ID is unavailable")
-
-    monkeypatch.setattr("jj_review.cache.resolve_state_path", fail_resolve_state_path)
-
-    with caplog.at_level(logging.DEBUG, logger="jj_review.cache"):
-        store = ReviewStateStore.for_repo(repo)
-        loaded_state = store.load()
-        store.save(ReviewState())
+    store = ReviewStateStore.for_repo(repo)
+    store.save(ReviewState())
+    loaded_state = store.load()
 
     assert loaded_state == ReviewState()
-    assert "jj-review data disabled" in caplog.text
-    assert "Skipping jj-review data save" in caplog.text

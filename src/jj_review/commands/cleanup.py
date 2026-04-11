@@ -93,7 +93,6 @@ class PreparedCleanup:
     remote: GitRemote | None
     remote_error: str | None
     state: ReviewState
-    state_dir: Path | None
     state_store: ReviewStateStore
 
 
@@ -160,7 +159,6 @@ class PreparedRestack:
 
     dry_run: bool
     prepared_status: PreparedStatus
-    state_dir: Path | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -409,7 +407,8 @@ def prepare_cleanup(
     jj_client = JjClient(repo_root)
     state_store = ReviewStateStore.for_repo(repo_root)
     state = state_store.load()
-    state_dir = state_store.state_dir if dry_run else state_store.require_writable()
+    if not dry_run:
+        state_store.require_writable()
 
     remote, remote_error = _resolve_remote(config=config, jj_client=jj_client)
     github_repository, github_error = try_resolve_github_repository(config, remote)
@@ -428,7 +427,6 @@ def prepare_cleanup(
         remote=remote,
         remote_error=remote_error,
         state=state,
-        state_dir=state_dir,
         state_store=state_store,
     )
 
@@ -444,7 +442,8 @@ def prepare_restack(
     """Resolve local restack inputs before any rewrite."""
 
     state_store = ReviewStateStore.for_repo(repo_root)
-    state_dir = state_store.state_dir if dry_run else state_store.require_writable()
+    if not dry_run:
+        state_store.require_writable()
 
     return PreparedRestack(
         dry_run=dry_run,
@@ -455,7 +454,6 @@ def prepare_restack(
             repo_root=repo_root,
             revset=revset,
         ),
-        state_dir=state_dir,
     )
 
 
@@ -607,7 +605,7 @@ def _start_restack_intent(
 ) -> _RestackIntentState:
     """Write a restack intent before live rebases begin."""
 
-    if blocked or prepared_restack.dry_run or prepared_restack.state_dir is None:
+    if blocked or prepared_restack.dry_run:
         return _RestackIntentState(intent=None, intent_path=None, stale_intents=[])
 
     ordered_change_ids = tuple(
@@ -621,7 +619,8 @@ def _start_restack_intent(
         ordered_change_ids=ordered_change_ids,
         started_at=datetime.now(UTC).isoformat(),
     )
-    stale_intents = check_same_kind_intent(prepared_restack.state_dir, intent)
+    state_dir = prepared.state_store.require_writable()
+    stale_intents = check_same_kind_intent(state_dir, intent)
     for loaded in stale_intents:
         if not isinstance(loaded.intent, CleanupRestackIntent):
             continue
@@ -642,7 +641,7 @@ def _start_restack_intent(
             print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
     return _RestackIntentState(
         intent=intent,
-        intent_path=write_new_intent(prepared_restack.state_dir, intent),
+        intent_path=write_new_intent(state_dir, intent),
         stale_intents=stale_intents,
     )
 
@@ -963,17 +962,18 @@ async def _stream_cleanup_async(
     intent_path: Path | None = None
     _cleanup_succeeded = False
     stale_intents: list[LoadedIntent] = []
-    if not dry_run and prepared_cleanup.state_dir is not None:
+    if not dry_run:
+        state_dir = prepared_cleanup.state_store.require_writable()
         _intent = CleanupIntent(
             kind="cleanup",
             pid=os.getpid(),
             label="cleanup",
             started_at=datetime.now(UTC).isoformat(),
         )
-        stale_intents = check_same_kind_intent(prepared_cleanup.state_dir, _intent)
+        stale_intents = check_same_kind_intent(state_dir, _intent)
         for _loaded in stale_intents:
             print(f"Note: a previous cleanup was interrupted ({_loaded.intent.label})")
-        intent_path = write_new_intent(prepared_cleanup.state_dir, _intent)
+        intent_path = write_new_intent(state_dir, _intent)
 
     try:
         if prepared_cleanup.github_repository is None:

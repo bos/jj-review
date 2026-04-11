@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from jj_review.bookmarks import BookmarkResolver
-from jj_review.cache import ReviewStateStore, ReviewStateUnavailable
+from jj_review.cache import ReviewStateStore
 from jj_review.cli import main
 from jj_review.jj import JjClient
 
@@ -59,25 +59,3 @@ def test_status_persists_generated_bookmark_pins(
         cached_change = state.changes[revision.change_id]
         assert cached_change.bookmark is not None
     assert not (repo / ".jj-review.toml").exists()
-
-
-def test_status_continues_when_review_state_persistence_is_unavailable(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    repo = init_repo(tmp_path)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    monkeypatch.setattr(
-        "jj_review.cache._resolve_repo_id",
-        lambda _: (_ for _ in ()).throw(ReviewStateUnavailable("repo config ID missing")),
-    )
-
-    exit_code = main(["--repository", str(repo), "status"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "Unsubmitted stack:" in captured.out
-    assert ": GitHub status unknown" in captured.out
-    assert not list((tmp_path / "state-home").rglob("state.json"))
