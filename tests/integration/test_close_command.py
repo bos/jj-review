@@ -107,6 +107,7 @@ def test_close_apply_reports_blocked_when_github_is_unavailable(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.commands.close", "jj_review.review_inspection"),
         client_type=OfflineGithubClient,
     )

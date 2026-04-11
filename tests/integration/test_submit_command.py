@@ -721,6 +721,7 @@ def test_submit_reports_stack_comment_update_failures_without_traceback(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.commands.submit",),
         client_type=FailingCommentUpdateClient,
     )
@@ -1220,6 +1221,7 @@ def test_submit_checkpoints_successful_in_flight_pull_request_before_failure(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.commands.submit",),
         client_type=FailSpecificPullRequestClient,
     )
@@ -1286,6 +1288,7 @@ def test_submit_rerun_converges_pull_request_metadata_after_partial_create_failu
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.commands.submit",),
         client_type=FlakyMetadataClient,
     )
@@ -1335,6 +1338,7 @@ def test_submit_unchanged_rerun_skips_pull_request_metadata_writes(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.commands.submit",),
     )
 
@@ -1363,6 +1367,7 @@ def test_submit_unchanged_rerun_skips_pull_request_metadata_writes(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.commands.submit",),
         client_type=NoMetadataWritesClient,
     )
@@ -1393,6 +1398,7 @@ def test_submit_cli_reviewers_override_configured_reviewers(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.commands.submit",),
     )
 
@@ -1488,6 +1494,7 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.commands.submit",),
         client_type=FlakyCommentClient,
         concurrency_limits={"jj_review.commands.submit": 2},
@@ -1574,6 +1581,7 @@ def test_submit_retains_intent_file_after_failed_submit(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.commands.submit",),
         client_type=FailOnFirstPRClient,
     )

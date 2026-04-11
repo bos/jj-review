@@ -293,6 +293,7 @@ def test_land_resumes_after_trunk_push_interruption(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.commands.land",),
         client_type=FailingFinalizeClient,
     )
@@ -311,6 +312,7 @@ def test_land_resumes_after_trunk_push_interruption(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.commands.land",),
     )
 

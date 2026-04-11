@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import subprocess
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import httpx
 
 from jj_review.cli import main
 from jj_review.github.client import GithubClient
+from jj_review.github_resolution import ResolvedGithubRepository
 
 from ..support.fake_github import FakeGithubRepository
 from ..support.integration_helpers import (
@@ -88,6 +90,7 @@ def patch_github_client_builders(
     monkeypatch,
     *,
     app,
+    fake_repo: FakeGithubRepository,
     modules: tuple[str, ...],
     client_type: type[GithubClient] = GithubClient,
     concurrency_limits: dict[str, int] | None = None,
@@ -98,8 +101,31 @@ def patch_github_client_builders(
             transport=httpx.ASGITransport(app=app),
         )
 
+    def resolve_github_repository(*_args, **_kwargs) -> ResolvedGithubRepository:
+        return ResolvedGithubRepository(
+            host="github.test",
+            owner=fake_repo.owner,
+            repo=fake_repo.name,
+        )
+
+    def try_resolve_github_repository(*_args, **_kwargs):
+        return resolve_github_repository(), None
+
     for module in modules:
-        monkeypatch.setattr(f"{module}.build_github_client", build_github_client)
+        module_object = importlib.import_module(module)
+        monkeypatch.setattr(module_object, "build_github_client", build_github_client)
+        if hasattr(module_object, "resolve_github_repository"):
+            monkeypatch.setattr(
+                module_object,
+                "resolve_github_repository",
+                resolve_github_repository,
+            )
+        if hasattr(module_object, "try_resolve_github_repository"):
+            monkeypatch.setattr(
+                module_object,
+                "try_resolve_github_repository",
+                try_resolve_github_repository,
+            )
     if concurrency_limits is None:
         return
     for module, limit in concurrency_limits.items():

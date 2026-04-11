@@ -118,6 +118,7 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.review_inspection",),
         client_type=FailingPullRequestLookupClient,
     )
@@ -152,6 +153,7 @@ def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.review_inspection",),
         client_type=OfflineGithubClient,
     )
@@ -190,6 +192,7 @@ def test_status_exits_nonzero_when_pull_request_lookup_fails(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.review_inspection",),
         client_type=FailingPullRequestLookupClient,
     )
@@ -389,6 +392,7 @@ def test_status_uses_cached_pull_request_metadata_after_prior_online_run(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.review_inspection",),
         client_type=OfflineGithubClient,
     )
@@ -561,6 +565,7 @@ def test_status_preserves_cached_review_decision_when_review_lookup_fails(
     patch_github_client_builders(
         monkeypatch,
         app=app,
+        fake_repo=fake_repo,
         modules=("jj_review.review_inspection",),
         client_type=FailingReviewLookupClient,
     )
