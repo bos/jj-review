@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import importlib
 import subprocess
 from pathlib import Path
 
 import httpx
 
 from jj_review.github.client import GithubClient
+from jj_review.github.resolution import GithubRepo
 
 from .fake_github import (
     FakeGithubRepository,
@@ -37,8 +39,22 @@ def configure_fake_github_environment(
             transport=httpx.ASGITransport(app=app),
         )
 
+    def parse_github_repo(*_args, **_kwargs) -> GithubRepo:
+        return GithubRepo(
+            host="github.test",
+            owner=fake_repo.owner,
+            repo=fake_repo.name,
+        )
+
     for module in command_modules:
-        monkeypatch.setattr(f"{module}.build_github_client", build_github_client)
+        module_object = importlib.import_module(module)
+        monkeypatch.setattr(module_object, "build_github_client", build_github_client)
+        if hasattr(module_object, "parse_github_repo"):
+            monkeypatch.setattr(
+                module_object,
+                "parse_github_repo",
+                parse_github_repo,
+            )
     return config_path
 
 
@@ -85,18 +101,13 @@ def init_repo(
 
 def write_fake_github_config(
     tmp_path: Path,
-    fake_repo: FakeGithubRepository,
+    _fake_repo: FakeGithubRepository,
     *,
     extra_lines: list[str] | None = None,
 ) -> Path:
     config_path = tmp_path / "jj-review-config.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [
-        "[jj-review.repo]",
-        'github_host = "github.test"',
-        f'github_owner = "{fake_repo.owner}"',
-        f'github_repo = "{fake_repo.name}"',
-    ]
+    lines = ["[jj-review.repo]"]
     if extra_lines:
         lines.append("")
         lines.extend(extra_lines)

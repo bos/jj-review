@@ -15,13 +15,11 @@ from pathlib import Path
 from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
-from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
-from jj_review.github.client import GithubClientError
-from jj_review.github_resolution import (
-    build_github_client,
-    resolve_github_repository,
+from jj_review.github.client import GithubClientError, build_github_client
+from jj_review.github.resolution import (
+    parse_github_repo,
     select_submit_remote,
 )
 from jj_review.intent import check_same_kind_intent, write_new_intent
@@ -63,7 +61,6 @@ def relink(
     )
     result = asyncio.run(
         _run_relink_async(
-            config=context.config.repo,
             pull_request_reference=pull_request,
             repo_root=context.repo_root,
             revset=resolve_selected_revset(
@@ -85,7 +82,6 @@ def relink(
 
 async def _run_relink_async(
     *,
-    config: RepoConfig,
     pull_request_reference: str,
     repo_root: Path,
     revset: str | None,
@@ -103,9 +99,14 @@ async def _run_relink_async(
     selected_revset = stack.selected_revset
 
     remotes = client.list_git_remotes()
-    remote = select_submit_remote(config, remotes)
+    remote = select_submit_remote(remotes)
     client.fetch_remote(remote=remote.name)
-    github_repository = resolve_github_repository(config, remote)
+    github_repository = parse_github_repo(remote)
+    if github_repository is None:
+        raise CliError(
+            f"Could not determine the GitHub repository for remote {remote.name!r}. "
+            "Use a GitHub remote URL."
+        )
     pull_request_number = parse_repository_pull_request_reference(
         reference=pull_request_reference,
         github_repository=github_repository,

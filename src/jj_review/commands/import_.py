@@ -26,11 +26,10 @@ from jj_review.bookmarks import (
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
-from jj_review.github.client import GithubClientError
-from jj_review.github_resolution import (
-    ResolvedGithubRepository,
-    build_github_client,
-    resolve_github_repository,
+from jj_review.github.client import GithubClientError, build_github_client
+from jj_review.github.resolution import (
+    GithubRepo,
+    parse_github_repo,
     select_submit_remote,
 )
 from jj_review.jj import JjClient
@@ -165,7 +164,6 @@ async def _run_import_async(
     client = JjClient(repo_root)
     selection = await _resolve_selection(
         client=client,
-        config=config,
         fetch=fetch,
         pull_request_reference=pull_request_reference,
         revset=revset,
@@ -266,7 +264,6 @@ async def _run_import_async(
 async def _resolve_selection(
     *,
     client: JjClient,
-    config: RepoConfig,
     fetch: bool,
     pull_request_reference: str | None,
     revset: str | None,
@@ -303,7 +300,6 @@ async def _resolve_selection(
     if pull_request_reference is not None:
         return await _resolve_pull_request_selection(
             client=client,
-            config=config,
             fetch=fetch,
             pull_request_reference=pull_request_reference,
         )
@@ -313,13 +309,17 @@ async def _resolve_selection(
 async def _resolve_pull_request_selection(
     *,
     client: JjClient,
-    config: RepoConfig,
     fetch: bool,
     pull_request_reference: str,
 ) -> _Selection:
     remotes = client.list_git_remotes()
-    remote = select_submit_remote(config, remotes)
-    github_repository = resolve_github_repository(config, remote)
+    remote = select_submit_remote(remotes)
+    github_repository = parse_github_repo(remote)
+    if github_repository is None:
+        raise CliError(
+            f"Could not determine the GitHub repository for remote {remote.name!r}. "
+            "Use a GitHub remote URL."
+        )
     pull_request = await _load_pull_request(
         github_repository=github_repository,
         pull_request_reference=pull_request_reference,
@@ -486,7 +486,7 @@ def _apply_authoritative_remote_targets(
 
 async def _load_pull_request(
     *,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     pull_request_reference: str,
 ) -> GithubPullRequest:
     pull_request_number = parse_repository_pull_request_reference(
@@ -519,7 +519,7 @@ async def _load_pull_request(
 
 async def _list_pull_requests_by_head(
     *,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     head: str,
 ) -> tuple[GithubPullRequest, ...]:
     async with build_github_client(base_url=github_repository.api_base_url) as github_client:

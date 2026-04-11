@@ -20,8 +20,7 @@ from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.formatting import short_change_id
-from jj_review.github.client import GithubClient, GithubClientError
-from jj_review.github_resolution import build_github_client
+from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.intent import (
     check_same_kind_intent,
     retire_superseded_intents,

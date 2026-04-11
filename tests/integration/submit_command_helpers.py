@@ -8,7 +8,7 @@ import httpx
 
 from jj_review.cli import main
 from jj_review.github.client import GithubClient
-from jj_review.github_resolution import ResolvedGithubRepository
+from jj_review.github.resolution import GithubRepo
 
 from ..support.fake_github import FakeGithubRepository
 from ..support.integration_helpers import (
@@ -101,30 +101,21 @@ def patch_github_client_builders(
             transport=httpx.ASGITransport(app=app),
         )
 
-    def resolve_github_repository(*_args, **_kwargs) -> ResolvedGithubRepository:
-        return ResolvedGithubRepository(
+    def parse_github_repo(*_args, **_kwargs) -> GithubRepo:
+        return GithubRepo(
             host="github.test",
             owner=fake_repo.owner,
             repo=fake_repo.name,
         )
 
-    def try_resolve_github_repository(*_args, **_kwargs):
-        return resolve_github_repository(), None
-
     for module in modules:
         module_object = importlib.import_module(module)
         monkeypatch.setattr(module_object, "build_github_client", build_github_client)
-        if hasattr(module_object, "resolve_github_repository"):
+        if hasattr(module_object, "parse_github_repo"):
             monkeypatch.setattr(
                 module_object,
-                "resolve_github_repository",
-                resolve_github_repository,
-            )
-        if hasattr(module_object, "try_resolve_github_repository"):
-            monkeypatch.setattr(
-                module_object,
-                "try_resolve_github_repository",
-                try_resolve_github_repository,
+                "parse_github_repo",
+                parse_github_repo,
             )
     if concurrency_limits is None:
         return

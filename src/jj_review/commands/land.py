@@ -27,11 +27,9 @@ from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
-from jj_review.github.client import GithubClient, GithubClientError
-from jj_review.github_helpers import load_github_repository
-from jj_review.github_resolution import (
-    ResolvedGithubRepository,
-    build_github_client,
+from jj_review.github.client import GithubClient, GithubClientError, build_github_client
+from jj_review.github.resolution import (
+    GithubRepo,
     resolve_trunk_branch,
 )
 from jj_review.intent import (
@@ -301,13 +299,17 @@ async def _stream_land_async(
         raise AssertionError("Prepared land requires resolved GitHub and remote targets.")
 
     async with build_github_client(base_url=github_repository.api_base_url) as github_client:
-        github_repository_state = await load_github_repository(
-            github_client=github_client,
-            github_repository=github_repository,
-        )
+        try:
+            github_repository_state = await github_client.get_repository(
+                github_repository.owner,
+                github_repository.repo,
+            )
+        except GithubClientError as error:
+            raise CliError(
+                f"Could not load GitHub repository {github_repository.full_name}: {error}"
+            ) from error
         trunk_branch = resolve_trunk_branch(
             client=prepared.client,
-            config=prepared_land.config,
             github_repository_state=github_repository_state,
             remote=remote,
             stack=prepared.stack,
@@ -493,7 +495,7 @@ async def _stream_land_async(
 def _prepare_land_execution_state(
     *,
     follow_up: str | None,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     plan: _LandPlan,
     prepared_land: PreparedLand,
     prepared_status: PreparedStatus,
@@ -1036,7 +1038,7 @@ async def _finalize_landed_pull_request(
     *,
     cached_change: CachedChange | None,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     landed_revision: _LandRevision,
     trunk_branch: str,
 ) -> GithubPullRequest:

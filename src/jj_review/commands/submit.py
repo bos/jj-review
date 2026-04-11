@@ -39,16 +39,11 @@ from jj_review.formatting import (
     render_revision_with_suffix_lines,
     short_change_id,
 )
-from jj_review.github.client import GithubClient, GithubClientError
-from jj_review.github_helpers import (
-    list_pull_request_issue_comments,
-    load_github_repository,
-)
-from jj_review.github_resolution import (
-    ResolvedGithubRepository,
-    build_github_client,
+from jj_review.github.client import GithubClient, GithubClientError, build_github_client
+from jj_review.github.resolution import (
+    GithubRepo,
+    parse_github_repo,
     remote_bookmarks_pointing_at_trunk,
-    resolve_github_repository,
     resolve_trunk_branch,
     select_submit_remote,
 )
@@ -487,7 +482,7 @@ def _prepare_submit_inputs(
     """Load local submit state before any GitHub mutation begins."""
 
     client = JjClient(repo_root)
-    remote = select_submit_remote(config, client.list_git_remotes())
+    remote = select_submit_remote(client.list_git_remotes())
     if not dry_run:
         _repair_interrupted_untracked_remote_bookmarks(
             client=client,
@@ -719,20 +714,19 @@ async def _run_submit_async(
     if not stack.revisions:
         if bookmark_result.changed and not dry_run:
             state_store.save(bookmark_result.state)
-        trunk_branch = config.trunk_branch
-        if trunk_branch is None:
-            remote_bookmarks = remote_bookmarks_pointing_at_trunk(
-                client=client,
-                remote_name=remote.name,
-                trunk_commit_id=stack.trunk.commit_id,
-            )
-            if len(remote_bookmarks) == 1:
-                trunk_branch = remote_bookmarks[0]
+        trunk_branch = stack.trunk.subject
+        remote_bookmarks = remote_bookmarks_pointing_at_trunk(
+            client=client,
+            remote_name=remote.name,
+            trunk_commit_id=stack.trunk.commit_id,
+        )
+        if len(remote_bookmarks) == 1:
+            trunk_branch = remote_bookmarks[0]
         if on_trunk_resolved is not None:
             on_trunk_resolved(
                 stack.trunk.subject,
                 stack.trunk.change_id,
-                trunk_branch or stack.trunk.subject,
+                trunk_branch,
                 False,
             )
         return _build_submit_result(
@@ -741,10 +735,15 @@ async def _run_submit_async(
             remote=remote,
             revisions=(),
             stack=stack,
-            trunk_branch=trunk_branch or stack.trunk.subject,
+            trunk_branch=trunk_branch,
         )
 
-    github_repository = resolve_github_repository(config, remote)
+    github_repository = parse_github_repo(remote)
+    if github_repository is None:
+        raise CliError(
+            f"Could not determine the GitHub repository for remote {remote.name!r}. "
+            "Use a GitHub remote URL."
+        )
     resolved_reviewers = config.reviewers if reviewers is None else reviewers
     resolved_team_reviewers = config.team_reviewers if team_reviewers is None else team_reviewers
     state_changes = dict(bookmark_result.state.changes)
@@ -759,13 +758,18 @@ async def _run_submit_async(
     submitted_revisions: tuple[SubmittedRevision, ...] = ()
     try:
         async with build_github_client(base_url=github_repository.api_base_url) as github_client:
-            github_repository_state = await load_github_repository(
-                github_client=github_client,
-                github_repository=github_repository,
-            )
+            try:
+                github_repository_state = await github_client.get_repository(
+                    github_repository.owner,
+                    github_repository.repo,
+                )
+            except GithubClientError as error:
+                raise CliError(
+                    "Could not load GitHub repository "
+                    f"{github_repository.full_name}: {error}"
+                ) from error
             trunk_branch = resolve_trunk_branch(
                 client=client,
-                config=config,
                 github_repository_state=github_repository_state,
                 remote=remote,
                 stack=stack,
@@ -1014,7 +1018,7 @@ def _preflight_private_commits(
 async def _discover_pull_requests_by_bookmark(
     *,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     bookmarks: tuple[str, ...],
 ) -> dict[str, GithubPullRequest | None]:
     if not bookmarks:
@@ -1251,7 +1255,7 @@ async def _sync_pull_requests(
     dry_run: bool,
     generated_descriptions: dict[str, GeneratedDescription],
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     labels: list[str],
     prepared_revisions: tuple[PreparedSubmitRevision, ...],
     reviewers: list[str],
@@ -1318,7 +1322,7 @@ async def _sync_pull_request_task(
     draft_mode: SubmitDraftMode,
     dry_run: bool,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     labels: list[str],
     pending_sync: PendingPullRequestSync,
     reviewers: list[str],
@@ -1387,7 +1391,7 @@ async def _sync_pull_request(
     dry_run: bool,
     generated_description: GeneratedDescription,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     labels: list[str],
     reviewers: list[str],
     revision: LocalRevision,
@@ -1579,7 +1583,7 @@ async def _create_pull_request(
     body: str,
     draft: bool,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     head_branch: str,
     title: str,
 ) -> GithubPullRequest:
@@ -1602,7 +1606,7 @@ async def _create_pull_request(
 async def _sync_pull_request_metadata(
     *,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     labels: list[str],
     pull_request_number: int,
     reviewers: list[str],
@@ -1633,7 +1637,7 @@ async def _sync_pull_request_metadata(
 async def _mark_pull_request_ready_for_review(
     *,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     pull_request: GithubPullRequest,
 ) -> GithubPullRequest:
     if pull_request.node_id is None:
@@ -1655,7 +1659,7 @@ async def _mark_pull_request_ready_for_review(
 async def _convert_pull_request_to_draft(
     *,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     pull_request: GithubPullRequest,
 ) -> GithubPullRequest:
     if pull_request.node_id is None:
@@ -1679,7 +1683,7 @@ async def _update_pull_request(
     base_branch: str,
     body: str,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     pull_request: GithubPullRequest,
     title: str,
 ) -> GithubPullRequest:
@@ -1703,7 +1707,7 @@ async def _sync_stack_comments(
     dry_run: bool,
     generated_stack_description: GeneratedDescription | None,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     revisions: tuple[SubmittedRevision, ...],
     state: ReviewState,
     state_changes: dict[str, CachedChange],
@@ -1785,7 +1789,7 @@ async def _sync_stack_comment_task(
     *,
     dry_run: bool,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     pending_sync: PendingStackCommentSync,
 ) -> tuple[str, CachedChange]:
     if pending_sync.comment_body is None:
@@ -1816,14 +1820,20 @@ async def _clear_stack_comment(
     cached_change: CachedChange,
     dry_run: bool,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     pull_request_number: int,
 ) -> CachedChange:
-    comments = await list_pull_request_issue_comments(
-        github_client=github_client,
-        github_repository=github_repository,
-        pull_request_number=pull_request_number,
-    )
+    try:
+        comments = await github_client.list_issue_comments(
+            github_repository.owner,
+            github_repository.repo,
+            issue_number=pull_request_number,
+        )
+    except GithubClientError as error:
+        raise CliError(
+            "Could not list stack summary comments for pull request "
+            f"#{pull_request_number}: {error}"
+        ) from error
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
             (comment for comment in comments if comment.id == cached_change.stack_comment_id),
@@ -1865,14 +1875,20 @@ async def _upsert_stack_comment(
     comment_body: str,
     dry_run: bool,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     pull_request_number: int,
 ) -> GithubIssueComment | None:
-    comments = await list_pull_request_issue_comments(
-        github_client=github_client,
-        github_repository=github_repository,
-        pull_request_number=pull_request_number,
-    )
+    try:
+        comments = await github_client.list_issue_comments(
+            github_repository.owner,
+            github_repository.repo,
+            issue_number=pull_request_number,
+        )
+    except GithubClientError as error:
+        raise CliError(
+            "Could not list stack summary comments for pull request "
+            f"#{pull_request_number}: {error}"
+        ) from error
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
             (comment for comment in comments if comment.id == cached_change.stack_comment_id),
@@ -1944,7 +1960,7 @@ async def _create_stack_comment(
     *,
     comment_body: str,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     pull_request_number: int,
 ) -> GithubIssueComment:
     try:
@@ -1966,7 +1982,7 @@ async def _update_stack_comment(
     comment_body: str,
     comment_id: int,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
 ) -> GithubIssueComment:
     try:
         return await github_client.update_issue_comment(
@@ -1985,7 +2001,7 @@ async def _delete_stack_comment(
     *,
     comment_id: int,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
 ) -> None:
     try:
         await github_client.delete_issue_comment(

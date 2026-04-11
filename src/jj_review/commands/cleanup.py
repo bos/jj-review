@@ -25,13 +25,11 @@ from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
-from jj_review.github.client import GithubClient, GithubClientError
-from jj_review.github_helpers import list_pull_request_issue_comments
-from jj_review.github_resolution import (
-    ResolvedGithubRepository,
-    build_github_client,
+from jj_review.github.client import GithubClient, GithubClientError, build_github_client
+from jj_review.github.resolution import (
+    GithubRepo,
+    parse_github_repo,
     select_submit_remote,
-    try_resolve_github_repository,
 )
 from jj_review.intent import (
     check_same_kind_intent,
@@ -88,7 +86,7 @@ class PreparedCleanup:
 
     dry_run: bool
     bookmark_states: dict[str, BookmarkState]
-    github_repository: ResolvedGithubRepository | None
+    github_repository: GithubRepo | None
     github_repository_error: str | None
     jj_client: JjClient
     remote: GitRemote | None
@@ -269,7 +267,6 @@ def cleanup(
 
     return _run_cleanup_command(
         dry_run=dry_run,
-        config=context.config.repo,
         repo_root=context.repo_root,
     )
 
@@ -322,14 +319,12 @@ def _run_cleanup_restack_command(
 def _run_cleanup_command(
     *,
     dry_run: bool,
-    config: RepoConfig,
     repo_root: Path,
 ) -> int:
     """Render and run the stale cleanup command path."""
 
     prepared_cleanup = prepare_cleanup(
         dry_run=dry_run,
-        config=config,
         repo_root=repo_root,
     )
     for line in _render_remote_and_github_lines(
@@ -400,7 +395,6 @@ def _render_remote_and_github_lines(
 def prepare_cleanup(
     *,
     dry_run: bool,
-    config: RepoConfig,
     repo_root: Path,
 ) -> PreparedCleanup:
     """Resolve local cleanup inputs before any GitHub network inspection."""
@@ -411,8 +405,16 @@ def prepare_cleanup(
     if not dry_run:
         state_store.require_writable()
 
-    remote, remote_error = _resolve_remote(config=config, jj_client=jj_client)
-    github_repository, github_error = try_resolve_github_repository(config, remote)
+    remote, remote_error = _resolve_remote(jj_client=jj_client)
+    github_repository = None
+    github_error = None
+    if remote is not None:
+        github_repository = parse_github_repo(remote)
+        if github_repository is None:
+            github_error = (
+                f"Could not determine the GitHub repository for remote {remote.name!r}. "
+                "Use a GitHub remote URL."
+            )
     bookmark_states = _load_bookmark_states(
         jj_client=jj_client,
         remote=remote,
@@ -1251,7 +1253,7 @@ def _save_cleanup_state_if_changed(
 async def _run_stack_comment_cleanup_pass(
     *,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     next_changes: dict[str, CachedChange],
     prepared_changes: tuple[PreparedCleanupChange, ...],
     prepared_cleanup: PreparedCleanup,
@@ -1295,7 +1297,7 @@ async def _apply_stack_comment_cleanup_action(
     comment_plan: StackCommentCleanupPlan,
     change_id: str,
     github_client: GithubClient,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     next_changes: dict[str, CachedChange],
     prepared_cleanup: PreparedCleanup,
     record_action: Callable[[CleanupAction], None],
@@ -1327,13 +1329,9 @@ async def _apply_stack_comment_cleanup_action(
         )
 
 
-def _resolve_remote(
-    *,
-    config: RepoConfig,
-    jj_client: JjClient,
-) -> tuple[GitRemote | None, str | None]:
+def _resolve_remote(*, jj_client: JjClient) -> tuple[GitRemote | None, str | None]:
     try:
-        return select_submit_remote(config, jj_client.list_git_remotes()), None
+        return select_submit_remote(jj_client.list_git_remotes()), None
     except CliError as error:
         return None, str(error)
 
@@ -1696,11 +1694,17 @@ async def _resolve_stack_summary_comment(
     github_repository,
     pull_request_number: int,
 ) -> GithubIssueComment | CleanupAction | None:
-    comments = await list_pull_request_issue_comments(
-        github_client=github_client,
-        github_repository=github_repository,
-        pull_request_number=pull_request_number,
-    )
+    try:
+        comments = await github_client.list_issue_comments(
+            github_repository.owner,
+            github_repository.repo,
+            issue_number=pull_request_number,
+        )
+    except GithubClientError as error:
+        raise CliError(
+            "Could not list stack summary comments for pull request "
+            f"#{pull_request_number}: {error}"
+        ) from error
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
             (comment for comment in comments if comment.id == cached_change.stack_comment_id),

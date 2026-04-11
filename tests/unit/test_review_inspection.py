@@ -6,9 +6,9 @@ from typing import cast
 
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
-from jj_review.github_resolution import (
-    ResolvedGithubRepository,
-    try_resolve_github_repository,
+from jj_review.github.resolution import (
+    GithubRepo,
+    parse_github_repo,
 )
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import ReviewState
@@ -30,7 +30,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
 ) -> None:
     remote = GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git")
     prepared_status = PreparedStatus(
-        github_repository=ResolvedGithubRepository(
+        github_repository=GithubRepo(
             host="github.com",
             owner="octo-org",
             repo="stacked-review",
@@ -125,14 +125,9 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
 
 
 def test_resolve_status_github_repository_returns_resolution_error() -> None:
-    github_repository, github_repository_error = try_resolve_github_repository(
-        RepoConfig(),
+    assert parse_github_repo(
         GitRemote(name="origin", url="ssh://example.com/not-github.git"),
-    )
-
-    assert github_repository is None
-    assert github_repository_error is not None
-    assert "Could not determine the GitHub repository" in github_repository_error
+    ) is None
 
 
 def test_classify_status_intents_separates_stale_intents_from_live_ones(
@@ -161,7 +156,7 @@ def test_classify_status_intents_separates_stale_intents_from_live_ones(
 def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> None:
     remote = GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git")
     prepared_status = PreparedStatus(
-        github_repository=ResolvedGithubRepository(
+        github_repository=GithubRepo(
             host="github.com",
             owner="octo-org",
             repo="stacked-review",

@@ -21,7 +21,7 @@ from jj_review.commands.cleanup import (
     stream_restack,
 )
 from jj_review.github.client import GithubClient
-from jj_review.github_resolution import ResolvedGithubRepository
+from jj_review.github.resolution import GithubRepo
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
@@ -259,7 +259,7 @@ def test_stream_cleanup_limits_stack_comment_github_inspection_concurrency(
     prepared_cleanup = PreparedCleanup(
         dry_run=True,
         bookmark_states={},
-        github_repository=ResolvedGithubRepository(
+        github_repository=GithubRepo(
             host="github.com",
             owner="octo-org",
             repo="stacked-review",
@@ -338,7 +338,7 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
     prepared_cleanup = PreparedCleanup(
         dry_run=True,
         bookmark_states={},
-        github_repository=ResolvedGithubRepository(
+        github_repository=GithubRepo(
             host="github.com",
             owner="octo-org",
             repo="stacked-review",
@@ -429,7 +429,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     prepared_cleanup = PreparedCleanup(
         dry_run=False,
         bookmark_states={},
-        github_repository=ResolvedGithubRepository(
+        github_repository=GithubRepo(
             host="github.com",
             owner="octo-org",
             repo="stacked-review",

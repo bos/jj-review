@@ -21,13 +21,16 @@ from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
-from jj_review.github.client import GithubClient, GithubClientError
-from jj_review.github_resolution import (
-    ResolvedGithubRepository,
+from jj_review.github.client import (
+    GithubClient,
+    GithubClientError,
     build_github_client,
     github_token_from_env,
+)
+from jj_review.github.resolution import (
+    GithubRepo,
+    parse_github_repo,
     select_submit_remote,
-    try_resolve_github_repository,
 )
 from jj_review.intent import intent_is_stale
 from jj_review.jj import JjClient
@@ -103,7 +106,7 @@ class StatusResult:
 class PreparedStatus:
     """Locally prepared status inputs before any GitHub inspection."""
 
-    github_repository: ResolvedGithubRepository | None
+    github_repository: GithubRepo | None
     github_repository_error: str | None
     outstanding_intents: tuple[LoadedIntent, ...]
     prepared: PreparedStack
@@ -163,10 +166,15 @@ def prepare_status(
         len(prepared.status_revisions),
         prepared.remote.name if prepared.remote is not None else "unavailable",
     )
-    github_repository, github_repository_error = try_resolve_github_repository(
-        config,
-        prepared.remote,
-    )
+    github_repository = None
+    github_repository_error = None
+    if prepared.remote is not None:
+        github_repository = parse_github_repo(prepared.remote)
+        if github_repository is None:
+            github_repository_error = (
+                "Could not determine the GitHub repository for remote "
+                f"{prepared.remote.name!r}. Use a GitHub remote URL."
+            )
     outstanding_intents, stale_intents = _classify_status_intents(prepared)
 
     return PreparedStatus(
@@ -366,7 +374,7 @@ def _prepare_stack(
     remote_error: str | None = None
     if require_remote or remotes:
         try:
-            remote = select_submit_remote(config, remotes)
+            remote = select_submit_remote(remotes)
         except CliError as error:
             if require_remote:
                 raise
@@ -586,7 +594,7 @@ def _persist_status_cache_updates(
 
 async def _iter_status_revisions_with_github(
     *,
-    github_repository: ResolvedGithubRepository,
+    github_repository: GithubRepo,
     on_github_status: Callable[[str | None], None] | None,
     prepared: PreparedStack,
 ) -> AsyncIterator[ReviewStatusRevision]:
