@@ -96,23 +96,18 @@ def patch_github_client_builders(
     concurrency_limits: dict[str, int] | None = None,
 ) -> None:
     def build_github_client(*, base_url: str) -> GithubClient:
-        return client_type(
-            base_url=base_url,
-            transport=httpx.ASGITransport(app=app),
-        )
+        return client_type(base_url=base_url, transport=httpx.ASGITransport(app=app))
 
     def parse_github_repo(*_args, **_kwargs) -> ParsedGithubRepo:
-        return ParsedGithubRepo(
-            host="github.test",
-            owner=fake_repo.owner,
-            repo=fake_repo.name,
-        )
+        return ParsedGithubRepo(host="github.test", owner=fake_repo.owner, repo=fake_repo.name)
 
     for module in modules:
         module_object = importlib.import_module(module)
         monkeypatch.setattr(module_object, "build_github_client", build_github_client)
         monkeypatch.setattr(module_object, "parse_github_repo", parse_github_repo, raising=False)
-        monkeypatch.setattr(module_object, "require_github_repo", parse_github_repo, raising=False)
+        monkeypatch.setattr(
+            module_object, "require_github_repo", parse_github_repo, raising=False
+        )
     if concurrency_limits is None:
         return
     for module, limit in concurrency_limits.items():
@@ -120,13 +115,6 @@ def patch_github_client_builders(
 
 
 def write_config(
-    tmp_path: Path,
-    fake_repo: FakeGithubRepository,
-    *,
-    extra_lines: list[str] | None = None,
+    tmp_path: Path, fake_repo: FakeGithubRepository, *, extra_lines: list[str] | None = None
 ) -> Path:
-    return write_fake_github_config(
-        tmp_path,
-        fake_repo,
-        extra_lines=extra_lines,
-    )
+    return write_fake_github_config(tmp_path, fake_repo, extra_lines=extra_lines)

@@ -49,17 +49,9 @@ def configure_fake_github_environment(
     for module in command_modules:
         module_object = importlib.import_module(module)
         monkeypatch.setattr(module_object, "build_github_client", build_github_client)
+        monkeypatch.setattr(module_object, "parse_github_repo", parse_github_repo, raising=False)
         monkeypatch.setattr(
-            module_object,
-            "parse_github_repo",
-            parse_github_repo,
-            raising=False,
-        )
-        monkeypatch.setattr(
-            module_object,
-            "require_github_repo",
-            parse_github_repo,
-            raising=False,
+            module_object, "require_github_repo", parse_github_repo, raising=False
         )
     return config_path
 
@@ -106,10 +98,7 @@ def init_repo(
 
 
 def write_fake_github_config(
-    tmp_path: Path,
-    _fake_repo: FakeGithubRepository,
-    *,
-    extra_lines: list[str] | None = None,
+    tmp_path: Path, _fake_repo: FakeGithubRepository, *, extra_lines: list[str] | None = None
 ) -> Path:
     config_path = tmp_path / "jj-review-config.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -127,13 +116,7 @@ def commit_file(repo: Path, message: str, filename: str) -> None:
 
 
 def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        check=False,
-        cwd=cwd,
-        text=True,
-    )
+    completed = subprocess.run(command, capture_output=True, check=False, cwd=cwd, text=True)
     if completed.returncode != 0:
         raise AssertionError(
             f"{command!r} failed:\nstdout={completed.stdout}\nstderr={completed.stderr}"
