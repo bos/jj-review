@@ -1,16 +1,14 @@
-"""Shared stack row rendering helpers for CLI commands."""
+"""Shared short change ID and output-formatting helpers."""
 
 from __future__ import annotations
 
 import re
 
-_DISPLAY_CHANGE_ID_LENGTH = 8
 
+def short_change_id(change_id: str) -> str:
+    """Return a stable short prefix for a full change ID."""
 
-def display_change_id(change_id: str) -> str:
-    """Render the short change ID shown in CLI output."""
-
-    return change_id[:_DISPLAY_CHANGE_ID_LENGTH]
+    return change_id[:8]
 
 
 def format_pull_request_label(

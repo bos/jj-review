@@ -19,6 +19,7 @@ from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
+from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_resolution import build_github_client
 from jj_review.intent import (
@@ -1067,4 +1068,4 @@ def _has_active_cached_link(cached_change: CachedChange | None) -> bool:
 
 
 def _revision_label(revision) -> str:
-    return f"{revision.subject} [{revision.change_id[:8]}]"
+    return f"{revision.subject} [{short_change_id(revision.change_id)}]"

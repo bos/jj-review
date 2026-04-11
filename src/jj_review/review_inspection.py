@@ -20,6 +20,7 @@ from jj_review.cache import ReviewStateStore
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
+from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_resolution import (
     ResolvedGithubRepository,
@@ -661,7 +662,7 @@ async def _inspect_revision_with_github(
             )
         logger.debug(
             "status revision inspected: change_id=%s bookmark=%s pr_state=%s",
-            prepared_revision.revision.change_id[:12],
+            short_change_id(prepared_revision.revision.change_id),
             prepared_revision.bookmark,
             pull_request_lookup.state,
         )

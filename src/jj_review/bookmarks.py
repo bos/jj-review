@@ -9,6 +9,7 @@ from typing import Literal, Protocol
 
 from jj_review.config import ChangeConfig
 from jj_review.errors import CliError
+from jj_review.formatting import short_change_id
 from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision
@@ -16,7 +17,6 @@ from jj_review.models.stack import LocalRevision
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 _DEFAULT_SLUG = "change"
 _REVIEW_NAMESPACE = "review"
-_SHORT_CHANGE_ID_LENGTH = 8
 
 BookmarkSource = Literal["cache", "discovered", "generated", "override"]
 
@@ -128,8 +128,7 @@ def generate_bookmark_name(revision: LocalRevision) -> str:
 
     first_line = revision.description.splitlines()[0] if revision.description else ""
     slug = _slugify(first_line)
-    short_change_id = revision.change_id[:_SHORT_CHANGE_ID_LENGTH]
-    return f"{_REVIEW_NAMESPACE}/{slug}-{short_change_id}"
+    return f"{_REVIEW_NAMESPACE}/{slug}-{short_change_id(revision.change_id)}"
 
 
 def discover_bookmarks_for_revisions(
@@ -184,7 +183,7 @@ def ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
 
 
 def bookmark_matches_generated_change_id(bookmark: str, change_id: str) -> bool:
-    return bookmark.startswith("review/") and bookmark.endswith(f"-{change_id[:8]}")
+    return bookmark.startswith("review/") and bookmark.endswith(f"-{short_change_id(change_id)}")
 
 
 def _bookmark_state_is_discoverable(bookmark_state: BookmarkState, remote_name: str) -> bool:

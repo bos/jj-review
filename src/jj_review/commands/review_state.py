@@ -19,6 +19,11 @@ from tqdm import tqdm
 
 from jj_review.bootstrap import bootstrap_context
 from jj_review.errors import CliError
+from jj_review.formatting import (
+    format_pull_request_label,
+    render_revision_with_suffix_lines,
+    short_change_id,
+)
 from jj_review.intent import pid_is_alive
 from jj_review.jj import UnsupportedStackError
 from jj_review.review_inspection import (
@@ -26,11 +31,6 @@ from jj_review.review_inspection import (
     revision_has_merged_pull_request,
     revision_pull_request_number,
     stream_status,
-)
-from jj_review.stack_output import (
-    display_change_id,
-    format_pull_request_label,
-    render_revision_with_suffix_lines,
 )
 
 _SUMMARY_SECTION_HEAD_COUNT = 3
@@ -189,7 +189,7 @@ def render_status_revision_line(revision, *, github_available: bool) -> str:
     """Render one streamed status row."""
 
     summary = _format_status_summary(revision, github_available=github_available)
-    return f"- {revision.subject} [{display_change_id(revision.change_id)}]: {summary}"
+    return f"- {revision.subject} [{short_change_id(revision.change_id)}]: {summary}"
 
 
 def render_status_summary_lines(
@@ -714,7 +714,7 @@ def _wrap_advisory(message: str) -> str:
 
 
 def _status_revision_label(revision) -> str:
-    return f"[{display_change_id(revision.change_id)}]"
+    return f"[{short_change_id(revision.change_id)}]"
 
 
 def _revision_has_link_advisory(revision) -> bool:

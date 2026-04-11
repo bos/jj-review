@@ -24,6 +24,7 @@ from jj_review.commands.review_state import describe_status_preparation_error
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
+from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_helpers import list_pull_request_issue_comments
 from jj_review.github_resolution import (
@@ -733,7 +734,7 @@ def _run_restack_rebase_pass(
                 CleanupAction(
                     kind="restack",
                     message=(
-                        f"rebase {_short_change_id(source_change_id)} onto "
+                        f"rebase {short_change_id(source_change_id)} onto "
                         f"{_restack_destination_label(destination_change_id)}"
                     ),
                     status="applied",
@@ -744,7 +745,7 @@ def _run_restack_rebase_pass(
     for source_change_id, destination_change_id in rebase_plans:
         status = "blocked" if blocked else "planned"
         message = (
-            f"rebase {_short_change_id(source_change_id)} onto "
+            f"rebase {short_change_id(source_change_id)} onto "
             f"{_restack_destination_label(destination_change_id)}"
         )
         if blocked and closed_unmerged_revisions:
@@ -930,17 +931,13 @@ def _revision_pull_request_base_ref(revision: ReviewStatusRevision) -> str | Non
 
 
 def _revision_label(revision: ReviewStatusRevision) -> str:
-    return f"{revision.subject} [{_short_change_id(revision.change_id)}]"
-
-
-def _short_change_id(change_id: str) -> str:
-    return change_id[:8]
+    return f"{revision.subject} [{short_change_id(revision.change_id)}]"
 
 
 def _restack_destination_label(destination_change_id: str | None) -> str:
     if destination_change_id is None:
         return "trunk()"
-    return _short_change_id(destination_change_id)
+    return short_change_id(destination_change_id)
 
 
 async def _stream_cleanup_async(
@@ -1369,7 +1366,7 @@ def _cache_action(
 ) -> CleanupAction:
     return CleanupAction(
         kind="tracking",
-        message=f"remove saved jj-review data for {_short_change_id(change_id)} ({reason})",
+        message=f"remove saved jj-review data for {short_change_id(change_id)} ({reason})",
         status=status,
     )
 

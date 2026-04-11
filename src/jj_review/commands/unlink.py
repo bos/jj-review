@@ -13,9 +13,9 @@ from pathlib import Path
 
 from jj_review.bootstrap import bootstrap_context
 from jj_review.command_ui import resolve_selected_revset
-from jj_review.commands.review_state import display_change_id
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
+from jj_review.formatting import short_change_id
 from jj_review.models.cache import CachedChange
 from jj_review.review_inspection import prepare_status, stream_status_async
 
@@ -62,19 +62,19 @@ def unlink(
     print(f"Selected revset: {result.selected_revset}")
     if result.already_unlinked:
         print(
-            f"{result.subject} [{display_change_id(result.change_id)}] is already "
+            f"{result.subject} [{short_change_id(result.change_id)}] is already "
             "unlinked from review tracking."
         )
         return 0
     if result.bookmark is None:
         print(
             f"Stopped review tracking for {result.subject} "
-            f"[{display_change_id(result.change_id)}]."
+            f"[{short_change_id(result.change_id)}]."
         )
     else:
         print(
             f"Stopped review tracking for {result.subject} "
-            f"[{display_change_id(result.change_id)}], preserving {result.bookmark}."
+            f"[{short_change_id(result.change_id)}], preserving {result.bookmark}."
         )
     return 0
 

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from jj_review.cache import ReviewStateStore, resolve_state_path
-from jj_review.commands.review_state import display_change_id
+from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
@@ -51,7 +51,7 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
 
     assert exit_code == 0
     assert (
-        f"Selected: {stack.head.subject} [{display_change_id(stack.head.change_id)}]"
+        f"Selected: {stack.head.subject} [{short_change_id(stack.head.change_id)}]"
         in captured.out
     )
     assert "Selected remote:" not in captured.out

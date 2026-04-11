@@ -34,6 +34,11 @@ from jj_review.command_ui import (
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
+from jj_review.formatting import (
+    format_pull_request_label,
+    render_revision_with_suffix_lines,
+    short_change_id,
+)
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github_helpers import (
     list_pull_request_issue_comments,
@@ -62,11 +67,6 @@ from jj_review.models.github import GithubIssueComment, GithubPullRequest
 from jj_review.models.intent import LoadedIntent, SubmitIntent
 from jj_review.models.stack import LocalRevision, LocalStack
 from jj_review.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
-from jj_review.stack_output import (
-    display_change_id,
-    format_pull_request_label,
-    render_revision_with_suffix_lines,
-)
 
 HELP = "Send a jj stack to GitHub for review"
 
@@ -286,7 +286,7 @@ def submit(
         del has_revisions, selected_revset
         nonlocal emitted_prepared
         if revset is None:
-            print(f"Selected: {selected_subject} [{display_change_id(selected_change_id)}]")
+            print(f"Selected: {selected_subject} [{short_change_id(selected_change_id)}]")
         emitted_prepared = True
 
     state_store = ReviewStateStore.for_repo(context.repo_root)
@@ -314,7 +314,7 @@ def submit(
         if revset is None:
             print(
                 f"Selected: {result.selected_subject} "
-                f"[{display_change_id(result.selected_change_id)}]"
+                f"[{short_change_id(result.selected_change_id)}]"
             )
     client = getattr(result, "client", None)
     color_when = (
@@ -401,7 +401,7 @@ def _render_submit_revision_lines(
 ) -> tuple[str, ...]:
     summary = _render_submit_revision_summary(revision)
     if client is None or color_when is None:
-        return (f"- {revision.subject} [{display_change_id(revision.change_id)}]: {summary}",)
+        return (f"- {revision.subject} [{short_change_id(revision.change_id)}]: {summary}",)
     return render_revision_with_suffix_lines(
         client=client,
         color_when=color_when,
@@ -436,7 +436,7 @@ def _render_submit_trunk_lines(
 ) -> tuple[str, ...]:
     if client is None or color_when is None:
         return (
-            f"Trunk: {result.trunk_subject} [{display_change_id(result.trunk_change_id)}] "
+            f"Trunk: {result.trunk_subject} [{short_change_id(result.trunk_change_id)}] "
             f"-> {result.trunk_branch}",
         )
     return tuple(
@@ -1004,7 +1004,7 @@ def _preflight_private_commits(
     private = client.find_private_commits(revisions)
     if not private:
         return
-    subjects = ", ".join(f"{r.change_id[:8]} ({r.subject})" for r in private)
+    subjects = ", ".join(f"{short_change_id(r.change_id)} ({r.subject})" for r in private)
     raise CliError(
         f"Stack contains commits blocked by `git.private-commits`: {subjects}. "
         "Remove these changes from the stack before submitting."
@@ -1567,7 +1567,8 @@ def _ensure_change_is_not_unlinked(
     if cached_change is None or not cached_change.is_unlinked:
         return
     raise CliError(
-        f"Change {change_id[:8]} is unlinked from review tracking. Run `relink` to "
+        f"Change {short_change_id(change_id)} is unlinked from review tracking. Run "
+        "`relink` to "
         "reattach it before submitting again."
     )
 

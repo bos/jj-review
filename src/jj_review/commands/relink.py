@@ -17,6 +17,7 @@ from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
+from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClientError
 from jj_review.github_resolution import (
     build_github_client,
@@ -30,8 +31,6 @@ from jj_review.models.intent import RelinkIntent
 from jj_review.pull_request_references import parse_repository_pull_request_reference
 
 HELP = "Reconnect an existing pull request to a local change"
-
-_DISPLAY_CHANGE_ID_LENGTH = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +78,7 @@ def relink(
     print(f"GitHub: {result.github_repository}")
     print(
         f"Relinked PR #{result.pull_request_number} for {result.subject} "
-        f"[{result.change_id[:_DISPLAY_CHANGE_ID_LENGTH]}] -> {result.bookmark}"
+        f"[{short_change_id(result.change_id)}] -> {result.bookmark}"
     )
     return 0
 
@@ -186,7 +185,7 @@ async def _run_relink_async(
     intent = RelinkIntent(
         kind="relink",
         pid=os.getpid(),
-        label=f"relink for {revision.change_id[:8]}",
+        label=f"relink for {short_change_id(revision.change_id)}",
         change_id=revision.change_id,
         started_at=datetime.now(UTC).isoformat(),
     )
@@ -250,7 +249,7 @@ def _ensure_relinkable_cached_link(
         if cached_change.bookmark == bookmark and cached_change.link_state != "unlinked":
             raise CliError(
                 f"Bookmark {bookmark!r} is already linked to "
-                f"{_short_change_id(cached_change_id)} in local state."
+                f"{short_change_id(cached_change_id)} in local state."
             )
         if (
             cached_change.pr_number == pull_request_number
@@ -258,9 +257,5 @@ def _ensure_relinkable_cached_link(
         ):
             raise CliError(
                 f"PR #{pull_request_number} is already linked to "
-                f"{_short_change_id(cached_change_id)} in local state."
+                f"{short_change_id(cached_change_id)} in local state."
             )
-
-
-def _short_change_id(change_id: str) -> str:
-    return change_id[:_DISPLAY_CHANGE_ID_LENGTH]
