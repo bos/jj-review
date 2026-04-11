@@ -1,4 +1,5 @@
 """Data models for per-operation intent files."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -33,12 +34,12 @@ class OrderedChangeIdsIntent(OperationIntent):
 class SubmitIntent(OrderedChangeIdsIntent):
     kind: Literal["submit"]
     head_change_id: str
-    bookmarks: dict[str, str]   # change_id → bookmark
+    bookmarks: dict[str, str]  # change_id → bookmark
     bases: dict[str, str]  # change_id → base_branch (may be empty until --abort is designed)
 
 
-class CleanupApplyIntent(OperationIntent):
-    kind: Literal["cleanup-apply"]
+class CleanupIntent(OperationIntent):
+    kind: Literal["cleanup"]
 
 
 class CleanupRestackIntent(OrderedChangeIdsIntent):
@@ -75,12 +76,7 @@ class LandIntent(OrderedChangeIdsIntent):
 
 
 IntentFile: TypeAlias = Annotated[
-    SubmitIntent
-    | CleanupApplyIntent
-    | CleanupRestackIntent
-    | CloseIntent
-    | RelinkIntent
-    | LandIntent,
+    SubmitIntent | CleanupIntent | CleanupRestackIntent | CloseIntent | RelinkIntent | LandIntent,
     Field(discriminator="kind"),
 ]
 

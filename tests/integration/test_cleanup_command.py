@@ -8,7 +8,7 @@ import pytest
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
-from jj_review.models.intent import CleanupApplyIntent
+from jj_review.models.intent import CleanupIntent
 
 from ..support.integration_helpers import (
     commit_file,
@@ -47,6 +47,7 @@ def test_cleanup_prunes_unlinked_state_for_stale_change(
     assert exit_code == 0
     assert "remove saved jj-review data" in captured.out
     assert change_id not in ReviewStateStore.for_repo(repo).load().changes
+
 
 def test_cleanup_restack_previews_and_rebases_survivor_above_merged_ancestor(
     tmp_path: Path,
@@ -97,6 +98,7 @@ def test_cleanup_restack_previews_and_rebases_survivor_above_merged_ancestor(
     assert rewritten_top.only_parent_commit_id() == trunk_commit_id
     assert JjClient(repo).resolve_revision(bottom_change_id).commit_id != rewritten_top.commit_id
 
+
 def test_cleanup_dry_run_reports_stale_tracking_and_remote_branch_without_mutation(
     tmp_path: Path,
     monkeypatch,
@@ -125,12 +127,10 @@ def test_cleanup_dry_run_reports_stale_tracking_and_remote_branch_without_mutati
     assert exit_code == 0
     assert "Planned cleanup actions:" in captured.out
     assert "[planned] tracking:" in captured.out
-    assert f"[planned] remote branch: delete remote branch {bookmark}@origin" in (
-        captured.out
-    )
-    assert "cleanup --apply" not in captured.out
+    assert f"[planned] remote branch: delete remote branch {bookmark}@origin" in (captured.out)
     assert change_id in state_store.load().changes
     assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
+
 
 def test_cleanup_applies_stale_tracking_and_remote_branch_removal(
     tmp_path: Path,
@@ -159,9 +159,7 @@ def test_cleanup_applies_stale_tracking_and_remote_branch_removal(
 
     assert exit_code == 0
     assert "Applied cleanup actions:" in captured.out
-    assert f"[applied] remote branch: delete remote branch {bookmark}@origin" in (
-        captured.out
-    )
+    assert f"[applied] remote branch: delete remote branch {bookmark}@origin" in (captured.out)
     assert change_id not in state_store.load().changes
     assert f"refs/heads/{bookmark}" not in remote_refs(fake_repo.git_dir)
 
@@ -199,9 +197,7 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
     assert exit_code == 0
     assert "[planned] local bookmark: forget local bookmark" in captured.out
     assert f"{bookmark} (local change is no longer reviewable)" in captured.out
-    assert f"[planned] remote branch: delete remote branch {bookmark}@origin" in (
-        captured.out
-    )
+    assert f"[planned] remote branch: delete remote branch {bookmark}@origin" in (captured.out)
     assert "[blocked] remote branch" not in captured.out
     assert bookmark in run_command(["jj", "bookmark", "list", bookmark], repo).stdout
     assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
@@ -239,9 +235,7 @@ def test_cleanup_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
 
     assert exit_code == 0
     assert f"[applied] local bookmark: forget local bookmark {bookmark}" in captured.out
-    assert f"[applied] remote branch: delete remote branch {bookmark}@origin" in (
-        captured.out
-    )
+    assert f"[applied] remote branch: delete remote branch {bookmark}@origin" in (captured.out)
     assert change_id not in state_store.load().changes
     assert bookmark not in run_command(["jj", "bookmark", "list", bookmark], repo).stdout
     assert f"refs/heads/{bookmark}" not in remote_refs(fake_repo.git_dir)
@@ -264,9 +258,7 @@ def test_cleanup_apply_batches_remote_delete_local_forget_and_fetch(
     change_ids = tuple(revision.change_id for revision in stack.revisions)
     state_store = ReviewStateStore.for_repo(repo)
     state = state_store.load()
-    bookmarks = tuple(
-        state.changes[change_id].bookmark for change_id in change_ids
-    )
+    bookmarks = tuple(state.changes[change_id].bookmark for change_id in change_ids)
     assert all(bookmark is not None for bookmark in bookmarks)
 
     for change_id, bookmark in zip(change_ids, bookmarks, strict=True):
@@ -412,6 +404,7 @@ def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
     )
     assert "force-with-lease" in captured.err
 
+
 def test_cleanup_apply_preserves_managed_stack_comment_for_closed_pull_request(
     tmp_path: Path,
     monkeypatch,
@@ -481,6 +474,7 @@ def test_cleanup_apply_preserves_discovered_stack_comment_when_cache_id_is_missi
     assert refreshed_state.changes[change_id].stack_comment_id is None
     assert len(issue_comments(fake_repo, 2)) == 1
 
+
 def test_cleanup_deletes_intent_file_after_successful_apply(
     tmp_path: Path,
     monkeypatch,
@@ -511,6 +505,7 @@ def test_cleanup_deletes_intent_file_after_successful_apply(
     intent_files = list(state_dir.glob("incomplete-*.json"))
     assert intent_files == [], f"Expected no intent files after success, found: {intent_files}"
 
+
 def test_cleanup_retains_intent_file_after_failed_apply(
     tmp_path: Path,
     monkeypatch,
@@ -533,7 +528,7 @@ def test_cleanup_retains_intent_file_after_failed_apply(
     run_command(["jj", "bookmark", "delete", bookmark], repo)
 
     def failing_delete_remote_bookmarks(self, *, remote, deletions, fetch=True):
-        raise RuntimeError("Simulated failure during cleanup apply")
+        raise RuntimeError("Simulated failure during live cleanup")
 
     monkeypatch.setattr(
         "jj_review.commands.cleanup.JjClient.delete_remote_bookmarks",
@@ -549,7 +544,7 @@ def test_cleanup_retains_intent_file_after_failed_apply(
     assert len(intent_files) == 1, f"Expected 1 intent file after failure, found: {intent_files}"
 
     data = json.loads(intent_files[0].read_text(encoding="utf-8"))
-    assert data["kind"] == "cleanup-apply"
+    assert data["kind"] == "cleanup"
 
 
 def test_cleanup_retires_prior_interrupted_intent_after_success(
@@ -565,8 +560,8 @@ def test_cleanup_retires_prior_interrupted_intent_after_success(
     capsys.readouterr()
 
     state_dir = resolve_state_path(repo).parent
-    stale_intent = CleanupApplyIntent(
-        kind="cleanup-apply",
+    stale_intent = CleanupIntent(
+        kind="cleanup",
         pid=99999999,
         label="cleanup",
         started_at="2026-04-07T00:24:40+00:00",

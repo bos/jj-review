@@ -43,7 +43,7 @@ from jj_review.jj.client import UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
-from jj_review.models.intent import CleanupApplyIntent, CleanupRestackIntent, LoadedIntent
+from jj_review.models.intent import CleanupIntent, CleanupRestackIntent, LoadedIntent
 from jj_review.review_inspection import (
     PreparedStatus,
     ReviewStatusRevision,
@@ -85,7 +85,7 @@ class CleanupResult:
 class PreparedCleanup:
     """Locally prepared cleanup inputs before any GitHub inspection."""
 
-    apply: bool
+    dry_run: bool
     bookmark_states: dict[str, BookmarkState]
     github_repository: ResolvedGithubRepository | None
     github_repository_error: str | None
@@ -158,14 +158,14 @@ class RestackResult:
 class PreparedRestack:
     """Locally prepared restack inputs before any rewrite."""
 
-    apply: bool
+    dry_run: bool
     prepared_status: PreparedStatus
     state_dir: Path | None
 
 
 @dataclass(frozen=True, slots=True)
 class _RestackOperationPlan:
-    """Derived restack planning data before preview/apply rendering."""
+    """Derived restack planning data before preview/live rendering."""
 
     blocked: bool
     closed_unmerged_revisions: tuple[ReviewStatusRevision, ...]
@@ -176,17 +176,17 @@ class _RestackOperationPlan:
 
 @dataclass(frozen=True, slots=True)
 class _RestackIntentState:
-    """Prepared restack intent bookkeeping for resumable apply runs."""
+    """Prepared restack intent bookkeeping for resumable live runs."""
 
     intent: CleanupRestackIntent | None
     intent_path: Path | None
     stale_intents: list[LoadedIntent]
 
 
-def render_cleanup_action_header(*, apply: bool) -> str:
+def render_cleanup_action_header(*, dry_run: bool) -> str:
     """Render the cleanup action section header."""
 
-    return "Applied cleanup actions:" if apply else "Planned cleanup actions:"
+    return "Planned cleanup actions:" if dry_run else "Applied cleanup actions:"
 
 
 def render_cleanup_action(*, action: CleanupAction) -> str:
@@ -223,10 +223,10 @@ def render_restack_preamble(*, prepared_restack: PreparedRestack) -> tuple[str, 
     )
 
 
-def render_restack_action_header(*, apply: bool) -> str:
+def render_restack_action_header(*, dry_run: bool) -> str:
     """Render the restack action section header."""
 
-    return "Applied restack actions:" if apply else "Planned restack actions:"
+    return "Planned restack actions:" if dry_run else "Applied restack actions:"
 
 
 def render_restack_action(*, action: CleanupAction) -> str:
@@ -254,7 +254,6 @@ def cleanup(
 ) -> int:
     """CLI entrypoint for `cleanup`."""
 
-    apply = not dry_run
     context = bootstrap_context(
         repository=repository,
         config_path=config_path,
@@ -262,7 +261,7 @@ def cleanup(
     )
     if restack:
         return _run_cleanup_restack_command(
-            apply=apply,
+            dry_run=dry_run,
             change_overrides=context.config.change,
             config=context.config.repo,
             repo_root=context.repo_root,
@@ -270,7 +269,7 @@ def cleanup(
         )
 
     return _run_cleanup_command(
-        apply=apply,
+        dry_run=dry_run,
         config=context.config.repo,
         repo_root=context.repo_root,
     )
@@ -278,7 +277,7 @@ def cleanup(
 
 def _run_cleanup_restack_command(
     *,
-    apply: bool,
+    dry_run: bool,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     repo_root: Path,
@@ -287,14 +286,14 @@ def _run_cleanup_restack_command(
     """Render and run the `cleanup --restack` command path."""
 
     selected_revset = resolve_selected_revset(
-        command_label="cleanup --restack" if apply else "cleanup --restack --dry-run",
+        command_label="cleanup --restack --dry-run" if dry_run else "cleanup --restack",
         default_revset="@-",
         require_explicit=False,
         revset=revset,
     )
     try:
         prepared_restack = prepare_restack(
-            apply=apply,
+            dry_run=dry_run,
             change_overrides=change_overrides,
             config=config,
             repo_root=repo_root,
@@ -308,7 +307,7 @@ def _run_cleanup_restack_command(
     try:
         result = stream_restack(
             on_action=_build_cleanup_action_streamer(
-                apply=prepared_restack.apply,
+                dry_run=prepared_restack.dry_run,
                 render_action=render_restack_action,
                 render_header=render_restack_action_header,
             ),
@@ -323,14 +322,14 @@ def _run_cleanup_restack_command(
 
 def _run_cleanup_command(
     *,
-    apply: bool,
+    dry_run: bool,
     config: RepoConfig,
     repo_root: Path,
 ) -> int:
     """Render and run the stale cleanup command path."""
 
     prepared_cleanup = prepare_cleanup(
-        apply=apply,
+        dry_run=dry_run,
         config=config,
         repo_root=repo_root,
     )
@@ -348,7 +347,7 @@ def _run_cleanup_command(
 
     result = stream_cleanup(
         on_action=_build_cleanup_action_streamer(
-            apply=prepared_cleanup.apply,
+            dry_run=prepared_cleanup.dry_run,
             render_action=render_cleanup_action,
             render_header=render_cleanup_action_header,
         ),
@@ -361,7 +360,7 @@ def _run_cleanup_command(
 
 def _build_cleanup_action_streamer(
     *,
-    apply: bool,
+    dry_run: bool,
     render_action: Callable[..., str],
     render_header: Callable[..., str],
 ) -> Callable[[CleanupAction], None]:
@@ -372,7 +371,7 @@ def _build_cleanup_action_streamer(
     def emit_action(action: CleanupAction) -> None:
         nonlocal header_printed
         if not header_printed:
-            print(render_header(apply=apply))
+            print(render_header(dry_run=dry_run))
             header_printed = True
         print(render_action(action=action))
 
@@ -398,9 +397,10 @@ def _render_remote_and_github_lines(
             lines.append(f"GitHub target: unavailable ({github_error})")
     return tuple(lines)
 
+
 def prepare_cleanup(
     *,
-    apply: bool,
+    dry_run: bool,
     config: RepoConfig,
     repo_root: Path,
 ) -> PreparedCleanup:
@@ -409,7 +409,7 @@ def prepare_cleanup(
     jj_client = JjClient(repo_root)
     state_store = ReviewStateStore.for_repo(repo_root)
     state = state_store.load()
-    state_dir = state_store.require_writable() if apply else state_store.state_dir
+    state_dir = state_store.state_dir if dry_run else state_store.require_writable()
 
     remote, remote_error = _resolve_remote(config=config, jj_client=jj_client)
     github_repository, github_error = try_resolve_github_repository(config, remote)
@@ -420,7 +420,7 @@ def prepare_cleanup(
     )
 
     return PreparedCleanup(
-        apply=apply,
+        dry_run=dry_run,
         bookmark_states=bookmark_states,
         github_repository=github_repository,
         github_repository_error=github_error,
@@ -435,7 +435,7 @@ def prepare_cleanup(
 
 def prepare_restack(
     *,
-    apply: bool,
+    dry_run: bool,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     repo_root: Path,
@@ -444,10 +444,10 @@ def prepare_restack(
     """Resolve local restack inputs before any rewrite."""
 
     state_store = ReviewStateStore.for_repo(repo_root)
-    state_dir = state_store.require_writable() if apply else state_store.state_dir
+    state_dir = state_store.state_dir if dry_run else state_store.require_writable()
 
     return PreparedRestack(
-        apply=apply,
+        dry_run=dry_run,
         prepared_status=prepare_status(
             change_overrides=change_overrides,
             config=config,
@@ -479,7 +479,7 @@ def stream_restack(
     on_action: Callable[[CleanupAction], None] | None = None,
     prepared_restack: PreparedRestack,
 ) -> RestackResult:
-    """Inspect and optionally apply a local restack plan after merged changes."""
+    """Inspect and optionally execute a local restack plan after merged changes."""
 
     status_result = stream_status(prepared_status=prepared_restack.prepared_status)
     prepared_status = prepared_restack.prepared_status
@@ -509,7 +509,7 @@ def stream_restack(
         )
         return RestackResult(
             actions=tuple(actions),
-            applied=prepared_restack.apply,
+            applied=not prepared_restack.dry_run,
             blocked=True,
             github_error=status_result.github_error,
             github_repository=status_result.github_repository,
@@ -527,7 +527,7 @@ def stream_restack(
     if not merged_revisions:
         return RestackResult(
             actions=(),
-            applied=prepared_restack.apply,
+            applied=not prepared_restack.dry_run,
             blocked=False,
             github_error=status_result.github_error,
             github_repository=status_result.github_repository,
@@ -569,7 +569,7 @@ def stream_restack(
         if not actions and merged_revisions:
             record_action(
                 _restack_noop_action(
-                    apply=prepared_restack.apply,
+                    dry_run=prepared_restack.dry_run,
                     merged_revisions=merged_revisions,
                 )
             )
@@ -577,7 +577,7 @@ def stream_restack(
         _restack_succeeded = True
         return RestackResult(
             actions=tuple(actions),
-            applied=prepared_restack.apply,
+            applied=not prepared_restack.dry_run,
             blocked=blocked,
             github_error=status_result.github_error,
             github_repository=status_result.github_repository,
@@ -605,14 +605,13 @@ def _start_restack_intent(
     prepared_restack: PreparedRestack,
     selected_revset: str,
 ) -> _RestackIntentState:
-    """Write a restack intent before apply-mode rebases begin."""
+    """Write a restack intent before live rebases begin."""
 
-    if blocked or not prepared_restack.apply or prepared_restack.state_dir is None:
+    if blocked or prepared_restack.dry_run or prepared_restack.state_dir is None:
         return _RestackIntentState(intent=None, intent_path=None, stale_intents=[])
 
     ordered_change_ids = tuple(
-        prepared_revision.revision.change_id
-        for prepared_revision in prepared.status_revisions
+        prepared_revision.revision.change_id for prepared_revision in prepared.status_revisions
     )
     intent = CleanupRestackIntent(
         kind="cleanup-restack",
@@ -676,7 +675,7 @@ def _record_restack_policy_actions(
 
 def _restack_noop_action(
     *,
-    apply: bool,
+    dry_run: bool,
     merged_revisions: tuple[ReviewStatusRevision, ...],
 ) -> CleanupAction:
     """Describe a merged stack path that does not require any descendant moves."""
@@ -688,7 +687,7 @@ def _restack_noop_action(
             f"merged changes remain on the selected stack ({merged_labels}), but "
             "no surviving descendants need to move"
         ),
-        status="planned" if not apply else "applied",
+        status="planned" if dry_run else "applied",
     )
 
 
@@ -717,7 +716,7 @@ def _run_restack_rebase_pass(
     record_action: Callable[[CleanupAction], None],
     trunk_commit_id: str,
 ) -> None:
-    if prepared_restack.apply and not blocked:
+    if not prepared_restack.dry_run and not blocked:
         for source_change_id, destination_change_id in rebase_plans:
             source_revision = client.resolve_revision(source_change_id)
             destination_commit_id = _restack_destination_commit_id(
@@ -777,9 +776,7 @@ def _plan_restack_operations(
     prepared_status: PreparedStatus,
 ) -> _RestackOperationPlan:
     merged_revisions = tuple(
-        revision
-        for revision in path_revisions
-        if revision_has_merged_pull_request(revision)
+        revision for revision in path_revisions if revision_has_merged_pull_request(revision)
     )
     closed_unmerged_revisions = tuple(
         revision for revision in path_revisions if _revision_is_closed_unmerged(revision)
@@ -954,7 +951,7 @@ async def _stream_cleanup_async(
 ) -> CleanupResult:
     next_changes = dict(prepared_cleanup.state.changes)
     actions: list[CleanupAction] = []
-    apply = prepared_cleanup.apply
+    dry_run = prepared_cleanup.dry_run
     remote = prepared_cleanup.remote
 
     def record_action(action: CleanupAction) -> None:
@@ -962,13 +959,13 @@ async def _stream_cleanup_async(
         if on_action is not None:
             on_action(action)
 
-    # Write an intent file before the first mutation (apply mode only)
+    # Write an intent file before the first mutation on live runs only.
     intent_path: Path | None = None
     _cleanup_succeeded = False
     stale_intents: list[LoadedIntent] = []
-    if apply and prepared_cleanup.state_dir is not None:
-        _intent = CleanupApplyIntent(
-            kind="cleanup-apply",
+    if not dry_run and prepared_cleanup.state_dir is not None:
+        _intent = CleanupIntent(
+            kind="cleanup",
             pid=os.getpid(),
             label="cleanup",
             started_at=datetime.now(UTC).isoformat(),
@@ -993,7 +990,7 @@ async def _stream_cleanup_async(
             _cleanup_succeeded = True
             return CleanupResult(
                 actions=tuple(actions),
-                applied=apply,
+                applied=not dry_run,
                 github_error=prepared_cleanup.github_repository_error,
                 github_repository=None,
                 remote=remote,
@@ -1024,7 +1021,7 @@ async def _stream_cleanup_async(
         _cleanup_succeeded = True
         return CleanupResult(
             actions=tuple(actions),
-            applied=apply,
+            applied=not dry_run,
             github_error=prepared_cleanup.github_repository_error,
             github_repository=github_repository.full_name,
             remote=remote,
@@ -1091,7 +1088,7 @@ def _run_local_cleanup_pass(
         if mutation_plan is not None:
             mutation_plans.append(mutation_plan)
 
-    if prepared_cleanup.apply:
+    if not prepared_cleanup.dry_run:
         _apply_stale_cleanup_mutation_plans(
             jj_client=prepared_cleanup.jj_client,
             mutation_plans=tuple(mutation_plans),
@@ -1120,10 +1117,10 @@ def _process_stale_cleanup_change(
         _cache_action(
             change_id=prepared_change.change_id,
             reason=stale_reason,
-            status="applied" if prepared_cleanup.apply else "planned",
+            status="planned" if prepared_cleanup.dry_run else "applied",
         )
     )
-    if prepared_cleanup.apply:
+    if not prepared_cleanup.dry_run:
         next_changes.pop(prepared_change.change_id, None)
 
     local_bookmark_plan = _plan_local_bookmark_cleanup(
@@ -1135,15 +1132,14 @@ def _process_stale_cleanup_change(
         bookmark_state=prepared_change.bookmark_state,
         cached_change=prepared_change.cached_change,
         local_bookmark_forget_planned=(
-            local_bookmark_plan is not None
-            and local_bookmark_plan.action.status == "planned"
+            local_bookmark_plan is not None and local_bookmark_plan.action.status == "planned"
         ),
         remote=prepared_cleanup.remote,
     )
-    if not prepared_cleanup.apply:
+    if prepared_cleanup.dry_run:
         if local_bookmark_plan is not None:
             _process_local_bookmark_cleanup(
-                apply=prepared_cleanup.apply,
+                dry_run=prepared_cleanup.dry_run,
                 cached_change=prepared_change.cached_change,
                 jj_client=prepared_cleanup.jj_client,
                 local_bookmark_plan=local_bookmark_plan,
@@ -1151,7 +1147,7 @@ def _process_stale_cleanup_change(
             )
         if remote_plan is not None:
             _process_remote_branch_cleanup(
-                apply=prepared_cleanup.apply,
+                dry_run=prepared_cleanup.dry_run,
                 cached_change=prepared_change.cached_change,
                 jj_client=prepared_cleanup.jj_client,
                 record_action=record_action,
@@ -1165,12 +1161,8 @@ def _process_stale_cleanup_change(
     if remote_plan is not None and remote_plan.action.status != "planned":
         record_action(remote_plan.action)
 
-    if (
-        local_bookmark_plan is None
-        or local_bookmark_plan.action.status != "planned"
-    ) and (
-        remote_plan is None
-        or remote_plan.action.status != "planned"
+    if (local_bookmark_plan is None or local_bookmark_plan.action.status != "planned") and (
+        remote_plan is None or remote_plan.action.status != "planned"
     ):
         return None
 
@@ -1203,22 +1195,15 @@ def _apply_stale_cleanup_mutation_plans(
         ):
             bookmark = mutation_plan.cached_change.bookmark
             if bookmark is None:
-                raise AssertionError(
-                    "Planned remote branch cleanup requires a bookmark."
-                )
+                raise AssertionError("Planned remote branch cleanup requires a bookmark.")
             remote_deletions.append((bookmark, remote_plan.expected_remote_target))
             remote_actions.append(remote_plan.action)
 
         local_bookmark_plan = mutation_plan.local_bookmark_plan
-        if (
-            local_bookmark_plan is not None
-            and local_bookmark_plan.action.status == "planned"
-        ):
+        if local_bookmark_plan is not None and local_bookmark_plan.action.status == "planned":
             bookmark = mutation_plan.cached_change.bookmark
             if bookmark is None:
-                raise AssertionError(
-                    "Planned local bookmark cleanup requires a bookmark."
-                )
+                raise AssertionError("Planned local bookmark cleanup requires a bookmark.")
             local_bookmarks.append(bookmark)
             local_actions.append(local_bookmark_plan.action)
 
@@ -1260,7 +1245,7 @@ def _save_cleanup_state_if_changed(
     next_changes: dict[str, CachedChange],
     prepared_cleanup: PreparedCleanup,
 ) -> None:
-    if prepared_cleanup.apply and next_changes != prepared_cleanup.state.changes:
+    if not prepared_cleanup.dry_run and next_changes != prepared_cleanup.state.changes:
         prepared_cleanup.state_store.save(
             prepared_cleanup.state.model_copy(update={"changes": dict(next_changes)})
         )
@@ -1320,7 +1305,7 @@ async def _apply_stack_comment_cleanup_action(
 ) -> None:
     comment_action = comment_plan.action
     if (
-        prepared_cleanup.apply
+        not prepared_cleanup.dry_run
         and comment_action.status == "planned"
         and comment_plan.comment_id is not None
     ):
@@ -1339,7 +1324,7 @@ async def _apply_stack_comment_cleanup_action(
             status="applied",
         )
     record_action(comment_action)
-    if prepared_cleanup.apply:
+    if not prepared_cleanup.dry_run:
         prepared_cleanup.state_store.save(
             prepared_cleanup.state.model_copy(update={"changes": dict(next_changes)})
         )
@@ -1537,14 +1522,14 @@ def _plan_local_bookmark_cleanup(
 
 def _process_local_bookmark_cleanup(
     *,
-    apply: bool,
+    dry_run: bool,
     cached_change: CachedChange,
     jj_client: JjClient,
     local_bookmark_plan: LocalBookmarkCleanupPlan,
     record_action: Callable[[CleanupAction], None],
 ) -> None:
     local_action = local_bookmark_plan.action
-    if apply and local_action.status == "planned":
+    if not dry_run and local_action.status == "planned":
         bookmark = cached_change.bookmark
         if bookmark is None:
             raise AssertionError("Planned local bookmark cleanup requires a bookmark.")
@@ -1559,7 +1544,7 @@ def _process_local_bookmark_cleanup(
 
 def _process_remote_branch_cleanup(
     *,
-    apply: bool,
+    dry_run: bool,
     cached_change: CachedChange,
     jj_client: JjClient,
     record_action: Callable[[CleanupAction], None],
@@ -1568,7 +1553,7 @@ def _process_remote_branch_cleanup(
 ) -> None:
     remote_action = remote_plan.action
     if (
-        apply
+        not dry_run
         and remote_action.status == "planned"
         and remote is not None
         and remote_plan.expected_remote_target is not None
@@ -1689,9 +1674,7 @@ async def _load_pull_request(
     except GithubClientError as error:
         if error.status_code == 404:
             return None
-        raise CliError(
-            f"Could not load pull request #{pull_request_number}: {error}"
-        ) from error
+        raise CliError(f"Could not load pull request #{pull_request_number}: {error}") from error
 
 
 def _pull_request_is_unlinked_or_detached(
@@ -1706,9 +1689,7 @@ def _pull_request_is_unlinked_or_detached(
     if bookmark is None:
         return False
     expected_label = f"{github_repository.owner}:{bookmark}"
-    return (
-        pull_request.head.ref != bookmark or pull_request.head.label != expected_label
-    )
+    return pull_request.head.ref != bookmark or pull_request.head.label != expected_label
 
 
 async def _resolve_stack_summary_comment(
@@ -1725,11 +1706,7 @@ async def _resolve_stack_summary_comment(
     )
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
-            (
-                comment
-                for comment in comments
-                if comment.id == cached_change.stack_comment_id
-            ),
+            (comment for comment in comments if comment.id == cached_change.stack_comment_id),
             None,
         )
         if cached_comment is not None:
@@ -1780,8 +1757,7 @@ async def _resolve_unlinked_pull_request_number(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not list pull requests for unlinked bookmark {bookmark_state.name!r}: "
-            f"{error}"
+            f"Could not list pull requests for unlinked bookmark {bookmark_state.name!r}: {error}"
         ) from error
 
     if not pull_requests:

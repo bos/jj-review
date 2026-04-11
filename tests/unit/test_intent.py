@@ -18,7 +18,7 @@ from jj_review.intent import (
     write_new_intent,
 )
 from jj_review.models.intent import (
-    CleanupApplyIntent,
+    CleanupIntent,
     CleanupRestackIntent,
     CloseIntent,
     LandIntent,
@@ -30,6 +30,7 @@ from jj_review.models.intent import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_submit_intent(
     ordered_change_ids: tuple[str, ...] = ("aaaa", "bbbb"),
@@ -48,9 +49,11 @@ def _make_submit_intent(
     )
 
 
-def _make_cleanup_apply_intent(pid: int = 12345) -> CleanupApplyIntent:
-    return CleanupApplyIntent(
-        kind="cleanup-apply",
+def _make_cleanup_intent(
+    pid: int = 12345,
+) -> CleanupIntent:
+    return CleanupIntent(
+        kind="cleanup",
         pid=pid,
         label="cleanup",
         started_at="2026-01-01T00:00:00+00:00",
@@ -140,11 +143,12 @@ def _make_land_intent(
 # Naming
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     ("intent_factory", "test_id"),
     [
         (_make_submit_intent, "submit"),
-        (_make_cleanup_apply_intent, "cleanup-apply"),
+        (_make_cleanup_intent, "cleanup"),
         (_make_cleanup_restack_intent, "cleanup-restack"),
         (lambda: _make_close_intent(cleanup=True), "close"),
         (_make_relink_intent, "relink"),
@@ -176,6 +180,7 @@ def test_scan_intents_ignores_unparseable_files(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Matching
 # ---------------------------------------------------------------------------
+
 
 def test_match_ordered_change_ids_returns_exact_for_identical_sequences() -> None:
     assert match_ordered_change_ids(("a", "b"), ("a", "b")) == "exact"
@@ -209,6 +214,7 @@ def test_match_ordered_change_ids_requires_prefix_order_for_superset() -> None:
 # PID liveness
 # ---------------------------------------------------------------------------
 
+
 def test_pid_is_alive_returns_true_for_current_process() -> None:
     assert pid_is_alive(os.getpid()) is True
 
@@ -226,6 +232,7 @@ def test_pid_is_alive_returns_false_for_missing_process(
 # ---------------------------------------------------------------------------
 # Retirement
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize(
     ("new_ordered_change_ids", "should_exist"),
@@ -253,6 +260,7 @@ def test_retire_superseded_submit_intents_matches_stack_prefix(
 # Stale detection
 # ---------------------------------------------------------------------------
 
+
 def test_stack_intent_is_stale_when_no_change_ids_still_resolve(tmp_path: Path) -> None:
     intent = _make_submit_intent(("aaaa", "bbbb"))
     assert intent_is_stale(intent, lambda cid: False) is True
@@ -267,28 +275,28 @@ def test_stack_intent_stays_live_when_any_change_id_still_resolves(tmp_path: Pat
     ("intent_factory", "pid", "pid_alive", "now", "expected_stale", "test_id"),
     [
         (
-            _make_cleanup_apply_intent,
+            _make_cleanup_intent,
             99999999,
             False,
             datetime(2026, 1, 2, tzinfo=UTC),
             False,
-            "cleanup-apply-recent-dead-pid",
+            "cleanup-recent-dead-pid",
         ),
         (
-            _make_cleanup_apply_intent,
+            _make_cleanup_intent,
             12345,
             True,
             datetime(2030, 1, 1, tzinfo=UTC),
             False,
-            "cleanup-apply-live-pid",
+            "cleanup-live-pid",
         ),
         (
-            _make_cleanup_apply_intent,
+            _make_cleanup_intent,
             99999999,
             False,
             datetime(2026, 1, 9, tzinfo=UTC),
             True,
-            "cleanup-apply-old-dead-pid",
+            "cleanup-old-dead-pid",
         ),
         (
             _make_relink_intent,
@@ -336,6 +344,7 @@ def test_pid_based_intents_become_stale_only_when_old_and_dead(
 # check_same_kind_intent
 # ---------------------------------------------------------------------------
 
+
 def test_check_same_kind_intent_returns_stale_dead_pid_intents(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -357,8 +366,8 @@ def test_check_same_kind_intent_ignores_different_kind(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
-    # Write a cleanup-apply intent (different kind)
-    cleanup_intent = _make_cleanup_apply_intent(pid=99999999)
+    # Write a cleanup intent (different kind)
+    cleanup_intent = _make_cleanup_intent(pid=99999999)
     write_new_intent(tmp_path, cleanup_intent)
 
     # Check for submit kind — should return nothing

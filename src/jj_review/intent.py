@@ -1,4 +1,5 @@
 """Filesystem operations and logic for per-operation intent files."""
+
 from __future__ import annotations
 
 import logging
@@ -13,7 +14,7 @@ from pathlib import Path
 from pydantic import TypeAdapter, ValidationError
 
 from jj_review.models.intent import (
-    CleanupApplyIntent,
+    CleanupIntent,
     CleanupRestackIntent,
     CloseIntent,
     IntentFile,
@@ -31,6 +32,7 @@ _INTENT_ADAPTER = TypeAdapter(IntentFile)
 # ---------------------------------------------------------------------------
 # File naming
 # ---------------------------------------------------------------------------
+
 
 def _intent_filename(state_dir: Path, now: datetime) -> Path:
     base = now.strftime("%Y-%m-%d-%H-%M")
@@ -95,13 +97,16 @@ def scan_intents(state_dir: Path) -> list[LoadedIntent]:
         results.append(loaded)
     return results
 
+
 # ---------------------------------------------------------------------------
 # PID liveness
 # ---------------------------------------------------------------------------
 
+
 def pid_is_alive(pid: int) -> bool:
     if sys.platform == "win32":
         import ctypes
+
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
         kernel32 = ctypes.windll.kernel32
         kernel32.OpenProcess.restype = ctypes.c_void_p
@@ -124,6 +129,7 @@ def pid_is_alive(pid: int) -> bool:
 # Concurrency check
 # ---------------------------------------------------------------------------
 
+
 def check_same_kind_intent(
     state_dir: Path,
     new_intent: IntentFile,
@@ -136,8 +142,7 @@ def check_same_kind_intent(
     - Returns list of stale (dead-PID) same-kind intents.
     """
     existing = [
-        loaded for loaded in scan_intents(state_dir)
-        if loaded.intent.kind == new_intent.kind
+        loaded for loaded in scan_intents(state_dir) if loaded.intent.kind == new_intent.kind
     ]
     stale: list[LoadedIntent] = []
     for loaded in existing:
@@ -166,13 +171,14 @@ def check_same_kind_intent(
 # Match logic
 # ---------------------------------------------------------------------------
 
+
 def match_ordered_change_ids(
     existing: tuple[str, ...],
     new: tuple[str, ...],
 ) -> MatchResult:
     if existing == new:
         return "exact"
-    if len(new) > len(existing) and new[:len(existing)] == existing:
+    if len(new) > len(existing) and new[: len(existing)] == existing:
         return "superset"
     if set(existing) & set(new):
         return "overlap"
@@ -182,6 +188,7 @@ def match_ordered_change_ids(
 # ---------------------------------------------------------------------------
 # Stale intent check
 # ---------------------------------------------------------------------------
+
 
 def intent_is_stale(
     intent: IntentFile,
@@ -194,10 +201,10 @@ def intent_is_stale(
     For intents backed by review-stack change IDs
     (SubmitIntent, CleanupRestackIntent, CloseIntent, LandIntent):
         stale if none of the change IDs resolve in the local repo.
-    For CleanupApplyIntent and RelinkIntent:
+    For CleanupIntent and RelinkIntent:
         stale if the PID is dead AND the intent is older than 7 days.
     """
-    if isinstance(intent, CleanupApplyIntent | RelinkIntent):
+    if isinstance(intent, CleanupIntent | RelinkIntent):
         if pid_is_alive(intent.pid):
             return False
         if now is None:
@@ -219,6 +226,7 @@ def intent_is_stale(
 # ---------------------------------------------------------------------------
 # Retirement
 # ---------------------------------------------------------------------------
+
 
 def retire_superseded_intents(
     stale_intents: list[LoadedIntent],

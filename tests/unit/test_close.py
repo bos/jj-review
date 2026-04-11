@@ -20,9 +20,7 @@ from jj_review.models.cache import CachedChange
             BookmarkState(
                 name="review/feature-aaaaaaaa",
                 local_targets=("commit-1", "commit-2"),
-                remote_targets=(
-                    RemoteBookmarkState(remote="origin", targets=("commit-1",)),
-                ),
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
             ),
             CloseAction(
                 kind="local bookmark",
@@ -38,9 +36,7 @@ from jj_review.models.cache import CachedChange
             BookmarkState(
                 name="review/feature-aaaaaaaa",
                 local_targets=("other-commit",),
-                remote_targets=(
-                    RemoteBookmarkState(remote="origin", targets=("commit-1",)),
-                ),
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
             ),
             CloseAction(
                 kind="local bookmark",
@@ -74,9 +70,7 @@ from jj_review.models.cache import CachedChange
             BookmarkState(
                 name="review/feature-aaaaaaaa",
                 local_targets=("commit-1",),
-                remote_targets=(
-                    RemoteBookmarkState(remote="origin", targets=("other-commit",)),
-                ),
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("other-commit",)),),
             ),
             CloseAction(
                 kind="remote branch",
@@ -94,9 +88,7 @@ def test_cleanup_revision_blocks_unsafe_bookmarks(
     bookmark_state: BookmarkState,
     expected_action: CloseAction,
 ) -> None:
-    result = asyncio.run(
-        _run_cleanup_revision(bookmark_state=bookmark_state)
-    )
+    result = asyncio.run(_run_cleanup_revision(bookmark_state=bookmark_state))
 
     assert result.actions == [expected_action]
     assert result.jj_client.delete_calls == []
@@ -135,7 +127,7 @@ async def _run_cleanup_revision(*, bookmark_state: BookmarkState) -> _CleanupRes
         cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
         commit_id="commit-1",
         context=_CloseCleanupContext(
-            apply=True,
+            dry_run=False,
             github_client=cast(GithubClient, SimpleNamespace()),
             github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
             jj_client=cast(JjClient, jj_client),

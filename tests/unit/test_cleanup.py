@@ -52,13 +52,10 @@ def _local_revision(
     )
 
 
-def test_cleanup_skips_stack_comment_lookup_when_open_pr_still_has_remote_branch(
-) -> None:
+def test_cleanup_skips_stack_comment_lookup_when_open_pr_still_has_remote_branch() -> None:
     bookmark_state = BookmarkState(
         name="review/feature-aaaaaaaa",
-        remote_targets=(
-            RemoteBookmarkState(remote="origin", targets=("commit-1",)),
-        ),
+        remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
     )
 
     should_inspect = _should_inspect_stack_comment_cleanup(
@@ -260,7 +257,7 @@ def test_stream_cleanup_limits_stack_comment_github_inspection_concurrency(
         }
     )
     prepared_cleanup = PreparedCleanup(
-        apply=False,
+        dry_run=True,
         bookmark_states={},
         github_repository=ResolvedGithubRepository(
             host="github.com",
@@ -340,7 +337,7 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
         }
     )
     prepared_cleanup = PreparedCleanup(
-        apply=False,
+        dry_run=True,
         bookmark_states={},
         github_repository=ResolvedGithubRepository(
             host="github.com",
@@ -382,10 +379,8 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
             await asyncio.sleep(0)
 
         assert streamed_actions == [
-            "remove saved jj-review data for change-1 (local change is no longer "
-            "reviewable)",
-            "remove saved jj-review data for change-2 (local change is no longer "
-            "reviewable)",
+            "remove saved jj-review data for change-1 (local change is no longer reviewable)",
+            "remove saved jj-review data for change-2 (local change is no longer reviewable)",
         ]
         release_comment_checks.set()
         await task
@@ -427,7 +422,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     saved_states: list[ReviewState] = []
     deleted_comment_ids: list[int] = []
     prepared_cleanup = PreparedCleanup(
-        apply=True,
+        dry_run=False,
         bookmark_states={},
         github_repository=ResolvedGithubRepository(
             host="github.com",
@@ -469,9 +464,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     )
     monkeypatch.setattr(
         "jj_review.commands.cleanup._stale_change_reasons",
-        lambda **kwargs: {
-            change_id: None for change_id in kwargs["change_ids"]
-        },
+        lambda **kwargs: {change_id: None for change_id in kwargs["change_ids"]},
     )
     monkeypatch.setattr(
         "jj_review.commands.cleanup._plan_stack_comment_cleanup",
@@ -528,7 +521,7 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
     )
     saved_states: list[ReviewState] = []
     prepared_cleanup = PreparedCleanup(
-        apply=True,
+        dry_run=False,
         bookmark_states={},
         github_repository=None,
         github_repository_error="GitHub unavailable",
@@ -544,9 +537,7 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
         "jj_review.commands.cleanup._stale_change_reasons",
         lambda **kwargs: {
             change_id: (
-                "local change is no longer reviewable"
-                if change_id == "stale-change"
-                else None
+                "local change is no longer reviewable" if change_id == "stale-change" else None
             )
             for change_id in kwargs["change_ids"]
         },
@@ -609,7 +600,7 @@ def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
         subject="survivor feature",
     )
     prepared_restack = PreparedRestack(
-        apply=False,
+        dry_run=True,
         prepared_status=cast(
             PreparedStatus,
             SimpleNamespace(
@@ -731,7 +722,7 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
         subject="survivor feature",
     )
     prepared_restack = PreparedRestack(
-        apply=True,
+        dry_run=False,
         prepared_status=cast(
             PreparedStatus,
             SimpleNamespace(
@@ -860,9 +851,7 @@ def test_plan_remote_branch_cleanup_blocks_when_local_bookmark_still_exists() ->
         bookmark_state=BookmarkState(
             name="review/feature-aaaaaaaa",
             local_targets=("commit-1",),
-            remote_targets=(
-                RemoteBookmarkState(remote="origin", targets=("commit-1",)),
-            ),
+            remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
         ),
         cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
         local_bookmark_forget_planned=False,
@@ -879,9 +868,7 @@ def test_plan_remote_branch_cleanup_allows_delete_when_local_forget_is_planned()
         bookmark_state=BookmarkState(
             name="review/feature-aaaaaaaa",
             local_targets=("commit-1",),
-            remote_targets=(
-                RemoteBookmarkState(remote="origin", targets=("commit-1",)),
-            ),
+            remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
         ),
         cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
         local_bookmark_forget_planned=True,
@@ -910,8 +897,7 @@ def test_plan_local_bookmark_cleanup_forgets_safe_review_bookmark() -> None:
     assert plan.action == CleanupAction(
         kind="local bookmark",
         message=(
-            "forget local bookmark review/feature-aaaaaaaa "
-            "(local change is no longer reviewable)"
+            "forget local bookmark review/feature-aaaaaaaa (local change is no longer reviewable)"
         ),
         status="planned",
     )
@@ -933,7 +919,6 @@ def test_plan_local_bookmark_cleanup_blocks_moved_review_bookmark() -> None:
     assert plan is not None
     assert plan.action.status == "blocked"
     assert "different revision" in plan.action.message
-
 
 
 def test_apply_stale_cleanup_mutation_plans_batches_remote_and_local_work() -> None:

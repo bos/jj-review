@@ -67,7 +67,7 @@ class CloseResult:
 class PreparedClose:
     """Locally prepared close inputs before any GitHub mutation."""
 
-    apply: bool
+    dry_run: bool
     cleanup: bool
     prepared_status: PreparedStatus
     state_dir: Path | None
@@ -103,7 +103,7 @@ class _CloseExecutionState:
 
 @dataclass(frozen=True, slots=True)
 class _CloseIntentState:
-    """Prepared close intent bookkeeping for resumable apply runs."""
+    """Prepared close intent bookkeeping for resumable live runs."""
 
     intent: CloseIntent | None
     intent_path: Path | None
@@ -114,7 +114,7 @@ class _CloseIntentState:
 class _CloseCleanupContext:
     """Shared dependencies for bookmark and stack-comment cleanup."""
 
-    apply: bool
+    dry_run: bool
     github_client: GithubClient
     github_repository: Any
     jj_client: JjClient
@@ -144,27 +144,26 @@ def close(
 ) -> int:
     """CLI entrypoint for `close`."""
 
-    apply = not dry_run
     context = bootstrap_context(
         repository=repository,
         config_path=config_path,
         debug=debug,
     )
     prepared_close = prepare_close(
-        apply=apply,
+        dry_run=dry_run,
         cleanup=cleanup,
         change_overrides=context.config.change,
         config=context.config.repo,
         repo_root=context.repo_root,
         revset=resolve_selected_revset(
             command_label=(
-                "close --cleanup"
-                if apply and cleanup
+                "close --cleanup --dry-run"
+                if dry_run and cleanup
                 else (
-                    "close --cleanup --dry-run"
+                    "close --cleanup"
                     if cleanup
                     else "close"
-                    if apply
+                    if not dry_run
                     else "close --dry-run"
                 )
             ),
@@ -209,7 +208,7 @@ def close(
 
 def prepare_close(
     *,
-    apply: bool,
+    dry_run: bool,
     change_overrides: dict[str, ChangeConfig],
     cleanup: bool,
     config: RepoConfig,
@@ -219,14 +218,14 @@ def prepare_close(
     """Resolve local close inputs before any GitHub inspection."""
 
     state_store = ReviewStateStore.for_repo(repo_root)
-    state_dir = state_store.require_writable() if apply else state_store.state_dir
+    state_dir = state_store.state_dir if dry_run else state_store.require_writable()
     return PreparedClose(
-        apply=apply,
+        dry_run=dry_run,
         cleanup=cleanup,
         prepared_status=prepare_status(
             change_overrides=change_overrides,
             config=config,
-            fetch_remote_state=apply,
+            fetch_remote_state=not dry_run,
             persist_bookmarks=False,
             repo_root=repo_root,
             revset=revset,
@@ -309,9 +308,7 @@ async def _stream_close_async(
             revisions=status_result.revisions,
         )
 
-        async with build_github_client(
-            base_url=github_repository.api_base_url
-        ) as github_client:
+        async with build_github_client(base_url=github_repository.api_base_url) as github_client:
             blocked = await _process_close_revisions(
                 execution_state=execution_state,
                 github_client=github_client,
@@ -344,7 +341,7 @@ def _prepare_close_execution_state(*, prepared_close: PreparedClose) -> _CloseEx
 
     prepared_status = prepared_close.prepared_status
     prepared = prepared_status.prepared
-    current_state = prepared.state_store.load() if prepared_close.apply else prepared.state
+    current_state = prepared.state_store.load() if not prepared_close.dry_run else prepared.state
     return _CloseExecutionState(
         current_state=current_state,
         next_changes=dict(current_state.changes),
@@ -360,14 +357,11 @@ def _save_close_progress(
     execution_state: _CloseExecutionState,
     prepared_close: PreparedClose,
 ) -> None:
-    """Persist saved close state when apply mode changed tracked metadata."""
+    """Persist saved close state when a live run changed tracked metadata."""
 
     prepared = prepared_close.prepared_status.prepared
     current_state = execution_state.current_state
-    if (
-        prepared_close.apply
-        and execution_state.next_changes != current_state.changes
-    ):
+    if not prepared_close.dry_run and execution_state.next_changes != current_state.changes:
         prepared.state_store.save(
             current_state.model_copy(update={"changes": execution_state.next_changes})
         )
@@ -378,9 +372,9 @@ def _start_close_intent(
     prepared_close: PreparedClose,
     revisions,
 ) -> _CloseIntentState:
-    """Write close intent metadata for resumable apply runs."""
+    """Write close intent metadata for resumable live runs."""
 
-    if not prepared_close.apply or prepared_close.state_dir is None:
+    if prepared_close.dry_run or prepared_close.state_dir is None:
         return _CloseIntentState(intent=None, intent_path=None, stale_intents=[])
 
     prepared_status = prepared_close.prepared_status
@@ -443,7 +437,7 @@ def _close_result(
     prepared = prepared_close.prepared_status.prepared
     return CloseResult(
         actions=actions,
-        applied=prepared_close.apply if applied is None else applied,
+        applied=(not prepared_close.dry_run) if applied is None else applied,
         blocked=blocked,
         cleanup=prepared_close.cleanup,
         github_error=github_error,
@@ -473,8 +467,7 @@ async def _process_close_revision(
             CloseAction(
                 kind="close",
                 message=(
-                    lookup.message
-                    or "cannot safely determine the pull request for this path"
+                    lookup.message or "cannot safely determine the pull request for this path"
                 ),
                 status="blocked",
             )
@@ -601,10 +594,10 @@ async def _process_open_close_revision(
         CloseAction(
             kind="pull request",
             message=f"close PR #{pull_request_number} for {revision_label}",
-            status="applied" if prepared_close.apply else "planned",
+            status="planned" if prepared_close.dry_run else "applied",
         )
     )
-    if prepared_close.apply:
+    if not prepared_close.dry_run:
         await github_client.close_pull_request(
             github_repository.owner,
             github_repository.repo,
@@ -646,11 +639,15 @@ async def _process_closed_close_revision(
     revision_label: str,
 ) -> None:
     lookup = revision.pull_request_lookup
-    pr_state = "merged" if (
-        lookup is not None
-        and lookup.pull_request is not None
-        and lookup.pull_request.merged_at is not None
-    ) else "closed"
+    pr_state = (
+        "merged"
+        if (
+            lookup is not None
+            and lookup.pull_request is not None
+            and lookup.pull_request.merged_at is not None
+        )
+        else "closed"
+    )
     if cached_change.pr_state == "merged":
         pr_state = "merged"
 
@@ -693,7 +690,7 @@ def _record_retired_cached_change(
             CloseAction(
                 kind="tracking",
                 message=f"stop saved jj-review tracking for {revision_label}",
-                status="applied" if prepared_close.apply else "planned",
+                status="planned" if prepared_close.dry_run else "applied",
             )
         )
     return updated_change
@@ -716,7 +713,7 @@ async def _cleanup_if_requested(
     prepared = prepared_close.prepared_status.prepared
     remote = prepared.remote
     cleanup_context = _CloseCleanupContext(
-        apply=prepared_close.apply,
+        dry_run=prepared_close.dry_run,
         github_client=github_client,
         github_repository=github_repository,
         jj_client=prepared.client,
@@ -775,10 +772,10 @@ async def _cleanup_revision(
                     f"delete stack summary comment #{comment.id} from PR "
                     f"#{cached_change.pr_number}"
                 ),
-                status="applied" if context.apply else "planned",
+                status="planned" if context.dry_run else "applied",
             )
         )
-        if context.apply:
+        if not context.dry_run:
             await context.github_client.delete_issue_comment(
                 context.github_repository.owner,
                 context.github_repository.repo,
@@ -883,7 +880,7 @@ def _apply_review_bookmark_cleanup(
     context: _CloseCleanupContext,
     cleanup_plan: _BookmarkCleanupPlan,
 ) -> None:
-    """Record and optionally apply validated bookmark cleanup mutations."""
+    """Record and optionally execute validated bookmark cleanup mutations."""
 
     if bookmark is None:
         return
@@ -893,10 +890,10 @@ def _apply_review_bookmark_cleanup(
             CloseAction(
                 kind="remote branch",
                 message=f"delete remote branch {bookmark}@{context.remote_name}",
-                status="applied" if context.apply else "planned",
+                status="planned" if context.dry_run else "applied",
             )
         )
-        if context.apply:
+        if not context.dry_run:
             if context.remote_name is None or commit_id is None:
                 raise AssertionError("Planned remote branch deletion requires a target.")
             context.jj_client.delete_remote_bookmarks(
@@ -909,10 +906,10 @@ def _apply_review_bookmark_cleanup(
             CloseAction(
                 kind="local bookmark",
                 message=f"forget local bookmark {bookmark}",
-                status="applied" if context.apply else "planned",
+                status="planned" if context.dry_run else "applied",
             )
         )
-        if context.apply:
+        if not context.dry_run:
             context.jj_client.forget_bookmarks((bookmark,))
 
 

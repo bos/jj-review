@@ -163,7 +163,7 @@ Here is the workflow this tool is built around:
    `main` upward.
 4. Revise your commits locally as reviews come in.
 5. Re-run `jj-review submit --current`. This will update the PRs.
-6. Land the ready parts with `jj-review land --current --apply`.
+6. Land the ready parts with `jj-review land --current`.
 
 The nice part is that you get to keep thinking in terms of local logical
 changes, not a maze of long-lived Git branches.
@@ -182,11 +182,11 @@ changes, not a maze of long-lived Git branches.
   Interactive terminals also show a progress bar while GitHub inspection runs.
 - `jj-review land --current`
   Preview what can be landed now.
-- `jj-review land --current --apply`
+- `jj-review land --current`
   Land the ready prefix of the current stack.
 - `jj-review close --current`
   Preview closing the current stack on GitHub.
-- `jj-review close --current --apply`
+- `jj-review close --current`
   Close the tracked PRs for the current stack, and use `--cleanup` to also
   remove verified review branches, local bookmarks, and saved jj-review state.
 - `jj-review cleanup`

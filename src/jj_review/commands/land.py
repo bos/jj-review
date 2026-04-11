@@ -87,9 +87,9 @@ class LandResult:
 
 @dataclass(frozen=True, slots=True)
 class PreparedLand:
-    """Locally prepared land inputs before GitHub planning and apply."""
+    """Locally prepared land inputs before GitHub planning and execution."""
 
-    apply: bool
+    dry_run: bool
     bypass_readiness: bool
     config: RepoConfig
     expect_pr_number: int | None
@@ -130,7 +130,7 @@ class _ResumeLandIntent:
 
 @dataclass(frozen=True, slots=True)
 class _LandExecutionState:
-    """Resolved apply-mode land state after resume checks."""
+    """Resolved live-run land state after resume checks."""
 
     execution_plan: _LandPlan
     follow_up: str | None
@@ -174,14 +174,13 @@ def land(
 ) -> int:
     """CLI entrypoint for `land`."""
 
-    apply = not dry_run
     context = bootstrap_context(
         repository=repository,
         config_path=config_path,
         debug=debug,
     )
     prepared_land = prepare_land(
-        apply=apply,
+        dry_run=dry_run,
         bypass_readiness=bypass_readiness,
         change_overrides=context.config.change,
         config=context.config.repo,
@@ -216,7 +215,7 @@ def land(
 
 def prepare_land(
     *,
-    apply: bool,
+    dry_run: bool,
     bypass_readiness: bool,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
@@ -224,7 +223,7 @@ def prepare_land(
     repo_root: Path,
     revset: str | None,
 ) -> PreparedLand:
-    """Resolve local landing inputs before GitHub planning and apply."""
+    """Resolve local landing inputs before GitHub planning and execution."""
 
     prepared_status = prepare_status(
         change_overrides=change_overrides,
@@ -261,12 +260,10 @@ def prepare_land(
         )
 
     state_dir = (
-        prepared.state_store.require_writable()
-        if apply
-        else prepared.state_store.state_dir
+        prepared.state_store.state_dir if dry_run else prepared.state_store.require_writable()
     )
     return PreparedLand(
-        apply=apply,
+        dry_run=dry_run,
         bypass_readiness=bypass_readiness,
         config=config,
         expect_pr_number=expect_pr_number,
@@ -276,7 +273,7 @@ def prepare_land(
 
 
 def stream_land(*, prepared_land: PreparedLand) -> LandResult:
-    """Inspect GitHub state for the prepared path and optionally apply `land`."""
+    """Inspect GitHub state for the prepared path and optionally execute `land`."""
 
     status_result = stream_status(prepared_status=prepared_land.prepared_status)
     return asyncio.run(
@@ -335,7 +332,7 @@ async def _stream_land_async(
             selected_revset=status_result.selected_revset,
             total_change_count=len(prepared_status.prepared.status_revisions),
         )
-        if not prepared_land.apply:
+        if prepared_land.dry_run:
             return LandResult(
                 actions=_planned_land_actions(plan=plan),
                 applied=False,
@@ -493,6 +490,8 @@ async def _stream_land_async(
             if succeeded:
                 retire_superseded_intents(execution_state.stale_intents, land_intent)
                 intent_path.unlink(missing_ok=True)
+
+
 def _prepare_land_execution_state(
     *,
     follow_up: str | None,
@@ -505,22 +504,23 @@ def _prepare_land_execution_state(
     trunk_branch: str,
     trunk_subject: str,
 ) -> _LandExecutionState:
-    """Resolve resume state before apply-mode execution."""
+    """Resolve resume state before live execution."""
 
     state_dir = prepared_land.state_dir
     if state_dir is None:
-        raise AssertionError("Apply mode requires a writable state directory.")
+        raise AssertionError("Live execution requires a writable state directory.")
 
-    current_landed_change_ids = tuple(
-        revision.change_id for revision in plan.landed_revisions
+    current_landed_change_ids = tuple(revision.change_id for revision in plan.landed_revisions)
+    stale_intents = check_same_kind_intent(
+        state_dir,
+        _build_land_intent(
+            bypass_readiness=prepared_land.bypass_readiness,
+            expect_pr_number=prepared_land.expect_pr_number,
+            landed_revisions=plan.landed_revisions,
+            prepared_status=prepared_status,
+            trunk_branch=trunk_branch,
+        ),
     )
-    stale_intents = check_same_kind_intent(state_dir, _build_land_intent(
-        bypass_readiness=prepared_land.bypass_readiness,
-        expect_pr_number=prepared_land.expect_pr_number,
-        landed_revisions=plan.landed_revisions,
-        prepared_status=prepared_status,
-        trunk_branch=trunk_branch,
-    ))
     resume_intent = _find_resume_land_intent(
         bypass_readiness=prepared_land.bypass_readiness,
         current_landed_change_ids=current_landed_change_ids,
@@ -609,7 +609,7 @@ def _report_stale_land_intents(
     resume_intent: _ResumeLandIntent | None,
     stale_intents: list[LoadedIntent],
 ) -> None:
-    """Print resumable land intent diagnostics for apply-mode execution."""
+    """Print resumable land intent diagnostics for live execution."""
 
     for loaded in stale_intents:
         if not isinstance(loaded.intent, LandIntent):
@@ -659,9 +659,7 @@ def _build_land_plan(
     )
 
     if expect_pr_number is not None:
-        actual_pr_number = (
-            landed_revisions[-1].pull_request_number if landed_revisions else None
-        )
+        actual_pr_number = landed_revisions[-1].pull_request_number if landed_revisions else None
         if actual_pr_number != expect_pr_number:
             return _LandPlan(
                 blocked=True,
@@ -870,6 +868,7 @@ def _planned_land_actions(*, plan: _LandPlan) -> tuple[LandAction, ...]:
     if plan.boundary_action is not None:
         actions.append(plan.boundary_action)
     return tuple(actions)
+
 
 def _find_resume_land_intent(
     *,
@@ -1166,18 +1165,14 @@ def _build_land_intent(
         ordered_change_ids=ordered_change_ids,
         ordered_commit_ids=ordered_commit_ids,
         landed_change_ids=landed_change_ids,
-        landed_bookmarks={
-            revision.change_id: revision.bookmark for revision in landed_revisions
-        },
+        landed_bookmarks={revision.change_id: revision.bookmark for revision in landed_revisions},
         landed_commit_ids={
             revision.change_id: revision.commit_id for revision in landed_revisions
         },
         landed_pull_request_numbers={
             revision.change_id: revision.pull_request_number for revision in landed_revisions
         },
-        landed_subjects={
-            revision.change_id: revision.subject for revision in landed_revisions
-        },
+        landed_subjects={revision.change_id: revision.subject for revision in landed_revisions},
         completed_change_ids=(),
         trunk_branch=trunk_branch,
         trunk_commit_id=prepared_status.prepared.stack.trunk.commit_id,
