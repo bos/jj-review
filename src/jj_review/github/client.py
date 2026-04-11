@@ -143,7 +143,7 @@ class GithubClient:
                 response_name="pull request batch lookup",
             )
             for number in chunk:
-                alias = _pull_request_alias(number)
+                alias = f"pr_{number}"
                 raw_pull_request = repository.get(alias)
                 if raw_pull_request is None:
                     results[number] = None
@@ -172,7 +172,7 @@ class GithubClient:
         results: dict[str, tuple[GithubPullRequest, ...]] = {}
         for chunk in _chunked(refs, size=_GRAPHQL_PULL_REQUEST_BATCH_SIZE):
             aliases = {
-                _pull_request_head_ref_alias(index): head_ref
+                f"head_{index}": head_ref
                 for index, head_ref in enumerate(chunk)
             }
             query = _pull_requests_by_head_ref_query(aliases)
@@ -220,7 +220,7 @@ class GithubClient:
                 response_name="pull request review decision lookup",
             )
             for number in chunk:
-                alias = _pull_request_alias(number)
+                alias = f"pr_{number}"
                 raw_pull_request = repository.get(alias)
                 results[number] = _review_decision_from_graphql(
                     alias=alias,
@@ -655,18 +655,10 @@ def _chunked(
     return [tuple(values[index : index + size]) for index in range(0, len(values), size)]
 
 
-def _pull_request_alias(number: int) -> str:
-    return f"pr_{number}"
-
-
-def _pull_request_head_ref_alias(index: int) -> str:
-    return f"head_{index}"
-
-
 def _pull_requests_by_number_query(numbers: Sequence[int]) -> str:
     selections = "\n".join(
         (
-            f"      {_pull_request_alias(number)}: pullRequest(number: {number}) {{\n"
+            f"      pr_{number}: pullRequest(number: {number}) {{\n"
             f"{_pull_request_graphql_selection(indent='        ')}\n"
             "      }"
         )
@@ -705,7 +697,7 @@ def _pull_requests_by_head_ref_query(aliases: dict[str, str]) -> str:
 def _pull_request_review_decisions_query(numbers: Sequence[int]) -> str:
     selections = "\n".join(
         (
-            f"      {_pull_request_alias(number)}: pullRequest(number: {number}) {{\n"
+            f"      pr_{number}: pullRequest(number: {number}) {{\n"
             "        latestOpinionatedReviews(first: 100) {\n"
             "          nodes {\n"
             "            state\n"
