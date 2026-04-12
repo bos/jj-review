@@ -751,6 +751,7 @@ The tool can stay small. A reasonable surface would be:
 - `jj review cleanup [--restack] [--dry-run] [<revset>]`
 - `jj review import [--fetch] [--pull-request <pr> | --revset <revset>]`
 - `jj review land [--dry-run] [--expect-pr <pr>] [<revset>]`
+- `jj review abort [--dry-run]`
 - `jj review completion <bash|zsh|fish>`
 
 The standalone executable may also expose `completion` as auxiliary CLI glue
@@ -936,6 +937,32 @@ when:
 
 It should not stop merely because fetched GitHub merges created extra visible
 revisions or moved pull request branches to merge commits.
+
+### Abort Semantics
+
+`jj review abort` retracts the completed work from an interrupted jj-review
+operation. It reads the outstanding intent file to determine what was in
+progress, checks saved jj-review data to identify what completed before the
+interruption, then retracts those completed steps and removes the intent file.
+
+For a submit operation, retraction means: close any open PRs that were created
+or updated, delete the corresponding remote branches, forget local bookmarks,
+and clear saved jj-review state entries for the aborted changes.
+
+For operations that mutate local `jj` history (cleanup restack) or that cannot
+be automatically reversed (land, close), abort only removes the intent file and
+reports a diagnostic so the operator knows to inspect state manually.
+
+`abort` should mutate by default, with `--dry-run` available to preview the
+planned retraction steps before any changes are made. Retraction is
+conservative: it only removes state that jj-review can prove was written during
+this operation, and fails closed rather than guessing when the evidence is
+ambiguous.
+
+`abort` operates on all outstanding intent files for the current repository.
+Outstanding means the intent is for changes that still exist locally (not stale
+by the standard change-ID resolution check). If only stale intents are found,
+`abort` reports them and suggests `cleanup` instead.
 
 ### Landing and Merge Lifecycle
 

@@ -25,6 +25,7 @@ def configure_submit_environment(
 ) -> Path:
     return configure_fake_github_environment(
         command_modules=(
+            "jj_review.commands.abort",
             "jj_review.commands.submit",
             "jj_review.commands.relink",
             "jj_review.commands.close",

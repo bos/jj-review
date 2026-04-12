@@ -131,6 +131,12 @@ Recent refactor slices:
   README is narrowed to the install path, five-minute quickstart, and links
   into task-oriented guides instead of mixing contributor notes with the full
   user workflow
+- `abort` ships as a top-level support command that reads the outstanding intent
+  file, retracts completed work for an interrupted submit (close PRs, delete
+  remote branches, forget local bookmarks, clear saved state), and removes the
+  intent file; for non-retractable intents it removes the file and explains what
+  manual inspection may be needed; `--dry-run` previews the retraction plan
+  without mutating anything
 
 ## Executable Surface
 

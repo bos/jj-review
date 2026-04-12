@@ -7,19 +7,13 @@ current slices.
 
 Intent files now act as the concurrency lock, mutating commands hard-fail when
 saved jj-review data is unavailable, saved-data writes are incremental during
-mutating operations, and `status` surfaces outstanding and stale incomplete
-operations.
+mutating operations, `status` surfaces outstanding and stale incomplete
+operations, and `abort` retracts completed work from an interrupted submit and
+removes the intent file.
 
-The remaining follow-up in this area is explicit abort support.
-
-## Aborting Incomplete Operations
-
-Once intent files and incremental saved-data writes are in place,
-`submit --abort` and `cleanup --abort` become well-defined: use the intent file
-to identify what was in progress and the saved data to identify what
-completed, then retract the completed work (close PRs, delete remote branches,
-revert local bookmarks, clear saved-data entries) and remove the intent file.
-Design separately; don't tie to the intent file implementation.
+The remaining follow-up in this area is extending abort to cover partial land
+retraction and `close` reversal (reopening closed PRs), both of which require
+GitHub access and careful ordering of retraction steps.
 
 ## Concurrency and Rate Limiting
 

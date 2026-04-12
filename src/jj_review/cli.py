@@ -71,6 +71,7 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
         (
             _HelpCommand("cleanup", commands.cleanup.HELP),
             _HelpCommand("import", commands.import_.HELP),
+            _HelpCommand("abort", commands.abort.HELP),
         ),
     ),
     (
@@ -413,6 +414,27 @@ def build_parser() -> ArgumentParser:
             repository=args.repository,
             restack=args.restack,
             revset=args.revset,
+        )
+    )
+
+    abort_parser = subparsers.add_parser(
+        "abort",
+        help=_normalized_help_text(commands.abort.HELP),
+        description=_normalized_help_text(commands.abort.__doc__ or ""),
+    )
+    _add_common_options(abort_parser)
+    _normalize_help_action_text(abort_parser)
+    abort_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the retraction plan without mutating local, remote, or GitHub state",
+    )
+    abort_parser.set_defaults(
+        handler=lambda args: commands.abort.abort(
+            config_path=args.config,
+            debug=args.debug,
+            dry_run=args.dry_run,
+            repository=args.repository,
         )
     )
 
