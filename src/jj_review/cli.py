@@ -332,8 +332,8 @@ def build_parser() -> ArgumentParser:
         "--bypass-readiness",
         action="store_true",
         help=(
-            "Ignore draft and review-decision readiness gates while keeping "
-            "normal safety checks"
+            "Skip draft and review-decision checks while keeping normal "
+            "safety checks"
         ),
     )
     land_parser.add_argument(
@@ -364,7 +364,7 @@ def build_parser() -> ArgumentParser:
     close_parser.add_argument(
         "--cleanup",
         action="store_true",
-        help="Also clean up pull request branches and saved jj-review data for the stack",
+        help="Also delete the review branches and tracking data for the stack",
     )
     _add_import_parser(
         subparsers,
@@ -427,7 +427,7 @@ def build_parser() -> ArgumentParser:
     abort_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the retraction plan without mutating local, remote, or GitHub state",
+        help="Show what would be undone without changing anything",
     )
     abort_parser.set_defaults(
         handler=lambda args: commands.abort.abort(
