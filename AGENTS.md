@@ -10,6 +10,13 @@
 - Hard-wrap new prose at 96-98 columns unless the file uses a different
   convention.
 
+# Documentation
+
+- User-facing docs live in `docs/`. See [docs/AGENTS.md](docs/AGENTS.md) for
+  the vocabulary rules and the public/internal split. Built-in `--help` text
+  is held to the same standard as the user docs: assume jj/git familiarity,
+  avoid `jj-review` internal design jargon.
+
 # Behaviour changes
 
 - In user-facing output, identify revisions by `change_id` by default. If a
