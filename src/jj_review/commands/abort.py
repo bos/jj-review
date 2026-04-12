@@ -1,7 +1,10 @@
-"""Retract an incomplete jj-review operation identified by its intent file.
+"""Undo an interrupted jj-review operation.
 
-Use `--dry-run` to preview the retraction plan without mutating local,
-remote, or GitHub state.
+Finds any operation that was cut short, retracts what it completed (closes
+opened PRs, deletes pushed review branches, forgets local bookmarks, clears
+tracking data), and cleans up the leftover operation state.
+
+Use `--dry-run` to preview what would be undone without changing anything.
 """
 
 from __future__ import annotations
@@ -28,7 +31,7 @@ from jj_review.models.intent import (
     SubmitIntent,
 )
 
-HELP = "Retract an incomplete jj-review operation"
+HELP = "Undo an interrupted jj-review operation"
 
 logger = logging.getLogger(__name__)
 
