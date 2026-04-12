@@ -1,9 +1,8 @@
 """Land the consecutive changes above `trunk()` that are ready to land now.
 
-By default, `land` requires each pull request in that prefix to be open, not
-draft, approved, and free of outstanding changes requested. Use
-`--bypass-readiness` to ignore those readiness gates while still enforcing the
-normal safety checks.
+By default, `land` requires each pull request to be open, not draft, approved,
+and free of outstanding changes requested. Use `--bypass-readiness` to skip
+those checks while still enforcing the normal safety checks.
 
 By default, this command performs the landing. Use `--dry-run` to inspect the
 landing plan without mutating jj or GitHub state.
@@ -57,7 +56,7 @@ from jj_review.review_inspection import (
     stream_status,
 )
 
-HELP = "Land the ready prefix of a stack"
+HELP = "Land the ready changes at the bottom of a stack"
 
 LandActionStatus = Literal["applied", "blocked", "planned"]
 
