@@ -1,11 +1,10 @@
 """Show how the selected jj stack currently appears on GitHub.
 
-This reports the pull requests and GitHub branches jj-review is using for each
-change without changing anything. By default it starts with capped submitted
-and unsubmitted summaries, then prints the trunk/base footer through the same
-native `jj log` rendering path; `--verbose` expands the summary sections. In
-interactive terminals, GitHub inspection also shows a progress bar on stderr
-while the final summaries are prepared.
+This reports the pull requests and review branches jj-review is using for each
+change without changing anything. By default it shows a summary of submitted
+and unsubmitted changes above the trunk row; `--verbose` expands those
+summaries. In interactive terminals a progress bar appears while GitHub is
+being queried.
 """
 
 from __future__ import annotations
