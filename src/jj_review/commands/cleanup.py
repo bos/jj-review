@@ -1,8 +1,8 @@
-"""Find stale jj-review remote branches and saved local data left behind by
+"""Find and remove stale review branches and tracking data left behind by
 earlier review work.
 
-By default, this removes the safe stale data repo-wide, and with `--restack`
-it can also restack local descendants after earlier pull requests were merged.
+By default, this removes safe stale data repo-wide, and with `--restack` it
+can also rebase local descendants above changes that have already been merged.
 Use `--dry-run` to preview those actions without mutating local or remote
 state.
 """
