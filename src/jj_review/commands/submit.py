@@ -249,6 +249,7 @@ def submit(
     draft: bool,
     draft_all: bool,
     dry_run: bool,
+    labels: Sequence[str] | None,
     publish: bool,
     repository: Path | None,
     reviewers: Sequence[str] | None,
@@ -268,6 +269,7 @@ def submit(
         require_explicit=False,
         revset=revset,
     )
+    label_list = parse_comma_separated_flag_values(labels)
     reviewer_list = parse_comma_separated_flag_values(reviewers)
     team_reviewer_list = parse_comma_separated_flag_values(team_reviewers)
     emitted_prepared = False
@@ -296,6 +298,7 @@ def submit(
                 publish=publish,
             ),
             dry_run=dry_run,
+            labels=label_list,
             on_prepared=emit_prepared,
             on_trunk_resolved=lambda *_args: None,
             repo_root=context.repo_root,
@@ -687,6 +690,7 @@ async def _run_submit_async(
     describe_with: str | None,
     draft_mode: SubmitDraftMode,
     dry_run: bool,
+    labels: list[str] | None,
     on_prepared: Callable[[str, str, str, bool], None] | None,
     on_trunk_resolved: Callable[[str, str, str, bool], None] | None,
     repo_root: Path,
@@ -739,6 +743,7 @@ async def _run_submit_async(
         )
 
     github_repository = require_github_repo(remote)
+    resolved_labels = config.labels if labels is None else labels
     resolved_reviewers = config.reviewers if reviewers is None else reviewers
     resolved_team_reviewers = config.team_reviewers if team_reviewers is None else team_reviewers
     state_changes = dict(bookmark_result.state.changes)
@@ -805,7 +810,7 @@ async def _run_submit_async(
                 github_repository=github_repository,
                 prepared_revisions=prepared_revisions,
                 discovered_pull_requests=discovered_pull_requests,
-                labels=config.labels,
+                labels=resolved_labels,
                 reviewers=resolved_reviewers,
                 state=bookmark_result.state,
                 state_changes=state_changes,

@@ -167,6 +167,7 @@ def build_parser() -> ArgumentParser:
             draft=args.draft,
             draft_all=args.draft_all,
             dry_run=args.dry_run,
+            labels=args.labels,
             publish=args.publish,
             repository=args.repository,
             reviewers=args.reviewers,
@@ -212,6 +213,17 @@ def build_parser() -> ArgumentParser:
         "--publish",
         action="store_true",
         help="Mark existing draft pull requests ready for review on submit",
+    )
+    submit_parser.add_argument(
+        "--label",
+        dest="labels",
+        action="append",
+        help=_normalized_help_text(
+            """
+            Comma-separated GitHub labels to apply to submitted pull requests;
+            repeat to add more; overrides configured labels
+            """
+        ),
     )
     submit_parser.add_argument(
         "--reviewers",

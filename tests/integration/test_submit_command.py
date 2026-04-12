@@ -1422,6 +1422,50 @@ def test_submit_cli_reviewers_override_configured_reviewers(
     assert fake_repo.pull_requests[1].requested_reviewers == ["alice", "bob", "carol"]
     assert fake_repo.pull_requests[1].requested_team_reviewers == ["platform", "infra"]
 
+
+def test_submit_cli_labels_override_configured_labels(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
+    config_path = write_config(
+        tmp_path,
+        fake_repo,
+        extra_lines=[
+            'labels = ["config-label"]',
+        ],
+    )
+    commit_file(repo, "feature 1", "feature-1.txt")
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    patch_github_client_builders(
+        monkeypatch,
+        app=app,
+        fake_repo=fake_repo,
+        modules=("jj_review.commands.submit",),
+    )
+
+    exit_code = run_main(
+        repo,
+        config_path,
+        "submit",
+        "--label",
+        "needs-review,backend",
+        "--label",
+        "triaged,backend",
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "PR #1" in captured.out
+    assert fake_repo.pull_requests[1].labels == [
+        "needs-review",
+        "backend",
+        "triaged",
+    ]
+
 def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
     tmp_path: Path,
     monkeypatch,
