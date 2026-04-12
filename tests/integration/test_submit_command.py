@@ -1028,6 +1028,47 @@ def test_submit_fails_closed_when_cached_pull_request_is_missing_on_github(
     assert read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
     assert fake_repo.pull_requests == {}
 
+
+def test_submit_fails_closed_when_saved_pull_request_number_differs_for_head_branch(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+    bookmark = initial_state.changes[change_id].bookmark
+    assert bookmark is not None
+    initial_remote_target = read_remote_ref(fake_repo.git_dir, bookmark)
+
+    del fake_repo.pull_requests[1]
+    fake_repo.create_pull_request(
+        base_ref="main",
+        body="feature 1",
+        head_ref=bookmark,
+        title="feature 1 reopened",
+    )
+
+    exit_code = run_main(repo, config_path, "submit", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Saved pull request #1 does not match" in captured.err
+    assert "status --fetch" in captured.err
+    assert "relink" in captured.err
+    assert state_store.load() == initial_state
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
+    assert set(fake_repo.pull_requests) == {2}
+
+
 def test_submit_fails_closed_when_github_reports_multiple_pull_requests(
     tmp_path: Path,
     monkeypatch,
@@ -1064,6 +1105,40 @@ def test_submit_fails_closed_when_github_reports_multiple_pull_requests(
     assert state_store.load() == initial_state
     assert read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
     assert set(fake_repo.pull_requests) == {1, 2}
+
+
+def test_submit_fails_closed_when_github_reports_closed_pull_request_for_head_branch(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+    bookmark = initial_state.changes[change_id].bookmark
+    assert bookmark is not None
+    initial_remote_target = read_remote_ref(fake_repo.git_dir, bookmark)
+    fake_repo.pull_requests[1].state = "closed"
+
+    exit_code = run_main(repo, config_path, "submit", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "in state 'closed'" in captured.err
+    assert "status --fetch" in captured.err
+    assert "relink" in captured.err
+    assert state_store.load() == initial_state
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
+    assert fake_repo.pull_requests[1].state == "closed"
+
 
 def test_submit_reports_no_reviewable_commits_without_mutation_when_head_is_trunk(
     tmp_path: Path,
