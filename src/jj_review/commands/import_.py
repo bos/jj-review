@@ -1,12 +1,12 @@
-"""Set up local jj-review tracking for an existing reviewed stack.
+"""Connect jj-review to an existing stack of pull requests.
 
 By default, `import` tries to match the current stack headed by `@-` to the
 existing pull requests for that stack.
 
-Use `--pull-request` to select a specific reviewed stack, or `--revset` to
-select a different local stack. Use `--fetch` when the stack is not available
-locally yet; for an explicit pull request, this fetches the needed review
-branches first and then imports the stack.
+Use `--pull-request` to select a specific stack by PR number or URL, or
+`--revset` to point at a different local stack. Use `--fetch` when the review
+branches are not available locally yet; this fetches them first and then sets
+up tracking.
 
 `import` does not rewrite commits, restack changes, or modify GitHub.
 """
@@ -44,7 +44,7 @@ from jj_review.review_inspection import (
     stream_status_async,
 )
 
-HELP = "Set up local jj-review tracking for an existing stack"
+HELP = "Connect jj-review to an existing stack of pull requests"
 
 _DISPLAY_CHANGE_ID_LENGTH = 8
 ImportActionStatus = Literal["applied"]
