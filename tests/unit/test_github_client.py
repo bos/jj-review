@@ -304,6 +304,31 @@ def test_github_client_batches_pull_request_lookup_by_number_with_graphql() -> N
     )
 
 
+def test_github_client_rejects_graphql_payload_missing_repository_data() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/graphql"
+        return httpx.Response(
+            200,
+            json={"data": {}},
+            request=request,
+        )
+
+    async def run_test() -> None:
+        transport = httpx.MockTransport(handler)
+        async with GithubClient(
+            base_url="https://api.github.test",
+            transport=transport,
+        ) as client:
+            await client.get_pull_requests_by_numbers(
+                "octo-org",
+                "stacked-review",
+                pull_numbers=(7,),
+            )
+
+    with pytest.raises(GithubClientError, match="missing repository data"):
+        asyncio.run(run_test())
+
+
 def test_github_client_batches_pull_request_lookup_by_head_ref_with_graphql() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/graphql"
