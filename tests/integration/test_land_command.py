@@ -169,6 +169,34 @@ def test_land_blocks_unapproved_prefix_by_default(
     assert "Land blocked:" in captured.out
     assert "PR #1 is not approved" in captured.out
 
+
+def test_land_blocks_expect_pr_mismatch_without_mutating_state(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    approve_pull_requests(fake_repo, 1)
+
+    stack = JjClient(repo).discover_review_stack()
+    trunk_commit_id = stack.trunk.commit_id
+
+    exit_code = run_main(repo, config_path, "land", "--expect-pr", "2")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Land blocked:" in captured.out
+    assert "`--expect-pr 2` did not match" in captured.out
+    assert fake_repo.pull_requests[1].state == "open"
+    assert read_remote_ref(fake_repo.git_dir, "main") == trunk_commit_id
+    assert list(resolve_state_path(repo).parent.glob("incomplete-*.json")) == []
+
+
 def test_land_bypass_readiness_previews_and_finalizes_unapproved_change(
     tmp_path: Path,
     monkeypatch,

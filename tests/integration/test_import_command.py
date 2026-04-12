@@ -93,6 +93,31 @@ def test_import_current_rejects_remote_branches_without_pull_requests(
     assert ReviewStateStore.for_repo(repo).load().changes == {}
 
 
+def test_import_pull_request_rejects_cross_repository_heads(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = _configure_import_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    state_before = ReviewStateStore.for_repo(repo).load()
+    fake_repo.pull_requests[2].head_label = (
+        f"someone-else:{fake_repo.pull_requests[2].head_ref}"
+    )
+
+    exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "does not belong to" in captured.err
+    assert "same-repository pull request branches" in captured.err
+    assert ReviewStateStore.for_repo(repo).load().changes == state_before.changes
+
+
 def test_import_reports_up_to_date_when_selected_stack_is_already_imported(
     tmp_path: Path,
     monkeypatch,

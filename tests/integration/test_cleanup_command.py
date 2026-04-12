@@ -8,6 +8,7 @@ import pytest
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
+from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.intent import CleanupIntent
 
 from ..support.integration_helpers import (
@@ -47,6 +48,30 @@ def test_cleanup_prunes_unlinked_state_for_stale_change(
     assert exit_code == 0
     assert "remove saved jj-review data" in captured.out
     assert change_id not in ReviewStateStore.for_repo(repo).load().changes
+
+
+def test_cleanup_prunes_stale_state_without_a_remote(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path, with_remote=False)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    state_store.save(ReviewState(changes={change_id: CachedChange()}))
+
+    run_command(["jj", "abandon", change_id], repo)
+
+    exit_code = run_main(repo, config_path, "cleanup")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Selected remote: unavailable" in captured.out
+    assert "remove saved jj-review data" in captured.out
+    assert change_id not in state_store.load().changes
 
 
 def test_cleanup_restack_previews_and_rebases_survivor_above_merged_ancestor(
