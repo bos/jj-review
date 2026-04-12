@@ -124,6 +124,13 @@ Recent refactor slices:
 - human-authored config now loads from jj's user, repo, and workspace config
   scopes under the `jj-review` namespace instead of a separate path-matched
   config file
+- `submit` now supports CLI label overrides alongside reviewer overrides, using
+  the same repeated-flag and comma-separated parsing shape as `--reviewers`
+- user-facing onboarding docs now live directly under `docs/`, while internal
+  design and implementation notes live under `docs/internals/`; the root
+  README is narrowed to the install path, five-minute quickstart, and links
+  into task-oriented guides instead of mixing contributor notes with the full
+  user workflow
 
 ## Executable Surface
 
@@ -237,7 +244,10 @@ tests/
 tools/
   fake_github/
 docs/
-  notes/
+  mental-model.md
+  daily-workflow.md
+  troubleshooting.md
+  internals/
 ```
 
 The package name is `jj_review` for now.
@@ -414,10 +424,11 @@ intended fix before implementing it.
 
 Use these documents with a clear split:
 
-- update `docs/notes/design.md` first if the change affects product behavior,
+- update `docs/internals/design.md` first if the change affects product
+  behavior,
   persistence boundaries, invariants, or user-visible semantics
-- update `docs/notes/implementation-strategy.md` if the change is primarily
-  about execution strategy, staging, or component boundaries
+- update `docs/internals/implementation-strategy.md` if the change is
+  primarily about execution strategy, staging, or component boundaries
 - use the commit message to summarize what landed, not as the primary place
   where the design decision lives
 
@@ -1090,8 +1101,9 @@ The command also needs explicit phase boundaries so retries are idempotent:
 3. replay the changes that can be landed now onto trunk locally in `jj`,
    preserving them as a stack of commits, then push the resulting trunk tip
    with a lease
-4. only after that succeeds, update saved jj-review data and apply the exact
-   PR bookkeeping for the landed changes
+4. only after that succeeds, update saved jj-review data, finalize the exact
+   landed PRs, and forget the landed local `review/*` bookmarks when they
+   still point at the landed commits
 5. leave broader saved-data pruning and stale-review cleanup to `cleanup`
 
 Error handling should stay specific instead of collapsing everything into one
@@ -1126,6 +1138,9 @@ This slice is now in place with the current implementation:
   trunk checks gate the push while `review/*` protection only prevents direct
   review-branch merges
 - review-only `review/*` branches are not themselves merged directly
+- successful `land` now forgets local `review/*` bookmarks for the exact
+  landed prefix by default, while `--skip-cleanup` retains those local
+  bookmarks for exceptional cases
 - surviving descendants above the landed changes are left for follow-up
   `cleanup --restack` and `submit`, rather than being silently retargeted or
   restacked during `land`
@@ -1138,7 +1153,8 @@ This slice is now in place with the current implementation:
   rediscovering the original landing set, while stale pre-push intents are
   ignored when the current landable prefix has changed
 - exact post-landing bookkeeping is limited to the changes landed in that run,
-  while broader stale-state cleanup remains a separate `cleanup` concern
+  including local bookmark cleanup for that landed prefix, while broader
+  stale-state cleanup remains a separate `cleanup` concern
 
 ### Stack Import
 

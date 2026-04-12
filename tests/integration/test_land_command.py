@@ -83,6 +83,8 @@ def test_land_previews_and_finalizes_maximal_ready_prefix(
     assert "push main to feature 2" in preview.out
     assert "finalize PR #1" in preview.out
     assert "finalize PR #2" in preview.out
+    assert f"forget local bookmark {bookmark_1}" in preview.out
+    assert f"forget local bookmark {bookmark_2}" in preview.out
     assert "stop before feature 3" in preview.out
     assert "cleanup --restack @-" in preview.out
     assert "submit @-" in preview.out
@@ -94,6 +96,8 @@ def test_land_previews_and_finalizes_maximal_ready_prefix(
     assert "Finalizing PR #1 for feature 1" in applied.out
     assert "Finalizing PR #2 for feature 2" in applied.out
     assert "Applied land actions:" in applied.out
+    assert f"forget local bookmark {bookmark_1}" in applied.out
+    assert f"forget local bookmark {bookmark_2}" in applied.out
     assert "cleanup --restack @-" in applied.out
     assert "submit @-" in applied.out
     assert read_remote_ref(fake_repo.git_dir, "main") == stack.revisions[1].commit_id
@@ -103,6 +107,9 @@ def test_land_previews_and_finalizes_maximal_ready_prefix(
     assert fake_repo.pull_requests[2].merged_at is not None
     assert fake_repo.pull_requests[2].base_ref == "main"
     assert fake_repo.pull_requests[3].state == "closed"
+    bookmark_states = JjClient(repo).list_bookmark_states((bookmark_1, bookmark_2))
+    assert bookmark_states[bookmark_1].local_target is None
+    assert bookmark_states[bookmark_2].local_target is None
     assert read_remote_ref(fake_repo.git_dir, bookmark_1) == stack.revisions[0].commit_id
     assert read_remote_ref(fake_repo.git_dir, bookmark_2) == stack.revisions[1].commit_id
 
@@ -112,6 +119,36 @@ def test_land_previews_and_finalizes_maximal_ready_prefix(
     assert landed_state.changes[change_id_2].pr_state == "merged"
     assert landed_state.changes[change_id_2].stack_comment_id is None
     assert landed_state.changes[change_id_3].pr_state == "closed"
+
+
+def test_land_skip_cleanup_keeps_landed_local_review_bookmark(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    approve_pull_requests(fake_repo, 1)
+
+    stack = JjClient(repo).discover_review_stack()
+    state_store = ReviewStateStore.for_repo(repo)
+    submitted_state = state_store.load()
+    change_id = stack.revisions[0].change_id
+    bookmark = submitted_state.changes[change_id].bookmark
+    if bookmark is None:
+        raise AssertionError("Expected saved bookmark after submit.")
+
+    exit_code = run_main(repo, config_path, "land", "--skip-cleanup")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert f"forget local bookmark {bookmark}" not in captured.out
+    bookmark_state = JjClient(repo).get_bookmark_state(bookmark)
+    assert bookmark_state.local_target == stack.revisions[0].commit_id
 
 def test_land_blocks_unapproved_prefix_by_default(
     tmp_path: Path,

@@ -11,6 +11,7 @@ from jj_review.commands.land import (
     _build_land_plan,
     _ensure_trunk_branch_matches_selected_trunk,
     _find_resume_land_intent,
+    _plan_review_bookmark_cleanup,
     _remote_trunk_matches_commit,
     _restore_local_trunk_bookmark,
     _resume_land_plan,
@@ -310,6 +311,7 @@ def test_find_resume_land_intent_matches_exact_path() -> None:
 
     result = _find_resume_land_intent(
         bypass_readiness=False,
+        cleanup_bookmarks=True,
         current_landed_change_ids=("change-1",),
         expect_pr_number=None,
         prepared_status=prepared_status,
@@ -334,6 +336,7 @@ def test_find_resume_land_intent_matches_tail_after_landed_prefix() -> None:
 
     result = _find_resume_land_intent(
         bypass_readiness=False,
+        cleanup_bookmarks=True,
         current_landed_change_ids=("change-2", "change-3"),
         expect_pr_number=None,
         prepared_status=prepared_status,
@@ -357,8 +360,31 @@ def test_find_resume_land_intent_returns_none_for_mismatch() -> None:
 
     result = _find_resume_land_intent(
         bypass_readiness=False,
+        cleanup_bookmarks=True,
         current_landed_change_ids=("change-1",),
         expect_pr_number=9,
+        prepared_status=prepared_status,
+        stale_intents=(loaded_intent,),
+        trunk_branch="main",
+    )
+
+    assert result is None
+
+
+def test_find_resume_land_intent_returns_none_for_cleanup_mode_mismatch() -> None:
+    prepared_status = _prepared_status(("change-1", "change-2"))
+    loaded_intent = _loaded_land_intent(
+        cleanup_bookmarks=False,
+        ordered_change_ids=("change-1", "change-2"),
+        ordered_commit_ids=("commit-1", "commit-2"),
+        landed_change_ids=("change-1",),
+    )
+
+    result = _find_resume_land_intent(
+        bypass_readiness=False,
+        cleanup_bookmarks=True,
+        current_landed_change_ids=("change-1",),
+        expect_pr_number=None,
         prepared_status=prepared_status,
         stale_intents=(loaded_intent,),
         trunk_branch="main",
@@ -456,6 +482,57 @@ def test_restore_local_trunk_bookmark_forgets_bookmark_when_original_target_miss
 
     assert client.forget_calls == ["main"]
     assert client.set_calls == []
+
+
+def test_plan_review_bookmark_cleanup_forgets_owned_landed_bookmark() -> None:
+    plan = _plan_review_bookmark_cleanup(
+        bookmark="review/feature-aaaaaaaa",
+        bookmark_state=BookmarkState(
+            name="review/feature-aaaaaaaa",
+            local_targets=("commit-1",),
+        ),
+        change_id="change-1",
+        commit_id="commit-1",
+    )
+
+    assert plan is not None
+    assert plan.can_forget is True
+    assert plan.action.message == "forget local bookmark review/feature-aaaaaaaa"
+    assert plan.action.status == "planned"
+
+
+def test_plan_review_bookmark_cleanup_blocks_conflicted_bookmark() -> None:
+    plan = _plan_review_bookmark_cleanup(
+        bookmark="review/feature-aaaaaaaa",
+        bookmark_state=BookmarkState(
+            name="review/feature-aaaaaaaa",
+            local_targets=("commit-1", "commit-2"),
+        ),
+        change_id="change-1",
+        commit_id="commit-1",
+    )
+
+    assert plan is not None
+    assert plan.can_forget is False
+    assert "is conflicted" in plan.action.message
+    assert plan.action.status == "blocked"
+
+
+def test_plan_review_bookmark_cleanup_blocks_moved_bookmark() -> None:
+    plan = _plan_review_bookmark_cleanup(
+        bookmark="review/feature-aaaaaaaa",
+        bookmark_state=BookmarkState(
+            name="review/feature-aaaaaaaa",
+            local_targets=("commit-2",),
+        ),
+        change_id="change-1",
+        commit_id="commit-1",
+    )
+
+    assert plan is not None
+    assert plan.can_forget is False
+    assert "points to a different revision" in plan.action.message
+    assert plan.action.status == "blocked"
 
 
 def test_ensure_trunk_branch_matches_selected_trunk_rejects_missing_remote_bookmark() -> None:
@@ -613,6 +690,7 @@ def _prepared_status(
 def _loaded_land_intent(
     *,
     bypass_readiness: bool = False,
+    cleanup_bookmarks: bool = True,
     ordered_change_ids: tuple[str, ...],
     ordered_commit_ids: tuple[str, ...],
     landed_change_ids: tuple[str, ...],
@@ -627,6 +705,7 @@ def _loaded_land_intent(
             pid=123,
             label="land on @-",
             bypass_readiness=bypass_readiness,
+            cleanup_bookmarks=cleanup_bookmarks,
             display_revset="@-",
             ordered_change_ids=ordered_change_ids,
             ordered_commit_ids=ordered_commit_ids,

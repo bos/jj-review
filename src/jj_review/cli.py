@@ -314,6 +314,7 @@ def build_parser() -> ArgumentParser:
             expect_pr=args.expect_pr,
             repository=args.repository,
             revset=args.revset,
+            skip_cleanup=args.skip_cleanup,
         ),
         revset_help="Revision to land; defaults to @- (the current stack head)",
     )
@@ -333,6 +334,11 @@ def build_parser() -> ArgumentParser:
             "Ignore draft and review-decision readiness gates while keeping "
             "normal safety checks"
         ),
+    )
+    land_parser.add_argument(
+        "--skip-cleanup",
+        action="store_true",
+        help="Keep landed local review bookmarks instead of forgetting them",
     )
     close_parser = _add_revision_command(
         subparsers,

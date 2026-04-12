@@ -1027,6 +1027,9 @@ successful landing transition:
 - apply that PR finalization bottom-to-top through the landed changes so the
   GitHub-side state changes follow the same stack order as submission and
   landing
+- forget the local `review/*` bookmarks for the changes that were just landed,
+  but only when those bookmarks still point at the landed commits; `--skip-cleanup`
+  may retain those local bookmarks for explicit repair or inspection work
 - if there are surviving descendants above the landed changes, tell the
   operator to repair local ancestry with `jj review cleanup --restack` and
   then rerun `submit`; `land` should not silently retarget or restack those

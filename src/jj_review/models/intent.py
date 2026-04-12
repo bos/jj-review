@@ -62,6 +62,7 @@ class RelinkIntent(OperationIntent):
 class LandIntent(OrderedChangeIdsIntent):
     kind: Literal["land"]
     bypass_readiness: bool
+    cleanup_bookmarks: bool
     ordered_commit_ids: tuple[str, ...]
     landed_change_ids: tuple[str, ...]
     landed_bookmarks: dict[str, str]

@@ -8,6 +8,10 @@ normal safety checks.
 By default, this command performs the landing. Use `--dry-run` to inspect the
 landing plan without mutating jj or GitHub state.
 
+After a successful land, `jj-review` forgets the local `review/...` bookmarks
+for the changes that actually landed when those bookmarks still point at the
+landed commits. Use `--skip-cleanup` to keep those local review bookmarks.
+
 If later changes remain above that point, run `cleanup --restack` and then
 `submit` to keep those remaining changes under review.
 """
@@ -88,6 +92,7 @@ class LandResult:
 class PreparedLand:
     """Locally prepared land inputs before GitHub planning and execution."""
 
+    cleanup_bookmarks: bool
     dry_run: bool
     bypass_readiness: bool
     config: RepoConfig
@@ -115,6 +120,16 @@ class _LandPlan:
     landed_revisions: tuple[_LandRevision, ...]
     push_trunk: bool
     trunk_branch: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ReviewBookmarkCleanupPlan:
+    """Planned post-land cleanup for one landed local review bookmark."""
+
+    action: LandAction
+    bookmark: str
+    can_forget: bool
+    change_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +184,7 @@ def land(
     expect_pr: str | None,
     repository: Path | None,
     revset: str | None,
+    skip_cleanup: bool,
 ) -> int:
     """CLI entrypoint for `land`."""
 
@@ -178,6 +194,7 @@ def land(
         debug=debug,
     )
     prepared_land = prepare_land(
+        cleanup_bookmarks=not skip_cleanup,
         dry_run=dry_run,
         bypass_readiness=bypass_readiness,
         change_overrides=context.config.change,
@@ -213,6 +230,7 @@ def land(
 
 def prepare_land(
     *,
+    cleanup_bookmarks: bool,
     dry_run: bool,
     bypass_readiness: bool,
     change_overrides: dict[str, ChangeConfig],
@@ -260,6 +278,7 @@ def prepare_land(
     if not dry_run:
         prepared.state_store.require_writable()
     return PreparedLand(
+        cleanup_bookmarks=cleanup_bookmarks,
         dry_run=dry_run,
         bypass_readiness=bypass_readiness,
         config=config,
@@ -332,9 +351,17 @@ async def _stream_land_async(
             selected_revset=status_result.selected_revset,
             total_change_count=len(prepared_status.prepared.status_revisions),
         )
+        bookmark_cleanup_plans = _plan_review_bookmark_cleanup_for_revisions(
+            client=prepared.client,
+            cleanup_bookmarks=prepared_land.cleanup_bookmarks,
+            landed_revisions=plan.landed_revisions,
+        )
         if prepared_land.dry_run:
             return LandResult(
-                actions=_planned_land_actions(plan=plan),
+                actions=_planned_land_actions(
+                    plan=plan,
+                    bookmark_cleanup_plans=bookmark_cleanup_plans,
+                ),
                 applied=False,
                 bypass_readiness=prepared_land.bypass_readiness,
                 blocked=plan.blocked,
@@ -385,6 +412,7 @@ async def _stream_land_async(
             if execution_state.resume_intent is not None
             else _build_land_intent(
                 bypass_readiness=prepared_land.bypass_readiness,
+                cleanup_bookmarks=prepared_land.cleanup_bookmarks,
                 expect_pr_number=prepared_land.expect_pr_number,
                 landed_revisions=execution_plan.landed_revisions,
                 prepared_status=prepared_status,
@@ -399,6 +427,9 @@ async def _stream_land_async(
 
         actions: list[LandAction] = []
         succeeded = False
+        bookmark_cleanup_by_change_id = {
+            cleanup_plan.change_id: cleanup_plan for cleanup_plan in bookmark_cleanup_plans
+        }
         original_trunk_target = prepared.client.get_bookmark_state(trunk_branch).local_target
         try:
             if execution_plan.push_trunk:
@@ -462,6 +493,19 @@ async def _stream_land_async(
                 prepared.state_store.save(
                     state.model_copy(update={"changes": dict(state_changes)})
                 )
+                cleanup_plan = bookmark_cleanup_by_change_id.get(landed_revision.change_id)
+                if cleanup_plan is not None:
+                    if cleanup_plan.can_forget:
+                        prepared.client.forget_bookmarks((cleanup_plan.bookmark,))
+                        actions.append(
+                            LandAction(
+                                kind="local bookmark",
+                                message=f"forget local bookmark {cleanup_plan.bookmark}",
+                                status="applied",
+                            )
+                        )
+                    else:
+                        actions.append(cleanup_plan.action)
                 land_intent = land_intent.model_copy(
                     update={
                         "completed_change_ids": tuple(
@@ -513,6 +557,7 @@ def _prepare_land_execution_state(
         state_dir,
         _build_land_intent(
             bypass_readiness=prepared_land.bypass_readiness,
+            cleanup_bookmarks=prepared_land.cleanup_bookmarks,
             expect_pr_number=prepared_land.expect_pr_number,
             landed_revisions=plan.landed_revisions,
             prepared_status=prepared_status,
@@ -521,6 +566,7 @@ def _prepare_land_execution_state(
     )
     resume_intent = _find_resume_land_intent(
         bypass_readiness=prepared_land.bypass_readiness,
+        cleanup_bookmarks=prepared_land.cleanup_bookmarks,
         current_landed_change_ids=current_landed_change_ids,
         expect_pr_number=prepared_land.expect_pr_number,
         prepared_status=prepared_status,
@@ -835,11 +881,19 @@ def _land_boundary_message(
     )
 
 
-def _planned_land_actions(*, plan: _LandPlan) -> tuple[LandAction, ...]:
+def _planned_land_actions(
+    *,
+    plan: _LandPlan,
+    bookmark_cleanup_plans: tuple[_ReviewBookmarkCleanupPlan, ...] = (),
+) -> tuple[LandAction, ...]:
     if plan.blocked:
         return () if plan.boundary_action is None else (plan.boundary_action,)
 
     actions: list[LandAction] = []
+    bookmark_cleanup_by_change_id = {
+        cleanup_plan.change_id: cleanup_plan.action
+        for cleanup_plan in bookmark_cleanup_plans
+    }
     if plan.push_trunk and plan.landed_revisions:
         actions.append(
             LandAction(
@@ -863,6 +917,9 @@ def _planned_land_actions(*, plan: _LandPlan) -> tuple[LandAction, ...]:
                     status="planned",
                 )
             )
+            cleanup_action = bookmark_cleanup_by_change_id.get(landed_revision.change_id)
+            if cleanup_action is not None:
+                actions.append(cleanup_action)
     if plan.boundary_action is not None:
         actions.append(plan.boundary_action)
     return tuple(actions)
@@ -871,6 +928,7 @@ def _planned_land_actions(*, plan: _LandPlan) -> tuple[LandAction, ...]:
 def _find_resume_land_intent(
     *,
     bypass_readiness: bool,
+    cleanup_bookmarks: bool,
     current_landed_change_ids: tuple[str, ...],
     expect_pr_number: int | None,
     prepared_status: PreparedStatus,
@@ -893,6 +951,8 @@ def _find_resume_land_intent(
         if intent.display_revset != prepared_status.selected_revset:
             continue
         if intent.bypass_readiness != bypass_readiness:
+            continue
+        if intent.cleanup_bookmarks != cleanup_bookmarks:
             continue
         if intent.expected_pr_number != expect_pr_number or intent.trunk_branch != trunk_branch:
             continue
@@ -976,6 +1036,82 @@ def _restore_local_trunk_bookmark(
         client.forget_bookmarks((trunk_branch,))
         return
     client.set_bookmark(trunk_branch, original_target, allow_backwards=True)
+
+
+def _plan_review_bookmark_cleanup(
+    *,
+    bookmark: str,
+    bookmark_state: BookmarkState,
+    change_id: str,
+    commit_id: str,
+) -> _ReviewBookmarkCleanupPlan | None:
+    """Validate whether `land` can forget one landed local review bookmark."""
+
+    if not bookmark.startswith("review/"):
+        return None
+    if not bookmark_state.local_targets:
+        return None
+    if len(bookmark_state.local_targets) > 1:
+        return _ReviewBookmarkCleanupPlan(
+            action=LandAction(
+                kind="local bookmark",
+                message=f"cannot forget local bookmark {bookmark!r} because it is conflicted",
+                status="blocked",
+            ),
+            bookmark=bookmark,
+            can_forget=False,
+            change_id=change_id,
+        )
+    local_target = bookmark_state.local_target
+    if local_target is None:
+        return None
+    if local_target != commit_id:
+        return _ReviewBookmarkCleanupPlan(
+            action=LandAction(
+                kind="local bookmark",
+                message=(
+                    f"cannot forget local bookmark {bookmark!r} because it already points "
+                    "to a different revision"
+                ),
+                status="blocked",
+            ),
+            bookmark=bookmark,
+            can_forget=False,
+            change_id=change_id,
+        )
+    return _ReviewBookmarkCleanupPlan(
+        action=LandAction(
+            kind="local bookmark",
+            message=f"forget local bookmark {bookmark}",
+            status="planned",
+        ),
+        bookmark=bookmark,
+        can_forget=True,
+        change_id=change_id,
+    )
+
+
+def _plan_review_bookmark_cleanup_for_revisions(
+    *,
+    client: _BookmarkStateReader,
+    cleanup_bookmarks: bool,
+    landed_revisions: tuple[_LandRevision, ...],
+) -> tuple[_ReviewBookmarkCleanupPlan, ...]:
+    """Plan which landed local review bookmarks `land` should forget."""
+
+    if not cleanup_bookmarks:
+        return ()
+    cleanup_plans: list[_ReviewBookmarkCleanupPlan] = []
+    for landed_revision in landed_revisions:
+        cleanup_plan = _plan_review_bookmark_cleanup(
+            bookmark=landed_revision.bookmark,
+            bookmark_state=client.get_bookmark_state(landed_revision.bookmark),
+            change_id=landed_revision.change_id,
+            commit_id=landed_revision.commit_id,
+        )
+        if cleanup_plan is not None:
+            cleanup_plans.append(cleanup_plan)
+    return tuple(cleanup_plans)
 
 
 def _follow_up_message(
@@ -1135,6 +1271,7 @@ def _updated_landed_change(
 def _build_land_intent(
     *,
     bypass_readiness: bool,
+    cleanup_bookmarks: bool,
     expect_pr_number: int | None,
     landed_revisions: tuple[_LandRevision, ...],
     prepared_status: PreparedStatus,
@@ -1159,6 +1296,7 @@ def _build_land_intent(
         pid=os.getpid(),
         label=f"land on {prepared_status.selected_revset}",
         bypass_readiness=bypass_readiness,
+        cleanup_bookmarks=cleanup_bookmarks,
         display_revset=prepared_status.selected_revset,
         ordered_change_ids=ordered_change_ids,
         ordered_commit_ids=ordered_commit_ids,

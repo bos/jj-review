@@ -15,8 +15,8 @@
 - In user-facing output, identify revisions by `change_id` by default. If a
   concrete immutable snapshot matters, include the `commit_id` second and
   label it explicitly.
-- Read [docs/notes/design.md](docs/notes/design.md) and
-  [docs/notes/implementation-strategy.md](docs/notes/implementation-strategy.md)
+- Read [docs/internals/design.md](docs/internals/design.md) and
+  [docs/internals/implementation-strategy.md](docs/internals/implementation-strategy.md)
   before changing behavior or adding tests. `design.md` is the canonical
   product spec.
 - Preserve the core invariants: the `jj` DAG is the source of truth, local
@@ -26,7 +26,7 @@
   pass.
 - Once a slice is implemented, update the implementation doc to note this.
 - Non-blocking design debt, architecture follow-ups, and deferred ideas belong
-  in [docs/notes/backlog.md](docs/notes/backlog.md).
+  in [docs/internals/backlog.md](docs/internals/backlog.md).
 
 # Testing
 
@@ -37,5 +37,5 @@
   invoke pytest through the repo virtualenv, for example
   `.venv/bin/python -m pytest tests/unit/test_jj_client.py`.
 - When adding, removing, or evaluating tests, read
-  [docs/notes/testing-philosophy.md](docs/notes/testing-philosophy.md) first and
-  follow it.
+  [docs/internals/testing-philosophy.md](docs/internals/testing-philosophy.md)
+  first and follow it.

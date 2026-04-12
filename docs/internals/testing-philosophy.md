@@ -54,4 +54,4 @@ When in doubt, bias toward fewer, higher-signal tests. Removing or
 consolidating low-value tests is encouraged when behavior remains well covered.
 
 For file-by-file audits of unit tests, use
-[docs/notes/unit-test-review-checklist.md](unit-test-review-checklist.md).
+[docs/internals/unit-test-review-checklist.md](unit-test-review-checklist.md).

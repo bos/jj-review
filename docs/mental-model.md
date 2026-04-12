@@ -1,0 +1,65 @@
+# Mental model
+
+`jj-review` is easiest to use when its job boundary is clear.
+
+## What `jj` owns
+
+You (or your agent) use `jj` to manage mutable local history in the ways you'd expect:
+
+- splitting work into several changes
+- reordering or restacking those changes
+- rewriting commit descriptions and diffs
+- keeping the local DAG coherent
+
+## What `jj-review` owns
+
+`jj-review` takes care of turning your local changes into stacked GitHub PRs for a person or
+agent to review:
+
+- picking the selected linear stack
+- assigning one `git` review branch and one PR per reviewable change
+- setting the base branch for each PR
+- refreshing those PRs after local rewrites
+- inspecting review state and landing ready changes
+
+To create a review branch, `jj-review` creates a bookmark with a `review/` prefix. You don't
+need to manage these bookmarks yourself; `jj-review` creates them for review, forgets the local
+ones for landed changes during `jj-review land`, and can also remove them later during
+`jj-review close --cleanup` or `jj-review cleanup`.
+
+## Source of truth
+
+We use the local `jj` DAG as the source of truth for the stack itself: which changes exist, what
+order they are in, and how they relate to each other.
+
+To stay in sync with GitHub, `jj-review` uses a small amount of supporting local metadata. That
+metadata helps it:
+- remember which GitHub PR goes with which local change
+- keep the branch name of a review stable, even if you rewrite the change or its title
+- safely resume or recover if a command is interrupted
+
+This has a few consequences:
+
+- Local rewrites are the common case.
+- `jj-review` keeps only a small amount of supporting metadata. Your local `jj` history is still
+  the source of truth for the stack.
+- If `jj-review` cannot tell which GitHub PR or branch belongs to a local change, it stops and
+  asks you to fix the ambiguity instead of updating the wrong PR.
+
+## What gets reviewed on GitHub
+
+The "unit to review" is one visible mutable `jj` change. We issue one pull request per change,
+from the bottom change above `trunk()` to the selected head. Each successive PR is based on the
+preceding PR in the stack.
+
+This allows you to escape from the trap of thinking about "one long-lived local branch per pull
+request."  `jj-review` creates `git` review branches only because GitHub requires them. Those
+branches are a transport layer; the main authoring model is still local `jj` history.
+
+## Practical rule
+
+When in doubt:
+
+- use `jj` to change the stack
+- use `jj-review status` to inspect the GitHub projection
+- use `jj-review submit` to refresh that projection
