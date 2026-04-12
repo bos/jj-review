@@ -6,9 +6,9 @@ This page is organized by symptom and next command.
 
 Cause:
 
-- the current repo state does not resolve to one clear selected stack
-- the remote/trunk mapping is ambiguous
-- the selected revision is not the one you thought it was
+- the current repo state doesn't resolve to one clear stack
+- the remote or trunk branch is configured in an unusual way
+- the revset you passed doesn't point at what you expected
 
 What to do:
 
@@ -16,21 +16,21 @@ What to do:
 jj-review status
 ```
 
-If needed, rerun the command with an explicit revset:
+If needed, pass an explicit revset:
 
 ```bash
 jj-review status <revset>
 jj-review submit <revset>
 ```
 
-The tool is expected to fail closed here. It should not guess.
+The tool stops and reports what is ambiguous rather than guessing.
 
-## GitHub state looks stale
+## GitHub shows different PR state than `status` reports
 
 Cause:
 
-- local knowledge of remote bookmarks is old
-- GitHub pull request state has changed since the last inspection
+- remote bookmark state is stale
+- a PR was approved, merged, or closed since your last fetch
 
 What to do:
 
@@ -38,15 +38,15 @@ What to do:
 jj-review status --fetch
 ```
 
-Use that before attempting repair if the main uncertainty is whether remote
-state has changed.
+This fetches the latest state from GitHub before reporting. Use it any time
+you want to make sure you're working with current information before acting.
 
-## Earlier work landed and later work now needs local repair
+## Part of your stack landed and the rest needs to be rebased
 
 Cause:
 
-- the ready prefix landed
-- remaining local changes still sit above the old ancestry shape
+- some changes at the bottom of your stack landed
+- the remaining changes are still based on the old history
 
 What to do:
 
@@ -55,14 +55,15 @@ jj-review cleanup --restack
 jj-review submit
 ```
 
-`cleanup --restack` is the explicit local-history repair path after landing.
+`cleanup --restack` rebases your remaining changes above the newly landed
+commits. After that, `submit` refreshes the open PRs to reflect the new base.
 
-## A PR stack exists on GitHub but local tracking is missing
+## PRs for this stack exist on GitHub but `jj-review` doesn't know about them
 
 Cause:
 
-- local saved jj-review state was never created here
-- the stack was created elsewhere and needs to be materialized locally
+- the stack was submitted from a different machine or workspace
+- you cloned the repo and want to pick up review work that is already in progress
 
 What to do:
 
@@ -70,18 +71,17 @@ What to do:
 jj-review import --pull-request <number-or-url> --fetch
 ```
 
-Use `import` when the problem is "this stack exists remotely, but `jj-review`
-does not yet know which local changes go with those review branches and PRs,"
-not when the problem is "my local stack needs to be rewritten."
+Use `import` when the problem is "these PRs exist on GitHub but I can't manage
+them locally yet." It is not for rewriting history or changing what is in the
+stack — only for telling `jj-review` which local changes go with which PRs.
 
-## A review branch or saved state looks stale after closing or landing
+## Old review branches are still around after landing or closing
 
 Cause:
 
-- the stack was closed or landed, but later cleanup has not run yet
-- `land --skip-cleanup` kept the landed local review bookmarks on purpose
-- saved state or remote review branches remain because `jj-review` could not
-  prove it was safe to delete them automatically
+- the land or close succeeded, but the follow-up cleanup hasn't run yet
+- you ran `land --skip-cleanup` to keep the review branches on purpose
+- something prevented `jj-review` from cleaning up automatically
 
 What to do:
 
@@ -89,14 +89,14 @@ What to do:
 jj-review cleanup
 ```
 
-Inspect first. If the command reports a safe restack or cleanup action, follow
-the printed guidance.
+Run without flags first to see what it plans to remove. It will describe
+what it found and what it will do.
 
-## The current stack should stop being managed on GitHub
+## You want to stop reviewing a stack on GitHub
 
 Cause:
 
-- the work was abandoned, replaced, or intentionally removed from review
+- the work was abandoned, replaced, or is no longer meant for review
 
 What to do:
 
@@ -104,10 +104,43 @@ What to do:
 jj-review close
 ```
 
-Add `--cleanup` only when you also want it to delete review branches and prune
-saved state.
+This closes the pull requests. Add `--cleanup` if you also want to delete the
+review branches and clean up local tracking data for the stack.
 
-## You only need exact flags and parser behavior
+## A command was interrupted before it finished
+
+Cause:
+
+- `submit` or another mutating command was cut short (Ctrl-C, crash, network
+  failure) after it had already done some work but before it finished
+- `status` reports an interrupted operation
+
+What to do:
+
+```bash
+jj-review status
+```
+
+Check what `status` says is incomplete. Then preview what `abort` would undo:
+
+```bash
+jj-review abort --dry-run
+```
+
+Once the plan looks right, apply it:
+
+```bash
+jj-review abort
+```
+
+After aborting, the stack is back to a clean state and you can re-run the
+original command from scratch.
+
+If the interruption happened late enough that all the work actually went
+through, re-running the original command is safer than aborting — `submit`
+in particular will detect existing state and skip steps it already completed.
+
+## You only need the exact flags and options for a command
 
 Use the built-in help:
 

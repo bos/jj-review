@@ -138,3 +138,17 @@ jj-review land
 jj-review cleanup --restack
 jj-review submit
 ```
+
+## When something goes wrong
+
+If a command is interrupted mid-way (crash, Ctrl-C, network failure), `status`
+will report an outstanding incomplete operation. Use `abort` to retract the
+partial work and get back to a clean state:
+
+```bash
+jj-review status        # see what is incomplete
+jj-review abort --dry-run   # preview what would be retracted
+jj-review abort         # retract and clean up
+```
+
+See the [troubleshooting guide](troubleshooting.md) for more recovery scenarios.
