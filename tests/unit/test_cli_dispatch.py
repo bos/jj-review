@@ -33,6 +33,33 @@ def test_main_accepts_global_options_after_subcommand(
     ]
 
 
+def test_main_status_accepts_short_verbose_alias(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_status(**kwargs) -> int:
+        calls.append(kwargs)
+        return 0
+
+    monkeypatch.setattr(cli_module.commands.review_state, "status", fake_status)
+
+    exit_code = main(["status", "-v", "--repository", str(tmp_path)])
+
+    assert exit_code == 0
+    assert calls == [
+        {
+            "config_path": None,
+            "debug": False,
+            "fetch": False,
+            "repository": tmp_path,
+            "revset": None,
+            "verbose": True,
+        }
+    ]
+
+
 def test_main_reports_keyboard_interrupt_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

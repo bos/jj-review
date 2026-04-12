@@ -269,6 +269,7 @@ def build_parser() -> ArgumentParser:
         help="Fetch remote bookmark state before inspecting review status",
     )
     status_parser.add_argument(
+        "-v",
         "--verbose",
         action="store_true",
         help="Expand submitted and unsubmitted summary sections",
