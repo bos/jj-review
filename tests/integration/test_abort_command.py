@@ -278,11 +278,46 @@ def test_abort_bails_when_another_abort_is_running(
     assert "already in progress" in captured.out
 
 
-def test_abort_cleans_up_stale_abort_lock_and_proceeds(
+def test_abort_silently_cleans_up_stale_abort_lock(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
+    # The unique behavior: a dead-PID AbortIntent left by a previous crash does
+    # not block the next abort from running. Full retraction is already covered
+    # by test_abort_retracts_submitted_change_and_clears_state.
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    state_store = ReviewStateStore.for_repo(repo)
+    state_store.require_writable()
+    stale_lock = AbortIntent(
+        kind="abort",
+        pid=99999999,
+        label="abort",
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_new_intent(state_store.state_dir, stale_lock)
+
+    # No other intent files — abort exits cleanly and removes the stale lock.
+    exit_code = run_main(repo, config_path, "abort")
+
+    assert exit_code == 0
+    assert not state_store.list_intents()
+
+
+def test_abort_preserves_state_and_intent_when_step_is_blocked(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    # When remote branch deletion fails (e.g. network outage), abort should:
+    # - still close the PR (PR close runs before local steps)
+    # - preserve the state cache entry so the user retains PR tracking data
+    # - keep the intent file so the user can re-run abort once the block clears
+    import jj_review.commands.abort as abort_module
+    from jj_review.jj import JjCommandError
+
     repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
@@ -296,16 +331,6 @@ def test_abort_cleans_up_stale_abort_lock_and_proceeds(
     bookmark = state_store.load().changes[change_id].bookmark
     assert bookmark is not None
 
-    # Write a dead-PID AbortIntent (leftover from a previous crashed abort).
-    stale_lock = AbortIntent(
-        kind="abort",
-        pid=99999999,
-        label="abort",
-        started_at="2026-01-01T00:00:00+00:00",
-    )
-    write_new_intent(state_store.state_dir, stale_lock)
-
-    # Also write the real interrupted submit intent.
     intent = SubmitIntent(
         kind="submit",
         pid=99999999,  # dead PID — simulates an interrupted operation
@@ -319,10 +344,22 @@ def test_abort_cleans_up_stale_abort_lock_and_proceeds(
     )
     write_new_intent(state_store.state_dir, intent)
 
+    # Make remote branch deletion fail to exercise the partial-retraction path.
+    RealJjClient = abort_module.JjClient
+
+    class FailingDeleteJjClient(RealJjClient):  # type: ignore[misc]
+        def delete_remote_bookmarks(self, *args, **kwargs):
+            raise JjCommandError("simulated network failure")
+
+    monkeypatch.setattr(abort_module, "JjClient", FailingDeleteJjClient)
+
     exit_code = run_main(repo, config_path, "abort")
     capsys.readouterr()
 
-    # Stale lock cleaned up silently; real submit intent retracted.
-    assert exit_code == 0
+    assert exit_code == 1
+    # PR was still closed (PR close succeeds before local steps run).
     assert fake_repo.pull_requests[1].state == "closed"
-    assert not state_store.list_intents()
+    # State cache preserved — PR number and bookmark name survive for diagnosis.
+    assert change_id in state_store.load().changes
+    # Intent file preserved — user can re-run abort once the block clears.
+    assert state_store.list_intents()
