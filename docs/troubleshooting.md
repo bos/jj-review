@@ -29,8 +29,9 @@ The tool stops and reports what is ambiguous rather than guessing.
 
 Cause:
 
-- remote bookmark state is stale
-- a PR was approved, merged, or closed since your last fetch
+- remembered remote bookmark state is stale
+- a PR link or review branch changed on another machine or workspace
+- you want to refresh both live GitHub state and local remote-bookmark observations
 
 What to do:
 
@@ -38,8 +39,10 @@ What to do:
 jj-review status --fetch
 ```
 
-This fetches the latest state from GitHub before reporting. Use it any time
-you want to make sure you're working with current information before acting.
+`status` already checks live GitHub state when GitHub is reachable. `status
+--fetch` also refreshes remembered remote bookmark state before reporting, so
+it is the safer read-only refresh when a PR link, branch state, or merged-base
+relationship may have changed elsewhere.
 
 ## Part of your stack landed and the rest needs to be rebased
 
@@ -86,11 +89,12 @@ Cause:
 What to do:
 
 ```bash
+jj-review cleanup --dry-run # optional
 jj-review cleanup
 ```
 
-Run without flags first to see what it plans to remove. It will describe
-what it found and what it will do.
+Use `--dry-run` if you want first, to preview what it plans to remove. Then run plain `cleanup`
+to apply the safe stale-state cleanup it described.
 
 ## You want to stop reviewing a stack on GitHub
 
@@ -127,61 +131,35 @@ Check what `status` says is incomplete. Then preview what `abort` would undo:
 jj-review abort --dry-run
 ```
 
-Once the plan looks right, apply it:
+If the plan looks right, apply it:
 
 ```bash
 jj-review abort
 ```
 
-After aborting, the stack is back to a clean state and you can re-run the
-original command from scratch.
+Use `abort` when you want to retract an interrupted `submit`.
 
-If the interruption happened late enough that all the work actually went
-through, re-running the original command is safer than aborting — `submit`
-in particular will use your current selected stack rather than trying to replay
-an old `@` or `@-` snapshot, while still keeping enough recovery data for
-`abort`.
+Otherwise, follow the command that `status` tells you to rerun:
 
-`close` follows the same current-stack-first rule. If you changed the stack
-before re-running `close`, it will act on the current selected stack rather
-than trying to replay the old selector. `close --cleanup` is treated as a
-stronger follow-up than plain `close`: it can cover an older interrupted plain
-`close`, but a later plain `close` does not erase an older interrupted cleanup
-run. If `status` shows an interrupted close, rerun whichever close command it
-names (`close` or `close --cleanup`) if you want to finish that operation.
+- re-run `submit` to finish or refresh the current stack on GitHub
+- re-run `close` or `close --cleanup` if `status` names one of those
+- re-run `cleanup --restack` to finish restacking the current stack
+- re-run `land` to finish landing; `abort` cannot un-merge changes that already
+  reached trunk
 
-`cleanup --restack` also works from the current selected stack on rerun. If
-the stack was rewritten or shortened since the interruption (for example,
-because some changes landed), jj-review notes that it is using the current
-stack and proceeds normally. Re-running `cleanup --restack` is safe in either
-case.
-
-If an interrupted `land` appears in `status`, re-running `land` is the right
-recovery path: it records checkpoints as it goes and will skip changes that
-already landed. Running `abort` on an interrupted land removes the intent file
-but cannot un-merge changes that already reached trunk; those are permanent.
+For interrupted commands other than `submit`, `abort` clears the
+interrupted-operation record. It does not automatically reverse a completed
+land, restore the old local history after a restack, or reopen pull requests.
 
 ### `abort` refuses because the stack has changed
 
-If you rewrote or reordered the stack after a `submit` was interrupted, `abort`
-will not guess which PRs or review branches belong to the old partial work. In
-that case you have two options:
+If you rewrite or reorder the stack after a `submit` was interrupted, `abort`
+will not try to guess which PRs or review branches came from that interrupted submit.
+In that case you have two options:
 
 - **Finish the submit**: re-run `submit`. It acts on the current stack, detects
   any review branches or PRs that already exist, and completes whatever is still
-  outstanding. The intent file is retired once the run succeeds.
+  outstanding.
 - **Retract the partial work**: run `jj-review close --cleanup` to close the
-  open PRs and delete the review branches for the current stack. After that, the
-  intent file will be retired automatically the next time a matching operation
-  succeeds, or you can clear it by running `abort` once `close --cleanup` has
-  cleaned up the shared state.
-
-## You only need the exact flags and options for a command
-
-Use the built-in help:
-
-```bash
-jj-review --help
-jj-review help --all
-jj-review <command> --help
-```
+  open PRs and delete the review branches for the current stack. After that,
+  run `abort` again if `status` still reports the old interrupted submit.
