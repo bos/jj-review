@@ -20,6 +20,7 @@ from typing import TypeVar
 from jj_review import __version__, commands
 from jj_review.completion import emit_shell_completion
 from jj_review.errors import CliError
+from jj_review.ui import configured_ui
 
 logger = logging.getLogger(__name__)
 SubparserT = TypeVar("SubparserT", bound=ArgumentParser)
@@ -693,20 +694,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_cli_error(error)
         return error.exit_code
     args = parser.parse_args(normalized_argv)
-    with _time_output(enabled=args.time_output):
-        handler = args.handler
-        if handler is None:
-            print(parser.format_help(), end="")
-            return 0
+    with configured_ui(time_output=args.time_output):
+        with _time_output(enabled=args.time_output):
+            handler = args.handler
+            if handler is None:
+                print(parser.format_help(), end="")
+                return 0
 
-        try:
-            return handler(args)
-        except CliError as error:
-            _print_cli_error(error)
-            return error.exit_code
-        except KeyboardInterrupt:
-            print("Interrupted.", file=sys.stderr)
-            return 130
+            try:
+                return handler(args)
+            except CliError as error:
+                _print_cli_error(error)
+                return error.exit_code
+            except KeyboardInterrupt:
+                print("Interrupted.", file=sys.stderr)
+                return 130
 
 
 def _add_revision_command(

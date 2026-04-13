@@ -1421,6 +1421,9 @@ Recommended defaults:
 - request/response logging in debug mode with token redaction
 - enough plan logging to explain why a change is being created, updated,
   skipped, or rejected
+- a shared Rich-backed `ui` module now exists for migrated command output and
+  future styled rendering, while legacy `print`-based commands still use the
+  existing `--time-output` shim until their output paths are moved over
 
 Tests should primarily assert on typed plan objects. Snapshot tests should be
 used sparingly for user-facing rendered output where the exact textual shape is
