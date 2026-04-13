@@ -18,9 +18,8 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass
-from importlib import import_module
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
@@ -40,21 +39,25 @@ from jj_review.intent import describe_intent, pid_is_alive
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import GitRemote
 from jj_review.models.github import GithubRepository
+from jj_review.models.intent import (
+    CleanupRestackIntent,
+    CloseIntent,
+    IntentFile,
+    LandIntent,
+    RelinkIntent,
+    SubmitIntent,
+)
 
 HELP = "check GitHub auth, remote resolution, and local state"
-_STATUS_STYLES: dict[str, str] = {
-    "ok": "green",
-    "warn": "yellow",
-    "fail": "red",
-    "skip": "dim",
-}
+
+type CheckDetail = str | ui.SemanticText | tuple[object, ...]
 
 
 @dataclass(slots=True, frozen=True)
 class CheckResult:
     label: str
     status: Literal["ok", "warn", "fail", "skip"]
-    detail: str
+    detail: CheckDetail
 
 
 def doctor(
@@ -237,29 +240,29 @@ def _check_interruptions(state_store: ReviewStateStore) -> CheckResult:
 
     # Ignore intents whose process is still alive — those are active operations,
     # not interrupted ones. Only dead-PID intents need recovery.
-    interrupted = [
-        loaded for loaded in all_intents if not pid_is_alive(loaded.intent.pid)
-    ]
+    interrupted = [loaded for loaded in all_intents if not pid_is_alive(loaded.intent.pid)]
 
     if not interrupted:
         return CheckResult("interruptions", "ok", "none")
 
-    labels = [describe_intent(loaded.intent) for loaded in interrupted]
-    count = len(labels)
+    count = len(interrupted)
     noun = "interrupted operation" if count == 1 else "interrupted operations"
     return CheckResult(
         "interruptions",
         "warn",
-        f"{count} {noun}: {', '.join(labels)}"
-        "; run `jj-review abort --dry-run` to preview recovery",
+        (
+            f"{count} {noun}: ",
+            _render_interrupted_intents(interrupted),
+            "; run ",
+            ui.semantic_text("jj-review abort --dry-run", "hint"),
+            " to preview recovery",
+        ),
     )
 
 
-def _results_table(results: list[CheckResult]) -> Any:
-    table_cls = import_module("rich.table").Table
-    text_cls = import_module("rich.text").Text
-    table = table_cls(
-        box=import_module("rich.box").SIMPLE,
+def _results_table(results: list[CheckResult]) -> ui.Table:
+    table = ui.Table(
+        box=ui.SIMPLE,
         show_header=True,
         header_style="bold",
     )
@@ -270,7 +273,59 @@ def _results_table(results: list[CheckResult]) -> Any:
     for result in results:
         table.add_row(
             result.label,
-            text_cls(result.status, style=_STATUS_STYLES[result.status]),
-            result.detail,
+            ui.status_text(result.status),
+            ui.rich_text(result.detail),
         )
     return table
+
+
+def _render_interrupted_intents(interrupted) -> tuple[object, ...]:
+    parts: list[object] = []
+    for index, loaded in enumerate(interrupted):
+        if index:
+            parts.append(", ")
+        parts.extend(_intent_description_content(loaded.intent))
+    return tuple(parts)
+
+
+def _intent_description_content(intent: IntentFile) -> tuple[object, ...]:
+    if isinstance(intent, SubmitIntent):
+        return (
+            "submit for ",
+            ui.change_id(intent.head_change_id),
+            " (from ",
+            ui.revset(intent.display_revset),
+            ")",
+        )
+    if isinstance(intent, CleanupRestackIntent):
+        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
+        return (
+            "cleanup --restack for ",
+            ui.change_id(head_change_id),
+            " (from ",
+            ui.revset(intent.display_revset),
+            ")",
+        )
+    if isinstance(intent, CloseIntent):
+        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
+        return (
+            "close",
+            " --cleanup" if intent.cleanup else "",
+            " for ",
+            ui.change_id(head_change_id),
+            " (from ",
+            ui.revset(intent.display_revset),
+            ")",
+        )
+    if isinstance(intent, LandIntent):
+        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
+        return (
+            "land for ",
+            ui.change_id(head_change_id),
+            " (from ",
+            ui.revset(intent.display_revset),
+            ")",
+        )
+    if isinstance(intent, RelinkIntent):
+        return ("relink for ", ui.change_id(intent.change_id))
+    return (describe_intent(intent),)

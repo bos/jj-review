@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from jj_review import ui
 from jj_review.commands.doctor import (
     _check_git_remote,
     _check_github_auth,
@@ -26,7 +27,7 @@ def test_check_git_remote_no_remotes() -> None:
     result, selected = _check_git_remote(jj_client)
 
     assert result.status == "fail"
-    assert "no Git remotes" in result.detail
+    assert "no Git remotes" in ui.plain_text(result.detail)
     assert selected is None
 
 
@@ -66,7 +67,7 @@ def test_check_github_auth_from_env_var(monkeypatch: pytest.MonkeyPatch) -> None
     result, token = _check_github_auth("https://api.github.com")
 
     assert result.status == "ok"
-    assert "GITHUB_TOKEN" in result.detail
+    assert "GITHUB_TOKEN" in ui.plain_text(result.detail)
     assert token == "ghp_fake_token"
 
 
@@ -81,7 +82,7 @@ def test_check_github_auth_from_gh_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     result, token = _check_github_auth("https://api.github.com")
 
     assert result.status == "ok"
-    assert "gh CLI" in result.detail
+    assert "gh CLI" in ui.plain_text(result.detail)
     assert token == "ghp_cli_token"
 
 
@@ -96,7 +97,7 @@ def test_check_github_auth_no_token(monkeypatch: pytest.MonkeyPatch) -> None:
     result, token = _check_github_auth("https://api.github.com")
 
     assert result.status == "fail"
-    assert "gh auth login" in result.detail
+    assert "gh auth login" in ui.plain_text(result.detail)
     assert token is None
 
 
@@ -118,5 +119,5 @@ def test_check_interruptions_one_intent(tmp_path: Path) -> None:
     result = _check_interruptions(state_store)
 
     assert result.status == "warn"
-    assert "1 interrupted operation" in result.detail
-    assert "submit on abc12345" in result.detail
+    assert "1 interrupted operation" in ui.plain_text(result.detail)
+    assert "submit on abc12345" in ui.plain_text(result.detail)

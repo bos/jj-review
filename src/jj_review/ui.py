@@ -30,18 +30,19 @@ from pathlib import Path
 from string.templatelib import Interpolation, Template, convert
 from typing import IO, Any, Literal, Protocol, cast
 
+from rich import box as rich_box
 from rich.console import Console, Group, NewLine
 from rich.segment import Segment
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 
+SIMPLE = rich_box.SIMPLE
+
 ColorMode = Literal["auto", "always", "never"]
 RequestedColorMode = Literal["always", "auto", "debug", "never"]
 _JJ_COLORS_TEMPLATE = r'name ++ "\0" ++ json(value) ++ "\n"'
-_JJ_STYLE_ATTRIBUTES = frozenset(
-    {"bg", "bold", "dim", "fg", "italic", "reverse", "underline"}
-)
+_JJ_STYLE_ATTRIBUTES = frozenset({"bg", "bold", "dim", "fg", "italic", "reverse", "underline"})
 StyleArg = Style | str
 
 
@@ -354,6 +355,18 @@ def revset(text: str) -> SemanticText:
     return semantic_text(text, "revset")
 
 
+def status_text(text: str) -> Text:
+    """Render a check status with jj semantic styling."""
+
+    labels = {
+        "ok": ("hint",),
+        "warn": ("warning",),
+        "fail": ("error",),
+        "skip": ("hint",),
+    }
+    return rich_text(semantic_text(text, *labels[text]))
+
+
 def plain_text(content: Template | SemanticText | tuple[Any, ...] | Any) -> str:
     """Render semantic template content into plain text."""
 
@@ -423,9 +436,7 @@ def prefixed_message(
     else:
         message_cell = message
     prefix_cell = (
-        Text(prefix)
-        if prefix_style is None
-        else Text(prefix, style=cast(StyleArg, prefix_style))
+        Text(prefix) if prefix_style is None else Text(prefix, style=cast(StyleArg, prefix_style))
     )
     table.add_row(
         prefix_cell,

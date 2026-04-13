@@ -71,14 +71,12 @@ def test_time_output_wraps_content_after_prefix_width(
 
     assert stream.getvalue() == "[0.000000] abcd\n[0.000000] ef"
 
+
 def test_time_output_prefix_uses_prefix_and_timestamp_semantic_style(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = Path.cwd()
-    stdout = (
-        "colors.prefix.bold\0true\n"
-        'colors.timestamp\0"cyan"\n'
-    )
+    stdout = 'colors.prefix.bold\0true\ncolors.timestamp\0"cyan"\n'
 
     def fake_run(command, **kwargs):
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
@@ -117,7 +115,7 @@ def test_semantic_style_uses_machine_readable_jj_config(
     repository = Path.cwd()
     stdout = (
         'colors.change_id\0"ansi-color-81"\n'
-        'colors.working_copy.bold\0true\n'
+        "colors.working_copy.bold\0true\n"
         'colors."working_copy change_id"\0"bright magenta"\n'
     )
 
@@ -156,7 +154,7 @@ def test_rich_text_renders_template_semantics(
     repository = Path.cwd()
     stdout = (
         'colors.local_bookmarks\0"green"\n'
-        'colors.change_id.bold\0true\n'
+        "colors.change_id.bold\0true\n"
         'colors.change_id\0"ansi-color-81"\n'
     )
 
@@ -170,11 +168,11 @@ def test_rich_text_renders_template_semantics(
         stderr=StringIO(),
         color_mode="never",
         repository=repository,
-        ):
-            text = ui_module.rich_text(
-                t"delete {ui_module.bookmark('review/feature-aaaaaaaa')} for "
-                t"{ui_module.change_id('aaaa1111bbbb2222')}"
-            )
+    ):
+        text = ui_module.rich_text(
+            t"delete {ui_module.bookmark('review/feature-aaaaaaaa')} for "
+            t"{ui_module.change_id('aaaa1111bbbb2222')}"
+        )
 
     assert text.plain == "delete review/feature-aaaaaaaa for aaaa1111"
     assert text.spans[0].start == 7
@@ -206,3 +204,4 @@ def test_revset_uses_semantic_style(
 
     assert text.plain == "trunk()"
     assert text.spans == [import_module("rich.text").Span(0, 7, _style_cls()(color="blue"))]
+

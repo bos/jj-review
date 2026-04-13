@@ -55,11 +55,11 @@ def test_doctor_exits_zero_for_healthy_repo(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Check" in captured.out
-    assert "Status" in captured.out
-    assert "Detail" in captured.out
+    assert "remote" in captured.out
+    assert "GitHub auth" in captured.out
+    assert "interruptions" in captured.out
+    assert "warn" not in captured.out
     assert "fail" not in captured.out
-    assert "skip" not in captured.out
 
 
 def test_doctor_shows_skipped_checks_when_remote_fails(
@@ -80,7 +80,7 @@ def test_doctor_shows_skipped_checks_when_remote_fails(
     assert "GitHub auth" in captured.out
     assert "connectivity" in captured.out
     assert "trunk branch" in captured.out
-    assert captured.out.count("skip") >= 4
+    assert "prior check failed" in captured.out
 
 
 def test_doctor_warns_for_interrupted_operation(
@@ -142,4 +142,4 @@ def test_doctor_fails_when_github_token_missing(
     # Connectivity and trunk branch should appear as skipped
     assert "connectivity" in captured.out
     assert "trunk branch" in captured.out
-    assert captured.out.count("skip") >= 2
+    assert "prior check failed" in captured.out
