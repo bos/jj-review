@@ -354,7 +354,7 @@ def revset(text: str) -> SemanticText:
     return semantic_text(text, "revset")
 
 
-def plain_text(content: Template | SemanticText | Any) -> str:
+def plain_text(content: Template | SemanticText | tuple[Any, ...] | Any) -> str:
     """Render semantic template content into plain text."""
 
     parts: list[str] = []
@@ -362,7 +362,11 @@ def plain_text(content: Template | SemanticText | Any) -> str:
     return "".join(parts)
 
 
-def rich_text(content: Template | SemanticText | Any, *, style: object | None = None) -> Text:
+def rich_text(
+    content: Template | SemanticText | tuple[Any, ...] | Any,
+    *,
+    style: object | None = None,
+) -> Text:
     """Render semantic template content into Rich `Text`."""
 
     rendered = Text("") if style is None else Text("", style=cast(StyleArg, style))
@@ -414,7 +418,7 @@ def prefixed_message(
     table = Table.grid(padding=(0, 0), expand=False)
     table.add_column(width=prefix_width, no_wrap=True)
     table.add_column()
-    if isinstance(message, str | Template | SemanticText):
+    if isinstance(message, str | Template | SemanticText | tuple):
         message_cell: Any = rich_text(message, style=message_style)
     else:
         message_cell = message
@@ -428,23 +432,6 @@ def prefixed_message(
         message_cell,
     )
     return table
-
-
-def action_row(
-    *,
-    prefix: str,
-    body: Any,
-    body_style: object | None = None,
-    prefix_style: object | None = None,
-) -> Table:
-    """Return one standard two-column action row."""
-
-    return prefixed_message(
-        prefix,
-        body,
-        message_style=body_style,
-        prefix_style=prefix_style,
-    )
 
 
 def _load_semantic_styles(*, repository: Path | None) -> _SemanticStyles | None:
@@ -580,7 +567,14 @@ def _time_output_prefix_style(*, semantic_styles: _SemanticStyles | None) -> Sty
     return semantic_styles.for_labels(("prefix", "timestamp"))
 
 
-def _append_plain_text(parts: list[str], content: Template | SemanticText | Any) -> None:
+def _append_plain_text(
+    parts: list[str],
+    content: Template | SemanticText | tuple[Any, ...] | Any,
+) -> None:
+    if isinstance(content, tuple):
+        for item in content:
+            _append_plain_text(parts, item)
+        return
     if isinstance(content, Template):
         for part in content:
             if isinstance(part, str):
@@ -594,7 +588,16 @@ def _append_plain_text(parts: list[str], content: Template | SemanticText | Any)
     parts.append(str(content))
 
 
-def _append_rich_text(rendered, content: Template | SemanticText | Any, *, base_style) -> None:
+def _append_rich_text(
+    rendered,
+    content: Template | SemanticText | tuple[Any, ...] | Any,
+    *,
+    base_style,
+) -> None:
+    if isinstance(content, tuple):
+        for item in content:
+            _append_rich_text(rendered, item, base_style=base_style)
+        return
     if isinstance(content, Template):
         for part in content:
             if isinstance(part, str):
