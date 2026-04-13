@@ -59,6 +59,10 @@ class RelinkIntent(OperationIntent):
         return frozenset([self.change_id])
 
 
+class AbortIntent(OperationIntent):
+    kind: Literal["abort"]
+
+
 class LandIntent(OrderedChangeIdsIntent):
     kind: Literal["land"]
     bypass_readiness: bool
@@ -77,7 +81,13 @@ class LandIntent(OrderedChangeIdsIntent):
 
 
 IntentFile: TypeAlias = Annotated[
-    SubmitIntent | CleanupIntent | CleanupRestackIntent | CloseIntent | RelinkIntent | LandIntent,
+    SubmitIntent
+    | CleanupIntent
+    | CleanupRestackIntent
+    | CloseIntent
+    | RelinkIntent
+    | LandIntent
+    | AbortIntent,
     Field(discriminator="kind"),
 ]
 

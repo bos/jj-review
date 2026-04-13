@@ -6,7 +6,7 @@ from pathlib import Path
 from jj_review.cache import ReviewStateStore
 from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
-from jj_review.models.intent import CleanupRestackIntent, SubmitIntent
+from jj_review.models.intent import AbortIntent, CleanupRestackIntent, SubmitIntent
 
 from ..support.integration_helpers import (
     commit_file,
@@ -249,3 +249,80 @@ def test_abort_skips_live_pid_intent_and_warns(
     # PR untouched, intent file still present.
     assert fake_repo.pull_requests[1].state == "open"
     assert state_store.list_intents()
+
+
+def test_abort_bails_when_another_abort_is_running(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    state_store = ReviewStateStore.for_repo(repo)
+    state_store.require_writable()
+
+    # Simulate a concurrent abort by writing an AbortIntent with a live PID.
+    abort_lock = AbortIntent(
+        kind="abort",
+        pid=os.getpid(),
+        label="abort",
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_new_intent(state_store.state_dir, abort_lock)
+
+    exit_code = run_main(repo, config_path, "abort")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "already in progress" in captured.out
+
+
+def test_abort_cleans_up_stale_abort_lock_and_proceeds(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    bookmark = state_store.load().changes[change_id].bookmark
+    assert bookmark is not None
+
+    # Write a dead-PID AbortIntent (leftover from a previous crashed abort).
+    stale_lock = AbortIntent(
+        kind="abort",
+        pid=99999999,
+        label="abort",
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_new_intent(state_store.state_dir, stale_lock)
+
+    # Also write the real interrupted submit intent.
+    intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,  # dead PID — simulates an interrupted operation
+        label=f"submit on {change_id[:8]}",
+        display_revset=change_id[:8],
+        head_change_id=change_id,
+        ordered_change_ids=(change_id,),
+        bookmarks={change_id: bookmark},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_new_intent(state_store.state_dir, intent)
+
+    exit_code = run_main(repo, config_path, "abort")
+    capsys.readouterr()
+
+    # Stale lock cleaned up silently; real submit intent retracted.
+    assert exit_code == 0
+    assert fake_repo.pull_requests[1].state == "closed"
+    assert not state_store.list_intents()
