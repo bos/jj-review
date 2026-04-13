@@ -742,6 +742,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     with configured_ui(
         color_mode=effective_rich_color_mode,
+        repository=args.repository,
         requested_color_mode=args.color,
         time_output=args.time_output,
     ):

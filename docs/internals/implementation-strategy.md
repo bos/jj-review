@@ -1447,6 +1447,11 @@ Recommended defaults:
 - a shared Rich-backed `ui` module now exists for migrated command output and
   future styled rendering, while legacy `print`-based commands still use the
   existing `--time-output` shim until their output paths are moved over
+- Rich-authored output now loads jj's effective `colors.*` config through
+  `jj config list --include-defaults colors -T ...`, resolves matching label
+  sets with the same parent-label inheritance jj documents for composite color
+  rules, and exposes those styles to future Rich rendering without inventing a
+  second semantic color system
 - CLI-authored status markers now avoid square-bracket tags in favor of
   parenthetical change IDs and plain status labels so Rich markup can be
   enabled later without escaping repo-authored output strings
