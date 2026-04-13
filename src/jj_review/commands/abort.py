@@ -1,8 +1,9 @@
-"""Undo an interrupted jj-review operation.
+"""Undo interrupted jj-review operations.
 
-Finds any operation that was cut short, retracts what it completed (closes
-opened PRs, deletes pushed review branches, forgets local bookmarks, clears
-tracking data), and cleans up the leftover operation state.
+Finds all interrupted jj-review operations in this repo. For each one, abort
+retracts completed work when it can do so safely (closes opened PRs, deletes
+pushed review branches, forgets local bookmarks, clears tracking data) and
+cleans up the leftover interrupted-operation state.
 
 Use `--dry-run` to preview what would be undone without changing anything.
 """
@@ -35,7 +36,7 @@ from jj_review.models.intent import (
     SubmitIntent,
 )
 
-HELP = "Undo an interrupted jj-review operation"
+HELP = "Undo interrupted jj-review operations"
 
 logger = logging.getLogger(__name__)
 
