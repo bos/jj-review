@@ -104,6 +104,9 @@ Recent refactor slices:
   rerun so `status` stops reporting already-resolved cleanup work.
 - `land` now routes dry-run planning, resume validation, and execution through
   explicit helper phases instead of one deeply nested async path.
+- `land` now renders its summary lines, resume notices, and action rows
+  through the shared Rich-backed `ui` helpers, with inline semantic labels for
+  bookmarks, change IDs, and revsets.
 - `submit` now prepares local stack inputs, resumable intent state, and
   per-revision bookmark push plans through separate helpers before touching
   GitHub.

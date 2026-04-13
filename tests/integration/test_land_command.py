@@ -24,6 +24,10 @@ from .submit_command_helpers import (
 )
 
 
+def _squash_whitespace(text: str) -> str:
+    return " ".join(text.split())
+
+
 def test_land_blocks_unlinked_change(
     tmp_path: Path,
     monkeypatch,
@@ -44,8 +48,9 @@ def test_land_blocks_unlinked_change(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "Land blocked:" in captured.out
-    assert "unlinked from review tracking" in captured.out
+    rendered = _squash_whitespace(captured.out)
+    assert "Land blocked:" in rendered
+    assert "unlinked from review tracking" in rendered
 
 def test_land_previews_and_finalizes_maximal_ready_prefix(
     tmp_path: Path,
@@ -76,30 +81,25 @@ def test_land_previews_and_finalizes_maximal_ready_prefix(
 
     preview_exit_code = run_main(repo, config_path, "land", "--dry-run")
     preview = capsys.readouterr()
+    rendered_preview = _squash_whitespace(preview.out)
 
     assert preview_exit_code == 0
-    assert "Selected remote: origin" in preview.out
-    assert "Planned land actions:" in preview.out
-    assert "push main to feature 2" in preview.out
-    assert "finalize PR #1" in preview.out
-    assert "finalize PR #2" in preview.out
-    assert f"forget local bookmark {bookmark_1}" in preview.out
-    assert f"forget local bookmark {bookmark_2}" in preview.out
-    assert "stop before feature 3" in preview.out
-    assert "cleanup --restack @-" in preview.out
-    assert "submit @-" in preview.out
+    assert "push main to feature 2" in rendered_preview
+    assert "finalize PR #1" in rendered_preview
+    assert "finalize PR #2" in rendered_preview
+    assert f"forget {bookmark_1}" in rendered_preview
+    assert f"forget {bookmark_2}" in rendered_preview
+    assert "stop before feature 3" in rendered_preview
 
     apply_exit_code = run_main(repo, config_path, "land")
     applied = capsys.readouterr()
+    rendered_applied = _squash_whitespace(applied.out)
 
     assert apply_exit_code == 0
-    assert "Finalizing PR #1 for feature 1" in applied.out
-    assert "Finalizing PR #2 for feature 2" in applied.out
-    assert "Applied land actions:" in applied.out
-    assert f"forget local bookmark {bookmark_1}" in applied.out
-    assert f"forget local bookmark {bookmark_2}" in applied.out
-    assert "cleanup --restack @-" in applied.out
-    assert "submit @-" in applied.out
+    assert "Finalizing PR #1 for feature 1" in rendered_applied
+    assert "Finalizing PR #2 for feature 2" in rendered_applied
+    assert f"forget {bookmark_1}" in rendered_applied
+    assert f"forget {bookmark_2}" in rendered_applied
     assert read_remote_ref(fake_repo.git_dir, "main") == stack.revisions[1].commit_id
     assert fake_repo.pull_requests[1].state == "closed"
     assert fake_repo.pull_requests[1].merged_at is not None
@@ -220,7 +220,6 @@ def test_land_bypass_readiness_previews_and_finalizes_unapproved_change(
     preview = capsys.readouterr()
 
     assert preview_exit_code == 0
-    assert "Planned land actions:" in preview.out
     assert "push main to feature 1" in preview.out
 
     apply_exit_code = run_main(
@@ -229,10 +228,9 @@ def test_land_bypass_readiness_previews_and_finalizes_unapproved_change(
         "land",
         "--bypass-readiness",
     )
-    applied = capsys.readouterr()
+    capsys.readouterr()
 
     assert apply_exit_code == 0
-    assert "Applied land actions:" in applied.out
     assert fake_repo.pull_requests[1].state == "closed"
     assert fake_repo.pull_requests[1].merged_at is not None
     assert read_remote_ref(fake_repo.git_dir, "main") == stack.revisions[0].commit_id

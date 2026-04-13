@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
 import pytest
 
+from jj_review import ui
 from jj_review.commands.land import (
     _build_land_plan,
     _ensure_trunk_branch_matches_selected_trunk,
@@ -395,7 +397,6 @@ def test_find_resume_land_intent_returns_none_for_cleanup_mode_mismatch() -> Non
 
 
 def test_report_stale_land_intents_does_not_claim_resume_without_resume_match(
-    capsys,
 ) -> None:
     prepared_status = _prepared_status(("change-1", "change-2"))
     loaded_intent = _loaded_land_intent(
@@ -405,16 +406,19 @@ def test_report_stale_land_intents_does_not_claim_resume_without_resume_match(
         landed_change_ids=("change-1",),
     )
 
-    _report_stale_land_intents(
-        current_landed_change_ids=("change-1",),
-        prepared_status=prepared_status,
-        resume_intent=None,
-        stale_intents=[loaded_intent],
-    )
-    captured = capsys.readouterr()
+    stdout = StringIO()
+    stderr = StringIO()
+    with ui.configured_ui(stdout=stdout, stderr=stderr, color_mode="never"):
+        _report_stale_land_intents(
+            current_landed_change_ids=("change-1",),
+            prepared_status=prepared_status,
+            resume_intent=None,
+            stale_intents=[loaded_intent],
+        )
 
-    assert "Resuming interrupted" not in captured.out
-    assert "incomplete operation outstanding: land for change-2" in captured.out
+    rendered = stdout.getvalue()
+    assert "Resuming interrupted" not in rendered
+    assert "incomplete operation outstanding: land for change-2" in rendered
 
 
 def test_remote_trunk_matches_commit_requires_matching_remote_and_local_state() -> None:
@@ -521,7 +525,7 @@ def test_plan_review_bookmark_cleanup_forgets_owned_landed_bookmark() -> None:
 
     assert plan is not None
     assert plan.can_forget is True
-    assert plan.action.message == "forget local bookmark review/feature-aaaaaaaa"
+    assert plan.action.message == "forget review/feature-aaaaaaaa"
     assert plan.action.status == "planned"
 
 

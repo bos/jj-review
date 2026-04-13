@@ -23,13 +23,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from string.templatelib import Template
 from typing import Literal, Protocol
 
+from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
-from jj_review.formatting import format_action_line, format_revision_label
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
@@ -60,6 +61,7 @@ from jj_review.review_inspection import (
 HELP = "Land the ready changes at the bottom of a stack"
 
 LandActionStatus = Literal["applied", "blocked", "planned"]
+type LandActionBody = str | Template | ui.SemanticText | tuple[object, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,8 +69,14 @@ class LandAction:
     """One planned, applied, or blocked landing action."""
 
     kind: str
-    message: str
+    body: LandActionBody
     status: LandActionStatus
+
+    @property
+    def message(self) -> str:
+        """Return the plain-text form of this action body."""
+
+        return ui.plain_text(self.body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,12 +88,12 @@ class LandResult:
     bypass_readiness: bool
     blocked: bool
     expect_pr_number: int | None
-    follow_up: str | None
     github_repository: str
     remote_name: str
     selected_revset: str
     trunk_branch: str
     trunk_subject: str
+    follow_up: LandActionBody | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,7 +154,7 @@ class _LandExecutionState:
     """Resolved live-run land state after resume checks."""
 
     execution_plan: _LandPlan
-    follow_up: str | None
+    follow_up: LandActionBody | None
     resume_intent: _ResumeLandIntent | None
     stale_intents: list[LoadedIntent]
     state_dir: Path
@@ -209,10 +217,17 @@ def land(
         ),
     )
     result = stream_land(prepared_land=prepared_land)
-    print(f"Selected revset: {result.selected_revset}")
-    print(f"Selected remote: {result.remote_name}")
-    print(f"GitHub: {result.github_repository}")
-    print(f"Trunk: {result.trunk_subject} -> {result.trunk_branch}")
+    _print_land_result(result)
+    return 1 if result.blocked else 0
+
+
+def _print_land_result(result: LandResult) -> None:
+    ui.output(ui.rich_text(t"Selected revset: {ui.revset(result.selected_revset)}"))
+    ui.output(ui.prefixed_message("Selected remote: ", result.remote_name))
+    ui.output(ui.prefixed_message("GitHub: ", result.github_repository))
+    ui.output(
+        ui.rich_text(t"Trunk: {result.trunk_subject} -> {ui.bookmark(result.trunk_branch)}")
+    )
     if result.actions:
         if result.applied:
             header = "Applied land actions:"
@@ -220,18 +235,43 @@ def land(
             header = "Land blocked:"
         else:
             header = "Planned land actions:"
-        print(header)
+        ui.output(header)
         for action in result.actions:
-            print(
-                format_action_line(
-                    status=action.status,
-                    kind=action.kind,
-                    message=action.message,
+            prefix, prefix_style, body_style = _land_action_presentation(action.status)
+            ui.output(
+                ui.prefixed_message(
+                    f"{prefix} ",
+                    (ui.semantic_text(action.kind, "prefix"), ": ", action.body),
+                    prefix_style=prefix_style,
+                    message_style=body_style,
                 )
             )
     if result.follow_up is not None:
-        print(result.follow_up)
-    return 1 if result.blocked else 0
+        ui.output(ui.rich_text(result.follow_up))
+
+
+def _land_action_presentation(
+    status: LandActionStatus,
+) -> tuple[str, object | None, object | None]:
+    if status == "applied":
+        return (
+            "  ✓",
+            ui.semantic_style("signature status good"),
+            ui.semantic_style("signature status good"),
+        )
+    if status == "planned":
+        return (
+            "  ~",
+            ui.semantic_style("hint heading"),
+            None,
+        )
+    if status == "blocked":
+        return (
+            "  ✗",
+            ui.semantic_style("error heading"),
+            ui.semantic_style("warning heading"),
+        )
+    return ("  ?", None, None)
 
 
 def prepare_land(
@@ -458,21 +498,19 @@ async def _stream_land_async(
                 actions.append(
                     LandAction(
                         kind="trunk",
-                        message=(
-                            f"push {trunk_branch} to "
-                            f"{format_revision_label(
-                                execution_plan.landed_revisions[-1].subject,
-                                execution_plan.landed_revisions[-1].change_id,
-                            )}"
-                        ),
+                        body=t"push {ui.bookmark(trunk_branch)} to "
+                        t"{execution_plan.landed_revisions[-1].subject} "
+                        t"{ui.change_id(execution_plan.landed_revisions[-1].change_id)}",
                         status="applied",
                     )
                 )
             for landed_revision in execution_plan.landed_revisions:
-                print(
-                    f"Finalizing PR #{landed_revision.pull_request_number} for "
-                    f"{format_revision_label(landed_revision.subject, landed_revision.change_id)}"
-                    "..."
+                ui.output(
+                    ui.rich_text(
+                        t"Finalizing PR #{landed_revision.pull_request_number} for "
+                        t"{landed_revision.subject} "
+                        t"{ui.change_id(landed_revision.change_id)}..."
+                    )
                 )
                 final_pull_request = await _finalize_landed_pull_request(
                     cached_change=state_changes.get(landed_revision.change_id),
@@ -484,13 +522,9 @@ async def _stream_land_async(
                 actions.append(
                     LandAction(
                         kind="pull request",
-                        message=(
-                            f"finalize PR #{landed_revision.pull_request_number} for "
-                            f"{format_revision_label(
-                                landed_revision.subject,
-                                landed_revision.change_id,
-                            )}"
-                        ),
+                        body=t"finalize PR #{landed_revision.pull_request_number} for "
+                        t"{landed_revision.subject} "
+                        t"{ui.change_id(landed_revision.change_id)}",
                         status="applied",
                     )
                 )
@@ -510,7 +544,8 @@ async def _stream_land_async(
                         actions.append(
                             LandAction(
                                 kind="local bookmark",
-                                message=f"forget local bookmark {cleanup_plan.bookmark}",
+                                body=t"forget {ui.bookmark(cleanup_plan.bookmark)} "
+                                t"for {ui.change_id(landed_revision.change_id)}",
                                 status="applied",
                             )
                         )
@@ -548,7 +583,7 @@ async def _stream_land_async(
 
 def _prepare_land_execution_state(
     *,
-    follow_up: str | None,
+    follow_up: LandActionBody | None,
     github_repository: ParsedGithubRepo,
     plan: _LandPlan,
     prepared_land: PreparedLand,
@@ -620,7 +655,7 @@ def _prepare_land_execution_state(
                 actions=(
                     LandAction(
                         kind="resume",
-                        message="previous landing already completed; cleared stale intent",
+                        body="previous landing already completed; cleared stale intent",
                         status="applied",
                     ),
                 ),
@@ -670,12 +705,19 @@ def _report_stale_land_intents(
             continue
         if resume_intent is not None and loaded.path == resume_intent.path:
             if resume_intent.mode == "tail-after-landed-prefix":
-                print(
-                    f"Resuming interrupted {describe_intent(loaded.intent)} after the trunk "
-                    "transition already succeeded"
+                ui.note(
+                    ui.rich_text(
+                        (
+                            "Resuming interrupted ",
+                            describe_intent(loaded.intent),
+                            " after the trunk transition already succeeded",
+                        )
+                    )
                 )
             else:
-                print(f"Resuming interrupted {describe_intent(loaded.intent)}")
+                ui.note(
+                    ui.rich_text(("Resuming interrupted ", describe_intent(loaded.intent)))
+                )
             continue
         match = match_ordered_change_ids(
             loaded.intent.ordered_change_ids,
@@ -685,12 +727,22 @@ def _report_stale_land_intents(
             ),
         )
         if match == "overlap":
-            print(
-                f"Warning: this land overlaps an incomplete earlier operation "
-                f"({describe_intent(loaded.intent)})"
+            ui.warning(
+                ui.rich_text(
+                    (
+                        "this land overlaps an incomplete earlier operation ",
+                        "(",
+                        describe_intent(loaded.intent),
+                        ")",
+                    )
+                )
             )
         else:
-            print(f"Note: incomplete operation outstanding: {describe_intent(loaded.intent)}")
+            ui.note(
+                ui.rich_text(
+                    ("incomplete operation outstanding: ", describe_intent(loaded.intent))
+                )
+            )
 
 
 def _build_land_plan(
@@ -717,7 +769,7 @@ def _build_land_plan(
                 blocked=True,
                 boundary_action=LandAction(
                     kind="guardrail",
-                    message=(
+                    body=(
                         f"`--expect-pr {expect_pr_number}` did not match the selected changes "
                         f"that can be landed now on {trunk_branch}."
                     ),
@@ -731,7 +783,7 @@ def _build_land_plan(
     if not landed_revisions and boundary_action is None:
         boundary_action = LandAction(
             kind="boundary",
-            message="No changes on the selected stack are ready to land.",
+            body="No changes on the selected stack are ready to land.",
             status="blocked",
         )
     return _LandPlan(
@@ -778,7 +830,7 @@ def _collect_landable_prefix(
         if boundary_message is not None:
             return tuple(landed_revisions), LandAction(
                 kind="boundary",
-                message=boundary_message,
+                body=boundary_message,
                 status="blocked" if not landed_revisions else "planned",
             )
         pull_request_lookup = revision.pull_request_lookup
@@ -801,29 +853,28 @@ def _land_boundary_message(
     bypass_readiness: bool,
     prepared_revision: PreparedRevision,
     revision: ReviewStatusRevision,
-) -> str | None:
+) -> LandActionBody | None:
     if revision.link_state == "unlinked":
         return (
-            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
-            "this change is unlinked from review tracking; run `relink` first"
+            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"this change is unlinked from review tracking; run `relink` first"
         )
     if revision.local_divergent:
         return (
-            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
-            "multiple visible revisions still share that change ID"
+            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"multiple visible revisions still share that change ID"
         )
     remote_state = revision.remote_state
     if remote_state is None or remote_state.target != prepared_revision.revision.commit_id:
         return (
-            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
-            "the pushed branch does not match the current local commit; rerun `submit` "
-            "first"
+            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"the pushed branch does not match the current local commit; rerun `submit` first"
         )
     pull_request_lookup = revision.pull_request_lookup
     if pull_request_lookup is None:
         return (
-            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
-            "GitHub pull request state is unavailable"
+            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"GitHub pull request state is unavailable"
         )
     if pull_request_lookup.state == "open":
         pull_request = pull_request_lookup.pull_request
@@ -832,60 +883,60 @@ def _land_boundary_message(
         if pull_request_lookup.review_decision_error is not None:
             detail = pull_request_lookup.review_decision_error
             return (
-                f"stop before {format_revision_label(revision.subject, revision.change_id)} "
-                f"because {detail}"
+                t"stop before {revision.subject} {ui.change_id(revision.change_id)} "
+                t"because {detail}"
             )
         if pull_request.is_draft:
             if bypass_readiness:
                 return None
             return (
-                f"stop before {format_revision_label(revision.subject, revision.change_id)} "
-                f"because PR #{pull_request.number} is still a draft"
+                t"stop before {revision.subject} {ui.change_id(revision.change_id)} "
+                t"because PR #{pull_request.number} is still a draft"
             )
         if pull_request_lookup.review_decision == "changes_requested":
             if bypass_readiness:
                 return None
             return (
-                f"stop before {format_revision_label(revision.subject, revision.change_id)} "
-                f"because PR #{pull_request.number} has changes requested"
+                t"stop before {revision.subject} {ui.change_id(revision.change_id)} "
+                t"because PR #{pull_request.number} has changes requested"
             )
         if pull_request_lookup.review_decision != "approved":
             if bypass_readiness:
                 return None
             return (
-                f"stop before {format_revision_label(revision.subject, revision.change_id)} "
-                f"because PR #{pull_request.number} is not approved"
+                t"stop before {revision.subject} {ui.change_id(revision.change_id)} "
+                t"because PR #{pull_request.number} is not approved"
             )
         return None
     if pull_request_lookup.state == "missing":
         return (
-            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
-            "GitHub no longer reports a pull request for its branch; run `status --fetch` "
-            "or `relink` first"
+            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"GitHub no longer reports a pull request for its branch; run `status --fetch` or "
+            t"`relink` first"
         )
     if pull_request_lookup.state == "ambiguous":
         detail = pull_request_lookup.message or "GitHub reports an ambiguous PR link"
         return (
-            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
-            f"{detail} Run `status --fetch` and repair the PR link with `relink`."
+            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"{detail} Run `status --fetch` and repair the PR link with `relink`."
         )
     if pull_request_lookup.state == "error":
         detail = pull_request_lookup.message or "GitHub lookup failed"
         return (
-            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
-            f"{detail}"
+            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"{detail}"
         )
     pull_request = pull_request_lookup.pull_request
     if pull_request is None:
         raise AssertionError("Closed land boundary requires a pull request payload.")
     if pull_request.state == "merged":
         return (
-            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
-            f"PR #{pull_request.number} is already merged; run `cleanup --restack` first"
+            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"PR #{pull_request.number} is already merged; run `cleanup --restack` first"
         )
     return (
-        f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
-        f"PR #{pull_request.number} is closed without merge"
+        t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+        t"PR #{pull_request.number} is closed without merge"
     )
 
 
@@ -906,13 +957,9 @@ def _planned_land_actions(
         actions.append(
             LandAction(
                 kind="trunk",
-                message=(
-                    f"push {plan.trunk_branch} to "
-                    f"{format_revision_label(
-                        plan.landed_revisions[-1].subject,
-                        plan.landed_revisions[-1].change_id,
-                    )}"
-                ),
+                body=t"push {ui.bookmark(plan.trunk_branch)} to "
+                t"{plan.landed_revisions[-1].subject} "
+                t"{ui.change_id(plan.landed_revisions[-1].change_id)}",
                 status="planned",
             )
         )
@@ -920,13 +967,9 @@ def _planned_land_actions(
             actions.append(
                 LandAction(
                     kind="pull request",
-                    message=(
-                        f"finalize PR #{landed_revision.pull_request_number} for "
-                        f"{format_revision_label(
-                            landed_revision.subject,
-                            landed_revision.change_id,
-                        )}"
-                    ),
+                    body=t"finalize PR #{landed_revision.pull_request_number} for "
+                    t"{landed_revision.subject} "
+                    t"{ui.change_id(landed_revision.change_id)}",
                     status="planned",
                 )
             )
@@ -1068,7 +1111,7 @@ def _plan_review_bookmark_cleanup(
         return _ReviewBookmarkCleanupPlan(
             action=LandAction(
                 kind="local bookmark",
-                message=f"cannot forget local bookmark {bookmark!r} because it is conflicted",
+                body=t"cannot forget {ui.bookmark(bookmark)} because it is conflicted",
                 status="blocked",
             ),
             bookmark=bookmark,
@@ -1082,9 +1125,9 @@ def _plan_review_bookmark_cleanup(
         return _ReviewBookmarkCleanupPlan(
             action=LandAction(
                 kind="local bookmark",
-                message=(
-                    f"cannot forget local bookmark {bookmark!r} because it already points "
-                    "to a different revision"
+                body=(
+                    t"cannot forget {ui.bookmark(bookmark)} because it already points "
+                    t"to a different revision"
                 ),
                 status="blocked",
             ),
@@ -1095,7 +1138,7 @@ def _plan_review_bookmark_cleanup(
     return _ReviewBookmarkCleanupPlan(
         action=LandAction(
             kind="local bookmark",
-            message=f"forget local bookmark {bookmark}",
+            body=t"forget {ui.bookmark(bookmark)}",
             status="planned",
         ),
         bookmark=bookmark,
@@ -1132,12 +1175,13 @@ def _follow_up_message(
     landed_change_count: int,
     selected_revset: str,
     total_change_count: int,
-) -> str | None:
+) -> LandActionBody | None:
     if landed_change_count == 0 or landed_change_count >= total_change_count:
         return None
     return (
-        "Next step: remaining descendants still sit above the changes that were landed. "
-        f"Run `cleanup --restack {selected_revset}` and then `submit {selected_revset}`."
+        t"Next step: remaining descendants still sit above the changes that were landed. "
+        t"Run `cleanup --restack {ui.revset(selected_revset)}` and then "
+        t"`submit {ui.revset(selected_revset)}`."
     )
 
 
