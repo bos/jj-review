@@ -6,6 +6,7 @@ from typing import cast
 
 import pytest
 
+from jj_review import ui
 from jj_review.commands.close import CloseAction, _cleanup_revision, _CloseCleanupContext
 from jj_review.github.client import GithubClient
 from jj_review.jj import JjClient
@@ -24,11 +25,9 @@ from jj_review.models.cache import CachedChange
             ),
             CloseAction(
                 kind="local bookmark",
-                message=(
-                    "cannot forget local bookmark 'review/feature-aaaaaaaa' because it is "
-                    "conflicted"
-                ),
                 status="blocked",
+                body=t"cannot forget {ui.bookmark('review/feature-aaaaaaaa')} because it is "
+                t"conflicted",
             ),
             id="conflicted-local",
         ),
@@ -40,11 +39,9 @@ from jj_review.models.cache import CachedChange
             ),
             CloseAction(
                 kind="local bookmark",
-                message=(
-                    "cannot forget local bookmark 'review/feature-aaaaaaaa' because it "
-                    "already points to a different revision"
-                ),
                 status="blocked",
+                body=t"cannot forget {ui.bookmark('review/feature-aaaaaaaa')} because it "
+                t"already points to a different revision",
             ),
             id="moved-local",
         ),
@@ -58,11 +55,9 @@ from jj_review.models.cache import CachedChange
             ),
             CloseAction(
                 kind="remote branch",
-                message=(
-                    "cannot delete remote branch review/feature-aaaaaaaa@origin because "
-                    "the remote bookmark is conflicted"
-                ),
                 status="blocked",
+                body=t"cannot delete {ui.bookmark('review/feature-aaaaaaaa@origin')} "
+                t"because the remote bookmark is conflicted",
             ),
             id="conflicted-remote",
         ),
@@ -74,11 +69,9 @@ from jj_review.models.cache import CachedChange
             ),
             CloseAction(
                 kind="remote branch",
-                message=(
-                    "cannot delete remote branch review/feature-aaaaaaaa@origin because "
-                    "it already points to a different revision"
-                ),
                 status="blocked",
+                body=t"cannot delete {ui.bookmark('review/feature-aaaaaaaa@origin')} "
+                t"because it already points to a different revision",
             ),
             id="moved-remote",
         ),
@@ -90,7 +83,11 @@ def test_cleanup_revision_blocks_unsafe_bookmarks(
 ) -> None:
     result = asyncio.run(_run_cleanup_revision(bookmark_state=bookmark_state))
 
-    assert result.actions == [expected_action]
+    assert len(result.actions) == 1
+    action = result.actions[0]
+    assert action.kind == expected_action.kind
+    assert action.status == expected_action.status
+    assert action.message == expected_action.message
     assert result.jj_client.delete_calls == []
     assert result.jj_client.forget_calls == []
 

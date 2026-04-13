@@ -13,13 +13,15 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from string.templatelib import Template
 from typing import Any, Literal
 
+from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
-from jj_review.formatting import format_action_line, format_revision_label, short_change_id
+from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.intent import (
     check_same_kind_intent,
@@ -40,6 +42,7 @@ from jj_review.stack_comments import is_stack_summary_comment
 HELP = "Stop reviewing a jj stack on GitHub"
 
 CloseActionStatus = Literal["applied", "blocked", "planned"]
+type CloseActionBody = str | Template | ui.SemanticText | tuple[object, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,8 +50,14 @@ class CloseAction:
     """One close action that was planned, applied, or blocked."""
 
     kind: str
-    message: str
     status: CloseActionStatus
+    body: CloseActionBody
+
+    @property
+    def message(self) -> str:
+        """Return the plain-text form of this action body."""
+
+        return ui.plain_text(self.body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +133,7 @@ class _CloseCleanupContext:
     record_action: Callable[[CloseAction], None]
     remote_name: str | None
     revision: Any
-    revision_label: str
+    revision_label: CloseActionBody
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,20 +184,20 @@ def close(
         ),
     )
     result = stream_close(prepared_close=prepared_close)
-    print(f"Selected revset: {result.selected_revset}")
+    ui.output(ui.rich_text(t"Selected revset: {ui.revset(result.selected_revset)}"))
     if result.remote is None:
         if result.remote_error is None:
-            print("Selected remote: unavailable")
+            ui.note("Selected remote: unavailable")
         else:
-            print(f"Selected remote: unavailable ({result.remote_error})")
+            ui.warning(f"Selected remote: unavailable ({result.remote_error})")
     else:
-        print(f"Selected remote: {result.remote.name}")
+        ui.output(f"Selected remote: {result.remote.name}")
 
     if result.github_repository is None:
         if result.github_error is not None:
-            print(f"GitHub target: unavailable ({result.github_error})")
+            ui.warning(f"GitHub target: unavailable ({result.github_error})")
     else:
-        print(f"GitHub: {result.github_repository}")
+        ui.output(f"GitHub: {result.github_repository}")
 
     if result.actions:
         if result.blocked:
@@ -197,20 +206,22 @@ def close(
             header = "Applied close actions:"
         else:
             header = "Planned close actions:"
-        print(header)
+        ui.output(header)
         for action in result.actions:
-            print(
-                format_action_line(
-                    status=action.status,
-                    kind=action.kind,
-                    message=action.message,
+            prefix, prefix_style, body_style = _close_action_presentation(action.status)
+            ui.output(
+                ui.prefixed_message(
+                    f"{prefix} ",
+                    (ui.semantic_text(action.kind, "prefix"), ": ", action.body),
+                    prefix_style=prefix_style,
+                    message_style=body_style,
                 )
             )
     else:
         if result.applied:
-            print("No close actions were needed for the selected stack.")
+            ui.note("No close actions were needed for the selected stack.")
         else:
-            print("No open pull requests tracked by jj-review on the selected stack.")
+            ui.output("No open pull requests tracked by jj-review on the selected stack.")
     return 1 if result.blocked else 0
 
 
@@ -286,7 +297,7 @@ async def _stream_close_async(
         recorder.record(
             CloseAction(
                 kind="close",
-                message=(
+                body=(
                     "cannot close pull requests tracked by jj-review without live "
                     "GitHub state; "
                     "fix GitHub access and retry"
@@ -451,10 +462,10 @@ def _report_stale_close_intents(
         )
         description = describe_intent(loaded.intent)
         if mode_relation == "same" and match == "exact":
-            print(f"Continuing interrupted {description}")
+            ui.note(f"Continuing interrupted {description}")
         elif mode_relation == "expanded" and match == "exact":
-            print(
-                f"Note: interrupted {description} is covered by this close --cleanup run."
+            ui.note(
+                f"Interrupted {description} is covered by this close --cleanup run."
             )
         elif (
             mode_relation == "incompatible"
@@ -462,29 +473,29 @@ def _report_stale_close_intents(
             and not current_cleanup
             and stack_match in {"exact", "same-logical", "covered"}
         ):
-            print(
-                f"Note: interrupted {description} is still outstanding; plain close "
+            ui.warning(
+                f"Interrupted {description} is still outstanding; plain close "
                 "does not finish cleanup. Run `close --cleanup` to complete it."
             )
         elif match == "same-logical":
-            print(
-                f"Note: interrupted {description} targeted the same logical stack, "
+            ui.note(
+                f"Interrupted {description} targeted the same logical stack, "
                 "but it has been rewritten. This close"
                 f"{' --cleanup' if current_cleanup else ''} will use the current stack."
             )
         elif match == "covered":
-            print(
-                f"Note: interrupted {description} targeted changes that are all included "
+            ui.note(
+                f"Interrupted {description} targeted changes that are all included "
                 "in the current stack. This close"
                 f"{' --cleanup' if current_cleanup else ''} will use the current stack."
             )
         elif match == "overlap":
-            print(
-                f"Warning: this close overlaps an incomplete earlier operation "
+            ui.warning(
+                f"This close overlaps an incomplete earlier operation "
                 f"({description})"
             )
         else:
-            print(f"Note: incomplete operation outstanding: {description}")
+            ui.note(f"Incomplete operation outstanding: {description}")
 
 
 async def _process_close_revisions(
@@ -555,7 +566,7 @@ async def _process_close_revision(
         record_action(
             CloseAction(
                 kind="close",
-                message=(
+                body=(
                     lookup.message or "cannot safely determine the pull request for this path"
                 ),
                 status="blocked",
@@ -625,13 +636,13 @@ async def _process_missing_close_revision(
     prepared_close: PreparedClose,
     record_action: Callable[[CloseAction], None],
     revision,
-    revision_label: str,
+    revision_label: CloseActionBody,
 ) -> bool:
     if _has_active_cached_link(cached_change):
         record_action(
             CloseAction(
                 kind="close",
-                message=(
+                body=(
                     f"cannot close {revision_label} because GitHub no longer reports a pull "
                     "request for its branch; run `status --fetch` or `relink` before "
                     "retrying"
@@ -677,12 +688,12 @@ async def _process_open_close_revision(
     pull_request_number: int,
     record_action: Callable[[CloseAction], None],
     revision,
-    revision_label: str,
+    revision_label: CloseActionBody,
 ) -> None:
     record_action(
         CloseAction(
             kind="pull request",
-            message=f"close PR #{pull_request_number} for {revision_label}",
+            body=t"close PR #{pull_request_number} for {revision_label}",
             status="planned" if prepared_close.dry_run else "applied",
         )
     )
@@ -725,7 +736,7 @@ async def _process_closed_close_revision(
     prepared_close: PreparedClose,
     record_action: Callable[[CloseAction], None],
     revision,
-    revision_label: str,
+    revision_label: CloseActionBody,
 ) -> None:
     lookup = revision.pull_request_lookup
     pr_state = (
@@ -770,7 +781,7 @@ def _record_retired_cached_change(
     prepared_close: PreparedClose,
     record_action: Callable[[CloseAction], None],
     revision,
-    revision_label: str,
+    revision_label: CloseActionBody,
 ) -> CachedChange:
     updated_change = _retire_cached_change(cached_change, pr_state=pr_state)
     if updated_change != cached_change:
@@ -778,7 +789,7 @@ def _record_retired_cached_change(
         record_action(
             CloseAction(
                 kind="tracking",
-                message=f"stop saved jj-review tracking for {revision_label}",
+                body=t"stop saved jj-review tracking for {revision_label}",
                 status="planned" if prepared_close.dry_run else "applied",
             )
         )
@@ -795,7 +806,7 @@ async def _cleanup_if_requested(
     prepared_close: PreparedClose,
     record_action: Callable[[CloseAction], None],
     revision,
-    revision_label: str,
+    revision_label: CloseActionBody,
 ) -> None:
     if not prepared_close.cleanup:
         return
@@ -857,7 +868,7 @@ async def _cleanup_revision(
         context.record_action(
             CloseAction(
                 kind="stack summary comment",
-                message=(
+                body=(
                     f"delete stack summary comment #{comment.id} from PR "
                     f"#{cached_change.pr_number}"
                 ),
@@ -894,12 +905,17 @@ def _plan_review_bookmark_cleanup(
     local_conflict = False
     remote_conflict = False
     local_target = bookmark_state.local_target
+    branch_label = (
+        f"{bookmark}@{context.remote_name}"
+        if context.remote_name is not None
+        else bookmark
+    )
 
     if len(bookmark_state.local_targets) > 1:
         context.record_action(
             CloseAction(
                 kind="local bookmark",
-                message=f"cannot forget local bookmark {bookmark!r} because it is conflicted",
+                body=t"cannot forget {ui.bookmark(bookmark)} because it is conflicted",
                 status="blocked",
             )
         )
@@ -908,10 +924,8 @@ def _plan_review_bookmark_cleanup(
         context.record_action(
             CloseAction(
                 kind="local bookmark",
-                message=(
-                    f"cannot forget local bookmark {bookmark!r} because it already points "
-                    "to a different revision"
-                ),
+                body=t"cannot forget {ui.bookmark(bookmark)} because it already points "
+                t"to a different revision",
                 status="blocked",
             )
         )
@@ -929,10 +943,8 @@ def _plan_review_bookmark_cleanup(
             context.record_action(
                 CloseAction(
                     kind="remote branch",
-                    message=(
-                        f"cannot delete remote branch {bookmark}@{context.remote_name} "
-                        "because the remote bookmark is conflicted"
-                    ),
+                    body=t"cannot delete {ui.bookmark(branch_label)} because the remote "
+                    t"bookmark is conflicted",
                     status="blocked",
                 )
             )
@@ -941,10 +953,8 @@ def _plan_review_bookmark_cleanup(
             context.record_action(
                 CloseAction(
                     kind="remote branch",
-                    message=(
-                        f"cannot delete remote branch {bookmark}@{context.remote_name} "
-                        "because it already points to a different revision"
-                    ),
+                    body=t"cannot delete {ui.bookmark(branch_label)} because it already "
+                    t"points to a different revision",
                     status="blocked",
                 )
             )
@@ -975,10 +985,15 @@ def _apply_review_bookmark_cleanup(
         return
 
     if cleanup_plan.remote_delete:
+        branch_label = (
+            f"{bookmark}@{context.remote_name}"
+            if context.remote_name is not None
+            else bookmark
+        )
         context.record_action(
             CloseAction(
                 kind="remote branch",
-                message=f"delete remote branch {bookmark}@{context.remote_name}",
+                body=t"delete {ui.bookmark(branch_label)}",
                 status="planned" if context.dry_run else "applied",
             )
         )
@@ -994,7 +1009,7 @@ def _apply_review_bookmark_cleanup(
         context.record_action(
             CloseAction(
                 kind="local bookmark",
-                message=f"forget local bookmark {bookmark}",
+                body=t"forget {ui.bookmark(bookmark)}",
                 status="planned" if context.dry_run else "applied",
             )
         )
@@ -1032,7 +1047,7 @@ async def _find_stack_summary_comment(
                     None,
                     CloseAction(
                         kind="stack summary comment",
-                        message=(
+                        body=(
                             "cannot inspect saved stack summary comment "
                             f"#{cached_stack_comment_id}: {cached_comment_error}"
                         ),
@@ -1044,7 +1059,7 @@ async def _find_stack_summary_comment(
                     None,
                     CloseAction(
                         kind="stack summary comment",
-                        message=(
+                        body=(
                             f"cannot delete saved stack summary comment "
                             f"#{cached_stack_comment_id} because it does not belong to "
                             "`jj-review`"
@@ -1057,7 +1072,7 @@ async def _find_stack_summary_comment(
             None,
             CloseAction(
                 kind="stack summary comment",
-                message=(
+                body=(
                     f"cannot inspect stack summary comments for PR #{pull_request_number}: "
                     f"{error}"
                 ),
@@ -1076,7 +1091,7 @@ async def _find_stack_summary_comment(
                     None,
                     CloseAction(
                         kind="stack summary comment",
-                        message=(
+                        body=(
                             f"cannot delete saved stack summary comment "
                             f"#{cached_stack_comment_id} because it does not belong to "
                             "`jj-review`"
@@ -1094,7 +1109,7 @@ async def _find_stack_summary_comment(
             None,
             CloseAction(
                 kind="stack summary comment",
-                message=(
+                body=(
                     "cannot delete stack summary comments because GitHub reports "
                     f"multiple candidates on PR #{pull_request_number}"
                 ),
@@ -1155,5 +1170,29 @@ def _has_active_cached_link(cached_change: CachedChange | None) -> bool:
     return cached_change.pr_state == "open"
 
 
-def _revision_label(revision) -> str:
-    return format_revision_label(revision.subject, revision.change_id)
+def _revision_label(revision) -> Template:
+    return t"{revision.subject} ({ui.change_id(revision.change_id)})"
+
+
+def _close_action_presentation(
+    status: CloseActionStatus,
+) -> tuple[str, object | None, object | None]:
+    if status == "applied":
+        return (
+            "  ✓",
+            ui.semantic_style("signature status good"),
+            ui.semantic_style("signature status good"),
+        )
+    if status == "planned":
+        return (
+            "  ~",
+            ui.semantic_style("hint heading"),
+            None,
+        )
+    if status == "blocked":
+        return (
+            "  ✗",
+            ui.semantic_style("error heading"),
+            ui.semantic_style("warning heading"),
+        )
+    return ("  ?", None, None)

@@ -92,6 +92,9 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- `close` now routes its selected-stack summary, action rows, and stale-intent
+  diagnostics through the shared Rich-backed `ui` helpers, with semantic
+  bodies for bookmarks, change IDs, and revsets.
 - `close` now keeps its execution state, resumable-intent setup, and per-revision
   cleanup context in explicit helpers instead of threading that orchestration
   through one long async path.

@@ -24,6 +24,10 @@ from .submit_command_helpers import (
 )
 
 
+def _combined_output(captured) -> str:
+    return " ".join((captured.out + " " + captured.err).split())
+
+
 def test_close_apply_closes_pull_request_and_retires_active_state(
     tmp_path: Path,
     monkeypatch,
@@ -116,12 +120,13 @@ def test_close_apply_reports_blocked_when_github_is_unavailable(
 
     exit_code = run_main(repo, config_path, "close", change_id)
     captured = capsys.readouterr()
+    combined_output = _combined_output(captured)
 
     assert exit_code == 1
     assert "Close blocked:" in captured.out
     assert "Applied close actions:" not in captured.out
     assert "cannot close pull requests tracked by jj-review without live GitHub state" in (
-        captured.out
+        combined_output
     )
     assert ReviewStateStore.for_repo(repo).load() == initial_state
 
@@ -276,9 +281,10 @@ def test_close_apply_blocks_when_github_no_longer_reports_the_cached_pull_reques
 
     exit_code = run_main(repo, config_path, "close", change_id)
     captured = capsys.readouterr()
+    combined_output = _combined_output(captured)
 
     assert exit_code == 1
-    assert "GitHub no longer reports a pull request" in captured.out
+    assert "GitHub no longer reports a pull request" in combined_output
     assert state_store.load() == initial_state
 
 def test_close_apply_checkpoints_prior_progress_before_later_block(
@@ -464,7 +470,7 @@ def test_close_apply_cleanup_exits_nonzero_when_cleanup_is_blocked(
 
     assert exit_code == 1
     assert "Close blocked:" in captured.out
-    assert "- blocked: stack summary comment:" in captured.out
+    assert "stack summary comment:" in captured.out
     assert fake_repo.pull_requests[2].state == "closed"
 
 
@@ -500,10 +506,13 @@ def test_close_retires_covered_interrupted_close_intent(
 
     exit_code = run_main(repo, config_path, "close")
     captured = capsys.readouterr()
+    normalized_out = _combined_output(captured)
 
     assert exit_code == 0
-    assert "Continuing interrupted" not in captured.out
-    assert "all included in the current stack" in captured.out
+    assert "Continuing interrupted" not in normalized_out
+    assert "targeted changes that are all included in the current stack" in (
+        normalized_out
+    )
     assert not old_intent_path.exists()
     assert list(state_dir.glob("incomplete-*.json")) == []
 
@@ -541,11 +550,12 @@ def test_close_continues_exact_interrupted_close_on_multi_revision_stack(
 
     exit_code = run_main(repo, config_path, "close")
     captured = capsys.readouterr()
+    normalized_out = _combined_output(captured)
 
     assert exit_code == 0
     assert (
         f"Continuing interrupted close for {second.change_id[:8]} (from @)"
-        in captured.out
+        in normalized_out
     )
     assert not old_intent_path.exists()
 
@@ -581,10 +591,11 @@ def test_close_does_not_resume_or_retire_interrupted_cleanup_close(
 
     exit_code = run_main(repo, config_path, "close")
     captured = capsys.readouterr()
+    normalized_out = _combined_output(captured)
 
     assert exit_code == 0
-    assert "Continuing interrupted" not in captured.out
-    assert "plain close does not finish cleanup" in captured.out
+    assert "Continuing interrupted" not in normalized_out
+    assert "plain close does not finish cleanup" in normalized_out
     assert old_intent_path.exists()
 
 
@@ -619,8 +630,9 @@ def test_cleanup_close_supersedes_plain_interrupted_close(
 
     exit_code = run_main(repo, config_path, "close", "--cleanup")
     captured = capsys.readouterr()
+    normalized_out = _combined_output(captured)
 
     assert exit_code == 0
-    assert "Continuing interrupted" not in captured.out
-    assert "covered by this close --cleanup run" in captured.out
+    assert "Continuing interrupted" not in normalized_out
+    assert "covered by this close --cleanup run" in normalized_out
     assert not old_intent_path.exists()
