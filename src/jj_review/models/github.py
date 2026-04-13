@@ -11,7 +11,7 @@ class GithubRepository(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     clone_url: str
-    default_branch: str
+    default_branch: str | None
     full_name: str
     html_url: str
     name: str

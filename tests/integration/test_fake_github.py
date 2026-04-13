@@ -16,7 +16,7 @@ from ..support.fake_github import (
 )
 
 
-async def _fetch_repository(app: FastAPI) -> tuple[str, str]:
+async def _fetch_repository(app: FastAPI) -> tuple[str, str | None]:
     transport = httpx.ASGITransport(app=app)
     async with GithubClient(base_url="https://api.github.test", transport=transport) as client:
         repository = await client.get_repository("octo-org", "stacked-review")

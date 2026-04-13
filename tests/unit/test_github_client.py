@@ -96,7 +96,7 @@ def test_github_client_retries_secondary_rate_limits_without_retry_after() -> No
             transport=transport,
         ) as client:
             repository = await client.get_repository("octo-org", "stacked-review")
-        return repository.default_branch
+        return repository.default_branch or ""
 
     assert asyncio.run(run_test()) == "main"
     assert attempts == 2

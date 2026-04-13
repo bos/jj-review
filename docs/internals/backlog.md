@@ -5,6 +5,9 @@ current slices.
 
 ## Crash and Interrupt Recovery
 
+_Benefit: medium — affects users with interrupted operations, which is uncommon
+but leaves them stuck with inconsistent state until resolved._
+
 Intent files now act as the concurrency lock, mutating commands hard-fail when
 saved jj-review data is unavailable, saved-data writes are incremental during
 mutating operations, `status` surfaces outstanding and stale incomplete
@@ -15,25 +18,19 @@ The remaining follow-up in this area is extending abort to cover partial land
 retraction and `close` reversal (reopening closed PRs), both of which require
 GitHub access and careful ordering of retraction steps.
 
-## Concurrency and Rate Limiting
+## Progress UX for Concurrent Submit
 
-The submit algorithm walks bottom-to-top creating/updating PRs sequentially.
-For deep stacks this means many API round trips. We need to decide whether to
-batch or parallelize GitHub API calls. Acceptable to stay serial for now.
+_Benefit: small — polish; the tool is functional without it._
 
-The GitHub client already implements retry-with-backoff for 429 and 403
-rate-limit responses, reading `Retry-After` and `X-RateLimit-Reset` headers
-and falling back to exponential backoff. The remaining gap is parallelising
-the per-change API calls in `submit` and `status` for large stacks.
-
-Now that `submit` is moving toward phase-based batching and bounded
-concurrency, the CLI progress model should be revisited separately from the
-throughput work. In particular, a TTY-only spinner or live per-change progress
-view would likely fit the new batched execution model better than the older
-line-open incremental renderer. Design that as an explicit UX follow-up rather
-than coupling it to the remote/GitHub concurrency changes.
+`submit` and `status` now use bounded concurrent execution for per-change
+GitHub API calls. The CLI progress model has not been updated to match: a
+TTY-only spinner or live per-change progress view would fit the batched
+execution model better than the current line-open incremental renderer. Design
+that as an explicit UX follow-up.
 
 ## Ancestor Merged on GitHub
+
+_Benefit: small — remaining edge cases are narrow and infrequent._
 
 The design doc and future `land` design now cover the main recovery shape for
 merged ancestors and the division of labor between `land` and
@@ -50,6 +47,9 @@ The remaining follow-up here is narrower:
 
 ## Bookmark Naming Collisions
 
+_Benefit: small — astronomically unlikely with the 8-char suffix; mostly a
+diagnostic quality improvement._
+
 The current design rejects bookmark naming collisions from user overrides, but
 two changes could theoretically produce the same slug+suffix. The 8-char
 `change_id` suffix makes this extremely unlikely, but the tool should detect
@@ -57,6 +57,9 @@ it and fail with a clear diagnostic describing what went wrong and how to
 resolve it (e.g., set an explicit bookmark override for one of the changes).
 
 ## Re-Request Review
+
+_Benefit: medium — common review workflow need, but requires design work to
+pick the right reviewer source of truth before implementing._
 
 A future `submit --re-request-review` style option may be worthwhile for the
 "addressed feedback, please look again" workflow.
@@ -72,6 +75,9 @@ which reviewer set it uses and when notifications are sent.
 
 ## Repo-Scoped Sync
 
+_Benefit: medium — useful for operators managing several stacks at once, but
+not blocking the core single-stack workflow._
+
 A future `import` design covers explicit stack materialization for one
 selected review stack, and `status --fetch` remains the read-only refresh
 primitive.
@@ -85,6 +91,9 @@ repo-scoped `sync` command that:
   history repair
 
 ## Landing Transports and Merge Queues
+
+_Benefit: medium — high value for teams that require merge queues, but complex
+to design correctly and not blocking the current direct-push flow._
 
 The current `land` model is intentionally narrow: resolve the ready prefix,
 move local history first, then reconcile GitHub state around that result.
@@ -112,6 +121,9 @@ flow piecemeal.
 
 ## Setup Diagnostics and Repository Readiness
 
+_Benefit: large — directly unblocks new users; repository policy
+misconfiguration is the most common early failure mode._
+
 The tool currently derives a lot of state automatically and fails closed when
 that derivation is ambiguous. That is the right steady-state behavior, but the
 onboarding and support experience still needs a more explicit diagnostic path.
@@ -133,6 +145,9 @@ not silently mutate repo state just to make warnings disappear.
 
 ## Guided Recovery and Next-Step UX
 
+_Benefit: large — daily operator quality of life; makes the safe next action
+obvious without requiring users to read internal design notes._
+
 The command surface is intentionally small, but the operator experience still
 depends heavily on knowing what to run next after a non-trivial state change.
 
@@ -153,83 +168,26 @@ This is partly presentation, but it is also a real product capability: the
 tool should make the safe next action obvious without requiring the operator to
 read internal design notes.
 
-## Documentation Plan
+## Documentation
 
-The product now has enough surface area that the README alone is no longer the
-right home for onboarding, workflow guidance, troubleshooting, and command
-reference. We need a deliberate user-facing documentation set.
+_Benefit: large — Phases 2–4 increase adoption and reduce confusion;
+without complete task-oriented guides, all other features are underutilized._
 
-### Documentation Goals
+Phase 1 is complete: the README has a quickstart, and `docs/` has
+`daily-workflow.md`, `mental-model.md`, and `troubleshooting.md`. Internal
+design and implementation notes live under `docs/internals/`.
 
-The documentation should:
+Remaining work:
 
-- get a new user from install to first submitted stack quickly
-- explain the `jj`/`jj-review` split of responsibility without teaching all of
-  `jj`
-- center the core workflow rather than the full command inventory
-- make failure modes feel explicit and diagnosable rather than mysterious
-- stay aligned with actual CLI help and implemented behavior
+- **Phase 2 (partial):** `mental-model.md` exists, but there is no standalone
+  landing/cleanup guide, no importing-existing-PRs guide, and no cheatsheet
+  for operators who already know the model.
+- **Phase 3:** generated or semi-generated command reference pages that stay
+  in sync with the argparse surface; doc drift checks that fail CI when
+  committed reference pages diverge from actual `--help` output; example
+  transcripts captured from the fake GitHub test environment.
+- **Phase 4:** LLM-friendly exports (`llms.txt` / `llms-full.txt`) once the
+  primary docs structure is stable.
 
-### Information Architecture
-
-The target shape is:
-
-- a short README that answers what the tool is, who it is for, how to install
-  it, and how to complete a five-minute first run
-- task-oriented docs under a user-facing docs tree, likely including:
-  - quickstart
-  - mental model
-  - daily workflow
-  - landing and cleanup
-  - importing existing PRs
-  - troubleshooting and recovery
-  - configuration
-  - cheatsheet / command map
-- generated or semi-generated command reference pages that mirror the current
-  CLI help surface instead of drifting into hand-maintained prose
-- contributor-only notes kept separate from end-user documentation
-
-### Content Priorities
-
-The first pass should prioritize:
-
-- one canonical "five minutes to first stack" guide
-- one "daily workflow" guide that covers `status`, `submit`, `land`, and
-  `cleanup --restack` together instead of as isolated commands
-- a mental-model page explaining why mutable history stays in `jj` while
-  GitHub review state lives in `jj-review`
-- a troubleshooting page organized by symptom and next command, not by
-  internal subsystem
-- a concise cheatsheet for operators who already understand the model and only
-  need command reminders
-
-Later passes can add migration notes, richer examples, and policy/setup docs.
-
-### Documentation Tooling
-
-Docs should not become a second, stale command reference. Follow-up work:
-
-- decide whether command reference pages are generated directly from argparse
-  help text or from a small checked-in intermediate representation
-- add doc checks that fail when generated help output diverges from committed
-  reference pages
-- prefer example transcripts captured from the fake GitHub test environment so
-  command output examples remain realistic and reviewable
-- keep user-facing terminology consistent with the CLI, especially around
-  `change_id`, stack head selection, submit, import, and cleanup
-
-### Documentation Delivery Phases
-
-Reasonable phases:
-
-- Phase 1: shorten the README, add quickstart, daily workflow, and
-  troubleshooting pages
-- Phase 2: add mental-model, landing/cleanup, and import guides, plus a
-  cheatsheet
-- Phase 3: add generated command reference and doc drift checks
-- Phase 4: add LLM-friendly exports such as `llms.txt` / `llms-full.txt` once
-  the primary docs structure is stable
-
-The primary risk is writing too much reference prose before the task-oriented
-guides exist. The docs should teach the workflow first and enumerate commands
-second.
+Docs should teach the workflow first and enumerate commands second. The primary
+risk is writing reference prose before the task-oriented guides are complete.

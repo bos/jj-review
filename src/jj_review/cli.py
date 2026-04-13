@@ -72,6 +72,7 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
             _HelpCommand("cleanup", commands.cleanup.HELP),
             _HelpCommand("import", commands.import_.HELP),
             _HelpCommand("abort", commands.abort.HELP),
+            _HelpCommand("doctor", commands.doctor.HELP),
         ),
     ),
     (
@@ -434,6 +435,21 @@ def build_parser() -> ArgumentParser:
             config_path=args.config,
             debug=args.debug,
             dry_run=args.dry_run,
+            repository=args.repository,
+        )
+    )
+
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help=_normalized_help_text(commands.doctor.HELP),
+        description=_normalized_help_text(commands.doctor.__doc__ or ""),
+    )
+    _add_common_options(doctor_parser)
+    _normalize_help_action_text(doctor_parser)
+    doctor_parser.set_defaults(
+        handler=lambda args: commands.doctor.doctor(
+            config_path=args.config,
+            debug=args.debug,
             repository=args.repository,
         )
     )
