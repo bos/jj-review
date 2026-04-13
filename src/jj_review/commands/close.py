@@ -458,7 +458,7 @@ def _report_stale_close_intents(
         ):
             print(
                 f"Note: interrupted {description} is still outstanding; plain close "
-                "does not finish cleanup."
+                "does not finish cleanup. Run `close --cleanup` to complete it."
             )
         elif match == "same-logical":
             print(

@@ -247,26 +247,26 @@ def _non_submit_note(intent) -> str | None:
     if isinstance(intent, LandIntent):
         return (
             "Landing cannot be retracted; changes already merged to trunk are "
-            "permanent. The intent file will be removed so future commands can "
-            "proceed. Run `status` to inspect the current state."
+            "permanent. The incomplete operation record will be cleared so future "
+            "commands can proceed. Run `status` to inspect the current state."
         )
     if isinstance(intent, CleanupRestackIntent):
         return (
             "Restack changes to local jj history cannot be automatically reversed. "
-            "The intent file will be removed. Inspect with `jj log` and repair "
-            "manually if needed."
+            "The incomplete operation record will be cleared. Inspect with `jj log` "
+            "and repair manually if needed."
         )
     if isinstance(intent, CloseIntent):
         return (
             "Close operations cannot be automatically reversed here. "
-            "The intent file will be removed. Run `status` to inspect which "
-            "pull requests were closed, and reopen them on GitHub if needed."
+            "The incomplete operation record will be cleared. Run `status` to inspect "
+            "which pull requests were closed, and reopen them on GitHub if needed."
         )
     if isinstance(intent, RelinkIntent):
         return (
             "Relink changes which PR a change tracks in local data. "
-            "The intent file will be removed. Run `status` to confirm the "
-            "current link state looks correct."
+            "The incomplete operation record will be cleared. Run `status` to confirm "
+            "the current link state looks correct."
         )
     return None
 
@@ -302,10 +302,10 @@ async def _abort_submit(
         )
         actions.append(
             AbortAction(
-                kind="intent file",
+                kind="record",
                 message=(
-                    "intent file kept — inspect the current stack and clean up manually if "
-                    "needed"
+                    "operation record kept — to finish the submit, re-run `submit`; "
+                    "to retract the partial work, run `close --cleanup`"
                 ),
                 status="skipped",
             )
@@ -386,9 +386,9 @@ async def _abort_submit(
     else:
         actions.append(
             AbortAction(
-                kind="intent file",
+                kind="record",
                 message=(
-                    "intent file kept — fix the blocked steps above, "
+                    "operation record kept — fix the blocked steps above, "
                     "then run abort again to retry"
                 ),
                 status="skipped",
@@ -604,11 +604,11 @@ def _plan_intent_file_removal(
     dry_run: bool,
     intent_path: Path,
 ) -> None:
-    verb = "would remove" if dry_run else "removed"
+    verb = "would clear" if dry_run else "cleared"
     actions.append(
         AbortAction(
-            kind="intent file",
-            message=f"{verb} intent file {intent_path.name}",
+            kind="record",
+            message=f"{verb} incomplete operation record ({intent_path.name})",
             status="planned" if dry_run else "applied",
         )
     )

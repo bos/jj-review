@@ -188,7 +188,7 @@ def test_abort_refuses_submit_retraction_after_stack_rewrite(
     assert exit_code == 1
     assert "Abort incomplete" in captured.out
     assert "abort will not guess" in captured.out
-    assert "intent file kept" in captured.out
+    assert "operation record kept" in captured.out
     assert state_store.load() == initial_state
     assert read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
     assert fake_repo.pull_requests[1].state == "open"
@@ -223,7 +223,7 @@ def test_abort_removes_cleanup_restack_intent_with_note(
 
     assert exit_code == 0
     assert "Applied abort actions" in captured.out
-    assert "removed intent file" in captured.out
+    assert "cleared incomplete operation record" in captured.out
     assert "restack" in captured.out  # note about manual inspection
     assert not state_store.list_intents()
 
