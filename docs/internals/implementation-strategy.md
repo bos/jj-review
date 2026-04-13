@@ -1452,6 +1452,13 @@ Recommended defaults:
   sets with the same parent-label inheritance jj documents for composite color
   rules, and exposes those styles to future Rich rendering without inventing a
   second semantic color system
+- `--time-output` now uses those imported jj semantic styles for its elapsed
+  prefix, labeling it as `prefix` plus `timestamp` so existing jj color
+  customization carries over to Rich-authored timing output
+- abort action output now renders status markers and messages as structured
+  Rich rows instead of plain strings, which preserves hanging indents under
+  terminal wrapping and allows per-status semantic styling for the marker and
+  message text
 - CLI-authored status markers now avoid square-bracket tags in favor of
   parenthetical change IDs and plain status labels so Rich markup can be
   enabled later without escaping repo-authored output strings

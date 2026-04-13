@@ -184,11 +184,18 @@ def test_abort_refuses_submit_retraction_after_stack_rewrite(
 
     exit_code = run_main(repo, config_path, "abort")
     captured = capsys.readouterr()
+    normalized_output = " ".join(captured.out.split())
+    rendered_lines = [line.rstrip() for line in captured.out.splitlines()]
 
     assert exit_code == 1
     assert "Abort incomplete" in captured.out
-    assert "abort will not guess" in captured.out
+    assert "abort will not guess" in normalized_output
     assert "operation record kept" in captured.out
+    assert any(line.startswith("  ✗ ") for line in rendered_lines)
+    blocked_index = next(
+        index for index, line in enumerate(rendered_lines) if line.startswith("  ✗ ")
+    )
+    assert rendered_lines[blocked_index + 1].startswith("    ")
     assert state_store.load() == initial_state
     assert read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
     assert fake_repo.pull_requests[1].state == "open"

@@ -76,69 +76,146 @@ class _SemanticStyles:
         return style if matched else None
 
 
-class _TimestampWriter:
-    """Wrap a text stream and prefix each rendered line with elapsed time."""
+@dataclass(slots=True)
+class _TimePrefixedRenderable:
+    """Render content with a Rich-managed elapsed-time prefix on every line."""
 
-    def __init__(self, stream: IO[str], *, start: float) -> None:
-        self._stream = stream
+    renderable: Any
+    end: str
+    prefix_style: Any | None
+    start: float
+
+    def __rich_console__(self, console, options):
+        segment_cls = import_module("rich.segment").Segment
+        prefix = f"[{time.perf_counter() - self.start:0.6f}] "
+        prefix_width = len(prefix)
+        inner_width = max(1, options.max_width - prefix_width)
+        inner_options = options.update(width=inner_width, max_width=inner_width)
+        lines = console.render_lines(self.renderable, inner_options, pad=False)
+        prefix_segment = segment_cls(prefix, self.prefix_style)
+        for index, line in enumerate(lines):
+            yield prefix_segment
+            yield from line
+            if index < len(lines) - 1:
+                yield segment_cls.line()
+        if self.end == "\n":
+            yield segment_cls.line()
+        elif self.end:
+            yield from console.render(self.end, options)
+
+
+class _ConfiguredConsole:
+    """Wrap a Rich console with optional jj-style elapsed-time prefixes."""
+
+    def __init__(
+        self,
+        console: Any,
+        *,
+        prefix_style: Any | None,
+        start: float | None,
+        time_output: bool,
+    ) -> None:
+        self._console = console
+        self._group_cls = import_module("rich.console").Group
+        self._new_line_cls = import_module("rich.console").NewLine
+        self._prefix_style = prefix_style
         self._start = start
-        self._at_line_start = True
+        self._time_output = time_output
 
-    @property
-    def encoding(self) -> str | None:
-        return getattr(self._stream, "encoding", None)
+    def print(
+        self,
+        *objects,
+        sep: str = " ",
+        end: str = "\n",
+        style=None,
+        justify=None,
+        overflow=None,
+        no_wrap=None,
+        emoji=None,
+        markup=None,
+        highlight=None,
+        width=None,
+        height=None,
+        crop: bool = True,
+        soft_wrap=None,
+        new_line_start: bool = False,
+    ) -> None:
+        if not self._time_output or self._start is None:
+            self._console.print(
+                *objects,
+                sep=sep,
+                end=end,
+                style=style,
+                justify=justify,
+                overflow=overflow,
+                no_wrap=no_wrap,
+                emoji=emoji,
+                markup=markup,
+                highlight=highlight,
+                width=width,
+                height=height,
+                crop=crop,
+                soft_wrap=soft_wrap,
+                new_line_start=new_line_start,
+            )
+            return
 
-    def fileno(self) -> int:
-        return self._stream.fileno()
+        if not objects:
+            objects = (self._new_line_cls(),)
 
-    def flush(self) -> None:
-        self._stream.flush()
-
-    def isatty(self) -> bool:
-        isatty = getattr(self._stream, "isatty", None)
-        return bool(isatty()) if callable(isatty) else False
-
-    def write(self, rendered: str) -> int:
-        if not rendered:
-            return 0
-
-        prefixed, self._at_line_start = _prefix_rendered_output(
-            rendered,
-            prefix=f"[{time.perf_counter() - self._start:0.6f}] ",
-            at_line_start=self._at_line_start,
+        renderables = self._console._collect_renderables(
+            objects,
+            sep,
+            "",
+            justify=justify,
+            emoji=emoji,
+            markup=markup,
+            highlight=highlight,
         )
-        self._stream.write(prefixed)
-        return len(rendered)
-
-
-def _console_file(
-    stream: IO[str],
-    *,
-    time_output: bool,
-    start: float | None,
-) -> Any:
-    if not time_output or start is None:
-        return stream
-    return _TimestampWriter(stream, start=start)
+        wrapped = _TimePrefixedRenderable(
+            renderable=self._group_cls(*renderables),
+            end=end,
+            prefix_style=self._prefix_style,
+            start=self._start,
+        )
+        self._console.print(
+            wrapped,
+            end="",
+            style=style,
+            justify=justify,
+            overflow=overflow,
+            no_wrap=no_wrap,
+            width=width,
+            height=height,
+            crop=crop,
+            soft_wrap=soft_wrap,
+            new_line_start=new_line_start,
+        )
 
 
 def _build_console(
     stream: IO[str],
     *,
     color_mode: ColorMode,
+    semantic_styles: _SemanticStyles | None,
     time_output: bool,
     start: float | None,
 ) -> ConsoleLike:
     console_cls = import_module("rich.console").Console
     kwargs: dict[str, object] = {
-        "file": _console_file(stream, time_output=time_output, start=start),
-        "soft_wrap": True,
+        "file": stream,
     }
     if color_mode == "always":
         kwargs["force_terminal"] = True
     elif color_mode == "never":
         kwargs["no_color"] = True
-    return console_cls(**kwargs)
+    console = console_cls(**kwargs)
+    return _ConfiguredConsole(
+        console,
+        prefix_style=_time_output_prefix_style(semantic_styles=semantic_styles),
+        start=start,
+        time_output=time_output,
+    )
 
 
 def _build_consoles(
@@ -157,12 +234,14 @@ def _build_consoles(
         _build_console(
             stdout_stream,
             color_mode=color_mode,
+            semantic_styles=semantic_styles,
             time_output=time_output,
             start=start,
         ),
         _build_console(
             stderr_stream,
             color_mode=color_mode,
+            semantic_styles=semantic_styles,
             time_output=time_output,
             start=start,
         ),
@@ -268,25 +347,26 @@ def note(*objects, **kwargs) -> None:
     _STDOUT_CONSOLE.print(*objects, **kwargs)
 
 
-def _prefix_rendered_output(
-    rendered: str,
-    *,
+def prefixed_message(
     prefix: str,
-    at_line_start: bool,
-) -> tuple[str, bool]:
-    """Prefix each logical line in a rendered string."""
+    message: str,
+    *,
+    message_style: Any | None = None,
+    prefix_style: Any | None = None,
+) -> Any:
+    """Return a hanging-indent renderable with a fixed prefix column."""
 
-    if not rendered:
-        return "", at_line_start
-
-    chunks: list[str] = []
-    current_at_line_start = at_line_start
-    for chunk in rendered.splitlines(keepends=True):
-        if current_at_line_start:
-            chunks.append(prefix)
-        chunks.append(chunk)
-        current_at_line_start = chunk.endswith("\n")
-    return "".join(chunks), current_at_line_start
+    table_cls = import_module("rich.table").Table
+    text_cls = import_module("rich.text").Text
+    prefix_width = max(1, len(prefix))
+    table = table_cls.grid(padding=(0, 0), expand=False)
+    table.add_column(width=prefix_width, no_wrap=True)
+    table.add_column()
+    table.add_row(
+        text_cls(prefix, style=prefix_style),
+        text_cls(message, style=message_style),
+    )
+    return table
 
 
 def _load_semantic_styles(*, repository: Path | None) -> _SemanticStyles | None:
@@ -415,6 +495,12 @@ def _normalize_jj_color_value(value: object) -> str | None:
     if value.startswith("bright "):
         return value.replace(" ", "_", 1)
     return value
+
+
+def _time_output_prefix_style(*, semantic_styles: _SemanticStyles | None) -> Any | None:
+    if semantic_styles is None:
+        return None
+    return semantic_styles.for_labels(("prefix", "timestamp"))
 
 
 _STDOUT_CONSOLE, _STDERR_CONSOLE, _SEMANTIC_STYLES = _build_consoles()

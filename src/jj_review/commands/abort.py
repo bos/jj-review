@@ -631,10 +631,42 @@ def _print_abort_result(result: AbortResult) -> None:
 
     ui.output(header)
     for action in result.actions:
-        prefix = {
-            "applied": "  ✓",
-            "planned": "  ~",
-            "blocked": "  ✗",
-            "skipped": "  -",
-        }.get(action.status, "  ?")
-        ui.output(f"{prefix} {action.message}")
+        prefix, prefix_style, message_style = _abort_action_presentation(action.status)
+        ui.output(
+            ui.prefixed_message(
+                f"{prefix} ",
+                action.message,
+                prefix_style=prefix_style,
+                message_style=message_style,
+            )
+        )
+
+
+def _abort_action_presentation(
+    status: AbortActionStatus,
+) -> tuple[str, object | None, object | None]:
+    if status == "applied":
+        return (
+            "  ✓",
+            ui.semantic_style("signature status good"),
+            ui.semantic_style("signature status good"),
+        )
+    if status == "planned":
+        return (
+            "  ~",
+            ui.semantic_style("hint heading"),
+            None,
+        )
+    if status == "blocked":
+        return (
+            "  ✗",
+            ui.semantic_style("error heading"),
+            ui.semantic_style("warning heading"),
+        )
+    if status == "skipped":
+        return (
+            "  -",
+            ui.semantic_style("hidden prefix") or ui.semantic_style("rest"),
+            None,
+        )
+    return ("  ?", None, None)

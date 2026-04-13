@@ -54,6 +54,63 @@ def test_time_output_prefixes_each_rendered_line() -> None:
         assert "] " in line
 
 
+def test_time_output_wraps_content_after_prefix_width(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    console_cls = import_module("rich.console").Console
+    stream = StringIO()
+    monkeypatch.setattr(ui_module.time, "perf_counter", lambda: 0.0)
+
+    console = ui_module._ConfiguredConsole(
+        console_cls(file=stream, force_terminal=False, width=15),
+        prefix_style=None,
+        start=0.0,
+        time_output=True,
+    )
+    console.print("abcdef", end="")
+
+    assert stream.getvalue() == "[0.000000] abcd\n[0.000000] ef"
+
+def test_time_output_prefix_uses_prefix_and_timestamp_semantic_style(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Path.cwd()
+    stdout = (
+        "colors.prefix.bold\0true\n"
+        'colors.timestamp\0"cyan"\n'
+    )
+
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(ui_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(ui_module.time, "perf_counter", lambda: 0.0)
+
+    console_cls = import_module("rich.console").Console
+    with ui_module.configured_ui(
+        stdout=StringIO(),
+        stderr=StringIO(),
+        color_mode="always",
+        repository=repository,
+        time_output=True,
+    ):
+        console = console_cls(width=40)
+        lines = console.render_lines(
+            ui_module._TimePrefixedRenderable(
+                renderable="timed",
+                end="",
+                prefix_style=ui_module.semantic_style("prefix", "timestamp"),
+                start=0.0,
+            ),
+            console.options,
+            pad=False,
+        )
+
+    prefix_segment = lines[0][0]
+    assert prefix_segment.text == "[0.000000] "
+    assert prefix_segment.style == _style_cls()(color="cyan", bold=True)
+
+
 def test_semantic_style_uses_machine_readable_jj_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -91,28 +148,3 @@ def test_semantic_style_uses_machine_readable_jj_config(
             color="bright_magenta",
             bold=True,
         )
-
-
-def test_note_defaults_to_hint_heading_semantic_style(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    observed: dict[str, object] = {}
-    sentinel = _style_cls()(color="red")
-
-    class FakeConsole:
-        def print(self, *objects, **kwargs) -> None:
-            observed["objects"] = objects
-            observed["kwargs"] = kwargs
-
-    def fake_semantic_style(*labels: str):
-        observed["labels"] = labels
-        return sentinel
-
-    monkeypatch.setattr(ui_module, "_STDOUT_CONSOLE", FakeConsole())
-    monkeypatch.setattr(ui_module, "semantic_style", fake_semantic_style)
-
-    ui_module.note("note")
-
-    assert observed["labels"] == ("hint heading",)
-    assert observed["objects"] == ("note",)
-    assert observed["kwargs"] == {"markup": False, "style": sentinel}
