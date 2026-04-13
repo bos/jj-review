@@ -349,11 +349,21 @@ async def _abort_submit(
     if not dry_run and next_changes != dict(state.changes):
         state_store.save(state.model_copy(update={"changes": next_changes}))
 
-    _plan_intent_file_removal(
-        actions=actions, dry_run=dry_run, intent_path=intent_path
-    )
-    if not dry_run:
-        intent_path.unlink(missing_ok=True)
+    if all_retracted or dry_run:
+        _plan_intent_file_removal(actions=actions, dry_run=dry_run, intent_path=intent_path)
+        if not dry_run:
+            intent_path.unlink(missing_ok=True)
+    else:
+        actions.append(
+            AbortAction(
+                kind="intent file",
+                message=(
+                    "intent file kept — fix the blocked steps above, "
+                    "then run abort again to retry"
+                ),
+                status="skipped",
+            )
+        )
 
     return AbortResult(
         actions=tuple(actions),
