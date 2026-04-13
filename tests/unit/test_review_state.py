@@ -120,7 +120,7 @@ def test_render_status_intent_lines_reports_stale_and_interrupted_operations(
         "Stale incomplete operations (change IDs no longer in repo):",
         "  submit on @  [process alive, stale-submit.json]",
         "",
-        "Incomplete operations detected:",
+        "Interrupted operations recorded:",
         "  land on @  [interrupted, inspect before re-running]",
     )
 
@@ -160,9 +160,9 @@ def test_render_status_intent_lines_describes_exact_interrupted_submit() -> None
     lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
 
     assert lines[0] == ""
-    assert lines[1] == "Incomplete operations detected:"
+    assert lines[1] == "Interrupted operations recorded:"
     assert "submit for abcdefgh (from @)" in lines[2]
-    assert "current stack matches" in lines[2]
+    assert "rerun submit to continue on the current stack" in lines[2]
 
 
 def test_interrupted_intent_blocks_status_returns_false_for_exact_submit() -> None:
@@ -280,10 +280,10 @@ def test_render_status_intent_lines_describes_rewritten_interrupted_submit() -> 
     lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
 
     assert lines[0] == ""
-    assert lines[1] == "Incomplete operations detected:"
+    assert lines[1] == "Interrupted operations recorded:"
     assert "submit for abcdefgh (from @)" in lines[2]
-    assert "current stack was rewritten" in lines[2]
-    assert "a new submit will use the current stack" in lines[2]
+    assert "recorded stack was rewritten" in lines[2]
+    assert "rerunning submit will use the current stack" in lines[2]
 
 
 def test_render_status_intent_lines_describes_exact_interrupted_close() -> None:
@@ -319,10 +319,9 @@ def test_render_status_intent_lines_describes_exact_interrupted_close() -> None:
     lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
 
     assert lines[0] == ""
-    assert lines[1] == "Incomplete operations detected:"
+    assert lines[1] == "Interrupted operations recorded:"
     assert "close for abcdefgh (from @)" in lines[2]
-    assert "recorded stack matches the current selection" in lines[2]
-    assert "rerun the same close mode to continue" in lines[2]
+    assert "rerun `close` to continue on the current stack" in lines[2]
 
 
 def test_render_status_intent_lines_describes_rewritten_cleanup_restack() -> None:
@@ -357,10 +356,10 @@ def test_render_status_intent_lines_describes_rewritten_cleanup_restack() -> Non
     lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
 
     assert lines[0] == ""
-    assert lines[1] == "Incomplete operations detected:"
+    assert lines[1] == "Interrupted operations recorded:"
     assert "cleanup --restack for abcdefgh (from @)" in lines[2]
     assert "recorded stack was rewritten" in lines[2]
-    assert "a new cleanup --restack will use the current stack" in lines[2]
+    assert "rerunning cleanup --restack will use the current stack" in lines[2]
 
 
 def test_render_status_intent_lines_describes_trimmed_cleanup_restack() -> None:
@@ -395,10 +394,10 @@ def test_render_status_intent_lines_describes_trimmed_cleanup_restack() -> None:
     lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
 
     assert lines[0] == ""
-    assert lines[1] == "Incomplete operations detected:"
+    assert lines[1] == "Interrupted operations recorded:"
     assert "cleanup --restack for bcdefghi (from @)" in lines[2]
     assert "still includes changes that are no longer on the current stack" in lines[2]
-    assert "a new cleanup --restack will use the current stack" in lines[2]
+    assert "rerunning cleanup --restack will use the current stack" in lines[2]
 
 
 def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:

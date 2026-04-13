@@ -456,7 +456,7 @@ def render_status_intent_lines(*, prepared_status) -> tuple[str, ...]:
             )
 
     if prepared_status.outstanding_intents:
-        lines.extend(("", "Incomplete operations detected:"))
+        lines.extend(("", "Interrupted operations recorded:"))
         for loaded in prepared_status.outstanding_intents:
             alive = pid_is_alive(loaded.intent.pid)
             description = describe_intent(loaded.intent)
@@ -563,15 +563,16 @@ def _render_interrupted_submit_status_line(
         current_commit_ids=current_commit_ids,
     )
     if match == "exact":
-        status = "interrupted, current stack matches"
+        status = "interrupted, rerun submit to continue on the current stack"
     elif match == "same-logical":
         status = (
-            "interrupted, current stack was rewritten; a new submit will use the current stack"
+            "interrupted, recorded stack was rewritten; rerunning submit will use "
+            "the current stack"
         )
     elif match == "covered":
         status = (
             "interrupted, the recorded changes are all included in the current stack; "
-            "a new submit will use the current stack"
+            "rerunning submit will use the current stack"
         )
     elif match == "overlap":
         status = "interrupted, current stack differs; inspect before running submit again"
@@ -600,21 +601,21 @@ def _render_interrupted_cleanup_restack_status_line(
         current_commit_ids=current_commit_ids,
     )
     if match == "exact":
-        status = "interrupted, recorded stack matches the current selection"
+        status = "interrupted, rerun cleanup --restack to continue on the current stack"
     elif match == "same-logical":
         status = (
-            "interrupted, recorded stack was rewritten; a new cleanup --restack "
+            "interrupted, recorded stack was rewritten; rerunning cleanup --restack "
             "will use the current stack"
         )
     elif match == "covered":
         status = (
             "interrupted, the recorded changes are all included in the current "
-            "stack; a new cleanup --restack will use the current stack"
+            "stack; rerunning cleanup --restack will use the current stack"
         )
     elif match == "trimmed":
         status = (
             "interrupted, the recorded stack still includes changes that are no "
-            "longer on the current stack; a new cleanup --restack will use the "
+            "longer on the current stack; rerunning cleanup --restack will use the "
             "current stack"
         )
     elif match == "overlap":
@@ -646,20 +647,18 @@ def _render_interrupted_close_status_line(
         current_change_ids=current_change_ids,
         current_commit_ids=current_commit_ids,
     )
+    close_command = "`close --cleanup`" if intent.cleanup else "`close`"
     if match == "exact":
-        status = (
-            "interrupted, recorded stack matches the current selection; rerun the "
-            "same close mode to continue"
-        )
+        status = f"interrupted, rerun {close_command} to continue on the current stack"
     elif match == "same-logical":
         status = (
-            "interrupted, recorded stack was rewritten; rerunning the same close mode "
-            "will use the current stack"
+            "interrupted, recorded stack was rewritten; rerunning "
+            f"{close_command} will use the current stack"
         )
     elif match == "covered":
         status = (
             "interrupted, the recorded changes are all included in the current stack; "
-            "rerun the same close mode if you still need to finish it"
+            f"rerunning {close_command} will use the current stack"
         )
     elif match == "overlap":
         status = "interrupted, current stack differs; inspect before running close again"

@@ -147,8 +147,8 @@ before re-running `close`, it will act on the current selected stack rather
 than trying to replay the old selector. `close --cleanup` is treated as a
 stronger follow-up than plain `close`: it can cover an older interrupted plain
 `close`, but a later plain `close` does not erase an older interrupted cleanup
-run. If `status` shows an interrupted close, rerun the same close mode if you
-want to finish that recorded operation.
+run. If `status` shows an interrupted close, rerun whichever close command it
+names (`close` or `close --cleanup`) if you want to finish that operation.
 
 `cleanup --restack` also works from the current selected stack on rerun. If
 the stack was rewritten after the interruption, jj-review reports that it is
