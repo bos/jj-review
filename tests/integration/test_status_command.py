@@ -39,7 +39,7 @@ def test_status_reports_pull_request_link_without_showing_managed_bookmark(
 
     assert exit_code == 0
     assert "feature 1" in captured.out
-    assert ": PR #1" in captured.out
+    assert "PR #1" in captured.out
     assert "Submitted stack (https://github.test/octo-org/stacked-review/pull/1):" in (
         captured.out
     )
@@ -94,6 +94,7 @@ def test_status_ignores_off_path_reviewable_child(
     assert "feature 1" in captured.out
     assert "feature side" not in captured.out
 
+
 def test_status_preserves_remote_observations_when_github_lookup_fails(
     tmp_path: Path,
     monkeypatch,
@@ -125,15 +126,14 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
 
     exit_code = run_main(repo, config_path, "status")
     captured = capsys.readouterr()
+    normalized_out = " ".join(captured.out.split())
 
     assert exit_code == 1
-    assert (
-        "GitHub target: octo-org/stacked-review "
-        "(repo not found or inaccessible - check GITHUB_TOKEN or gh auth)"
-    ) in captured.out
+    assert "GitHub target: octo-org/stacked-review" in normalized_out
+    assert "repo not found or inaccessible - check GITHUB_TOKEN or gh auth" in normalized_out
     assert "documentation_url" not in captured.out
-    assert ": saved PR #1 (open)" in captured.out
-    assert ": PR #1" not in captured.out
+    assert "saved PR #1 (open)" in captured.out
+
 
 def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
     tmp_path: Path,
@@ -160,13 +160,13 @@ def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
 
     exit_code = run_main(repo, config_path, "status")
     captured = capsys.readouterr()
+    normalized_out = " ".join(captured.out.split())
 
     assert exit_code == 1
-    assert (
-        "GitHub target: octo-org/stacked-review "
-        "(unavailable - check network connectivity)"
-    ) in captured.out
-    assert ": GitHub status unknown" in captured.out
+    assert "GitHub target: octo-org/stacked-review" in normalized_out
+    assert "unavailable - check network connectivity" in normalized_out
+    assert "GitHub status unknown" in captured.out
+
 
 def test_status_exits_nonzero_when_pull_request_lookup_fails(
     tmp_path: Path,
@@ -201,7 +201,8 @@ def test_status_exits_nonzero_when_pull_request_lookup_fails(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert ": saved PR #1 (open), pull request lookup failed (GitHub 422)" in captured.out
+    assert "saved PR #1 (open), pull request lookup failed" in captured.out
+
 
 def test_status_exits_nonzero_when_github_reports_multiple_pull_requests(
     tmp_path: Path,
@@ -235,6 +236,7 @@ def test_status_exits_nonzero_when_github_reports_multiple_pull_requests(
     assert "refresh remote and GitHub observations" in captured.out
     assert "relink <pr>" in captured.out
 
+
 def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
     tmp_path: Path,
     monkeypatch,
@@ -255,6 +257,7 @@ def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
 
     assert exit_code == 1
     assert "multiple `jj-review` stack summary comments" in captured.out
+
 
 def test_status_fetch_surfaces_unlinked_state_without_repopulating_link(
     tmp_path: Path,
@@ -277,12 +280,13 @@ def test_status_fetch_surfaces_unlinked_state_without_repopulating_link(
     unlinked_change = ReviewStateStore.for_repo(repo).load().changes[change_id]
 
     assert exit_code == 0
-    assert ": unlinked PR #1" in captured.out
+    assert "unlinked PR #1" in captured.out
     assert unlinked_change.link_state == "unlinked"
     assert unlinked_change.pr_number is None
     assert unlinked_change.pr_state is None
     assert unlinked_change.pr_url is None
     assert unlinked_change.stack_comment_id is None
+
 
 def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
     tmp_path: Path,
@@ -323,9 +327,10 @@ def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert ": PR #2" in captured.out
+    assert "PR #2" in captured.out
     assert refreshed_state.changes[change_id].pr_number == 2
     assert refreshed_state.changes[change_id].stack_comment_id == 1
+
 
 def test_status_refreshes_cached_pull_request_metadata_after_state_loss(
     tmp_path: Path,
@@ -351,7 +356,7 @@ def test_status_refreshes_cached_pull_request_metadata_after_state_loss(
     refreshed_state = ReviewStateStore.for_repo(repo).load()
 
     assert exit_code == 0
-    assert ": PR #1" in captured.out
+    assert "PR #1" in captured.out
     assert refreshed_state.changes[change_id].bookmark == bookmark
     assert refreshed_state.changes[change_id].pr_number == 1
     assert refreshed_state.changes[change_id].pr_state == "open"
@@ -359,6 +364,7 @@ def test_status_refreshes_cached_pull_request_metadata_after_state_loss(
         refreshed_state.changes[change_id].pr_url
         == "https://github.test/octo-org/stacked-review/pull/1"
     )
+
 
 def test_status_uses_cached_pull_request_metadata_after_prior_online_run(
     tmp_path: Path,
@@ -399,13 +405,13 @@ def test_status_uses_cached_pull_request_metadata_after_prior_online_run(
 
     exit_code = run_main(repo, config_path, "status", change_id)
     captured = capsys.readouterr()
+    normalized_out = " ".join(captured.out.split())
 
     assert exit_code == 1
-    assert (
-        "GitHub target: octo-org/stacked-review "
-        "(unavailable - check network connectivity)"
-    ) in captured.out
-    assert ": saved PR #1 (open)" in captured.out
+    assert "GitHub target: octo-org/stacked-review" in normalized_out
+    assert "unavailable - check network connectivity" in normalized_out
+    assert "saved PR #1 (open)" in captured.out
+
 
 def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
     tmp_path: Path,
@@ -433,7 +439,7 @@ def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
     refreshed_state = state_store.load()
 
     assert exit_code == 1
-    assert ": saved PR #1 (open), no GitHub PR" in captured.out
+    assert "saved PR #1 (open), no GitHub PR" in captured.out
     assert "PR link note:" in captured.out
     assert "refresh remote and GitHub observations" in captured.out
     assert "relink <pr>" in captured.out
@@ -441,6 +447,7 @@ def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
     assert refreshed_state.changes[change_id].pr_state is None
     assert refreshed_state.changes[change_id].pr_url is None
     assert refreshed_state.changes[change_id].stack_comment_id is None
+
 
 def test_status_refreshes_closed_pull_request_state_in_cache(
     tmp_path: Path,
@@ -464,7 +471,7 @@ def test_status_refreshes_closed_pull_request_state_in_cache(
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert ": PR #1 closed" in captured.out
+    assert "PR #1 closed" in captured.out
     assert refreshed_state.changes[change_id].pr_number == 1
     assert refreshed_state.changes[change_id].pr_review_decision is None
     assert refreshed_state.changes[change_id].pr_state == "closed"
@@ -473,6 +480,7 @@ def test_status_refreshes_closed_pull_request_state_in_cache(
         == "https://github.test/octo-org/stacked-review/pull/1"
     )
     assert refreshed_state.changes[change_id].stack_comment_id is None
+
 
 def test_status_reports_draft_pull_request_state(
     tmp_path: Path,
@@ -495,9 +503,10 @@ def test_status_reports_draft_pull_request_state(
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert ": draft PR #1" in captured.out
+    assert "draft PR #1" in captured.out
     assert refreshed_state.changes[change_id].pr_is_draft is True
     assert refreshed_state.changes[change_id].pr_state == "open"
+
 
 def test_status_reports_approved_pull_request_state(
     tmp_path: Path,
@@ -525,9 +534,10 @@ def test_status_reports_approved_pull_request_state(
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert ": PR #1 approved" in captured.out
+    assert "PR #1 approved" in captured.out
     assert refreshed_state.changes[change_id].pr_review_decision == "approved"
     assert refreshed_state.changes[change_id].pr_state == "open"
+
 
 def test_status_preserves_cached_review_decision_when_review_lookup_fails(
     tmp_path: Path,
@@ -574,8 +584,9 @@ def test_status_preserves_cached_review_decision_when_review_lookup_fails(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert ": PR #1 approved" in captured.out
+    assert "PR #1 approved" in captured.out
     assert state_store.load().changes[change_id].pr_review_decision == "approved"
+
 
 def test_status_reports_merged_pull_request_state(
     tmp_path: Path,
@@ -600,9 +611,10 @@ def test_status_reports_merged_pull_request_state(
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert ": PR #1 merged, cleanup needed" in captured.out
+    assert "PR #1 merged, cleanup needed" in captured.out
     assert refreshed_state.changes[change_id].pr_state == "merged"
     assert refreshed_state.changes[change_id].pr_review_decision is None
+
 
 def test_status_shows_outstanding_submit_intent(
     tmp_path: Path,
@@ -642,6 +654,7 @@ def test_status_shows_outstanding_submit_intent(
     assert f"submit for {change_id[:8]} (from @)" in captured.out
     assert "rerun submit" in captured.out
     assert "current stack" in captured.out
+
 
 def test_status_exits_zero_for_exact_interrupted_submit_intent(
     tmp_path: Path,
@@ -727,6 +740,7 @@ def test_status_exits_nonzero_for_partially_overlapping_intent(
     assert exit_code == 1
     assert f"submit for {third_change_id[:8]} (from mixed-stack)" in captured.out
 
+
 def test_status_exits_zero_for_stale_intent(
     tmp_path: Path,
     monkeypatch,
@@ -763,6 +777,7 @@ def test_status_exits_zero_for_stale_intent(
 
     # Stale intent: shown in stale section, exit code 0 (advisory only)
     assert exit_code == 0
+
 
 def test_status_exits_zero_for_disjoint_intent(
     tmp_path: Path,

@@ -10,12 +10,12 @@ being queried.
 from __future__ import annotations
 
 import sys
-import textwrap
 from contextlib import contextmanager
 from pathlib import Path
 
 from tqdm import tqdm
 
+from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.errors import CliError
 from jj_review.formatting import (
@@ -27,14 +27,21 @@ from jj_review.formatting import (
     render_revision_with_suffix_lines,
 )
 from jj_review.intent import (
-    describe_intent,
     match_cleanup_restack_intent,
     match_close_intent,
     match_submit_intent,
     pid_is_alive,
 )
 from jj_review.jj import UnsupportedStackError
-from jj_review.models.intent import CleanupRestackIntent, CloseIntent, SubmitIntent
+from jj_review.models.intent import (
+    AbortIntent,
+    CleanupIntent,
+    CleanupRestackIntent,
+    CloseIntent,
+    LandIntent,
+    RelinkIntent,
+    SubmitIntent,
+)
 from jj_review.review_inspection import (
     prepare_status,
     revision_has_merged_pull_request,
@@ -46,6 +53,7 @@ _SUMMARY_SECTION_HEAD_COUNT = 3
 _SUMMARY_SECTION_TAIL_COUNT = 3
 
 HELP = "Check the review status of a jj stack"
+
 
 def status(
     *,
@@ -75,10 +83,10 @@ def status(
         raise CliError(describe_status_preparation_error(error)) from error
 
     selection_lines = render_status_selection_lines(prepared_status=prepared_status)
-    for line in selection_lines:
-        print(line)
+    _emit_lines(selection_lines)
 
     with _status_progress_bar(prepared_status=prepared_status) as progress:
+
         def advance_progress(_revision, _github_available: bool) -> None:
             if progress is not None:
                 progress.update(1)
@@ -93,33 +101,29 @@ def status(
         github_repository=result.github_repository,
         has_revisions=bool(result.revisions),
     )
-    for line in github_lines:
-        print(line)
+    _emit_lines(github_lines)
 
     if not prepared_status.prepared.status_revisions:
-        for line in render_empty_status_lines(
-            prepared_status=prepared_status,
-        ):
-            print(line)
+        _emit_lines(
+            render_empty_status_lines(
+                prepared_status=prepared_status,
+            )
+        )
         return 0
 
     github_available = result.github_repository is not None and result.github_error is None
-    for line in render_status_summary_lines(
-        client=prepared_status.prepared.client,
-        result=result,
-        github_available=github_available,
-        leading_separator=bool(selection_lines or github_lines),
-        verbose=verbose,
-    ):
-        print(line)
-    for line in render_trunk_status_lines(
-        prepared=prepared_status.prepared,
-    ):
-        print(line)
-    for line in render_status_advisory_lines(result=result):
-        print(line)
-    for line in render_status_intent_lines(prepared_status=prepared_status):
-        print(line)
+    _emit_lines(
+        render_status_summary_lines(
+            client=prepared_status.prepared.client,
+            result=result,
+            github_available=github_available,
+            leading_separator=bool(selection_lines or github_lines),
+            verbose=verbose,
+        )
+    )
+    _emit_lines(render_trunk_status_lines(prepared=prepared_status.prepared))
+    _emit_lines(render_status_advisory_lines(result=result))
+    _emit_lines(render_status_intent_lines(prepared_status=prepared_status))
 
     exit_code = 1 if result.incomplete else 0
     if any(
@@ -151,16 +155,21 @@ def describe_status_preparation_error(error: UnsupportedStackError) -> str:
     )
 
 
-def render_status_selection_lines(*, prepared_status) -> tuple[str, ...]:
+def render_status_selection_lines(*, prepared_status) -> tuple[object, ...]:
     """Render exceptional local selection context lines."""
 
     prepared = prepared_status.prepared
-    lines: list[str] = []
+    lines: list[object] = []
     if prepared.remote is None:
         if prepared.remote_error is None:
-            lines.append("Selected remote: unavailable")
+            lines.append(_prefixed_status_line("Selected remote", "unavailable"))
         else:
-            lines.append(f"Selected remote: unavailable ({prepared.remote_error})")
+            lines.append(
+                _prefixed_status_line(
+                    "Selected remote",
+                    f"unavailable ({prepared.remote_error})",
+                )
+            )
     return tuple(lines)
 
 
@@ -169,20 +178,28 @@ def render_status_github_lines(
     github_error: str | None,
     github_repository: str | None,
     has_revisions: bool,
-) -> tuple[str, ...]:
+) -> tuple[object, ...]:
     """Render GitHub availability lines as status streaming begins."""
 
-    lines: list[str] = []
+    lines: list[object] = []
     if github_repository is None:
         if github_error is not None:
-            lines.append(f"GitHub target: unavailable ({github_error})")
+            lines.append(_prefixed_status_line("GitHub target", f"unavailable ({github_error})"))
     else:
         if github_error is None and not has_revisions:
             lines.append(
-                f"GitHub target: {github_repository} (not inspected; no reviewable commits)"
+                _prefixed_status_line(
+                    "GitHub target",
+                    f"{github_repository} (not inspected; no reviewable commits)",
+                )
             )
         elif github_error is not None:
-            lines.append(f"GitHub target: {github_repository} ({github_error})")
+            lines.append(
+                _prefixed_status_line(
+                    "GitHub target",
+                    f"{github_repository} ({github_error})",
+                )
+            )
     return tuple(lines)
 
 
@@ -269,14 +286,20 @@ def render_trunk_status_lines(
 def render_empty_status_lines(
     *,
     prepared_status,
-) -> tuple[str, ...]:
+) -> tuple[object, ...]:
     """Render the empty-stack footer and explanation."""
 
     return (
         *render_trunk_status_lines(
             prepared=prepared_status.prepared,
         ),
-        "No reviewable commits between the selected revision and `trunk()`.",
+        ui.rich_text(
+            (
+                "No reviewable commits between the selected revision and ",
+                ui.revset("trunk()"),
+                ".",
+            )
+        ),
     )
 
 
@@ -324,16 +347,14 @@ def _render_submitted_section_title(revisions: tuple) -> str:
     return f"Submitted stack ({top_pull_request_url})"
 
 
-def render_status_advisory_lines(*, result) -> tuple[str, ...]:
+def render_status_advisory_lines(*, result) -> tuple[object, ...]:
     """Render any advisories that follow the status stack output."""
 
     if not hasattr(result, "revisions") or not hasattr(result, "selected_revset"):
         return ()
 
     cleanup_revisions = [
-        revision
-        for revision in result.revisions
-        if revision_has_merged_pull_request(revision)
+        revision for revision in result.revisions if revision_has_merged_pull_request(revision)
     ]
     divergent_revisions = [
         revision
@@ -342,9 +363,7 @@ def render_status_advisory_lines(*, result) -> tuple[str, ...]:
         and not revision_has_merged_pull_request(revision)
     ]
     link_revisions = [
-        revision
-        for revision in result.revisions
-        if _revision_has_link_advisory(revision)
+        revision for revision in result.revisions if _revision_has_link_advisory(revision)
     ]
     policy_warnings = [
         revision
@@ -363,9 +382,8 @@ def render_status_advisory_lines(*, result) -> tuple[str, ...]:
     ):
         return ()
 
-    lines = ["", "Advisories:"]
+    lines: list[object] = ["", "Advisories:"]
     if cleanup_revisions:
-        next_command = f"jj-review cleanup --restack {result.selected_revset}"
         lines.append(
             _wrap_advisory(
                 "Submit note: descendant PR bases still follow the old local ancestry "
@@ -374,8 +392,14 @@ def render_status_advisory_lines(*, result) -> tuple[str, ...]:
         )
         lines.append(
             _wrap_advisory(
-                f"Next step: run `{next_command}` to rewrite the local stack, or "
-                f"`{next_command} --dry-run` to preview the restack plan first"
+                (
+                    "Next step: run `",
+                    ui.semantic_text("jj-review cleanup --restack ", "hint"),
+                    ui.revset(result.selected_revset),
+                    "` to rewrite the local stack, or `",
+                    ui.semantic_text("jj-review cleanup --restack --dry-run", "hint"),
+                    "` to preview the restack plan first",
+                )
             )
         )
         for revision in cleanup_revisions:
@@ -385,26 +409,38 @@ def render_status_advisory_lines(*, result) -> tuple[str, ...]:
             )
             lines.append(
                 _wrap_advisory(
-                    f"{_status_revision_label(revision)}: {pull_request_label} is merged, "
-                    "and later local changes are still based on it"
+                    (
+                        _status_revision_label(revision),
+                        ": ",
+                        pull_request_label,
+                        " is merged, and later local changes are still based on it",
+                    )
                 )
             )
 
     if link_revisions:
-        next_status = f"jj-review status --fetch {result.selected_revset}"
-        next_relink = f"jj-review relink <pr> {result.selected_revset}"
         lines.append(
             _wrap_advisory(
-                "PR link note: refresh remote and GitHub observations with "
-                f"`{next_status}`. If the existing PR should stay attached to one of these "
-                f"changes, repair that PR link intentionally with `{next_relink}`."
+                (
+                    "PR link note: refresh remote and GitHub observations with `",
+                    ui.semantic_text("jj-review status --fetch ", "hint"),
+                    ui.revset(result.selected_revset),
+                    "`. If the existing PR should stay attached to one of these changes, "
+                    "repair that PR link intentionally with `",
+                    ui.semantic_text("jj-review relink <pr> ", "hint"),
+                    ui.revset(result.selected_revset),
+                    "`.",
+                )
             )
         )
         for revision in link_revisions:
             lines.append(
                 _wrap_advisory(
-                    f"{_status_revision_label(revision)}: "
-                    f"{_describe_link_advisory(revision)}"
+                    (
+                        _status_revision_label(revision),
+                        ": ",
+                        _describe_link_advisory(revision),
+                    )
                 )
             )
 
@@ -413,81 +449,155 @@ def render_status_advisory_lines(*, result) -> tuple[str, ...]:
         pull_request_number = revision_pull_request_number(revision)
         lines.append(
             _wrap_advisory(
-                f"Repository policy warning: PR #{pull_request_number} merged into "
-                f"{base_ref}; configure GitHub to block merges of PRs targeting "
-                "`review/*`"
+                (
+                    "Repository policy warning: PR #",
+                    str(pull_request_number),
+                    " merged into ",
+                    base_ref,
+                    "; configure GitHub to block merges of PRs targeting `",
+                    ui.semantic_text("review/*", "hint"),
+                    "`",
+                )
             )
         )
 
     for revision in divergent_revisions:
         lines.append(
             _wrap_advisory(
-                f"{_status_revision_label(revision)}: resolve the multiple visible "
-                "revisions for this change before retrying "
-                f"(`jj log -r 'change_id({revision.change_id})'`)"
+                (
+                    _status_revision_label(revision),
+                    ": resolve the multiple visible revisions for this change before retrying ",
+                    "(`",
+                    ui.semantic_text("jj log -r 'change_id(", "hint"),
+                    ui.change_id(revision.change_id),
+                    ui.semantic_text(")'", "hint"),
+                    "`)",
+                )
             )
         )
     return tuple(lines)
 
 
-def render_status_intent_lines(*, prepared_status) -> tuple[str, ...]:
+def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
     """Render any stale or incomplete operation notices."""
 
-    lines: list[str] = []
+    lines: list[object] = []
     if prepared_status.stale_intents:
         lines.extend(("", "Stale incomplete operations (change IDs no longer in repo):"))
         for loaded in prepared_status.stale_intents:
             alive = pid_is_alive(loaded.intent.pid)
             status_str = "process alive" if alive else "process dead"
             lines.append(
-                "  "
-                f"{describe_intent(loaded.intent)}  "
-                f"{format_status_annotation(f'{status_str}, {loaded.path.name}')}"
+                _prefixed_intent_line(
+                    _render_intent_description(loaded.intent),
+                    ui.rich_text(format_status_annotation(f"{status_str}, {loaded.path.name}")),
+                )
             )
 
     if prepared_status.outstanding_intents:
         lines.extend(("", "Interrupted operations recorded:"))
         for loaded in prepared_status.outstanding_intents:
             alive = pid_is_alive(loaded.intent.pid)
-            description = describe_intent(loaded.intent)
+            description = _render_intent_description(loaded.intent)
             if alive:
                 lines.append(
-                    "  "
-                    f"{description}  "
-                    f"{format_status_annotation(f'in progress, PID {loaded.intent.pid}')}"
+                    _prefixed_intent_line(
+                        description,
+                        ui.rich_text(
+                            format_status_annotation(f"in progress, PID {loaded.intent.pid}")
+                        ),
+                    )
                 )
             elif isinstance(loaded.intent, SubmitIntent):
                 lines.append(
-                    "  "
-                    + _render_interrupted_submit_status_line(
-                        description=description,
-                        intent=loaded.intent,
-                        prepared_status=prepared_status,
+                    _prefixed_intent_line(
+                        description,
+                        _render_interrupted_submit_status_line(
+                            intent=loaded.intent,
+                            prepared_status=prepared_status,
+                        ),
                     )
                 )
             elif isinstance(loaded.intent, CleanupRestackIntent):
                 lines.append(
-                    "  "
-                    + _render_interrupted_cleanup_restack_status_line(
-                        description=description,
-                        intent=loaded.intent,
-                        prepared_status=prepared_status,
+                    _prefixed_intent_line(
+                        description,
+                        _render_interrupted_cleanup_restack_status_line(
+                            intent=loaded.intent,
+                            prepared_status=prepared_status,
+                        ),
                     )
                 )
             elif isinstance(loaded.intent, CloseIntent):
                 lines.append(
-                    "  "
-                    + _render_interrupted_close_status_line(
-                        description=description,
-                        intent=loaded.intent,
-                        prepared_status=prepared_status,
+                    _prefixed_intent_line(
+                        description,
+                        _render_interrupted_close_status_line(
+                            intent=loaded.intent,
+                            prepared_status=prepared_status,
+                        ),
+                    )
+                )
+            elif isinstance(loaded.intent, RelinkIntent):
+                lines.append(
+                    _prefixed_intent_line(
+                        description,
+                        ui.rich_text(
+                            (
+                                "interrupted, inspect before rerunning ",
+                                ui.semantic_text("relink", "hint"),
+                                " again",
+                            )
+                        ),
+                    )
+                )
+            elif isinstance(loaded.intent, CleanupIntent):
+                lines.append(
+                    _prefixed_intent_line(
+                        description,
+                        ui.rich_text(
+                            (
+                                "interrupted, inspect before rerunning ",
+                                ui.semantic_text("cleanup", "hint"),
+                                " again",
+                            )
+                        ),
+                    )
+                )
+            elif isinstance(loaded.intent, AbortIntent):
+                lines.append(
+                    _prefixed_intent_line(
+                        description,
+                        ui.rich_text(
+                            (
+                                "interrupted, inspect before rerunning ",
+                                ui.semantic_text("abort", "hint"),
+                                " again",
+                            )
+                        ),
+                    )
+                )
+            elif isinstance(loaded.intent, LandIntent):
+                lines.append(
+                    _prefixed_intent_line(
+                        description,
+                        ui.rich_text(
+                            (
+                                "interrupted, inspect before rerunning ",
+                                ui.semantic_text("land", "hint"),
+                                " again",
+                            )
+                        ),
                     )
                 )
             else:
                 lines.append(
-                    "  "
-                    f"{description}  "
-                    f"{format_status_annotation('interrupted, inspect before re-running')}"
+                    _prefixed_intent_line(
+                        description,
+                        ui.rich_text(
+                            format_status_annotation("interrupted, inspect before re-running")
+                        ),
+                    )
                 )
     return tuple(lines)
 
@@ -543,10 +653,9 @@ def _interrupted_intent_blocks_status(*, loaded, prepared_status) -> bool:
 
 def _render_interrupted_submit_status_line(
     *,
-    description: str,
     intent: SubmitIntent,
     prepared_status,
-) -> str:
+) -> object:
     current_change_ids = tuple(
         prepared_revision.revision.change_id
         for prepared_revision in prepared_status.prepared.status_revisions
@@ -561,30 +670,48 @@ def _render_interrupted_submit_status_line(
         current_commit_ids=current_commit_ids,
     )
     if match == "exact":
-        status = "interrupted, rerun submit to continue on the current stack"
+        status = ui.rich_text(
+            (
+                "interrupted, rerun ",
+                ui.semantic_text("submit", "hint"),
+                " to continue on the current stack",
+            )
+        )
     elif match == "same-logical":
-        status = (
-            "interrupted, recorded stack was rewritten; rerunning submit will use "
-            "the current stack"
+        status = ui.rich_text(
+            (
+                "interrupted, recorded stack was rewritten; rerunning ",
+                ui.semantic_text("submit", "hint"),
+                " will use the current stack",
+            )
         )
     elif match == "covered":
-        status = (
-            "interrupted, the recorded changes are all included in the current stack; "
-            "rerunning submit will use the current stack"
+        status = ui.rich_text(
+            (
+                "interrupted, the recorded changes are all included in the current stack; ",
+                "rerunning ",
+                ui.semantic_text("submit", "hint"),
+                " will use the current stack",
+            )
         )
     elif match == "overlap":
-        status = "interrupted, current stack differs; inspect before running submit again"
+        status = ui.rich_text(
+            (
+                "interrupted, current stack differs; inspect before running ",
+                ui.semantic_text("submit", "hint"),
+                " again",
+            )
+        )
     else:
-        status = "interrupted, recorded stack differs from the current selection"
-    return f"{description}  {format_status_annotation(status)}"
+        status = ui.rich_text("interrupted, recorded stack differs from the current selection")
+    return status
 
 
 def _render_interrupted_cleanup_restack_status_line(
     *,
-    description: str,
     intent: CleanupRestackIntent,
     prepared_status,
-) -> str:
+) -> object:
     current_change_ids = tuple(
         prepared_revision.revision.change_id
         for prepared_revision in prepared_status.prepared.status_revisions
@@ -599,39 +726,58 @@ def _render_interrupted_cleanup_restack_status_line(
         current_commit_ids=current_commit_ids,
     )
     if match == "exact":
-        status = "interrupted, rerun cleanup --restack to continue on the current stack"
+        status = ui.rich_text(
+            (
+                "interrupted, rerun ",
+                ui.semantic_text("cleanup --restack", "hint"),
+                " to continue on the current stack",
+            )
+        )
     elif match == "same-logical":
-        status = (
-            "interrupted, recorded stack was rewritten; rerunning cleanup --restack "
-            "will use the current stack"
+        status = ui.rich_text(
+            (
+                "interrupted, recorded stack was rewritten; rerunning ",
+                ui.semantic_text("cleanup --restack", "hint"),
+                " will use the current stack",
+            )
         )
     elif match == "covered":
-        status = (
-            "interrupted, the recorded changes are all included in the current "
-            "stack; rerunning cleanup --restack will use the current stack"
+        status = ui.rich_text(
+            (
+                "interrupted, the recorded changes are all included in the current stack; ",
+                "rerunning ",
+                ui.semantic_text("cleanup --restack", "hint"),
+                " will use the current stack",
+            )
         )
     elif match == "trimmed":
-        status = (
-            "interrupted, the recorded stack still includes changes that are no "
-            "longer on the current stack; rerunning cleanup --restack will use the "
-            "current stack"
+        status = ui.rich_text(
+            (
+                "interrupted, the recorded stack still includes changes that are no "
+                "longer on the current stack; ",
+                "rerunning ",
+                ui.semantic_text("cleanup --restack", "hint"),
+                " will use the current stack",
+            )
         )
     elif match == "overlap":
-        status = (
-            "interrupted, current stack differs; inspect before running cleanup "
-            "--restack again"
+        status = ui.rich_text(
+            (
+                "interrupted, current stack differs; inspect before running ",
+                ui.semantic_text("cleanup --restack", "hint"),
+                " again",
+            )
         )
     else:
-        status = "interrupted, recorded stack differs from the current selection"
-    return f"{description}  {format_status_annotation(status)}"
+        status = ui.rich_text("interrupted, recorded stack differs from the current selection")
+    return status
 
 
 def _render_interrupted_close_status_line(
     *,
-    description: str,
     intent: CloseIntent,
     prepared_status,
-) -> str:
+) -> object:
     current_change_ids = tuple(
         prepared_revision.revision.change_id
         for prepared_revision in prepared_status.prepared.status_revisions
@@ -645,24 +791,42 @@ def _render_interrupted_close_status_line(
         current_change_ids=current_change_ids,
         current_commit_ids=current_commit_ids,
     )
-    close_command = "`close --cleanup`" if intent.cleanup else "`close`"
     if match == "exact":
-        status = f"interrupted, rerun {close_command} to continue on the current stack"
+        status = ui.rich_text(
+            (
+                "interrupted, rerun ",
+                ui.semantic_text("close --cleanup" if intent.cleanup else "close", "hint"),
+                " to continue on the current stack",
+            )
+        )
     elif match == "same-logical":
-        status = (
-            "interrupted, recorded stack was rewritten; rerunning "
-            f"{close_command} will use the current stack"
+        status = ui.rich_text(
+            (
+                "interrupted, recorded stack was rewritten; rerunning ",
+                ui.semantic_text("close --cleanup" if intent.cleanup else "close", "hint"),
+                " will use the current stack",
+            )
         )
     elif match == "covered":
-        status = (
-            "interrupted, the recorded changes are all included in the current stack; "
-            f"rerunning {close_command} will use the current stack"
+        status = ui.rich_text(
+            (
+                "interrupted, the recorded changes are all included in the current stack; ",
+                "rerunning ",
+                ui.semantic_text("close --cleanup" if intent.cleanup else "close", "hint"),
+                " will use the current stack",
+            )
         )
     elif match == "overlap":
-        status = "interrupted, current stack differs; inspect before running close again"
+        status = ui.rich_text(
+            (
+                "interrupted, current stack differs; inspect before running ",
+                ui.semantic_text("close --cleanup" if intent.cleanup else "close", "hint"),
+                " again",
+            )
+        )
     else:
-        status = "interrupted, recorded stack differs from the current selection"
-    return f"{description}  {format_status_annotation(status)}"
+        status = ui.rich_text("interrupted, recorded stack differs from the current selection")
+    return status
 
 
 def _render_summary_revision_lines(
@@ -824,6 +988,22 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
     return summary
 
 
+def _emit_lines(lines: tuple[object, ...]) -> None:
+    for line in lines:
+        if isinstance(line, str):
+            print(line)
+        else:
+            ui.output(line)
+
+
+def _prefixed_status_line(prefix: str, body: object) -> object:
+    return ui.prefixed_message(
+        f"{prefix}: ",
+        body,
+        prefix_style=ui.semantic_style("prefix"),
+    )
+
+
 def _format_cached_pull_request_label(cached_change) -> str | None:
     if cached_change is None or cached_change.pr_number is None:
         return None
@@ -861,15 +1041,63 @@ def _format_review_decision_label(review_decision: str) -> str:
     return review_decision
 
 
-def _wrap_advisory(message: str) -> str:
-    return textwrap.fill(
-        message,
-        width=80,
-        initial_indent="- ",
-        subsequent_indent="  ",
-        break_long_words=False,
-        break_on_hyphens=False,
-    )
+def _wrap_advisory(message: object) -> object:
+    return ui.prefixed_message("- ", message)
+
+
+def _prefixed_intent_line(description: object, status: object) -> object:
+    return ui.prefixed_message("  ", (description, "  ", status))
+
+
+def _render_intent_description(intent) -> object:
+    if isinstance(intent, SubmitIntent):
+        return (
+            "submit for ",
+            ui.change_id(intent.head_change_id),
+            " (from ",
+            ui.revset(intent.display_revset),
+            ")",
+        )
+    if isinstance(intent, CleanupRestackIntent):
+        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
+        return (
+            "cleanup --restack for ",
+            ui.change_id(head_change_id),
+            " (from ",
+            ui.revset(intent.display_revset),
+            ")",
+        )
+    if isinstance(intent, CloseIntent):
+        verb = ui.semantic_text(
+            "close --cleanup" if intent.cleanup else "close",
+            "hint",
+        )
+        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
+        return (
+            verb,
+            " for ",
+            ui.change_id(head_change_id),
+            " (from ",
+            ui.revset(intent.display_revset),
+            ")",
+        )
+    if isinstance(intent, LandIntent):
+        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
+        return (
+            ui.semantic_text("land", "hint"),
+            " for ",
+            ui.change_id(head_change_id),
+            " (from ",
+            ui.revset(intent.display_revset),
+            ")",
+        )
+    if isinstance(intent, RelinkIntent):
+        return ("relink for ", ui.change_id(intent.change_id))
+    if isinstance(intent, CleanupIntent):
+        return ui.semantic_text("cleanup", "hint")
+    if isinstance(intent, AbortIntent):
+        return ui.semantic_text("abort", "hint")
+    return getattr(intent, "label", "operation")
 
 
 def _status_revision_label(revision) -> str:

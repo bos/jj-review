@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from jj_review import ui as ui_module
 from jj_review.commands import review_state as review_state_module
 from jj_review.models.intent import SubmitIntent
+
+
+def _render_lines(*lines: object) -> tuple[str, ...]:
+    stdout = StringIO()
+    with ui_module.configured_ui(stdout=stdout, stderr=StringIO(), color_mode="never"):
+        for line in lines:
+            ui_module.output(line)
+    return tuple(stdout.getvalue().splitlines())
 
 
 def test_render_status_selection_lines_reports_selected_remote_error() -> None:
@@ -18,16 +28,20 @@ def test_render_status_selection_lines_reports_selected_remote_error() -> None:
         ),
     )
 
-    assert review_state_module.render_status_selection_lines(
-        prepared_status=prepared_status,
+    assert _render_lines(
+        *review_state_module.render_status_selection_lines(
+            prepared_status=prepared_status,
+        )
     ) == ("Selected remote: unavailable (no git remote configured)",)
 
 
 def test_status_reports_github_target_when_empty_stack_was_not_inspected() -> None:
-    assert review_state_module.render_status_github_lines(
-        github_error=None,
-        github_repository="octo-org/stacked-review",
-        has_revisions=False,
+    assert _render_lines(
+        *review_state_module.render_status_github_lines(
+            github_error=None,
+            github_repository="octo-org/stacked-review",
+            has_revisions=False,
+        )
     ) == ("GitHub target: octo-org/stacked-review (not inspected; no reviewable commits)",)
 
 
@@ -40,7 +54,7 @@ def test_render_trunk_status_lines_prefers_unique_local_bookmark() -> None:
             ),
             list_bookmark_states=lambda: {
                 "main": SimpleNamespace(local_target="trunk-commit"),
-            }
+            },
         ),
         remote=SimpleNamespace(name="origin"),
         stack=SimpleNamespace(
@@ -52,12 +66,9 @@ def test_render_trunk_status_lines_prefers_unique_local_bookmark() -> None:
         ),
     )
 
-    assert (
-        review_state_module.render_trunk_status_lines(
-            prepared=prepared,
-        )
-        == ("◆ base [trunkcha]",)
-    )
+    assert review_state_module.render_trunk_status_lines(
+        prepared=prepared,
+    ) == ("◆ base [trunkcha]",)
 
 
 def test_status_advises_cleanup_and_restack_when_merged_pr_remains_in_stack() -> None:
@@ -77,10 +88,12 @@ def test_status_advises_cleanup_and_restack_when_merged_pr_remains_in_stack() ->
         stack_comment_lookup=None,
     )
 
-    lines = review_state_module.render_status_advisory_lines(
-        result=SimpleNamespace(
-            revisions=(merged_revision,),
-            selected_revset="@",
+    lines = _render_lines(
+        *review_state_module.render_status_advisory_lines(
+            result=SimpleNamespace(
+                revisions=(merged_revision,),
+                selected_revset="@",
+            )
         )
     )
 
@@ -113,7 +126,9 @@ def test_render_status_intent_lines_reports_stale_and_interrupted_operations(
         prepared=SimpleNamespace(status_revisions=()),
     )
 
-    lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
+    lines = _render_lines(
+        *review_state_module.render_status_intent_lines(prepared_status=prepared_status)
+    )
 
     assert "Stale incomplete operations (change IDs no longer in repo):" in lines
     assert any("submit on @" in line and "process alive" in line for line in lines)
@@ -221,7 +236,7 @@ def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
             render_revision_log_lines=lambda revision, *, color_when: (
                 f"{revision.subject} [{revision.change_id[:8]}]",
                 f"body for {revision.subject}",
-            )
+            ),
         ),
         github_available=True,
         leading_separator=False,
@@ -274,7 +289,7 @@ def test_render_status_summary_lines_links_submitted_header_to_top_pr() -> None:
     lines = review_state_module.render_status_summary_lines(
         client=SimpleNamespace(
             resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
-            render_revision_log_lines=lambda revision, *, color_when: (revision.subject,)
+            render_revision_log_lines=lambda revision, *, color_when: (revision.subject,),
         ),
         github_available=True,
         leading_separator=False,
@@ -352,7 +367,7 @@ def test_status_summary_hides_managed_review_bookmark_but_keeps_other_bookmarks(
                     f"{current_revision.bookmark} keep/two 12345678"
                 ),
                 f"│  {current_revision.subject}",
-            )
+            ),
         ),
         github_available=True,
         leading_separator=False,

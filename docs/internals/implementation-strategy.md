@@ -924,6 +924,9 @@ Implemented in the first vertical cut:
 - `status` now also supports `--fetch` / `-f` to refresh remote bookmark
   observations first when the user wants a freshly fetched view before live
   GitHub inspection
+- `status` advisory and interrupted-operation notices now use the shared `ui`
+  rendering path, so selected revsets, change IDs, and command examples wrap
+  through Rich instead of manual 80-column fills
 - submit and `status` now persist each change's last-known PR state, and
   `status` uses that saved state to render more informative offline fallback
   summaries
