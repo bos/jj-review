@@ -26,9 +26,15 @@ import time
 import tomllib
 from contextlib import contextmanager
 from dataclasses import dataclass
-from importlib import import_module
 from pathlib import Path
-from typing import IO, Any, Literal, Protocol
+from string.templatelib import Interpolation, Template, convert
+from typing import IO, Any, Literal, Protocol, cast
+
+from rich.console import Console, Group, NewLine
+from rich.segment import Segment
+from rich.style import Style
+from rich.table import Table
+from rich.text import Text
 
 ColorMode = Literal["auto", "always", "never"]
 RequestedColorMode = Literal["always", "auto", "debug", "never"]
@@ -36,6 +42,7 @@ _JJ_COLORS_TEMPLATE = r'name ++ "\0" ++ json(value) ++ "\n"'
 _JJ_STYLE_ATTRIBUTES = frozenset(
     {"bg", "bold", "dim", "fg", "italic", "reverse", "underline"}
 )
+StyleArg = Style | str
 
 
 class ConsoleLike(Protocol):
@@ -47,7 +54,18 @@ class ConsoleLike(Protocol):
 @dataclass(frozen=True, slots=True)
 class _SemanticStyleRule:
     labels: frozenset[str]
-    style: Any
+    style: Style
+
+
+@dataclass(frozen=True, slots=True)
+class SemanticText:
+    """A short semantic text fragment that should inherit jj color labels."""
+
+    text: str
+    labels: tuple[str, ...]
+
+    def __str__(self) -> str:
+        return self.text
 
 
 class _SemanticStyles:
@@ -61,13 +79,12 @@ class _SemanticStyles:
             )
         )
 
-    def for_labels(self, labels: tuple[str, ...]) -> Any | None:
-        style_cls = import_module("rich.style").Style
+    def for_labels(self, labels: tuple[str, ...]) -> Style | None:
         normalized_labels = _normalize_semantic_labels(labels)
         if not normalized_labels:
             return None
 
-        style = style_cls.null()
+        style = Style.null()
         matched = False
         for rule in self._rules:
             if rule.labels.issubset(normalized_labels):
@@ -86,20 +103,19 @@ class _TimePrefixedRenderable:
     start: float
 
     def __rich_console__(self, console, options):
-        segment_cls = import_module("rich.segment").Segment
         prefix = f"[{time.perf_counter() - self.start:0.6f}] "
         prefix_width = len(prefix)
         inner_width = max(1, options.max_width - prefix_width)
         inner_options = options.update(width=inner_width, max_width=inner_width)
         lines = console.render_lines(self.renderable, inner_options, pad=False)
-        prefix_segment = segment_cls(prefix, self.prefix_style)
+        prefix_segment = Segment(prefix, self.prefix_style)
         for index, line in enumerate(lines):
             yield prefix_segment
             yield from line
             if index < len(lines) - 1:
-                yield segment_cls.line()
+                yield Segment.line()
         if self.end == "\n":
-            yield segment_cls.line()
+            yield Segment.line()
         elif self.end:
             yield from console.render(self.end, options)
 
@@ -116,8 +132,6 @@ class _ConfiguredConsole:
         time_output: bool,
     ) -> None:
         self._console = console
-        self._group_cls = import_module("rich.console").Group
-        self._new_line_cls = import_module("rich.console").NewLine
         self._prefix_style = prefix_style
         self._start = start
         self._time_output = time_output
@@ -161,7 +175,7 @@ class _ConfiguredConsole:
             return
 
         if not objects:
-            objects = (self._new_line_cls(),)
+            objects = (NewLine(),)
 
         renderables = self._console._collect_renderables(
             objects,
@@ -173,7 +187,7 @@ class _ConfiguredConsole:
             highlight=highlight,
         )
         wrapped = _TimePrefixedRenderable(
-            renderable=self._group_cls(*renderables),
+            renderable=Group(*renderables),
             end=end,
             prefix_style=self._prefix_style,
             start=self._start,
@@ -201,7 +215,6 @@ def _build_console(
     time_output: bool,
     start: float | None,
 ) -> ConsoleLike:
-    console_cls = import_module("rich.console").Console
     kwargs: dict[str, object] = {
         "file": stream,
     }
@@ -209,7 +222,7 @@ def _build_console(
         kwargs["force_terminal"] = True
     elif color_mode == "never":
         kwargs["no_color"] = True
-    console = console_cls(**kwargs)
+    console = Console(**cast(Any, kwargs))
     return _ConfiguredConsole(
         console,
         prefix_style=_time_output_prefix_style(semantic_styles=semantic_styles),
@@ -308,12 +321,53 @@ def requested_color_mode() -> RequestedColorMode | None:
     return _REQUESTED_COLOR_MODE
 
 
-def semantic_style(*labels: str) -> Any | None:
+def semantic_style(*labels: str) -> Style | None:
     """Resolve jj semantic color labels into the active Rich style."""
 
     if _SEMANTIC_STYLES is None:
         return None
     return _SEMANTIC_STYLES.for_labels(labels)
+
+
+def semantic_text(text: str, *labels: str) -> SemanticText:
+    """Wrap text with semantic labels for later Rich rendering."""
+
+    return SemanticText(text=text, labels=labels)
+
+
+def bookmark(name: str) -> SemanticText:
+    """Wrap a bookmark or remote bookmark label for semantic rendering."""
+
+    label = "remote_bookmarks" if "@" in name else "local_bookmarks"
+    return semantic_text(name, label)
+
+
+def change_id(name: str) -> SemanticText:
+    """Wrap a change ID for semantic rendering, shortening it for display."""
+
+    return semantic_text(name[:8], "change_id")
+
+
+def revset(text: str) -> SemanticText:
+    """Wrap jj revset syntax for semantic rendering."""
+
+    return semantic_text(text, "revset")
+
+
+def plain_text(content: Template | SemanticText | Any) -> str:
+    """Render semantic template content into plain text."""
+
+    parts: list[str] = []
+    _append_plain_text(parts, content)
+    return "".join(parts)
+
+
+def rich_text(content: Template | SemanticText | Any, *, style: object | None = None) -> Text:
+    """Render semantic template content into Rich `Text`."""
+
+    rendered = Text("") if style is None else Text("", style=cast(StyleArg, style))
+    _append_rich_text(rendered, content, base_style=style)
+    return rendered
 
 
 def output(*objects, **kwargs) -> None:
@@ -349,24 +403,48 @@ def note(*objects, **kwargs) -> None:
 
 def prefixed_message(
     prefix: str,
-    message: str,
+    message: Any,
     *,
-    message_style: Any | None = None,
-    prefix_style: Any | None = None,
-) -> Any:
+    message_style: object | None = None,
+    prefix_style: object | None = None,
+) -> Table:
     """Return a hanging-indent renderable with a fixed prefix column."""
 
-    table_cls = import_module("rich.table").Table
-    text_cls = import_module("rich.text").Text
     prefix_width = max(1, len(prefix))
-    table = table_cls.grid(padding=(0, 0), expand=False)
+    table = Table.grid(padding=(0, 0), expand=False)
     table.add_column(width=prefix_width, no_wrap=True)
     table.add_column()
+    if isinstance(message, str | Template | SemanticText):
+        message_cell: Any = rich_text(message, style=message_style)
+    else:
+        message_cell = message
+    prefix_cell = (
+        Text(prefix)
+        if prefix_style is None
+        else Text(prefix, style=cast(StyleArg, prefix_style))
+    )
     table.add_row(
-        text_cls(prefix, style=prefix_style),
-        text_cls(message, style=message_style),
+        prefix_cell,
+        message_cell,
     )
     return table
+
+
+def action_row(
+    *,
+    prefix: str,
+    body: Any,
+    body_style: object | None = None,
+    prefix_style: object | None = None,
+) -> Table:
+    """Return one standard two-column action row."""
+
+    return prefixed_message(
+        prefix,
+        body,
+        message_style=body_style,
+        prefix_style=prefix_style,
+    )
 
 
 def _load_semantic_styles(*, repository: Path | None) -> _SemanticStyles | None:
@@ -406,7 +484,6 @@ def _load_semantic_styles(*, repository: Path | None) -> _SemanticStyles | None:
 def _semantic_style_rules_from_config_list(stdout: str) -> tuple[_SemanticStyleRule, ...]:
     """Parse `jj config list colors` output into Rich style rules."""
 
-    style_cls = import_module("rich.style").Style
     grouped_style_kwargs: dict[frozenset[str], dict[str, object]] = {}
     for raw_line in stdout.splitlines():
         if not raw_line:
@@ -449,7 +526,7 @@ def _semantic_style_rules_from_config_list(stdout: str) -> tuple[_SemanticStyleR
     for labels, style_kwargs in grouped_style_kwargs.items():
         if not style_kwargs:
             continue
-        rules.append(_SemanticStyleRule(labels=labels, style=style_cls(**style_kwargs)))
+        rules.append(_SemanticStyleRule(labels=labels, style=Style(**cast(Any, style_kwargs))))
     return tuple(rules)
 
 
@@ -497,10 +574,98 @@ def _normalize_jj_color_value(value: object) -> str | None:
     return value
 
 
-def _time_output_prefix_style(*, semantic_styles: _SemanticStyles | None) -> Any | None:
+def _time_output_prefix_style(*, semantic_styles: _SemanticStyles | None) -> Style | None:
     if semantic_styles is None:
         return None
     return semantic_styles.for_labels(("prefix", "timestamp"))
+
+
+def _append_plain_text(parts: list[str], content: Template | SemanticText | Any) -> None:
+    if isinstance(content, Template):
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            else:
+                _append_plain_text(parts, _resolve_interpolation(part))
+        return
+    if isinstance(content, SemanticText):
+        parts.append(content.text)
+        return
+    parts.append(str(content))
+
+
+def _append_rich_text(rendered, content: Template | SemanticText | Any, *, base_style) -> None:
+    if isinstance(content, Template):
+        for part in content:
+            if isinstance(part, str):
+                rendered.append(part, style=base_style)
+            else:
+                _append_rich_text(
+                    rendered,
+                    _resolve_interpolation(part),
+                    base_style=base_style,
+                )
+        return
+    if isinstance(content, SemanticText):
+        rendered.append(
+            content.text,
+            style=_combine_styles(base_style, semantic_style(*content.labels)),
+        )
+        return
+    if isinstance(content, Text):
+        appended = content.copy()
+        if base_style is not None and appended.plain:
+            appended.stylize(base_style, 0, len(appended.plain))
+        rendered.append_text(appended)
+        return
+    rendered.append(str(content), style=base_style)
+
+
+def _resolve_interpolation(interpolation: Interpolation) -> Template | SemanticText | Any:
+    value = interpolation.value
+    if isinstance(value, SemanticText):
+        if interpolation.conversion is not None:
+            converted = convert(value.text, interpolation.conversion)
+            return (
+                format(converted, interpolation.format_spec)
+                if interpolation.format_spec
+                else converted
+            )
+        if interpolation.format_spec:
+            return SemanticText(
+                text=format(value.text, interpolation.format_spec),
+                labels=value.labels,
+            )
+        return value
+    if isinstance(value, Template):
+        if interpolation.conversion is not None or interpolation.format_spec:
+            plain = plain_text(value)
+            converted = convert(plain, interpolation.conversion)
+            if interpolation.format_spec:
+                return format(converted, interpolation.format_spec)
+            return converted
+        return value
+
+    converted = convert(value, interpolation.conversion)
+    if interpolation.format_spec:
+        return format(converted, interpolation.format_spec)
+    return converted
+
+
+def _combine_styles(base_style: object | None, extra_style: object | None) -> object | None:
+    if base_style is None:
+        return extra_style
+    if extra_style is None:
+        return base_style
+    return _to_rich_style(base_style) + _to_rich_style(extra_style)
+
+
+def _to_rich_style(style: object) -> Style:
+    if isinstance(style, Style):
+        return style
+    if isinstance(style, str):
+        return Style.parse(style)
+    return cast(Style, style)
 
 
 _STDOUT_CONSOLE, _STDERR_CONSOLE, _SEMANTIC_STYLES = _build_consoles()

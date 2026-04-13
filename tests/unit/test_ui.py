@@ -148,3 +148,61 @@ def test_semantic_style_uses_machine_readable_jj_config(
             color="bright_magenta",
             bold=True,
         )
+
+
+def test_rich_text_renders_template_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Path.cwd()
+    stdout = (
+        'colors.local_bookmarks\0"green"\n'
+        'colors.change_id.bold\0true\n'
+        'colors.change_id\0"ansi-color-81"\n'
+    )
+
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(ui_module.subprocess, "run", fake_run)
+
+    with ui_module.configured_ui(
+        stdout=StringIO(),
+        stderr=StringIO(),
+        color_mode="never",
+        repository=repository,
+        ):
+            text = ui_module.rich_text(
+                t"delete {ui_module.bookmark('review/feature-aaaaaaaa')} for "
+                t"{ui_module.change_id('aaaa1111bbbb2222')}"
+            )
+
+    assert text.plain == "delete review/feature-aaaaaaaa for aaaa1111"
+    assert text.spans[0].start == 7
+    assert text.spans[0].end == 30
+    assert text.spans[0].style == _style_cls()(color="green")
+    assert text.spans[1].start == 35
+    assert text.spans[1].end == 43
+    assert text.spans[1].style == _style_cls()(color="color(81)", bold=True)
+
+
+def test_revset_uses_semantic_style(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Path.cwd()
+    stdout = 'colors.revset\0"blue"\n'
+
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(ui_module.subprocess, "run", fake_run)
+
+    with ui_module.configured_ui(
+        stdout=StringIO(),
+        stderr=StringIO(),
+        color_mode="never",
+        repository=repository,
+    ):
+        text = ui_module.rich_text(ui_module.revset("trunk()"))
+
+    assert text.plain == "trunk()"
+    assert text.spans == [import_module("rich.text").Span(0, 7, _style_cls()(color="blue"))]
