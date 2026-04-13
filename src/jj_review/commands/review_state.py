@@ -25,12 +25,13 @@ from jj_review.formatting import (
 )
 from jj_review.intent import (
     describe_intent,
+    match_cleanup_restack_intent,
     match_close_intent,
     match_submit_intent,
     pid_is_alive,
 )
 from jj_review.jj import UnsupportedStackError
-from jj_review.models.intent import CloseIntent, SubmitIntent
+from jj_review.models.intent import CleanupRestackIntent, CloseIntent, SubmitIntent
 from jj_review.review_inspection import (
     prepare_status,
     revision_has_merged_pull_request,
@@ -469,6 +470,15 @@ def render_status_intent_lines(*, prepared_status) -> tuple[str, ...]:
                         prepared_status=prepared_status,
                     )
                 )
+            elif isinstance(loaded.intent, CleanupRestackIntent):
+                lines.append(
+                    "  "
+                    + _render_interrupted_cleanup_restack_status_line(
+                        description=description,
+                        intent=loaded.intent,
+                        prepared_status=prepared_status,
+                    )
+                )
             elif isinstance(loaded.intent, CloseIntent):
                 lines.append(
                     "  "
@@ -515,6 +525,53 @@ def _render_interrupted_submit_status_line(
         )
     elif match == "overlap":
         status = "interrupted, current stack differs; inspect before running submit again"
+    else:
+        status = "interrupted, recorded stack differs from the current selection"
+    return f"{description}  [{status}]"
+
+
+def _render_interrupted_cleanup_restack_status_line(
+    *,
+    description: str,
+    intent: CleanupRestackIntent,
+    prepared_status,
+) -> str:
+    current_change_ids = tuple(
+        prepared_revision.revision.change_id
+        for prepared_revision in prepared_status.prepared.status_revisions
+    )
+    current_commit_ids = tuple(
+        prepared_revision.revision.commit_id
+        for prepared_revision in prepared_status.prepared.status_revisions
+    )
+    match = match_cleanup_restack_intent(
+        intent=intent,
+        current_change_ids=current_change_ids,
+        current_commit_ids=current_commit_ids,
+    )
+    if match == "exact":
+        status = "interrupted, recorded stack matches the current selection"
+    elif match == "same-logical":
+        status = (
+            "interrupted, recorded stack was rewritten; a new cleanup --restack "
+            "will use the current stack"
+        )
+    elif match == "covered":
+        status = (
+            "interrupted, the recorded changes are all included in the current "
+            "stack; a new cleanup --restack will use the current stack"
+        )
+    elif match == "trimmed":
+        status = (
+            "interrupted, the recorded stack still includes changes that are no "
+            "longer on the current stack; a new cleanup --restack will use the "
+            "current stack"
+        )
+    elif match == "overlap":
+        status = (
+            "interrupted, current stack differs; inspect before running cleanup "
+            "--restack again"
+        )
     else:
         status = "interrupted, recorded stack differs from the current selection"
     return f"{description}  [{status}]"

@@ -33,7 +33,8 @@ from jj_review.github.resolution import (
 )
 from jj_review.intent import (
     check_same_kind_intent,
-    match_ordered_change_ids,
+    describe_intent,
+    match_cleanup_restack_intent,
     retire_superseded_intents,
     write_new_intent,
 )
@@ -614,12 +615,19 @@ def _start_restack_intent(
     ordered_change_ids = tuple(
         prepared_revision.revision.change_id for prepared_revision in prepared.status_revisions
     )
+    ordered_commit_ids = tuple(
+        prepared_revision.revision.commit_id for prepared_revision in prepared.status_revisions
+    )
     intent = CleanupRestackIntent(
         kind="cleanup-restack",
         pid=os.getpid(),
-        label=f"cleanup --restack on {selected_revset}",
+        label=(
+            f"cleanup --restack for {short_change_id(ordered_change_ids[-1])} "
+            f"(from {selected_revset})"
+        ),
         display_revset=selected_revset,
         ordered_change_ids=ordered_change_ids,
+        ordered_commit_ids=ordered_commit_ids,
         started_at=datetime.now(UTC).isoformat(),
     )
     state_dir = prepared.state_store.require_writable()
@@ -627,21 +635,39 @@ def _start_restack_intent(
     for loaded in stale_intents:
         if not isinstance(loaded.intent, CleanupRestackIntent):
             continue
-        match = match_ordered_change_ids(
-            loaded.intent.ordered_change_ids,
-            ordered_change_ids,
+        match = match_cleanup_restack_intent(
+            intent=loaded.intent,
+            current_change_ids=ordered_change_ids,
+            current_commit_ids=ordered_commit_ids,
         )
+        description = describe_intent(loaded.intent)
         if match == "exact":
-            print(f"Resuming interrupted {loaded.intent.label}")
-        elif match == "superset":
-            continue
+            print(f"Continuing interrupted {description}")
+        elif match == "same-logical":
+            print(
+                f"Note: interrupted {description} targeted the same logical stack, "
+                "but it has been rewritten. This cleanup --restack run will use the "
+                "current stack."
+            )
+        elif match == "covered":
+            print(
+                f"Note: interrupted {description} targeted changes that are all "
+                "included in the current stack. This cleanup --restack run will use "
+                "the current stack."
+            )
+        elif match == "trimmed":
+            print(
+                f"Note: interrupted {description} still includes changes that are no "
+                "longer on the current stack. This cleanup --restack run will use "
+                "the current stack."
+            )
         elif match == "overlap":
             print(
                 f"Warning: this restack overlaps an incomplete earlier operation "
-                f"({loaded.intent.label})"
+                f"({description})"
             )
         else:
-            print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
+            print(f"Note: incomplete operation outstanding: {description}")
     return _RestackIntentState(
         intent=intent,
         intent_path=write_new_intent(state_dir, intent),

@@ -147,6 +147,9 @@ Recent refactor slices:
   later successful close retires interrupted close intents when it clearly
   covers those changes; `close --cleanup` can supersede an older plain `close`,
   but plain `close` does not retire an older interrupted cleanup run
+- interrupted `cleanup --restack` state now records ordered commit IDs, reports
+  the recorded stack by head change ID, and treats reruns as current-stack
+  restacks rather than selector replay
 
 ## Executable Surface
 

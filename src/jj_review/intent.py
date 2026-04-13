@@ -30,7 +30,14 @@ from jj_review.models.intent import (
 logger = logging.getLogger(__name__)
 _INTENT_ADAPTER = TypeAdapter(IntentFile)
 
-SubmitIntentMatch = Literal["exact", "same-logical", "covered", "overlap", "disjoint"]
+SubmitIntentMatch = Literal[
+    "exact",
+    "same-logical",
+    "covered",
+    "trimmed",
+    "overlap",
+    "disjoint",
+]
 CloseIntentModeRelation = Literal["same", "expanded", "incompatible"]
 
 
@@ -198,6 +205,14 @@ def describe_intent(intent: IntentFile) -> str:
             f"submit for {short_change_id(intent.head_change_id)} "
             f"(from {intent.display_revset})"
         )
+    if isinstance(intent, CleanupRestackIntent):
+        head_change_id = (
+            intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
+        )
+        return (
+            f"cleanup --restack for {short_change_id(head_change_id)} "
+            f"(from {intent.display_revset})"
+        )
     if isinstance(intent, CloseIntent):
         verb = "close --cleanup" if intent.cleanup else "close"
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
@@ -233,6 +248,30 @@ def match_submit_intent(
 ) -> SubmitIntentMatch:
     """Classify how a recorded submit intent relates to the current stack."""
 
+    return match_recorded_ordered_stack(
+        recorded_change_ids=intent.ordered_change_ids,
+        recorded_commit_ids=intent.ordered_commit_ids,
+        current_change_ids=current_change_ids,
+        current_commit_ids=current_commit_ids,
+    )
+
+
+def match_cleanup_restack_intent(
+    *,
+    intent: CleanupRestackIntent,
+    current_change_ids: tuple[str, ...],
+    current_commit_ids: tuple[str, ...],
+) -> SubmitIntentMatch:
+    """Classify how a recorded restack intent relates to the current stack."""
+
+    if intent.ordered_change_ids == current_change_ids:
+        if intent.ordered_commit_ids and intent.ordered_commit_ids == current_commit_ids:
+            return "exact"
+        return "same-logical"
+    if set(intent.ordered_change_ids) == set(current_change_ids):
+        return "same-logical"
+    if set(current_change_ids).issubset(intent.ordered_change_ids):
+        return "trimmed"
     return match_recorded_ordered_stack(
         recorded_change_ids=intent.ordered_change_ids,
         recorded_commit_ids=intent.ordered_commit_ids,
@@ -343,6 +382,8 @@ def retire_superseded_intents(
                 != "incompatible"
                 and set(old.ordered_change_ids).issubset(new_ids)
             )
+        elif isinstance(new_intent, CleanupRestackIntent):
+            should_retire = bool(set(old.ordered_change_ids) & set(new_ids))
         else:
             result = match_ordered_change_ids(old.ordered_change_ids, new_ids)
             should_retire = result in ("exact", "superset")

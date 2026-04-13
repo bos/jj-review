@@ -9,7 +9,7 @@ from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
 from jj_review.models.cache import CachedChange, ReviewState
-from jj_review.models.intent import CleanupIntent
+from jj_review.models.intent import CleanupIntent, CleanupRestackIntent
 
 from ..support.integration_helpers import (
     commit_file,
@@ -122,6 +122,91 @@ def test_cleanup_restack_previews_and_rebases_survivor_above_merged_ancestor(
     assert "Applied restack actions:" in applied.out
     assert rewritten_top.only_parent_commit_id() == trunk_commit_id
     assert JjClient(repo).resolve_revision(bottom_change_id).commit_id != rewritten_top.commit_id
+
+
+def test_cleanup_restack_continues_exact_interrupted_restack(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom = stack.revisions[0]
+    top = stack.revisions[1]
+    fake_repo.pull_requests[1].state = "closed"
+    fake_repo.pull_requests[1].merged_at = "2026-03-16T12:00:00Z"
+
+    state_dir = resolve_state_path(repo).parent
+    old_intent_path = write_new_intent(
+        state_dir,
+        CleanupRestackIntent(
+            kind="cleanup-restack",
+            pid=99999999,
+            label=f"cleanup --restack on {top.change_id}",
+            display_revset=top.change_id,
+            ordered_change_ids=(bottom.change_id, top.change_id),
+            ordered_commit_ids=(bottom.commit_id, top.commit_id),
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    exit_code = run_main(repo, config_path, "cleanup", "--restack", top.change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Continuing interrupted cleanup --restack" in captured.out
+    assert not old_intent_path.exists()
+
+
+def test_cleanup_restack_uses_current_stack_after_rewrite(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom = stack.revisions[0]
+    top = stack.revisions[1]
+    fake_repo.pull_requests[1].state = "closed"
+    fake_repo.pull_requests[1].merged_at = "2026-03-16T12:00:00Z"
+
+    state_dir = resolve_state_path(repo).parent
+    old_intent_path = write_new_intent(
+        state_dir,
+        CleanupRestackIntent(
+            kind="cleanup-restack",
+            pid=99999999,
+            label="cleanup --restack on @",
+            display_revset="@",
+            ordered_change_ids=(bottom.change_id, top.change_id),
+            ordered_commit_ids=(bottom.commit_id, top.commit_id),
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    run_command(["jj", "describe", "-r", top.change_id, "-m", "feature 2 rewritten"], repo)
+
+    exit_code = run_main(repo, config_path, "cleanup", "--restack")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Continuing interrupted cleanup --restack" not in captured.out
+    assert "same logical stack, but it has been rewritten" in captured.out
+    assert not old_intent_path.exists()
 
 
 def test_cleanup_dry_run_reports_stale_tracking_and_remote_branch_without_mutation(

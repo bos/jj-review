@@ -150,6 +150,11 @@ stronger follow-up than plain `close`: it can cover an older interrupted plain
 run. If `status` shows an interrupted close, rerun the same close mode if you
 want to finish that recorded operation.
 
+`cleanup --restack` also works from the current selected stack on rerun. If
+the stack was rewritten after the interruption, jj-review reports that it is
+using the current stack rather than pretending it is replaying the original
+selector.
+
 If you rewrote or reordered the stack after the interruption, `abort` will
 refuse to guess which PRs or review branches belong to the old partial submit.
 In that case, inspect the current stack with `status` and clean up manually if

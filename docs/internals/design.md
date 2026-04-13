@@ -732,6 +732,12 @@ changes. `close --cleanup` is a stronger variant of `close`: a successful
 cleanup run can supersede an older interrupted plain `close`, but a later plain
 `close` must not silently erase an older interrupted cleanup run whose branch
 or metadata cleanup may still be outstanding.
+
+Interrupted `cleanup --restack` metadata should also be diagnostic rather than
+selector-replay state. A later `cleanup --restack` should operate on the
+current selected stack, distinguish exact continuation from a rewritten stack,
+and retire older interrupted restack records once a later successful restack
+clearly covers the same changes.
   explicitly, using the selected local stack as the source of truth for which
   logical changes survive.
 
