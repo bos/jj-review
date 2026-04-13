@@ -20,7 +20,7 @@ from jj_review.cache import ReviewStateStore
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import parse_github_repo, select_submit_remote
-from jj_review.intent import intent_is_stale
+from jj_review.intent import intent_is_stale, pid_is_alive
 from jj_review.jj import JjClient, JjCommandError
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.intent import (
@@ -106,6 +106,20 @@ def abort(
         )
         return 1
 
+    # Refuse to retract intents whose process is still running — aborting a
+    # live operation would race against it and corrupt shared state.
+    live = [loaded for loaded in outstanding if pid_is_alive(loaded.intent.pid)]
+    outstanding = [loaded for loaded in outstanding if not pid_is_alive(loaded.intent.pid)]
+
+    for loaded in live:
+        print(
+            f"'{loaded.intent.label}' is still in progress "
+            f"(PID {loaded.intent.pid}) — wait for it to finish, then run abort again."
+        )
+
+    if not outstanding:
+        return 1
+
     # Resolve the remote and GitHub target once for all intents.
     remote = None
     github_repository = None
@@ -117,7 +131,7 @@ def abort(
     except Exception as error:  # noqa: BLE001
         logger.debug("Could not resolve remote or GitHub target: %s", error)
 
-    exit_code = 0
+    exit_code = 1 if live else 0
     for loaded in outstanding:
         result = asyncio.run(
             _abort_intent_async(

@@ -6,7 +6,7 @@ from pathlib import Path
 from jj_review.cache import ReviewStateStore
 from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
-from jj_review.models.intent import CleanupRestackIntent
+from jj_review.models.intent import CleanupRestackIntent, SubmitIntent
 
 from ..support.integration_helpers import (
     commit_file,
@@ -59,7 +59,7 @@ def test_abort_dry_run_shows_planned_actions_without_mutating(
     from jj_review.models.intent import SubmitIntent
     intent = SubmitIntent(
         kind="submit",
-        pid=os.getpid(),
+        pid=99999999,  # dead PID — simulates an interrupted operation
         label=f"submit on {change_id[:8]}",
         display_revset=change_id[:8],
         head_change_id=change_id,
@@ -108,7 +108,7 @@ def test_abort_retracts_submitted_change_and_clears_state(
     from jj_review.models.intent import SubmitIntent
     intent = SubmitIntent(
         kind="submit",
-        pid=os.getpid(),
+        pid=99999999,  # dead PID — simulates an interrupted operation
         label=f"submit on {change_id[:8]}",
         display_revset=change_id[:8],
         head_change_id=change_id,
@@ -157,7 +157,7 @@ def test_abort_removes_cleanup_restack_intent_with_note(
     state_store.require_writable()
     intent = CleanupRestackIntent(
         kind="cleanup-restack",
-        pid=os.getpid(),
+        pid=99999999,  # dead PID — simulates an interrupted operation
         label="cleanup --restack on @-",
         display_revset="@-",
         ordered_change_ids=(change_id,),
@@ -206,3 +206,46 @@ def test_abort_reports_stale_when_all_intents_have_gone_change_ids(
     assert exit_code == 1
     assert "stale" in captured.out
     assert "cleanup" in captured.out
+
+
+def test_abort_skips_live_pid_intent_and_warns(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    bookmark = state_store.load().changes[change_id].bookmark
+    assert bookmark is not None
+
+    # Inject an intent with the current (live) PID to simulate a still-running submit.
+    intent = SubmitIntent(
+        kind="submit",
+        pid=os.getpid(),
+        label=f"submit on {change_id[:8]}",
+        display_revset=change_id[:8],
+        head_change_id=change_id,
+        ordered_change_ids=(change_id,),
+        bookmarks={change_id: bookmark},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_new_intent(state_store.state_dir, intent)
+
+    exit_code = run_main(repo, config_path, "abort")
+    captured = capsys.readouterr()
+
+    # Should warn and exit 1 without retracting anything.
+    assert exit_code == 1
+    assert "still in progress" in captured.out
+    # PR untouched, intent file still present.
+    assert fake_repo.pull_requests[1].state == "open"
+    assert state_store.list_intents()
