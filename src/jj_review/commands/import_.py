@@ -17,8 +17,10 @@ import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from string.templatelib import Template
 from typing import Literal, Protocol
 
+from jj_review import ui
 from jj_review.bookmarks import (
     bookmark_matches_generated_change_id,
     discover_bookmarks_for_revisions,
@@ -26,7 +28,6 @@ from jj_review.bookmarks import (
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
-from jj_review.formatting import format_action_line, format_revision_label
 from jj_review.github.client import GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
@@ -49,6 +50,7 @@ HELP = "Connect jj-review to an existing stack of pull requests"
 
 _DISPLAY_CHANGE_ID_LENGTH = 8
 ImportActionStatus = Literal["applied"]
+type ImportActionBody = str | Template | ui.SemanticText | tuple[object, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,8 +58,14 @@ class ImportAction:
     """One applied import action."""
 
     kind: str
-    message: str
+    body: ImportActionBody
     status: ImportActionStatus
+
+    @property
+    def message(self) -> str:
+        """Return the plain-text form of this action body."""
+
+        return ui.plain_text(self.body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,40 +131,55 @@ def import_(
             revset=revset,
         )
     )
-    print(f"Selected selector: {result.selector}")
-    print(f"Selected revset: {result.selected_revset}")
+    _print_import_result(result)
+    return 0
+
+
+def _print_import_result(result: ImportResult) -> None:
+    ui.output(ui.prefixed_message("Selected selector: ", result.selector))
+    ui.output(ui.prefixed_message("Selected revset: ", ui.revset(result.selected_revset)))
     if result.fetched_tip_commit is not None:
-        print(f"Fetched tip commit: {result.fetched_tip_commit}")
+        ui.output(ui.prefixed_message("Fetched tip commit: ", result.fetched_tip_commit))
     if result.remote is None:
         if result.remote_error is None:
-            print("Selected remote: unavailable")
+            remote_message: object = "unavailable"
         else:
-            print(f"Selected remote: unavailable ({result.remote_error})")
+            remote_message = ("unavailable (", result.remote_error, ")")
+        ui.output(ui.prefixed_message("Selected remote: ", remote_message))
     else:
-        print(f"Selected remote: {result.remote.name}")
+        ui.output(ui.prefixed_message("Selected remote: ", result.remote.name))
     if result.github_repository is None:
         if result.github_error is None:
-            print("GitHub: unavailable")
+            github_message: object = "unavailable"
         else:
-            print(f"GitHub: unavailable ({result.github_error})")
+            github_message = ("unavailable (", result.github_error, ")")
+        ui.output(ui.prefixed_message("GitHub: ", github_message))
     else:
-        print(f"GitHub: {result.github_repository}")
+        ui.output(ui.prefixed_message("GitHub: ", result.github_repository))
     if result.actions:
-        print("Updated local jj-review tracking:")
+        ui.output("Updated local jj-review tracking:")
         for action in result.actions:
-            print(
-                format_action_line(
-                    status=action.status,
-                    kind=action.kind,
-                    message=action.message,
+            ui.output(
+                ui.prefixed_message(
+                    "  - applied: ",
+                    (ui.semantic_text(action.kind, "prefix"), ": ", action.body),
                 )
             )
     else:
         if result.reviewable_revision_count:
-            print("Local jj-review tracking is already up to date for the selected stack.")
+            ui.output(
+                "Local jj-review tracking is already up to date for the selected stack."
+            )
         else:
-            print("No reviewable commits between the selected revision and `trunk()`.")
-    return 0
+            ui.output(
+                ui.rich_text(
+                    (
+                        "No reviewable commits between the selected revision and ",
+                        ui.revset("trunk()"),
+                        ".",
+                    )
+                )
+            )
 
 
 async def _run_import_async(
@@ -202,7 +225,7 @@ async def _run_import_async(
             "`import` cannot proceed because the current stack has no matching "
             "remote pull request."
         )
-    print("Inspecting GitHub pull requests and branches...")
+    ui.note("Inspecting GitHub pull requests and branches...")
     status_result = await stream_status_async(
         persist_cache_updates=False,
         prepared_status=prepared_status,
@@ -654,9 +677,11 @@ def _import_local_state(
             actions.append(
                 ImportAction(
                     kind="bookmark",
-                    message=(
-                        f"set local bookmark {planned.bookmark} -> "
-                        f"{planned.update_local_target[:_DISPLAY_CHANGE_ID_LENGTH]}"
+                    body=(
+                        "set local bookmark ",
+                        ui.bookmark(planned.bookmark),
+                        " -> ",
+                        planned.update_local_target[:_DISPLAY_CHANGE_ID_LENGTH],
                     ),
                     status="applied",
                 )
@@ -668,9 +693,11 @@ def _import_local_state(
             actions.append(
                 ImportAction(
                     kind="bookmark tracking",
-                    message=(
-                        f"track remote branch {planned.bookmark}"
-                        f"@{prepared.remote.name}"
+                    body=(
+                        "track remote branch ",
+                        ui.bookmark(planned.bookmark),
+                        "@",
+                        prepared.remote.name,
                     ),
                     status="applied",
                 )
@@ -682,7 +709,7 @@ def _import_local_state(
         actions.append(
             ImportAction(
                 kind="tracking",
-                message="update saved jj-review data for the selected stack",
+                body="update saved jj-review data for the selected stack",
                 status="applied",
             )
         )
@@ -837,7 +864,7 @@ def _ensure_selected_head_has_pull_request(
     raise CliError(
         "`import` only supports stacks whose selected head already has a pull "
         "request. Missing pull request for: "
-        f"{format_revision_label(selected_head.subject, selected_head.change_id)}."
+        f"{ui.plain_text((selected_head.subject, ' (', ui.change_id(selected_head.change_id), ')'))}."
     )
 
 
