@@ -12,10 +12,11 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from string.templatelib import Template
+from typing import Literal
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
@@ -54,11 +55,11 @@ from jj_review.review_inspection import (
     stream_status,
 )
 from jj_review.stack_comments import is_stack_summary_comment
-from jj_review.ui import Table, Text
 
 HELP = "Clean up stale jj-review data for a jj stack"
 
 CleanupActionStatus = Literal["applied", "blocked", "planned"]
+type CleanupBody = str | Template | ui.SemanticText | ui.Text
 _GITHUB_INSPECTION_CONCURRENCY = DEFAULT_BOUNDED_CONCURRENCY
 
 
@@ -67,13 +68,31 @@ class CleanupAction:
     """One cleanup action that was planned, applied, or blocked."""
 
     kind: str
-    message: str
     status: CleanupActionStatus
-    body: Any | None = field(
-        default=None,
-        compare=False,
-        repr=False,
-    )
+    body: CleanupBody
+
+    @classmethod
+    def from_body(
+        cls,
+        *,
+        kind: str,
+        status: CleanupActionStatus,
+        body: CleanupBody,
+    ) -> CleanupAction:
+        """Build an action from semantic or Rich-ready display content."""
+
+        return cls(kind=kind, status=status, body=body)
+
+    @property
+    def message(self) -> str:
+        """Return the plain-text form of this action body."""
+
+        return ui.plain_text(self.body)
+
+    def with_status(self, status: CleanupActionStatus) -> CleanupAction:
+        """Return the same action body with a different lifecycle status."""
+
+        return CleanupAction(kind=self.kind, status=status, body=self.body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,17 +213,6 @@ def render_cleanup_action_header(*, dry_run: bool) -> str:
     return "Planned cleanup actions:" if dry_run else "Applied cleanup actions:"
 
 
-def render_cleanup_action(*, action: CleanupAction) -> Table:
-    """Render one cleanup action line."""
-
-    prefix, prefix_style, message_style = _cleanup_action_presentation(action.status)
-    return ui.action_row(
-        prefix=f"{prefix} ",
-        body=_cleanup_action_text(action=action, message_style=message_style),
-        prefix_style=prefix_style,
-    )
-
-
 def render_cleanup_postamble(*, result: CleanupResult) -> tuple[str, ...]:
     """Render cleanup lines that only depend on the completed result."""
 
@@ -237,17 +245,6 @@ def render_restack_action_header(*, dry_run: bool) -> str:
     """Render the restack action section header."""
 
     return "Planned restack actions:" if dry_run else "Applied restack actions:"
-
-
-def render_restack_action(*, action: CleanupAction) -> Table:
-    """Render one restack action line."""
-
-    prefix, prefix_style, message_style = _cleanup_action_presentation(action.status)
-    return ui.action_row(
-        prefix=f"{prefix} ",
-        body=_cleanup_action_text(action=action, message_style=message_style),
-        prefix_style=prefix_style,
-    )
 
 
 def render_restack_postamble(*, result: RestackResult) -> tuple[str, ...]:
@@ -320,9 +317,8 @@ def _run_cleanup_restack_command(
 
     try:
         result = stream_restack(
-            on_action=_build_cleanup_action_streamer(
+            on_action=_build_action_streamer(
                 dry_run=prepared_restack.dry_run,
-                render_action=render_restack_action,
                 render_header=render_restack_action_header,
             ),
             prepared_restack=prepared_restack,
@@ -358,9 +354,8 @@ def _run_cleanup_command(
         ui.output(line)
 
     result = stream_cleanup(
-        on_action=_build_cleanup_action_streamer(
+        on_action=_build_action_streamer(
             dry_run=prepared_cleanup.dry_run,
-            render_action=render_cleanup_action,
             render_header=render_cleanup_action_header,
         ),
         prepared_cleanup=prepared_cleanup,
@@ -370,10 +365,9 @@ def _run_cleanup_command(
     return 0
 
 
-def _build_cleanup_action_streamer(
+def _build_action_streamer(
     *,
     dry_run: bool,
-    render_action: Callable[..., Any],
     render_header: Callable[..., str],
 ) -> Callable[[CleanupAction], None]:
     """Print the action header once, then stream actions as they arrive."""
@@ -385,7 +379,7 @@ def _build_cleanup_action_streamer(
         if not header_printed:
             ui.output(render_header(dry_run=dry_run))
             header_printed = True
-        ui.output(render_action(action=action))
+        ui.output(_render_action(action=action))
 
     return emit_action
 
@@ -410,7 +404,7 @@ def _render_remote_and_github_lines(
     return tuple(lines)
 
 
-def _cleanup_action_presentation(
+def _action_presentation(
     status: CleanupActionStatus,
 ) -> tuple[str, object | None, object | None]:
     if status == "applied":
@@ -434,24 +428,6 @@ def _cleanup_action_presentation(
     return ("  ?", None, None)
 
 
-def _cleanup_action(kind: str, status: CleanupActionStatus, body: Any) -> CleanupAction:
-    return CleanupAction(
-        kind=kind,
-        message=ui.plain_text(body),
-        status=status,
-        body=body,
-    )
-
-
-def _action_with_status(action: CleanupAction, status: CleanupActionStatus) -> CleanupAction:
-    return CleanupAction(
-        kind=action.kind,
-        message=action.message,
-        status=status,
-        body=action.body,
-    )
-
-
 def _revision_label_template(revision: ReviewStatusRevision):
     return t"{revision.subject} ({ui.change_id(revision.change_id)})"
 
@@ -462,15 +438,28 @@ def _restack_destination_template(destination_change_id: str | None):
     return ui.change_id(destination_change_id)
 
 
-def _cleanup_action_text(
+def _render_action(
     *,
     action: CleanupAction,
-    message_style: object | None,
-) -> Text:
-    body_content = action.body if action.body is not None else action.message
+) -> ui.Table:
+    """Render one cleanup or restack action line."""
+
+    prefix, prefix_style, body_style = _action_presentation(action.status)
+    return ui.action_row(
+        prefix=f"{prefix} ",
+        body=_render_action_body(action=action, body_style=body_style),
+        prefix_style=prefix_style,
+    )
+
+
+def _render_action_body(
+    *,
+    action: CleanupAction,
+    body_style: object | None,
+) -> ui.Text:
     return ui.rich_text(
-        t"{ui.semantic_text(action.kind, 'prefix')}: {body_content}",
-        style=message_style,
+        t"{ui.semantic_text(action.kind, 'prefix')}: {action.body}",
+        style=body_style,
     )
 
 
@@ -581,7 +570,7 @@ def stream_restack(
 
     if status_result.github_error is not None or status_result.github_repository is None:
         record_action(
-            _cleanup_action(
+            CleanupAction.from_body(
                 kind="restack",
                 status="blocked",
                 body=(
@@ -771,7 +760,7 @@ def _record_restack_policy_actions(
         if base_ref is None or not base_ref.startswith("review/"):
             continue
         record_action(
-            _cleanup_action(
+            CleanupAction.from_body(
                 kind="policy",
                 status="planned",
                 body=(
@@ -795,7 +784,7 @@ def _restack_noop_action(
             body.append(", ")
         body.append_text(ui.rich_text(_revision_label_template(revision)))
     body.append("), but no surviving descendants need to move")
-    return _cleanup_action(
+    return CleanupAction.from_body(
         kind="restack",
         status="planned" if dry_run else "applied",
         body=body,
@@ -842,7 +831,7 @@ def _run_restack_rebase_pass(
                 destination=destination_commit_id,
             )
             record_action(
-                _cleanup_action(
+                CleanupAction.from_body(
                     kind="restack",
                     status="applied",
                     body=(
@@ -864,7 +853,7 @@ def _run_restack_rebase_pass(
                 t"{body} once blocked changes on the stack are resolved"
             )
         record_action(
-            _cleanup_action(
+            CleanupAction.from_body(
                 kind="restack",
                 status=status,
                 body=body,
@@ -934,7 +923,7 @@ def _collect_restack_pre_actions(
     for revision in closed_unmerged_revisions:
         blocked = True
         actions.append(
-            _cleanup_action(
+            CleanupAction.from_body(
                 kind="restack",
                 status="blocked",
                 body=(
@@ -954,7 +943,7 @@ def _collect_restack_pre_actions(
             continue
         blocked = True
         actions.append(
-            _cleanup_action(
+            CleanupAction.from_body(
                 kind="restack",
                 status="blocked",
                 body=(
@@ -990,7 +979,7 @@ def _plan_restack_rebases(
         if revision.local_divergent:
             blocked = True
             actions.append(
-                _cleanup_action(
+                CleanupAction.from_body(
                     kind="restack",
                     status="blocked",
                     body=(
@@ -1323,9 +1312,9 @@ def _apply_stale_cleanup_mutation_plans(
             jj_client.fetch_remote(remote=remote.name)
 
     for remote_action in remote_actions:
-        record_action(_action_with_status(remote_action, "applied"))
+        record_action(remote_action.with_status("applied"))
     for local_action in local_actions:
-        record_action(_action_with_status(local_action, "applied"))
+        record_action(local_action.with_status("applied"))
 
 
 def _save_cleanup_state_if_changed(
@@ -1406,7 +1395,7 @@ async def _apply_stack_comment_cleanup_action(
             next_changes[change_id] = next_changes[change_id].model_copy(
                 update={"stack_comment_id": None}
             )
-        comment_action = _action_with_status(comment_plan.action, "applied")
+        comment_action = comment_plan.action.with_status("applied")
     record_action(comment_action)
     if not prepared_cleanup.dry_run:
         prepared_cleanup.state_store.save(
@@ -1447,7 +1436,7 @@ def _cache_action(
     reason: str,
     status: CleanupActionStatus,
 ) -> CleanupAction:
-    return _cleanup_action(
+    return CleanupAction.from_body(
         kind="tracking",
         status=status,
         body=(
@@ -1526,7 +1515,7 @@ def _plan_remote_branch_cleanup(
     branch_label = f"{bookmark}@{remote.name}"
     if bookmark_state.local_targets and not local_bookmark_forget_planned:
         return RemoteBranchCleanupPlan(
-            action=_cleanup_action(
+            action=CleanupAction.from_body(
                 kind="remote branch",
                 status="blocked",
                 body=(
@@ -1537,7 +1526,7 @@ def _plan_remote_branch_cleanup(
         )
     if len(remote_state.targets) > 1:
         return RemoteBranchCleanupPlan(
-            action=_cleanup_action(
+            action=CleanupAction.from_body(
                 kind="remote branch",
                 status="blocked",
                 body=(
@@ -1548,7 +1537,7 @@ def _plan_remote_branch_cleanup(
         )
 
     return RemoteBranchCleanupPlan(
-        action=_cleanup_action(
+        action=CleanupAction.from_body(
             kind="remote branch",
             status="planned",
             body=t"delete {ui.bookmark(branch_label)}",
@@ -1570,7 +1559,7 @@ def _plan_local_bookmark_cleanup(
         return None
     if len(bookmark_state.local_targets) > 1:
         return LocalBookmarkCleanupPlan(
-            action=_cleanup_action(
+            action=CleanupAction.from_body(
                 kind="local bookmark",
                 status="blocked",
                 body=t"cannot forget {ui.bookmark(bookmark)} because it is conflicted",
@@ -1584,7 +1573,7 @@ def _plan_local_bookmark_cleanup(
     expected_target = cached_change.last_submitted_commit_id
     if expected_target is not None and local_target != expected_target:
         return LocalBookmarkCleanupPlan(
-            action=_cleanup_action(
+            action=CleanupAction.from_body(
                 kind="local bookmark",
                 status="blocked",
                 body=(
@@ -1595,7 +1584,7 @@ def _plan_local_bookmark_cleanup(
         )
 
     return LocalBookmarkCleanupPlan(
-        action=_cleanup_action(
+        action=CleanupAction.from_body(
             kind="local bookmark",
             status="planned",
             body=t"forget {ui.bookmark(bookmark)} ({stale_reason})",
@@ -1617,7 +1606,7 @@ def _process_local_bookmark_cleanup(
         if bookmark is None:
             raise AssertionError("Planned local bookmark cleanup requires a bookmark.")
         jj_client.forget_bookmarks((bookmark,))
-        local_action = _action_with_status(local_action, "applied")
+        local_action = local_action.with_status("applied")
     record_action(local_action)
 
 
@@ -1646,7 +1635,7 @@ def _process_remote_branch_cleanup(
                 ),
             ),
         )
-        remote_action = _action_with_status(remote_action, "applied")
+        remote_action = remote_action.with_status("applied")
     record_action(remote_action)
 
 
@@ -1722,7 +1711,7 @@ async def _plan_stack_comment_cleanup(
         return None
 
     return StackCommentCleanupPlan(
-        action=_cleanup_action(
+        action=CleanupAction.from_body(
             kind="stack summary comment",
             status="planned",
             body=(
@@ -1792,7 +1781,7 @@ async def _resolve_stack_summary_comment(
         )
         if cached_comment is not None:
             if not is_stack_summary_comment(cached_comment.body):
-                return _cleanup_action(
+                return CleanupAction.from_body(
                     kind="stack summary comment",
                     status="blocked",
                     body=(
@@ -1807,7 +1796,7 @@ async def _resolve_stack_summary_comment(
         comment for comment in comments if is_stack_summary_comment(comment.body)
     ]
     if len(stack_summary_comments) > 1:
-        return _cleanup_action(
+        return CleanupAction.from_body(
             kind="stack summary comment",
             status="blocked",
             body=(
@@ -1844,7 +1833,7 @@ async def _resolve_unlinked_pull_request_number(
     if not pull_requests:
         return None
     if len(pull_requests) > 1:
-        return _cleanup_action(
+        return CleanupAction.from_body(
             kind="stack summary comment",
             status="blocked",
             body=(

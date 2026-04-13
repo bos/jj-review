@@ -210,7 +210,7 @@ def test_resolve_stack_summary_comment_blocks_multiple_candidates() -> None:
 
     assert result == CleanupAction(
         kind="stack summary comment",
-        message=(
+        body=(
             "cannot delete stack summary comments because GitHub reports multiple "
             "candidates on PR #7"
         ),
@@ -232,7 +232,7 @@ def test_resolve_unlinked_pull_request_number_blocks_multiple_pull_requests() ->
 
     assert result == CleanupAction(
         kind="stack summary comment",
-        message=(
+        body=(
             "cannot delete stack summary comment because GitHub reports multiple pull "
             "requests for unlinked bookmark 'review/feature-aaaaaaaa'"
         ),
@@ -453,7 +453,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
         return StackCommentCleanupPlan(
             action=CleanupAction(
                 kind="stack summary comment",
-                message="delete stack summary comment #12 from PR #1",
+                body="delete stack summary comment #12 from PR #1",
                 status="planned",
             ),
             comment_id=12,
@@ -498,7 +498,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     assert result.actions == (
         CleanupAction(
             kind="stack summary comment",
-            message="delete stack summary comment #12 from PR #1",
+            body="delete stack summary comment #12 from PR #1",
             status="applied",
         ),
     )
@@ -903,12 +903,11 @@ def test_plan_local_bookmark_cleanup_forgets_safe_review_bookmark() -> None:
     )
 
     assert plan is not None
-    assert plan.action == CleanupAction(
-        kind="local bookmark",
-        message=(
-            "forget review/feature-aaaaaaaa (local change is no longer reviewable)"
-        ),
-        status="planned",
+    assert plan.action.kind == "local bookmark"
+    assert plan.action.status == "planned"
+    assert (
+        plan.action.message
+        == "forget review/feature-aaaaaaaa (local change is no longer reviewable)"
     )
 
 
@@ -958,14 +957,14 @@ def test_apply_stale_cleanup_mutation_plans_batches_remote_and_local_work() -> N
                 local_bookmark_plan=cleanup_module.LocalBookmarkCleanupPlan(
                     action=CleanupAction(
                         kind="local bookmark",
-                        message="forget review/feature-aaaaaaaa (stale)",
+                        body="forget review/feature-aaaaaaaa (stale)",
                         status="planned",
                     )
                 ),
                 remote_plan=cleanup_module.RemoteBranchCleanupPlan(
                     action=CleanupAction(
                         kind="remote branch",
-                        message="delete review/feature-aaaaaaaa@origin",
+                        body="delete review/feature-aaaaaaaa@origin",
                         status="planned",
                     ),
                     expected_remote_target="commit-1",
@@ -976,14 +975,14 @@ def test_apply_stale_cleanup_mutation_plans_batches_remote_and_local_work() -> N
                 local_bookmark_plan=cleanup_module.LocalBookmarkCleanupPlan(
                     action=CleanupAction(
                         kind="local bookmark",
-                        message="forget review/feature-bbbbbbbb (stale)",
+                        body="forget review/feature-bbbbbbbb (stale)",
                         status="planned",
                     )
                 ),
                 remote_plan=cleanup_module.RemoteBranchCleanupPlan(
                     action=CleanupAction(
                         kind="remote branch",
-                        message="delete review/feature-bbbbbbbb@origin",
+                        body="delete review/feature-bbbbbbbb@origin",
                         status="planned",
                     ),
                     expected_remote_target="commit-2",
@@ -1012,22 +1011,22 @@ def test_apply_stale_cleanup_mutation_plans_batches_remote_and_local_work() -> N
     assert recorded_actions == [
         CleanupAction(
             kind="remote branch",
-            message="delete review/feature-aaaaaaaa@origin",
+            body="delete review/feature-aaaaaaaa@origin",
             status="applied",
         ),
         CleanupAction(
             kind="remote branch",
-            message="delete review/feature-bbbbbbbb@origin",
+            body="delete review/feature-bbbbbbbb@origin",
             status="applied",
         ),
         CleanupAction(
             kind="local bookmark",
-            message="forget review/feature-aaaaaaaa (stale)",
+            body="forget review/feature-aaaaaaaa (stale)",
             status="applied",
         ),
         CleanupAction(
             kind="local bookmark",
-            message="forget review/feature-bbbbbbbb (stale)",
+            body="forget review/feature-bbbbbbbb (stale)",
             status="applied",
         ),
     ]
