@@ -82,7 +82,7 @@ However:
 
 ### Requirements
 
-- Python 3.11 or newer
+- Python 3.14 or newer
 - `uv`
 - `jj` 0.39.0 or newer
 - GitHub authentication via `gh auth login` or a `GITHUB_TOKEN`

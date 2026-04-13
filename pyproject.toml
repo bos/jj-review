@@ -7,16 +7,14 @@ name = "jj-review"
 version = "0.1.0"
 description = "JJ-native stacked GitHub review tooling"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 keywords = ["jj", "jujutsu", "github", "pull-requests", "stacked-reviews"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Software Development :: Version Control",
   "Topic :: Software Development :: Version Control :: Git",
 ]
@@ -61,9 +59,10 @@ skip_empty = true
 [tool.ruff]
 line-length = 98
 src = ["src", "tests", "tools"]
-target-version = "py311"
+target-version = "py314"
 
 [tool.ruff.lint]
+ignore = ["UP040", "UP047"]
 select = ["B", "E", "F", "I", "UP"]
 
 [tool.ruff.lint.isort]

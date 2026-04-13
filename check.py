@@ -97,6 +97,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as error:
         parser.error(str(error))
     ensure_project_environment()
+    command_env = _project_command_env()
 
     for name, command in _build_checks(
         pytest_jobs=pytest_jobs,
@@ -109,6 +110,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             full_command,
             check=False,
             cwd=REPO_ROOT,
+            env=command_env,
         )
         if completed.returncode != 0:
             return completed.returncode
@@ -125,10 +127,16 @@ def ensure_project_environment() -> None:
         sync_command,
         check=False,
         cwd=REPO_ROOT,
-        env={key: value for key, value in os.environ.items() if key != "VIRTUAL_ENV"},
+        env=_project_command_env(),
     )
     if completed.returncode != 0:
         raise SystemExit(completed.returncode)
+
+
+def _project_command_env() -> dict[str, str]:
+    """Return a subprocess environment pinned to the project virtualenv."""
+
+    return {key: value for key, value in os.environ.items() if key != "VIRTUAL_ENV"}
 
 
 if __name__ == "__main__":

@@ -32,7 +32,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.11"
+          python-version: "3.14"
 
       - name: Install jj
         run: echo "$(tools/install-jj-release.sh "$JJ_VERSION")" >> "$GITHUB_PATH"
@@ -63,7 +63,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.11"
+          python-version: "3.14"
 
       - name: Download distributions
         uses: actions/download-artifact@v4
@@ -95,7 +95,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.11"
+          python-version: "3.14"
 
       - name: Download distributions
         uses: actions/download-artifact@v4
