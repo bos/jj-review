@@ -135,7 +135,7 @@ async def _run_cleanup_revision(*, bookmark_state: BookmarkState) -> _CleanupRes
             record_action=actions.append,
             remote_name="origin",
             revision=SimpleNamespace(change_id="aaaaaaaaaaaaaaaa"),
-            revision_label="feature 1 [aaaaaaaa]",
+            revision_label="feature 1 (aaaaaaaa)",
         ),
     )
     return _CleanupResult(actions=actions, jj_client=jj_client)

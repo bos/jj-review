@@ -19,9 +19,11 @@ from tqdm import tqdm
 from jj_review.bootstrap import bootstrap_context
 from jj_review.errors import CliError
 from jj_review.formatting import (
+    format_change_marker,
     format_pull_request_label,
+    format_revision_label,
+    format_status_annotation,
     render_revision_with_suffix_lines,
-    short_change_id,
 )
 from jj_review.intent import (
     describe_intent,
@@ -194,7 +196,7 @@ def render_status_revision_line(revision, *, github_available: bool) -> str:
     """Render one streamed status row."""
 
     summary = _format_status_summary(revision, github_available=github_available)
-    return f"- {revision.subject} [{short_change_id(revision.change_id)}]: {summary}"
+    return f"- {format_revision_label(revision.subject, revision.change_id)}: {summary}"
 
 
 def render_status_summary_lines(
@@ -321,7 +323,7 @@ def _render_summary_section(
     omitted = len(rendered) - _SUMMARY_SECTION_HEAD_COUNT - _SUMMARY_SECTION_TAIL_COUNT
     for block in rendered[:_SUMMARY_SECTION_HEAD_COUNT]:
         lines.extend(block)
-    lines.append(f"  [...{omitted} changes omitted...]")
+    lines.append(f"   ... {omitted} changes omitted ...")
     for block in rendered[-_SUMMARY_SECTION_TAIL_COUNT:]:
         lines.extend(block)
     return tuple(lines)
@@ -452,7 +454,9 @@ def render_status_intent_lines(*, prepared_status) -> tuple[str, ...]:
             alive = pid_is_alive(loaded.intent.pid)
             status_str = "process alive" if alive else "process dead"
             lines.append(
-                f"  {describe_intent(loaded.intent)}  [{status_str}, {loaded.path.name}]"
+                "  "
+                f"{describe_intent(loaded.intent)}  "
+                f"{format_status_annotation(f'{status_str}, {loaded.path.name}')}"
             )
 
     if prepared_status.outstanding_intents:
@@ -461,7 +465,11 @@ def render_status_intent_lines(*, prepared_status) -> tuple[str, ...]:
             alive = pid_is_alive(loaded.intent.pid)
             description = describe_intent(loaded.intent)
             if alive:
-                lines.append(f"  {description}  [in progress, PID {loaded.intent.pid}]")
+                lines.append(
+                    "  "
+                    f"{description}  "
+                    f"{format_status_annotation(f'in progress, PID {loaded.intent.pid}')}"
+                )
             elif isinstance(loaded.intent, SubmitIntent):
                 lines.append(
                     "  "
@@ -490,7 +498,11 @@ def render_status_intent_lines(*, prepared_status) -> tuple[str, ...]:
                     )
                 )
             else:
-                lines.append(f"  {description}  [interrupted, inspect before re-running]")
+                lines.append(
+                    "  "
+                    f"{description}  "
+                    f"{format_status_annotation('interrupted, inspect before re-running')}"
+                )
     return tuple(lines)
 
 
@@ -578,7 +590,7 @@ def _render_interrupted_submit_status_line(
         status = "interrupted, current stack differs; inspect before running submit again"
     else:
         status = "interrupted, recorded stack differs from the current selection"
-    return f"{description}  [{status}]"
+    return f"{description}  {format_status_annotation(status)}"
 
 
 def _render_interrupted_cleanup_restack_status_line(
@@ -625,7 +637,7 @@ def _render_interrupted_cleanup_restack_status_line(
         )
     else:
         status = "interrupted, recorded stack differs from the current selection"
-    return f"{description}  [{status}]"
+    return f"{description}  {format_status_annotation(status)}"
 
 
 def _render_interrupted_close_status_line(
@@ -664,7 +676,7 @@ def _render_interrupted_close_status_line(
         status = "interrupted, current stack differs; inspect before running close again"
     else:
         status = "interrupted, recorded stack differs from the current selection"
-    return f"{description}  [{status}]"
+    return f"{description}  {format_status_annotation(status)}"
 
 
 def _render_summary_revision_lines(
@@ -877,7 +889,7 @@ def _wrap_advisory(message: str) -> str:
 
 
 def _status_revision_label(revision) -> str:
-    return f"[{short_change_id(revision.change_id)}]"
+    return format_change_marker(revision.change_id)
 
 
 def _revision_has_link_advisory(revision) -> bool:

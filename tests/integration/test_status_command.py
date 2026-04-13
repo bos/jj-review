@@ -61,7 +61,7 @@ def test_status_truncates_long_unsubmitted_stack_summary(
 
     assert exit_code == 0
     assert "Unsubmitted stack:" in captured.out
-    assert "[...2 changes omitted...]" in captured.out
+    assert "... 2 changes omitted ..." in captured.out
     assert "feature 4" not in captured.out
     assert "feature 3" in captured.out
 

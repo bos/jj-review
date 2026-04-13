@@ -11,6 +11,30 @@ def short_change_id(change_id: str) -> str:
     return change_id[:8]
 
 
+def format_change_marker(change_id: str) -> str:
+    """Render a short change ID marker for CLI output."""
+
+    return f"({short_change_id(change_id)})"
+
+
+def format_revision_label(subject: str, change_id: str) -> str:
+    """Render a revision subject with its short change ID marker."""
+
+    return f"{subject} {format_change_marker(change_id)}"
+
+
+def format_action_line(*, status: str, kind: str, message: str) -> str:
+    """Render a status-tagged action line for CLI output."""
+
+    return f"- {status}: {kind}: {message}"
+
+
+def format_status_annotation(annotation: str) -> str:
+    """Render a parenthetical status annotation for CLI output."""
+
+    return f"({annotation})"
+
+
 def format_pull_request_label(
     pull_request_number: int,
     *,

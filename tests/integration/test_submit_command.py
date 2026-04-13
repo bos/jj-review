@@ -51,7 +51,7 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
 
     assert exit_code == 0
     assert (
-        f"Selected: {stack.head.subject} [{short_change_id(stack.head.change_id)}]"
+        f"Selected: {stack.head.subject} ({short_change_id(stack.head.change_id)})"
         in captured.out
     )
     assert "Selected remote:" not in captured.out

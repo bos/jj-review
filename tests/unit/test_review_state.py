@@ -237,7 +237,7 @@ def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
         "body for feature 7",
         "feature 6 [66666666]",
         "body for feature 6",
-        "  [...2 changes omitted...]",
+        "   ... 2 changes omitted ...",
         "feature 3 [33333333]",
         "body for feature 3",
         "feature 2 [22222222]",

@@ -464,7 +464,7 @@ def test_close_apply_cleanup_exits_nonzero_when_cleanup_is_blocked(
 
     assert exit_code == 1
     assert "Close blocked:" in captured.out
-    assert "[blocked] stack summary comment:" in captured.out
+    assert "- blocked: stack summary comment:" in captured.out
     assert fake_repo.pull_requests[2].state == "closed"
 
 

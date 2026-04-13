@@ -16,7 +16,7 @@ from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.errors import CliError
-from jj_review.formatting import short_change_id
+from jj_review.formatting import format_revision_label, short_change_id
 from jj_review.github.client import GithubClientError, build_github_client
 from jj_review.github.resolution import (
     require_github_repo,
@@ -74,8 +74,8 @@ def relink(
     print(f"Selected remote: {result.remote_name}")
     print(f"GitHub: {result.github_repository}")
     print(
-        f"Relinked PR #{result.pull_request_number} for {result.subject} "
-        f"[{short_change_id(result.change_id)}] -> {result.bookmark}"
+        f"Relinked PR #{result.pull_request_number} for "
+        f"{format_revision_label(result.subject, result.change_id)} -> {result.bookmark}"
     )
     return 0
 

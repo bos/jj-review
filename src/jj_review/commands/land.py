@@ -29,7 +29,7 @@ from jj_review.bootstrap import bootstrap_context
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
-from jj_review.formatting import short_change_id
+from jj_review.formatting import format_action_line, format_revision_label
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
@@ -222,7 +222,13 @@ def land(
             header = "Planned land actions:"
         print(header)
         for action in result.actions:
-            print(f"- [{action.status}] {action.kind}: {action.message}")
+            print(
+                format_action_line(
+                    status=action.status,
+                    kind=action.kind,
+                    message=action.message,
+                )
+            )
     if result.follow_up is not None:
         print(result.follow_up)
     return 1 if result.blocked else 0
@@ -454,8 +460,10 @@ async def _stream_land_async(
                         kind="trunk",
                         message=(
                             f"push {trunk_branch} to "
-                            f"{execution_plan.landed_revisions[-1].subject} "
-                            f"[{short_change_id(execution_plan.landed_revisions[-1].change_id)}]"
+                            f"{format_revision_label(
+                                execution_plan.landed_revisions[-1].subject,
+                                execution_plan.landed_revisions[-1].change_id,
+                            )}"
                         ),
                         status="applied",
                     )
@@ -463,8 +471,8 @@ async def _stream_land_async(
             for landed_revision in execution_plan.landed_revisions:
                 print(
                     f"Finalizing PR #{landed_revision.pull_request_number} for "
-                    f"{landed_revision.subject} "
-                    f"[{short_change_id(landed_revision.change_id)}]..."
+                    f"{format_revision_label(landed_revision.subject, landed_revision.change_id)}"
+                    "..."
                 )
                 final_pull_request = await _finalize_landed_pull_request(
                     cached_change=state_changes.get(landed_revision.change_id),
@@ -478,8 +486,10 @@ async def _stream_land_async(
                         kind="pull request",
                         message=(
                             f"finalize PR #{landed_revision.pull_request_number} for "
-                            f"{landed_revision.subject} "
-                            f"[{short_change_id(landed_revision.change_id)}]"
+                            f"{format_revision_label(
+                                landed_revision.subject,
+                                landed_revision.change_id,
+                            )}"
                         ),
                         status="applied",
                     )
@@ -794,25 +804,25 @@ def _land_boundary_message(
 ) -> str | None:
     if revision.link_state == "unlinked":
         return (
-            f"stop before {revision.subject} [{short_change_id(revision.change_id)}] because "
+            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
             "this change is unlinked from review tracking; run `relink` first"
         )
     if revision.local_divergent:
         return (
-            f"stop before {revision.subject} [{short_change_id(revision.change_id)}] because "
+            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
             "multiple visible revisions still share that change ID"
         )
     remote_state = revision.remote_state
     if remote_state is None or remote_state.target != prepared_revision.revision.commit_id:
         return (
-            f"stop before {revision.subject} [{short_change_id(revision.change_id)}] because "
+            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
             "the pushed branch does not match the current local commit; rerun `submit` "
             "first"
         )
     pull_request_lookup = revision.pull_request_lookup
     if pull_request_lookup is None:
         return (
-            f"stop before {revision.subject} [{short_change_id(revision.change_id)}] because "
+            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
             "GitHub pull request state is unavailable"
         )
     if pull_request_lookup.state == "open":
@@ -822,47 +832,47 @@ def _land_boundary_message(
         if pull_request_lookup.review_decision_error is not None:
             detail = pull_request_lookup.review_decision_error
             return (
-                f"stop before {revision.subject} [{short_change_id(revision.change_id)}] "
+                f"stop before {format_revision_label(revision.subject, revision.change_id)} "
                 f"because {detail}"
             )
         if pull_request.is_draft:
             if bypass_readiness:
                 return None
             return (
-                f"stop before {revision.subject} [{short_change_id(revision.change_id)}] "
+                f"stop before {format_revision_label(revision.subject, revision.change_id)} "
                 f"because PR #{pull_request.number} is still a draft"
             )
         if pull_request_lookup.review_decision == "changes_requested":
             if bypass_readiness:
                 return None
             return (
-                f"stop before {revision.subject} [{short_change_id(revision.change_id)}] "
+                f"stop before {format_revision_label(revision.subject, revision.change_id)} "
                 f"because PR #{pull_request.number} has changes requested"
             )
         if pull_request_lookup.review_decision != "approved":
             if bypass_readiness:
                 return None
             return (
-                f"stop before {revision.subject} [{short_change_id(revision.change_id)}] "
+                f"stop before {format_revision_label(revision.subject, revision.change_id)} "
                 f"because PR #{pull_request.number} is not approved"
             )
         return None
     if pull_request_lookup.state == "missing":
         return (
-            f"stop before {revision.subject} [{short_change_id(revision.change_id)}] because "
+            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
             "GitHub no longer reports a pull request for its branch; run `status --fetch` "
             "or `relink` first"
         )
     if pull_request_lookup.state == "ambiguous":
         detail = pull_request_lookup.message or "GitHub reports an ambiguous PR link"
         return (
-            f"stop before {revision.subject} [{short_change_id(revision.change_id)}] because "
+            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
             f"{detail} Run `status --fetch` and repair the PR link with `relink`."
         )
     if pull_request_lookup.state == "error":
         detail = pull_request_lookup.message or "GitHub lookup failed"
         return (
-            f"stop before {revision.subject} [{short_change_id(revision.change_id)}] because "
+            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
             f"{detail}"
         )
     pull_request = pull_request_lookup.pull_request
@@ -870,11 +880,11 @@ def _land_boundary_message(
         raise AssertionError("Closed land boundary requires a pull request payload.")
     if pull_request.state == "merged":
         return (
-            f"stop before {revision.subject} [{short_change_id(revision.change_id)}] because "
+            f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
             f"PR #{pull_request.number} is already merged; run `cleanup --restack` first"
         )
     return (
-        f"stop before {revision.subject} [{short_change_id(revision.change_id)}] because "
+        f"stop before {format_revision_label(revision.subject, revision.change_id)} because "
         f"PR #{pull_request.number} is closed without merge"
     )
 
@@ -897,8 +907,11 @@ def _planned_land_actions(
             LandAction(
                 kind="trunk",
                 message=(
-                    f"push {plan.trunk_branch} to {plan.landed_revisions[-1].subject} "
-                    f"[{short_change_id(plan.landed_revisions[-1].change_id)}]"
+                    f"push {plan.trunk_branch} to "
+                    f"{format_revision_label(
+                        plan.landed_revisions[-1].subject,
+                        plan.landed_revisions[-1].change_id,
+                    )}"
                 ),
                 status="planned",
             )
@@ -909,8 +922,10 @@ def _planned_land_actions(
                     kind="pull request",
                     message=(
                         f"finalize PR #{landed_revision.pull_request_number} for "
-                        f"{landed_revision.subject} "
-                        f"[{short_change_id(landed_revision.change_id)}]"
+                        f"{format_revision_label(
+                            landed_revision.subject,
+                            landed_revision.change_id,
+                        )}"
                     ),
                     status="planned",
                 )

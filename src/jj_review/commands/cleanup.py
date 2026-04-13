@@ -24,7 +24,7 @@ from jj_review.commands.review_state import describe_status_preparation_error
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
-from jj_review.formatting import short_change_id
+from jj_review.formatting import format_action_line, format_revision_label, short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
@@ -190,7 +190,11 @@ def render_cleanup_action_header(*, dry_run: bool) -> str:
 def render_cleanup_action(*, action: CleanupAction) -> str:
     """Render one cleanup action line."""
 
-    return f"- [{action.status}] {action.kind}: {action.message}"
+    return format_action_line(
+        status=action.status,
+        kind=action.kind,
+        message=action.message,
+    )
 
 
 def render_cleanup_postamble(*, result: CleanupResult) -> tuple[str, ...]:
@@ -230,7 +234,11 @@ def render_restack_action_header(*, dry_run: bool) -> str:
 def render_restack_action(*, action: CleanupAction) -> str:
     """Render one restack action line."""
 
-    return f"- [{action.status}] {action.kind}: {action.message}"
+    return format_action_line(
+        status=action.status,
+        kind=action.kind,
+        message=action.message,
+    )
 
 
 def render_restack_postamble(*, result: RestackResult) -> tuple[str, ...]:
@@ -959,7 +967,7 @@ def _revision_pull_request_base_ref(revision: ReviewStatusRevision) -> str | Non
 
 
 def _revision_label(revision: ReviewStatusRevision) -> str:
-    return f"{revision.subject} [{short_change_id(revision.change_id)}]"
+    return format_revision_label(revision.subject, revision.change_id)
 
 
 def _restack_destination_label(destination_change_id: str | None) -> str:

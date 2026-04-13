@@ -36,6 +36,7 @@ from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.formatting import (
     format_pull_request_label,
+    format_revision_label,
     render_revision_with_suffix_lines,
     short_change_id,
 )
@@ -284,7 +285,7 @@ def submit(
         del has_revisions, selected_revset
         nonlocal emitted_prepared
         if revset is None:
-            print(f"Selected: {selected_subject} [{short_change_id(selected_change_id)}]")
+            print(f"Selected: {format_revision_label(selected_subject, selected_change_id)}")
         emitted_prepared = True
 
     state_store = ReviewStateStore.for_repo(context.repo_root)
@@ -312,8 +313,8 @@ def submit(
     if not emitted_prepared:
         if revset is None:
             print(
-                f"Selected: {result.selected_subject} "
-                f"[{short_change_id(result.selected_change_id)}]"
+                f"Selected: "
+                f"{format_revision_label(result.selected_subject, result.selected_change_id)}"
             )
     client = getattr(result, "client", None)
     color_when = (
@@ -400,7 +401,7 @@ def _render_submit_revision_lines(
 ) -> tuple[str, ...]:
     summary = _render_submit_revision_summary(revision)
     if client is None or color_when is None:
-        return (f"- {revision.subject} [{short_change_id(revision.change_id)}]: {summary}",)
+        return (f"- {format_revision_label(revision.subject, revision.change_id)}: {summary}",)
     return render_revision_with_suffix_lines(
         client=client,
         color_when=color_when,
@@ -435,7 +436,7 @@ def _render_submit_trunk_lines(
 ) -> tuple[str, ...]:
     if client is None or color_when is None:
         return (
-            f"Trunk: {result.trunk_subject} [{short_change_id(result.trunk_change_id)}] "
+            f"Trunk: {format_revision_label(result.trunk_subject, result.trunk_change_id)} "
             f"-> {result.trunk_branch}",
         )
     return tuple(

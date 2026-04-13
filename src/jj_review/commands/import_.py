@@ -26,6 +26,7 @@ from jj_review.bookmarks import (
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
+from jj_review.formatting import format_action_line, format_revision_label
 from jj_review.github.client import GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
@@ -143,7 +144,13 @@ def import_(
     if result.actions:
         print("Updated local jj-review tracking:")
         for action in result.actions:
-            print(f"- [{action.status}] {action.kind}: {action.message}")
+            print(
+                format_action_line(
+                    status=action.status,
+                    kind=action.kind,
+                    message=action.message,
+                )
+            )
     else:
         if result.reviewable_revision_count:
             print("Local jj-review tracking is already up to date for the selected stack.")
@@ -830,7 +837,7 @@ def _ensure_selected_head_has_pull_request(
     raise CliError(
         "`import` only supports stacks whose selected head already has a pull "
         "request. Missing pull request for: "
-        f"{selected_head.subject} [{selected_head.change_id[:_DISPLAY_CHANGE_ID_LENGTH]}]."
+        f"{format_revision_label(selected_head.subject, selected_head.change_id)}."
     )
 
 

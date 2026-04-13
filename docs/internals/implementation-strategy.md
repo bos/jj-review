@@ -1443,6 +1443,9 @@ Recommended defaults:
 - a shared Rich-backed `ui` module now exists for migrated command output and
   future styled rendering, while legacy `print`-based commands still use the
   existing `--time-output` shim until their output paths are moved over
+- CLI-authored status markers now avoid square-bracket tags in favor of
+  parenthetical change IDs and plain status labels so Rich markup can be
+  enabled later without escaping repo-authored output strings
 
 Tests should primarily assert on typed plan objects. Snapshot tests should be
 used sparingly for user-facing rendered output where the exact textual shape is

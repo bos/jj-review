@@ -10,8 +10,8 @@
 #   migrate commands from `print(...)` incrementally without spreading Rich
 #   policy across the codebase.
 #
-# - `markup=False` is the default for all helpers because existing jj-review
-#   output uses square-bracket literals like `[done]` and `[in progress]`.
+# - `markup=False` remains the default so arbitrary user-facing text does not
+#   need per-call Rich escaping.
 #
 # - Optional time-prefixing stays here even though most commands still use the
 #   legacy `print` shim today. We are likely to need the same behavior again as

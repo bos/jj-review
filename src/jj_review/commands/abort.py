@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.formatting import short_change_id
@@ -95,7 +96,7 @@ def abort(
 
     for loaded in abort_locks:
         if pid_is_alive(loaded.intent.pid):
-            print(
+            ui.output(
                 f"Another abort operation is already in progress "
                 f"(PID {loaded.intent.pid}). "
                 "Wait for it to finish, then run abort again."
@@ -106,7 +107,7 @@ def abort(
     loaded_intents = operation_intents
 
     if not loaded_intents:
-        print("Nothing to abort.")
+        ui.output("Nothing to abort.")
         return 0
 
     def _resolve_change_id(change_id: str) -> bool:
@@ -125,7 +126,7 @@ def abort(
     if not outstanding:
         count = len(loaded_intents)
         noun = "operation" if count == 1 else "operations"
-        print(
+        ui.output(
             f"{count} stale incomplete {noun} found "
             "(changes no longer exist in this repo). "
             "Run `cleanup` to remove stale jj-review data."
@@ -138,7 +139,7 @@ def abort(
     outstanding = [loaded for loaded in outstanding if not pid_is_alive(loaded.intent.pid)]
 
     for loaded in live:
-        print(
+        ui.output(
             f"'{loaded.intent.label}' is still in progress "
             f"(PID {loaded.intent.pid}) — wait for it to finish, then run abort again."
         )
@@ -628,7 +629,7 @@ def _print_abort_result(result: AbortResult) -> None:
     else:
         header = f"Abort incomplete for {result.intent_label!r}:"
 
-    print(header)
+    ui.output(header)
     for action in result.actions:
         prefix = {
             "applied": "  ✓",
@@ -636,4 +637,4 @@ def _print_abort_result(result: AbortResult) -> None:
             "blocked": "  ✗",
             "skipped": "  -",
         }.get(action.status, "  ?")
-        print(f"{prefix} {action.message}")
+        ui.output(f"{prefix} {action.message}")
