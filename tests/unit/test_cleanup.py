@@ -906,7 +906,7 @@ def test_plan_local_bookmark_cleanup_forgets_safe_review_bookmark() -> None:
     assert plan.action == CleanupAction(
         kind="local bookmark",
         message=(
-            "forget local bookmark review/feature-aaaaaaaa (local change is no longer reviewable)"
+            "forget review/feature-aaaaaaaa (local change is no longer reviewable)"
         ),
         status="planned",
     )
@@ -958,14 +958,14 @@ def test_apply_stale_cleanup_mutation_plans_batches_remote_and_local_work() -> N
                 local_bookmark_plan=cleanup_module.LocalBookmarkCleanupPlan(
                     action=CleanupAction(
                         kind="local bookmark",
-                        message="forget local bookmark review/feature-aaaaaaaa (stale)",
+                        message="forget review/feature-aaaaaaaa (stale)",
                         status="planned",
                     )
                 ),
                 remote_plan=cleanup_module.RemoteBranchCleanupPlan(
                     action=CleanupAction(
                         kind="remote branch",
-                        message="delete remote branch review/feature-aaaaaaaa@origin",
+                        message="delete review/feature-aaaaaaaa@origin",
                         status="planned",
                     ),
                     expected_remote_target="commit-1",
@@ -976,14 +976,14 @@ def test_apply_stale_cleanup_mutation_plans_batches_remote_and_local_work() -> N
                 local_bookmark_plan=cleanup_module.LocalBookmarkCleanupPlan(
                     action=CleanupAction(
                         kind="local bookmark",
-                        message="forget local bookmark review/feature-bbbbbbbb (stale)",
+                        message="forget review/feature-bbbbbbbb (stale)",
                         status="planned",
                     )
                 ),
                 remote_plan=cleanup_module.RemoteBranchCleanupPlan(
                     action=CleanupAction(
                         kind="remote branch",
-                        message="delete remote branch review/feature-bbbbbbbb@origin",
+                        message="delete review/feature-bbbbbbbb@origin",
                         status="planned",
                     ),
                     expected_remote_target="commit-2",
@@ -1012,22 +1012,22 @@ def test_apply_stale_cleanup_mutation_plans_batches_remote_and_local_work() -> N
     assert recorded_actions == [
         CleanupAction(
             kind="remote branch",
-            message="delete remote branch review/feature-aaaaaaaa@origin",
+            message="delete review/feature-aaaaaaaa@origin",
             status="applied",
         ),
         CleanupAction(
             kind="remote branch",
-            message="delete remote branch review/feature-bbbbbbbb@origin",
+            message="delete review/feature-bbbbbbbb@origin",
             status="applied",
         ),
         CleanupAction(
             kind="local bookmark",
-            message="forget local bookmark review/feature-aaaaaaaa (stale)",
+            message="forget review/feature-aaaaaaaa (stale)",
             status="applied",
         ),
         CleanupAction(
             kind="local bookmark",
-            message="forget local bookmark review/feature-bbbbbbbb (stale)",
+            message="forget review/feature-bbbbbbbb (stale)",
             status="applied",
         ),
     ]

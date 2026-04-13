@@ -202,10 +202,11 @@ def test_cleanup_restack_uses_current_stack_after_rewrite(
 
     exit_code = run_main(repo, config_path, "cleanup", "--restack")
     captured = capsys.readouterr()
+    normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 0
     assert "Continuing interrupted cleanup --restack" not in captured.out
-    assert "same logical stack, but it has been rewritten" in captured.out
+    assert "same logical stack, but it has been rewritten" in normalized_output
     assert not old_intent_path.exists()
 
 
@@ -233,14 +234,12 @@ def test_cleanup_dry_run_reports_stale_tracking_and_remote_branch_without_mutati
 
     exit_code = run_main(repo, config_path, "cleanup", "--dry-run")
     captured = capsys.readouterr()
+    normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 0
     assert "Planned cleanup actions:" in captured.out
-    assert "- planned: tracking:" in captured.out
-    assert (
-        f"- planned: remote branch: delete remote branch {bookmark}@origin"
-        in captured.out
-    )
+    assert "  ~ tracking:" in captured.out
+    assert f"remote branch: delete {bookmark}@origin" in normalized_output
     assert change_id in state_store.load().changes
     assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
 
@@ -269,13 +268,11 @@ def test_cleanup_applies_stale_tracking_and_remote_branch_removal(
 
     exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
+    normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 0
     assert "Applied cleanup actions:" in captured.out
-    assert (
-        f"- applied: remote branch: delete remote branch {bookmark}@origin"
-        in captured.out
-    )
+    assert f"remote branch: delete {bookmark}@origin" in normalized_output
     assert change_id not in state_store.load().changes
     assert f"refs/heads/{bookmark}" not in remote_refs(fake_repo.git_dir)
 
@@ -309,15 +306,15 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
 
     exit_code = run_main(repo, config_path, "cleanup", "--dry-run")
     captured = capsys.readouterr()
+    normalized_output = " ".join(captured.out.split())
+    rendered_lines = [line.rstrip() for line in captured.out.splitlines()]
 
     assert exit_code == 0
-    assert "- planned: local bookmark: forget local bookmark" in captured.out
-    assert f"{bookmark} (local change is no longer reviewable)" in captured.out
-    assert (
-        f"- planned: remote branch: delete remote branch {bookmark}@origin"
-        in captured.out
-    )
-    assert "- blocked: remote branch" not in captured.out
+    assert "  ~ local bookmark: forget " in captured.out
+    assert f"{bookmark} (local change is no longer reviewable)" in normalized_output
+    assert f"remote branch: delete {bookmark}@origin" in normalized_output
+    assert "  ✗ remote branch:" not in captured.out
+    assert any(line.startswith("    ") for line in rendered_lines)
     assert bookmark in run_command(["jj", "bookmark", "list", bookmark], repo).stdout
     assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
 
@@ -351,13 +348,11 @@ def test_cleanup_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
 
     exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
+    normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 0
-    assert f"- applied: local bookmark: forget local bookmark {bookmark}" in captured.out
-    assert (
-        f"- applied: remote branch: delete remote branch {bookmark}@origin"
-        in captured.out
-    )
+    assert f"local bookmark: forget {bookmark}" in normalized_output
+    assert f"remote branch: delete {bookmark}@origin" in normalized_output
     assert change_id not in state_store.load().changes
     assert bookmark not in run_command(["jj", "bookmark", "list", bookmark], repo).stdout
     assert f"refs/heads/{bookmark}" not in remote_refs(fake_repo.git_dir)

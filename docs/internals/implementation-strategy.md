@@ -1459,6 +1459,9 @@ Recommended defaults:
   Rich rows instead of plain strings, which preserves hanging indents under
   terminal wrapping and allows per-status semantic styling for the marker and
   message text
+- cleanup and cleanup --restack now use the same structured Rich row pattern
+  for streamed action output, including semantic highlighting for bookmarks and
+  short change IDs in the action text
 - CLI-authored status markers now avoid square-bracket tags in favor of
   parenthetical change IDs and plain status labels so Rich markup can be
   enabled later without escaping repo-authored output strings

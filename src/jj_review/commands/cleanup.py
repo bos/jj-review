@@ -12,11 +12,12 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
+from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
@@ -24,7 +25,7 @@ from jj_review.commands.review_state import describe_status_preparation_error
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
-from jj_review.formatting import format_action_line, format_revision_label, short_change_id
+from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
@@ -53,6 +54,7 @@ from jj_review.review_inspection import (
     stream_status,
 )
 from jj_review.stack_comments import is_stack_summary_comment
+from jj_review.ui import Table, Text
 
 HELP = "Clean up stale jj-review data for a jj stack"
 
@@ -67,6 +69,11 @@ class CleanupAction:
     kind: str
     message: str
     status: CleanupActionStatus
+    body: Any | None = field(
+        default=None,
+        compare=False,
+        repr=False,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,13 +194,14 @@ def render_cleanup_action_header(*, dry_run: bool) -> str:
     return "Planned cleanup actions:" if dry_run else "Applied cleanup actions:"
 
 
-def render_cleanup_action(*, action: CleanupAction) -> str:
+def render_cleanup_action(*, action: CleanupAction) -> Table:
     """Render one cleanup action line."""
 
-    return format_action_line(
-        status=action.status,
-        kind=action.kind,
-        message=action.message,
+    prefix, prefix_style, message_style = _cleanup_action_presentation(action.status)
+    return ui.action_row(
+        prefix=f"{prefix} ",
+        body=_cleanup_action_text(action=action, message_style=message_style),
+        prefix_style=prefix_style,
     )
 
 
@@ -231,13 +239,14 @@ def render_restack_action_header(*, dry_run: bool) -> str:
     return "Planned restack actions:" if dry_run else "Applied restack actions:"
 
 
-def render_restack_action(*, action: CleanupAction) -> str:
+def render_restack_action(*, action: CleanupAction) -> Table:
     """Render one restack action line."""
 
-    return format_action_line(
-        status=action.status,
-        kind=action.kind,
-        message=action.message,
+    prefix, prefix_style, message_style = _cleanup_action_presentation(action.status)
+    return ui.action_row(
+        prefix=f"{prefix} ",
+        body=_cleanup_action_text(action=action, message_style=message_style),
+        prefix_style=prefix_style,
     )
 
 
@@ -307,7 +316,7 @@ def _run_cleanup_restack_command(
     except UnsupportedStackError as error:
         raise CliError(describe_status_preparation_error(error)) from error
     for line in render_restack_preamble(prepared_restack=prepared_restack):
-        print(line)
+        ui.output(line)
 
     try:
         result = stream_restack(
@@ -321,7 +330,7 @@ def _run_cleanup_restack_command(
     except UnsupportedStackError as error:
         raise CliError(describe_status_preparation_error(error)) from error
     for line in render_restack_postamble(result=result):
-        print(line)
+        ui.output(line)
     return 1 if result.blocked else 0
 
 
@@ -346,7 +355,7 @@ def _run_cleanup_command(
         ),
         github_error=prepared_cleanup.github_repository_error,
     ):
-        print(line)
+        ui.output(line)
 
     result = stream_cleanup(
         on_action=_build_cleanup_action_streamer(
@@ -357,14 +366,14 @@ def _run_cleanup_command(
         prepared_cleanup=prepared_cleanup,
     )
     for line in render_cleanup_postamble(result=result):
-        print(line)
+        ui.output(line)
     return 0
 
 
 def _build_cleanup_action_streamer(
     *,
     dry_run: bool,
-    render_action: Callable[..., str],
+    render_action: Callable[..., Any],
     render_header: Callable[..., str],
 ) -> Callable[[CleanupAction], None]:
     """Print the action header once, then stream actions as they arrive."""
@@ -374,9 +383,9 @@ def _build_cleanup_action_streamer(
     def emit_action(action: CleanupAction) -> None:
         nonlocal header_printed
         if not header_printed:
-            print(render_header(dry_run=dry_run))
+            ui.output(render_header(dry_run=dry_run))
             header_printed = True
-        print(render_action(action=action))
+        ui.output(render_action(action=action))
 
     return emit_action
 
@@ -399,6 +408,70 @@ def _render_remote_and_github_lines(
         if github_error is not None:
             lines.append(f"GitHub target: unavailable ({github_error})")
     return tuple(lines)
+
+
+def _cleanup_action_presentation(
+    status: CleanupActionStatus,
+) -> tuple[str, object | None, object | None]:
+    if status == "applied":
+        return (
+            "  ✓",
+            ui.semantic_style("signature status good"),
+            ui.semantic_style("signature status good"),
+        )
+    if status == "planned":
+        return (
+            "  ~",
+            ui.semantic_style("hint heading"),
+            None,
+        )
+    if status == "blocked":
+        return (
+            "  ✗",
+            ui.semantic_style("error heading"),
+            ui.semantic_style("warning heading"),
+        )
+    return ("  ?", None, None)
+
+
+def _cleanup_action(kind: str, status: CleanupActionStatus, body: Any) -> CleanupAction:
+    return CleanupAction(
+        kind=kind,
+        message=ui.plain_text(body),
+        status=status,
+        body=body,
+    )
+
+
+def _action_with_status(action: CleanupAction, status: CleanupActionStatus) -> CleanupAction:
+    return CleanupAction(
+        kind=action.kind,
+        message=action.message,
+        status=status,
+        body=action.body,
+    )
+
+
+def _revision_label_template(revision: ReviewStatusRevision):
+    return t"{revision.subject} ({ui.change_id(revision.change_id)})"
+
+
+def _restack_destination_template(destination_change_id: str | None):
+    if destination_change_id is None:
+        return ui.revset("trunk()")
+    return ui.change_id(destination_change_id)
+
+
+def _cleanup_action_text(
+    *,
+    action: CleanupAction,
+    message_style: object | None,
+) -> Text:
+    body_content = action.body if action.body is not None else action.message
+    return ui.rich_text(
+        t"{ui.semantic_text(action.kind, 'prefix')}: {body_content}",
+        style=message_style,
+    )
 
 
 def prepare_cleanup(
@@ -508,13 +581,13 @@ def stream_restack(
 
     if status_result.github_error is not None or status_result.github_repository is None:
         record_action(
-            CleanupAction(
+            _cleanup_action(
                 kind="restack",
-                message=(
-                    "cannot compute a restack plan without live GitHub pull request state; "
-                    "fix GitHub access and retry"
-                ),
                 status="blocked",
+                body=(
+                    "cannot compute a restack plan without live GitHub pull request "
+                    "state; fix GitHub access and retry"
+                ),
             )
         )
         return RestackResult(
@@ -650,32 +723,32 @@ def _start_restack_intent(
         )
         description = describe_intent(loaded.intent)
         if match == "exact":
-            print(f"Continuing interrupted {description}")
+            ui.note(f"Continuing interrupted {description}")
         elif match == "same-logical":
-            print(
+            ui.note(
                 f"Note: interrupted {description} targeted the same logical stack, "
                 "but it has been rewritten. This cleanup --restack run will use the "
                 "current stack."
             )
         elif match == "covered":
-            print(
+            ui.note(
                 f"Note: interrupted {description} targeted changes that are all "
                 "included in the current stack. This cleanup --restack run will use "
                 "the current stack."
             )
         elif match == "trimmed":
-            print(
+            ui.note(
                 f"Note: interrupted {description} still includes changes that are no "
                 "longer on the current stack. This cleanup --restack run will use "
                 "the current stack."
             )
         elif match == "overlap":
-            print(
+            ui.warning(
                 f"Warning: this restack overlaps an incomplete earlier operation "
                 f"({description})"
             )
         else:
-            print(f"Note: incomplete operation outstanding: {description}")
+            ui.note(f"Note: incomplete operation outstanding: {description}")
     return _RestackIntentState(
         intent=intent,
         intent_path=write_new_intent(state_dir, intent),
@@ -698,13 +771,13 @@ def _record_restack_policy_actions(
         if base_ref is None or not base_ref.startswith("review/"):
             continue
         record_action(
-            CleanupAction(
+            _cleanup_action(
                 kind="policy",
-                message=(
-                    f"PR #{pull_request_number} merged into branch {base_ref}; "
-                    "configure GitHub to block merges of PRs targeting `review/*`"
-                ),
                 status="planned",
+                body=(
+                    t"PR #{pull_request_number} merged into branch {ui.bookmark(base_ref)}; "
+                    t"configure GitHub to block merges of PRs targeting `review/*`"
+                ),
             )
         )
 
@@ -716,14 +789,16 @@ def _restack_noop_action(
 ) -> CleanupAction:
     """Describe a merged stack path that does not require any descendant moves."""
 
-    merged_labels = ", ".join(_revision_label(revision) for revision in merged_revisions)
-    return CleanupAction(
+    body = ui.rich_text("merged changes remain on the selected stack (")
+    for index, revision in enumerate(merged_revisions):
+        if index > 0:
+            body.append(", ")
+        body.append_text(ui.rich_text(_revision_label_template(revision)))
+    body.append("), but no surviving descendants need to move")
+    return _cleanup_action(
         kind="restack",
-        message=(
-            f"merged changes remain on the selected stack ({merged_labels}), but "
-            "no surviving descendants need to move"
-        ),
         status="planned" if dry_run else "applied",
+        body=body,
     )
 
 
@@ -767,30 +842,32 @@ def _run_restack_rebase_pass(
                 destination=destination_commit_id,
             )
             record_action(
-                CleanupAction(
+                _cleanup_action(
                     kind="restack",
-                    message=(
-                        f"rebase {short_change_id(source_change_id)} onto "
-                        f"{_restack_destination_label(destination_change_id)}"
-                    ),
                     status="applied",
+                    body=(
+                        t"rebase {ui.change_id(source_change_id)} onto "
+                        t"{_restack_destination_template(destination_change_id)}"
+                    ),
                 )
             )
         return
 
     for source_change_id, destination_change_id in rebase_plans:
         status = "blocked" if blocked else "planned"
-        message = (
-            f"rebase {short_change_id(source_change_id)} onto "
-            f"{_restack_destination_label(destination_change_id)}"
+        body = (
+            t"rebase {ui.change_id(source_change_id)} onto "
+            t"{_restack_destination_template(destination_change_id)}"
         )
         if blocked and closed_unmerged_revisions:
-            message = f"{message} once blocked changes on the stack are resolved"
+            body = (
+                t"{body} once blocked changes on the stack are resolved"
+            )
         record_action(
-            CleanupAction(
+            _cleanup_action(
                 kind="restack",
-                message=message,
                 status=status,
+                body=body,
             )
         )
 
@@ -857,14 +934,14 @@ def _collect_restack_pre_actions(
     for revision in closed_unmerged_revisions:
         blocked = True
         actions.append(
-            CleanupAction(
+            _cleanup_action(
                 kind="restack",
-                message=(
-                    f"cannot restack past {_revision_label(revision)} because PR "
-                    f"#{revision_pull_request_number(revision)} is closed without merge; "
-                    "decide whether to keep or drop that change first"
-                ),
                 status="blocked",
+                body=(
+                    t"cannot restack past {_revision_label_template(revision)} because "
+                    t"PR #{revision_pull_request_number(revision)} is closed without "
+                    t"merge; decide whether to keep or drop that change first"
+                ),
             )
         )
 
@@ -877,13 +954,14 @@ def _collect_restack_pre_actions(
             continue
         blocked = True
         actions.append(
-            CleanupAction(
+            _cleanup_action(
                 kind="restack",
-                message=(
-                    f"cannot restack past {_revision_label(revision)} because it has local "
-                    "edits since last submit; push a new version first or rebase manually"
-                ),
                 status="blocked",
+                body=(
+                    t"cannot restack past {_revision_label_template(revision)} because it "
+                    t"has local edits since last submit; push a new version first or "
+                    t"rebase manually"
+                ),
             )
         )
 
@@ -912,13 +990,13 @@ def _plan_restack_rebases(
         if revision.local_divergent:
             blocked = True
             actions.append(
-                CleanupAction(
+                _cleanup_action(
                     kind="restack",
-                    message=(
-                        f"cannot restack {_revision_label(revision)} while multiple visible "
-                        "revisions still share that change ID"
-                    ),
                     status="blocked",
+                    body=(
+                        t"cannot restack {_revision_label_template(revision)} while "
+                        t"multiple visible revisions still share that change ID"
+                    ),
                 )
             )
             survivor_change_ids.append(revision.change_id)
@@ -965,17 +1043,6 @@ def _revision_pull_request_base_ref(revision: ReviewStatusRevision) -> str | Non
         return None
     return lookup.pull_request.base.ref
 
-
-def _revision_label(revision: ReviewStatusRevision) -> str:
-    return format_revision_label(revision.subject, revision.change_id)
-
-
-def _restack_destination_label(destination_change_id: str | None) -> str:
-    if destination_change_id is None:
-        return "trunk()"
-    return short_change_id(destination_change_id)
-
-
 async def _stream_cleanup_async(
     *,
     on_action: Callable[[CleanupAction], None] | None,
@@ -1005,7 +1072,7 @@ async def _stream_cleanup_async(
         )
         stale_intents = check_same_kind_intent(state_dir, _intent)
         for _loaded in stale_intents:
-            print(f"Note: a previous cleanup was interrupted ({_loaded.intent.label})")
+            ui.note(f"Note: a previous cleanup was interrupted ({_loaded.intent.label})")
         intent_path = write_new_intent(state_dir, _intent)
 
     try:
@@ -1256,21 +1323,9 @@ def _apply_stale_cleanup_mutation_plans(
             jj_client.fetch_remote(remote=remote.name)
 
     for remote_action in remote_actions:
-        record_action(
-            CleanupAction(
-                kind=remote_action.kind,
-                message=remote_action.message,
-                status="applied",
-            )
-        )
+        record_action(_action_with_status(remote_action, "applied"))
     for local_action in local_actions:
-        record_action(
-            CleanupAction(
-                kind=local_action.kind,
-                message=local_action.message,
-                status="applied",
-            )
-        )
+        record_action(_action_with_status(local_action, "applied"))
 
 
 def _save_cleanup_state_if_changed(
@@ -1351,11 +1406,7 @@ async def _apply_stack_comment_cleanup_action(
             next_changes[change_id] = next_changes[change_id].model_copy(
                 update={"stack_comment_id": None}
             )
-        comment_action = CleanupAction(
-            kind=comment_plan.action.kind,
-            message=comment_plan.action.message,
-            status="applied",
-        )
+        comment_action = _action_with_status(comment_plan.action, "applied")
     record_action(comment_action)
     if not prepared_cleanup.dry_run:
         prepared_cleanup.state_store.save(
@@ -1396,10 +1447,13 @@ def _cache_action(
     reason: str,
     status: CleanupActionStatus,
 ) -> CleanupAction:
-    return CleanupAction(
+    return _cleanup_action(
         kind="tracking",
-        message=f"remove saved jj-review data for {short_change_id(change_id)} ({reason})",
         status=status,
+        body=(
+            t"remove saved jj-review data for {ui.change_id(change_id)} "
+            t"({reason})"
+        ),
     )
 
 
@@ -1472,32 +1526,32 @@ def _plan_remote_branch_cleanup(
     branch_label = f"{bookmark}@{remote.name}"
     if bookmark_state.local_targets and not local_bookmark_forget_planned:
         return RemoteBranchCleanupPlan(
-            action=CleanupAction(
+            action=_cleanup_action(
                 kind="remote branch",
-                message=(
-                    f"cannot delete remote branch {branch_label} while the "
-                    f"local bookmark {bookmark!r} still exists"
-                ),
                 status="blocked",
+                body=(
+                    t"cannot delete {ui.bookmark(branch_label)} while the local "
+                    t"bookmark '{ui.bookmark(bookmark)}' still exists"
+                ),
             ),
         )
     if len(remote_state.targets) > 1:
         return RemoteBranchCleanupPlan(
-            action=CleanupAction(
+            action=_cleanup_action(
                 kind="remote branch",
-                message=(
-                    f"cannot delete remote branch {branch_label} because the "
-                    "remote bookmark is conflicted"
-                ),
                 status="blocked",
+                body=(
+                    t"cannot delete {ui.bookmark(branch_label)} because the remote "
+                    t"bookmark is conflicted"
+                ),
             ),
         )
 
     return RemoteBranchCleanupPlan(
-        action=CleanupAction(
+        action=_cleanup_action(
             kind="remote branch",
-            message=f"delete remote branch {branch_label}",
             status="planned",
+            body=t"delete {ui.bookmark(branch_label)}",
         ),
         expected_remote_target=remote_state.target,
     )
@@ -1516,10 +1570,10 @@ def _plan_local_bookmark_cleanup(
         return None
     if len(bookmark_state.local_targets) > 1:
         return LocalBookmarkCleanupPlan(
-            action=CleanupAction(
+            action=_cleanup_action(
                 kind="local bookmark",
-                message=f"cannot forget local bookmark {bookmark!r} because it is conflicted",
                 status="blocked",
+                body=t"cannot forget {ui.bookmark(bookmark)} because it is conflicted",
             )
         )
 
@@ -1530,21 +1584,21 @@ def _plan_local_bookmark_cleanup(
     expected_target = cached_change.last_submitted_commit_id
     if expected_target is not None and local_target != expected_target:
         return LocalBookmarkCleanupPlan(
-            action=CleanupAction(
+            action=_cleanup_action(
                 kind="local bookmark",
-                message=(
-                    f"cannot forget local bookmark {bookmark!r} because it already "
-                    "points to a different revision"
-                ),
                 status="blocked",
+                body=(
+                    t"cannot forget {ui.bookmark(bookmark)} because it already points "
+                    t"to a different revision"
+                ),
             )
         )
 
     return LocalBookmarkCleanupPlan(
-        action=CleanupAction(
+        action=_cleanup_action(
             kind="local bookmark",
-            message=f"forget local bookmark {bookmark} ({stale_reason})",
             status="planned",
+            body=t"forget {ui.bookmark(bookmark)} ({stale_reason})",
         )
     )
 
@@ -1563,11 +1617,7 @@ def _process_local_bookmark_cleanup(
         if bookmark is None:
             raise AssertionError("Planned local bookmark cleanup requires a bookmark.")
         jj_client.forget_bookmarks((bookmark,))
-        local_action = CleanupAction(
-            kind=local_action.kind,
-            message=local_action.message,
-            status="applied",
-        )
+        local_action = _action_with_status(local_action, "applied")
     record_action(local_action)
 
 
@@ -1596,11 +1646,7 @@ def _process_remote_branch_cleanup(
                 ),
             ),
         )
-        remote_action = CleanupAction(
-            kind=remote_action.kind,
-            message=remote_action.message,
-            status="applied",
-        )
+        remote_action = _action_with_status(remote_action, "applied")
     record_action(remote_action)
 
 
@@ -1676,13 +1722,13 @@ async def _plan_stack_comment_cleanup(
         return None
 
     return StackCommentCleanupPlan(
-        action=CleanupAction(
+        action=_cleanup_action(
             kind="stack summary comment",
-            message=(
+            status="planned",
+            body=(
                 "delete stack summary comment "
                 f"#{stack_summary_comment.id} from PR #{pull_request_number}"
             ),
-            status="planned",
         ),
         comment_id=stack_summary_comment.id,
     )
@@ -1746,14 +1792,14 @@ async def _resolve_stack_summary_comment(
         )
         if cached_comment is not None:
             if not is_stack_summary_comment(cached_comment.body):
-                return CleanupAction(
+                return _cleanup_action(
                     kind="stack summary comment",
-                    message=(
+                    status="blocked",
+                    body=(
                         "cannot delete saved stack summary comment "
                         f"#{cached_comment.id} because it does not belong to "
                         "`jj-review`"
                     ),
-                    status="blocked",
                 )
             return cached_comment
 
@@ -1761,13 +1807,13 @@ async def _resolve_stack_summary_comment(
         comment for comment in comments if is_stack_summary_comment(comment.body)
     ]
     if len(stack_summary_comments) > 1:
-        return CleanupAction(
+        return _cleanup_action(
             kind="stack summary comment",
-            message=(
+            status="blocked",
+            body=(
                 "cannot delete stack summary comments because GitHub reports "
                 f"multiple candidates on PR #{pull_request_number}"
             ),
-            status="blocked",
         )
     if not stack_summary_comments:
         return None
@@ -1798,13 +1844,13 @@ async def _resolve_unlinked_pull_request_number(
     if not pull_requests:
         return None
     if len(pull_requests) > 1:
-        return CleanupAction(
+        return _cleanup_action(
             kind="stack summary comment",
-            message=(
+            status="blocked",
+            body=(
                 "cannot delete stack summary comment because GitHub reports multiple "
                 f"pull requests for unlinked bookmark {bookmark_state.name!r}"
             ),
-            status="blocked",
         )
     return pull_requests[0].number
 
