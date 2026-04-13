@@ -55,6 +55,9 @@ def test_doctor_exits_zero_for_healthy_repo(
     captured = capsys.readouterr()
 
     assert exit_code == 0
+    assert "Check" in captured.out
+    assert "Status" in captured.out
+    assert "Detail" in captured.out
     assert "fail" not in captured.out
     assert "skip" not in captured.out
 

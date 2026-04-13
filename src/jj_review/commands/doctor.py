@@ -18,9 +18,11 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
+from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.errors import CliError
@@ -40,8 +42,12 @@ from jj_review.models.bookmarks import GitRemote
 from jj_review.models.github import GithubRepository
 
 HELP = "check GitHub auth, remote resolution, and local state"
-
-_STATUS_WIDTH = 4
+_STATUS_STYLES: dict[str, str] = {
+    "ok": "green",
+    "warn": "yellow",
+    "fail": "red",
+    "skip": "dim",
+}
 
 
 @dataclass(slots=True, frozen=True)
@@ -64,11 +70,7 @@ def doctor(
         debug=debug,
     )
     results = asyncio.run(_run_checks(repo_root=context.repo_root))
-    print()
-    print("jj-review doctor")
-    print()
-    _print_results(results)
-    print()
+    ui.output(_results_table(results))
     return 1 if any(r.status == "fail" for r in results) else 0
 
 
@@ -253,9 +255,22 @@ def _check_interruptions(state_store: ReviewStateStore) -> CheckResult:
     )
 
 
-def _print_results(results: list[CheckResult]) -> None:
-    label_width = max(len(r.label) for r in results) + 2
+def _results_table(results: list[CheckResult]) -> Any:
+    table_cls = import_module("rich.table").Table
+    text_cls = import_module("rich.text").Text
+    table = table_cls(
+        box=import_module("rich.box").SIMPLE,
+        show_header=True,
+        header_style="bold",
+    )
+    table.add_column("Check")
+    table.add_column("Status", no_wrap=True)
+    table.add_column("Detail")
+
     for result in results:
-        label = result.label.ljust(label_width)
-        status = result.status.ljust(_STATUS_WIDTH)
-        print(f"  {label}  {status}  {result.detail}")
+        table.add_row(
+            result.label,
+            text_cls(result.status, style=_STATUS_STYLES[result.status]),
+            result.detail,
+        )
+    return table

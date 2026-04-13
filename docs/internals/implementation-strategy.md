@@ -150,6 +150,9 @@ Recent refactor slices:
 - interrupted `cleanup --restack` state now records ordered commit IDs, reports
   the recorded stack by head change ID, and treats reruns as current-stack
   restacks rather than selector replay
+- `doctor` now routes its output through the shared Rich-backed `ui` helpers and
+  renders its check summary as a Rich table instead of hand-formatting padded
+  ASCII columns
 
 ## Executable Surface
 
