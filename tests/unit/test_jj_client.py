@@ -706,6 +706,18 @@ def test_resolve_color_when_maps_auto_to_terminal_capability() -> None:
     assert client.resolve_color_when(stdout_is_tty=False) == "never"
 
 
+def test_resolve_color_when_cli_override_beats_jj_config() -> None:
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "config", "get", "ui.color"): "debug\n",
+    }
+
+    client = JjClient(Path("/repo"), runner=_runner(responses))
+
+    assert client.resolve_color_when(cli_color="never", stdout_is_tty=True) == "never"
+    assert client.resolve_color_when(cli_color="auto", stdout_is_tty=False) == "never"
+    assert client.resolve_color_when(cli_color="auto", stdout_is_tty=True) == "always"
+
+
 def test_render_revision_log_lines_uses_native_jj_log_output() -> None:
     revision = make_revision(
         commit_id="head",

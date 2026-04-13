@@ -177,6 +177,9 @@ A few housekeeping commands are hidden by default.
 jj-review help --all
 ```
 
+Like `jj`, `jj-review` also accepts `--color=always|never|debug|auto`. Without
+that flag, it follows your `jj` `ui.color` setting.
+
 ## The lower bound of configuration is zero
 
 For most use, `jj-review` needs no configuration. It derives `git`, `jj`, and GitHub information

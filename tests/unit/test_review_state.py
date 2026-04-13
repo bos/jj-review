@@ -34,6 +34,7 @@ def test_status_reports_github_target_when_empty_stack_was_not_inspected() -> No
 def test_render_trunk_status_lines_prefers_unique_local_bookmark() -> None:
     prepared = SimpleNamespace(
         client=SimpleNamespace(
+            resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
             render_revision_log_lines=lambda revision, *, color_when: (
                 f"◆ {revision.subject} [{revision.change_id[:8]}]",
             ),
@@ -53,7 +54,6 @@ def test_render_trunk_status_lines_prefers_unique_local_bookmark() -> None:
 
     assert (
         review_state_module.render_trunk_status_lines(
-            color_when="never",
             prepared=prepared,
         )
         == ("◆ base [trunkcha]",)
@@ -217,12 +217,12 @@ def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
 
     lines = review_state_module.render_status_summary_lines(
         client=SimpleNamespace(
+            resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
             render_revision_log_lines=lambda revision, *, color_when: (
                 f"{revision.subject} [{revision.change_id[:8]}]",
                 f"body for {revision.subject}",
             )
         ),
-        color_when="never",
         github_available=True,
         leading_separator=False,
         result=SimpleNamespace(revisions=revisions),
@@ -250,8 +250,10 @@ def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
 
 def test_render_status_summary_lines_show_empty_sections_in_verbose_mode() -> None:
     lines = review_state_module.render_status_summary_lines(
-        client=SimpleNamespace(render_revision_log_lines=lambda revision, *, color_when: ()),
-        color_when="never",
+        client=SimpleNamespace(
+            resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
+            render_revision_log_lines=lambda revision, *, color_when: (),
+        ),
         github_available=True,
         leading_separator=False,
         result=SimpleNamespace(revisions=()),
@@ -271,9 +273,9 @@ def test_render_status_summary_lines_show_empty_sections_in_verbose_mode() -> No
 def test_render_status_summary_lines_links_submitted_header_to_top_pr() -> None:
     lines = review_state_module.render_status_summary_lines(
         client=SimpleNamespace(
+            resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
             render_revision_log_lines=lambda revision, *, color_when: (revision.subject,)
         ),
-        color_when="never",
         github_available=True,
         leading_separator=False,
         result=SimpleNamespace(
@@ -343,6 +345,7 @@ def test_status_summary_hides_managed_review_bookmark_but_keeps_other_bookmarks(
 
     lines = review_state_module.render_status_summary_lines(
         client=SimpleNamespace(
+            resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
             render_revision_log_lines=lambda current_revision, *, color_when: (
                 (
                     "○  abcdefgh bos 2026-01-01 keep/one "
@@ -351,7 +354,6 @@ def test_status_summary_hides_managed_review_bookmark_but_keeps_other_bookmarks(
                 f"│  {current_revision.subject}",
             )
         ),
-        color_when="never",
         github_available=True,
         leading_separator=False,
         result=SimpleNamespace(revisions=(revision,)),

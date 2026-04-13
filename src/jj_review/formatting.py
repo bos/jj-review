@@ -3,6 +3,28 @@
 from __future__ import annotations
 
 import re
+import sys
+from typing import IO, Literal, Protocol
+
+from jj_review.ui import RequestedColorMode, requested_color_mode
+
+
+class NativeRevisionRenderClient(Protocol):
+    """Subset of the jj client interface used for native revision rendering."""
+
+    def resolve_color_when(
+        self,
+        *,
+        cli_color: RequestedColorMode | None = None,
+        stdout_is_tty: bool,
+    ) -> Literal["always", "debug", "never"]: ...
+
+    def render_revision_log_lines(
+        self,
+        revision,
+        *,
+        color_when: Literal["always", "debug", "never"],
+    ) -> tuple[str, ...]: ...
 
 
 def short_change_id(change_id: str) -> str:
@@ -49,16 +71,21 @@ def format_pull_request_label(
     return f"{prefix}{label}"
 
 
-def render_revision_with_suffix_lines(
+def render_revision_lines(
     *,
-    client,
-    color_when: str,
+    client: NativeRevisionRenderClient,
     revision,
     bookmark: str | None = None,
+    stdout: IO[str] | None = None,
     suffix: str | None = None,
 ) -> tuple[str, ...]:
-    """Render one revision with native `jj log` output plus an optional suffix."""
+    """Render one revision using the active CLI/UI color policy."""
 
+    stream = sys.stdout if stdout is None else stdout
+    color_when = client.resolve_color_when(
+        cli_color=requested_color_mode(),
+        stdout_is_tty=stream.isatty(),
+    )
     lines = list(
         strip_revision_bookmark_from_rendered_lines(
             client.render_revision_log_lines(revision, color_when=color_when),
@@ -70,6 +97,23 @@ def render_revision_with_suffix_lines(
     if suffix is not None:
         lines[0] = f"{lines[0]}: {suffix}"
     return tuple(lines)
+
+
+def render_revision_with_suffix_lines(
+    *,
+    client: NativeRevisionRenderClient,
+    revision,
+    bookmark: str | None = None,
+    suffix: str | None = None,
+) -> tuple[str, ...]:
+    """Render one revision with native `jj log` output plus an optional suffix."""
+
+    return render_revision_lines(
+        client=client,
+        revision=revision,
+        bookmark=bookmark,
+        suffix=suffix,
+    )
 
 
 def strip_revision_bookmark_from_rendered_lines(

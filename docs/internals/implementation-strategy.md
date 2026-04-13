@@ -153,6 +153,10 @@ Recent refactor slices:
 - `doctor` now routes its output through the shared Rich-backed `ui` helpers and
   renders its check summary as a Rich table instead of hand-formatting padded
   ASCII columns
+- the top-level CLI now accepts `--color=always|never|debug|auto` with the same
+  override-vs-`ui.color` precedence as `jj`, and embedded native `jj log`
+  rendering now honors that shared override instead of consulting `ui.color`
+  separately
 
 ## Executable Surface
 

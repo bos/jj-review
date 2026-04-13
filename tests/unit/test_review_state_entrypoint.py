@@ -59,13 +59,13 @@ def test_status_updates_tty_progress_bar_while_streaming(
         "prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
-                client=SimpleNamespace(
-                    list_bookmark_states=lambda: {},
-                    render_revision_log_lines=lambda revision, *, color_when: (
-                        f"{revision.subject} [{revision.change_id[:8]}]",
+                    client=SimpleNamespace(
+                        list_bookmark_states=lambda: {},
+                        render_revision_log_lines=lambda revision, *, color_when: (
+                            f"{revision.subject} [{revision.change_id[:8]}]",
+                        ),
+                        resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
                     ),
-                    resolve_color_when=lambda *, stdout_is_tty: "never",
-                ),
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
                 stack=SimpleNamespace(
@@ -137,13 +137,13 @@ def test_status_skips_progress_bar_without_tty(
         "prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
-                client=SimpleNamespace(
-                    list_bookmark_states=lambda: {},
-                    render_revision_log_lines=lambda revision, *, color_when: (
-                        f"{revision.subject} [{revision.change_id[:8]}]",
+                    client=SimpleNamespace(
+                        list_bookmark_states=lambda: {},
+                        render_revision_log_lines=lambda revision, *, color_when: (
+                            f"{revision.subject} [{revision.change_id[:8]}]",
+                        ),
+                        resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
                     ),
-                    resolve_color_when=lambda *, stdout_is_tty: "never",
-                ),
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
                 stack=SimpleNamespace(
@@ -191,3 +191,68 @@ def test_status_skips_progress_bar_without_tty(
 
     assert exit_code == 0
 
+
+def test_status_passes_cli_color_override_to_native_jj_rendering(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_bootstrap(monkeypatch, review_state_module, tmp_path)
+    observed: dict[str, object] = {}
+    monkeypatch.setattr("jj_review.formatting.requested_color_mode", lambda: "debug")
+    monkeypatch.setattr(
+        review_state_module,
+        "prepare_status",
+        lambda **kwargs: SimpleNamespace(
+            prepared=SimpleNamespace(
+                client=SimpleNamespace(
+                    list_bookmark_states=lambda: {},
+                    render_revision_log_lines=lambda revision, *, color_when: (
+                        f"{revision.subject} [{revision.change_id[:8]}]",
+                    ),
+                    resolve_color_when=lambda *, cli_color, stdout_is_tty: observed.update(
+                        cli_color=cli_color,
+                        stdout_is_tty=stdout_is_tty,
+                    )
+                    or "never",
+                ),
+                remote=SimpleNamespace(name="origin"),
+                remote_error=None,
+                stack=SimpleNamespace(
+                    trunk=SimpleNamespace(
+                        change_id="trunkchangeid",
+                        commit_id="trunk-commit",
+                        subject="base",
+                    )
+                ),
+                status_revisions=(),
+            ),
+            github_repository=SimpleNamespace(full_name="octo-org/stacked-review"),
+            github_repository_error=None,
+            outstanding_intents=(),
+            selected_revset="@",
+            stale_intents=(),
+            trunk_subject="base",
+        ),
+    )
+    monkeypatch.setattr(
+        review_state_module,
+        "stream_status",
+        lambda **kwargs: SimpleNamespace(
+            github_error=None,
+            github_repository="octo-org/stacked-review",
+            incomplete=False,
+            revisions=(),
+        ),
+    )
+
+    exit_code = review_state_module.status(
+        config_path=None,
+        debug=False,
+        fetch=False,
+        repository=tmp_path,
+        revset=None,
+        verbose=False,
+    )
+
+    assert exit_code == 0
+    assert observed["cli_color"] == "debug"

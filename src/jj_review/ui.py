@@ -26,6 +26,7 @@ from importlib import import_module
 from typing import IO, Any, Literal, Protocol
 
 ColorMode = Literal["auto", "always", "never"]
+RequestedColorMode = Literal["always", "auto", "debug", "never"]
 
 
 class ConsoleLike(Protocol):
@@ -126,12 +127,24 @@ def _build_consoles(
 
 
 _STDOUT_CONSOLE, _STDERR_CONSOLE = _build_consoles()
+_REQUESTED_COLOR_MODE: RequestedColorMode | None = None
+
+
+def rich_color_mode(color_mode: RequestedColorMode | None) -> ColorMode:
+    """Map `jj`-style color modes onto Rich's supported console modes."""
+
+    if color_mode in {"always", "debug"}:
+        return "always"
+    if color_mode == "never":
+        return "never"
+    return "auto"
 
 
 @contextmanager
 def configured_ui(
     *,
     color_mode: ColorMode = "auto",
+    requested_color_mode: RequestedColorMode | None = None,
     stderr: IO[str] | None = None,
     stdout: IO[str] | None = None,
     time_output: bool = False,
@@ -140,19 +153,29 @@ def configured_ui(
 
     global _STDOUT_CONSOLE
     global _STDERR_CONSOLE
+    global _REQUESTED_COLOR_MODE
     previous_stdout = _STDOUT_CONSOLE
     previous_stderr = _STDERR_CONSOLE
+    previous_requested_color_mode = _REQUESTED_COLOR_MODE
     _STDOUT_CONSOLE, _STDERR_CONSOLE = _build_consoles(
         color_mode=color_mode,
         stderr=stderr,
         stdout=stdout,
         time_output=time_output,
     )
+    _REQUESTED_COLOR_MODE = requested_color_mode
     try:
         yield
     finally:
         _STDOUT_CONSOLE = previous_stdout
         _STDERR_CONSOLE = previous_stderr
+        _REQUESTED_COLOR_MODE = previous_requested_color_mode
+
+
+def requested_color_mode() -> RequestedColorMode | None:
+    """Return the active CLI `--color` override, if one was supplied."""
+
+    return _REQUESTED_COLOR_MODE
 
 
 def output(*objects, **kwargs) -> None:

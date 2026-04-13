@@ -1,9 +1,15 @@
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
 import jj_review.cli as cli_module
 from jj_review.cli import main
+
+
+@pytest.fixture(autouse=True)
+def no_configured_color(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli_module, "_load_configured_jj_color", lambda **kwargs: None)
 
 
 def test_main_accepts_global_options_after_subcommand(
@@ -91,3 +97,45 @@ def test_main_time_output_prefixes_handler_output(
     assert all(line.startswith("[") for line in lines)
     assert any("first line" in line for line in lines)
     assert any("second line" in line for line in lines)
+
+
+def test_main_uses_configured_jj_color_for_styled_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(cli_module, "_load_configured_jj_color", lambda **kwargs: "debug")
+
+    @contextmanager
+    def fake_configured_ui(**kwargs):
+        observed.update(kwargs)
+        yield
+
+    monkeypatch.setattr(cli_module, "configured_ui", fake_configured_ui)
+    monkeypatch.setattr(cli_module.commands.review_state, "status", lambda **kwargs: 0)
+
+    exit_code = main(["status"])
+
+    assert exit_code == 0
+    assert observed["color_mode"] == "always"
+    assert observed["requested_color_mode"] is None
+
+
+def test_main_color_flag_overrides_configured_jj_color(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+    monkeypatch.setattr(cli_module, "_load_configured_jj_color", lambda **kwargs: "debug")
+
+    @contextmanager
+    def fake_configured_ui(**kwargs):
+        observed.update(kwargs)
+        yield
+
+    monkeypatch.setattr(cli_module, "configured_ui", fake_configured_ui)
+    monkeypatch.setattr(cli_module.commands.review_state, "status", lambda **kwargs: 0)
+
+    exit_code = main(["status", "--color=never"])
+
+    assert exit_code == 0
+    assert observed["color_mode"] == "never"
+    assert observed["requested_color_mode"] == "never"

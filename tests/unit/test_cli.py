@@ -6,6 +6,11 @@ from jj_review.cli import _normalize_cli_args, build_parser, main
 from jj_review.errors import CliError
 
 
+@pytest.fixture(autouse=True)
+def no_configured_color(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("jj_review.cli._load_configured_jj_color", lambda **kwargs: None)
+
+
 def test_main_reports_invalid_config_without_traceback(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

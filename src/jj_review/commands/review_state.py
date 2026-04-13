@@ -23,6 +23,7 @@ from jj_review.formatting import (
     format_pull_request_label,
     format_revision_label,
     format_status_annotation,
+    render_revision_lines,
     render_revision_with_suffix_lines,
 )
 from jj_review.intent import (
@@ -95,13 +96,8 @@ def status(
     for line in github_lines:
         print(line)
 
-    color_when = prepared_status.prepared.client.resolve_color_when(
-        stdout_is_tty=sys.stdout.isatty()
-    )
-
     if not prepared_status.prepared.status_revisions:
         for line in render_empty_status_lines(
-            color_when=color_when,
             prepared_status=prepared_status,
         ):
             print(line)
@@ -110,7 +106,6 @@ def status(
     github_available = result.github_repository is not None and result.github_error is None
     for line in render_status_summary_lines(
         client=prepared_status.prepared.client,
-        color_when=color_when,
         result=result,
         github_available=github_available,
         leading_separator=bool(selection_lines or github_lines),
@@ -118,7 +113,6 @@ def status(
     ):
         print(line)
     for line in render_trunk_status_lines(
-        color_when=color_when,
         prepared=prepared_status.prepared,
     ):
         print(line)
@@ -202,7 +196,6 @@ def render_status_revision_line(revision, *, github_available: bool) -> str:
 def render_status_summary_lines(
     *,
     client,
-    color_when: str,
     github_available: bool,
     leading_separator: bool,
     result,
@@ -231,7 +224,6 @@ def render_status_summary_lines(
         verbose=verbose,
         renderer=lambda revision: _render_summary_revision_lines(
             client=client,
-            color_when=color_when,
             revision=revision,
             github_available=github_available,
             show_status=False,
@@ -247,7 +239,6 @@ def render_status_summary_lines(
         verbose=verbose,
         renderer=lambda revision: _render_summary_revision_lines(
             client=client,
-            color_when=color_when,
             revision=revision,
             github_available=github_available,
             show_status=True,
@@ -264,30 +255,25 @@ def render_status_summary_lines(
 
 def render_trunk_status_lines(
     *,
-    color_when: str,
     prepared,
 ) -> tuple[str, ...]:
     """Render the trunk footer with native `jj log` formatting."""
 
     trunk = prepared.stack.trunk
-    return tuple(
-        prepared.client.render_revision_log_lines(
-            trunk,
-            color_when=color_when,
-        )
+    return render_revision_lines(
+        client=prepared.client,
+        revision=trunk,
     )
 
 
 def render_empty_status_lines(
     *,
-    color_when: str,
     prepared_status,
 ) -> tuple[str, ...]:
     """Render the empty-stack footer and explanation."""
 
     return (
         *render_trunk_status_lines(
-            color_when=color_when,
             prepared=prepared_status.prepared,
         ),
         "No reviewable commits between the selected revision and `trunk()`.",
@@ -682,7 +668,6 @@ def _render_interrupted_close_status_line(
 def _render_summary_revision_lines(
     *,
     client,
-    color_when: str,
     revision,
     github_available: bool,
     show_status: bool,
@@ -694,7 +679,6 @@ def _render_summary_revision_lines(
         summary = None
     return render_revision_with_suffix_lines(
         client=client,
-        color_when=color_when,
         revision=revision,
         bookmark=revision.bookmark,
         suffix=summary,

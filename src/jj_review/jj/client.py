@@ -73,6 +73,7 @@ class StaleWorkspaceError(CliError):
 
 
 JjRunner = Callable[[Sequence[str], Path], subprocess.CompletedProcess[str]]
+CliColorMode = Literal["always", "auto", "debug", "never"]
 JjColorWhen = Literal["always", "debug", "never"]
 
 
@@ -405,10 +406,15 @@ class JjClient:
         stripped = value.strip()
         return stripped if stripped else None
 
-    def resolve_color_when(self, *, stdout_is_tty: bool) -> JjColorWhen:
+    def resolve_color_when(
+        self,
+        *,
+        cli_color: CliColorMode | None = None,
+        stdout_is_tty: bool,
+    ) -> JjColorWhen:
         """Resolve the effective `jj --color` mode for embedded log rendering."""
 
-        configured = self.get_config_string("ui.color")
+        configured = cli_color or self.get_config_string("ui.color")
         if configured == "always":
             return "always"
         if configured == "debug":

@@ -10,13 +10,12 @@ import asyncio
 import json
 import os
 import subprocess
-import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, Protocol, cast
+from typing import Literal, Protocol
 
 from jj_review.bookmarks import (
     BookmarkResolutionResult,
@@ -37,6 +36,7 @@ from jj_review.errors import CliError
 from jj_review.formatting import (
     format_pull_request_label,
     format_revision_label,
+    render_revision_lines,
     render_revision_with_suffix_lines,
     short_change_id,
 )
@@ -317,15 +317,9 @@ def submit(
                 f"{format_revision_label(result.selected_subject, result.selected_change_id)}"
             )
     client = getattr(result, "client", None)
-    color_when = (
-        client.resolve_color_when(stdout_is_tty=sys.stdout.isatty())
-        if client is not None
-        else None
-    )
     if not result.revisions:
         for line in _render_submit_trunk_lines(
             client=client,
-            color_when=color_when,
             result=result,
         ):
             print(line)
@@ -340,13 +334,11 @@ def submit(
     for revision in reversed(result.revisions):
         for line in _render_submit_revision_lines(
             client=client,
-            color_when=color_when,
             revision=revision,
         ):
             print(line)
     for line in _render_submit_trunk_lines(
         client=client,
-        color_when=color_when,
         result=result,
     ):
         print(line)
@@ -396,15 +388,13 @@ def _render_submit_pr_suffix(
 def _render_submit_revision_lines(
     *,
     client: JjClient | None,
-    color_when: str | None,
     revision,
 ) -> tuple[str, ...]:
     summary = _render_submit_revision_summary(revision)
-    if client is None or color_when is None:
+    if client is None:
         return (f"- {format_revision_label(revision.subject, revision.change_id)}: {summary}",)
     return render_revision_with_suffix_lines(
         client=client,
-        color_when=color_when,
         revision=revision,
         bookmark=revision.bookmark,
         suffix=summary,
@@ -431,19 +421,16 @@ def _render_submit_revision_summary(revision) -> str:
 def _render_submit_trunk_lines(
     *,
     client: JjClient | None,
-    color_when: str | None,
     result,
 ) -> tuple[str, ...]:
-    if client is None or color_when is None:
+    if client is None:
         return (
             f"Trunk: {format_revision_label(result.trunk_subject, result.trunk_change_id)} "
             f"-> {result.trunk_branch}",
         )
-    return tuple(
-        client.render_revision_log_lines(
-            result.trunk_revision,
-            color_when=cast(Literal["always", "debug", "never"], color_when),
-        )
+    return render_revision_lines(
+        client=client,
+        revision=result.trunk_revision,
     )
 
 

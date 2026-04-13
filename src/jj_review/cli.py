@@ -7,6 +7,7 @@ import io
 import logging
 import re
 import shutil
+import subprocess
 import sys
 import textwrap
 import time
@@ -15,20 +16,21 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, cast
 
 from jj_review import __version__, commands
 from jj_review.completion import emit_shell_completion
 from jj_review.errors import CliError
-from jj_review.ui import configured_ui
+from jj_review.ui import ColorMode, RequestedColorMode, configured_ui, rich_color_mode
 
 logger = logging.getLogger(__name__)
 SubparserT = TypeVar("SubparserT", bound=ArgumentParser)
+_COLOR_CHOICES: tuple[RequestedColorMode, ...] = ("always", "never", "debug", "auto")
 _TOP_LEVEL_HELP_WIDTH = 80
-_TOP_LEVEL_HELP_USAGE = "jj-review [-h] [--version] <command> ..."
+_TOP_LEVEL_HELP_USAGE = "jj-review [-h] [--color WHEN] [--version] <command> ..."
 _TOP_LEVEL_HELP_USAGE_ALL = (
     "jj-review [-h] [--repository REPOSITORY] [--config CONFIG] [--debug] "
-    "[--time-output] [--version] <command> ..."
+    "[--color WHEN] [--time-output] [--version] <command> ..."
 )
 _TOP_LEVEL_HELP_DESCRIPTION = """
 jj-review lets you review a local jj stack on GitHub as stacked pull requests.
@@ -49,6 +51,7 @@ _HELP_DESCRIPTION = """
 Show top-level help or the detailed help for one command. Use `--all` to also
 show the advanced repair commands and hidden global options.
 """
+
 
 @dataclass(frozen=True)
 class _HelpCommand:
@@ -684,6 +687,45 @@ def _print_cli_error(error: CliError) -> None:
     print(message, file=sys.stderr)
 
 
+def _load_configured_jj_color(*, repository: Path | None) -> RequestedColorMode | None:
+    """Read `ui.color` from `jj` config without requiring repository bootstrap."""
+
+    cwd = (
+        repository
+        if repository is not None and repository.exists() and repository.is_dir()
+        else Path.cwd()
+    )
+    try:
+        completed = subprocess.run(
+            ["jj", "config", "get", "ui.color"],
+            capture_output=True,
+            check=False,
+            cwd=cwd,
+            text=True,
+        )
+    except (FileNotFoundError, OSError):
+        return None
+
+    if completed.returncode != 0:
+        return None
+
+    configured = completed.stdout.strip()
+    if configured in _COLOR_CHOICES:
+        return cast(RequestedColorMode, configured)
+    return None
+
+
+def _resolve_rich_color_mode(
+    *,
+    cli_color: RequestedColorMode | None,
+    repository: Path | None,
+) -> tuple[RequestedColorMode | None, ColorMode]:
+    raw_color = cli_color
+    if raw_color is None:
+        raw_color = _load_configured_jj_color(repository=repository)
+    return raw_color, rich_color_mode(raw_color)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
 
@@ -694,7 +736,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_cli_error(error)
         return error.exit_code
     args = parser.parse_args(normalized_argv)
-    with configured_ui(time_output=args.time_output):
+    _, effective_rich_color_mode = _resolve_rich_color_mode(
+        cli_color=args.color,
+        repository=args.repository,
+    )
+    with configured_ui(
+        color_mode=effective_rich_color_mode,
+        requested_color_mode=args.color,
+        time_output=args.time_output,
+    ):
         with _time_output(enabled=args.time_output):
             handler = args.handler
             if handler is None:
@@ -818,6 +868,13 @@ def _add_common_options(
         action="store_true",
         default=SUPPRESS if suppress_defaults else False,
         help="Enable debug logging",
+    )
+    parser.add_argument(
+        "--color",
+        choices=_COLOR_CHOICES,
+        default=SUPPRESS if suppress_defaults else None,
+        metavar="WHEN",
+        help="When to colorize output; possible values: always, never, debug, auto",
     )
     parser.add_argument(
         "--time-output",
