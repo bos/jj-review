@@ -126,12 +126,13 @@ def status(
         print(line)
 
     exit_code = 1 if result.incomplete else 0
-    selected_change_ids = {revision.change_id for revision in getattr(result, "revisions", ())}
-    overlapping = any(
-        loaded.intent.change_ids() & selected_change_ids
+    if any(
+        _interrupted_intent_blocks_status(
+            loaded=loaded,
+            prepared_status=prepared_status,
+        )
         for loaded in prepared_status.outstanding_intents
-    )
-    if overlapping:
+    ):
         exit_code = max(exit_code, 1)
     return exit_code
 
@@ -491,6 +492,55 @@ def render_status_intent_lines(*, prepared_status) -> tuple[str, ...]:
             else:
                 lines.append(f"  {description}  [interrupted, inspect before re-running]")
     return tuple(lines)
+
+
+def _interrupted_intent_blocks_status(*, loaded, prepared_status) -> bool:
+    """Return True when an interrupted intent should make `status` exit nonzero."""
+
+    if pid_is_alive(loaded.intent.pid):
+        return True
+
+    current_change_ids = tuple(
+        prepared_revision.revision.change_id
+        for prepared_revision in prepared_status.prepared.status_revisions
+    )
+    current_commit_ids = tuple(
+        prepared_revision.revision.commit_id
+        for prepared_revision in prepared_status.prepared.status_revisions
+    )
+
+    if isinstance(loaded.intent, SubmitIntent):
+        return (
+            match_submit_intent(
+                intent=loaded.intent,
+                current_change_ids=current_change_ids,
+                current_commit_ids=current_commit_ids,
+            )
+            == "overlap"
+        )
+
+    if isinstance(loaded.intent, CleanupRestackIntent):
+        return (
+            match_cleanup_restack_intent(
+                intent=loaded.intent,
+                current_change_ids=current_change_ids,
+                current_commit_ids=current_commit_ids,
+            )
+            == "overlap"
+        )
+
+    if isinstance(loaded.intent, CloseIntent):
+        return (
+            match_close_intent(
+                intent=loaded.intent,
+                current_change_ids=current_change_ids,
+                current_commit_ids=current_commit_ids,
+            )
+            == "overlap"
+        )
+
+    current_change_id_set = set(current_change_ids)
+    return bool(loaded.intent.change_ids() & current_change_id_set)
 
 
 def _render_interrupted_submit_status_line(

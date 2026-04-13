@@ -165,6 +165,86 @@ def test_render_status_intent_lines_describes_exact_interrupted_submit() -> None
     assert "current stack matches" in lines[2]
 
 
+def test_interrupted_intent_blocks_status_returns_false_for_exact_submit() -> None:
+    prepared_status = SimpleNamespace(
+        prepared=SimpleNamespace(
+            status_revisions=(
+                SimpleNamespace(
+                    revision=SimpleNamespace(
+                        change_id="abcdefgh1234",
+                        commit_id="commit-a",
+                    )
+                ),
+            )
+        ),
+    )
+    loaded = SimpleNamespace(
+        intent=SubmitIntent(
+            kind="submit",
+            pid=99999999,
+            label="submit on @",
+            display_revset="@",
+            ordered_commit_ids=("commit-a",),
+            head_change_id="abcdefgh1234",
+            ordered_change_ids=("abcdefgh1234",),
+            bookmarks={},
+            bases={},
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    assert (
+        review_state_module._interrupted_intent_blocks_status(
+            loaded=loaded,
+            prepared_status=prepared_status,
+        )
+        is False
+    )
+
+
+def test_interrupted_intent_blocks_status_returns_true_for_overlapping_submit() -> None:
+    prepared_status = SimpleNamespace(
+        prepared=SimpleNamespace(
+            status_revisions=(
+                SimpleNamespace(
+                    revision=SimpleNamespace(
+                        change_id="abcdefgh1234",
+                        commit_id="commit-a",
+                    )
+                ),
+                SimpleNamespace(
+                    revision=SimpleNamespace(
+                        change_id="bcdefghi2345",
+                        commit_id="commit-b",
+                    )
+                ),
+            )
+        ),
+    )
+    loaded = SimpleNamespace(
+        intent=SubmitIntent(
+            kind="submit",
+            pid=99999999,
+            label="submit on @",
+            display_revset="@",
+            ordered_commit_ids=("commit-a", "commit-c"),
+            head_change_id="cdefghij3456",
+            ordered_change_ids=("abcdefgh1234", "cdefghij3456"),
+            bookmarks={},
+            bases={},
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    assert (
+        review_state_module._interrupted_intent_blocks_status(
+            loaded=loaded,
+            prepared_status=prepared_status,
+        )
+        is True
+    )
+
+
 def test_render_status_intent_lines_describes_rewritten_interrupted_submit() -> None:
     prepared_status = SimpleNamespace(
         stale_intents=(),

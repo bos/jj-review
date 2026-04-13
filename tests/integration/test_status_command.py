@@ -642,7 +642,7 @@ def test_status_shows_outstanding_submit_intent(
     assert f"submit for {change_id[:8]} (from @)" in captured.out
     assert "current stack matches" in captured.out
 
-def test_status_exits_nonzero_for_overlapping_intent(
+def test_status_exits_zero_for_exact_interrupted_submit_intent(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -677,7 +677,54 @@ def test_status_exits_nonzero_for_overlapping_intent(
     exit_code = run_main(repo, config_path, "status")
     capsys.readouterr()
 
+    assert exit_code == 0
+
+
+def test_status_exits_nonzero_for_partially_overlapping_intent(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stacked = JjClient(repo).discover_review_stack()
+    first_change_id = stacked.revisions[0].change_id
+    first_commit_id = stacked.revisions[0].commit_id
+    second_change_id = stacked.revisions[1].change_id
+    state_dir = resolve_state_path(repo).parent
+
+    run_command(["jj", "new", "main", "-m", "feature 3"], repo)
+    write_file(repo / "feature-3.txt", "feature 3\n")
+    run_command(["jj", "describe", "-m", "feature 3"], repo)
+    independent = JjClient(repo).discover_review_stack("@")
+    third_change_id = independent.revisions[0].change_id
+    third_commit_id = independent.revisions[0].commit_id
+
+    intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,
+        label="submit on mixed-stack",
+        display_revset="mixed-stack",
+        ordered_commit_ids=(first_commit_id, third_commit_id),
+        head_change_id=third_change_id,
+        ordered_change_ids=(first_change_id, third_change_id),
+        bookmarks={},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_new_intent(state_dir, intent)
+
+    exit_code = run_main(repo, config_path, "status", second_change_id)
+    captured = capsys.readouterr()
+
     assert exit_code == 1
+    assert "overlaps an incomplete earlier operation" in captured.out or "current stack differs" in captured.out
 
 def test_status_exits_zero_for_stale_intent(
     tmp_path: Path,
