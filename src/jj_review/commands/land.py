@@ -37,6 +37,7 @@ from jj_review.github.resolution import (
 )
 from jj_review.intent import (
     check_same_kind_intent,
+    describe_intent,
     match_ordered_change_ids,
     retire_superseded_intents,
     save_intent,
@@ -660,11 +661,11 @@ def _report_stale_land_intents(
         if resume_intent is not None and loaded.path == resume_intent.path:
             if resume_intent.mode == "tail-after-landed-prefix":
                 print(
-                    f"Resuming interrupted {loaded.intent.label} after the trunk "
+                    f"Resuming interrupted {describe_intent(loaded.intent)} after the trunk "
                     "transition already succeeded"
                 )
             else:
-                print(f"Resuming interrupted {loaded.intent.label}")
+                print(f"Resuming interrupted {describe_intent(loaded.intent)}")
             continue
         match = match_ordered_change_ids(
             loaded.intent.ordered_change_ids,
@@ -673,15 +674,13 @@ def _report_stale_land_intents(
                 for prepared_revision in prepared_status.prepared.status_revisions
             ),
         )
-        if match == "exact" and loaded.intent.landed_change_ids == current_landed_change_ids:
-            print(f"Resuming interrupted {loaded.intent.label}")
-        elif match == "overlap":
+        if match == "overlap":
             print(
                 f"Warning: this land overlaps an incomplete earlier operation "
-                f"({loaded.intent.label})"
+                f"({describe_intent(loaded.intent)})"
             )
         else:
-            print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
+            print(f"Note: incomplete operation outstanding: {describe_intent(loaded.intent)}")
 
 
 def _build_land_plan(

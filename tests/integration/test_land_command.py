@@ -385,7 +385,7 @@ def test_land_resumes_after_trunk_push_interruption(
     second_run = capsys.readouterr()
 
     assert second_exit_code == 0
-    assert "Resuming interrupted land on @-" in second_run.out
+    assert f"Resuming interrupted land for {second_change_id[:8]} (from @-)" in second_run.out
     state = ReviewStateStore.for_repo(repo).load()
     assert read_remote_ref(fake_repo.git_dir, "main") == landed_commit_id
     assert fake_repo.pull_requests[1].state == "closed"

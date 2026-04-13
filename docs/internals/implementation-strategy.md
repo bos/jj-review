@@ -1171,6 +1171,9 @@ This slice is now in place with the current implementation:
   checkpoints, so reruns can finish post-push bookkeeping without
   rediscovering the original landing set, while stale pre-push intents are
   ignored when the current landable prefix has changed
+- interrupted `land` messaging now identifies the recorded landing stack by
+  head change ID plus selector origin, instead of presenting resume notices as
+  bare `land on <revset>` replay
 - exact post-landing bookkeeping is limited to the changes landed in that run,
   including local bookmark cleanup for that landed prefix, while broader
   stale-state cleanup remains a separate `cleanup` concern

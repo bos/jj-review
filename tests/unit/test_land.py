@@ -13,6 +13,7 @@ from jj_review.commands.land import (
     _find_resume_land_intent,
     _plan_review_bookmark_cleanup,
     _remote_trunk_matches_commit,
+    _report_stale_land_intents,
     _restore_local_trunk_bookmark,
     _resume_land_plan,
     _updated_landed_change,
@@ -391,6 +392,29 @@ def test_find_resume_land_intent_returns_none_for_cleanup_mode_mismatch() -> Non
     )
 
     assert result is None
+
+
+def test_report_stale_land_intents_does_not_claim_resume_without_resume_match(
+    capsys,
+) -> None:
+    prepared_status = _prepared_status(("change-1", "change-2"))
+    loaded_intent = _loaded_land_intent(
+        cleanup_bookmarks=False,
+        ordered_change_ids=("change-1", "change-2"),
+        ordered_commit_ids=("commit-1", "commit-2"),
+        landed_change_ids=("change-1",),
+    )
+
+    _report_stale_land_intents(
+        current_landed_change_ids=("change-1",),
+        prepared_status=prepared_status,
+        resume_intent=None,
+        stale_intents=[loaded_intent],
+    )
+    captured = capsys.readouterr()
+
+    assert "Resuming interrupted" not in captured.out
+    assert "incomplete operation outstanding: land for change-2" in captured.out
 
 
 def test_remote_trunk_matches_commit_requires_matching_remote_and_local_state() -> None:

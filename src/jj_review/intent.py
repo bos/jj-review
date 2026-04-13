@@ -217,6 +217,9 @@ def describe_intent(intent: IntentFile) -> str:
         verb = "close --cleanup" if intent.cleanup else "close"
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
         return f"{verb} for {short_change_id(head_change_id)} (from {intent.display_revset})"
+    if isinstance(intent, LandIntent):
+        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
+        return f"land for {short_change_id(head_change_id)} (from {intent.display_revset})"
     return intent.label
 
 
@@ -374,6 +377,7 @@ def retire_superseded_intents(
         if isinstance(new_intent, SubmitIntent):
             should_retire = set(old.ordered_change_ids).issubset(new_ids)
         elif isinstance(new_intent, CloseIntent):
+            assert isinstance(old, CloseIntent)
             should_retire = (
                 close_intent_mode_relation(
                     recorded_cleanup=old.cleanup,

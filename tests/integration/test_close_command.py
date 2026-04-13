@@ -483,7 +483,6 @@ def test_close_retires_covered_interrupted_close_intent(
 
     stack = JjClient(repo).discover_review_stack()
     first = stack.revisions[0]
-    second = stack.revisions[1]
     state_dir = resolve_state_path(repo).parent
     old_intent_path = write_new_intent(
         state_dir,
