@@ -35,7 +35,6 @@ from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.formatting import (
     format_pull_request_label,
-    format_revision_label,
     render_revision_lines,
     render_revision_with_suffix_lines,
     short_change_id,
@@ -58,6 +57,7 @@ from jj_review.intent import (
     write_new_intent,
 )
 from jj_review.jj import JjClient
+from jj_review import ui
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
@@ -285,7 +285,12 @@ def submit(
         del has_revisions, selected_revset
         nonlocal emitted_prepared
         if revset is None:
-            print(f"Selected: {format_revision_label(selected_subject, selected_change_id)}")
+            ui.output(
+                _render_selected_line(
+                    selected_change_id=selected_change_id,
+                    selected_subject=selected_subject,
+                )
+            )
         emitted_prepared = True
 
     state_store = ReviewStateStore.for_repo(context.repo_root)
@@ -312,9 +317,11 @@ def submit(
     )
     if not emitted_prepared:
         if revset is None:
-            print(
-                f"Selected: "
-                f"{format_revision_label(result.selected_subject, result.selected_change_id)}"
+            ui.output(
+                _render_selected_line(
+                    selected_change_id=result.selected_change_id,
+                    selected_subject=result.selected_subject,
+                )
             )
     client = getattr(result, "client", None)
     if not result.revisions:
@@ -322,30 +329,44 @@ def submit(
             client=client,
             result=result,
         ):
-            print(line)
-        print("No reviewable commits between the selected revision and `trunk()`.")
+            if client is None:
+                ui.output(line)
+            else:
+                ui.output(line, soft_wrap=True)
+        ui.note(
+            t"No reviewable commits between the selected revision and {ui.revset('trunk()')}.",
+            soft_wrap=True,
+        )
         return 0
 
     if result.dry_run:
-        print("Dry run: no local, remote, or GitHub changes applied.")
-        print("Planned changes:")
+        ui.note("Dry run: no local, remote, or GitHub changes applied.", soft_wrap=True)
+        ui.output("Planned changes:")
     else:
-        print("Submitted changes:")
+        ui.output("Submitted changes:")
     for revision in reversed(result.revisions):
         for line in _render_submit_revision_lines(
             client=client,
             revision=revision,
         ):
-            print(line)
+            if client is None:
+                ui.output(line)
+            else:
+                ui.output(line, soft_wrap=True)
     for line in _render_submit_trunk_lines(
         client=client,
         result=result,
     ):
-        print(line)
+        if client is None:
+            ui.output(line)
+        else:
+            ui.output(line, soft_wrap=True)
     if not result.dry_run:
         top_pull_request_url = result.revisions[-1].pull_request_url
         if top_pull_request_url is not None:
-            print(f"Top of stack: {top_pull_request_url}")
+            ui.output(
+                ui.prefixed_message("Top of stack: ", top_pull_request_url)
+            )
     return 0
 
 
@@ -385,14 +406,34 @@ def _render_submit_pr_suffix(
     return f"{label} {action}"
 
 
+def _render_selected_line(
+    *,
+    selected_change_id: str,
+    selected_subject: str,
+) -> ui.Table:
+    return ui.prefixed_message(
+        "Selected: ",
+        ui.rich_text(
+            t"{selected_subject} ({ui.change_id(selected_change_id)})",
+        ),
+    )
+
+
 def _render_submit_revision_lines(
     *,
     client: JjClient | None,
     revision,
-) -> tuple[str, ...]:
+) -> tuple[object, ...]:
     summary = _render_submit_revision_summary(revision)
     if client is None:
-        return (f"- {format_revision_label(revision.subject, revision.change_id)}: {summary}",)
+        return (
+            ui.prefixed_message(
+                "- ",
+                ui.rich_text(
+                    t"{revision.subject} ({ui.change_id(revision.change_id)}): {summary}"
+                ),
+            ),
+        )
     return render_revision_with_suffix_lines(
         client=client,
         revision=revision,
@@ -422,11 +463,16 @@ def _render_submit_trunk_lines(
     *,
     client: JjClient | None,
     result,
-) -> tuple[str, ...]:
+) -> tuple[object, ...]:
     if client is None:
         return (
-            f"Trunk: {format_revision_label(result.trunk_subject, result.trunk_change_id)} "
-            f"-> {result.trunk_branch}",
+            ui.prefixed_message(
+                "Trunk: ",
+                ui.rich_text(
+                    t"{result.trunk_subject} ({ui.change_id(result.trunk_change_id)}) "
+                    t"-> {result.trunk_branch}"
+                ),
+            ),
         )
     return render_revision_lines(
         client=client,
@@ -601,25 +647,30 @@ def _report_stale_submit_intents(
         )
         description = describe_intent(loaded.intent)
         if match == "exact":
-            print(f"Continuing interrupted {description}")
+            ui.note(f"Continuing interrupted {description}", soft_wrap=True)
         elif match == "same-logical":
-            print(
+            ui.note(
                 f"Note: interrupted {description} targeted the same logical stack, "
-                "but it has been rewritten. This submit will use the current stack."
+                "but it has been rewritten. This submit will use the current stack.",
+                soft_wrap=True,
             )
         elif match == "covered":
-            print(
+            ui.note(
                 f"Note: interrupted {description} targeted changes that are all included "
-                "in the current stack. "
-                "This submit will use the current stack."
+                f"in the current stack. This submit will use the current stack.",
+                soft_wrap=True,
             )
         elif match == "overlap":
-            print(
+            ui.warning(
                 f"Warning: this submit overlaps an incomplete earlier operation "
-                f"({description})"
+                f"({description})",
+                soft_wrap=True,
             )
         else:
-            print(f"Note: incomplete operation outstanding: {description}")
+            ui.note(
+                f"Note: incomplete operation outstanding: {description}",
+                soft_wrap=True,
+            )
 
 
 def _prepare_submit_revisions(

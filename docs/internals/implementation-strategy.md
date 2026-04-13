@@ -876,6 +876,10 @@ renders the full stack from top to bottom, bolds the selected head PR title,
 links the other PR titles, and shows a plain resolved trunk line beneath the
 bottom-most PR.
 
+The CLI-facing submit summary lines now use shared Rich row helpers for the
+selected change, fallback trunk row, and top-of-stack URL so hanging-indent
+behavior stays aligned with cleanup and abort.
+
 When `submit` invokes a stack helper, it now also writes a temporary input file
 with the already-generated PR title/body pairs plus compact per-PR diffstat
 context and points the helper at that file via `JJ_REVIEW_STACK_INPUT_FILE`.
