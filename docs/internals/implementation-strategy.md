@@ -137,6 +137,12 @@ Recent refactor slices:
   intent file; for non-retractable intents it removes the file and explains what
   manual inspection may be needed; `--dry-run` previews the retraction plan
   without mutating anything
+- interrupted `submit` state now records ordered commit IDs in addition to
+  change IDs, and status/reporting treats that data as recovery metadata rather
+  than an instruction to replay the original mutable selector
+- submit recovery now retires superseded interrupted submit intents when a later
+  successful submit covers the same changes, while `abort` refuses automatic
+  submit retraction once the recorded stack snapshot has been rewritten
 
 ## Executable Surface
 

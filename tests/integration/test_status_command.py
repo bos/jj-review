@@ -627,6 +627,7 @@ def test_status_shows_outstanding_submit_intent(
         pid=99999999,
         label="submit on @",
         display_revset="@",
+        ordered_commit_ids=(stack.revisions[0].commit_id,),
         head_change_id=change_id,
         ordered_change_ids=(change_id,),
         bookmarks={},
@@ -638,8 +639,8 @@ def test_status_shows_outstanding_submit_intent(
     run_main(repo, config_path, "status")
     captured = capsys.readouterr()
 
-    assert "submit on @" in captured.out
-    assert "interrupted" in captured.out
+    assert f"submit for {change_id[:8]} (from @)" in captured.out
+    assert "current stack matches" in captured.out
 
 def test_status_exits_nonzero_for_overlapping_intent(
     tmp_path: Path,
@@ -664,6 +665,7 @@ def test_status_exits_nonzero_for_overlapping_intent(
         pid=99999999,
         label="submit on @",
         display_revset="@",
+        ordered_commit_ids=(stack.revisions[0].commit_id,),
         head_change_id=change_id,
         ordered_change_ids=(change_id,),
         bookmarks={},
@@ -699,6 +701,7 @@ def test_status_exits_zero_for_stale_intent(
         pid=99999999,
         label="submit on other-branch",
         display_revset="other-branch",
+        ordered_commit_ids=("dead-commit",),
         head_change_id="zzzzzzzzzzzz",
         ordered_change_ids=("zzzzzzzzzzzz",),
         bookmarks={},
@@ -752,6 +755,7 @@ def test_status_exits_zero_for_disjoint_intent(
         pid=99999999,
         label="submit on feature-1-branch",
         display_revset="feature-1",
+        ordered_commit_ids=(stack_1.revisions[0].commit_id,),
         head_change_id=feature_1_change_id,
         ordered_change_ids=(feature_1_change_id,),
         bookmarks={},
@@ -767,4 +771,4 @@ def test_status_exits_zero_for_disjoint_intent(
     # Disjoint outstanding intent: advisory-only, exit code is not raised
     assert exit_code == 0
     # The intent label should appear in the output (advisory notice)
-    assert "submit on feature-1-branch" in captured.out
+    assert f"submit for {feature_1_change_id[:8]} (from feature-1)" in captured.out

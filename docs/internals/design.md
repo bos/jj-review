@@ -716,6 +716,14 @@ This design behaves well under normal `jj` rewrite-heavy workflows:
 - Ancestor merged on GitHub: merged ancestors stop acting as review bases.
   Descendants should target the nearest remaining open ancestor PR, or trunk if
   none remain. `cleanup --restack` should perform that local rewrite
+
+Interrupted `submit` metadata is diagnostic and recoverable state, not a replay
+script for the original selector. A later `submit` should act on the current
+selected stack, while still retaining enough immutable stack identity to
+distinguish exact continuation from a rewritten or otherwise changed stack.
+`abort` should only retract an interrupted submit when that recorded stack
+snapshot still exists exactly; once the stack has been rewritten, it should
+refuse to guess.
   explicitly, using the selected local stack as the source of truth for which
   logical changes survive.
 

@@ -49,7 +49,8 @@ from jj_review.github.resolution import (
 )
 from jj_review.intent import (
     check_same_kind_intent,
-    match_ordered_change_ids,
+    describe_intent,
+    match_submit_intent,
     pid_is_alive,
     retire_superseded_intents,
     scan_intents,
@@ -543,11 +544,16 @@ def _start_submit_intent(
     """Prepare submit intent state before any remote mutation begins."""
 
     ordered_change_ids = tuple(revision.change_id for revision in stack.revisions)
+    ordered_commit_ids = tuple(revision.commit_id for revision in stack.revisions)
     intent = SubmitIntent(
         kind="submit",
         pid=os.getpid(),
-        label=f"submit on {stack.selected_revset}",
+        label=(
+            f"submit for {short_change_id(stack.head.change_id)} "
+            f"(from {stack.selected_revset})"
+        ),
         display_revset=stack.selected_revset,
+        ordered_commit_ids=ordered_commit_ids,
         head_change_id=(
             stack.revisions[-1].change_id if stack.revisions else stack.trunk.change_id
         ),
@@ -570,6 +576,7 @@ def _start_submit_intent(
         )
         _report_stale_submit_intents(
             ordered_change_ids=ordered_change_ids,
+            ordered_commit_ids=ordered_commit_ids,
             stale_intents=stale_intents,
         )
         return _SubmitIntentState(intent=intent, intent_path=None, stale_intents=stale_intents)
@@ -578,6 +585,7 @@ def _start_submit_intent(
     stale_intents = check_same_kind_intent(state_dir, intent)
     _report_stale_submit_intents(
         ordered_change_ids=ordered_change_ids,
+        ordered_commit_ids=ordered_commit_ids,
         stale_intents=stale_intents,
     )
     return _SubmitIntentState(
@@ -590,6 +598,7 @@ def _start_submit_intent(
 def _report_stale_submit_intents(
     *,
     ordered_change_ids: tuple[str, ...],
+    ordered_commit_ids: tuple[str, ...],
     stale_intents: list[LoadedIntent],
 ) -> None:
     """Render resumable submit intent diagnostics for the operator."""
@@ -597,18 +606,32 @@ def _report_stale_submit_intents(
     for loaded in stale_intents:
         if not isinstance(loaded.intent, SubmitIntent):
             continue
-        match = match_ordered_change_ids(loaded.intent.ordered_change_ids, ordered_change_ids)
+        match = match_submit_intent(
+            intent=loaded.intent,
+            current_change_ids=ordered_change_ids,
+            current_commit_ids=ordered_commit_ids,
+        )
+        description = describe_intent(loaded.intent)
         if match == "exact":
-            print(f"Resuming interrupted {loaded.intent.label}")
-        elif match == "superset":
-            continue
+            print(f"Continuing interrupted {description}")
+        elif match == "same-logical":
+            print(
+                f"Note: interrupted {description} targeted the same logical stack, "
+                "but it has been rewritten. This submit will use the current stack."
+            )
+        elif match == "covered":
+            print(
+                f"Note: interrupted {description} targeted changes that are all included "
+                "in the current stack. "
+                "This submit will use the current stack."
+            )
         elif match == "overlap":
             print(
                 f"Warning: this submit overlaps an incomplete earlier operation "
-                f"({loaded.intent.label})"
+                f"({description})"
             )
         else:
-            print(f"Note: incomplete operation outstanding: {loaded.intent.label}")
+            print(f"Note: incomplete operation outstanding: {description}")
 
 
 def _prepare_submit_revisions(

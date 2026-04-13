@@ -151,4 +151,11 @@ jj-review abort --dry-run   # preview what would be retracted
 jj-review abort         # retract and clean up
 ```
 
+For interrupted `submit`, the recorded notice identifies the stack it started
+from. Re-running `submit` still works on your current selected stack, not on an
+old `@` or `@-` snapshot.
+
+If you rewrote that stack in the meantime, `abort` will not try to guess how to
+undo the old partial submit.
+
 See the [troubleshooting guide](troubleshooting.md) for more recovery scenarios.

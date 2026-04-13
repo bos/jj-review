@@ -10,9 +10,11 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import TypeAdapter, ValidationError
 
+from jj_review.formatting import short_change_id
 from jj_review.models.intent import (
     CleanupIntent,
     CleanupRestackIntent,
@@ -27,6 +29,8 @@ from jj_review.models.intent import (
 
 logger = logging.getLogger(__name__)
 _INTENT_ADAPTER = TypeAdapter(IntentFile)
+
+SubmitIntentMatch = Literal["exact", "same-logical", "covered", "overlap", "disjoint"]
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +189,53 @@ def match_ordered_change_ids(
     return "disjoint"
 
 
+def describe_intent(intent: IntentFile) -> str:
+    """Return a user-facing description for an intent."""
+
+    if isinstance(intent, SubmitIntent):
+        return (
+            f"submit for {short_change_id(intent.head_change_id)} "
+            f"(from {intent.display_revset})"
+        )
+    return intent.label
+
+
+def match_recorded_ordered_stack(
+    *,
+    recorded_change_ids: tuple[str, ...],
+    recorded_commit_ids: tuple[str, ...],
+    current_change_ids: tuple[str, ...],
+    current_commit_ids: tuple[str, ...],
+) -> SubmitIntentMatch:
+    """Classify how a recorded ordered stack relates to the current stack."""
+
+    if recorded_change_ids == current_change_ids:
+        if recorded_commit_ids and recorded_commit_ids == current_commit_ids:
+            return "exact"
+        return "same-logical"
+    if set(recorded_change_ids).issubset(current_change_ids):
+        return "covered"
+    if set(recorded_change_ids) & set(current_change_ids):
+        return "overlap"
+    return "disjoint"
+
+
+def match_submit_intent(
+    *,
+    intent: SubmitIntent,
+    current_change_ids: tuple[str, ...],
+    current_commit_ids: tuple[str, ...],
+) -> SubmitIntentMatch:
+    """Classify how a recorded submit intent relates to the current stack."""
+
+    return match_recorded_ordered_stack(
+        recorded_change_ids=intent.ordered_change_ids,
+        recorded_commit_ids=intent.ordered_commit_ids,
+        current_change_ids=current_change_ids,
+        current_commit_ids=current_commit_ids,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Stale intent check
 # ---------------------------------------------------------------------------
@@ -232,18 +283,19 @@ def retire_superseded_intents(
     stale_intents: list[LoadedIntent],
     new_intent: IntentFile,
 ) -> None:
-    """Auto-retire stale intents that are exact matches or strict ordered subsets."""
-    if not isinstance(
-        new_intent,
-        SubmitIntent | CleanupRestackIntent | CloseIntent | LandIntent,
-    ):
+    """Auto-retire stale intents that a later successful run has superseded."""
+    if not isinstance(new_intent, SubmitIntent | CleanupRestackIntent | CloseIntent | LandIntent):
         return
     new_ids = new_intent.ordered_change_ids
     for loaded in stale_intents:
         old = loaded.intent
         if not isinstance(old, type(new_intent)):
             continue
-        result = match_ordered_change_ids(old.ordered_change_ids, new_ids)
-        if result in ("exact", "superset"):
+        if isinstance(new_intent, SubmitIntent):
+            should_retire = set(old.ordered_change_ids).issubset(new_ids)
+        else:
+            result = match_ordered_change_ids(old.ordered_change_ids, new_ids)
+            should_retire = result in ("exact", "superset")
+        if should_retire:
             loaded.path.unlink(missing_ok=True)
             logger.debug("Retired superseded intent %s", loaded.path.name)

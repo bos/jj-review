@@ -33,6 +33,7 @@ class OrderedChangeIdsIntent(OperationIntent):
 
 class SubmitIntent(OrderedChangeIdsIntent):
     kind: Literal["submit"]
+    ordered_commit_ids: tuple[str, ...] = ()
     head_change_id: str
     bookmarks: dict[str, str]  # change_id → bookmark
     bases: dict[str, str]  # change_id → base_branch (may be empty until --abort is designed)

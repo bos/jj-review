@@ -34,7 +34,7 @@ from jj_review.github.resolution import (
     parse_github_repo,
     select_submit_remote,
 )
-from jj_review.intent import pid_is_alive
+from jj_review.intent import describe_intent, pid_is_alive
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import GitRemote
 from jj_review.models.github import GithubRepository
@@ -242,7 +242,7 @@ def _check_interruptions(state_store: ReviewStateStore) -> CheckResult:
     if not interrupted:
         return CheckResult("interruptions", "ok", "none")
 
-    labels = [loaded.intent.label for loaded in interrupted]
+    labels = [describe_intent(loaded.intent) for loaded in interrupted]
     count = len(labels)
     noun = "interrupted operation" if count == 1 else "interrupted operations"
     return CheckResult(

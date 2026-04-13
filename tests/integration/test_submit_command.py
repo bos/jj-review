@@ -466,6 +466,7 @@ def test_submit_dry_run_warns_on_stale_intent_without_retiring_it(
         pid=99999999,
         label="submit on @",
         display_revset="@",
+        ordered_commit_ids=tuple(revision.commit_id for revision in stack.revisions),
         head_change_id=change_id_2,
         ordered_change_ids=(change_id_1, change_id_2),
         bookmarks={},
@@ -478,7 +479,7 @@ def test_submit_dry_run_warns_on_stale_intent_without_retiring_it(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Resuming interrupted submit on @" in captured.out
+    assert f"Continuing interrupted submit for {change_id_2[:8]} (from @)" in captured.out
     assert old_intent_path.exists()
     assert fake_repo.pull_requests == {}
 
@@ -1725,8 +1726,10 @@ def test_submit_retains_intent_file_after_failed_submit(
     data = json.loads(intent_files[0].read_text(encoding="utf-8"))
     assert data["kind"] == "submit"
     stored_ids = data.get("ordered_change_ids", [])
+    stored_commit_ids = data.get("ordered_commit_ids", [])
     assert change_id_1 in stored_ids
     assert change_id_2 in stored_ids
+    assert stored_commit_ids == [revision.commit_id for revision in stack.revisions]
 
 def test_submit_resumes_and_retires_stale_intent(
     tmp_path: Path,
@@ -1749,6 +1752,7 @@ def test_submit_resumes_and_retires_stale_intent(
         pid=99999999,
         label="submit on @",
         display_revset="@",
+        ordered_commit_ids=tuple(revision.commit_id for revision in stack.revisions),
         head_change_id=change_id_2,
         ordered_change_ids=(change_id_1, change_id_2),
         bookmarks={},
@@ -1761,7 +1765,7 @@ def test_submit_resumes_and_retires_stale_intent(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Resuming interrupted" in captured.out
+    assert f"Continuing interrupted submit for {change_id_2[:8]} (from @)" in captured.out
     # Old intent file should be gone after success
     assert not old_intent_path.exists()
     # No intent files remain
@@ -1788,6 +1792,7 @@ def test_submit_warns_on_overlapping_stale_intent(
         pid=99999999,
         label="submit on @",
         display_revset="@",
+        ordered_commit_ids=(stack.revisions[0].commit_id,),
         head_change_id=change_id_1,
         ordered_change_ids=(change_id_1,),
         bookmarks={},
@@ -1806,3 +1811,42 @@ def test_submit_warns_on_overlapping_stale_intent(
     # match_ordered_change_ids(old, new) == "superset" => silent retirement
     intent_files = list(state_dir.glob("incomplete-*.json"))
     assert intent_files == []
+
+
+def test_submit_treats_rewritten_matching_change_ids_as_new_submit(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id_1 = stack.revisions[0].change_id
+    change_id_2 = stack.revisions[1].change_id
+    state_dir = resolve_state_path(repo).parent
+    old_intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,
+        label="submit on @",
+        display_revset="@",
+        ordered_commit_ids=tuple(revision.commit_id for revision in stack.revisions),
+        head_change_id=change_id_2,
+        ordered_change_ids=(change_id_1, change_id_2),
+        bookmarks={},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_new_intent(state_dir, old_intent)
+
+    run_command(["jj", "describe", "-r", change_id_2, "-m", "feature 2 rewritten"], repo)
+
+    exit_code = run_main(repo, config_path, "submit", "--dry-run")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Continuing interrupted" not in captured.out
+    assert "same logical stack, but it has been rewritten" in captured.out
+    assert fake_repo.pull_requests == {}

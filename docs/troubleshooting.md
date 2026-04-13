@@ -138,7 +138,14 @@ original command from scratch.
 
 If the interruption happened late enough that all the work actually went
 through, re-running the original command is safer than aborting — `submit`
-in particular will detect existing state and skip steps it already completed.
+in particular will use your current selected stack rather than trying to replay
+an old `@` or `@-` snapshot, while still keeping enough recovery data for
+`abort`.
+
+If you rewrote or reordered the stack after the interruption, `abort` will
+refuse to guess which PRs or review branches belong to the old partial submit.
+In that case, inspect the current stack with `status` and clean up manually if
+you still need to unwind the old partial work.
 
 ## You only need the exact flags and options for a command
 

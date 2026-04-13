@@ -22,7 +22,7 @@ from jj_review.cache import ReviewStateStore
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import parse_github_repo, select_submit_remote
-from jj_review.intent import intent_is_stale, pid_is_alive, write_new_intent
+from jj_review.intent import describe_intent, intent_is_stale, pid_is_alive, write_new_intent
 from jj_review.jj import JjClient, JjCommandError
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.intent import (
@@ -238,7 +238,7 @@ async def _abort_intent_async(
         applied=not dry_run,
         dry_run=dry_run,
         intent_kind=intent.kind,
-        intent_label=intent.label,
+        intent_label=describe_intent(intent),
         intent_started_at=intent.started_at,
     )
 
@@ -289,6 +289,36 @@ async def _abort_submit(
     """Retract a partial submit: close PRs, delete remote branches, clear state."""
 
     actions: list[AbortAction] = []
+    if not _submit_intent_matches_recorded_stack(intent=intent, jj_client=jj_client):
+        actions.append(
+            AbortAction(
+                kind="submit intent",
+                message=(
+                    "current stack has changed since this submit was interrupted; "
+                    "abort will not guess which pull requests or review branches to retract"
+                ),
+                status="blocked",
+            )
+        )
+        actions.append(
+            AbortAction(
+                kind="intent file",
+                message=(
+                    "intent file kept — inspect the current stack and clean up manually if "
+                    "needed"
+                ),
+                status="skipped",
+            )
+        )
+        return AbortResult(
+            actions=tuple(actions),
+            applied=False,
+            dry_run=dry_run,
+            intent_kind=intent.kind,
+            intent_label=describe_intent(intent),
+            intent_started_at=intent.started_at,
+        )
+
     state = state_store.load()
     next_changes = dict(state.changes)
     remote_name = remote.name if remote is not None else None
@@ -370,9 +400,32 @@ async def _abort_submit(
         applied=all_retracted and not dry_run,
         dry_run=dry_run,
         intent_kind=intent.kind,
-        intent_label=intent.label,
+        intent_label=describe_intent(intent),
         intent_started_at=intent.started_at,
     )
+
+
+def _submit_intent_matches_recorded_stack(
+    *,
+    intent: SubmitIntent,
+    jj_client: JjClient,
+) -> bool:
+    """Return True when the recorded submit stack still exists exactly."""
+
+    if not intent.ordered_commit_ids:
+        return False
+    if len(intent.ordered_commit_ids) != len(intent.ordered_change_ids):
+        return False
+
+    revisions_by_change_id = jj_client.query_revisions_by_change_ids(intent.ordered_change_ids)
+    current_commit_ids: list[str] = []
+    for change_id in intent.ordered_change_ids:
+        revisions = revisions_by_change_id.get(change_id, ())
+        if len(revisions) != 1:
+            return False
+        current_commit_ids.append(revisions[0].commit_id)
+
+    return tuple(current_commit_ids) == intent.ordered_commit_ids
 
 
 async def _retract_one_change(

@@ -11,6 +11,7 @@ from jj_review.models.intent import AbortIntent, CleanupRestackIntent, SubmitInt
 from ..support.integration_helpers import (
     commit_file,
     init_fake_github_repo,
+    run_command,
 )
 from .submit_command_helpers import (
     configure_submit_environment,
@@ -62,6 +63,7 @@ def test_abort_dry_run_shows_planned_actions_without_mutating(
         pid=99999999,  # dead PID — simulates an interrupted operation
         label=f"submit on {change_id[:8]}",
         display_revset=change_id[:8],
+        ordered_commit_ids=(stack.revisions[-1].commit_id,),
         head_change_id=change_id,
         ordered_change_ids=(change_id,),
         bookmarks={change_id: bookmark},
@@ -111,6 +113,7 @@ def test_abort_retracts_submitted_change_and_clears_state(
         pid=99999999,  # dead PID — simulates an interrupted operation
         label=f"submit on {change_id[:8]}",
         display_revset=change_id[:8],
+        ordered_commit_ids=(stack.revisions[-1].commit_id,),
         head_change_id=change_id,
         ordered_change_ids=(change_id,),
         bookmarks={change_id: bookmark},
@@ -140,6 +143,56 @@ def test_abort_retracts_submitted_change_and_clears_state(
 
     # Intent file was removed.
     assert not state_store.list_intents()
+
+
+def test_abort_refuses_submit_retraction_after_stack_rewrite(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    revision = stack.revisions[-1]
+    change_id = revision.change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+    bookmark = initial_state.changes[change_id].bookmark
+    assert bookmark is not None
+    initial_remote_target = read_remote_ref(fake_repo.git_dir, bookmark)
+
+    intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,
+        label=f"submit on {change_id[:8]}",
+        display_revset=change_id[:8],
+        ordered_commit_ids=(revision.commit_id,),
+        head_change_id=change_id,
+        ordered_change_ids=(change_id,),
+        bookmarks={change_id: bookmark},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    write_new_intent(state_store.state_dir, intent)
+
+    run_command(["jj", "describe", "-r", change_id, "-m", "feature 1 rewritten"], repo)
+
+    exit_code = run_main(repo, config_path, "abort")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Abort incomplete" in captured.out
+    assert "abort will not guess" in captured.out
+    assert "intent file kept" in captured.out
+    assert state_store.load() == initial_state
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
+    assert fake_repo.pull_requests[1].state == "open"
+    assert state_store.list_intents()
 
 
 def test_abort_removes_cleanup_restack_intent_with_note(
@@ -232,6 +285,7 @@ def test_abort_skips_live_pid_intent_and_warns(
         pid=os.getpid(),
         label=f"submit on {change_id[:8]}",
         display_revset=change_id[:8],
+        ordered_commit_ids=(stack.revisions[-1].commit_id,),
         head_change_id=change_id,
         ordered_change_ids=(change_id,),
         bookmarks={change_id: bookmark},
@@ -336,6 +390,7 @@ def test_abort_preserves_state_and_intent_when_step_is_blocked(
         pid=99999999,  # dead PID — simulates an interrupted operation
         label=f"submit on {change_id[:8]}",
         display_revset=change_id[:8],
+        ordered_commit_ids=(stack.revisions[-1].commit_id,),
         head_change_id=change_id,
         ordered_change_ids=(change_id,),
         bookmarks={change_id: bookmark},

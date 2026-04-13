@@ -12,6 +12,7 @@ from jj_review.intent import (
     check_same_kind_intent,
     intent_is_stale,
     match_ordered_change_ids,
+    match_submit_intent,
     pid_is_alive,
     retire_superseded_intents,
     scan_intents,
@@ -41,6 +42,7 @@ def _make_submit_intent(
         pid=pid,
         label="submit on @",
         display_revset="@",
+        ordered_commit_ids=("commit-aaaa", "commit-bbbb"),
         head_change_id="bbbb",
         ordered_change_ids=ordered_change_ids,
         bookmarks={"aaaa": "review/feat-1-aaaa", "bbbb": "review/feat-2-bbbb"},
@@ -209,6 +211,64 @@ def test_match_ordered_change_ids_returns_disjoint_for_non_overlapping_sequences
 def test_match_ordered_change_ids_requires_prefix_order_for_superset() -> None:
     # ["a","b"] vs ["b","a","c"] — b appears first in new but old starts with a
     assert match_ordered_change_ids(("a", "b"), ("b", "a", "c")) == "overlap"
+
+
+def test_match_submit_intent_returns_exact_for_matching_change_and_commit_ids() -> None:
+    assert (
+        match_submit_intent(
+            intent=_make_submit_intent(),
+            current_change_ids=("aaaa", "bbbb"),
+            current_commit_ids=("commit-aaaa", "commit-bbbb"),
+        )
+        == "exact"
+    )
+
+
+def test_match_submit_intent_returns_same_logical_for_rewritten_stack() -> None:
+    assert (
+        match_submit_intent(
+            intent=_make_submit_intent(),
+            current_change_ids=("aaaa", "bbbb"),
+            current_commit_ids=("new-aaaa", "new-bbbb"),
+        )
+        == "same-logical"
+    )
+
+
+def test_match_submit_intent_returns_covered_for_extended_current_stack() -> None:
+    assert (
+        match_submit_intent(
+            intent=_make_submit_intent(("aaaa", "bbbb")),
+            current_change_ids=("aaaa", "bbbb", "cccc"),
+            current_commit_ids=("commit-aaaa", "commit-bbbb", "commit-cccc"),
+        )
+        == "covered"
+    )
+
+
+def test_match_submit_intent_returns_covered_for_reordered_current_stack() -> None:
+    assert (
+        match_submit_intent(
+            intent=_make_submit_intent(("aaaa", "bbbb")),
+            current_change_ids=("bbbb", "aaaa"),
+            current_commit_ids=("commit-bbbb", "commit-aaaa"),
+        )
+        == "covered"
+    )
+
+
+def test_retire_superseded_intents_retires_reordered_submit_intent(tmp_path: Path) -> None:
+    old_path = write_new_intent(
+        tmp_path,
+        _make_submit_intent(("aaaa", "bbbb")),
+    )
+
+    retire_superseded_intents(
+        [LoadedIntent(path=old_path, intent=_make_submit_intent(("aaaa", "bbbb")))],
+        _make_submit_intent(("bbbb", "aaaa")),
+    )
+
+    assert not old_path.exists()
 
 
 # ---------------------------------------------------------------------------
