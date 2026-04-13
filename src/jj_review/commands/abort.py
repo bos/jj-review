@@ -293,12 +293,14 @@ async def _abort_submit(
     next_changes = dict(state.changes)
     remote_name = remote.name if remote is not None else None
 
+    per_change_ok: list[bool] = []
+
     if github_repository is not None:
         async with build_github_client(
             base_url=github_repository.api_base_url
         ) as github_client:
             for change_id in intent.ordered_change_ids:
-                await _retract_one_change(
+                ok = await _retract_one_change(
                     actions=actions,
                     bookmark=intent.bookmarks.get(change_id),
                     cached=state.changes.get(change_id),
@@ -310,10 +312,11 @@ async def _abort_submit(
                     next_changes=next_changes,
                     remote_name=remote_name,
                 )
+                per_change_ok.append(ok)
     else:
         # GitHub unreachable — do local cleanup only.
         for change_id in intent.ordered_change_ids:
-            _retract_one_change_local(
+            ok = _retract_one_change_local(
                 actions=actions,
                 bookmark=intent.bookmarks.get(change_id),
                 cached=state.changes.get(change_id),
@@ -323,6 +326,7 @@ async def _abort_submit(
                 next_changes=next_changes,
                 remote_name=remote_name,
             )
+            per_change_ok.append(ok)
         actions.append(
             AbortAction(
                 kind="github",
@@ -333,6 +337,8 @@ async def _abort_submit(
                 status="skipped",
             )
         )
+
+    all_retracted = all(per_change_ok) if per_change_ok else True
 
     _plan_state_save(
         actions=actions,
@@ -351,7 +357,7 @@ async def _abort_submit(
 
     return AbortResult(
         actions=tuple(actions),
-        applied=not dry_run,
+        applied=all_retracted and not dry_run,
         dry_run=dry_run,
         intent_kind=intent.kind,
         intent_label=intent.label,
@@ -371,8 +377,11 @@ async def _retract_one_change(
     jj_client: JjClient,
     next_changes: dict[str, CachedChange],
     remote_name: str | None,
-) -> None:
+) -> bool:
+    """Retract one change. Returns True if all steps succeeded (nothing blocked)."""
+
     label = short_change_id(change_id)
+    pr_ok = True
 
     pr_number = cached.pr_number if cached is not None else None
     pr_state = cached.pr_state if cached is not None else None
@@ -406,8 +415,9 @@ async def _retract_one_change(
                             status="blocked",
                         )
                     )
+                    pr_ok = False
 
-    _retract_one_change_local(
+    local_ok = _retract_one_change_local(
         actions=actions,
         bookmark=bookmark,
         cached=cached,
@@ -417,6 +427,7 @@ async def _retract_one_change(
         next_changes=next_changes,
         remote_name=remote_name,
     )
+    return pr_ok and local_ok
 
 
 def _retract_one_change_local(
@@ -429,8 +440,11 @@ def _retract_one_change_local(
     jj_client: JjClient,
     next_changes: dict[str, CachedChange],
     remote_name: str | None,
-) -> None:
+) -> bool:
+    """Retract local state for one change. Returns True if no steps were blocked."""
+
     label = short_change_id(change_id)
+    any_blocked = False
 
     if bookmark is not None:
         bm_state = jj_client.get_bookmark_state(bookmark)
@@ -465,6 +479,7 @@ def _retract_one_change_local(
                                 status="blocked",
                             )
                         )
+                        any_blocked = True
 
         if bm_state.local_target is not None:
             action_msg = f"forget local bookmark {bookmark} for {label}"
@@ -486,9 +501,15 @@ def _retract_one_change_local(
                             status="blocked",
                         )
                     )
+                    any_blocked = True
 
-    if change_id in next_changes:
+    # Only remove from state cache if all local steps succeeded; if anything
+    # was blocked the caller needs the cached data (PR number, bookmark) to
+    # diagnose and retry.
+    if not any_blocked and change_id in next_changes:
         del next_changes[change_id]
+
+    return not any_blocked
 
 
 # ---------------------------------------------------------------------------
