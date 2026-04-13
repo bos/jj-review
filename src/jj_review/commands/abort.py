@@ -16,12 +16,12 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from string.templatelib import Template
 from typing import Literal
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
-from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import parse_github_repo, select_submit_remote
 from jj_review.intent import describe_intent, intent_is_stale, pid_is_alive, write_new_intent
@@ -42,6 +42,7 @@ HELP = "Undo interrupted jj-review operations"
 logger = logging.getLogger(__name__)
 
 AbortActionStatus = Literal["applied", "blocked", "planned", "skipped"]
+type AbortActionBody = str | Template | ui.SemanticText | tuple[object, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,8 +50,14 @@ class AbortAction:
     """One retraction step that was planned, applied, blocked, or skipped."""
 
     kind: str
-    message: str
+    body: AbortActionBody
     status: AbortActionStatus
+
+    @property
+    def message(self) -> str:
+        """Return the plain-text form of this action body."""
+
+        return ui.plain_text(self.body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,7 +234,7 @@ async def _abort_intent_async(
     actions: list[AbortAction] = []
     if note:
         actions.append(
-            AbortAction(kind="note", message=note, status="skipped")
+            AbortAction(kind="note", body=note, status="skipped")
         )
     _plan_intent_file_removal(
         actions=actions, dry_run=dry_run, intent_path=loaded.path
@@ -295,7 +302,7 @@ async def _abort_submit(
         actions.append(
             AbortAction(
                 kind="submit intent",
-                message=(
+                body=(
                     "current stack has changed since this submit was interrupted; "
                     "abort will not guess which pull requests or review branches to retract"
                 ),
@@ -305,7 +312,7 @@ async def _abort_submit(
         actions.append(
             AbortAction(
                 kind="record",
-                message=(
+                body=(
                     "operation record kept — to finish the submit, re-run `submit`; "
                     "to retract the partial work, run `close --cleanup`"
                 ),
@@ -362,7 +369,7 @@ async def _abort_submit(
         actions.append(
             AbortAction(
                 kind="github",
-                message=(
+                body=(
                     "GitHub unreachable — pull request close skipped; "
                     "run `status --fetch` after fixing GitHub access"
                 ),
@@ -389,7 +396,7 @@ async def _abort_submit(
         actions.append(
             AbortAction(
                 kind="record",
-                message=(
+                body=(
                     "operation record kept — fix the blocked steps above, "
                     "then run abort again to retry"
                 ),
@@ -445,16 +452,15 @@ async def _retract_one_change(
 ) -> bool:
     """Retract one change. Returns True if all steps succeeded (nothing blocked)."""
 
-    label = short_change_id(change_id)
     pr_ok = True
 
     pr_number = cached.pr_number if cached is not None else None
     pr_state = cached.pr_state if cached is not None else None
 
     if pr_number is not None and pr_state not in ("closed", "merged"):
-        action_msg = f"close PR #{pr_number} for {label}"
+        action_body = t"close PR #{pr_number} for {ui.change_id(change_id)}"
         if dry_run:
-            actions.append(AbortAction(kind="pull request", message=action_msg, status="planned"))
+            actions.append(AbortAction(kind="pull request", body=action_body, status="planned"))
         else:
             try:
                 await github_client.close_pull_request(
@@ -463,20 +469,23 @@ async def _retract_one_change(
                     pull_number=pr_number,
                 )
                 actions.append(
-                    AbortAction(kind="pull request", message=action_msg, status="applied")
+                    AbortAction(kind="pull request", body=action_body, status="applied")
                 )
             except GithubClientError as error:
                 # 404: PR no longer exists. 422: PR is already closed.
                 # Either way the desired end state (closed/gone) is already reached.
                 if error.status_code in (404, 422):
                     actions.append(
-                        AbortAction(kind="pull request", message=action_msg, status="applied")
+                        AbortAction(kind="pull request", body=action_body, status="applied")
                     )
                 else:
                     actions.append(
                         AbortAction(
                             kind="pull request",
-                            message=f"could not close PR #{pr_number} for {label}: {error}",
+                            body=(
+                                t"could not close PR #{pr_number} for "
+                                t"{ui.change_id(change_id)}: {error}"
+                            ),
                             status="blocked",
                         )
                     )
@@ -508,7 +517,6 @@ def _retract_one_change_local(
 ) -> bool:
     """Retract local state for one change. Returns True if no steps were blocked."""
 
-    label = short_change_id(change_id)
     any_blocked = False
 
     if bookmark is not None:
@@ -518,10 +526,13 @@ def _retract_one_change_local(
             remote_target = bm_state.remote_target(remote_name)
             if remote_target is not None and remote_target.target is not None:
                 remote_commit_id = remote_target.target
-                action_msg = f"delete remote branch {bookmark}@{remote_name} for {label}"
+                branch_label = f"{bookmark}@{remote_name}"
+                action_body = (
+                    t"delete {ui.bookmark(branch_label)} for {ui.change_id(change_id)}"
+                )
                 if dry_run:
                     actions.append(
-                        AbortAction(kind="remote branch", message=action_msg, status="planned")
+                        AbortAction(kind="remote branch", body=action_body, status="planned")
                     )
                 else:
                     try:
@@ -531,38 +542,36 @@ def _retract_one_change_local(
                         )
                         actions.append(
                             AbortAction(
-                                kind="remote branch", message=action_msg, status="applied"
+                                kind="remote branch", body=action_body, status="applied"
                             )
                         )
                     except JjCommandError as error:
                         actions.append(
                             AbortAction(
                                 kind="remote branch",
-                                message=(
-                                    f"could not delete remote branch {bookmark}: {error}"
-                                ),
+                                body=t"could not delete {ui.bookmark(branch_label)}: {error}",
                                 status="blocked",
                             )
                         )
                         any_blocked = True
 
         if bm_state.local_target is not None:
-            action_msg = f"forget local bookmark {bookmark} for {label}"
+            action_body = t"forget {ui.bookmark(bookmark)} for {ui.change_id(change_id)}"
             if dry_run:
                 actions.append(
-                    AbortAction(kind="local bookmark", message=action_msg, status="planned")
+                    AbortAction(kind="local bookmark", body=action_body, status="planned")
                 )
             else:
                 try:
                     jj_client.forget_bookmarks((bookmark,))
                     actions.append(
-                        AbortAction(kind="local bookmark", message=action_msg, status="applied")
+                        AbortAction(kind="local bookmark", body=action_body, status="applied")
                     )
                 except JjCommandError as error:
                     actions.append(
                         AbortAction(
                             kind="local bookmark",
-                            message=f"could not forget bookmark {bookmark}: {error}",
+                            body=t"could not forget {ui.bookmark(bookmark)}: {error}",
                             status="blocked",
                         )
                     )
@@ -594,7 +603,7 @@ def _plan_state_save(
         actions.append(
             AbortAction(
                 kind="saved state",
-                message=f"{verb} saved jj-review data for aborted changes",
+                body=f"{verb} saved jj-review data for aborted changes",
                 status="planned" if dry_run else "applied",
             )
         )
@@ -610,7 +619,7 @@ def _plan_intent_file_removal(
     actions.append(
         AbortAction(
             kind="record",
-            message=f"{verb} incomplete operation record ({intent_path.name})",
+            body=f"{verb} incomplete operation record ({intent_path.name})",
             status="planned" if dry_run else "applied",
         )
     )
@@ -631,13 +640,13 @@ def _print_abort_result(result: AbortResult) -> None:
 
     ui.output(header)
     for action in result.actions:
-        prefix, prefix_style, message_style = _abort_action_presentation(action.status)
+        prefix, prefix_style, body_style = _abort_action_presentation(action.status)
         ui.output(
             ui.prefixed_message(
                 f"{prefix} ",
-                action.message,
+                (ui.semantic_text(action.kind, "prefix"), ": ", action.body),
                 prefix_style=prefix_style,
-                message_style=message_style,
+                message_style=body_style,
             )
         )
 

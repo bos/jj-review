@@ -78,8 +78,8 @@ def test_abort_dry_run_shows_planned_actions_without_mutating(
     assert exit_code == 0
     assert "Planned abort actions" in captured.out
     assert "close PR" in captured.out
-    assert "delete remote branch" in captured.out
-    assert "forget local bookmark" in captured.out
+    assert f"{bookmark}@origin" in captured.out
+    assert bookmark in captured.out
     # Nothing was actually mutated.
     assert state_store.load() == initial_state
     assert read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
@@ -128,8 +128,8 @@ def test_abort_retracts_submitted_change_and_clears_state(
     assert exit_code == 0
     assert "Applied abort actions" in captured.out
     assert "close PR" in captured.out
-    assert "delete remote branch" in captured.out
-    assert "forget local bookmark" in captured.out
+    assert f"{bookmark}@origin" in captured.out
+    assert bookmark in captured.out
 
     # PR was closed on GitHub.
     assert fake_repo.pull_requests[1].state == "closed"
