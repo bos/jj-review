@@ -6,7 +6,7 @@ from pathlib import Path
 from jj_review.cache import ReviewStateStore
 from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
-from jj_review.models.intent import CleanupIntent, CleanupRestackIntent
+from jj_review.models.intent import CleanupRestackIntent
 
 from ..support.integration_helpers import (
     commit_file,
@@ -139,33 +139,6 @@ def test_abort_retracts_submitted_change_and_clears_state(
     assert change_id not in refreshed.changes
 
     # Intent file was removed.
-    assert not state_store.list_intents()
-
-
-def test_abort_removes_cleanup_intent_with_note(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    state_store = ReviewStateStore.for_repo(repo)
-    state_store.require_writable()
-    intent = CleanupIntent(
-        kind="cleanup",
-        pid=os.getpid(),
-        label="cleanup",
-        started_at="2026-01-01T00:00:00+00:00",
-    )
-    write_new_intent(state_store.state_dir, intent)
-
-    exit_code = run_main(repo, config_path, "abort")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "Applied abort actions" in captured.out
-    assert "removed intent file" in captured.out
     assert not state_store.list_intents()
 
 

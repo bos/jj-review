@@ -28,6 +28,7 @@ from jj_review.models.intent import (
     CloseIntent,
     LandIntent,
     LoadedIntent,
+    RelinkIntent,
     SubmitIntent,
 )
 
@@ -207,6 +208,12 @@ def _non_submit_note(intent) -> str | None:
             "The intent file will be removed. Run `status` to inspect which "
             "pull requests were closed, and reopen them on GitHub if needed."
         )
+    if isinstance(intent, RelinkIntent):
+        return (
+            "Relink changes which PR a change tracks in local data. "
+            "The intent file will be removed. Run `status` to confirm the "
+            "current link state looks correct."
+        )
     return None
 
 
@@ -331,13 +338,20 @@ async def _retract_one_change(
                     AbortAction(kind="pull request", message=action_msg, status="applied")
                 )
             except GithubClientError as error:
-                actions.append(
-                    AbortAction(
-                        kind="pull request",
-                        message=f"could not close PR #{pr_number} for {label}: {error}",
-                        status="blocked",
+                # 404: PR no longer exists. 422: PR is already closed.
+                # Either way the desired end state (closed/gone) is already reached.
+                if error.status_code in (404, 422):
+                    actions.append(
+                        AbortAction(kind="pull request", message=action_msg, status="applied")
                     )
-                )
+                else:
+                    actions.append(
+                        AbortAction(
+                            kind="pull request",
+                            message=f"could not close PR #{pr_number} for {label}: {error}",
+                            status="blocked",
+                        )
+                    )
 
     _retract_one_change_local(
         actions=actions,
