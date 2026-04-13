@@ -1815,7 +1815,9 @@ async def _resolve_unlinked_pull_request_number(
             status="blocked",
             body=(
                 "cannot delete stack summary comment because GitHub reports multiple "
-                f"pull requests for unlinked bookmark {bookmark_state.name!r}"
+                "pull requests for unlinked bookmark '",
+                ui.bookmark(bookmark_state.name),
+                "'",
             ),
         )
     return pull_requests[0].number

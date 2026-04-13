@@ -230,13 +230,13 @@ def test_resolve_unlinked_pull_request_number_blocks_multiple_pull_requests() ->
         )
     )
 
-    assert result == CleanupAction(
-        kind="stack summary comment",
-        body=(
-            "cannot delete stack summary comment because GitHub reports multiple pull "
-            "requests for unlinked bookmark 'review/feature-aaaaaaaa'"
-        ),
-        status="blocked",
+    assert isinstance(result, CleanupAction)
+    assert result.kind == "stack summary comment"
+    assert result.status == "blocked"
+    assert (
+        result.message
+        == "cannot delete stack summary comment because GitHub reports multiple pull "
+        "requests for unlinked bookmark 'review/feature-aaaaaaaa'"
     )
 
 
