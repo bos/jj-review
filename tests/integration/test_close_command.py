@@ -4,7 +4,9 @@ from pathlib import Path
 
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
+from jj_review.models.intent import CloseIntent
 
 from ..support.fake_github import FakeGithubState, create_app
 from ..support.integration_helpers import (
@@ -464,3 +466,162 @@ def test_close_apply_cleanup_exits_nonzero_when_cleanup_is_blocked(
     assert "Close blocked:" in captured.out
     assert "[blocked] stack summary comment:" in captured.out
     assert fake_repo.pull_requests[2].state == "closed"
+
+
+def test_close_retires_covered_interrupted_close_intent(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    first = stack.revisions[0]
+    second = stack.revisions[1]
+    state_dir = resolve_state_path(repo).parent
+    old_intent_path = write_new_intent(
+        state_dir,
+        CloseIntent(
+            kind="close",
+            pid=99999999,
+            label="close on @",
+            display_revset="@",
+            ordered_change_ids=(first.change_id,),
+            ordered_commit_ids=(first.commit_id,),
+            cleanup=False,
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    exit_code = run_main(repo, config_path, "close")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Continuing interrupted" not in captured.out
+    assert "all included in the current stack" in captured.out
+    assert not old_intent_path.exists()
+    assert list(state_dir.glob("incomplete-*.json")) == []
+
+
+def test_close_continues_exact_interrupted_close_on_multi_revision_stack(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    first = stack.revisions[0]
+    second = stack.revisions[1]
+    state_dir = resolve_state_path(repo).parent
+    old_intent_path = write_new_intent(
+        state_dir,
+        CloseIntent(
+            kind="close",
+            pid=99999999,
+            label="close on @",
+            display_revset="@",
+            ordered_change_ids=(first.change_id, second.change_id),
+            ordered_commit_ids=(first.commit_id, second.commit_id),
+            cleanup=False,
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    exit_code = run_main(repo, config_path, "close")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert (
+        f"Continuing interrupted close for {second.change_id[:8]} (from @)"
+        in captured.out
+    )
+    assert not old_intent_path.exists()
+
+
+def test_close_does_not_resume_or_retire_interrupted_cleanup_close(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    revision = stack.revisions[-1]
+    state_dir = resolve_state_path(repo).parent
+    old_intent_path = write_new_intent(
+        state_dir,
+        CloseIntent(
+            kind="close",
+            pid=99999999,
+            label="close --cleanup on @",
+            display_revset="@",
+            ordered_change_ids=(revision.change_id,),
+            ordered_commit_ids=(revision.commit_id,),
+            cleanup=True,
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    exit_code = run_main(repo, config_path, "close")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Continuing interrupted" not in captured.out
+    assert "plain close does not finish cleanup" in captured.out
+    assert old_intent_path.exists()
+
+
+def test_cleanup_close_supersedes_plain_interrupted_close(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    revision = stack.revisions[-1]
+    state_dir = resolve_state_path(repo).parent
+    old_intent_path = write_new_intent(
+        state_dir,
+        CloseIntent(
+            kind="close",
+            pid=99999999,
+            label="close on @",
+            display_revset="@",
+            ordered_change_ids=(revision.change_id,),
+            ordered_commit_ids=(revision.commit_id,),
+            cleanup=False,
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    exit_code = run_main(repo, config_path, "close", "--cleanup")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Continuing interrupted" not in captured.out
+    assert "covered by this close --cleanup run" in captured.out
+    assert not old_intent_path.exists()

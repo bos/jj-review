@@ -11,6 +11,7 @@ import pytest
 from jj_review.intent import (
     check_same_kind_intent,
     intent_is_stale,
+    match_close_intent,
     match_ordered_change_ids,
     match_submit_intent,
     pid_is_alive,
@@ -87,6 +88,7 @@ def _make_close_intent(
         label="close on @",
         display_revset="@",
         ordered_change_ids=ordered_change_ids,
+        ordered_commit_ids=("commit-aaaa", "commit-bbbb"),
         cleanup=cleanup,
         started_at="2026-01-01T00:00:00+00:00",
     )
@@ -269,6 +271,44 @@ def test_retire_superseded_intents_retires_reordered_submit_intent(tmp_path: Pat
     )
 
     assert not old_path.exists()
+
+
+def test_match_close_intent_returns_disjoint_when_cleanup_mode_differs() -> None:
+    assert (
+        match_close_intent(
+            intent=_make_close_intent(cleanup=True),
+            current_change_ids=("aaaa", "bbbb"),
+            current_commit_ids=("commit-aaaa", "commit-bbbb"),
+            current_cleanup=False,
+        )
+        == "disjoint"
+    )
+
+
+def test_retire_superseded_intents_keeps_close_intent_when_cleanup_mode_differs(
+    tmp_path: Path,
+) -> None:
+    old = _make_close_intent(("aaaa", "bbbb"), cleanup=True)
+    path = write_new_intent(tmp_path, old)
+    loaded = LoadedIntent(path=path, intent=old)
+    new = _make_close_intent(("aaaa", "bbbb"), cleanup=False)
+
+    retire_superseded_intents([loaded], new)
+
+    assert path.exists()
+
+
+def test_retire_superseded_intents_retires_plain_close_when_cleanup_close_covers_it(
+    tmp_path: Path,
+) -> None:
+    old = _make_close_intent(("aaaa", "bbbb"), cleanup=False)
+    path = write_new_intent(tmp_path, old)
+    loaded = LoadedIntent(path=path, intent=old)
+    new = _make_close_intent(("aaaa", "bbbb"), cleanup=True)
+
+    retire_superseded_intents([loaded], new)
+
+    assert not path.exists()
 
 
 # ---------------------------------------------------------------------------

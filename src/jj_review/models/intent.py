@@ -49,6 +49,7 @@ class CleanupRestackIntent(OrderedChangeIdsIntent):
 
 class CloseIntent(OrderedChangeIdsIntent):
     kind: Literal["close"]
+    ordered_commit_ids: tuple[str, ...] = ()
     cleanup: bool
 
 

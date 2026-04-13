@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 _INTENT_ADAPTER = TypeAdapter(IntentFile)
 
 SubmitIntentMatch = Literal["exact", "same-logical", "covered", "overlap", "disjoint"]
+CloseIntentModeRelation = Literal["same", "expanded", "incompatible"]
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +198,10 @@ def describe_intent(intent: IntentFile) -> str:
             f"submit for {short_change_id(intent.head_change_id)} "
             f"(from {intent.display_revset})"
         )
+    if isinstance(intent, CloseIntent):
+        verb = "close --cleanup" if intent.cleanup else "close"
+        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
+        return f"{verb} for {short_change_id(head_change_id)} (from {intent.display_revset})"
     return intent.label
 
 
@@ -234,6 +239,42 @@ def match_submit_intent(
         current_change_ids=current_change_ids,
         current_commit_ids=current_commit_ids,
     )
+
+
+def match_close_intent(
+    *,
+    intent: CloseIntent,
+    current_change_ids: tuple[str, ...],
+    current_commit_ids: tuple[str, ...],
+    current_cleanup: bool | None = None,
+) -> SubmitIntentMatch:
+    """Classify how a recorded close intent relates to the current stack."""
+
+    if current_cleanup is not None and close_intent_mode_relation(
+        recorded_cleanup=intent.cleanup,
+        current_cleanup=current_cleanup,
+    ) == "incompatible":
+        return "disjoint"
+    return match_recorded_ordered_stack(
+        recorded_change_ids=intent.ordered_change_ids,
+        recorded_commit_ids=intent.ordered_commit_ids,
+        current_change_ids=current_change_ids,
+        current_commit_ids=current_commit_ids,
+    )
+
+
+def close_intent_mode_relation(
+    *,
+    recorded_cleanup: bool,
+    current_cleanup: bool,
+) -> CloseIntentModeRelation:
+    """Classify whether a close mode can resume or supersede a recorded close."""
+
+    if recorded_cleanup == current_cleanup:
+        return "same"
+    if current_cleanup and not recorded_cleanup:
+        return "expanded"
+    return "incompatible"
 
 
 # ---------------------------------------------------------------------------
@@ -293,6 +334,15 @@ def retire_superseded_intents(
             continue
         if isinstance(new_intent, SubmitIntent):
             should_retire = set(old.ordered_change_ids).issubset(new_ids)
+        elif isinstance(new_intent, CloseIntent):
+            should_retire = (
+                close_intent_mode_relation(
+                    recorded_cleanup=old.cleanup,
+                    current_cleanup=new_intent.cleanup,
+                )
+                != "incompatible"
+                and set(old.ordered_change_ids).issubset(new_ids)
+            )
         else:
             result = match_ordered_change_ids(old.ordered_change_ids, new_ids)
             should_retire = result in ("exact", "superset")

@@ -724,6 +724,14 @@ distinguish exact continuation from a rewritten or otherwise changed stack.
 `abort` should only retract an interrupted submit when that recorded stack
 snapshot still exists exactly; once the stack has been rewritten, it should
 refuse to guess.
+
+Interrupted `close` metadata should follow the same current-stack-first rule.
+A later `close` acts on the current selected stack, and older interrupted close
+records are superseded once a later successful close clearly covers those
+changes. `close --cleanup` is a stronger variant of `close`: a successful
+cleanup run can supersede an older interrupted plain `close`, but a later plain
+`close` must not silently erase an older interrupted cleanup run whose branch
+or metadata cleanup may still be outstanding.
   explicitly, using the selected local stack as the source of truth for which
   logical changes survive.
 

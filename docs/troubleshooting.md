@@ -142,6 +142,14 @@ in particular will use your current selected stack rather than trying to replay
 an old `@` or `@-` snapshot, while still keeping enough recovery data for
 `abort`.
 
+`close` follows the same current-stack-first rule. If you changed the stack
+before re-running `close`, it will act on the current selected stack rather
+than trying to replay the old selector. `close --cleanup` is treated as a
+stronger follow-up than plain `close`: it can cover an older interrupted plain
+`close`, but a later plain `close` does not erase an older interrupted cleanup
+run. If `status` shows an interrupted close, rerun the same close mode if you
+want to finish that recorded operation.
+
 If you rewrote or reordered the stack after the interruption, `abort` will
 refuse to guess which PRs or review branches belong to the old partial submit.
 In that case, inspect the current stack with `status` and clean up manually if

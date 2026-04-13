@@ -23,6 +23,9 @@ from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.intent import (
     check_same_kind_intent,
+    close_intent_mode_relation,
+    describe_intent,
+    match_close_intent,
     retire_superseded_intents,
     write_new_intent,
 )
@@ -304,7 +307,6 @@ async def _stream_close_async(
     try:
         intent_state = _start_close_intent(
             prepared_close=prepared_close,
-            revisions=status_result.revisions,
         )
 
         async with build_github_client(base_url=github_repository.api_base_url) as github_client:
@@ -369,7 +371,6 @@ def _save_close_progress(
 def _start_close_intent(
     *,
     prepared_close: PreparedClose,
-    revisions,
 ) -> _CloseIntentState:
     """Write close intent metadata for resumable live runs."""
 
@@ -378,24 +379,103 @@ def _start_close_intent(
 
     prepared_status = prepared_close.prepared_status
     state_dir = prepared_status.prepared.state_store.require_writable()
+    ordered_revisions = tuple(
+        prepared_revision.revision
+        for prepared_revision in prepared_status.prepared.status_revisions
+    )
+    ordered_change_ids = tuple(revision.change_id for revision in ordered_revisions)
+    ordered_commit_ids = tuple(revision.commit_id for revision in ordered_revisions)
     intent = CloseIntent(
         kind="close",
         pid=os.getpid(),
-        label=("close --cleanup on " if prepared_close.cleanup else "close on ")
-        + prepared_status.selected_revset,
+        label=(
+            ("close --cleanup" if prepared_close.cleanup else "close")
+            + f" for {short_change_id(ordered_change_ids[-1])} "
+            f"(from {prepared_status.selected_revset})"
+        ),
         display_revset=prepared_status.selected_revset,
-        ordered_change_ids=tuple(revision.change_id for revision in revisions),
+        ordered_change_ids=ordered_change_ids,
+        ordered_commit_ids=ordered_commit_ids,
         cleanup=prepared_close.cleanup,
         started_at=datetime.now(UTC).isoformat(),
     )
     stale_intents = check_same_kind_intent(state_dir, intent)
-    for loaded in stale_intents:
-        print(f"Note: a previous close was interrupted ({loaded.intent.label})")
+    _report_stale_close_intents(
+        current_change_ids=ordered_change_ids,
+        current_commit_ids=ordered_commit_ids,
+        current_cleanup=prepared_close.cleanup,
+        stale_intents=stale_intents,
+    )
     return _CloseIntentState(
         intent=intent,
         intent_path=write_new_intent(state_dir, intent),
         stale_intents=stale_intents,
     )
+
+
+def _report_stale_close_intents(
+    *,
+    current_change_ids: tuple[str, ...],
+    current_commit_ids: tuple[str, ...],
+    current_cleanup: bool,
+    stale_intents: list[LoadedIntent],
+) -> None:
+    """Render interrupted close diagnostics for live execution."""
+
+    for loaded in stale_intents:
+        if not isinstance(loaded.intent, CloseIntent):
+            continue
+        mode_relation = close_intent_mode_relation(
+            recorded_cleanup=loaded.intent.cleanup,
+            current_cleanup=current_cleanup,
+        )
+        match = match_close_intent(
+            intent=loaded.intent,
+            current_change_ids=current_change_ids,
+            current_commit_ids=current_commit_ids,
+            current_cleanup=current_cleanup,
+        )
+        stack_match = match_close_intent(
+            intent=loaded.intent,
+            current_change_ids=current_change_ids,
+            current_commit_ids=current_commit_ids,
+        )
+        description = describe_intent(loaded.intent)
+        if mode_relation == "same" and match == "exact":
+            print(f"Continuing interrupted {description}")
+        elif mode_relation == "expanded" and match == "exact":
+            print(
+                f"Note: interrupted {description} is covered by this close --cleanup run."
+            )
+        elif (
+            mode_relation == "incompatible"
+            and loaded.intent.cleanup
+            and not current_cleanup
+            and stack_match in {"exact", "same-logical", "covered"}
+        ):
+            print(
+                f"Note: interrupted {description} is still outstanding; plain close "
+                "does not finish cleanup."
+            )
+        elif match == "same-logical":
+            print(
+                f"Note: interrupted {description} targeted the same logical stack, "
+                "but it has been rewritten. This close"
+                f"{' --cleanup' if current_cleanup else ''} will use the current stack."
+            )
+        elif match == "covered":
+            print(
+                f"Note: interrupted {description} targeted changes that are all included "
+                "in the current stack. This close"
+                f"{' --cleanup' if current_cleanup else ''} will use the current stack."
+            )
+        elif match == "overlap":
+            print(
+                f"Warning: this close overlaps an incomplete earlier operation "
+                f"({description})"
+            )
+        else:
+            print(f"Note: incomplete operation outstanding: {description}")
 
 
 async def _process_close_revisions(

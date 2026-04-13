@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from jj_review.commands import review_state as review_state_module
-from jj_review.models.intent import SubmitIntent
+from jj_review.models.intent import CloseIntent, SubmitIntent
 
 
 def test_render_status_selection_lines_reports_selected_remote_error() -> None:
@@ -204,6 +204,47 @@ def test_render_status_intent_lines_describes_rewritten_interrupted_submit() -> 
     assert "submit for abcdefgh (from @)" in lines[2]
     assert "current stack was rewritten" in lines[2]
     assert "a new submit will use the current stack" in lines[2]
+
+
+def test_render_status_intent_lines_describes_exact_interrupted_close() -> None:
+    prepared_status = SimpleNamespace(
+        stale_intents=(),
+        outstanding_intents=(
+            SimpleNamespace(
+                intent=CloseIntent(
+                    kind="close",
+                    pid=99999999,
+                    label="close on @",
+                    display_revset="@",
+                    ordered_change_ids=("abcdefgh1234",),
+                    ordered_commit_ids=("commit-a",),
+                    cleanup=False,
+                    started_at="2026-01-01T00:00:00+00:00",
+                ),
+                path=Path("/tmp/outstanding-close.json"),
+            ),
+        ),
+        prepared=SimpleNamespace(
+            status_revisions=(
+                SimpleNamespace(
+                    revision=SimpleNamespace(
+                        change_id="abcdefgh1234",
+                        commit_id="commit-a",
+                    )
+                ),
+            )
+        ),
+    )
+
+    lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
+
+    assert lines[0] == ""
+    assert lines[1] == "Incomplete operations detected:"
+    assert "close for abcdefgh (from @)" in lines[2]
+    assert "recorded stack matches the current selection" in lines[2]
+    assert "rerun the same close mode to continue" in lines[2]
+
+
 def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
     revisions = tuple(
         SimpleNamespace(

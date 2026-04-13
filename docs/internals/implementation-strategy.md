@@ -143,6 +143,10 @@ Recent refactor slices:
 - submit recovery now retires superseded interrupted submit intents when a later
   successful submit covers the same changes, while `abort` refuses automatic
   submit retraction once the recorded stack snapshot has been rewritten
+- close intent reporting now uses the same recorded-stack model as submit, and a
+  later successful close retires interrupted close intents when it clearly
+  covers those changes; `close --cleanup` can supersede an older plain `close`,
+  but plain `close` does not retire an older interrupted cleanup run
 
 ## Executable Surface
 

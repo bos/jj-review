@@ -23,9 +23,14 @@ from jj_review.formatting import (
     render_revision_with_suffix_lines,
     short_change_id,
 )
-from jj_review.intent import describe_intent, match_submit_intent, pid_is_alive
+from jj_review.intent import (
+    describe_intent,
+    match_close_intent,
+    match_submit_intent,
+    pid_is_alive,
+)
 from jj_review.jj import UnsupportedStackError
-from jj_review.models.intent import SubmitIntent
+from jj_review.models.intent import CloseIntent, SubmitIntent
 from jj_review.review_inspection import (
     prepare_status,
     revision_has_merged_pull_request,
@@ -464,6 +469,15 @@ def render_status_intent_lines(*, prepared_status) -> tuple[str, ...]:
                         prepared_status=prepared_status,
                     )
                 )
+            elif isinstance(loaded.intent, CloseIntent):
+                lines.append(
+                    "  "
+                    + _render_interrupted_close_status_line(
+                        description=description,
+                        intent=loaded.intent,
+                        prepared_status=prepared_status,
+                    )
+                )
             else:
                 lines.append(f"  {description}  [interrupted, inspect before re-running]")
     return tuple(lines)
@@ -501,6 +515,47 @@ def _render_interrupted_submit_status_line(
         )
     elif match == "overlap":
         status = "interrupted, current stack differs; inspect before running submit again"
+    else:
+        status = "interrupted, recorded stack differs from the current selection"
+    return f"{description}  [{status}]"
+
+
+def _render_interrupted_close_status_line(
+    *,
+    description: str,
+    intent: CloseIntent,
+    prepared_status,
+) -> str:
+    current_change_ids = tuple(
+        prepared_revision.revision.change_id
+        for prepared_revision in prepared_status.prepared.status_revisions
+    )
+    current_commit_ids = tuple(
+        prepared_revision.revision.commit_id
+        for prepared_revision in prepared_status.prepared.status_revisions
+    )
+    match = match_close_intent(
+        intent=intent,
+        current_change_ids=current_change_ids,
+        current_commit_ids=current_commit_ids,
+    )
+    if match == "exact":
+        status = (
+            "interrupted, recorded stack matches the current selection; rerun the "
+            "same close mode to continue"
+        )
+    elif match == "same-logical":
+        status = (
+            "interrupted, recorded stack was rewritten; rerunning the same close mode "
+            "will use the current stack"
+        )
+    elif match == "covered":
+        status = (
+            "interrupted, the recorded changes are all included in the current stack; "
+            "rerun the same close mode if you still need to finish it"
+        )
+    elif match == "overlap":
+        status = "interrupted, current stack differs; inspect before running close again"
     else:
         status = "interrupted, recorded stack differs from the current selection"
     return f"{description}  [{status}]"
