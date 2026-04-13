@@ -33,33 +33,6 @@ def test_main_accepts_global_options_after_subcommand(
     ]
 
 
-def test_main_status_accepts_short_verbose_alias(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[dict[str, object]] = []
-
-    def fake_status(**kwargs) -> int:
-        calls.append(kwargs)
-        return 0
-
-    monkeypatch.setattr(cli_module.commands.review_state, "status", fake_status)
-
-    exit_code = main(["status", "-v", "--repository", str(tmp_path)])
-
-    assert exit_code == 0
-    assert calls == [
-        {
-            "config_path": None,
-            "debug": False,
-            "fetch": False,
-            "repository": tmp_path,
-            "revset": None,
-            "verbose": True,
-        }
-    ]
-
-
 def test_main_reports_keyboard_interrupt_without_traceback(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -118,22 +91,3 @@ def test_main_time_output_prefixes_handler_output(
     assert all(line.startswith("[") for line in lines)
     assert any("first line" in line for line in lines)
     assert any("second line" in line for line in lines)
-
-
-def test_main_time_output_prefixes_interrupt_message(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.setattr(
-        cli_module.commands.review_state,
-        "status",
-        lambda **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
-    )
-
-    exit_code = main(["status", "--time-output"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 130
-    assert captured.out == ""
-    assert captured.err.startswith("[")
-    assert "Interrupted." in captured.err

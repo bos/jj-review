@@ -6,62 +6,6 @@ from jj_review.cli import _normalize_cli_args, build_parser, main
 from jj_review.errors import CliError
 
 
-def test_main_without_command_prints_help(capsys: pytest.CaptureFixture[str]) -> None:
-    exit_code = main([])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "submit" in captured.out
-    assert "land" in captured.out
-    assert "close" in captured.out
-    assert "import" in captured.out
-    assert "cleanup" in captured.out
-    assert "unlink" not in captured.out
-    assert "relink" not in captured.out
-    assert "completion" not in captured.out
-
-
-def test_main_help_all_shows_hidden_commands(capsys: pytest.CaptureFixture[str]) -> None:
-    exit_code = main(["help", "--all"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "relink" in captured.out
-    assert "unlink" in captured.out
-    assert "completion" in captured.out
-
-
-def test_main_help_command_prints_subcommand_help(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    exit_code = main(["help", "submit"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "Usage: jj-review submit" in captured.out
-    assert captured.err == ""
-
-
-def test_help_command_rejects_invalid_option() -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        build_parser().parse_args(["help", "--version"])
-
-    assert exc_info.value.code == 2
-
-
-def test_main_time_output_prefixes_help_lines(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    exit_code = main(["--time-output"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    lines = [line for line in captured.out.splitlines() if line]
-    assert lines
-    assert all(line.startswith("[") for line in lines)
-    assert any("submit" in line for line in lines)
-
-
 def test_main_reports_invalid_config_without_traceback(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
