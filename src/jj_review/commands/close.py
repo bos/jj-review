@@ -429,12 +429,15 @@ def _report_stale_close_intents(
             recorded_cleanup=loaded.intent.cleanup,
             current_cleanup=current_cleanup,
         )
+        # mode-aware match: a recorded cleanup run is "disjoint" from a plain close
         match = match_close_intent(
             intent=loaded.intent,
             current_change_ids=current_change_ids,
             current_commit_ids=current_commit_ids,
             current_cleanup=current_cleanup,
         )
+        # mode-blind stack match: used below to detect an incompatible-mode intent
+        # whose stack still matches, so we can warn "plain close does not finish cleanup"
         stack_match = match_close_intent(
             intent=loaded.intent,
             current_change_ids=current_change_ids,

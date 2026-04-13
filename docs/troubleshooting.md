@@ -151,14 +151,30 @@ run. If `status` shows an interrupted close, rerun whichever close command it
 names (`close` or `close --cleanup`) if you want to finish that operation.
 
 `cleanup --restack` also works from the current selected stack on rerun. If
-the stack was rewritten after the interruption, jj-review reports that it is
-using the current stack rather than pretending it is replaying the original
-selector.
+the stack was rewritten or shortened since the interruption (for example,
+because some changes landed), jj-review notes that it is using the current
+stack and proceeds normally. Re-running `cleanup --restack` is safe in either
+case.
 
-If you rewrote or reordered the stack after the interruption, `abort` will
-refuse to guess which PRs or review branches belong to the old partial submit.
-In that case, inspect the current stack with `status` and clean up manually if
-you still need to unwind the old partial work.
+If an interrupted `land` appears in `status`, re-running `land` is the right
+recovery path: it records checkpoints as it goes and will skip changes that
+already landed. Running `abort` on an interrupted land removes the intent file
+but cannot un-merge changes that already reached trunk; those are permanent.
+
+### `abort` refuses because the stack has changed
+
+If you rewrote or reordered the stack after a `submit` was interrupted, `abort`
+will not guess which PRs or review branches belong to the old partial work. In
+that case you have two options:
+
+- **Finish the submit**: re-run `submit`. It acts on the current stack, detects
+  any review branches or PRs that already exist, and completes whatever is still
+  outstanding. The intent file is retired once the run succeeds.
+- **Retract the partial work**: run `jj-review close --cleanup` to close the
+  open PRs and delete the review branches for the current stack. After that, the
+  intent file will be retired automatically the next time a matching operation
+  succeeds, or you can clear it by running `abort` once `close --cleanup` has
+  cleaned up the shared state.
 
 ## You only need the exact flags and options for a command
 

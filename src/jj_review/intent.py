@@ -271,8 +271,12 @@ def match_cleanup_restack_intent(
         if intent.ordered_commit_ids and intent.ordered_commit_ids == current_commit_ids:
             return "exact"
         return "same-logical"
+    # Set-equality (same change IDs, different order) is also same-logical: reordering
+    # changes the stack shape even if no commit content changed.
     if set(intent.ordered_change_ids) == set(current_change_ids):
         return "same-logical"
+    # trimmed: the current stack is a strict subset — some changes were removed (landed,
+    # abandoned) since the interruption. A rerun is safe; it uses the current stack.
     if set(current_change_ids).issubset(intent.ordered_change_ids):
         return "trimmed"
     return match_recorded_ordered_stack(
@@ -290,7 +294,14 @@ def match_close_intent(
     current_commit_ids: tuple[str, ...],
     current_cleanup: bool | None = None,
 ) -> SubmitIntentMatch:
-    """Classify how a recorded close intent relates to the current stack."""
+    """Classify how a recorded close intent relates to the current stack.
+
+    Pass current_cleanup=None to get a pure stack-shape match, ignoring whether
+    the modes (plain close vs. --cleanup) are compatible. Callers use this to
+    separately answer "does the stack match?" and "does the mode match?" — for
+    example, to detect a recorded cleanup run whose stack still matches but whose
+    mode cannot be resumed by a plain close.
+    """
 
     if current_cleanup is not None and close_intent_mode_relation(
         recorded_cleanup=intent.cleanup,
@@ -354,6 +365,10 @@ def intent_is_stale(
     ids = intent.change_ids()
     if not ids:
         return False
+    # "None resolve" rather than "any resolve": an intent remains actionable as
+    # long as at least one of its change IDs still exists locally. A
+    # partially-landed submit (some changes merged, some still local) should
+    # stay visible in status rather than silently disappearing.
     return not any(resolve_change_id(cid) for cid in ids)
 
 
@@ -375,9 +390,14 @@ def retire_superseded_intents(
         if not isinstance(old, type(new_intent)):
             continue
         if isinstance(new_intent, SubmitIntent):
+            # All recorded changes must be present in the new submit: a partial
+            # overlap would leave some recorded changes unaccounted for.
             should_retire = set(old.ordered_change_ids).issubset(new_ids)
         elif isinstance(new_intent, CloseIntent):
             assert isinstance(old, CloseIntent)
+            # Same subset rule as submit, plus mode compatibility: a plain close
+            # does not retire an old cleanup run because the cleanup steps may
+            # still be outstanding.
             should_retire = (
                 close_intent_mode_relation(
                     recorded_cleanup=old.cleanup,
@@ -387,6 +407,11 @@ def retire_superseded_intents(
                 and set(old.ordered_change_ids).issubset(new_ids)
             )
         elif isinstance(new_intent, CleanupRestackIntent):
+            # Any overlap is enough for restack: a later successful restack
+            # implies the shared changes have been rewritten into the new
+            # topology, so the old record is no longer a useful resumption
+            # point. Unlike submit, there is no risk of leaving unaccounted
+            # changes — the restack target is the whole current stack.
             should_retire = bool(set(old.ordered_change_ids) & set(new_ids))
         else:
             result = match_ordered_change_ids(old.ordered_change_ids, new_ids)
