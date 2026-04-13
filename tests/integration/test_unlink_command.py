@@ -39,6 +39,7 @@ def test_unlink_detaches_change_and_preserves_local_bookmark(
     unlinked_change = state_store.load().changes[change_id]
 
     assert exit_code == 0
+    assert "Selected revset:" in captured.out
     assert "Stopped review tracking for" in captured.out
     assert unlinked_change.bookmark == bookmark
     assert unlinked_change.unlinked_at is not None
@@ -51,6 +52,7 @@ def test_unlink_detaches_change_and_preserves_local_bookmark(
     assert JjClient(repo).get_bookmark_state(bookmark).local_target is not None
     assert fake_repo.pull_requests[1].state == "open"
     assert issue_comments(fake_repo, 1) == []
+
 
 def test_unlink_is_idempotent_for_unlinked_change(
     tmp_path: Path,
@@ -72,7 +74,9 @@ def test_unlink_is_idempotent_for_unlinked_change(
     captured = capsys.readouterr()
 
     assert exit_code == 0
+    assert "Selected revset:" in captured.out
     assert "already unlinked from review tracking" in captured.out
+
 
 def test_unlink_rejects_change_without_active_review_link(
     tmp_path: Path,

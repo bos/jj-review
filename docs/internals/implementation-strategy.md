@@ -137,6 +137,9 @@ Recent refactor slices:
   intent file; for non-retractable intents it removes the file and explains what
   manual inspection may be needed; `--dry-run` previews the retraction plan
   without mutating anything
+- `unlink` now routes its user-facing output through the shared Rich-backed
+  `ui` helpers, keeping selected revsets, change IDs, and bookmarks semantic
+  where that improves readability without adding extra abstraction
 - interrupted `submit` state now records ordered commit IDs in addition to
   change IDs, and status/reporting treats that data as recovery metadata rather
   than an instruction to replay the original mutable selector

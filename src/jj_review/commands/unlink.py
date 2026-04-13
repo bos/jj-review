@@ -11,11 +11,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
-from jj_review.formatting import format_revision_label
 from jj_review.models.cache import CachedChange
 from jj_review.review_inspection import prepare_status, stream_status_async
 
@@ -59,23 +59,39 @@ def unlink(
             ),
         )
     )
-    print(f"Selected revset: {result.selected_revset}")
+    ui.output(ui.rich_text(("Selected revset: ", ui.revset(result.selected_revset))))
+    revision_label = t"{result.subject} ({ui.change_id(result.change_id)})"
     if result.already_unlinked:
-        print(
-            f"{format_revision_label(result.subject, result.change_id)} is already "
-            "unlinked from review tracking."
+        ui.output(
+            ui.rich_text(
+                (
+                    revision_label,
+                    " is already unlinked from review tracking.",
+                )
+            )
         )
         return 0
     if result.bookmark is None:
-        print(
-            f"Stopped review tracking for "
-            f"{format_revision_label(result.subject, result.change_id)}."
+        ui.output(
+            ui.rich_text(
+                (
+                    "Stopped review tracking for ",
+                    revision_label,
+                    ".",
+                )
+            )
         )
     else:
-        print(
-            "Stopped review tracking for "
-            f"{format_revision_label(result.subject, result.change_id)}, "
-            f"preserving {result.bookmark}."
+        ui.output(
+            ui.rich_text(
+                (
+                    "Stopped review tracking for ",
+                    revision_label,
+                    ", preserving ",
+                    ui.bookmark(result.bookmark),
+                    ".",
+                )
+            )
         )
     return 0
 
