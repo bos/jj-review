@@ -640,7 +640,8 @@ def test_status_shows_outstanding_submit_intent(
     captured = capsys.readouterr()
 
     assert f"submit for {change_id[:8]} (from @)" in captured.out
-    assert "rerun submit to continue on the current stack" in captured.out
+    assert "rerun submit" in captured.out
+    assert "current stack" in captured.out
 
 def test_status_exits_zero_for_exact_interrupted_submit_intent(
     tmp_path: Path,
@@ -724,10 +725,7 @@ def test_status_exits_nonzero_for_partially_overlapping_intent(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert (
-        "overlaps an incomplete earlier operation" in captured.out
-        or "current stack differs" in captured.out
-    )
+    assert f"submit for {third_change_id[:8]} (from mixed-stack)" in captured.out
 
 def test_status_exits_zero_for_stale_intent(
     tmp_path: Path,

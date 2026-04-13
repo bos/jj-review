@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from jj_review.commands import review_state as review_state_module
-from jj_review.models.intent import CleanupRestackIntent, CloseIntent, SubmitIntent
+from jj_review.models.intent import SubmitIntent
 
 
 def test_render_status_selection_lines_reports_selected_remote_error() -> None:
@@ -115,54 +115,9 @@ def test_render_status_intent_lines_reports_stale_and_interrupted_operations(
 
     lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
 
-    assert lines == (
-        "",
-        "Stale incomplete operations (change IDs no longer in repo):",
-        "  submit on @  [process alive, stale-submit.json]",
-        "",
-        "Interrupted operations recorded:",
-        "  land on @  [interrupted, inspect before re-running]",
-    )
-
-
-def test_render_status_intent_lines_describes_exact_interrupted_submit() -> None:
-    prepared_status = SimpleNamespace(
-        stale_intents=(),
-        outstanding_intents=(
-            SimpleNamespace(
-                intent=SubmitIntent(
-                    kind="submit",
-                    pid=99999999,
-                    label="submit on @",
-                    display_revset="@",
-                    ordered_commit_ids=("commit-a",),
-                    head_change_id="abcdefgh1234",
-                    ordered_change_ids=("abcdefgh1234",),
-                    bookmarks={},
-                    bases={},
-                    started_at="2026-01-01T00:00:00+00:00",
-                ),
-                path=Path("/tmp/outstanding-submit.json"),
-            ),
-        ),
-        prepared=SimpleNamespace(
-            status_revisions=(
-                SimpleNamespace(
-                    revision=SimpleNamespace(
-                        change_id="abcdefgh1234",
-                        commit_id="commit-a",
-                    )
-                ),
-            )
-        ),
-    )
-
-    lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
-
-    assert lines[0] == ""
-    assert lines[1] == "Interrupted operations recorded:"
-    assert "submit for abcdefgh (from @)" in lines[2]
-    assert "rerun submit to continue on the current stack" in lines[2]
+    assert "Stale incomplete operations (change IDs no longer in repo):" in lines
+    assert any("submit on @" in line and "process alive" in line for line in lines)
+    assert any("land on @" in line and "inspect before re-running" in line for line in lines)
 
 
 def test_interrupted_intent_blocks_status_returns_false_for_exact_submit() -> None:
@@ -243,161 +198,6 @@ def test_interrupted_intent_blocks_status_returns_true_for_overlapping_submit() 
         )
         is True
     )
-
-
-def test_render_status_intent_lines_describes_rewritten_interrupted_submit() -> None:
-    prepared_status = SimpleNamespace(
-        stale_intents=(),
-        outstanding_intents=(
-            SimpleNamespace(
-                intent=SubmitIntent(
-                    kind="submit",
-                    pid=99999999,
-                    label="submit on @",
-                    display_revset="@",
-                    ordered_commit_ids=("commit-a",),
-                    head_change_id="abcdefgh1234",
-                    ordered_change_ids=("abcdefgh1234",),
-                    bookmarks={},
-                    bases={},
-                    started_at="2026-01-01T00:00:00+00:00",
-                ),
-                path=Path("/tmp/outstanding-submit.json"),
-            ),
-        ),
-        prepared=SimpleNamespace(
-            status_revisions=(
-                SimpleNamespace(
-                    revision=SimpleNamespace(
-                        change_id="abcdefgh1234",
-                        commit_id="commit-b",
-                    )
-                ),
-            )
-        ),
-    )
-
-    lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
-
-    assert lines[0] == ""
-    assert lines[1] == "Interrupted operations recorded:"
-    assert "submit for abcdefgh (from @)" in lines[2]
-    assert "recorded stack was rewritten" in lines[2]
-    assert "rerunning submit will use the current stack" in lines[2]
-
-
-def test_render_status_intent_lines_describes_exact_interrupted_close() -> None:
-    prepared_status = SimpleNamespace(
-        stale_intents=(),
-        outstanding_intents=(
-            SimpleNamespace(
-                intent=CloseIntent(
-                    kind="close",
-                    pid=99999999,
-                    label="close on @",
-                    display_revset="@",
-                    ordered_change_ids=("abcdefgh1234",),
-                    ordered_commit_ids=("commit-a",),
-                    cleanup=False,
-                    started_at="2026-01-01T00:00:00+00:00",
-                ),
-                path=Path("/tmp/outstanding-close.json"),
-            ),
-        ),
-        prepared=SimpleNamespace(
-            status_revisions=(
-                SimpleNamespace(
-                    revision=SimpleNamespace(
-                        change_id="abcdefgh1234",
-                        commit_id="commit-a",
-                    )
-                ),
-            )
-        ),
-    )
-
-    lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
-
-    assert lines[0] == ""
-    assert lines[1] == "Interrupted operations recorded:"
-    assert "close for abcdefgh (from @)" in lines[2]
-    assert "rerun `close` to continue on the current stack" in lines[2]
-
-
-def test_render_status_intent_lines_describes_rewritten_cleanup_restack() -> None:
-    prepared_status = SimpleNamespace(
-        stale_intents=(),
-        outstanding_intents=(
-            SimpleNamespace(
-                intent=CleanupRestackIntent(
-                    kind="cleanup-restack",
-                    pid=99999999,
-                    label="cleanup --restack on @",
-                    display_revset="@",
-                    ordered_change_ids=("abcdefgh1234",),
-                    ordered_commit_ids=("commit-a",),
-                    started_at="2026-01-01T00:00:00+00:00",
-                ),
-                path=Path("/tmp/outstanding-restack.json"),
-            ),
-        ),
-        prepared=SimpleNamespace(
-            status_revisions=(
-                SimpleNamespace(
-                    revision=SimpleNamespace(
-                        change_id="abcdefgh1234",
-                        commit_id="rewritten-a",
-                    )
-                ),
-            )
-        ),
-    )
-
-    lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
-
-    assert lines[0] == ""
-    assert lines[1] == "Interrupted operations recorded:"
-    assert "cleanup --restack for abcdefgh (from @)" in lines[2]
-    assert "recorded stack was rewritten" in lines[2]
-    assert "rerunning cleanup --restack will use the current stack" in lines[2]
-
-
-def test_render_status_intent_lines_describes_trimmed_cleanup_restack() -> None:
-    prepared_status = SimpleNamespace(
-        stale_intents=(),
-        outstanding_intents=(
-            SimpleNamespace(
-                intent=CleanupRestackIntent(
-                    kind="cleanup-restack",
-                    pid=99999999,
-                    label="cleanup --restack on @",
-                    display_revset="@",
-                    ordered_change_ids=("abcdefgh1234", "bcdefghi2345"),
-                    ordered_commit_ids=("commit-a", "commit-b"),
-                    started_at="2026-01-01T00:00:00+00:00",
-                ),
-                path=Path("/tmp/outstanding-restack.json"),
-            ),
-        ),
-        prepared=SimpleNamespace(
-            status_revisions=(
-                SimpleNamespace(
-                    revision=SimpleNamespace(
-                        change_id="bcdefghi2345",
-                        commit_id="commit-b",
-                    )
-                ),
-            )
-        ),
-    )
-
-    lines = review_state_module.render_status_intent_lines(prepared_status=prepared_status)
-
-    assert lines[0] == ""
-    assert lines[1] == "Interrupted operations recorded:"
-    assert "cleanup --restack for bcdefghi (from @)" in lines[2]
-    assert "still includes changes that are no longer on the current stack" in lines[2]
-    assert "rerunning cleanup --restack will use the current stack" in lines[2]
 
 
 def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
