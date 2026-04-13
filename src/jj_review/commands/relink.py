@@ -12,11 +12,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.errors import CliError
-from jj_review.formatting import format_revision_label, short_change_id
+from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClientError, build_github_client
 from jj_review.github.resolution import (
     require_github_repo,
@@ -70,12 +71,16 @@ def relink(
             ),
         )
     )
-    print(f"Selected revset: {result.selected_revset}")
-    print(f"Selected remote: {result.remote_name}")
-    print(f"GitHub: {result.github_repository}")
-    print(
-        f"Relinked PR #{result.pull_request_number} for "
-        f"{format_revision_label(result.subject, result.change_id)} -> {result.bookmark}"
+    ui.output(
+        ui.rich_text(t"Selected revset: {ui.revset(result.selected_revset)}")
+    )
+    ui.output(ui.rich_text(t"Selected remote: {result.remote_name}"))
+    ui.output(ui.rich_text(t"GitHub: {result.github_repository}"))
+    ui.output(
+        ui.rich_text(
+            t"Relinked PR #{result.pull_request_number} for {result.subject} "
+            t"({ui.change_id(result.change_id)}) -> {ui.bookmark(result.bookmark)}"
+        )
     )
     return 0
 
@@ -187,7 +192,7 @@ async def _run_relink_async(
     )
     stale_intents = check_same_kind_intent(state_dir, intent)
     for loaded in stale_intents:
-        print(f"Warning: a previous relink was interrupted ({loaded.intent.label})")
+        ui.warning(f"A previous relink was interrupted ({loaded.intent.label})")
     intent_path = write_new_intent(state_dir, intent)
 
     relink_succeeded = False
