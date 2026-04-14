@@ -217,13 +217,19 @@ async def _run_import_async(
             "`import` cannot proceed because the current stack has no matching "
             "remote pull request."
         )
-    ui.note("Inspecting GitHub pull requests and branches...")
-    status_result = await stream_status_async(
-        persist_cache_updates=False,
-        prepared_status=prepared_status,
-        on_github_status=None,
-        on_revision=None,
+    github_repository = getattr(prepared_status, "github_repository", None)
+    progress_total = (
+        len(prepared_status.prepared.status_revisions)
+        if github_repository is not None
+        else 0
     )
+    with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
+        status_result = await stream_status_async(
+            persist_cache_updates=False,
+            prepared_status=prepared_status,
+            on_github_status=None,
+            on_revision=lambda _revision, _github_available: progress.advance(),
+        )
     _ensure_selected_head_has_pull_request(
         prepared_status=prepared_status,
         status_result=status_result,

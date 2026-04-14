@@ -253,10 +253,19 @@ def stream_close(
 ) -> CloseResult:
     """Inspect GitHub state for prepared close inputs and optionally stream actions."""
 
-    status_result = stream_status(
-        persist_cache_updates=False,
-        prepared_status=prepared_close.prepared_status,
+    prepared_status = prepared_close.prepared_status
+    github_repository = getattr(prepared_status, "github_repository", None)
+    progress_total = (
+        len(prepared_status.prepared.status_revisions)
+        if github_repository is not None
+        else 0
     )
+    with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
+        status_result = stream_status(
+            persist_cache_updates=False,
+            on_revision=lambda _revision, _github_available: progress.advance(),
+            prepared_status=prepared_status,
+        )
     return asyncio.run(
         _stream_close_async(
             on_action=on_action,
@@ -320,14 +329,20 @@ async def _stream_close_async(
         )
 
         async with build_github_client(base_url=github_repository.api_base_url) as github_client:
-            blocked = await _process_close_revisions(
-                execution_state=execution_state,
-                github_client=github_client,
-                github_repository=github_repository,
-                prepared_close=prepared_close,
-                recorder=recorder,
-                revisions=status_result.revisions,
-            )
+            progress_total = len(status_result.revisions) if on_action is None else 0
+            with ui.progress(
+                description="Processing close actions",
+                total=progress_total,
+            ) as progress:
+                blocked = await _process_close_revisions(
+                    execution_state=execution_state,
+                    github_client=github_client,
+                    github_repository=github_repository,
+                    on_revision_complete=progress.advance,
+                    prepared_close=prepared_close,
+                    recorder=recorder,
+                    revisions=status_result.revisions,
+                )
 
         _save_close_progress(
             execution_state=execution_state,
@@ -496,6 +511,7 @@ async def _process_close_revisions(
     execution_state: _CloseExecutionState,
     github_client: GithubClient,
     github_repository,
+    on_revision_complete: Callable[[], None] | None,
     prepared_close: PreparedClose,
     recorder: _CloseActionRecorder,
     revisions,
@@ -513,6 +529,8 @@ async def _process_close_revisions(
             record_action=recorder.record,
             revision=revision,
         )
+        if on_revision_complete is not None:
+            on_revision_complete()
         if should_stop:
             return True
     return False

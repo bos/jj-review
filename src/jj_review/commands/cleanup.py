@@ -536,7 +536,18 @@ def stream_restack(
 ) -> RestackResult:
     """Inspect and optionally execute a local restack plan after merged changes."""
 
-    status_result = stream_status(prepared_status=prepared_restack.prepared_status)
+    prepared_status = prepared_restack.prepared_status
+    github_repository = getattr(prepared_status, "github_repository", None)
+    progress_total = (
+        len(prepared_status.prepared.status_revisions)
+        if github_repository is not None
+        else 0
+    )
+    with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
+        status_result = stream_status(
+            on_revision=lambda _revision, _github_available: progress.advance(),
+            prepared_status=prepared_status,
+        )
     prepared_status = prepared_restack.prepared_status
     prepared = prepared_status.prepared
     path_revisions = _resolve_restack_path_revisions(
@@ -1325,16 +1336,21 @@ async def _run_stack_comment_cleanup_pass(
         for prepared_change in prepared_changes
         if prepared_change.inspect_stack_comment
     )
-    comment_plans = await run_bounded_tasks(
-        concurrency=_GITHUB_INSPECTION_CONCURRENCY,
-        items=stack_comment_changes,
-        run_item=lambda prepared_change: _plan_stack_comment_cleanup(
-            cached_change=prepared_change.cached_change,
-            bookmark_state=prepared_change.bookmark_state,
-            github_client=github_client,
-            github_repository=github_repository,
-        ),
-    )
+    with ui.progress(
+        description="Inspecting stack comments",
+        total=len(stack_comment_changes),
+    ) as progress:
+        comment_plans = await run_bounded_tasks(
+            concurrency=_GITHUB_INSPECTION_CONCURRENCY,
+            items=stack_comment_changes,
+            run_item=lambda prepared_change: _plan_stack_comment_cleanup(
+                cached_change=prepared_change.cached_change,
+                bookmark_state=prepared_change.bookmark_state,
+                github_client=github_client,
+                github_repository=github_repository,
+            ),
+            on_success=lambda _index, _result: progress.advance(),
+        )
     for prepared_change, comment_plan in zip(
         stack_comment_changes,
         comment_plans,

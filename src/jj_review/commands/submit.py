@@ -865,34 +865,48 @@ async def _run_submit_async(
                 prepared_revisions=prepared_revisions,
                 remote=remote,
             )
-            submitted_revisions = await _sync_pull_requests(
-                draft_mode=draft_mode,
-                dry_run=dry_run,
-                github_client=github_client,
-                github_repository=github_repository,
-                prepared_revisions=prepared_revisions,
-                discovered_pull_requests=discovered_pull_requests,
-                labels=resolved_labels,
-                reviewers=resolved_reviewers,
-                state=bookmark_result.state,
-                state_changes=state_changes,
-                state_store=state_store,
-                team_reviewers=resolved_team_reviewers,
-                trunk_branch=trunk_branch,
-                generated_descriptions=prepared_inputs.generated_pull_request_descriptions,
-            )
+            with ui.progress(
+                description="Syncing pull requests",
+                total=len(prepared_revisions),
+            ) as progress:
+                submitted_revisions = await _sync_pull_requests(
+                    draft_mode=draft_mode,
+                    dry_run=dry_run,
+                    github_client=github_client,
+                    github_repository=github_repository,
+                    prepared_revisions=prepared_revisions,
+                    discovered_pull_requests=discovered_pull_requests,
+                    labels=resolved_labels,
+                    on_progress=progress.advance,
+                    reviewers=resolved_reviewers,
+                    state=bookmark_result.state,
+                    state_changes=state_changes,
+                    state_store=state_store,
+                    team_reviewers=resolved_team_reviewers,
+                    trunk_branch=trunk_branch,
+                    generated_descriptions=prepared_inputs.generated_pull_request_descriptions,
+                )
 
-            await _sync_stack_comments(
-                dry_run=dry_run,
-                generated_stack_description=prepared_inputs.generated_stack_description,
-                github_client=github_client,
-                github_repository=github_repository,
-                revisions=submitted_revisions,
-                state=bookmark_result.state,
-                state_changes=state_changes,
-                state_store=state_store,
-                trunk_branch=trunk_branch,
-            )
+            with ui.progress(
+                description="Syncing stack comments",
+                total=sum(
+                    1
+                    for revision in submitted_revisions
+                    if revision.pull_request_number is not None
+                ),
+            ) as progress:
+                await _sync_stack_comments(
+                    dry_run=dry_run,
+                    generated_stack_description=prepared_inputs.generated_stack_description,
+                    github_client=github_client,
+                    github_repository=github_repository,
+                    on_progress=progress.advance,
+                    revisions=submitted_revisions,
+                    state=bookmark_result.state,
+                    state_changes=state_changes,
+                    state_store=state_store,
+                    trunk_branch=trunk_branch,
+                )
 
         if not dry_run:
             next_state = bookmark_result.state.model_copy(update={"changes": state_changes})
@@ -1326,6 +1340,7 @@ async def _sync_pull_requests(
     state_store: ReviewStateStore,
     team_reviewers: list[str],
     trunk_branch: str,
+    on_progress: Callable[[], None] | None = None,
 ) -> tuple[SubmittedRevision, ...]:
     pending = tuple(
         PendingPullRequestSync(
@@ -1336,6 +1351,18 @@ async def _sync_pull_requests(
         )
         for index, prepared_revision in enumerate(prepared_revisions)
     )
+
+    def handle_success(_index: int, submitted: SubmittedPullRequestSync) -> None:
+        _record_pull_request_success(
+            dry_run=dry_run,
+            state=state,
+            state_changes=state_changes,
+            state_store=state_store,
+            submitted=submitted,
+        )
+        if on_progress is not None:
+            on_progress()
+
     submitted_revisions = await run_bounded_tasks(
         concurrency=_GITHUB_INSPECTION_CONCURRENCY,
         items=pending,
@@ -1350,13 +1377,7 @@ async def _sync_pull_requests(
             state=state,
             team_reviewers=team_reviewers,
         ),
-        on_success=lambda _index, submitted: _record_pull_request_success(
-            dry_run=dry_run,
-            state=state,
-            state_changes=state_changes,
-            state_store=state_store,
-            submitted=submitted,
-        ),
+        on_success=handle_success,
     )
     return tuple(submitted.submitted_revision for submitted in submitted_revisions)
 
@@ -1775,6 +1796,7 @@ async def _sync_stack_comments(
     state_changes: dict[str, CachedChange],
     state_store: ReviewStateStore,
     trunk_branch: str,
+    on_progress: Callable[[], None] | None = None,
 ) -> None:
     if not revisions:
         return
@@ -1809,6 +1831,18 @@ async def _sync_stack_comments(
         )
     if not pending:
         return
+
+    def handle_success(_index: int, result: tuple[str, CachedChange]) -> None:
+        _record_stack_comment_success(
+            dry_run=dry_run,
+            result=result,
+            state=state,
+            state_changes=state_changes,
+            state_store=state_store,
+        )
+        if on_progress is not None:
+            on_progress()
+
     await run_bounded_tasks(
         concurrency=_GITHUB_INSPECTION_CONCURRENCY,
         items=tuple(pending),
@@ -1818,13 +1852,7 @@ async def _sync_stack_comments(
             github_repository=github_repository,
             pending_sync=pending_sync,
         ),
-        on_success=lambda _index, result: _record_stack_comment_success(
-            dry_run=dry_run,
-            result=result,
-            state=state,
-            state_changes=state_changes,
-            state_store=state_store,
-        ),
+        on_success=handle_success,
     )
 
 

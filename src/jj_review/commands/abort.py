@@ -338,20 +338,25 @@ async def _abort_submit(
         async with build_github_client(
             base_url=github_repository.api_base_url
         ) as github_client:
-            for change_id in intent.ordered_change_ids:
-                ok = await _retract_one_change(
-                    actions=actions,
-                    bookmark=intent.bookmarks.get(change_id),
-                    cached=state.changes.get(change_id),
-                    change_id=change_id,
-                    dry_run=dry_run,
-                    github_client=github_client,
-                    github_repository=github_repository,
-                    jj_client=jj_client,
-                    next_changes=next_changes,
-                    remote_name=remote_name,
-                )
-                per_change_ok.append(ok)
+            with ui.progress(
+                description="Retracting submitted changes",
+                total=len(intent.ordered_change_ids),
+            ) as progress:
+                for change_id in intent.ordered_change_ids:
+                    ok = await _retract_one_change(
+                        actions=actions,
+                        bookmark=intent.bookmarks.get(change_id),
+                        cached=state.changes.get(change_id),
+                        change_id=change_id,
+                        dry_run=dry_run,
+                        github_client=github_client,
+                        github_repository=github_repository,
+                        jj_client=jj_client,
+                        next_changes=next_changes,
+                        remote_name=remote_name,
+                    )
+                    per_change_ok.append(ok)
+                    progress.advance()
     else:
         # GitHub unreachable — do local cleanup only.
         for change_id in intent.ordered_change_ids:
