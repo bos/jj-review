@@ -317,12 +317,15 @@ def build_parser() -> ArgumentParser:
             bypass_readiness=args.bypass_readiness,
             config_path=args.config,
             debug=args.debug,
-            expect_pr=args.expect_pr,
+            pull_request=args.pull_request,
             repository=args.repository,
             revset=args.revset,
             skip_cleanup=args.skip_cleanup,
         ),
-        revset_help="Revision to land; defaults to @- (the current stack head)",
+        revset_help=(
+            "Revision to land; defaults to @- (the current stack head); "
+            "cannot be combined with --pull-request"
+        ),
     )
     land_parser.add_argument(
         "--dry-run",
@@ -330,8 +333,8 @@ def build_parser() -> ArgumentParser:
         help="Print the landing plan without mutating jj or GitHub state",
     )
     land_parser.add_argument(
-        "--expect-pr",
-        help="Assert that the changes that can be landed now end at this pull request",
+        "--pull-request",
+        help="Select the local change linked to this pull request number or URL",
     )
     land_parser.add_argument(
         "--bypass-readiness",

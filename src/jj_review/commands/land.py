@@ -7,6 +7,9 @@ those checks while still enforcing the normal safety checks.
 By default, this command performs the landing. Use `--dry-run` to inspect the
 landing plan without mutating jj or GitHub state.
 
+Use `--pull-request` to select the linked local change by pull request number
+or URL and land the consecutive ready prefix through that change.
+
 After a successful land, `jj-review` forgets the local `review/...` bookmarks
 for the changes that actually landed when those bookmarks still point at the
 landed commits. Use `--skip-cleanup` to keep those local review bookmarks.
@@ -28,13 +31,16 @@ from typing import Literal, Protocol
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
+from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
+    parse_github_repo,
     resolve_trunk_branch,
+    select_submit_remote,
 )
 from jj_review.intent import (
     check_same_kind_intent,
@@ -44,11 +50,15 @@ from jj_review.intent import (
     save_intent,
     write_new_intent,
 )
+from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubPullRequest
 from jj_review.models.intent import LandIntent, LoadedIntent
-from jj_review.pull_request_references import parse_repository_pull_request_reference
+from jj_review.pull_request_references import (
+    parse_pull_request_number,
+    parse_repository_pull_request_reference,
+)
 from jj_review.review_inspection import (
     PreparedRevision,
     PreparedStatus,
@@ -87,7 +97,6 @@ class LandResult:
     applied: bool
     bypass_readiness: bool
     blocked: bool
-    expect_pr_number: int | None
     github_repository: str
     remote_name: str
     selected_revset: str
@@ -104,8 +113,8 @@ class PreparedLand:
     dry_run: bool
     bypass_readiness: bool
     config: RepoConfig
-    expect_pr_number: int | None
     prepared_status: PreparedStatus
+    selected_pr_number: int | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,7 +198,7 @@ def land(
     config_path: Path | None,
     debug: bool,
     dry_run: bool,
-    expect_pr: str | None,
+    pull_request: str | None,
     repository: Path | None,
     revset: str | None,
     skip_cleanup: bool,
@@ -201,24 +210,128 @@ def land(
         config_path=config_path,
         debug=debug,
     )
+    if pull_request is not None:
+        pull_request_number, resolved_revset = _resolve_land_revset_for_pull_request(
+            pull_request_reference=pull_request,
+            repo_root=context.repo_root,
+            revset=revset,
+        )
+        ui.note(f"Using PR #{pull_request_number} -> {resolved_revset}")
+    else:
+        pull_request_number = None
+        resolved_revset = resolve_selected_revset(
+            command_label="land",
+            default_revset="@-",
+            require_explicit=False,
+            revset=revset,
+        )
     prepared_land = prepare_land(
         cleanup_bookmarks=not skip_cleanup,
         dry_run=dry_run,
         bypass_readiness=bypass_readiness,
         change_overrides=context.config.change,
         config=context.config.repo,
-        expect_pr_reference=expect_pr,
         repo_root=context.repo_root,
-        revset=resolve_selected_revset(
-            command_label="land",
-            default_revset="@-",
-            require_explicit=False,
-            revset=revset,
-        ),
+        revset=resolved_revset,
+        selected_pr_number=pull_request_number,
     )
     result = stream_land(prepared_land=prepared_land)
     _print_land_result(result)
     return 1 if result.blocked else 0
+
+
+def _resolve_land_revset_for_pull_request(
+    *,
+    pull_request_reference: str,
+    repo_root: Path,
+    revset: str | None,
+) -> tuple[int, str]:
+    """Resolve `--pull-request` to one linked visible local change ID."""
+
+    if revset is not None:
+        raise CliError("Use either `<revset>` or `--pull-request`, not both.")
+
+    pull_request_number = _parse_land_pull_request_number(
+        pull_request_reference=pull_request_reference,
+        repo_root=repo_root,
+    )
+    state = ReviewStateStore.for_repo(repo_root).load()
+    matching_change_ids = [
+        change_id
+        for change_id, cached_change in state.changes.items()
+        if cached_change.link_state == "active"
+        and cached_change.pr_number == pull_request_number
+    ]
+    if not matching_change_ids:
+        raise CliError(
+            f"PR #{pull_request_number} is not linked to any local change. "
+            "Use a revision instead, or import or relink it first."
+        )
+    if len(matching_change_ids) > 1:
+        raise CliError(
+            f"PR #{pull_request_number} is linked to multiple local changes. "
+            "Land by explicit revision after repairing the links."
+        )
+
+    change_id = matching_change_ids[0]
+    visible_revisions = JjClient(repo_root).query_revisions_by_change_ids((change_id,)).get(
+        change_id,
+        (),
+    )
+    if not visible_revisions:
+        raise CliError(
+            f"PR #{pull_request_number} is linked to local change {change_id}, "
+            "but that change is not visible. Land by revision once it is visible again."
+        )
+    if len(visible_revisions) > 1:
+        raise CliError(
+            f"PR #{pull_request_number} is linked to local change {change_id}, "
+            "but that change is divergent. Land by explicit revision after resolving it."
+        )
+    return pull_request_number, change_id
+
+
+def _parse_land_pull_request_number(
+    *,
+    pull_request_reference: str,
+    repo_root: Path,
+) -> int:
+    """Resolve a land PR selector as a pull request number for this repo."""
+
+    pull_request_number = parse_pull_request_number(pull_request_reference)
+    if pull_request_number is not None:
+        return pull_request_number
+
+    remotes = JjClient(repo_root).list_git_remotes()
+    try:
+        remote = select_submit_remote(remotes)
+    except CliError as error:
+        raise CliError(
+            "Could not determine the GitHub repository for `--pull-request`; "
+            "use a pull request number or fix the selected remote."
+        ) from error
+    github_repository = parse_github_repo(remote)
+    if github_repository is None:
+        raise CliError(
+            "Could not determine the GitHub repository for `--pull-request`; "
+            "use a pull request number or fix the selected remote."
+        )
+
+    return parse_repository_pull_request_reference(
+        reference=pull_request_reference,
+        github_repository=github_repository,
+        invalid_reference_message=(
+            f"`--pull-request` must be a pull request number or a URL for "
+            f"{github_repository.full_name}."
+        ),
+        wrong_host_message=(
+            f"`--pull-request` must be a pull request number or a URL for "
+            f"{github_repository.full_name}."
+        ),
+        wrong_repository_message=(
+            f"`--pull-request` does not belong to {github_repository.full_name}."
+        ),
+    )
 
 
 def _print_land_result(result: LandResult) -> None:
@@ -278,9 +391,9 @@ def prepare_land(
     bypass_readiness: bool,
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
-    expect_pr_reference: str | None,
     repo_root: Path,
     revset: str | None,
+    selected_pr_number: int | None,
 ) -> PreparedLand:
     """Resolve local landing inputs before GitHub planning and execution."""
 
@@ -299,25 +412,6 @@ def prepare_land(
         message = prepared_status.github_repository_error or "Could not resolve GitHub target."
         raise CliError(message)
 
-    expect_pr_number = None
-    if expect_pr_reference is not None:
-        expect_pr_number = parse_repository_pull_request_reference(
-            reference=expect_pr_reference,
-            github_repository=prepared_status.github_repository,
-            invalid_reference_message=(
-                f"`--expect-pr` must be a pull request number or a URL for "
-                f"{prepared_status.github_repository.full_name}."
-            ),
-            wrong_host_message=(
-                f"`--expect-pr` must be a pull request number or a URL for "
-                f"{prepared_status.github_repository.full_name}."
-            ),
-            wrong_repository_message=(
-                f"`--expect-pr` must be a pull request number or a URL for "
-                f"{prepared_status.github_repository.full_name}."
-            ),
-        )
-
     if not dry_run:
         prepared.state_store.require_writable()
     return PreparedLand(
@@ -325,8 +419,8 @@ def prepare_land(
         dry_run=dry_run,
         bypass_readiness=bypass_readiness,
         config=config,
-        expect_pr_number=expect_pr_number,
         prepared_status=prepared_status,
+        selected_pr_number=selected_pr_number,
     )
 
 
@@ -395,7 +489,6 @@ async def _stream_land_async(
         )
         plan = _build_land_plan(
             bypass_readiness=prepared_land.bypass_readiness,
-            expect_pr_number=prepared_land.expect_pr_number,
             prepared_status=prepared_status,
             status_result=status_result,
             trunk_branch=trunk_branch,
@@ -419,7 +512,6 @@ async def _stream_land_async(
                 applied=False,
                 bypass_readiness=prepared_land.bypass_readiness,
                 blocked=plan.blocked,
-                expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=None if plan.blocked else follow_up,
                 github_repository=github_repository.full_name,
                 remote_name=remote.name,
@@ -450,7 +542,6 @@ async def _stream_land_async(
                 applied=False,
                 bypass_readiness=prepared_land.bypass_readiness,
                 blocked=True,
-                expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=None,
                 github_repository=github_repository.full_name,
                 remote_name=remote.name,
@@ -467,9 +558,9 @@ async def _stream_land_async(
             else _build_land_intent(
                 bypass_readiness=prepared_land.bypass_readiness,
                 cleanup_bookmarks=prepared_land.cleanup_bookmarks,
-                expect_pr_number=prepared_land.expect_pr_number,
                 landed_revisions=execution_plan.landed_revisions,
                 prepared_status=prepared_status,
+                selected_pr_number=prepared_land.selected_pr_number,
                 trunk_branch=trunk_branch,
             )
         )
@@ -575,7 +666,6 @@ async def _stream_land_async(
                 applied=True,
                 bypass_readiness=prepared_land.bypass_readiness,
                 blocked=False,
-                expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=follow_up,
                 github_repository=github_repository.full_name,
                 remote_name=remote.name,
@@ -611,9 +701,9 @@ def _prepare_land_execution_state(
         _build_land_intent(
             bypass_readiness=prepared_land.bypass_readiness,
             cleanup_bookmarks=prepared_land.cleanup_bookmarks,
-            expect_pr_number=prepared_land.expect_pr_number,
             landed_revisions=plan.landed_revisions,
             prepared_status=prepared_status,
+            selected_pr_number=prepared_land.selected_pr_number,
             trunk_branch=trunk_branch,
         ),
     )
@@ -621,8 +711,8 @@ def _prepare_land_execution_state(
         bypass_readiness=prepared_land.bypass_readiness,
         cleanup_bookmarks=prepared_land.cleanup_bookmarks,
         current_landed_change_ids=current_landed_change_ids,
-        expect_pr_number=prepared_land.expect_pr_number,
         prepared_status=prepared_status,
+        selected_pr_number=prepared_land.selected_pr_number,
         stale_intents=stale_intents,
         trunk_branch=trunk_branch,
     )
@@ -670,7 +760,6 @@ def _prepare_land_execution_state(
                 applied=True,
                 bypass_readiness=prepared_land.bypass_readiness,
                 blocked=False,
-                expect_pr_number=prepared_land.expect_pr_number,
                 follow_up=follow_up,
                 github_repository=github_repository.full_name,
                 remote_name=remote_name,
@@ -756,7 +845,6 @@ def _report_stale_land_intents(
 def _build_land_plan(
     *,
     bypass_readiness: bool,
-    expect_pr_number: int | None,
     prepared_status: PreparedStatus,
     status_result: StatusResult,
     trunk_branch: str,
@@ -769,24 +857,6 @@ def _build_land_plan(
         bypass_readiness=bypass_readiness,
         path_revisions=path_revisions,
     )
-
-    if expect_pr_number is not None:
-        actual_pr_number = landed_revisions[-1].pull_request_number if landed_revisions else None
-        if actual_pr_number != expect_pr_number:
-            return _LandPlan(
-                blocked=True,
-                boundary_action=LandAction(
-                    kind="guardrail",
-                    body=(
-                        f"`--expect-pr {expect_pr_number}` did not match the selected changes "
-                        f"that can be landed now on {trunk_branch}."
-                    ),
-                    status="blocked",
-                ),
-                landed_revisions=tuple(landed_revisions),
-                push_trunk=True,
-                trunk_branch=trunk_branch,
-            )
 
     if not landed_revisions and boundary_action is None:
         boundary_action = LandAction(
@@ -994,8 +1064,8 @@ def _find_resume_land_intent(
     bypass_readiness: bool,
     cleanup_bookmarks: bool,
     current_landed_change_ids: tuple[str, ...],
-    expect_pr_number: int | None,
     prepared_status: PreparedStatus,
+    selected_pr_number: int | None,
     stale_intents: Sequence[LoadedIntent],
     trunk_branch: str,
 ) -> _ResumeLandIntent | None:
@@ -1018,7 +1088,7 @@ def _find_resume_land_intent(
             continue
         if intent.cleanup_bookmarks != cleanup_bookmarks:
             continue
-        if intent.expected_pr_number != expect_pr_number or intent.trunk_branch != trunk_branch:
+        if intent.selected_pr_number != selected_pr_number or intent.trunk_branch != trunk_branch:
             continue
         if (
             intent.ordered_change_ids == current_change_ids
@@ -1337,9 +1407,9 @@ def _build_land_intent(
     *,
     bypass_readiness: bool,
     cleanup_bookmarks: bool,
-    expect_pr_number: int | None,
     landed_revisions: tuple[_LandRevision, ...],
     prepared_status: PreparedStatus,
+    selected_pr_number: int | None,
     trunk_branch: str,
 ) -> LandIntent:
     ordered_change_ids = tuple(
@@ -1378,7 +1448,7 @@ def _build_land_intent(
         trunk_branch=trunk_branch,
         trunk_commit_id=prepared_status.prepared.stack.trunk.commit_id,
         landed_commit_id=landed_commit_id,
-        expected_pr_number=expect_pr_number,
+        selected_pr_number=selected_pr_number,
         started_at=datetime.now(UTC).isoformat(),
     )
 

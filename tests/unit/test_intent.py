@@ -143,7 +143,7 @@ def _make_land_intent(
         trunk_branch="main",
         trunk_commit_id="trunk-commit",
         landed_commit_id="landed-commit",
-        expected_pr_number=2,
+        selected_pr_number=2,
         started_at="2026-01-01T00:00:00+00:00",
     )
 

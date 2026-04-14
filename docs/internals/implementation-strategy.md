@@ -128,6 +128,9 @@ Recent refactor slices:
 - `land` now renders its summary lines, resume notices, and action rows
   through the shared Rich-backed `ui` helpers, with inline semantic labels for
   bookmarks, change IDs, and revsets.
+- `land` now accepts `--pull-request` as an alternate selector for the linked
+  local change, so operators can land the consecutive ready prefix through a
+  chosen PR instead of relying only on revset selection.
 - `submit` now prepares local stack inputs, resumable intent state, and
   per-revision bookmark push plans through separate helpers before touching
   GitHub.
@@ -1154,10 +1157,10 @@ protection, and partial-stack semantics materially expand the product surface.
 
 The CLI contract should stay consistent with the rest of the tool:
 
-- `jj review land [--dry-run] [--expect-pr <pr>] [<revset>]`
+- `jj review land [--dry-run] [--pull-request <pr> | <revset>]`
 - mutate by default, with `--dry-run` available for inspection
-- local-path-first target selection, with `--expect-pr` acting only as an
-  optional guardrail that the operator is landing the intended review
+- local-path-first target selection, with `--pull-request` as an alternate way
+  to select the linked local change that defines the landing head
 
 The first implementation decision must be the landing unit. The design doc now
 defines that as the consecutive changes from `trunk()` that can be landed now.

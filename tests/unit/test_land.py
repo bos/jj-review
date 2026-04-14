@@ -80,7 +80,6 @@ def test_build_land_plan_uses_maximal_ready_prefix() -> None:
 
     plan = _build_land_plan(
         bypass_readiness=False,
-        expect_pr_number=None,
         prepared_status=prepared_status,
         status_result=status_result,
         trunk_branch="main",
@@ -91,48 +90,6 @@ def test_build_land_plan_uses_maximal_ready_prefix() -> None:
     assert plan.boundary_action is not None
     assert plan.boundary_action.status == "planned"
     assert "stop before feature 3" in plan.boundary_action.message
-
-
-def test_build_land_plan_blocks_expect_pr_mismatch() -> None:
-    prepared_status = cast(
-        PreparedStatus,
-        SimpleNamespace(
-            prepared=SimpleNamespace(
-                status_revisions=(
-                    SimpleNamespace(
-                        revision=SimpleNamespace(change_id="change-1", commit_id="commit-1")
-                    ),
-                )
-            )
-        ),
-    )
-    status_result = cast(
-        StatusResult,
-        SimpleNamespace(
-            revisions=(
-                _status_revision(
-                    change_id="change-1",
-                    commit_id="commit-1",
-                    pull_request=_pull_request(number=7),
-                    pull_request_state="open",
-                    subject="feature 1",
-                ),
-            )
-        ),
-    )
-
-    plan = _build_land_plan(
-        bypass_readiness=False,
-        expect_pr_number=9,
-        prepared_status=prepared_status,
-        status_result=status_result,
-        trunk_branch="main",
-    )
-
-    assert plan.blocked is True
-    assert plan.boundary_action is not None
-    assert "`--expect-pr 9`" in plan.boundary_action.message
-
 
 @pytest.mark.parametrize(
     ("bypass_readiness", "revision_factory", "expected_message"),
@@ -220,7 +177,6 @@ def test_build_land_plan_blocks_unready_boundary_changes(
 
     plan = _build_land_plan(
         bypass_readiness=bypass_readiness,
-        expect_pr_number=None,
         prepared_status=prepared_status,
         status_result=status_result,
         trunk_branch="main",
@@ -264,7 +220,6 @@ def test_build_land_plan_bypass_readiness_uses_maximal_open_prefix() -> None:
 
     plan = _build_land_plan(
         bypass_readiness=True,
-        expect_pr_number=None,
         prepared_status=prepared_status,
         status_result=status_result,
         trunk_branch="main",
@@ -316,8 +271,8 @@ def test_find_resume_land_intent_matches_exact_path() -> None:
         bypass_readiness=False,
         cleanup_bookmarks=True,
         current_landed_change_ids=("change-1",),
-        expect_pr_number=None,
         prepared_status=prepared_status,
+        selected_pr_number=None,
         stale_intents=(loaded_intent,),
         trunk_branch="main",
     )
@@ -341,8 +296,8 @@ def test_find_resume_land_intent_matches_tail_after_landed_prefix() -> None:
         bypass_readiness=False,
         cleanup_bookmarks=True,
         current_landed_change_ids=("change-2", "change-3"),
-        expect_pr_number=None,
         prepared_status=prepared_status,
+        selected_pr_number=None,
         stale_intents=(loaded_intent,),
         trunk_branch="main",
     )
@@ -357,7 +312,7 @@ def test_find_resume_land_intent_returns_none_for_mismatch() -> None:
         ordered_change_ids=("change-1", "change-2"),
         ordered_commit_ids=("commit-1", "commit-2"),
         landed_change_ids=("change-1",),
-        expected_pr_number=7,
+        selected_pr_number=7,
         trunk_branch="main",
     )
 
@@ -365,8 +320,8 @@ def test_find_resume_land_intent_returns_none_for_mismatch() -> None:
         bypass_readiness=False,
         cleanup_bookmarks=True,
         current_landed_change_ids=("change-1",),
-        expect_pr_number=9,
         prepared_status=prepared_status,
+        selected_pr_number=9,
         stale_intents=(loaded_intent,),
         trunk_branch="main",
     )
@@ -387,8 +342,8 @@ def test_find_resume_land_intent_returns_none_for_cleanup_mode_mismatch() -> Non
         bypass_readiness=False,
         cleanup_bookmarks=True,
         current_landed_change_ids=("change-1",),
-        expect_pr_number=None,
         prepared_status=prepared_status,
+        selected_pr_number=None,
         stale_intents=(loaded_intent,),
         trunk_branch="main",
     )
@@ -723,7 +678,7 @@ def _loaded_land_intent(
     ordered_commit_ids: tuple[str, ...],
     landed_change_ids: tuple[str, ...],
     completed_change_ids: tuple[str, ...] = (),
-    expected_pr_number: int | None = None,
+    selected_pr_number: int | None = None,
     trunk_branch: str = "main",
 ) -> LoadedIntent:
     return LoadedIntent(
@@ -762,7 +717,7 @@ def _loaded_land_intent(
             landed_commit_id=ordered_commit_ids[len(landed_change_ids) - 1]
             if landed_change_ids
             else "trunk-commit",
-            expected_pr_number=expected_pr_number,
+            selected_pr_number=selected_pr_number,
             started_at="2026-03-22T12:00:00Z",
         ),
     )

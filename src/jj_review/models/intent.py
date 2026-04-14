@@ -83,7 +83,7 @@ class LandIntent(OrderedChangeIdsIntent):
     trunk_branch: str
     trunk_commit_id: str
     landed_commit_id: str
-    expected_pr_number: int | None = None
+    selected_pr_number: int | None = None
 
 
 IntentFile: TypeAlias = Annotated[

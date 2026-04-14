@@ -89,6 +89,12 @@ If you want to inspect the landing plan first:
 jj-review land --dry-run
 ```
 
+If you want to land only the ready prefix up through one specific pull request:
+
+```bash
+jj-review land --pull-request 7
+```
+
 By default, a successful `land` also forgets the local `review/...` bookmarks
 for the changes that actually landed. Use `--skip-cleanup` if you want to keep
 those local review bookmarks.

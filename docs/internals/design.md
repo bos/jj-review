@@ -778,7 +778,7 @@ The tool can stay small. A reasonable surface would be:
 - `jj review close [--cleanup] [--dry-run] [--pull-request <pr> | <revset>]`
 - `jj review cleanup [--restack] [--dry-run] [<revset>]`
 - `jj review import [--fetch] [--pull-request <pr> | --revset <revset>]`
-- `jj review land [--dry-run] [--expect-pr <pr>] [<revset>]`
+- `jj review land [--dry-run] [--pull-request <pr> | <revset>]`
 - `jj review abort [--dry-run]`
 - `jj review completion <bash|zsh|fish>`
 
@@ -1008,9 +1008,9 @@ Its default UX should be mutate-by-default, with inspection still available:
   follow-up bookkeeping it can already prove safe
 - with `--dry-run`, it prints the landing plan, the landable change, the
   target trunk, and any exact follow-up bookkeeping it can already prove safe
-- `--expect-pr <pr>` is an optional guardrail, not the primary selector; it
-  asserts that the selected local stack still corresponds to the PR the
-  operator intended to land
+- `--pull-request <pr>` is an alternate selector for the linked local change;
+  `land` should then consider the consecutive path from `trunk()` through that
+  selected change, not just the one PR in isolation
 
 The landing unit should be one precise thing: the consecutive changes from
 `trunk()` that can be landed now.

@@ -170,30 +170,42 @@ def test_land_blocks_unapproved_prefix_by_default(
     assert "PR #1 is not approved" in captured.out
 
 
-def test_land_blocks_expect_pr_mismatch_without_mutating_state(
+def test_land_pull_request_selects_the_landed_prefix(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
+    for index in range(3):
+        commit_file(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
 
     assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
-    approve_pull_requests(fake_repo, 1)
+    approve_pull_requests(fake_repo, 1, 2, 3)
 
     stack = JjClient(repo).discover_review_stack()
-    trunk_commit_id = stack.trunk.commit_id
+    state_store = ReviewStateStore.for_repo(repo)
+    submitted_state = state_store.load()
+    change_id_2 = stack.revisions[1].change_id
+    change_id_3 = stack.revisions[2].change_id
+    bookmark_3 = submitted_state.changes[change_id_3].bookmark
+    if bookmark_3 is None:
+        raise AssertionError("Expected saved bookmark for feature 3 after submit.")
 
-    exit_code = run_main(repo, config_path, "land", "--expect-pr", "2")
+    exit_code = run_main(repo, config_path, "land", "--pull-request", "2")
     captured = capsys.readouterr()
+    rendered = _squash_whitespace(captured.out)
 
-    assert exit_code == 1
-    assert "Land blocked:" in captured.out
-    assert "`--expect-pr 2` did not match" in captured.out
-    assert fake_repo.pull_requests[1].state == "open"
-    assert read_remote_ref(fake_repo.git_dir, "main") == trunk_commit_id
+    assert exit_code == 0
+    assert f"Using PR #2 -> {change_id_2}" in rendered
+    assert read_remote_ref(fake_repo.git_dir, "main") == stack.revisions[1].commit_id
+    assert fake_repo.pull_requests[1].state == "closed"
+    assert fake_repo.pull_requests[1].merged_at is not None
+    assert fake_repo.pull_requests[2].state == "closed"
+    assert fake_repo.pull_requests[2].merged_at is not None
+    assert fake_repo.pull_requests[3].state == "open"
+    assert JjClient(repo).get_bookmark_state(bookmark_3).local_target is not None
     assert list(resolve_state_path(repo).parent.glob("incomplete-*.json")) == []
 
 
