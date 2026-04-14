@@ -43,6 +43,7 @@ from jj_review.formatting import (
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
+    parse_github_repo,
     remote_bookmarks_pointing_at_commit,
     require_github_repo,
     resolve_trunk_branch,
@@ -572,6 +573,8 @@ def _start_submit_intent(
     *,
     bookmark_result: BookmarkResolutionResult,
     dry_run: bool,
+    github_repository,
+    remote_name: str,
     stack: LocalStack,
     state_store: ReviewStateStore,
 ) -> _SubmitIntentState:
@@ -591,6 +594,10 @@ def _start_submit_intent(
         head_change_id=(
             stack.revisions[-1].change_id if stack.revisions else stack.trunk.change_id
         ),
+        remote_name=remote_name,
+        github_host=github_repository.host,
+        github_owner=github_repository.owner,
+        github_repo=github_repository.repo,
         ordered_change_ids=ordered_change_ids,
         bookmarks={
             revision.change_id: resolution.bookmark
@@ -609,6 +616,7 @@ def _start_submit_intent(
             intent=intent,
         )
         _report_stale_submit_intents(
+            current_intent=intent,
             ordered_change_ids=ordered_change_ids,
             ordered_commit_ids=ordered_commit_ids,
             stale_intents=stale_intents,
@@ -618,6 +626,7 @@ def _start_submit_intent(
     state_dir = state_store.require_writable()
     stale_intents = check_same_kind_intent(state_dir, intent)
     _report_stale_submit_intents(
+        current_intent=intent,
         ordered_change_ids=ordered_change_ids,
         ordered_commit_ids=ordered_commit_ids,
         stale_intents=stale_intents,
@@ -631,6 +640,7 @@ def _start_submit_intent(
 
 def _report_stale_submit_intents(
     *,
+    current_intent: SubmitIntent,
     ordered_change_ids: tuple[str, ...],
     ordered_commit_ids: tuple[str, ...],
     stale_intents: list[LoadedIntent],
@@ -646,18 +656,27 @@ def _report_stale_submit_intents(
             current_commit_ids=ordered_commit_ids,
         )
         description = describe_intent(loaded.intent)
-        if match == "exact":
+        target_matches = _submit_intent_targets_match(
+            recorded_intent=loaded.intent,
+            current_intent=current_intent,
+        )
+        if match == "exact" and target_matches:
             ui.note(f"Continuing interrupted {description}", soft_wrap=True)
-        elif match == "same-logical":
+        elif match == "same-logical" and target_matches:
             ui.note(
                 f"Note: interrupted {description} targeted the same logical stack, "
                 "but it has been rewritten. This submit will use the current stack.",
                 soft_wrap=True,
             )
-        elif match == "covered":
+        elif match == "covered" and target_matches:
             ui.note(
                 f"Note: interrupted {description} targeted changes that are all included "
                 f"in the current stack. This submit will use the current stack.",
+                soft_wrap=True,
+            )
+        elif match in {"exact", "same-logical", "covered"}:
+            ui.note(
+                f"Note: incomplete operation outstanding: {description}",
                 soft_wrap=True,
             )
         elif match == "overlap":
@@ -671,6 +690,24 @@ def _report_stale_submit_intents(
                 f"Note: incomplete operation outstanding: {description}",
                 soft_wrap=True,
             )
+
+
+def _submit_intent_targets_match(
+    *,
+    recorded_intent: SubmitIntent,
+    current_intent: SubmitIntent,
+) -> bool:
+    return (
+        recorded_intent.remote_name,
+        recorded_intent.github_host,
+        recorded_intent.github_owner,
+        recorded_intent.github_repo,
+    ) == (
+        current_intent.remote_name,
+        current_intent.github_host,
+        current_intent.github_owner,
+        current_intent.github_repo,
+    )
 
 
 def _prepare_submit_revisions(
@@ -812,6 +849,8 @@ async def _run_submit_async(
     intent_state = _start_submit_intent(
         bookmark_result=bookmark_result,
         dry_run=dry_run,
+        github_repository=github_repository,
+        remote_name=remote.name,
         stack=stack,
         state_store=state_store,
     )
@@ -946,11 +985,31 @@ def _repair_interrupted_untracked_remote_bookmarks(
     remote: GitRemote,
     state_dir: Path,
 ) -> None:
-    stale_submit_intents = [
-        loaded
-        for loaded in scan_intents(state_dir)
-        if loaded.intent.kind == "submit" and not pid_is_alive(loaded.intent.pid)
-    ]
+    current_github_repository = parse_github_repo(remote)
+    if current_github_repository is None:
+        return
+
+    stale_submit_intents: list[SubmitIntent] = []
+    for loaded in scan_intents(state_dir):
+        intent = loaded.intent
+        if not isinstance(intent, SubmitIntent):
+            continue
+        if pid_is_alive(intent.pid):
+            continue
+        if intent.remote_name != remote.name:
+            continue
+        if (
+            intent.github_host,
+            intent.github_owner,
+            intent.github_repo,
+        ) != (
+            current_github_repository.host,
+            current_github_repository.owner,
+            current_github_repository.repo,
+        ):
+            continue
+        stale_submit_intents.append(intent)
+
     if not stale_submit_intents:
         return
 
@@ -959,8 +1018,7 @@ def _repair_interrupted_untracked_remote_bookmarks(
             {
                 bookmark
                 for loaded in stale_submit_intents
-                if isinstance(loaded.intent, SubmitIntent)
-                for bookmark in loaded.intent.bookmarks.values()
+                for bookmark in loaded.bookmarks.values()
             }
         )
     )

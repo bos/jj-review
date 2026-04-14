@@ -387,26 +387,47 @@ def retire_superseded_intents(
     new_ids = new_intent.ordered_change_ids
     for loaded in stale_intents:
         old = loaded.intent
-        if not isinstance(old, type(new_intent)):
-            continue
         if isinstance(new_intent, SubmitIntent):
-            # All recorded changes must be present in the new submit: a partial
-            # overlap would leave some recorded changes unaccounted for.
-            should_retire = set(old.ordered_change_ids).issubset(new_ids)
-        elif isinstance(new_intent, CloseIntent):
-            assert isinstance(old, CloseIntent)
-            # Same subset rule as submit, plus mode compatibility: a plain close
-            # does not retire an old cleanup run because the cleanup steps may
-            # still be outstanding.
-            should_retire = (
-                close_intent_mode_relation(
-                    recorded_cleanup=old.cleanup,
-                    current_cleanup=new_intent.cleanup,
+            if not isinstance(old, SubmitIntent):
+                continue
+            if old.remote_name != new_intent.remote_name:
+                continue
+            if (
+                old.github_host,
+                old.github_owner,
+                old.github_repo,
+            ) != (
+                new_intent.github_host,
+                new_intent.github_owner,
+                new_intent.github_repo,
+            ):
+                continue
+            if old.bookmarks and new_intent.bookmarks:
+                should_retire = set(old.bookmarks.values()).issubset(
+                    new_intent.bookmarks.values()
                 )
-                != "incompatible"
-                and set(old.ordered_change_ids).issubset(new_ids)
-            )
+            else:
+                # All recorded changes must be present in the new submit: a partial
+                # overlap would leave some recorded changes unaccounted for.
+                should_retire = set(old.ordered_change_ids).issubset(new_ids)
+        elif isinstance(new_intent, CloseIntent):
+            if isinstance(old, CloseIntent):
+                # Same subset rule as submit, plus mode compatibility: a plain
+                # close does not retire an old cleanup run because the cleanup
+                # steps may still be outstanding.
+                should_retire = (
+                    close_intent_mode_relation(
+                        recorded_cleanup=old.cleanup,
+                        current_cleanup=new_intent.cleanup,
+                    )
+                    != "incompatible"
+                    and set(old.ordered_change_ids).issubset(new_ids)
+                )
+            else:
+                continue
         elif isinstance(new_intent, CleanupRestackIntent):
+            if not isinstance(old, CleanupRestackIntent):
+                continue
             # Any overlap is enough for restack: a later successful restack
             # implies the shared changes have been rewritten into the new
             # topology, so the old record is no longer a useful resumption
@@ -414,6 +435,8 @@ def retire_superseded_intents(
             # changes — the restack target is the whole current stack.
             should_retire = bool(set(old.ordered_change_ids) & set(new_ids))
         else:
+            if not isinstance(old, LandIntent):
+                continue
             result = match_ordered_change_ids(old.ordered_change_ids, new_ids)
             should_retire = result in ("exact", "superset")
         if should_retire:

@@ -22,8 +22,9 @@ from typing import Literal
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
+from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
-from jj_review.github.resolution import parse_github_repo, select_submit_remote
+from jj_review.github.resolution import ParsedGithubRepo, parse_github_repo
 from jj_review.intent import describe_intent, intent_is_stale, pid_is_alive, write_new_intent
 from jj_review.jj import JjClient, JjCommandError
 from jj_review.models.cache import CachedChange, ReviewState
@@ -166,27 +167,14 @@ def abort(
         ),
     )
 
-    # Resolve the remote and GitHub target once for all intents.
-    remote = None
-    github_repository = None
-    try:
-        remotes = jj_client.list_git_remotes()
-        if remotes:
-            remote = select_submit_remote(remotes)
-            github_repository = parse_github_repo(remote)
-    except Exception as error:  # noqa: BLE001
-        logger.debug("Could not resolve remote or GitHub target: %s", error)
-
     exit_code = 1 if live else 0
     try:
         for loaded in outstanding:
             result = asyncio.run(
                 _abort_intent_async(
                     dry_run=dry_run,
-                    github_repository=github_repository,
                     jj_client=jj_client,
                     loaded=loaded,
-                    remote=remote,
                     state_store=state_store,
                 )
             )
@@ -207,10 +195,8 @@ def abort(
 async def _abort_intent_async(
     *,
     dry_run: bool,
-    github_repository,
     jj_client: JjClient,
     loaded: LoadedIntent,
-    remote,
     state_store: ReviewStateStore,
 ) -> AbortResult:
     intent = loaded.intent
@@ -218,11 +204,9 @@ async def _abort_intent_async(
     if isinstance(intent, SubmitIntent):
         return await _abort_submit(
             dry_run=dry_run,
-            github_repository=github_repository,
             intent=intent,
             intent_path=loaded.path,
             jj_client=jj_client,
-            remote=remote,
             state_store=state_store,
         )
 
@@ -288,11 +272,9 @@ def _non_submit_note(intent) -> str | None:
 async def _abort_submit(
     *,
     dry_run: bool,
-    github_repository,
     intent: SubmitIntent,
     intent_path: Path,
     jj_client: JjClient,
-    remote,
     state_store: ReviewStateStore,
 ) -> AbortResult:
     """Retract a partial submit: close PRs, delete remote branches, clear state."""
@@ -313,8 +295,10 @@ async def _abort_submit(
             AbortAction(
                 kind="record",
                 body=(
-                    "operation record kept — to finish the submit, re-run `submit`; "
-                    "to retract the partial work, run `close --cleanup`"
+                    "operation record kept — to continue, run "
+                    f"`submit {short_change_id(intent.head_change_id)}`; "
+                    "to retract the partial work, run "
+                    f"`close --cleanup {short_change_id(intent.head_change_id)}`"
                 ),
                 status="skipped",
             )
@@ -330,57 +314,53 @@ async def _abort_submit(
 
     state = state_store.load()
     next_changes = dict(state.changes)
-    remote_name = remote.name if remote is not None else None
+    remote_name = intent.remote_name
+    recorded_github_repository = ParsedGithubRepo(
+        host=intent.github_host,
+        owner=intent.github_owner,
+        repo=intent.github_repo,
+    )
+    remotes_by_name = {remote.name: remote for remote in jj_client.list_git_remotes()}
+    remote_branch_cleanup_block: str | None = None
+    if (recorded_remote := remotes_by_name.get(remote_name)) is None:
+        remote_branch_cleanup_block = (
+            f"recorded remote {remote_name!r} is no longer configured; abort will not "
+            "guess where to delete remote review branches"
+        )
+    else:
+        current_github_repository = parse_github_repo(recorded_remote)
+        if current_github_repository != recorded_github_repository:
+            remote_branch_cleanup_block = (
+                f"recorded remote {remote_name!r} no longer points at "
+                f"{recorded_github_repository.full_name}; abort will not guess where to "
+                "delete remote review branches"
+            )
 
     per_change_ok: list[bool] = []
 
-    if github_repository is not None:
-        async with build_github_client(
-            base_url=github_repository.api_base_url
-        ) as github_client:
-            with ui.progress(
-                description="Retracting submitted changes",
-                total=len(intent.ordered_change_ids),
-            ) as progress:
-                for change_id in intent.ordered_change_ids:
-                    ok = await _retract_one_change(
-                        actions=actions,
-                        bookmark=intent.bookmarks.get(change_id),
-                        cached=state.changes.get(change_id),
-                        change_id=change_id,
-                        dry_run=dry_run,
-                        github_client=github_client,
-                        github_repository=github_repository,
-                        jj_client=jj_client,
-                        next_changes=next_changes,
-                        remote_name=remote_name,
-                    )
-                    per_change_ok.append(ok)
-                    progress.advance()
-    else:
-        # GitHub unreachable — do local cleanup only.
-        for change_id in intent.ordered_change_ids:
-            ok = _retract_one_change_local(
-                actions=actions,
-                bookmark=intent.bookmarks.get(change_id),
-                cached=state.changes.get(change_id),
-                change_id=change_id,
-                dry_run=dry_run,
-                jj_client=jj_client,
-                next_changes=next_changes,
-                remote_name=remote_name,
-            )
-            per_change_ok.append(ok)
-        actions.append(
-            AbortAction(
-                kind="github",
-                body=(
-                    "GitHub unreachable — pull request close skipped; "
-                    "run `status --fetch` after fixing GitHub access"
-                ),
-                status="skipped",
-            )
-        )
+    async with build_github_client(
+        base_url=recorded_github_repository.api_base_url
+    ) as github_client:
+        with ui.progress(
+            description="Retracting submitted changes",
+            total=len(intent.ordered_change_ids),
+        ) as progress:
+            for change_id in intent.ordered_change_ids:
+                ok = await _retract_one_change(
+                    actions=actions,
+                    bookmark=intent.bookmarks.get(change_id),
+                    cached=state.changes.get(change_id),
+                    change_id=change_id,
+                    dry_run=dry_run,
+                    github_client=github_client,
+                    github_repository=recorded_github_repository,
+                    jj_client=jj_client,
+                    next_changes=next_changes,
+                    remote_branch_cleanup_block=remote_branch_cleanup_block,
+                    remote_name=remote_name,
+                )
+                per_change_ok.append(ok)
+                progress.advance()
 
     all_retracted = all(per_change_ok) if per_change_ok else True
 
@@ -453,6 +433,7 @@ async def _retract_one_change(
     github_repository,
     jj_client: JjClient,
     next_changes: dict[str, CachedChange],
+    remote_branch_cleanup_block: str | None,
     remote_name: str | None,
 ) -> bool:
     """Retract one change. Returns True if all steps succeeded (nothing blocked)."""
@@ -504,6 +485,7 @@ async def _retract_one_change(
         dry_run=dry_run,
         jj_client=jj_client,
         next_changes=next_changes,
+        remote_branch_cleanup_block=remote_branch_cleanup_block,
         remote_name=remote_name,
     )
     return pr_ok and local_ok
@@ -518,6 +500,7 @@ def _retract_one_change_local(
     dry_run: bool,
     jj_client: JjClient,
     next_changes: dict[str, CachedChange],
+    remote_branch_cleanup_block: str | None,
     remote_name: str | None,
 ) -> bool:
     """Retract local state for one change. Returns True if no steps were blocked."""
@@ -528,39 +511,65 @@ def _retract_one_change_local(
         bm_state = jj_client.get_bookmark_state(bookmark)
 
         if remote_name is not None:
-            remote_target = bm_state.remote_target(remote_name)
-            if remote_target is not None and remote_target.target is not None:
-                remote_commit_id = remote_target.target
-                branch_label = f"{bookmark}@{remote_name}"
-                action_body = (
-                    t"delete {ui.bookmark(branch_label)} for {ui.change_id(change_id)}"
-                )
-                if dry_run:
-                    actions.append(
-                        AbortAction(kind="remote branch", body=action_body, status="planned")
+            branch_label = f"{bookmark}@{remote_name}"
+            if remote_branch_cleanup_block is not None:
+                actions.append(
+                    AbortAction(
+                        kind="remote branch",
+                        body=(
+                            f"{remote_branch_cleanup_block} "
+                            f"({ui.bookmark(branch_label)} for {ui.change_id(change_id)})"
+                        ),
+                        status="blocked",
                     )
-                else:
-                    try:
-                        jj_client.delete_remote_bookmarks(
-                            remote=remote_name,
-                            deletions=((bookmark, remote_commit_id),),
+                )
+                any_blocked = True
+            else:
+                remote_target = bm_state.remote_target(remote_name)
+                if remote_target is not None and len(remote_target.targets) > 1:
+                    actions.append(
+                        AbortAction(
+                            kind="remote branch",
+                            body=(
+                                f"{ui.bookmark(branch_label)} for "
+                                f"{ui.change_id(change_id)} is conflicted on the remote; "
+                                "abort will not guess which target to delete"
+                            ),
+                            status="blocked",
                         )
+                    )
+                    any_blocked = True
+                elif remote_target is not None and remote_target.target is not None:
+                    remote_commit_id = remote_target.target
+                    action_body = (
+                        t"delete {ui.bookmark(branch_label)} for {ui.change_id(change_id)}"
+                    )
+                    if dry_run:
                         actions.append(
-                            AbortAction(
-                                kind="remote branch", body=action_body, status="applied"
-                            )
+                            AbortAction(kind="remote branch", body=action_body, status="planned")
                         )
-                    except JjCommandError as error:
-                        actions.append(
-                            AbortAction(
-                                kind="remote branch",
-                                body=t"could not delete {ui.bookmark(branch_label)}: {error}",
-                                status="blocked",
+                    else:
+                        try:
+                            jj_client.delete_remote_bookmarks(
+                                remote=remote_name,
+                                deletions=((bookmark, remote_commit_id),),
                             )
-                        )
-                        any_blocked = True
+                            actions.append(
+                                AbortAction(
+                                    kind="remote branch", body=action_body, status="applied"
+                                )
+                            )
+                        except JjCommandError as error:
+                            actions.append(
+                                AbortAction(
+                                    kind="remote branch",
+                                    body=t"could not delete {ui.bookmark(branch_label)}: {error}",
+                                    status="blocked",
+                                )
+                            )
+                            any_blocked = True
 
-        if bm_state.local_target is not None:
+        if bm_state.local_target is not None and not any_blocked:
             action_body = t"forget {ui.bookmark(bookmark)} for {ui.change_id(change_id)}"
             if dry_run:
                 actions.append(

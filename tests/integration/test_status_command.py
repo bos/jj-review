@@ -4,11 +4,12 @@ from pathlib import Path
 
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.github.resolution import ParsedGithubRepo
 from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
 from jj_review.models.intent import SubmitIntent
 
-from ..support.fake_github import FakeGithubState, create_app
+from ..support.fake_github import FakeGithubState, create_app, initialize_bare_repository
 from ..support.integration_helpers import (
     commit_file,
     init_fake_github_repo,
@@ -641,6 +642,10 @@ def test_status_shows_outstanding_submit_intent(
         display_revset="@",
         ordered_commit_ids=(stack.revisions[0].commit_id,),
         head_change_id=change_id,
+        remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
         ordered_change_ids=(change_id,),
         bookmarks={},
         bases={},
@@ -650,9 +655,10 @@ def test_status_shows_outstanding_submit_intent(
 
     run_main(repo, config_path, "status")
     captured = capsys.readouterr()
+    normalized_output = " ".join(captured.out.split())
 
     assert f"submit for {change_id[:8]} (from @)" in captured.out
-    assert "rerun submit" in captured.out
+    assert "submit @-" in normalized_output
     assert "current stack" in captured.out
 
 
@@ -681,6 +687,10 @@ def test_status_exits_zero_for_exact_interrupted_submit_intent(
         display_revset="@",
         ordered_commit_ids=(stack.revisions[0].commit_id,),
         head_change_id=change_id,
+        remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
         ordered_change_ids=(change_id,),
         bookmarks={},
         bases={},
@@ -692,6 +702,73 @@ def test_status_exits_zero_for_exact_interrupted_submit_intent(
     capsys.readouterr()
 
     assert exit_code == 0
+
+
+def test_status_requires_inspection_when_exact_submit_target_differs(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    other_repo = initialize_bare_repository(
+        tmp_path / "remotes-extra",
+        owner="octo-org",
+        name="other-review",
+    )
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    revision = stack.revisions[0]
+    state_dir = resolve_state_path(repo).parent
+    write_new_intent(
+        state_dir,
+        SubmitIntent(
+            kind="submit",
+            pid=99999999,
+            label="submit on @",
+            display_revset="@",
+            ordered_commit_ids=(revision.commit_id,),
+            head_change_id=revision.change_id,
+            remote_name="origin",
+            github_host="github.test",
+            github_owner="octo-org",
+            github_repo="stacked-review",
+            ordered_change_ids=(revision.change_id,),
+            bookmarks={},
+            bases={},
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    run_command(["jj", "git", "remote", "remove", "origin"], repo)
+    run_command(["jj", "git", "remote", "add", "origin", str(other_repo.git_dir)], repo)
+
+    def _parse_fake_repo(remote):
+        if remote.name == "origin":
+            return ParsedGithubRepo(
+                host="github.test",
+                owner="octo-org",
+                repo="other-review",
+            )
+        return ParsedGithubRepo(
+            host="github.test",
+            owner=fake_repo.owner,
+            repo=fake_repo.name,
+        )
+
+    monkeypatch.setattr("jj_review.review_inspection.parse_github_repo", _parse_fake_repo)
+
+    exit_code = run_main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert f"submit for {revision.change_id[:8]} (from @)" in captured.out
+    assert "different remote or GitHub repository" in captured.out
+    assert "to continue on the current stack" not in captured.out
 
 
 def test_status_exits_nonzero_for_partially_overlapping_intent(
@@ -727,6 +804,10 @@ def test_status_exits_nonzero_for_partially_overlapping_intent(
         display_revset="mixed-stack",
         ordered_commit_ids=(first_commit_id, third_commit_id),
         head_change_id=third_change_id,
+        remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
         ordered_change_ids=(first_change_id, third_change_id),
         bookmarks={},
         bases={},
@@ -765,6 +846,10 @@ def test_status_exits_zero_for_stale_intent(
         display_revset="other-branch",
         ordered_commit_ids=("dead-commit",),
         head_change_id="zzzzzzzzzzzz",
+        remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
         ordered_change_ids=("zzzzzzzzzzzz",),
         bookmarks={},
         bases={},
@@ -820,6 +905,10 @@ def test_status_exits_zero_for_disjoint_intent(
         display_revset="feature-1",
         ordered_commit_ids=(stack_1.revisions[0].commit_id,),
         head_change_id=feature_1_change_id,
+        remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
         ordered_change_ids=(feature_1_change_id,),
         bookmarks={},
         bases={},

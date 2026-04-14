@@ -159,8 +159,8 @@ jj-review abort         # retract and clean up
 ```
 
 For interrupted `submit`, the recorded notice identifies the stack it started
-from. Re-run `submit` with an explicit revset for the stack you want to submit,
-not a naked `submit` that falls back to the default selection.
+from. Re-run `submit` or `close --cleanup` with an explicit revset for the
+stack you want, not a naked command that falls back to the default selection.
 
 If you rewrote that stack in the meantime, `abort` will not try to guess how to
 undo the old partial submit.

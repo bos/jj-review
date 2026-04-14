@@ -167,19 +167,26 @@ Recent refactor slices:
 - `unlink` now routes its user-facing output through the shared Rich-backed
   `ui` helpers, keeping selected revsets, change IDs, and bookmarks semantic
   where that improves readability without adding extra abstraction
-- interrupted `submit` state now records ordered commit IDs in addition to
-  change IDs, and status/reporting treats that data as recovery metadata rather
+- interrupted `submit` state now records the selected remote and ordered commit
+  IDs in addition to change IDs, plus the submitted GitHub repository
+  coordinates; status/reporting treats that data as recovery metadata rather
   than an instruction to replay the original mutable selector
 - submit recovery now retires superseded interrupted submit intents when a later
-  successful submit covers the same changes, while `abort` refuses automatic
-  submit retraction once the recorded stack snapshot has been rewritten
+  successful submit covers the same bookmark identities on the same recorded
+  remote, while `abort` uses that recorded remote for submit retraction and
+  recorded repository identity for PR cleanup, fails closed when the named
+  remote no longer points there, and still refuses automatic submit retraction
+  once the recorded stack snapshot has been rewritten
 - close intent reporting now uses the same recorded-stack model as submit, and a
   later successful close retires interrupted close intents when it clearly
   covers those changes; `close --cleanup` can supersede an older plain `close`,
   but plain `close` does not retire an older interrupted cleanup run
-- a successful `close --cleanup` also retires covered interrupted `submit`
-  intents once the retraction finishes without blocked cleanup steps, so
-  `status` no longer reports a stale submit record after that recovery path
+- a successful `close --cleanup` now retires interrupted `submit` intents only
+  when the recorded bookmark artifacts on that submit's remote are gone and no
+  live saved review state remains; retirement now also checks the recorded
+  GitHub repository identity so repointed remote names fail closed, and closed
+  cached PR metadata is treated as historical so `status` no longer reports
+  stale submit records after that recovery path
 - interrupted `cleanup --restack` state now records ordered commit IDs, reports
   the recorded stack by head change ID, and treats reruns as current-stack
   restacks rather than selector replay
@@ -1501,6 +1508,13 @@ Recommended defaults:
   Rich rows instead of plain strings, which preserves hanging indents under
   terminal wrapping and allows per-status semantic styling for the marker and
   message text
+- interrupted-submit recovery now treats the recorded remote name plus GitHub
+  repository identity as part of the recovery key: submit-side bookmark repair,
+  cleanup retirement, abort retraction, and status rerun guidance all fail
+  closed when the current target no longer matches the recorded submit target
+- close cleanup retirement also treats a surviving local `review/*` bookmark as
+  live cleanup state, so an interrupted submit record now stays visible until
+  both local and remote review artifacts for that recorded submit are gone
 - cleanup and cleanup --restack now use the same structured Rich row pattern
   for streamed action output, including semantic highlighting for bookmarks and
   short change IDs in the action text

@@ -7,7 +7,11 @@ from typing import cast
 import pytest
 
 from jj_review import ui
-from jj_review.commands.close import CloseAction, _cleanup_revision, _CloseCleanupContext
+from jj_review.commands.close import (
+    CloseAction,
+    _cleanup_revision,
+    _CloseCleanupContext,
+)
 from jj_review.github.client import GithubClient
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState

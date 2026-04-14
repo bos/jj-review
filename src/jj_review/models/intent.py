@@ -35,6 +35,10 @@ class SubmitIntent(OrderedChangeIdsIntent):
     kind: Literal["submit"]
     ordered_commit_ids: tuple[str, ...] = ()
     head_change_id: str
+    remote_name: str
+    github_host: str
+    github_owner: str
+    github_repo: str
     bookmarks: dict[str, str]  # change_id → bookmark
     bases: dict[str, str]  # change_id → base_branch (may be empty until --abort is designed)
 

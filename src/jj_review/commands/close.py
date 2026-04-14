@@ -32,6 +32,7 @@ from jj_review.intent import (
     close_intent_mode_relation,
     describe_intent,
     match_close_intent,
+    pid_is_alive,
     retire_superseded_intents,
     write_new_intent,
 )
@@ -39,7 +40,7 @@ from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment
-from jj_review.models.intent import CloseIntent, LoadedIntent
+from jj_review.models.intent import CloseIntent, LoadedIntent, SubmitIntent
 from jj_review.pull_request_references import (
     parse_pull_request_number,
     parse_repository_pull_request_reference,
@@ -126,7 +127,8 @@ class _CloseIntentState:
 
     intent: CloseIntent | None
     intent_path: Path | None
-    stale_intents: list[LoadedIntent]
+    stale_close_intents: list[LoadedIntent]
+    stale_submit_intents: list[LoadedIntent]
 
 
 @dataclass(frozen=True, slots=True)
@@ -434,7 +436,8 @@ async def _stream_close_async(
     intent_state = _CloseIntentState(
         intent=None,
         intent_path=None,
-        stale_intents=[],
+        stale_close_intents=[],
+        stale_submit_intents=[],
     )
     try:
         intent_state = _start_close_intent(
@@ -471,8 +474,141 @@ async def _stream_close_async(
         )
     finally:
         if completed and intent_state.intent_path is not None and intent_state.intent is not None:
-            retire_superseded_intents(intent_state.stale_intents, intent_state.intent)
+            retire_superseded_intents(intent_state.stale_close_intents, intent_state.intent)
+            if prepared_close.cleanup and not recorder.blocked:
+                _retire_submit_intents_cleared_by_cleanup(
+                    current_bookmarks=frozenset(
+                        bookmark
+                        for change_id in (
+                            prepared_revision.revision.change_id
+                            for prepared_revision in prepared_status.prepared.status_revisions
+                        )
+                        if (
+                            cached_change := execution_state.next_changes.get(change_id)
+                        ) is not None
+                        and (bookmark := cached_change.bookmark) is not None
+                    ),
+                    current_state=execution_state.current_state.model_copy(
+                        update={"changes": execution_state.next_changes}
+                    ),
+                    jj_client=prepared_status.prepared.client,
+                    github_repository=github_repository,
+                    remote_name=(
+                        prepared_status.prepared.remote.name
+                        if prepared_status.prepared.remote is not None
+                        else None
+                    ),
+                    stale_submit_intents=intent_state.stale_submit_intents,
+                )
             intent_state.intent_path.unlink(missing_ok=True)
+
+
+def _retire_submit_intents_cleared_by_cleanup(
+    *,
+    current_bookmarks: frozenset[str],
+    current_state: ReviewState,
+    github_repository,
+    jj_client: JjClient,
+    remote_name: str | None,
+    stale_submit_intents: list[LoadedIntent],
+) -> None:
+    """Retire interrupted submits whose review artifacts were fully cleared."""
+
+    for loaded in stale_submit_intents:
+        if not isinstance(loaded.intent, SubmitIntent):
+            continue
+        intent_bookmarks = frozenset(loaded.intent.bookmarks.values())
+        covered_by_current_cleanup = (
+            remote_name == loaded.intent.remote_name
+            and _matches_submit_intent_github_repository(
+                intent=loaded.intent,
+                github_repository=github_repository,
+            )
+            and intent_bookmarks.issubset(current_bookmarks)
+        )
+        if covered_by_current_cleanup or _submit_intent_artifacts_cleared(
+            current_state=current_state,
+            intent=loaded.intent,
+            jj_client=jj_client,
+        ):
+            loaded.path.unlink(missing_ok=True)
+
+
+def _submit_intent_artifacts_cleared(
+    *,
+    current_state: ReviewState,
+    intent: SubmitIntent,
+    jj_client: JjClient,
+) -> bool:
+    """Return whether a stale submit intent has any actionable review state left."""
+
+    current_changes = current_state.changes
+    for change_id in intent.ordered_change_ids:
+        cached_change = current_changes.get(change_id)
+        if cached_change is not None and _cached_change_has_live_review_artifacts(cached_change):
+            return False
+
+    intent_bookmarks = frozenset(intent.bookmarks.values())
+    for cached_change in current_changes.values():
+        if (
+            cached_change.bookmark in intent_bookmarks
+            and _cached_change_has_live_review_artifacts(cached_change)
+        ):
+            return False
+
+    remotes_by_name = {remote.name: remote for remote in jj_client.list_git_remotes()}
+    recorded_remote = remotes_by_name.get(intent.remote_name)
+    if recorded_remote is None:
+        return False
+    current_github_repository = parse_github_repo(recorded_remote)
+    if not _matches_submit_intent_github_repository(
+        intent=intent,
+        github_repository=current_github_repository,
+    ):
+        return False
+
+    for bookmark in intent_bookmarks:
+        bookmark_state = jj_client.get_bookmark_state(bookmark)
+        if bookmark_state.local_target is not None:
+            return False
+        remote_state = bookmark_state.remote_target(intent.remote_name)
+        if remote_state is not None and remote_state.targets:
+            return False
+
+    return True
+
+
+def _cached_change_has_live_review_artifacts(cached_change: CachedChange) -> bool:
+    """Return whether saved state still points at actionable review artifacts."""
+
+    if cached_change.stack_comment_id is not None:
+        return True
+    if cached_change.pr_state in {"closed", "merged"}:
+        return False
+    if cached_change.pr_review_decision is not None:
+        return True
+    return any(
+        value is not None
+        for value in (
+            cached_change.pr_number,
+            cached_change.pr_state,
+            cached_change.pr_url,
+        )
+    )
+
+
+def _matches_submit_intent_github_repository(*, intent: SubmitIntent, github_repository) -> bool:
+    if github_repository is None:
+        return False
+    return (
+        intent.github_host,
+        intent.github_owner,
+        intent.github_repo,
+    ) == (
+        github_repository.host,
+        github_repository.owner,
+        github_repository.repo,
+    )
 
 
 def _prepare_close_execution_state(*, prepared_close: PreparedClose) -> _CloseExecutionState:
@@ -516,7 +652,8 @@ def _start_close_intent(
         return _CloseIntentState(
             intent=None,
             intent_path=None,
-            stale_intents=[],
+            stale_close_intents=[],
+            stale_submit_intents=[],
         )
 
     prepared_status = prepared_close.prepared_status
@@ -541,18 +678,40 @@ def _start_close_intent(
         cleanup=prepared_close.cleanup,
         started_at=datetime.now(UTC).isoformat(),
     )
-    stale_intents = check_same_kind_intent(state_dir, intent)
+    stale_close_intents = check_same_kind_intent(state_dir, intent)
     _report_stale_close_intents(
         current_change_ids=ordered_change_ids,
         current_commit_ids=ordered_commit_ids,
         current_cleanup=prepared_close.cleanup,
-        stale_intents=stale_intents,
+        stale_intents=stale_close_intents,
+    )
+    stale_submit_intents = (
+        _list_stale_submit_intents(
+            state_store=prepared_status.prepared.state_store,
+        )
+        if prepared_close.cleanup
+        else []
     )
     return _CloseIntentState(
         intent=intent,
         intent_path=write_new_intent(state_dir, intent),
-        stale_intents=stale_intents,
+        stale_close_intents=stale_close_intents,
+        stale_submit_intents=stale_submit_intents,
     )
+
+
+def _list_stale_submit_intents(
+    *,
+    state_store: ReviewStateStore,
+) -> list[LoadedIntent]:
+    """Return interrupted submit intents that may be retired by close --cleanup."""
+
+    return [
+        loaded
+        for loaded in state_store.list_intents()
+        if isinstance(loaded.intent, SubmitIntent)
+        and not pid_is_alive(loaded.intent.pid)
+    ]
 
 
 def _report_stale_close_intents(

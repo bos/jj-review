@@ -170,7 +170,8 @@ In that case you have two options:
   explicit revset for the stack you want. It detects any review branches or PRs
   that already exist, and completes whatever is still outstanding for that
   selected stack.
-- **Retract the partial work**: run `jj-review close --cleanup` to close the
-  open PRs and delete the review branches for the current stack. A successful
-  `close --cleanup` also clears the interrupted `submit` record for that
-  covered stack.
+- **Retract the partial work**: run
+  `jj-review close --cleanup <change-id-from-status>` or another explicit
+  revset for that stack. A successful `close --cleanup` closes the open PRs,
+  deletes the review branches, and clears the interrupted `submit` record once
+  the recorded review artifacts for that stack are gone.

@@ -13,7 +13,11 @@ from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
 from jj_review.models.intent import SubmitIntent
 
-from ..support.fake_github import FakeGithubState, create_app
+from ..support.fake_github import (
+    FakeGithubState,
+    create_app,
+    initialize_bare_repository,
+)
 from ..support.integration_helpers import (
     commit_file,
     init_fake_github_repo,
@@ -466,6 +470,10 @@ def test_submit_dry_run_warns_on_stale_intent_without_retiring_it(
         display_revset="@",
         ordered_commit_ids=tuple(revision.commit_id for revision in stack.revisions),
         head_change_id=change_id_2,
+        remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
         ordered_change_ids=(change_id_1, change_id_2),
         bookmarks={},
         bases={},
@@ -1723,6 +1731,10 @@ def test_submit_retains_intent_file_after_failed_submit(
 
     data = json.loads(intent_files[0].read_text(encoding="utf-8"))
     assert data["kind"] == "submit"
+    assert data["remote_name"] == "origin"
+    assert data["github_host"] == "github.test"
+    assert data["github_owner"] == "octo-org"
+    assert data["github_repo"] == "stacked-review"
     stored_ids = data.get("ordered_change_ids", [])
     stored_commit_ids = data.get("ordered_commit_ids", [])
     assert change_id_1 in stored_ids
@@ -1752,6 +1764,10 @@ def test_submit_resumes_and_retires_stale_intent(
         display_revset="@",
         ordered_commit_ids=tuple(revision.commit_id for revision in stack.revisions),
         head_change_id=change_id_2,
+        remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
         ordered_change_ids=(change_id_1, change_id_2),
         bookmarks={},
         bases={},
@@ -1769,6 +1785,122 @@ def test_submit_resumes_and_retires_stale_intent(
     # No intent files remain
     intent_files = list(state_dir.glob("incomplete-*.json"))
     assert intent_files == []
+
+
+def test_submit_does_not_retire_stale_intent_from_other_remote(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    upstream_repo = initialize_bare_repository(
+        tmp_path / "remotes-extra",
+        owner="octo-org",
+        name="other-review",
+    )
+    run_command(["jj", "git", "remote", "add", "upstream", str(upstream_repo.git_dir)], repo)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    state_dir = resolve_state_path(repo).parent
+    old_intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,
+        label="submit on upstream",
+        display_revset="upstream",
+        ordered_commit_ids=tuple(revision.commit_id for revision in stack.revisions),
+        head_change_id=stack.revisions[-1].change_id,
+        remote_name="upstream",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="other-review",
+        ordered_change_ids=tuple(revision.change_id for revision in stack.revisions),
+        bookmarks={},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    old_intent_path = write_new_intent(state_dir, old_intent)
+    matching_intent = SubmitIntent(
+        kind="submit",
+        pid=99999998,
+        label="submit on @",
+        display_revset="@",
+        ordered_commit_ids=tuple(revision.commit_id for revision in stack.revisions),
+        head_change_id=stack.revisions[-1].change_id,
+        remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
+        ordered_change_ids=tuple(revision.change_id for revision in stack.revisions),
+        bookmarks={},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    matching_intent_path = write_new_intent(state_dir, matching_intent)
+
+    assert run_main(repo, config_path, "submit") == 0
+    captured = capsys.readouterr()
+
+    assert old_intent_path.exists()
+    assert not matching_intent_path.exists()
+    assert (
+        f"Note: incomplete operation outstanding: submit for "
+        f"{stack.revisions[-1].change_id[:8]} (from upstream)"
+    ) in captured.out
+    assert (
+        f"Continuing interrupted submit for {stack.revisions[-1].change_id[:8]} "
+        f"(from upstream)"
+    ) not in captured.out
+    intent_files = list(state_dir.glob("incomplete-*.json"))
+    assert intent_files == [old_intent_path]
+
+
+def test_submit_does_not_continue_stale_intent_when_recorded_remote_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    run_command(["jj", "git", "remote", "add", "upstream", str(fake_repo.git_dir)], repo)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    state_dir = resolve_state_path(repo).parent
+    old_intent = SubmitIntent(
+        kind="submit",
+        pid=99999999,
+        label="submit on origin",
+        display_revset="origin",
+        ordered_commit_ids=tuple(revision.commit_id for revision in stack.revisions),
+        head_change_id=stack.revisions[-1].change_id,
+        remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
+        ordered_change_ids=tuple(revision.change_id for revision in stack.revisions),
+        bookmarks={},
+        bases={},
+        started_at="2026-01-01T00:00:00+00:00",
+    )
+    old_intent_path = write_new_intent(state_dir, old_intent)
+    run_command(["jj", "git", "remote", "remove", "origin"], repo)
+
+    assert run_main(repo, config_path, "submit") == 0
+    captured = capsys.readouterr()
+
+    assert old_intent_path.exists()
+    assert (
+        f"Note: incomplete operation outstanding: submit for "
+        f"{stack.revisions[-1].change_id[:8]} (from origin)"
+    ) in captured.out
+    assert (
+        f"Continuing interrupted submit for {stack.revisions[-1].change_id[:8]} "
+        f"(from origin)"
+    ) not in captured.out
 
 def test_submit_warns_on_overlapping_stale_intent(
     tmp_path: Path,
@@ -1792,6 +1924,10 @@ def test_submit_warns_on_overlapping_stale_intent(
         display_revset="@",
         ordered_commit_ids=(stack.revisions[0].commit_id,),
         head_change_id=change_id_1,
+        remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
         ordered_change_ids=(change_id_1,),
         bookmarks={},
         bases={},
@@ -1832,6 +1968,10 @@ def test_submit_treats_rewritten_matching_change_ids_as_new_submit(
         display_revset="@",
         ordered_commit_ids=tuple(revision.commit_id for revision in stack.revisions),
         head_change_id=change_id_2,
+        remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
         ordered_change_ids=(change_id_1, change_id_2),
         bookmarks={},
         bases={},

@@ -621,14 +621,19 @@ def _interrupted_intent_blocks_status(*, loaded, prepared_status) -> bool:
     )
 
     if isinstance(loaded.intent, SubmitIntent):
-        return (
-            match_submit_intent(
-                intent=loaded.intent,
-                current_change_ids=current_change_ids,
-                current_commit_ids=current_commit_ids,
-            )
-            == "overlap"
+        match = match_submit_intent(
+            intent=loaded.intent,
+            current_change_ids=current_change_ids,
+            current_commit_ids=current_commit_ids,
         )
+        if match == "overlap":
+            return True
+        if match in {"exact", "same-logical", "covered"}:
+            return _submit_intent_target_relation(
+                intent=loaded.intent,
+                prepared_status=prepared_status,
+            ) != "match"
+        return False
 
     if isinstance(loaded.intent, CleanupRestackIntent):
         return (
@@ -659,6 +664,10 @@ def _render_interrupted_submit_status_line(
     intent: SubmitIntent,
     prepared_status,
 ) -> object:
+    rerun_command = _render_rerun_command(
+        command="submit",
+        revset=prepared_status.selected_revset,
+    )
     current_change_ids = tuple(
         prepared_revision.revision.change_id
         for prepared_revision in prepared_status.prepared.status_revisions
@@ -672,36 +681,58 @@ def _render_interrupted_submit_status_line(
         current_change_ids=current_change_ids,
         current_commit_ids=current_commit_ids,
     )
-    if match == "exact":
+    target_relation = _submit_intent_target_relation(
+        intent=intent,
+        prepared_status=prepared_status,
+    )
+    if match == "exact" and target_relation == "match":
         status = ui.rich_text(
             (
                 "interrupted, rerun ",
-                ui.semantic_text("submit", "hint"),
+                rerun_command,
                 " to continue on the current stack",
             )
         )
-    elif match == "same-logical":
+    elif match == "same-logical" and target_relation == "match":
         status = ui.rich_text(
             (
                 "interrupted, recorded stack was rewritten; rerunning ",
-                ui.semantic_text("submit", "hint"),
+                rerun_command,
                 " will use the current stack",
             )
         )
-    elif match == "covered":
+    elif match == "covered" and target_relation == "match":
         status = ui.rich_text(
             (
                 "interrupted, the recorded changes are all included in the current stack; ",
                 "rerunning ",
-                ui.semantic_text("submit", "hint"),
+                rerun_command,
                 " will use the current stack",
+            )
+        )
+    elif match in {"exact", "same-logical", "covered"} and target_relation == "unknown":
+        status = ui.rich_text(
+            (
+                "interrupted, current stack matches but the recorded submit target is "
+                "unavailable; inspect before running ",
+                rerun_command,
+                " again",
+            )
+        )
+    elif match in {"exact", "same-logical", "covered"}:
+        status = ui.rich_text(
+            (
+                "interrupted, current stack matches but the recorded submit targeted a "
+                "different remote or GitHub repository; inspect before running ",
+                rerun_command,
+                " again",
             )
         )
     elif match == "overlap":
         status = ui.rich_text(
             (
                 "interrupted, current stack differs; inspect before running ",
-                ui.semantic_text("submit", "hint"),
+                rerun_command,
                 " again",
             )
         )
@@ -710,11 +741,47 @@ def _render_interrupted_submit_status_line(
     return status
 
 
+def _submit_intent_target_relation(*, intent: SubmitIntent, prepared_status) -> str:
+    """Classify whether the current selection targets the recorded submit destination."""
+
+    current_remote = prepared_status.prepared.remote
+    current_github_repository = prepared_status.github_repository
+    if current_remote is None or current_github_repository is None:
+        return "unknown"
+    if current_remote.name != intent.remote_name:
+        return "mismatch"
+    if (
+        intent.github_host,
+        intent.github_owner,
+        intent.github_repo,
+    ) != (
+        current_github_repository.host,
+        current_github_repository.owner,
+        current_github_repository.repo,
+    ):
+        return "mismatch"
+    return "match"
+
+
+def _render_rerun_command(*, command: str, revset: str) -> tuple[object, ...]:
+    """Render an explicit rerun command for the current selection."""
+
+    return (
+        ui.semantic_text(command, "hint"),
+        " ",
+        ui.revset(revset),
+    )
+
+
 def _render_interrupted_cleanup_restack_status_line(
     *,
     intent: CleanupRestackIntent,
     prepared_status,
 ) -> object:
+    rerun_command = _render_rerun_command(
+        command="cleanup --restack",
+        revset=prepared_status.selected_revset,
+    )
     current_change_ids = tuple(
         prepared_revision.revision.change_id
         for prepared_revision in prepared_status.prepared.status_revisions
@@ -732,7 +799,7 @@ def _render_interrupted_cleanup_restack_status_line(
         status = ui.rich_text(
             (
                 "interrupted, rerun ",
-                ui.semantic_text("cleanup --restack", "hint"),
+                rerun_command,
                 " to continue on the current stack",
             )
         )
@@ -740,7 +807,7 @@ def _render_interrupted_cleanup_restack_status_line(
         status = ui.rich_text(
             (
                 "interrupted, recorded stack was rewritten; rerunning ",
-                ui.semantic_text("cleanup --restack", "hint"),
+                rerun_command,
                 " will use the current stack",
             )
         )
@@ -749,7 +816,7 @@ def _render_interrupted_cleanup_restack_status_line(
             (
                 "interrupted, the recorded changes are all included in the current stack; ",
                 "rerunning ",
-                ui.semantic_text("cleanup --restack", "hint"),
+                rerun_command,
                 " will use the current stack",
             )
         )
@@ -759,7 +826,7 @@ def _render_interrupted_cleanup_restack_status_line(
                 "interrupted, the recorded stack still includes changes that are no "
                 "longer on the current stack; ",
                 "rerunning ",
-                ui.semantic_text("cleanup --restack", "hint"),
+                rerun_command,
                 " will use the current stack",
             )
         )
@@ -767,7 +834,7 @@ def _render_interrupted_cleanup_restack_status_line(
         status = ui.rich_text(
             (
                 "interrupted, current stack differs; inspect before running ",
-                ui.semantic_text("cleanup --restack", "hint"),
+                rerun_command,
                 " again",
             )
         )
@@ -781,6 +848,10 @@ def _render_interrupted_close_status_line(
     intent: CloseIntent,
     prepared_status,
 ) -> object:
+    rerun_command = _render_rerun_command(
+        command="close --cleanup" if intent.cleanup else "close",
+        revset=prepared_status.selected_revset,
+    )
     current_change_ids = tuple(
         prepared_revision.revision.change_id
         for prepared_revision in prepared_status.prepared.status_revisions
@@ -798,7 +869,7 @@ def _render_interrupted_close_status_line(
         status = ui.rich_text(
             (
                 "interrupted, rerun ",
-                ui.semantic_text("close --cleanup" if intent.cleanup else "close", "hint"),
+                rerun_command,
                 " to continue on the current stack",
             )
         )
@@ -806,7 +877,7 @@ def _render_interrupted_close_status_line(
         status = ui.rich_text(
             (
                 "interrupted, recorded stack was rewritten; rerunning ",
-                ui.semantic_text("close --cleanup" if intent.cleanup else "close", "hint"),
+                rerun_command,
                 " will use the current stack",
             )
         )
@@ -815,7 +886,7 @@ def _render_interrupted_close_status_line(
             (
                 "interrupted, the recorded changes are all included in the current stack; ",
                 "rerunning ",
-                ui.semantic_text("close --cleanup" if intent.cleanup else "close", "hint"),
+                rerun_command,
                 " will use the current stack",
             )
         )
@@ -823,7 +894,7 @@ def _render_interrupted_close_status_line(
         status = ui.rich_text(
             (
                 "interrupted, current stack differs; inspect before running ",
-                ui.semantic_text("close --cleanup" if intent.cleanup else "close", "hint"),
+                rerun_command,
                 " again",
             )
         )

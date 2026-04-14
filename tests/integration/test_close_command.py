@@ -4,12 +4,17 @@ from pathlib import Path
 
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.github.resolution import ParsedGithubRepo
 from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
-from jj_review.models.cache import ReviewState
+from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.intent import CloseIntent, SubmitIntent
 
-from ..support.fake_github import FakeGithubState, create_app
+from ..support.fake_github import (
+    FakeGithubState,
+    create_app,
+    initialize_bare_repository,
+)
 from ..support.integration_helpers import (
     commit_file,
     init_fake_github_repo,
@@ -735,6 +740,10 @@ def test_cleanup_close_retires_covered_interrupted_submit(
             ordered_change_ids=(revision.change_id,),
             ordered_commit_ids=(revision.commit_id,),
             head_change_id=revision.change_id,
+            remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
             bookmarks={revision.change_id: bookmark},
             bases={},
             started_at="2026-01-01T00:00:00+00:00",
@@ -749,7 +758,7 @@ def test_cleanup_close_retires_covered_interrupted_submit(
     assert list(state_dir.glob("incomplete-*.json")) == []
 
 
-def test_cleanup_close_retires_interrupted_submit_when_only_local_bookmark_remains(
+def test_cleanup_close_keeps_interrupted_submit_when_only_local_bookmark_remains(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -777,6 +786,275 @@ def test_cleanup_close_retires_interrupted_submit_when_only_local_bookmark_remai
             ordered_change_ids=(submitted.change_id,),
             ordered_commit_ids=(submitted.commit_id,),
             head_change_id=submitted.change_id,
+            remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
+            bookmarks={submitted.change_id: bookmark},
+            bases={},
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    JjClient(repo).delete_remote_bookmarks(
+        remote="origin",
+        deletions=((bookmark, submitted.commit_id),),
+    )
+    run_command(["jj", "bookmark", "create", bookmark, "-r", submitted.commit_id], repo)
+    state_store.save(ReviewState())
+
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    exit_code = run_main(repo, config_path, "close", "--cleanup")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "No close actions were needed for the selected stack." in captured.out
+    assert old_intent_path.exists()
+
+
+def test_cleanup_close_keeps_status_notice_for_interrupted_submit_with_only_local_bookmark(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    submitted = stack.revisions[-1]
+    state_store = ReviewStateStore.for_repo(repo)
+    bookmark = state_store.load().changes[submitted.change_id].bookmark
+    assert bookmark is not None
+
+    write_new_intent(
+        resolve_state_path(repo).parent,
+        SubmitIntent(
+            kind="submit",
+            pid=99999999,
+            label="submit on @",
+            display_revset="@",
+            ordered_change_ids=(submitted.change_id,),
+            ordered_commit_ids=(submitted.commit_id,),
+            head_change_id=submitted.change_id,
+            remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
+            bookmarks={submitted.change_id: bookmark},
+            bases={},
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    JjClient(repo).delete_remote_bookmarks(
+        remote="origin",
+        deletions=((bookmark, submitted.commit_id),),
+    )
+    run_command(["jj", "bookmark", "create", bookmark, "-r", submitted.commit_id], repo)
+    state_store.save(ReviewState())
+
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "status") == 0
+    before = capsys.readouterr()
+
+    assert f"submit for {submitted.change_id[:8]}" in before.out
+
+    assert run_main(repo, config_path, "close", "--cleanup") == 0
+    capsys.readouterr()
+
+    assert run_main(repo, config_path, "status") == 0
+    after = capsys.readouterr()
+
+    assert f"submit for {submitted.change_id[:8]}" in after.out
+
+
+def test_cleanup_close_does_not_retire_interrupted_submit_after_relink_to_new_bookmark(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    revision = stack.revisions[-1]
+    state_store = ReviewStateStore.for_repo(repo)
+    original_bookmark = state_store.load().changes[revision.change_id].bookmark
+    assert original_bookmark is not None
+
+    old_intent_path = write_new_intent(
+        resolve_state_path(repo).parent,
+        SubmitIntent(
+            kind="submit",
+            pid=99999999,
+            label="submit on @",
+            display_revset="@",
+            ordered_change_ids=(revision.change_id,),
+            ordered_commit_ids=(revision.commit_id,),
+            head_change_id=revision.change_id,
+            remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
+            bookmarks={revision.change_id: original_bookmark},
+            bases={},
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    run_command(
+        [
+            "jj",
+            "describe",
+            "--ignore-immutable",
+            "-r",
+            revision.change_id,
+            "-m",
+            "feature 1 relinked",
+        ],
+        repo,
+    )
+    rewritten = JjClient(repo).discover_review_stack(revision.change_id).revisions[-1]
+    manual_bookmark = "review/manual-feature-1"
+    run_command(
+        ["jj", "bookmark", "create", manual_bookmark, "-r", rewritten.change_id],
+        repo,
+    )
+    run_command(
+        ["jj", "git", "push", "--remote", "origin", "--bookmark", manual_bookmark],
+        repo,
+    )
+    fake_repo.create_pull_request(
+        base_ref="main",
+        body="manual body",
+        head_ref=manual_bookmark,
+        title="manual title",
+    )
+
+    assert run_main(repo, config_path, "relink", "2", rewritten.change_id) == 0
+    capsys.readouterr()
+
+    assert run_main(repo, config_path, "close", "--cleanup", rewritten.change_id) == 0
+    capsys.readouterr()
+
+    assert old_intent_path.exists()
+    assert read_remote_ref(fake_repo.git_dir, original_bookmark) == revision.commit_id
+
+
+def test_cleanup_close_retires_interrupted_submit_when_only_closed_cached_metadata_remains(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    submitted = stack.revisions[-1]
+    state_store = ReviewStateStore.for_repo(repo)
+    bookmark = state_store.load().changes[submitted.change_id].bookmark
+    assert bookmark is not None
+
+    old_intent_path = write_new_intent(
+        resolve_state_path(repo).parent,
+        SubmitIntent(
+            kind="submit",
+            pid=99999999,
+            label="submit on @",
+            display_revset="@",
+            ordered_change_ids=(submitted.change_id,),
+            ordered_commit_ids=(submitted.commit_id,),
+            head_change_id=submitted.change_id,
+            remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
+            bookmarks={submitted.change_id: bookmark},
+            bases={},
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    JjClient(repo).delete_remote_bookmarks(
+        remote="origin",
+        deletions=((bookmark, submitted.commit_id),),
+    )
+    state_store.save(
+        ReviewState(
+            changes={
+                submitted.change_id: CachedChange(
+                    bookmark=bookmark,
+                    last_submitted_commit_id=submitted.commit_id,
+                    pr_number=1,
+                    pr_state="closed",
+                    pr_url="https://github.test/octo-org/stacked-review/pull/1",
+                )
+            }
+        )
+    )
+
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "close", "--cleanup") == 0
+    capsys.readouterr()
+
+    assert not old_intent_path.exists()
+
+
+def test_cleanup_close_keeps_interrupted_submit_when_remote_name_is_reused_for_other_repo(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    other_repo = initialize_bare_repository(
+        tmp_path / "remotes-extra",
+        owner="octo-org",
+        name="other-review",
+    )
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    submitted = stack.revisions[-1]
+    state_store = ReviewStateStore.for_repo(repo)
+    bookmark = state_store.load().changes[submitted.change_id].bookmark
+    assert bookmark is not None
+
+    old_intent_path = write_new_intent(
+        resolve_state_path(repo).parent,
+        SubmitIntent(
+            kind="submit",
+            pid=99999999,
+            label="submit on @",
+            display_revset="@",
+            ordered_change_ids=(submitted.change_id,),
+            ordered_commit_ids=(submitted.commit_id,),
+            head_change_id=submitted.change_id,
+            remote_name="origin",
+            github_host="github.test",
+            github_owner="octo-org",
+            github_repo="stacked-review",
             bookmarks={submitted.change_id: bookmark},
             bases={},
             started_at="2026-01-01T00:00:00+00:00",
@@ -788,13 +1066,88 @@ def test_cleanup_close_retires_interrupted_submit_when_only_local_bookmark_remai
         deletions=((bookmark, submitted.commit_id),),
     )
     state_store.save(ReviewState())
+    run_command(["jj", "git", "remote", "remove", "origin"], repo)
+    run_command(["jj", "git", "remote", "add", "origin", str(other_repo.git_dir)], repo)
 
     run_command(["jj", "new", "main"], repo)
     commit_file(repo, "feature 2", "feature-2.txt")
 
-    exit_code = run_main(repo, config_path, "close", "--cleanup")
-    captured = capsys.readouterr()
+    def _parse_other_repo(remote):
+        if remote.name == "origin":
+            return ParsedGithubRepo(
+                host="github.test",
+                owner="octo-org",
+                repo="other-review",
+            )
+        return ParsedGithubRepo(
+            host="github.test",
+            owner=fake_repo.owner,
+            repo=fake_repo.name,
+        )
 
-    assert exit_code == 0
-    assert "No close actions were needed for the selected stack." in captured.out
-    assert not old_intent_path.exists()
+    monkeypatch.setattr("jj_review.commands.close.parse_github_repo", _parse_other_repo)
+
+    assert run_main(repo, config_path, "close", "--cleanup") == 0
+    capsys.readouterr()
+
+    assert old_intent_path.exists()
+    assert run_main(repo, config_path, "status") == 0
+    status_after = capsys.readouterr()
+    assert f"submit for {submitted.change_id[:8]}" in status_after.out
+
+
+def test_cleanup_close_keeps_interrupted_submit_when_recorded_remote_is_missing(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    submitted = stack.revisions[-1]
+    state_store = ReviewStateStore.for_repo(repo)
+    bookmark = state_store.load().changes[submitted.change_id].bookmark
+    assert bookmark is not None
+
+    old_intent_path = write_new_intent(
+        resolve_state_path(repo).parent,
+        SubmitIntent(
+            kind="submit",
+            pid=99999999,
+            label="submit on @",
+            display_revset="@",
+            ordered_change_ids=(submitted.change_id,),
+            ordered_commit_ids=(submitted.commit_id,),
+            head_change_id=submitted.change_id,
+            remote_name="origin",
+            github_host="github.test",
+            github_owner="octo-org",
+            github_repo="stacked-review",
+            bookmarks={submitted.change_id: bookmark},
+            bases={},
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    JjClient(repo).delete_remote_bookmarks(
+        remote="origin",
+        deletions=((bookmark, submitted.commit_id),),
+    )
+    state_store.save(ReviewState())
+    run_command(["jj", "git", "remote", "remove", "origin"], repo)
+    run_command(["jj", "git", "remote", "add", "upstream", str(fake_repo.git_dir)], repo)
+    run_command(["jj", "bookmark", "track", "main", "--remote", "upstream"], repo)
+    run_command(["jj", "git", "push", "--remote", "upstream", "--bookmark", "main"], repo)
+
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "close", "--cleanup") == 0
+    capsys.readouterr()
+
+    assert old_intent_path.exists()

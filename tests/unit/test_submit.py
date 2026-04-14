@@ -334,6 +334,28 @@ def test_repair_interrupted_untracked_remote_bookmarks_tracks_matching_remote_ta
                         ),
                     ),
                 ),
+                "review/foreign-remote": BookmarkState(
+                    name="review/foreign-remote",
+                    local_targets=("abc123",),
+                    remote_targets=(
+                        RemoteBookmarkState(
+                            remote="origin",
+                            targets=("abc123",),
+                            tracking_targets=(),
+                        ),
+                    ),
+                ),
+                "review/foreign-repo": BookmarkState(
+                    name="review/foreign-repo",
+                    local_targets=("abc123",),
+                    remote_targets=(
+                        RemoteBookmarkState(
+                            remote="origin",
+                            targets=("abc123",),
+                            tracking_targets=(),
+                        ),
+                    ),
+                ),
             }
 
         def track_bookmark(self, *, remote: str, bookmark: str) -> None:
@@ -347,8 +369,48 @@ def test_repair_interrupted_untracked_remote_bookmarks_tracks_matching_remote_ta
             label="submit on @",
             display_revset="@",
             head_change_id="change-b",
+            remote_name="origin",
+        github_host="github.test",
+        github_owner="octo-org",
+        github_repo="stacked-review",
             ordered_change_ids=("change-a", "change-b"),
             bookmarks={"change-a": "review/foo", "change-b": "review/bar"},
+            bases={},
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+    write_new_intent(
+        tmp_path,
+        SubmitIntent(
+            kind="submit",
+            pid=99999998,
+            label="submit on foreign remote",
+            display_revset="@",
+            head_change_id="change-c",
+            remote_name="upstream",
+            github_host="github.test",
+            github_owner="octo-org",
+            github_repo="stacked-review",
+            ordered_change_ids=("change-c",),
+            bookmarks={"change-c": "review/foreign-remote"},
+            bases={},
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+    write_new_intent(
+        tmp_path,
+        SubmitIntent(
+            kind="submit",
+            pid=99999997,
+            label="submit on reused origin",
+            display_revset="@",
+            head_change_id="change-d",
+            remote_name="origin",
+            github_host="github.test",
+            github_owner="octo-org",
+            github_repo="other-review",
+            ordered_change_ids=("change-d",),
+            bookmarks={"change-d": "review/foreign-repo"},
             bases={},
             started_at="2026-01-01T00:00:00+00:00",
         ),
@@ -356,7 +418,10 @@ def test_repair_interrupted_untracked_remote_bookmarks_tracks_matching_remote_ta
 
     _repair_interrupted_untracked_remote_bookmarks(
         client=FakeJjClient(),
-        remote=GitRemote(name="origin", url="git@example.com:org/repo.git"),
+        remote=GitRemote(
+            name="origin",
+            url="https://github.test/octo-org/stacked-review.git",
+        ),
         state_dir=tmp_path,
     )
 
