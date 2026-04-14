@@ -26,6 +26,7 @@ from jj_review.models.intent import (
     RelinkIntent,
     SubmitIntent,
 )
+from jj_review.submit_recovery import should_retire_submit_after_submit
 
 logger = logging.getLogger(__name__)
 _INTENT_ADAPTER = TypeAdapter(IntentFile)
@@ -202,13 +203,10 @@ def describe_intent(intent: IntentFile) -> str:
 
     if isinstance(intent, SubmitIntent):
         return (
-            f"submit for {short_change_id(intent.head_change_id)} "
-            f"(from {intent.display_revset})"
+            f"submit for {short_change_id(intent.head_change_id)} (from {intent.display_revset})"
         )
     if isinstance(intent, CleanupRestackIntent):
-        head_change_id = (
-            intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
-        )
+        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
         return (
             f"cleanup --restack for {short_change_id(head_change_id)} "
             f"(from {intent.display_revset})"
@@ -241,22 +239,6 @@ def match_recorded_ordered_stack(
     if set(recorded_change_ids) & set(current_change_ids):
         return "overlap"
     return "disjoint"
-
-
-def match_submit_intent(
-    *,
-    intent: SubmitIntent,
-    current_change_ids: tuple[str, ...],
-    current_commit_ids: tuple[str, ...],
-) -> SubmitIntentMatch:
-    """Classify how a recorded submit intent relates to the current stack."""
-
-    return match_recorded_ordered_stack(
-        recorded_change_ids=intent.ordered_change_ids,
-        recorded_commit_ids=intent.ordered_commit_ids,
-        current_change_ids=current_change_ids,
-        current_commit_ids=current_commit_ids,
-    )
 
 
 def match_cleanup_restack_intent(
@@ -303,10 +285,14 @@ def match_close_intent(
     mode cannot be resumed by a plain close.
     """
 
-    if current_cleanup is not None and close_intent_mode_relation(
-        recorded_cleanup=intent.cleanup,
-        current_cleanup=current_cleanup,
-    ) == "incompatible":
+    if (
+        current_cleanup is not None
+        and close_intent_mode_relation(
+            recorded_cleanup=intent.cleanup,
+            current_cleanup=current_cleanup,
+        )
+        == "incompatible"
+    ):
         return "disjoint"
     return match_recorded_ordered_stack(
         recorded_change_ids=intent.ordered_change_ids,
@@ -390,39 +376,19 @@ def retire_superseded_intents(
         if isinstance(new_intent, SubmitIntent):
             if not isinstance(old, SubmitIntent):
                 continue
-            if old.remote_name != new_intent.remote_name:
-                continue
-            if (
-                old.github_host,
-                old.github_owner,
-                old.github_repo,
-            ) != (
-                new_intent.github_host,
-                new_intent.github_owner,
-                new_intent.github_repo,
-            ):
-                continue
-            if old.bookmarks and new_intent.bookmarks:
-                should_retire = set(old.bookmarks.values()).issubset(
-                    new_intent.bookmarks.values()
-                )
-            else:
-                # All recorded changes must be present in the new submit: a partial
-                # overlap would leave some recorded changes unaccounted for.
-                should_retire = set(old.ordered_change_ids).issubset(new_ids)
+            should_retire = should_retire_submit_after_submit(
+                old_intent=old,
+                new_intent=new_intent,
+            )
         elif isinstance(new_intent, CloseIntent):
             if isinstance(old, CloseIntent):
                 # Same subset rule as submit, plus mode compatibility: a plain
                 # close does not retire an old cleanup run because the cleanup
                 # steps may still be outstanding.
-                should_retire = (
-                    close_intent_mode_relation(
-                        recorded_cleanup=old.cleanup,
-                        current_cleanup=new_intent.cleanup,
-                    )
-                    != "incompatible"
-                    and set(old.ordered_change_ids).issubset(new_ids)
-                )
+                should_retire = close_intent_mode_relation(
+                    recorded_cleanup=old.cleanup,
+                    current_cleanup=new_intent.cleanup,
+                ) != "incompatible" and set(old.ordered_change_ids).issubset(new_ids)
             else:
                 continue
         elif isinstance(new_intent, CleanupRestackIntent):

@@ -171,6 +171,11 @@ Recent refactor slices:
   IDs in addition to change IDs, plus the submitted GitHub repository
   coordinates; status/reporting treats that data as recovery metadata rather
   than an instruction to replay the original mutable selector
+- interrupted `submit` recovery policy now lives in one dedicated helper module
+  with exact-continuation-only semantics: only an exact recorded stack snapshot
+  on the same recorded target counts as a continuation, while rewritten or
+  otherwise different stacks stay as outstanding records until cleanup or a
+  later matching submit clearly retires them
 - submit recovery now retires superseded interrupted submit intents when a later
   successful submit covers the same bookmark identities on the same recorded
   remote, while `abort` uses that recorded remote for submit retraction and
@@ -1509,9 +1514,10 @@ Recommended defaults:
   terminal wrapping and allows per-status semantic styling for the marker and
   message text
 - interrupted-submit recovery now treats the recorded remote name plus GitHub
-  repository identity as part of the recovery key: submit-side bookmark repair,
-  cleanup retirement, abort retraction, and status rerun guidance all fail
-  closed when the current target no longer matches the recorded submit target
+  repository identity as part of the recovery key: cleanup retirement, abort
+  retraction, and rerun guidance all fail closed when the current target no
+  longer matches the recorded submit target, while later submits only count as
+  exact continuations when that recorded target still matches
 - close cleanup retirement also treats a surviving local `review/*` bookmark as
   live cleanup state, so an interrupted submit record now stays visible until
   both local and remote review artifacts for that recorded submit are gone

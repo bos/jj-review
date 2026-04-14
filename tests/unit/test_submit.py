@@ -370,12 +370,11 @@ def test_repair_interrupted_untracked_remote_bookmarks_tracks_matching_remote_ta
             display_revset="@",
             head_change_id="change-b",
             remote_name="origin",
-        github_host="github.test",
-        github_owner="octo-org",
-        github_repo="stacked-review",
+            github_host="github.test",
+            github_owner="octo-org",
+            github_repo="stacked-review",
             ordered_change_ids=("change-a", "change-b"),
             bookmarks={"change-a": "review/foo", "change-b": "review/bar"},
-            bases={},
             started_at="2026-01-01T00:00:00+00:00",
         ),
     )
@@ -393,7 +392,6 @@ def test_repair_interrupted_untracked_remote_bookmarks_tracks_matching_remote_ta
             github_repo="stacked-review",
             ordered_change_ids=("change-c",),
             bookmarks={"change-c": "review/foreign-remote"},
-            bases={},
             started_at="2026-01-01T00:00:00+00:00",
         ),
     )
@@ -411,7 +409,6 @@ def test_repair_interrupted_untracked_remote_bookmarks_tracks_matching_remote_ta
             github_repo="other-review",
             ordered_change_ids=("change-d",),
             bookmarks={"change-d": "review/foreign-repo"},
-            bases={},
             started_at="2026-01-01T00:00:00+00:00",
         ),
     )

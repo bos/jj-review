@@ -52,7 +52,6 @@ from jj_review.github.resolution import (
 from jj_review.intent import (
     check_same_kind_intent,
     describe_intent,
-    match_submit_intent,
     pid_is_alive,
     retire_superseded_intents,
     scan_intents,
@@ -65,6 +64,11 @@ from jj_review.models.github import GithubIssueComment, GithubPullRequest
 from jj_review.models.intent import LoadedIntent, SubmitIntent
 from jj_review.models.stack import LocalRevision, LocalStack
 from jj_review.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
+from jj_review.submit_recovery import (
+    SubmitRecoveryIdentity,
+    SubmitStatusDecision,
+    submit_status_decision,
+)
 
 HELP = "Send a jj stack to GitHub for review"
 
@@ -365,9 +369,7 @@ def submit(
     if not result.dry_run:
         top_pull_request_url = result.revisions[-1].pull_request_url
         if top_pull_request_url is not None:
-            ui.output(
-                ui.prefixed_message("Top of stack: ", top_pull_request_url)
-            )
+            ui.output(ui.prefixed_message("Top of stack: ", top_pull_request_url))
     return 0
 
 
@@ -586,8 +588,7 @@ def _start_submit_intent(
         kind="submit",
         pid=os.getpid(),
         label=(
-            f"submit for {short_change_id(stack.head.change_id)} "
-            f"(from {stack.selected_revset})"
+            f"submit for {short_change_id(stack.head.change_id)} (from {stack.selected_revset})"
         ),
         display_revset=stack.selected_revset,
         ordered_commit_ids=ordered_commit_ids,
@@ -607,7 +608,6 @@ def _start_submit_intent(
                 strict=True,
             )
         },
-        bases={},
         started_at=datetime.now(UTC).isoformat(),
     )
     if dry_run:
@@ -650,39 +650,26 @@ def _report_stale_submit_intents(
     for loaded in stale_intents:
         if not isinstance(loaded.intent, SubmitIntent):
             continue
-        match = match_submit_intent(
+        decision = submit_status_decision(
             intent=loaded.intent,
             current_change_ids=ordered_change_ids,
             current_commit_ids=ordered_commit_ids,
+            current_identity=SubmitRecoveryIdentity.from_intent(current_intent),
         )
         description = describe_intent(loaded.intent)
-        target_matches = _submit_intent_targets_match(
-            recorded_intent=loaded.intent,
-            current_intent=current_intent,
-        )
-        if match == "exact" and target_matches:
+        if decision is SubmitStatusDecision.CONTINUE:
             ui.note(f"Continuing interrupted {description}", soft_wrap=True)
-        elif match == "same-logical" and target_matches:
+        elif decision is SubmitStatusDecision.CURRENT_STACK:
             ui.note(
-                f"Note: interrupted {description} targeted the same logical stack, "
-                "but it has been rewritten. This submit will use the current stack.",
+                f"Note: interrupted {description} does not match the current stack "
+                "exactly. This submit will use the current stack.",
                 soft_wrap=True,
             )
-        elif match == "covered" and target_matches:
+        elif decision is SubmitStatusDecision.INSPECT:
             ui.note(
-                f"Note: interrupted {description} targeted changes that are all included "
-                f"in the current stack. This submit will use the current stack.",
-                soft_wrap=True,
-            )
-        elif match in {"exact", "same-logical", "covered"}:
-            ui.note(
-                f"Note: incomplete operation outstanding: {description}",
-                soft_wrap=True,
-            )
-        elif match == "overlap":
-            ui.warning(
-                f"Warning: this submit overlaps an incomplete earlier operation "
-                f"({description})",
+                f"Note: interrupted {description} matches the current stack, "
+                "but its recorded submit target does not. This submit will use "
+                "the current stack.",
                 soft_wrap=True,
             )
         else:
@@ -690,24 +677,6 @@ def _report_stale_submit_intents(
                 f"Note: incomplete operation outstanding: {description}",
                 soft_wrap=True,
             )
-
-
-def _submit_intent_targets_match(
-    *,
-    recorded_intent: SubmitIntent,
-    current_intent: SubmitIntent,
-) -> bool:
-    return (
-        recorded_intent.remote_name,
-        recorded_intent.github_host,
-        recorded_intent.github_owner,
-        recorded_intent.github_repo,
-    ) == (
-        current_intent.remote_name,
-        current_intent.github_host,
-        current_intent.github_owner,
-        current_intent.github_repo,
-    )
 
 
 def _prepare_submit_revisions(
@@ -866,8 +835,7 @@ async def _run_submit_async(
                 )
             except GithubClientError as error:
                 raise CliError(
-                    "Could not load GitHub repository "
-                    f"{github_repository.full_name}: {error}"
+                    f"Could not load GitHub repository {github_repository.full_name}: {error}"
                 ) from error
             trunk_branch = resolve_trunk_branch(
                 bookmark_states=client.list_bookmark_states(),

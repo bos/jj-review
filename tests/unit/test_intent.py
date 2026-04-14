@@ -14,7 +14,6 @@ from jj_review.intent import (
     match_cleanup_restack_intent,
     match_close_intent,
     match_ordered_change_ids,
-    match_submit_intent,
     pid_is_alive,
     retire_superseded_intents,
     scan_intents,
@@ -52,7 +51,6 @@ def _make_submit_intent(
         github_repo="stacked-review",
         ordered_change_ids=ordered_change_ids,
         bookmarks={"aaaa": "review/feat-1-aaaa", "bbbb": "review/feat-2-bbbb"},
-        bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
 
@@ -221,50 +219,6 @@ def test_match_ordered_change_ids_requires_prefix_order_for_superset() -> None:
     assert match_ordered_change_ids(("a", "b"), ("b", "a", "c")) == "overlap"
 
 
-def test_match_submit_intent_returns_exact_for_matching_change_and_commit_ids() -> None:
-    assert (
-        match_submit_intent(
-            intent=_make_submit_intent(),
-            current_change_ids=("aaaa", "bbbb"),
-            current_commit_ids=("commit-aaaa", "commit-bbbb"),
-        )
-        == "exact"
-    )
-
-
-def test_match_submit_intent_returns_same_logical_for_rewritten_stack() -> None:
-    assert (
-        match_submit_intent(
-            intent=_make_submit_intent(),
-            current_change_ids=("aaaa", "bbbb"),
-            current_commit_ids=("new-aaaa", "new-bbbb"),
-        )
-        == "same-logical"
-    )
-
-
-def test_match_submit_intent_returns_covered_for_extended_current_stack() -> None:
-    assert (
-        match_submit_intent(
-            intent=_make_submit_intent(("aaaa", "bbbb")),
-            current_change_ids=("aaaa", "bbbb", "cccc"),
-            current_commit_ids=("commit-aaaa", "commit-bbbb", "commit-cccc"),
-        )
-        == "covered"
-    )
-
-
-def test_match_submit_intent_returns_covered_for_reordered_current_stack() -> None:
-    assert (
-        match_submit_intent(
-            intent=_make_submit_intent(("aaaa", "bbbb")),
-            current_change_ids=("bbbb", "aaaa"),
-            current_commit_ids=("commit-bbbb", "commit-aaaa"),
-        )
-        == "covered"
-    )
-
-
 def test_match_cleanup_restack_intent_returns_same_logical_for_rewritten_stack() -> None:
     assert (
         match_cleanup_restack_intent(
@@ -361,71 +315,6 @@ def test_retire_superseded_intents_retires_overlapping_cleanup_restack_intent(
     assert not old_path.exists()
 
 
-def test_retire_superseded_intents_retires_reordered_submit_intent(tmp_path: Path) -> None:
-    old_path = write_new_intent(
-        tmp_path,
-        _make_submit_intent(("aaaa", "bbbb")),
-    )
-
-    retire_superseded_intents(
-        [LoadedIntent(path=old_path, intent=_make_submit_intent(("aaaa", "bbbb")))],
-        _make_submit_intent(("bbbb", "aaaa")),
-    )
-
-    assert not old_path.exists()
-
-
-def test_retire_superseded_intents_keeps_submit_intent_when_new_submit_uses_other_remote(
-    tmp_path: Path,
-) -> None:
-    old = _make_submit_intent(("aaaa", "bbbb"))
-    path = write_new_intent(tmp_path, old)
-    loaded = LoadedIntent(path=path, intent=old)
-    new = _make_submit_intent(("aaaa", "bbbb")).model_copy(update={"remote_name": "upstream"})
-
-    retire_superseded_intents([loaded], new)
-
-    assert path.exists()
-
-
-def test_retire_superseded_intents_only_retires_matching_remote_submit_intent(
-    tmp_path: Path,
-) -> None:
-    origin = _make_submit_intent(("aaaa", "bbbb"))
-    origin_path = write_new_intent(tmp_path, origin)
-    upstream = origin.model_copy(
-        update={
-            "remote_name": "upstream",
-            "github_repo": "other-review",
-        }
-    )
-    upstream_path = write_new_intent(tmp_path, upstream)
-
-    retire_superseded_intents(
-        [
-            LoadedIntent(path=origin_path, intent=origin),
-            LoadedIntent(path=upstream_path, intent=upstream),
-        ],
-        origin,
-    )
-
-    assert not origin_path.exists()
-    assert upstream_path.exists()
-
-
-def test_retire_superseded_intents_keeps_submit_intent_when_remote_name_is_reused_for_other_repo(
-    tmp_path: Path,
-) -> None:
-    old = _make_submit_intent(("aaaa", "bbbb"))
-    path = write_new_intent(tmp_path, old)
-    loaded = LoadedIntent(path=path, intent=old)
-    new = old.model_copy(update={"github_repo": "other-review"})
-
-    retire_superseded_intents([loaded], new)
-
-    assert path.exists()
-
-
 def test_match_close_intent_returns_disjoint_when_cleanup_mode_differs() -> None:
     assert (
         match_close_intent(
@@ -486,50 +375,6 @@ def test_pid_is_alive_returns_false_for_missing_process(
 # ---------------------------------------------------------------------------
 # Retirement
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("new_ordered_change_ids", "new_bookmarks", "should_exist"),
-    [
-        pytest.param(("a", "b"), None, False, id="exact-match"),
-        pytest.param(
-            ("a", "b", "c"),
-            {
-                "a": "review/feat-1-aaaa",
-                "b": "review/feat-2-bbbb",
-                "c": "review/feat-3-cccc",
-            },
-            False,
-            id="extended-prefix",
-        ),
-        pytest.param(
-            ("b", "c"),
-            {"b": "review/feat-9-bbbb", "c": "review/feat-10-cccc"},
-            True,
-            id="non-prefix-overlap",
-        ),
-        pytest.param(
-            ("c", "d"),
-            {"c": "review/feat-11-cccc", "d": "review/feat-12-dddd"},
-            True,
-            id="disjoint",
-        ),
-    ],
-)
-def test_retire_superseded_submit_intents_requires_matching_bookmark_identity(
-    tmp_path: Path,
-    new_ordered_change_ids: tuple[str, ...],
-    new_bookmarks: dict[str, str] | None,
-    should_exist: bool,
-) -> None:
-    old = _make_submit_intent(("a", "b"))
-    path = write_new_intent(tmp_path, old)
-    loaded = LoadedIntent(path=path, intent=old)
-    new = _make_submit_intent(new_ordered_change_ids)
-    if new_bookmarks is not None:
-        new = new.model_copy(update={"bookmarks": new_bookmarks})
-    retire_superseded_intents([loaded], new)
-    assert path.exists() is should_exist
 
 
 # ---------------------------------------------------------------------------

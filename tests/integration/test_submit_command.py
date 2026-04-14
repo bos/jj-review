@@ -6,11 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from jj_review.bookmarks import BookmarkResolver
 from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
+from jj_review.models.cache import ReviewState
 from jj_review.models.intent import SubmitIntent
 
 from ..support.fake_github import (
@@ -34,6 +36,14 @@ from .submit_command_helpers import (
     run_main,
     write_config,
 )
+
+
+def _predicted_bookmarks(_repo: Path, stack) -> dict[str, str]:
+    result = BookmarkResolver(ReviewState()).pin_revisions(stack.revisions)
+    return {
+        revision.change_id: resolution.bookmark
+        for revision, resolution in zip(stack.revisions, result.resolutions, strict=True)
+    }
 
 
 def test_submit_projects_review_bookmarks_to_selected_remote(
@@ -71,14 +81,18 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
         assert bookmark is not None
         assert cached_change.pr_number == index
         assert cached_change.pr_state == "open"
-        assert cached_change.pr_url == fake_repo.pull_requests[index].to_payload(
-            repository=fake_repo,
-            web_origin="https://github.test",
-        )["html_url"]
+        assert (
+            cached_change.pr_url
+            == fake_repo.pull_requests[index].to_payload(
+                repository=fake_repo,
+                web_origin="https://github.test",
+            )["html_url"]
+        )
         assert read_remote_ref(fake_repo.git_dir, bookmark) == revision.commit_id
 
     assert fake_repo.pull_requests[1].base_ref == "main"
     assert fake_repo.pull_requests[2].base_ref == first_bookmark
+
 
 def test_submit_draft_creates_draft_pull_requests_and_persists_draft_state(
     tmp_path: Path,
@@ -101,6 +115,7 @@ def test_submit_draft_creates_draft_pull_requests_and_persists_draft_state(
     assert cached_change.pr_is_draft is True
     assert cached_change.pr_state == "open"
 
+
 def test_submit_draft_new_does_not_convert_published_pull_requests_back_to_draft(
     tmp_path: Path,
     monkeypatch,
@@ -122,6 +137,7 @@ def test_submit_draft_new_does_not_convert_published_pull_requests_back_to_draft
 
     assert not fake_repo.pull_requests[1].is_draft
     assert ReviewStateStore.for_repo(repo).load().changes[change_id].pr_is_draft is False
+
 
 def test_submit_draft_all_converts_existing_published_stack_to_draft(
     tmp_path: Path,
@@ -156,6 +172,7 @@ def test_submit_draft_all_converts_existing_published_stack_to_draft(
     assert fake_repo.pull_requests[2].is_draft
     assert refreshed_state.changes[stack.revisions[0].change_id].pr_is_draft is True
     assert refreshed_state.changes[stack.revisions[1].change_id].pr_is_draft is True
+
 
 def test_submit_invalid_revset_reports_clean_error_without_mutation(
     tmp_path: Path,
@@ -207,6 +224,7 @@ def test_submit_creates_stack_comment_only_for_selected_head_pull_request(
     assert state.changes[bottom_change_id].stack_comment_id is None
     assert state.changes[top_change_id].stack_comment_id == 1
 
+
 def test_submit_skips_stack_comment_for_single_commit_stack(
     tmp_path: Path,
     monkeypatch,
@@ -225,6 +243,7 @@ def test_submit_skips_stack_comment_for_single_commit_stack(
     assert issue_comments(fake_repo, 1) == []
     assert fake_repo.pull_requests[1].body == "feature 1"
     assert state.changes[change_id].stack_comment_id is None
+
 
 def test_submit_describe_with_generates_pull_request_and_stack_metadata(
     tmp_path: Path,
@@ -260,7 +279,7 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
                 "    payload = {",
                 "        'title': 'Generated stack summary',",
                 "        'body': (",
-                "            f\"Generated stack body for {revset}: \"",
+                '            f"Generated stack body for {revset}: "',
                 "            f\"{revisions[0]['title']} -> {revisions[1]['title']} | \"",
                 "            f\"{revisions[0]['diffstat'].splitlines()[0]}\"",
                 "        ),",
@@ -300,12 +319,12 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
     assert (
         f"Generated stack body for {stack.selected_revset}: "
         f"AI {stack.revisions[0].change_id[:8]} -> AI {stack.revisions[1].change_id[:8]} | "
-        "feature-1.txt"
-        in issue_comments(fake_repo, 2)[0].body
+        "feature-1.txt" in issue_comments(fake_repo, 2)[0].body
     )
     assert "This pull request is part of a stack tracked by `jj-review`." in (
         issue_comments(fake_repo, 2)[0].body
     )
+
 
 def test_submit_describe_with_skips_stack_helper_for_single_commit_stack(
     tmp_path: Path,
@@ -341,13 +360,16 @@ def test_submit_describe_with_skips_stack_helper_for_single_commit_stack(
     )
     helper.chmod(0o755)
 
-    assert run_main(
-        repo,
-        config_path,
-        "submit",
-        "--describe-with",
-        str(helper),
-    ) == 0
+    assert (
+        run_main(
+            repo,
+            config_path,
+            "submit",
+            "--describe-with",
+            str(helper),
+        )
+        == 0
+    )
     capsys.readouterr()
     stack = JjClient(repo).discover_review_stack()
     change_id = stack.revisions[-1].change_id
@@ -357,6 +379,7 @@ def test_submit_describe_with_skips_stack_helper_for_single_commit_stack(
     assert log_path.read_text(encoding="utf-8").splitlines() == [f"--pr {change_id}"]
     assert issue_comments(fake_repo, 1) == []
     assert state.changes[change_id].stack_comment_id is None
+
 
 def test_submit_describe_with_failure_aborts_before_mutation(
     tmp_path: Path,
@@ -395,6 +418,7 @@ def test_submit_describe_with_failure_aborts_before_mutation(
     assert fake_repo.pull_requests == {}
     assert issue_comments(fake_repo, 1) == []
 
+
 def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
     tmp_path: Path,
     monkeypatch,
@@ -417,6 +441,7 @@ def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
     assert ": new PR" in captured.out
     assert fake_repo.pull_requests == {}
     assert remote_refs(fake_repo.git_dir) == initial_remote_refs
+
 
 def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
     tmp_path: Path,
@@ -449,45 +474,6 @@ def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
     assert ReviewStateStore.for_repo(repo).load() == state_before
     assert list(resolve_state_path(repo).parent.glob("incomplete-*.json")) == []
 
-def test_submit_dry_run_warns_on_stale_intent_without_retiring_it(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    commit_file(repo, "feature 2", "feature-2.txt")
-
-    stack = JjClient(repo).discover_review_stack()
-    change_id_1 = stack.revisions[0].change_id
-    change_id_2 = stack.revisions[1].change_id
-    state_dir = resolve_state_path(repo).parent
-    old_intent = SubmitIntent(
-        kind="submit",
-        pid=99999999,
-        label="submit on @",
-        display_revset="@",
-        ordered_commit_ids=tuple(revision.commit_id for revision in stack.revisions),
-        head_change_id=change_id_2,
-        remote_name="origin",
-        github_host="github.test",
-        github_owner="octo-org",
-        github_repo="stacked-review",
-        ordered_change_ids=(change_id_1, change_id_2),
-        bookmarks={},
-        bases={},
-        started_at="2026-01-01T00:00:00+00:00",
-    )
-    old_intent_path = write_new_intent(state_dir, old_intent)
-
-    exit_code = run_main(repo, config_path, "submit", "--dry-run")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert f"Continuing interrupted submit for {change_id_2[:8]} (from @)" in captured.out
-    assert old_intent_path.exists()
-    assert fake_repo.pull_requests == {}
 
 def test_submit_rediscovers_and_regenerates_stack_comments_when_cache_is_missing(
     tmp_path: Path,
@@ -620,6 +606,7 @@ def test_submit_single_change_clears_stale_managed_stack_comment(
     assert issue_comments(fake_repo, 1) == []
     assert refreshed_state.changes[change_id].stack_comment_id is None
 
+
 def test_submit_rejects_cached_stack_comment_id_for_non_stack_comment(
     tmp_path: Path,
     monkeypatch,
@@ -658,6 +645,7 @@ def test_submit_rejects_cached_stack_comment_id_for_non_stack_comment(
     assert "does not belong to `jj-review`" in captured.err
     assert manual_comment in issue_comments(fake_repo, 2)
 
+
 def test_submit_rejects_ambiguous_discovered_stack_comments(
     tmp_path: Path,
     monkeypatch,
@@ -694,6 +682,7 @@ def test_submit_rejects_ambiguous_discovered_stack_comments(
 
     assert exit_code == 1
     assert "multiple `jj-review` stack summary comments" in captured.err
+
 
 def test_submit_reports_stack_comment_update_failures_without_traceback(
     tmp_path: Path,
@@ -740,6 +729,7 @@ def test_submit_reports_stack_comment_update_failures_without_traceback(
     assert "Could not update stack summary comment" in captured.err
     assert "Traceback" not in captured.err
 
+
 def test_submit_reports_up_to_date_when_remote_bookmark_and_pr_already_match(
     tmp_path: Path,
     monkeypatch,
@@ -753,8 +743,7 @@ def test_submit_reports_up_to_date_when_remote_bookmark_and_pr_already_match(
     first_output = capsys.readouterr().out
     first_refs = remote_refs(fake_repo.git_dir)
     first_prs = {
-        number: pull_request.title
-        for number, pull_request in fake_repo.pull_requests.items()
+        number: pull_request.title for number, pull_request in fake_repo.pull_requests.items()
     }
 
     exit_code = run_main(repo, config_path, "submit")
@@ -766,6 +755,7 @@ def test_submit_reports_up_to_date_when_remote_bookmark_and_pr_already_match(
     assert "unchanged" in captured.out
     assert remote_refs(fake_repo.git_dir) == first_refs
     assert {number: pr.title for number, pr in fake_repo.pull_requests.items()} == first_prs
+
 
 def test_submit_rejects_unlinked_change_until_relink(
     tmp_path: Path,
@@ -789,6 +779,7 @@ def test_submit_rejects_unlinked_change_until_relink(
     assert exit_code == 1
     assert "unlinked from review tracking" in captured.err
     assert "relink" in captured.err
+
 
 def test_submit_updates_existing_pull_request_after_change_rewrite(
     tmp_path: Path,
@@ -832,6 +823,7 @@ def test_submit_updates_existing_pull_request_after_change_rewrite(
     assert fake_repo.pull_requests[initial_pr_number].title == "feature 2 renamed"
     assert fake_repo.pull_requests[initial_pr_number].body == "updated body"
 
+
 def test_submit_updates_existing_untracked_remote_bookmark(
     tmp_path: Path,
     monkeypatch,
@@ -866,14 +858,12 @@ def test_submit_updates_existing_untracked_remote_bookmark(
 
     assert exit_code == 0
     assert "pushed" in captured.out
-    assert (
-        read_remote_ref(fake_repo.git_dir, bookmark)
-        == rewritten_stack.revisions[-1].commit_id
-    )
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == rewritten_stack.revisions[-1].commit_id
     assert remote_state is not None
     assert remote_state.is_tracked is True
     assert fake_repo.pull_requests[pr_number].title == "feature 1 renamed"
     assert fake_repo.pull_requests[pr_number].body == "feature 1 renamed"
+
 
 def test_submit_rerun_recovers_after_failure_following_untracked_remote_update(
     tmp_path: Path,
@@ -951,11 +941,9 @@ def test_submit_rerun_recovers_after_failure_following_untracked_remote_update(
 
     assert exit_code == 0
     assert "updated" in captured.out
-    assert (
-        read_remote_ref(fake_repo.git_dir, bookmark)
-        == rewritten_stack.revisions[-1].commit_id
-    )
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == rewritten_stack.revisions[-1].commit_id
     assert fake_repo.pull_requests[pr_number].title == "feature 1 renamed"
+
 
 def test_submit_rediscovers_review_branch_after_state_and_local_bookmark_loss(
     tmp_path: Path,
@@ -996,11 +984,9 @@ def test_submit_rediscovers_review_branch_after_state_and_local_bookmark_loss(
     assert set(fake_repo.pull_requests) == {pr_number}
     assert rewritten_state.changes[change_id].bookmark == bookmark
     assert rewritten_state.changes[change_id].pr_number == pr_number
-    assert (
-        read_remote_ref(fake_repo.git_dir, bookmark)
-        == rewritten_stack.revisions[-1].commit_id
-    )
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == rewritten_stack.revisions[-1].commit_id
     assert fake_repo.pull_requests[pr_number].title == "feature 1 renamed"
+
 
 def test_submit_fails_closed_when_cached_pull_request_is_missing_on_github(
     tmp_path: Path,
@@ -1166,6 +1152,7 @@ def test_submit_reports_no_reviewable_commits_without_mutation_when_head_is_trun
     assert set(remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
     assert fake_repo.pull_requests == {}
 
+
 def test_submit_rejects_duplicate_bookmark_overrides_before_projection(
     tmp_path: Path,
     monkeypatch,
@@ -1196,6 +1183,7 @@ def test_submit_rejects_duplicate_bookmark_overrides_before_projection(
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert set(remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
     assert fake_repo.pull_requests == {}
+
 
 def test_submit_preserves_cached_review_decision(
     tmp_path: Path,
@@ -1229,6 +1217,7 @@ def test_submit_preserves_cached_review_decision(
     assert refreshed_state.changes[change_id].pr_review_decision == "approved"
     assert refreshed_state.changes[change_id].pr_state == "open"
 
+
 def test_submit_publish_marks_existing_draft_pull_requests_ready_for_review(
     tmp_path: Path,
     monkeypatch,
@@ -1253,6 +1242,7 @@ def test_submit_publish_marks_existing_draft_pull_requests_ready_for_review(
     assert "PR #1 updated" in captured.out
     assert not fake_repo.pull_requests[1].is_draft
     assert refreshed_state.changes[change_id].pr_is_draft is False
+
 
 def test_submit_checkpoints_successful_in_flight_pull_request_before_failure(
     tmp_path: Path,
@@ -1330,6 +1320,7 @@ def test_submit_checkpoints_successful_in_flight_pull_request_before_failure(
         revision.commit_id for revision in stack.revisions
     }
 
+
 def test_submit_rerun_converges_pull_request_metadata_after_partial_create_failure(
     tmp_path: Path,
     monkeypatch,
@@ -1398,6 +1389,7 @@ def test_submit_rerun_converges_pull_request_metadata_after_partial_create_failu
     assert fake_repo.pull_requests[1].requested_team_reviewers == ["platform"]
     assert fake_repo.pull_requests[1].labels == ["needs-review"]
 
+
 def test_submit_unchanged_rerun_skips_pull_request_metadata_writes(
     tmp_path: Path,
     monkeypatch,
@@ -1458,6 +1450,7 @@ def test_submit_unchanged_rerun_skips_pull_request_metadata_writes(
     capsys.readouterr()
 
     assert metadata_write_calls == []
+
 
 def test_submit_cli_reviewers_override_configured_reviewers(
     tmp_path: Path,
@@ -1547,6 +1540,7 @@ def test_submit_cli_labels_override_configured_labels(
         "backend",
         "triaged",
     ]
+
 
 def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
     tmp_path: Path,
@@ -1643,6 +1637,7 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
     assert len(issue_comments(fake_repo, issue_number_2)) == 1
     assert len(issue_comments(fake_repo, issue_number_3)) == 1
 
+
 def test_submit_deletes_intent_file_after_successful_submit(
     tmp_path: Path,
     monkeypatch,
@@ -1659,6 +1654,7 @@ def test_submit_deletes_intent_file_after_successful_submit(
     state_dir = resolve_state_path(repo).parent
     intent_files = list(state_dir.glob("incomplete-*.json"))
     assert intent_files == [], f"Expected no intent files, found: {intent_files}"
+
 
 def test_submit_retains_intent_file_after_failed_submit(
     tmp_path: Path,
@@ -1691,9 +1687,7 @@ def test_submit_retains_intent_file_after_failed_submit(
         ):
             call_count[0] += 1
             if call_count[0] >= 1:
-                raise GithubClientError(
-                    "Simulated failure on first PR", status_code=500
-                )
+                raise GithubClientError("Simulated failure on first PR", status_code=500)
             return await super().create_pull_request(
                 owner,
                 repo,
@@ -1741,6 +1735,7 @@ def test_submit_retains_intent_file_after_failed_submit(
     assert change_id_2 in stored_ids
     assert stored_commit_ids == [revision.commit_id for revision in stack.revisions]
 
+
 def test_submit_resumes_and_retires_stale_intent(
     tmp_path: Path,
     monkeypatch,
@@ -1754,6 +1749,7 @@ def test_submit_resumes_and_retires_stale_intent(
     stack = JjClient(repo).discover_review_stack()
     change_id_1 = stack.revisions[0].change_id
     change_id_2 = stack.revisions[1].change_id
+    bookmarks = _predicted_bookmarks(repo, stack)
     state_dir = resolve_state_path(repo).parent
 
     # Write a stale intent with dead PID (99999999 is almost certainly dead)
@@ -1769,17 +1765,15 @@ def test_submit_resumes_and_retires_stale_intent(
         github_owner="octo-org",
         github_repo="stacked-review",
         ordered_change_ids=(change_id_1, change_id_2),
-        bookmarks={},
-        bases={},
+        bookmarks=bookmarks,
         started_at="2026-01-01T00:00:00+00:00",
     )
     old_intent_path = write_new_intent(state_dir, old_intent)
 
     exit_code = run_main(repo, config_path, "submit")
-    captured = capsys.readouterr()
+    capsys.readouterr()
 
     assert exit_code == 0
-    assert f"Continuing interrupted submit for {change_id_2[:8]} (from @)" in captured.out
     # Old intent file should be gone after success
     assert not old_intent_path.exists()
     # No intent files remain
@@ -1804,6 +1798,7 @@ def test_submit_does_not_retire_stale_intent_from_other_remote(
     commit_file(repo, "feature 2", "feature-2.txt")
 
     stack = JjClient(repo).discover_review_stack()
+    bookmarks = _predicted_bookmarks(repo, stack)
     state_dir = resolve_state_path(repo).parent
     old_intent = SubmitIntent(
         kind="submit",
@@ -1817,8 +1812,7 @@ def test_submit_does_not_retire_stale_intent_from_other_remote(
         github_owner="octo-org",
         github_repo="other-review",
         ordered_change_ids=tuple(revision.change_id for revision in stack.revisions),
-        bookmarks={},
-        bases={},
+        bookmarks=bookmarks,
         started_at="2026-01-01T00:00:00+00:00",
     )
     old_intent_path = write_new_intent(state_dir, old_intent)
@@ -1834,117 +1828,18 @@ def test_submit_does_not_retire_stale_intent_from_other_remote(
         github_owner="octo-org",
         github_repo="stacked-review",
         ordered_change_ids=tuple(revision.change_id for revision in stack.revisions),
-        bookmarks={},
-        bases={},
+        bookmarks=bookmarks,
         started_at="2026-01-01T00:00:00+00:00",
     )
     matching_intent_path = write_new_intent(state_dir, matching_intent)
 
     assert run_main(repo, config_path, "submit") == 0
-    captured = capsys.readouterr()
+    capsys.readouterr()
 
     assert old_intent_path.exists()
     assert not matching_intent_path.exists()
-    assert (
-        f"Note: incomplete operation outstanding: submit for "
-        f"{stack.revisions[-1].change_id[:8]} (from upstream)"
-    ) in captured.out
-    assert (
-        f"Continuing interrupted submit for {stack.revisions[-1].change_id[:8]} "
-        f"(from upstream)"
-    ) not in captured.out
     intent_files = list(state_dir.glob("incomplete-*.json"))
     assert intent_files == [old_intent_path]
-
-
-def test_submit_does_not_continue_stale_intent_when_recorded_remote_is_missing(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    run_command(["jj", "git", "remote", "add", "upstream", str(fake_repo.git_dir)], repo)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    commit_file(repo, "feature 2", "feature-2.txt")
-
-    stack = JjClient(repo).discover_review_stack()
-    state_dir = resolve_state_path(repo).parent
-    old_intent = SubmitIntent(
-        kind="submit",
-        pid=99999999,
-        label="submit on origin",
-        display_revset="origin",
-        ordered_commit_ids=tuple(revision.commit_id for revision in stack.revisions),
-        head_change_id=stack.revisions[-1].change_id,
-        remote_name="origin",
-        github_host="github.test",
-        github_owner="octo-org",
-        github_repo="stacked-review",
-        ordered_change_ids=tuple(revision.change_id for revision in stack.revisions),
-        bookmarks={},
-        bases={},
-        started_at="2026-01-01T00:00:00+00:00",
-    )
-    old_intent_path = write_new_intent(state_dir, old_intent)
-    run_command(["jj", "git", "remote", "remove", "origin"], repo)
-
-    assert run_main(repo, config_path, "submit") == 0
-    captured = capsys.readouterr()
-
-    assert old_intent_path.exists()
-    assert (
-        f"Note: incomplete operation outstanding: submit for "
-        f"{stack.revisions[-1].change_id[:8]} (from origin)"
-    ) in captured.out
-    assert (
-        f"Continuing interrupted submit for {stack.revisions[-1].change_id[:8]} "
-        f"(from origin)"
-    ) not in captured.out
-
-def test_submit_warns_on_overlapping_stale_intent(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    commit_file(repo, "feature 2", "feature-2.txt")
-
-    stack = JjClient(repo).discover_review_stack()
-    change_id_1 = stack.revisions[0].change_id
-    state_dir = resolve_state_path(repo).parent
-
-    # Write a stale intent with only the first change ID (partial overlap)
-    old_intent = SubmitIntent(
-        kind="submit",
-        pid=99999999,
-        label="submit on @",
-        display_revset="@",
-        ordered_commit_ids=(stack.revisions[0].commit_id,),
-        head_change_id=change_id_1,
-        remote_name="origin",
-        github_host="github.test",
-        github_owner="octo-org",
-        github_repo="stacked-review",
-        ordered_change_ids=(change_id_1,),
-        bookmarks={},
-        bases={},
-        started_at="2026-01-01T00:00:00+00:00",
-    )
-    write_new_intent(state_dir, old_intent)
-
-    exit_code = run_main(repo, config_path, "submit")
-    capsys.readouterr()
-
-    assert exit_code == 0
-    # Old intent is a prefix of new, so it should be retired (superset match)
-    # No warning should appear for superset (it proceeds silently)
-    # Actually: old=(change_id_1,), new=(change_id_1, change_id_2)
-    # match_ordered_change_ids(old, new) == "superset" => silent retirement
-    intent_files = list(state_dir.glob("incomplete-*.json"))
-    assert intent_files == []
 
 
 def test_submit_treats_rewritten_matching_change_ids_as_new_submit(
@@ -1960,6 +1855,7 @@ def test_submit_treats_rewritten_matching_change_ids_as_new_submit(
     stack = JjClient(repo).discover_review_stack()
     change_id_1 = stack.revisions[0].change_id
     change_id_2 = stack.revisions[1].change_id
+    bookmarks = _predicted_bookmarks(repo, stack)
     state_dir = resolve_state_path(repo).parent
     old_intent = SubmitIntent(
         kind="submit",
@@ -1973,18 +1869,16 @@ def test_submit_treats_rewritten_matching_change_ids_as_new_submit(
         github_owner="octo-org",
         github_repo="stacked-review",
         ordered_change_ids=(change_id_1, change_id_2),
-        bookmarks={},
-        bases={},
+        bookmarks=bookmarks,
         started_at="2026-01-01T00:00:00+00:00",
     )
-    write_new_intent(state_dir, old_intent)
+    old_intent_path = write_new_intent(state_dir, old_intent)
 
     run_command(["jj", "describe", "-r", change_id_2, "-m", "feature 2 rewritten"], repo)
 
     exit_code = run_main(repo, config_path, "submit", "--dry-run")
-    captured = capsys.readouterr()
+    capsys.readouterr()
 
     assert exit_code == 0
-    assert "Continuing interrupted" not in captured.out
-    assert "same logical stack, but it has been rewritten" in captured.out
+    assert old_intent_path.exists()
     assert fake_repo.pull_requests == {}

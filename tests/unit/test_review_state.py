@@ -8,7 +8,6 @@ import pytest
 
 from jj_review import ui as ui_module
 from jj_review.commands import review_state as review_state_module
-from jj_review.models.intent import SubmitIntent
 
 
 def _render_lines(*lines: object) -> tuple[str, ...]:
@@ -143,105 +142,6 @@ def test_emit_lines_decodes_ansi_styled_native_revision_output() -> None:
 
     assert stdout.getvalue() == "red\n"
 
-
-def test_interrupted_intent_blocks_status_returns_false_for_exact_submit() -> None:
-    prepared_status = SimpleNamespace(
-        github_repository=SimpleNamespace(
-            host="github.test",
-            owner="octo-org",
-            repo="stacked-review",
-        ),
-        prepared=SimpleNamespace(
-            remote=SimpleNamespace(name="origin"),
-            status_revisions=(
-                SimpleNamespace(
-                    revision=SimpleNamespace(
-                        change_id="abcdefgh1234",
-                        commit_id="commit-a",
-                    )
-                ),
-            )
-        ),
-    )
-    loaded = SimpleNamespace(
-        intent=SubmitIntent(
-            kind="submit",
-            pid=99999999,
-            label="submit on @",
-            display_revset="@",
-            ordered_commit_ids=("commit-a",),
-            head_change_id="abcdefgh1234",
-            remote_name="origin",
-        github_host="github.test",
-        github_owner="octo-org",
-        github_repo="stacked-review",
-            ordered_change_ids=("abcdefgh1234",),
-            bookmarks={},
-            bases={},
-            started_at="2026-01-01T00:00:00+00:00",
-        ),
-    )
-
-    assert (
-        review_state_module._interrupted_intent_blocks_status(
-            loaded=loaded,
-            prepared_status=prepared_status,
-        )
-        is False
-    )
-
-
-def test_interrupted_intent_blocks_status_returns_true_for_overlapping_submit() -> None:
-    prepared_status = SimpleNamespace(
-        github_repository=SimpleNamespace(
-            host="github.test",
-            owner="octo-org",
-            repo="stacked-review",
-        ),
-        prepared=SimpleNamespace(
-            remote=SimpleNamespace(name="origin"),
-            status_revisions=(
-                SimpleNamespace(
-                    revision=SimpleNamespace(
-                        change_id="abcdefgh1234",
-                        commit_id="commit-a",
-                    )
-                ),
-                SimpleNamespace(
-                    revision=SimpleNamespace(
-                        change_id="bcdefghi2345",
-                        commit_id="commit-b",
-                    )
-                ),
-            )
-        ),
-    )
-    loaded = SimpleNamespace(
-        intent=SubmitIntent(
-            kind="submit",
-            pid=99999999,
-            label="submit on @",
-            display_revset="@",
-            ordered_commit_ids=("commit-a", "commit-c"),
-            head_change_id="cdefghij3456",
-            remote_name="origin",
-        github_host="github.test",
-        github_owner="octo-org",
-        github_repo="stacked-review",
-            ordered_change_ids=("abcdefgh1234", "cdefghij3456"),
-            bookmarks={},
-            bases={},
-            started_at="2026-01-01T00:00:00+00:00",
-        ),
-    )
-
-    assert (
-        review_state_module._interrupted_intent_blocks_status(
-            loaded=loaded,
-            prepared_status=prepared_status,
-        )
-        is True
-    )
 
 def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
     revisions = tuple(

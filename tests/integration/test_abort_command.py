@@ -61,6 +61,7 @@ def test_abort_dry_run_shows_planned_actions_without_mutating(
 
     # Inject a stale submit intent to simulate an interrupted submit.
     from jj_review.models.intent import SubmitIntent
+
     intent = SubmitIntent(
         kind="submit",
         pid=99999999,  # dead PID — simulates an interrupted operation
@@ -74,7 +75,6 @@ def test_abort_dry_run_shows_planned_actions_without_mutating(
         github_repo="stacked-review",
         ordered_change_ids=(change_id,),
         bookmarks={change_id: bookmark},
-        bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
     write_new_intent(state_store.state_dir, intent)
@@ -115,6 +115,7 @@ def test_abort_retracts_submitted_change_and_clears_state(
 
     # Inject a submit intent referencing the live change.
     from jj_review.models.intent import SubmitIntent
+
     intent = SubmitIntent(
         kind="submit",
         pid=99999999,  # dead PID — simulates an interrupted operation
@@ -128,7 +129,6 @@ def test_abort_retracts_submitted_change_and_clears_state(
         github_repo="stacked-review",
         ordered_change_ids=(change_id,),
         bookmarks={change_id: bookmark},
-        bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
     write_new_intent(state_store.state_dir, intent)
@@ -190,7 +190,6 @@ def test_abort_refuses_submit_retraction_after_stack_rewrite(
         github_repo="stacked-review",
         ordered_change_ids=(change_id,),
         bookmarks={change_id: bookmark},
-        bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
     write_new_intent(state_store.state_dir, intent)
@@ -215,55 +214,6 @@ def test_abort_refuses_submit_retraction_after_stack_rewrite(
     assert read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target
     assert fake_repo.pull_requests[1].state == "open"
     assert state_store.list_intents()
-
-
-def test_abort_rewrite_guidance_requires_explicit_cleanup_revset(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    stack = JjClient(repo).discover_review_stack()
-    revision = stack.revisions[-1]
-    change_id = revision.change_id
-    state_store = ReviewStateStore.for_repo(repo)
-    bookmark = state_store.load().changes[change_id].bookmark
-    assert bookmark is not None
-
-    write_new_intent(
-        state_store.state_dir,
-        SubmitIntent(
-            kind="submit",
-            pid=99999999,
-            label=f"submit on {change_id[:8]}",
-            display_revset=change_id[:8],
-            ordered_commit_ids=(revision.commit_id,),
-            head_change_id=change_id,
-            remote_name="origin",
-        github_host="github.test",
-        github_owner="octo-org",
-        github_repo="stacked-review",
-            ordered_change_ids=(change_id,),
-            bookmarks={change_id: bookmark},
-            bases={},
-            started_at="2026-01-01T00:00:00+00:00",
-        ),
-    )
-
-    run_command(["jj", "describe", "-r", change_id, "-m", "feature 1 rewritten"], repo)
-
-    assert run_main(repo, config_path, "abort") == 1
-    captured = capsys.readouterr()
-    normalized_output = " ".join(captured.out.split())
-
-    assert "`close --cleanup`" not in captured.out
-    assert f"close --cleanup {change_id[:8]}" in normalized_output
 
 
 def test_abort_keeps_local_bookmark_when_remote_bookmark_is_conflicted(
@@ -304,7 +254,6 @@ def test_abort_keeps_local_bookmark_when_remote_bookmark_is_conflicted(
             github_repo="stacked-review",
             ordered_change_ids=(change_id,),
             bookmarks={change_id: bookmark},
-            bases={},
             started_at="2026-01-01T00:00:00+00:00",
         ),
     )
@@ -390,6 +339,7 @@ def test_abort_reports_stale_when_all_intents_have_gone_change_ids(
     state_store.require_writable()
     # Use a change_id that doesn't exist in this repo.
     from jj_review.models.intent import SubmitIntent
+
     intent = SubmitIntent(
         kind="submit",
         pid=99999999,  # dead PID
@@ -402,7 +352,6 @@ def test_abort_reports_stale_when_all_intents_have_gone_change_ids(
         github_repo="stacked-review",
         ordered_change_ids=("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",),
         bookmarks={"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "review/feat-aaaa"},
-        bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
     write_new_intent(state_store.state_dir, intent)
@@ -447,7 +396,6 @@ def test_abort_skips_live_pid_intent_and_warns(
         github_repo="stacked-review",
         ordered_change_ids=(change_id,),
         bookmarks={change_id: bookmark},
-        bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
     write_new_intent(state_store.state_dir, intent)
@@ -556,7 +504,6 @@ def test_abort_preserves_state_and_intent_when_step_is_blocked(
         github_repo="stacked-review",
         ordered_change_ids=(change_id,),
         bookmarks={change_id: bookmark},
-        bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
     write_new_intent(state_store.state_dir, intent)
@@ -620,7 +567,6 @@ def test_abort_keeps_intent_when_recorded_remote_now_points_elsewhere(
         github_repo="stacked-review",
         ordered_change_ids=(change_id,),
         bookmarks={change_id: bookmark},
-        bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
     write_new_intent(state_store.state_dir, intent)
@@ -684,7 +630,6 @@ def test_abort_keeps_intent_when_recorded_remote_is_missing(
         github_repo="stacked-review",
         ordered_change_ids=(change_id,),
         bookmarks={change_id: bookmark},
-        bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
     write_new_intent(state_store.state_dir, intent)
@@ -764,7 +709,6 @@ def test_abort_retracts_using_recorded_remote_not_current_selection(
             github_repo="stacked-review",
             ordered_change_ids=(change_id,),
             bookmarks={change_id: bookmark},
-            bases={},
             started_at="2026-01-01T00:00:00+00:00",
         ),
     )

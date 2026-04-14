@@ -25,7 +25,6 @@ from jj_review.formatting import (
 from jj_review.intent import (
     match_cleanup_restack_intent,
     match_close_intent,
-    match_submit_intent,
     pid_is_alive,
 )
 from jj_review.jj import UnsupportedStackError
@@ -43,6 +42,11 @@ from jj_review.review_inspection import (
     revision_has_merged_pull_request,
     revision_pull_request_number,
     stream_status,
+)
+from jj_review.submit_recovery import (
+    SubmitRecoveryIdentity,
+    SubmitStatusDecision,
+    submit_status_decision,
 )
 
 _SUMMARY_SECTION_HEAD_COUNT = 3
@@ -84,9 +88,7 @@ def status(
 
     github_repository = getattr(prepared_status, "github_repository", None)
     progress_total = (
-        len(prepared_status.prepared.status_revisions)
-        if github_repository is not None
-        else 0
+        len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
     )
     with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
         result = stream_status(
@@ -621,19 +623,13 @@ def _interrupted_intent_blocks_status(*, loaded, prepared_status) -> bool:
     )
 
     if isinstance(loaded.intent, SubmitIntent):
-        match = match_submit_intent(
+        decision = submit_status_decision(
             intent=loaded.intent,
             current_change_ids=current_change_ids,
             current_commit_ids=current_commit_ids,
+            current_identity=_current_submit_identity(prepared_status=prepared_status),
         )
-        if match == "overlap":
-            return True
-        if match in {"exact", "same-logical", "covered"}:
-            return _submit_intent_target_relation(
-                intent=loaded.intent,
-                prepared_status=prepared_status,
-            ) != "match"
-        return False
+        return decision is SubmitStatusDecision.INSPECT
 
     if isinstance(loaded.intent, CleanupRestackIntent):
         return (
@@ -676,16 +672,13 @@ def _render_interrupted_submit_status_line(
         prepared_revision.revision.commit_id
         for prepared_revision in prepared_status.prepared.status_revisions
     )
-    match = match_submit_intent(
+    decision = submit_status_decision(
         intent=intent,
         current_change_ids=current_change_ids,
         current_commit_ids=current_commit_ids,
+        current_identity=_current_submit_identity(prepared_status=prepared_status),
     )
-    target_relation = _submit_intent_target_relation(
-        intent=intent,
-        prepared_status=prepared_status,
-    )
-    if match == "exact" and target_relation == "match":
+    if decision is SubmitStatusDecision.CONTINUE:
         status = ui.rich_text(
             (
                 "interrupted, rerun ",
@@ -693,45 +686,19 @@ def _render_interrupted_submit_status_line(
                 " to continue on the current stack",
             )
         )
-    elif match == "same-logical" and target_relation == "match":
+    elif decision is SubmitStatusDecision.CURRENT_STACK:
         status = ui.rich_text(
             (
                 "interrupted, recorded stack was rewritten; rerunning ",
                 rerun_command,
-                " will use the current stack",
+                " will submit the current stack",
             )
         )
-    elif match == "covered" and target_relation == "match":
+    elif decision is SubmitStatusDecision.INSPECT:
         status = ui.rich_text(
             (
-                "interrupted, the recorded changes are all included in the current stack; ",
-                "rerunning ",
-                rerun_command,
-                " will use the current stack",
-            )
-        )
-    elif match in {"exact", "same-logical", "covered"} and target_relation == "unknown":
-        status = ui.rich_text(
-            (
-                "interrupted, current stack matches but the recorded submit target is "
-                "unavailable; inspect before running ",
-                rerun_command,
-                " again",
-            )
-        )
-    elif match in {"exact", "same-logical", "covered"}:
-        status = ui.rich_text(
-            (
-                "interrupted, current stack matches but the recorded submit targeted a "
-                "different remote or GitHub repository; inspect before running ",
-                rerun_command,
-                " again",
-            )
-        )
-    elif match == "overlap":
-        status = ui.rich_text(
-            (
-                "interrupted, current stack differs; inspect before running ",
+                "interrupted, current stack matches but the recorded submit target "
+                "does not; inspect before running ",
                 rerun_command,
                 " again",
             )
@@ -741,26 +708,15 @@ def _render_interrupted_submit_status_line(
     return status
 
 
-def _submit_intent_target_relation(*, intent: SubmitIntent, prepared_status) -> str:
-    """Classify whether the current selection targets the recorded submit destination."""
-
+def _current_submit_identity(*, prepared_status) -> SubmitRecoveryIdentity | None:
     current_remote = prepared_status.prepared.remote
     current_github_repository = prepared_status.github_repository
     if current_remote is None or current_github_repository is None:
-        return "unknown"
-    if current_remote.name != intent.remote_name:
-        return "mismatch"
-    if (
-        intent.github_host,
-        intent.github_owner,
-        intent.github_repo,
-    ) != (
-        current_github_repository.host,
-        current_github_repository.owner,
-        current_github_repository.repo,
-    ):
-        return "mismatch"
-    return "match"
+        return None
+    return SubmitRecoveryIdentity.from_github_repository(
+        remote_name=current_remote.name,
+        github_repository=current_github_repository,
+    )
 
 
 def _render_rerun_command(*, command: str, revset: str) -> tuple[object, ...]:
@@ -930,6 +886,7 @@ def _revision_pull_request_url(revision) -> str | None:
     if lookup is None or lookup.pull_request is None:
         return None
     return getattr(lookup.pull_request, "html_url", None)
+
 
 def _classify_revision_for_summary(
     revision,

@@ -112,7 +112,6 @@ def test_doctor_warns_for_interrupted_operation(
         github_repo="stacked-review",
         ordered_change_ids=(change_id,),
         bookmarks={},
-        bases={},
         started_at="2026-01-01T00:00:00+00:00",
     )
     write_new_intent(state_store.state_dir, intent)

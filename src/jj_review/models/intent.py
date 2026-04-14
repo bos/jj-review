@@ -40,7 +40,6 @@ class SubmitIntent(OrderedChangeIdsIntent):
     github_owner: str
     github_repo: str
     bookmarks: dict[str, str]  # change_id → bookmark
-    bases: dict[str, str]  # change_id → base_branch (may be empty until --abort is designed)
 
 
 class CleanupIntent(OperationIntent):

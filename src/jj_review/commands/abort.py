@@ -37,6 +37,7 @@ from jj_review.models.intent import (
     RelinkIntent,
     SubmitIntent,
 )
+from jj_review.submit_recovery import recorded_submit_still_exists_exactly
 
 HELP = "Undo interrupted jj-review operations"
 
@@ -95,9 +96,7 @@ def abort(
     # Separate any AbortIntent lock files from the real operation intents.
     # A live-PID AbortIntent means another abort is already running; bail.
     # A dead-PID AbortIntent is a stale lock from a previous crash; clean it up.
-    abort_locks = [
-        loaded for loaded in loaded_intents if isinstance(loaded.intent, AbortIntent)
-    ]
+    abort_locks = [loaded for loaded in loaded_intents if isinstance(loaded.intent, AbortIntent)]
     operation_intents = [
         loaded for loaded in loaded_intents if not isinstance(loaded.intent, AbortIntent)
     ]
@@ -217,12 +216,8 @@ async def _abort_intent_async(
     note = _non_submit_note(intent)
     actions: list[AbortAction] = []
     if note:
-        actions.append(
-            AbortAction(kind="note", body=note, status="skipped")
-        )
-    _plan_intent_file_removal(
-        actions=actions, dry_run=dry_run, intent_path=loaded.path
-    )
+        actions.append(AbortAction(kind="note", body=note, status="skipped"))
+    _plan_intent_file_removal(actions=actions, dry_run=dry_run, intent_path=loaded.path)
     if not dry_run:
         loaded.path.unlink(missing_ok=True)
 
@@ -406,20 +401,18 @@ def _submit_intent_matches_recorded_stack(
 ) -> bool:
     """Return True when the recorded submit stack still exists exactly."""
 
-    if not intent.ordered_commit_ids:
-        return False
-    if len(intent.ordered_commit_ids) != len(intent.ordered_change_ids):
-        return False
-
     revisions_by_change_id = jj_client.query_revisions_by_change_ids(intent.ordered_change_ids)
-    current_commit_ids: list[str] = []
+    commit_ids_by_change_id: dict[str, str] = {}
     for change_id in intent.ordered_change_ids:
         revisions = revisions_by_change_id.get(change_id, ())
         if len(revisions) != 1:
             return False
-        current_commit_ids.append(revisions[0].commit_id)
+        commit_ids_by_change_id[change_id] = revisions[0].commit_id
 
-    return tuple(current_commit_ids) == intent.ordered_commit_ids
+    return recorded_submit_still_exists_exactly(
+        intent=intent,
+        commit_ids_by_change_id=commit_ids_by_change_id,
+    )
 
 
 async def _retract_one_change(
