@@ -184,9 +184,11 @@ def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
     exit_code = run_main(repo, config_path, "close", "--cleanup", change_id)
     captured = capsys.readouterr()
     refreshed_state = state_store.load()
+    normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 0
     assert "Applied close actions:" in captured.out
+    assert "stop review tracking for feature 1" in normalized_output
     assert fake_repo.pull_requests[1].state == "closed"
     assert refreshed_state.changes[change_id].pr_state == "closed"
     assert refreshed_state.changes[change_id].stack_comment_id is None

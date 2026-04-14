@@ -377,8 +377,8 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
             await asyncio.sleep(0)
 
         assert streamed_actions == [
-            "remove saved jj-review data for change-1 (local change is no longer reviewable)",
-            "remove saved jj-review data for change-2 (local change is no longer reviewable)",
+            "remove tracking for change-1 (local change is no longer reviewable)",
+            "remove tracking for change-2 (local change is no longer reviewable)",
         ]
         release_comment_checks.set()
         await task
@@ -569,7 +569,7 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
     )
 
     assert [action.message for action in result.actions] == [
-        "remove saved jj-review data for stale-ch (local change is no longer reviewable)"
+        "remove tracking for stale-ch (local change is no longer reviewable)"
     ]
     assert [sorted(saved_state.changes) for saved_state in saved_states] == [
         ["live-change"],

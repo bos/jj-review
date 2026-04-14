@@ -92,6 +92,10 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- applied action rows in `close`, `cleanup`, `land`, and `abort` now keep
+  success emphasis on the status marker instead of tinting the full action
+  description, and tracking-removal messages now use plain "review tracking"
+  wording instead of internal "saved jj-review" phrasing
 - multi-step GitHub progress bars now live in the shared `ui` layer and are
   reused by `status`, `submit`, `close`, `cleanup`, `import`, `unlink`, and
   `abort` only for otherwise-silent per-change GitHub work in interactive

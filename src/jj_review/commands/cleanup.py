@@ -400,7 +400,7 @@ def _action_presentation(
         return (
             "  ✓",
             ui.semantic_style("signature status good"),
-            ui.semantic_style("signature status good"),
+            None,
         )
     if status == "planned":
         return (
@@ -443,6 +443,9 @@ def _render_action(
 
 
 def _render_action_body(action: CleanupAction, *, body_style: object | None) -> CleanupBody:
+    del body_style
+    if action.kind == "tracking":
+        return action.body
     return (ui.semantic_text(action.kind, "prefix"), ": ", action.body)
 
 
@@ -1439,7 +1442,7 @@ def _cache_action(
         kind="tracking",
         status=status,
         body=(
-            t"remove saved jj-review data for {ui.change_id(change_id)} "
+            t"remove tracking for {ui.change_id(change_id)} "
             t"({reason})"
         ),
     )

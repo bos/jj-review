@@ -663,7 +663,7 @@ def _abort_action_presentation(
         return (
             "  ✓",
             ui.semantic_style("signature status good"),
-            ui.semantic_style("signature status good"),
+            None,
         )
     if status == "planned":
         return (

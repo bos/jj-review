@@ -46,7 +46,7 @@ def test_cleanup_prunes_unlinked_state_for_stale_change(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "remove saved jj-review data" in captured.out
+    assert "remove tracking for" in captured.out
     assert change_id not in ReviewStateStore.for_repo(repo).load().changes
 
 
@@ -70,7 +70,7 @@ def test_cleanup_prunes_stale_state_without_a_remote(
 
     assert exit_code == 0
     assert "Selected remote: unavailable" in captured.err
-    assert "remove saved jj-review data" in captured.out
+    assert "remove tracking for" in captured.out
     assert change_id not in state_store.load().changes
 
 
@@ -238,7 +238,7 @@ def test_cleanup_dry_run_reports_stale_tracking_and_remote_branch_without_mutati
 
     assert exit_code == 0
     assert "Planned cleanup actions:" in captured.out
-    assert "  ~ tracking:" in captured.out
+    assert f"remove tracking for {change_id[:8]}" in normalized_output
     assert f"remote branch: delete {bookmark}@origin" in normalized_output
     assert change_id in state_store.load().changes
     assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)

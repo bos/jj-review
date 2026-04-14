@@ -205,7 +205,7 @@ def close(
             ui.output(
                 ui.prefixed_message(
                     f"{prefix} ",
-                    (ui.semantic_text(action.kind, "prefix"), ": ", action.body),
+                    _render_close_action_message(action),
                     prefix_style=prefix_style,
                     message_style=body_style,
                 )
@@ -800,7 +800,7 @@ def _record_retired_cached_change(
         record_action(
             CloseAction(
                 kind="tracking",
-                body=t"stop saved jj-review tracking for {revision_label}",
+                body=t"stop review tracking for {revision_label}",
                 status="planned" if prepared_close.dry_run else "applied",
             )
         )
@@ -1185,6 +1185,12 @@ def _revision_label(revision) -> Template:
     return t"{revision.subject} ({ui.change_id(revision.change_id)})"
 
 
+def _render_close_action_message(action: CloseAction) -> CloseActionBody:
+    if action.kind == "tracking":
+        return action.body
+    return (ui.semantic_text(action.kind, "prefix"), ": ", action.body)
+
+
 def _close_action_presentation(
     status: CloseActionStatus,
 ) -> tuple[str, object | None, object | None]:
@@ -1192,7 +1198,7 @@ def _close_action_presentation(
         return (
             "  ✓",
             ui.semantic_style("signature status good"),
-            ui.semantic_style("signature status good"),
+            None,
         )
     if status == "planned":
         return (
