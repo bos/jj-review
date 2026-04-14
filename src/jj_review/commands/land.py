@@ -31,16 +31,16 @@ from typing import Literal, Protocol
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.cache import ReviewStateStore
-from jj_review.command_ui import resolve_selected_revset
+from jj_review.command_ui import (
+    resolve_linked_change_for_pull_request,
+    resolve_selected_revset,
+)
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
-    parse_github_repo,
     resolve_trunk_branch,
-    select_submit_remote,
 )
 from jj_review.intent import (
     check_same_kind_intent,
@@ -50,15 +50,10 @@ from jj_review.intent import (
     save_intent,
     write_new_intent,
 )
-from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubPullRequest
 from jj_review.models.intent import LandIntent, LoadedIntent
-from jj_review.pull_request_references import (
-    parse_pull_request_number,
-    parse_repository_pull_request_reference,
-)
 from jj_review.review_inspection import (
     PreparedRevision,
     PreparedStatus,
@@ -246,91 +241,11 @@ def _resolve_land_revset_for_pull_request(
     repo_root: Path,
     revset: str | None,
 ) -> tuple[int, str]:
-    """Resolve `--pull-request` to one linked visible local change ID."""
-
-    if revset is not None:
-        raise CliError("Use either `<revset>` or `--pull-request`, not both.")
-
-    pull_request_number = _parse_land_pull_request_number(
+    return resolve_linked_change_for_pull_request(
+        action_name="land",
         pull_request_reference=pull_request_reference,
         repo_root=repo_root,
-    )
-    state = ReviewStateStore.for_repo(repo_root).load()
-    matching_change_ids = [
-        change_id
-        for change_id, cached_change in state.changes.items()
-        if cached_change.link_state == "active"
-        and cached_change.pr_number == pull_request_number
-    ]
-    if not matching_change_ids:
-        raise CliError(
-            f"PR #{pull_request_number} is not linked to any local change. "
-            "Use a revision instead, or import or relink it first."
-        )
-    if len(matching_change_ids) > 1:
-        raise CliError(
-            f"PR #{pull_request_number} is linked to multiple local changes. "
-            "Land by explicit revision after repairing the links."
-        )
-
-    change_id = matching_change_ids[0]
-    visible_revisions = JjClient(repo_root).query_revisions_by_change_ids((change_id,)).get(
-        change_id,
-        (),
-    )
-    if not visible_revisions:
-        raise CliError(
-            f"PR #{pull_request_number} is linked to local change {change_id}, "
-            "but that change is not visible. Land by revision once it is visible again."
-        )
-    if len(visible_revisions) > 1:
-        raise CliError(
-            f"PR #{pull_request_number} is linked to local change {change_id}, "
-            "but that change is divergent. Land by explicit revision after resolving it."
-        )
-    return pull_request_number, change_id
-
-
-def _parse_land_pull_request_number(
-    *,
-    pull_request_reference: str,
-    repo_root: Path,
-) -> int:
-    """Resolve a land PR selector as a pull request number for this repo."""
-
-    pull_request_number = parse_pull_request_number(pull_request_reference)
-    if pull_request_number is not None:
-        return pull_request_number
-
-    remotes = JjClient(repo_root).list_git_remotes()
-    try:
-        remote = select_submit_remote(remotes)
-    except CliError as error:
-        raise CliError(
-            "Could not determine the GitHub repository for `--pull-request`; "
-            "use a pull request number or fix the selected remote."
-        ) from error
-    github_repository = parse_github_repo(remote)
-    if github_repository is None:
-        raise CliError(
-            "Could not determine the GitHub repository for `--pull-request`; "
-            "use a pull request number or fix the selected remote."
-        )
-
-    return parse_repository_pull_request_reference(
-        reference=pull_request_reference,
-        github_repository=github_repository,
-        invalid_reference_message=(
-            f"`--pull-request` must be a pull request number or a URL for "
-            f"{github_repository.full_name}."
-        ),
-        wrong_host_message=(
-            f"`--pull-request` must be a pull request number or a URL for "
-            f"{github_repository.full_name}."
-        ),
-        wrong_repository_message=(
-            f"`--pull-request` does not belong to {github_repository.full_name}."
-        ),
+        revset=revset,
     )
 
 

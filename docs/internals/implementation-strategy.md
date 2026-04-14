@@ -131,6 +131,9 @@ Recent refactor slices:
 - `land` now accepts `--pull-request` as an alternate selector for the linked
   local change, so operators can land the consecutive ready prefix through a
   chosen PR instead of relying only on revset selection.
+- `import` now shares the same repo-matched `--pull-request` number-or-URL
+  parsing and validation helper as `land` and `close`, while keeping its
+  existing GitHub-head-branch import flow.
 - `submit` now prepares local stack inputs, resumable intent state, and
   per-revision bookmark push plans through separate helpers before touching
   GitHub.

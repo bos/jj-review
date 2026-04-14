@@ -515,9 +515,6 @@ async def _load_pull_request(
     pull_request_number = parse_repository_pull_request_reference(
         reference=pull_request_reference,
         github_repository=github_repository,
-        invalid_reference_message=(
-            f"Pull request reference {pull_request_reference!r} is not a PR number or URL."
-        ),
     )
     async with build_github_client(base_url=github_repository.api_base_url) as github_client:
         try:

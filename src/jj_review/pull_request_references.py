@@ -46,7 +46,7 @@ def parse_pull_request_url(reference: str) -> ParsedPullRequestUrl | None:
 def parse_repository_pull_request_reference(
     *,
     github_repository: ParsedGithubRepo,
-    invalid_reference_message: str,
+    invalid_reference_message: str | None = None,
     reference: str,
     wrong_host_message: str | None = None,
     wrong_repository_message: str | None = None,
@@ -57,7 +57,13 @@ def parse_repository_pull_request_reference(
 
     pull_request_url = parse_pull_request_url(reference)
     if pull_request_url is None:
-        raise CliError(invalid_reference_message)
+        raise CliError(
+            invalid_reference_message
+            or (
+                f"Pull request reference {reference!r} is not a pull request number "
+                f"or URL for {github_repository.full_name!r}."
+            )
+        )
     if pull_request_url.host != github_repository.host:
         raise CliError(
             wrong_host_message
