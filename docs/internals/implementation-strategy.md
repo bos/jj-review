@@ -92,6 +92,9 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- `review_state` now routes its final line emission through the shared
+  Rich-backed `ui` helpers instead of mixing direct `print()` calls into the
+  status rendering path.
 - `close` now routes its selected-stack summary, action rows, and stale-intent
   diagnostics through the shared Rich-backed `ui` helpers, with semantic
   bodies for bookmarks, change IDs, and revsets.

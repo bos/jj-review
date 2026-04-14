@@ -990,10 +990,7 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
 
 def _emit_lines(lines: tuple[object, ...]) -> None:
     for line in lines:
-        if isinstance(line, str):
-            print(line)
-        else:
-            ui.output(line)
+        ui.output(line)
 
 
 def _prefixed_status_line(prefix: str, body: object) -> object:
