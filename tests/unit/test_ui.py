@@ -32,6 +32,72 @@ def test_output_helpers_route_to_expected_streams() -> None:
     assert stderr.getvalue() == "warn\nboom\n"
 
 
+def test_progress_uses_rich_progress_on_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    progress_updates: list[int] = []
+    progress_calls: list[dict[str, object]] = []
+
+    class TtyStringIO(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    class FakeProgress:
+        def __init__(self, *columns, **kwargs):
+            del columns
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def add_task(self, description: str, *, total: int) -> str:
+            progress_calls.append(
+                {
+                    "console": self.kwargs["console"],
+                    "description": description,
+                    "total": total,
+                    "transient": self.kwargs["transient"],
+                }
+            )
+            return "task-1"
+
+        def advance(self, task_id: str, amount: int) -> None:
+            assert task_id == "task-1"
+            progress_updates.append(amount)
+
+    monkeypatch.setattr(ui_module, "Progress", FakeProgress)
+
+    with ui_module.configured_ui(
+        stdout=StringIO(),
+        stderr=TtyStringIO(),
+        color_mode="never",
+    ):
+        with ui_module.progress(description="Inspecting GitHub", total=2) as progress:
+            progress.advance()
+            progress.advance()
+
+    assert progress_updates == [1, 1]
+    assert progress_calls[0]["description"] == "Inspecting GitHub"
+    assert progress_calls[0]["total"] == 2
+    assert progress_calls[0]["transient"] is True
+
+
+def test_progress_skips_rich_progress_without_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail_if_progress_used(*args, **kwargs):
+        raise AssertionError("rich Progress should not run without a TTY")
+
+    monkeypatch.setattr(ui_module, "Progress", fail_if_progress_used)
+
+    with ui_module.configured_ui(
+        stdout=StringIO(),
+        stderr=StringIO(),
+        color_mode="never",
+    ):
+        with ui_module.progress(description="Inspecting GitHub", total=2) as progress:
+            progress.advance()
+
+
 def test_time_output_prefixes_each_rendered_line() -> None:
     stdout = StringIO()
 

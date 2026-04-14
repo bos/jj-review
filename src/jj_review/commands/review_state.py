@@ -9,12 +9,7 @@ being queried.
 
 from __future__ import annotations
 
-import sys
-from contextlib import contextmanager
 from pathlib import Path
-
-from rich.console import Console
-from rich.progress import BarColumn, Progress, TaskID, TaskProgressColumn, TextColumn
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
@@ -87,14 +82,15 @@ def status(
     if selection_lines:
         _emit_lines(selection_lines, emitter=ui.warning)
 
-    with _status_progress_bar(prepared_status=prepared_status) as progress:
-
-        def advance_progress(_revision, _github_available: bool) -> None:
-            if progress is not None:
-                progress.update(1)
-
+    github_repository = getattr(prepared_status, "github_repository", None)
+    progress_total = (
+        len(prepared_status.prepared.status_revisions)
+        if github_repository is not None
+        else 0
+    )
+    with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
         result = stream_status(
-            on_revision=advance_progress if progress is not None else None,
+            on_revision=lambda _revision, _github_available: progress.advance(),
             prepared_status=prepared_status,
         )
 
@@ -863,45 +859,6 @@ def _revision_pull_request_url(revision) -> str | None:
     if lookup is None or lookup.pull_request is None:
         return None
     return getattr(lookup.pull_request, "html_url", None)
-
-
-@contextmanager
-def _status_progress_bar(*, prepared_status):
-    """Render a TTY-only progress bar while GitHub inspection runs."""
-
-    if (
-        prepared_status.github_repository is None
-        or not prepared_status.prepared.status_revisions
-        or not sys.stderr.isatty()
-    ):
-        yield None
-        return
-
-    progress_console = Console(file=sys.stderr)
-    with Progress(
-        TextColumn("{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        console=progress_console,
-        transient=True,
-    ) as progress:
-        task_id = progress.add_task(
-            "Inspecting GitHub",
-            total=len(prepared_status.prepared.status_revisions),
-        )
-        yield _RichStatusProgress(progress=progress, task_id=task_id)
-
-
-class _RichStatusProgress:
-    """Minimal progress handle used by the status streaming path."""
-
-    def __init__(self, *, progress: Progress, task_id: TaskID) -> None:
-        self._progress = progress
-        self._task_id = task_id
-
-    def update(self, amount: int) -> None:
-        self._progress.advance(self._task_id, amount)
-
 
 def _classify_revision_for_summary(
     revision,

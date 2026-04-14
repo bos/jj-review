@@ -24,6 +24,7 @@ import subprocess
 import sys
 import time
 import tomllib
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,7 @@ from typing import IO, Any, Literal, Protocol, cast
 
 from rich import box as rich_box
 from rich.console import Console, Group, NewLine
+from rich.progress import BarColumn, Progress, TaskID, TaskProgressColumn, TextColumn
 from rich.segment import Segment
 from rich.style import Style
 from rich.table import Table
@@ -50,6 +52,12 @@ class ConsoleLike(Protocol):
     """Minimal console protocol used by the module-level output helpers."""
 
     def print(self, *objects, **kwargs) -> None: ...
+
+
+class ProgressLike(Protocol):
+    """Minimal progress-handle protocol used by command helpers."""
+
+    def advance(self, amount: int = 1) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +216,24 @@ class _ConfiguredConsole:
         )
 
 
+class _NullProgress:
+    """No-op progress handle returned when live progress is disabled."""
+
+    def advance(self, amount: int = 1) -> None:
+        del amount
+
+
+@dataclass(slots=True)
+class _RichProgressHandle:
+    """Advance one Rich progress task."""
+
+    progress: Progress
+    task_id: TaskID
+
+    def advance(self, amount: int = 1) -> None:
+        self.progress.advance(self.task_id, amount)
+
+
 def _build_console(
     stream: IO[str],
     *,
@@ -267,6 +293,8 @@ _STDOUT_CONSOLE: ConsoleLike
 _STDERR_CONSOLE: ConsoleLike
 _SEMANTIC_STYLES: _SemanticStyles | None
 _REQUESTED_COLOR_MODE: RequestedColorMode | None = None
+_ACTIVE_COLOR_MODE: ColorMode = "auto"
+_STDERR_STREAM: IO[str] = sys.stderr
 
 
 def rich_color_mode(color_mode: RequestedColorMode | None) -> ColorMode:
@@ -295,10 +323,14 @@ def configured_ui(
     global _STDERR_CONSOLE
     global _SEMANTIC_STYLES
     global _REQUESTED_COLOR_MODE
+    global _ACTIVE_COLOR_MODE
+    global _STDERR_STREAM
     previous_stdout = _STDOUT_CONSOLE
     previous_stderr = _STDERR_CONSOLE
     previous_semantic_styles = _SEMANTIC_STYLES
     previous_requested_color_mode = _REQUESTED_COLOR_MODE
+    previous_active_color_mode = _ACTIVE_COLOR_MODE
+    previous_stderr_stream = _STDERR_STREAM
     _STDOUT_CONSOLE, _STDERR_CONSOLE, _SEMANTIC_STYLES = _build_consoles(
         color_mode=color_mode,
         repository=repository,
@@ -307,6 +339,8 @@ def configured_ui(
         time_output=time_output,
     )
     _REQUESTED_COLOR_MODE = requested_color_mode
+    _ACTIVE_COLOR_MODE = color_mode
+    _STDERR_STREAM = sys.stderr if stderr is None else stderr
     try:
         yield
     finally:
@@ -314,6 +348,8 @@ def configured_ui(
         _STDERR_CONSOLE = previous_stderr
         _SEMANTIC_STYLES = previous_semantic_styles
         _REQUESTED_COLOR_MODE = previous_requested_color_mode
+        _ACTIVE_COLOR_MODE = previous_active_color_mode
+        _STDERR_STREAM = previous_stderr_stream
 
 
 def requested_color_mode() -> RequestedColorMode | None:
@@ -422,6 +458,26 @@ def note(*objects, **kwargs) -> None:
     kwargs.setdefault("markup", False)
     kwargs.setdefault("style", semantic_style("hint heading") or "cyan")
     _STDOUT_CONSOLE.print(*objects, **kwargs)
+
+
+@contextmanager
+def progress(*, description: str, total: int) -> Generator[ProgressLike]:
+    """Render a TTY-only transient progress bar on stderr."""
+
+    if total <= 0 or not _stream_supports_live_progress(_STDERR_STREAM):
+        yield _NullProgress()
+        return
+
+    progress_console = _progress_console(stream=_STDERR_STREAM, color_mode=_ACTIVE_COLOR_MODE)
+    with Progress(
+        TextColumn("{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=progress_console,
+        transient=True,
+    ) as progress_render:
+        task_id = progress_render.add_task(description, total=total)
+        yield _RichProgressHandle(progress=progress_render, task_id=task_id)
 
 
 def prefixed_message(
@@ -582,6 +638,25 @@ def _time_output_prefix_style(*, semantic_styles: _SemanticStyles | None) -> Sty
     if semantic_styles is None:
         return None
     return semantic_styles.for_labels(("prefix", "timestamp"))
+
+
+def _stream_supports_live_progress(stream: IO[str]) -> bool:
+    isatty = getattr(stream, "isatty", None)
+    if not callable(isatty):
+        return False
+    try:
+        return bool(isatty())
+    except OSError:
+        return False
+
+
+def _progress_console(*, stream: IO[str], color_mode: ColorMode) -> Console:
+    kwargs: dict[str, object] = {"file": stream}
+    if color_mode == "always":
+        kwargs["force_terminal"] = True
+    elif color_mode == "never":
+        kwargs["no_color"] = True
+    return Console(**cast(Any, kwargs))
 
 
 def _append_plain_text(
