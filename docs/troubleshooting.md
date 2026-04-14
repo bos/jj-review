@@ -108,8 +108,15 @@ What to do:
 jj-review close
 ```
 
-This closes the pull requests. Add `--cleanup` if you also want to delete the
-review branches and clean up local tracking data for the stack.
+If you already know the pull request number, you can use:
+
+```bash
+jj-review close --pull-request 7
+```
+
+This closes the selected stack's pull requests. Add `--cleanup` if you also
+want to delete the review branches and clean up local tracking data for that
+stack.
 
 ## A command was interrupted before it finished
 
@@ -141,7 +148,8 @@ Use `abort` when you want to retract an interrupted `submit`.
 
 Otherwise, follow the command that `status` tells you to rerun:
 
-- re-run `submit` to finish or refresh the current stack on GitHub
+- re-run `submit <revset>` to finish or refresh the stack you explicitly
+  select on GitHub
 - re-run `close` or `close --cleanup` if `status` names one of those
 - re-run `cleanup --restack` to finish restacking the current stack
 - re-run `land` to finish landing; `abort` cannot un-merge changes that already
@@ -154,12 +162,15 @@ land, restore the old local history after a restack, or reopen pull requests.
 ### `abort` refuses because the stack has changed
 
 If you rewrite or reorder the stack after a `submit` was interrupted, `abort`
-will not try to guess which PRs or review branches came from that interrupted submit.
+will not try to guess which PRs or review branches came from that interrupted
+submit.
 In that case you have two options:
 
-- **Finish the submit**: re-run `submit`. It acts on the current stack, detects
-  any review branches or PRs that already exist, and completes whatever is still
-  outstanding.
+- **Finish the submit**: re-run `submit <change-id-from-status>` or another
+  explicit revset for the stack you want. It detects any review branches or PRs
+  that already exist, and completes whatever is still outstanding for that
+  selected stack.
 - **Retract the partial work**: run `jj-review close --cleanup` to close the
-  open PRs and delete the review branches for the current stack. After that,
-  run `abort` again if `status` still reports the old interrupted submit.
+  open PRs and delete the review branches for the current stack. A successful
+  `close --cleanup` also clears the interrupted `submit` record for that
+  covered stack.

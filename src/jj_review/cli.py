@@ -356,10 +356,14 @@ def build_parser() -> ArgumentParser:
             cleanup=args.cleanup,
             config_path=args.config,
             debug=args.debug,
+            pull_request=args.pull_request,
             repository=args.repository,
             revset=args.revset,
         ),
-        revset_help="Revision to close; defaults to @- (the current stack head)",
+        revset_help=(
+            "Revision to close; defaults to @- (the current stack head); "
+            "cannot be combined with --pull-request"
+        ),
     )
     close_parser.add_argument(
         "--dry-run",
@@ -370,6 +374,10 @@ def build_parser() -> ArgumentParser:
         "--cleanup",
         action="store_true",
         help="Also delete the review branches and tracking data for the stack",
+    )
+    close_parser.add_argument(
+        "--pull-request",
+        help="Select the local change linked to this pull request number or URL",
     )
     _add_import_parser(
         subparsers,

@@ -599,13 +599,19 @@ either command prematurely.
 
 The user-facing "stop reviewing this stack" command is `close`:
 
-- `jj review close [--cleanup] [--dry-run] [<revset>]` ends active
+- `jj review close [--cleanup] [--dry-run] [--pull-request <pr> | <revset>]`
+  ends active
   review for the selected local stack
 
 That command should stay stack-first rather than PR-number-first. Its job is to
 look at the selected local stack, find the open PRs `jj-review` is already
 tracking there, and then either perform or dry-run the actions needed to end
 review for that stack.
+
+`--pull-request <pr>` may be an alternate selector for that local stack, but it
+must resolve to one linked visible local change first. It is a convenience
+handle for selecting the stack, not a GitHub-first mode that changes what
+`close` operates on.
 
 Without `--cleanup`, `close` should:
 
@@ -769,7 +775,7 @@ The tool can stay small. A reasonable surface would be:
 - `jj review status [--fetch] [<revset>]`
 - `jj review relink <pr> <revset>`
 - `jj review unlink <revset>`
-- `jj review close [--cleanup] [--dry-run] [<revset>]`
+- `jj review close [--cleanup] [--dry-run] [--pull-request <pr> | <revset>]`
 - `jj review cleanup [--restack] [--dry-run] [<revset>]`
 - `jj review import [--fetch] [--pull-request <pr> | --revset <revset>]`
 - `jj review land [--dry-run] [--expect-pr <pr>] [<revset>]`

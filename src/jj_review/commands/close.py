@@ -1,8 +1,10 @@
 """Close the GitHub pull requests for the selected stack.
 
 By default, this closes those pull requests, and `--cleanup` also removes
-jj-review's GitHub branches and any local bookmarks for them. Use `--dry-run`
-to preview the close plan without mutating jj-review or GitHub state.
+jj-review's GitHub branches and any local bookmarks for them. Use
+`--pull-request` to select the linked local change by pull request number or
+URL, and `--dry-run` to preview the close plan without mutating jj-review or
+GitHub state.
 """
 
 from __future__ import annotations
@@ -21,9 +23,10 @@ from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
-from jj_review.errors import ErrorMessage
+from jj_review.errors import CliError, ErrorMessage
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
+from jj_review.github.resolution import parse_github_repo, select_submit_remote
 from jj_review.intent import (
     check_same_kind_intent,
     close_intent_mode_relation,
@@ -37,6 +40,10 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment
 from jj_review.models.intent import CloseIntent, LoadedIntent
+from jj_review.pull_request_references import (
+    parse_pull_request_number,
+    parse_repository_pull_request_reference,
+)
 from jj_review.review_inspection import PreparedStatus, prepare_status, stream_status
 from jj_review.stack_comments import is_stack_summary_comment
 
@@ -151,6 +158,7 @@ def close(
     config_path: Path | None,
     debug: bool,
     dry_run: bool,
+    pull_request: str | None,
     repository: Path | None,
     revset: str | None,
 ) -> int:
@@ -161,28 +169,39 @@ def close(
         config_path=config_path,
         debug=debug,
     )
+    command_label = (
+        "close --cleanup --dry-run"
+        if dry_run and cleanup
+        else (
+            "close --cleanup"
+            if cleanup
+            else "close"
+            if not dry_run
+            else "close --dry-run"
+        )
+    )
+    if pull_request is not None:
+        pull_request_number, resolved_revset = _resolve_close_revset_for_pull_request(
+            pull_request_reference=pull_request,
+            repo_root=context.repo_root,
+            revset=revset,
+        )
+        ui.note(f"Using PR #{pull_request_number} -> {resolved_revset}")
+    else:
+        resolved_revset = resolve_selected_revset(
+            command_label=command_label,
+            default_revset="@-",
+            require_explicit=False,
+            revset=revset,
+        )
+
     prepared_close = prepare_close(
         dry_run=dry_run,
         cleanup=cleanup,
         change_overrides=context.config.change,
         config=context.config.repo,
         repo_root=context.repo_root,
-        revset=resolve_selected_revset(
-            command_label=(
-                "close --cleanup --dry-run"
-                if dry_run and cleanup
-                else (
-                    "close --cleanup"
-                    if cleanup
-                    else "close"
-                    if not dry_run
-                    else "close --dry-run"
-                )
-            ),
-            default_revset="@-",
-            require_explicit=False,
-            revset=revset,
-        ),
+        revset=resolved_revset,
     )
     result = stream_close(prepared_close=prepared_close)
     if result.remote is None:
@@ -216,6 +235,100 @@ def close(
         else:
             ui.output("No open pull requests tracked by jj-review on the selected stack.")
     return 1 if result.blocked else 0
+
+
+def _resolve_close_revset_for_pull_request(
+    *,
+    pull_request_reference: str,
+    repo_root: Path,
+    revset: str | None,
+) -> tuple[int, str]:
+    """Resolve `--pull-request` to one linked visible local change ID."""
+
+    if revset is not None:
+        raise CliError("Use either `<revset>` or `--pull-request`, not both.")
+
+    pull_request_number = _parse_close_pull_request_number(
+        pull_request_reference=pull_request_reference,
+        repo_root=repo_root,
+    )
+    state = ReviewStateStore.for_repo(repo_root).load()
+    matching_change_ids = [
+        change_id
+        for change_id, cached_change in state.changes.items()
+        if cached_change.link_state == "active"
+        and cached_change.pr_number == pull_request_number
+    ]
+    if not matching_change_ids:
+        raise CliError(
+            f"PR #{pull_request_number} is not linked to any local change. "
+            "Use a revision instead, or import or relink it first."
+        )
+    if len(matching_change_ids) > 1:
+        raise CliError(
+            f"PR #{pull_request_number} is linked to multiple local changes. "
+            "Close by explicit revision after repairing the links."
+        )
+
+    change_id = matching_change_ids[0]
+    visible_revisions = JjClient(repo_root).query_revisions_by_change_ids((change_id,)).get(
+        change_id,
+        (),
+    )
+    if not visible_revisions:
+        raise CliError(
+            f"PR #{pull_request_number} is linked to local change {change_id}, "
+            "but that change is not visible. Close by revision once it is visible again."
+        )
+    if len(visible_revisions) > 1:
+        raise CliError(
+            f"PR #{pull_request_number} is linked to local change {change_id}, "
+            "but that change is divergent. Close by explicit revision after resolving it."
+        )
+    return pull_request_number, change_id
+
+
+def _parse_close_pull_request_number(
+    *,
+    pull_request_reference: str,
+    repo_root: Path,
+) -> int:
+    """Resolve a close PR selector as a pull request number for this repo."""
+
+    pull_request_number = parse_pull_request_number(pull_request_reference)
+    if pull_request_number is not None:
+        return pull_request_number
+
+    remotes = JjClient(repo_root).list_git_remotes()
+    try:
+        remote = select_submit_remote(remotes)
+    except CliError as error:
+        raise CliError(
+            "Could not determine the GitHub repository for `--pull-request`; "
+            "use a pull request number or fix the selected remote."
+        ) from error
+    github_repository = parse_github_repo(remote)
+    if github_repository is None:
+        raise CliError(
+            "Could not determine the GitHub repository for `--pull-request`; "
+            "use a pull request number or fix the selected remote."
+        )
+
+    return parse_repository_pull_request_reference(
+        reference=pull_request_reference,
+        github_repository=github_repository,
+        invalid_reference_message=(
+            f"`--pull-request` must be a pull request number or a URL for "
+            f"{github_repository.full_name}."
+        ),
+        wrong_host_message=(
+            f"`--pull-request` must be a pull request number or a URL for "
+            f"{github_repository.full_name}."
+        ),
+        wrong_repository_message=(
+            f"`--pull-request` does not belong to {github_repository.full_name}."
+        ),
+    )
 
 
 def prepare_close(
@@ -400,7 +513,11 @@ def _start_close_intent(
     """Write close intent metadata for resumable live runs."""
 
     if prepared_close.dry_run:
-        return _CloseIntentState(intent=None, intent_path=None, stale_intents=[])
+        return _CloseIntentState(
+            intent=None,
+            intent_path=None,
+            stale_intents=[],
+        )
 
     prepared_status = prepared_close.prepared_status
     state_dir = prepared_status.prepared.state_store.require_writable()

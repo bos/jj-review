@@ -107,6 +107,9 @@ Recent refactor slices:
   selected-revset, remote, and GitHub preamble lines so command output starts
   with the action summary or result instead of repeating stack-selection
   context.
+- `close` now accepts `--pull-request` as a selector shortcut for one linked
+  local change, prints the resolved change ID, and then runs the usual
+  stack-based close flow for that selected change.
 - `review_state` now routes its final line emission through the shared
   Rich-backed `ui` helpers instead of mixing direct `print()` calls into the
   status rendering path.
@@ -174,6 +177,9 @@ Recent refactor slices:
   later successful close retires interrupted close intents when it clearly
   covers those changes; `close --cleanup` can supersede an older plain `close`,
   but plain `close` does not retire an older interrupted cleanup run
+- a successful `close --cleanup` also retires covered interrupted `submit`
+  intents once the retraction finishes without blocked cleanup steps, so
+  `status` no longer reports a stale submit record after that recovery path
 - interrupted `cleanup --restack` state now records ordered commit IDs, reports
   the recorded stack by head change ID, and treats reruns as current-stack
   restacks rather than selector replay
@@ -1301,7 +1307,7 @@ entries when the tool can verify they belong to the stack.
 
 The CLI contract is:
 
-- `jj review close [--cleanup] [--dry-run] [<revset>]`
+- `jj review close [--cleanup] [--dry-run] [--pull-request <pr> | <revset>]`
 
 The product split should stay explicit:
 
@@ -1309,6 +1315,8 @@ The product split should stay explicit:
   `jj-review` is already tracking there
 - `close --cleanup` performs conservative branch and metadata cleanup after
   the PR close succeeds
+- `--pull-request <pr>` is only an alternate way to select the linked local
+  change whose stack should be closed; it is not a GitHub-first mode
 
 The `close` slice needs clear apply-phase and verification rules:
 

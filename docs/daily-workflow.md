@@ -122,6 +122,13 @@ If a stack should no longer be reviewed:
 jj-review close
 ```
 
+If you know the pull request number already, you can select the linked local
+change directly:
+
+```bash
+jj-review close --pull-request 7
+```
+
 Use `--cleanup` only when you also want it to delete review branches and prune
 saved state after the PRs are closed.
 
@@ -152,8 +159,8 @@ jj-review abort         # retract and clean up
 ```
 
 For interrupted `submit`, the recorded notice identifies the stack it started
-from. Re-running `submit` still works on your current selected stack, not on an
-old `@` or `@-` snapshot.
+from. Re-run `submit` with an explicit revset for the stack you want to submit,
+not a naked `submit` that falls back to the default selection.
 
 If you rewrote that stack in the meantime, `abort` will not try to guess how to
 undo the old partial submit.
