@@ -205,3 +205,32 @@ def test_revset_uses_semantic_style(
     assert text.plain == "trunk()"
     assert text.spans == [import_module("rich.text").Span(0, 7, _style_cls()(color="blue"))]
 
+
+def test_status_text_uses_heading_semantic_style(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Path.cwd()
+    stdout = (
+        'colors."hint heading"\0"cyan"\n'
+        'colors."warning heading"\0"yellow"\n'
+        'colors."error heading"\0"red"\n'
+    )
+
+    def fake_run(command, **kwargs):
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(ui_module.subprocess, "run", fake_run)
+
+    with ui_module.configured_ui(
+        stdout=StringIO(),
+        stderr=StringIO(),
+        color_mode="never",
+        repository=repository,
+    ):
+        ok = ui_module.status_text("ok")
+        warn = ui_module.status_text("warn")
+        fail = ui_module.status_text("fail")
+
+    assert ok.spans == [import_module("rich.text").Span(0, 2, _style_cls()(color="cyan"))]
+    assert warn.spans == [import_module("rich.text").Span(0, 4, _style_cls()(color="yellow"))]
+    assert fail.spans == [import_module("rich.text").Span(0, 4, _style_cls()(color="red"))]

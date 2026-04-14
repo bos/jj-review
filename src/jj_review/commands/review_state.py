@@ -992,7 +992,10 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
 
 def _emit_lines(lines: tuple[object, ...]) -> None:
     for line in lines:
-        ui.output(line)
+        if isinstance(line, str) and "\x1b[" in line:
+            ui.output(ui.ansi_text(line), soft_wrap=True)
+            continue
+        ui.output(line, soft_wrap=True)
 
 
 def _prefixed_status_line(prefix: str, body: object) -> object:

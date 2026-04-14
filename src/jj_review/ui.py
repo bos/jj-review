@@ -359,10 +359,10 @@ def status_text(text: str) -> Text:
     """Render a check status with jj semantic styling."""
 
     labels = {
-        "ok": ("hint",),
-        "warn": ("warning",),
-        "fail": ("error",),
-        "skip": ("hint",),
+        "ok": ("hint heading",),
+        "warn": ("warning heading",),
+        "fail": ("error heading",),
+        "skip": ("hint heading",),
     }
     return rich_text(semantic_text(text, *labels[text]))
 
@@ -385,6 +385,12 @@ def rich_text(
     rendered = Text("") if style is None else Text("", style=cast(StyleArg, style))
     _append_rich_text(rendered, content, base_style=style)
     return rendered
+
+
+def ansi_text(text: str) -> Text:
+    """Decode ANSI-styled text into a Rich `Text` renderable."""
+
+    return Text.from_ansi(text)
 
 
 def output(*objects, **kwargs) -> None:

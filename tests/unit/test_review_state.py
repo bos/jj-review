@@ -135,6 +135,15 @@ def test_render_status_intent_lines_reports_stale_and_interrupted_operations(
     assert any("land on @" in line and "inspect before re-running" in line for line in lines)
 
 
+def test_emit_lines_decodes_ansi_styled_native_revision_output() -> None:
+    stdout = StringIO()
+
+    with ui_module.configured_ui(stdout=stdout, stderr=StringIO(), color_mode="always"):
+        review_state_module._emit_lines(("\x1b[31mred\x1b[0m",))
+
+    assert stdout.getvalue() == "red\n"
+
+
 def test_interrupted_intent_blocks_status_returns_false_for_exact_submit() -> None:
     prepared_status = SimpleNamespace(
         prepared=SimpleNamespace(
