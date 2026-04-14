@@ -16,6 +16,9 @@ one review change.
 The repository [README](../README.md) is the canonical install and first-run
 quickstart.
 
+In interactive terminals, longer multi-step GitHub work shows a progress bar
+on stderr while `jj-review` is waiting on GitHub.
+
 The command-line help remains the canonical reference for flags and exact
 parser behavior:
 

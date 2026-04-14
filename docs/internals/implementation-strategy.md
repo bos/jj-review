@@ -92,6 +92,10 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- multi-step GitHub progress bars now live in the shared `ui` layer and are
+  reused by `status`, `submit`, `close`, `cleanup`, `import`, `unlink`, and
+  `abort` only for otherwise-silent per-change GitHub work in interactive
+  terminals
 - `status` now uses Rich's native progress bar for GitHub inspection instead
   of `tqdm`, so interactive progress rendering stays within the shared Rich
   output stack and no longer needs a separate dependency.
