@@ -72,11 +72,6 @@ def relink(
         )
     )
     ui.output(
-        ui.rich_text(t"Selected revset: {ui.revset(result.selected_revset)}")
-    )
-    ui.output(ui.rich_text(t"Selected remote: {result.remote_name}"))
-    ui.output(ui.rich_text(t"GitHub: {result.github_repository}"))
-    ui.output(
         ui.rich_text(
             t"Relinked PR #{result.pull_request_number} for {result.subject} "
             t"({ui.change_id(result.change_id)}) -> {ui.bookmark(result.bookmark)}"

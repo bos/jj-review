@@ -185,21 +185,13 @@ def close(
         ),
     )
     result = stream_close(prepared_close=prepared_close)
-    ui.output(ui.rich_text(t"Selected revset: {ui.revset(result.selected_revset)}"))
     if result.remote is None:
         if result.remote_error is None:
             ui.note("Selected remote: unavailable")
         else:
             ui.warning(f"Selected remote: unavailable ({result.remote_error})")
-    else:
-        ui.output(f"Selected remote: {result.remote.name}")
-
-    if result.github_repository is None:
-        if result.github_error is not None:
-            ui.warning(f"GitHub target: unavailable ({result.github_error})")
-    else:
-        ui.output(f"GitHub: {result.github_repository}")
-
+    if result.github_repository is None and result.github_error is not None:
+        ui.warning(f"GitHub target: unavailable ({result.github_error})")
     if result.actions:
         if result.blocked:
             header = "Close blocked:"

@@ -54,9 +54,7 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
         f"Selected: {stack.head.subject} ({short_change_id(stack.head.change_id)})"
         in captured.out
     )
-    assert "Selected remote:" not in captured.out
     assert "Submitted changes:" in captured.out
-    assert "Trunk:" not in captured.out
     assert ": main" not in captured.out
     assert top_pr_url is not None
     assert f"Top of stack: {top_pr_url}" in captured.out

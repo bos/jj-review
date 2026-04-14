@@ -136,8 +136,6 @@ def import_(
 
 
 def _print_import_result(result: ImportResult) -> None:
-    ui.output(ui.prefixed_message("Selected selector: ", result.selector))
-    ui.output(ui.prefixed_message("Selected revset: ", ui.revset(result.selected_revset)))
     if result.fetched_tip_commit is not None:
         ui.output(ui.prefixed_message("Fetched tip commit: ", result.fetched_tip_commit))
     if result.remote is None:
@@ -146,16 +144,12 @@ def _print_import_result(result: ImportResult) -> None:
         else:
             remote_message = ("unavailable (", result.remote_error, ")")
         ui.output(ui.prefixed_message("Selected remote: ", remote_message))
-    else:
-        ui.output(ui.prefixed_message("Selected remote: ", result.remote.name))
     if result.github_repository is None:
         if result.github_error is None:
             github_message: object = "unavailable"
         else:
             github_message = ("unavailable (", result.github_error, ")")
         ui.output(ui.prefixed_message("GitHub: ", github_message))
-    else:
-        ui.output(ui.prefixed_message("GitHub: ", result.github_repository))
     if result.actions:
         ui.output("Updated local jj-review tracking:")
         for action in result.actions:

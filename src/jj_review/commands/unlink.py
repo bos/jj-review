@@ -59,7 +59,6 @@ def unlink(
             ),
         )
     )
-    ui.output(ui.rich_text(("Selected revset: ", ui.revset(result.selected_revset))))
     revision_label = t"{result.subject} ({ui.change_id(result.change_id)})"
     if result.already_unlinked:
         ui.output(

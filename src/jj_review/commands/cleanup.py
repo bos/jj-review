@@ -209,18 +209,15 @@ def render_restack_preamble(*, prepared_restack: PreparedRestack) -> tuple[str, 
 
     prepared_status = prepared_restack.prepared_status
     prepared = prepared_status.prepared
-    return (
-        f"Selected revset: {prepared_status.selected_revset}",
-        *_render_remote_and_github_lines(
-            remote=prepared.remote,
-            remote_error=prepared.remote_error,
-            github_repository=(
-                prepared_status.github_repository.full_name
-                if prepared_status.github_repository is not None
-                else None
-            ),
-            github_error=prepared_status.github_repository_error,
+    return _render_remote_and_github_lines(
+        remote=prepared.remote,
+        remote_error=prepared.remote_error,
+        github_repository=(
+            prepared_status.github_repository.full_name
+            if prepared_status.github_repository is not None
+            else None
         ),
+        github_error=prepared_status.github_repository_error,
     )
 
 
@@ -380,10 +377,8 @@ def _render_remote_and_github_lines(
             lines.append("Selected remote: unavailable")
         else:
             lines.append(ui.plain_text(("Selected remote: unavailable (", remote_error, ")")))
-
-    if github_repository is None:
-        if github_error is not None:
-            lines.append(f"GitHub target: unavailable ({github_error})")
+    if github_repository is None and github_error is not None:
+        lines.append(f"GitHub target: unavailable ({github_error})")
     return tuple(lines)
 
 

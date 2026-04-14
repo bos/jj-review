@@ -95,6 +95,10 @@ Recent refactor slices:
 - `status` now uses Rich's native progress bar for GitHub inspection instead
   of `tqdm`, so interactive progress rendering stays within the shared Rich
   output stack and no longer needs a separate dependency.
+- `close`, `cleanup`, `import`, `land`, `relink`, and `unlink` now skip the
+  selected-revset, remote, and GitHub preamble lines so command output starts
+  with the action summary or result instead of repeating stack-selection
+  context.
 - `review_state` now routes its final line emission through the shared
   Rich-backed `ui` helpers instead of mixing direct `print()` calls into the
   status rendering path.

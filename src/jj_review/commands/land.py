@@ -222,9 +222,6 @@ def land(
 
 
 def _print_land_result(result: LandResult) -> None:
-    ui.output(ui.rich_text(t"Selected revset: {ui.revset(result.selected_revset)}"))
-    ui.output(ui.prefixed_message("Selected remote: ", result.remote_name))
-    ui.output(ui.prefixed_message("GitHub: ", result.github_repository))
     ui.output(
         ui.rich_text(t"Trunk: {result.trunk_subject} -> {ui.bookmark(result.trunk_branch)}")
     )
