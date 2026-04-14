@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from jj_review import ui
 from jj_review.cli import _normalize_cli_args, build_parser, main
 from jj_review.errors import CliError
 
@@ -106,3 +107,19 @@ def test_main_reports_non_jj_directory_without_traceback(
     assert exit_code == 1
     assert "Not inside a jj workspace" in captured.err
     assert "Traceback" not in captured.err
+
+
+def test_main_renders_semantic_cli_errors_without_flattening_first(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fake_status(**kwargs) -> int:
+        raise CliError(("Problem at ", ui.change_id("abcdefgh1234")))
+
+    monkeypatch.setattr("jj_review.cli.commands.review_state.status", fake_status)
+
+    exit_code = main(["status"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Error: Problem at abcdefgh" in captured.err

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 
 from jj_review.config import RepoConfig
-from jj_review.errors import CliError
+from jj_review.errors import CliError, ErrorMessage
 from jj_review.github.resolution import (
     ParsedGithubRepo,
     parse_github_repo,
@@ -77,7 +77,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
             subject="feature 2",
         ),
     )
-    github_status_calls: list[tuple[str | None, str | None]] = []
+    github_status_calls: list[tuple[str | None, ErrorMessage | None]] = []
     streamed_revisions: list[tuple[str, bool]] = []
 
     async def fake_iter_status_revisions_with_github(**kwargs):
@@ -96,7 +96,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
 
     def on_github_status(
         github_repository: str | None,
-        github_error: str | None,
+        github_error: ErrorMessage | None,
     ) -> None:
         github_status_calls.append((github_repository, github_error))
 
@@ -175,7 +175,7 @@ def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> No
         stale_intents=(),
         trunk_subject="base",
     )
-    github_status_calls: list[tuple[str | None, str | None]] = []
+    github_status_calls: list[tuple[str | None, ErrorMessage | None]] = []
 
     result = asyncio.run(
         stream_status_async(

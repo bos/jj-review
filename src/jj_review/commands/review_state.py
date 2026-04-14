@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.errors import CliError
+from jj_review.errors import CliError, ErrorMessage
 from jj_review.formatting import (
     format_change_marker,
     format_pull_request_label,
@@ -167,7 +167,7 @@ def render_status_selection_lines(*, prepared_status) -> tuple[object, ...]:
             lines.append(
                 _prefixed_status_line(
                     "Selected remote",
-                    f"unavailable ({prepared.remote_error})",
+                    ("unavailable (", prepared.remote_error, ")"),
                 )
             )
     return tuple(lines)
@@ -175,7 +175,7 @@ def render_status_selection_lines(*, prepared_status) -> tuple[object, ...]:
 
 def render_status_github_lines(
     *,
-    github_error: str | None,
+    github_error: ErrorMessage | None,
     github_repository: str | None,
     has_revisions: bool,
 ) -> tuple[object, ...]:
@@ -184,7 +184,9 @@ def render_status_github_lines(
     lines: list[object] = []
     if github_repository is None:
         if github_error is not None:
-            lines.append(_prefixed_status_line("GitHub target", f"unavailable ({github_error})"))
+            lines.append(
+                _prefixed_status_line("GitHub target", ("unavailable (", github_error, ")"))
+            )
     else:
         if github_error is None and not has_revisions:
             lines.append(
@@ -197,7 +199,7 @@ def render_status_github_lines(
             lines.append(
                 _prefixed_status_line(
                     "GitHub target",
-                    f"{github_repository} ({github_error})",
+                    (github_repository, " (", github_error, ")"),
                 )
             )
     return tuple(lines)

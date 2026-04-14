@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
 
+from jj_review import ui
 from jj_review.bookmarks import (
     BookmarkResolutionResult,
     BookmarkResolver,
@@ -57,7 +58,6 @@ from jj_review.intent import (
     write_new_intent,
 )
 from jj_review.jj import JjClient
-from jj_review import ui
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest

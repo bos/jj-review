@@ -19,12 +19,13 @@ import asyncio
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from string.templatelib import Template
 from typing import Literal
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
-from jj_review.errors import CliError
+from jj_review.errors import CliError, error_message
 from jj_review.github.client import (
     GithubClient,
     _github_token_for_base_url,
@@ -50,7 +51,7 @@ from jj_review.models.intent import (
 
 HELP = "check GitHub auth, remote resolution, and local state"
 
-type CheckDetail = str | ui.SemanticText | tuple[object, ...]
+type CheckDetail = str | Template | ui.SemanticText | tuple[object, ...]
 
 
 @dataclass(slots=True, frozen=True)
@@ -148,7 +149,7 @@ def _check_git_remote(jj_client: JjClient) -> tuple[CheckResult, GitRemote | Non
     try:
         remote = select_submit_remote(remotes)
     except CliError as error:
-        return CheckResult("remote", "fail", str(error)), None
+        return CheckResult("remote", "fail", error_message(error)), None
 
     return CheckResult("remote", "ok", remote.name), remote
 

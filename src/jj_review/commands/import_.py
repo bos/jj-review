@@ -27,7 +27,7 @@ from jj_review.bookmarks import (
 )
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import ChangeConfig, RepoConfig
-from jj_review.errors import CliError
+from jj_review.errors import CliError, ErrorMessage
 from jj_review.github.client import GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
@@ -74,10 +74,10 @@ class ImportResult:
 
     actions: tuple[ImportAction, ...]
     fetched_tip_commit: str | None
-    github_error: str | None
+    github_error: ErrorMessage | None
     github_repository: str | None
     remote: GitRemote | None
-    remote_error: str | None
+    remote_error: ErrorMessage | None
     reviewable_revision_count: int
     selected_revset: str
     selector: str
@@ -864,7 +864,12 @@ def _ensure_selected_head_has_pull_request(
     raise CliError(
         "`import` only supports stacks whose selected head already has a pull "
         "request. Missing pull request for: "
-        f"{ui.plain_text((selected_head.subject, ' (', ui.change_id(selected_head.change_id), ')'))}."
+        f"{ui.plain_text((
+            selected_head.subject,
+            ' (',
+            ui.change_id(selected_head.change_id),
+            ')',
+        ))}."
     )
 
 

@@ -21,6 +21,7 @@ from jj_review.bootstrap import bootstrap_context
 from jj_review.cache import ReviewStateStore
 from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
+from jj_review.errors import ErrorMessage
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.intent import (
@@ -68,10 +69,10 @@ class CloseResult:
     applied: bool
     blocked: bool
     cleanup: bool
-    github_error: str | None
+    github_error: ErrorMessage | None
     github_repository: str | None
     remote: GitRemote | None
-    remote_error: str | None
+    remote_error: ErrorMessage | None
     selected_revset: str
 
 
@@ -530,7 +531,7 @@ def _close_result(
     actions: tuple[CloseAction, ...],
     applied: bool | None = None,
     blocked: bool,
-    github_error: str | None,
+    github_error: ErrorMessage | None,
     github_repository,
     prepared_close: PreparedClose,
 ) -> CloseResult:

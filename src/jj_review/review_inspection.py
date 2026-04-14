@@ -19,7 +19,7 @@ from jj_review.bookmarks import (
 from jj_review.cache import ReviewStateStore
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY
 from jj_review.config import ChangeConfig, RepoConfig
-from jj_review.errors import CliError
+from jj_review.errors import CliError, ErrorMessage, error_message
 from jj_review.formatting import short_change_id
 from jj_review.github.client import (
     GithubClient,
@@ -92,11 +92,11 @@ class ReviewStatusRevision:
 class StatusResult:
     """Status result for one selected local stack."""
 
-    github_error: str | None
+    github_error: ErrorMessage | None
     github_repository: str | None
     incomplete: bool
     remote: GitRemote | None
-    remote_error: str | None
+    remote_error: ErrorMessage | None
     revisions: tuple[ReviewStatusRevision, ...]
     selected_revset: str
     trunk_subject: str
@@ -107,7 +107,7 @@ class PreparedStatus:
     """Locally prepared status inputs before any GitHub inspection."""
 
     github_repository: ParsedGithubRepo | None
-    github_repository_error: str | None
+    github_repository_error: ErrorMessage | None
     outstanding_intents: tuple[LoadedIntent, ...]
     prepared: PreparedStack
     selected_revset: str
@@ -122,7 +122,7 @@ class PreparedStack:
     bookmark_result_changed: bool
     client: JjClient
     remote: GitRemote | None
-    remote_error: str | None
+    remote_error: ErrorMessage | None
     stack: LocalStack
     state: ReviewState
     state_changes: dict[str, CachedChange]
@@ -211,7 +211,7 @@ def stream_status(
     *,
     persist_cache_updates: bool = True,
     prepared_status: PreparedStatus,
-    on_github_status: Callable[[str | None, str | None], None] | None = None,
+    on_github_status: Callable[[str | None, ErrorMessage | None], None] | None = None,
     on_revision: Callable[[ReviewStatusRevision, bool], None] | None = None,
 ) -> StatusResult:
     """Inspect GitHub state for a prepared stack and optionally stream results out."""
@@ -228,7 +228,7 @@ def stream_status(
 
 async def stream_status_async(
     *,
-    on_github_status: Callable[[str | None, str | None], None] | None,
+    on_github_status: Callable[[str | None, ErrorMessage | None], None] | None,
     on_revision: Callable[[ReviewStatusRevision, bool], None] | None,
     persist_cache_updates: bool = True,
     prepared_status: PreparedStatus,
@@ -278,7 +278,7 @@ async def stream_status_async(
 
     github_status_reported = False
 
-    def emit_github_status(github_error: str | None) -> None:
+    def emit_github_status(github_error: ErrorMessage | None) -> None:
         nonlocal github_status_reported
         if github_status_reported:
             return
@@ -317,7 +317,7 @@ async def stream_status_async(
         if not github_status_reported:
             emit_github_status(None)
         fallback_revisions = tuple(reversed(_build_status_revisions_without_github(prepared)))
-        github_error = str(error)
+        github_error = error_message(error)
         logger.debug("status github inspection failed: %s", github_error)
         streamed_change_ids = {revision.change_id for revision in revisions}
         for revision in fallback_revisions:
@@ -371,14 +371,14 @@ def _prepare_stack(
     state = state_store.load()
     remotes = client.list_git_remotes()
     remote: GitRemote | None = None
-    remote_error: str | None = None
+    remote_error: ErrorMessage | None = None
     if require_remote or remotes:
         try:
             remote = select_submit_remote(remotes)
         except CliError as error:
             if require_remote:
                 raise
-            remote_error = str(error)
+            remote_error = error_message(error)
     logger.debug(
         "prepared stack: remotes=%s selected_remote=%s remote_error=%s",
         [remote.name for remote in remotes],

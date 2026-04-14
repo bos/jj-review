@@ -18,9 +18,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar, cast
 
-from jj_review import __version__, commands
+from jj_review import __version__, commands, ui
 from jj_review.completion import emit_shell_completion
-from jj_review.errors import CliError
+from jj_review.errors import CliError, error_message
 from jj_review.ui import ColorMode, RequestedColorMode, configured_ui, rich_color_mode
 
 logger = logging.getLogger(__name__)
@@ -681,10 +681,11 @@ def _find_subcommand_parser(
 
 
 def _print_cli_error(error: CliError) -> None:
-    message = str(error)
-    if not message.startswith("Error:"):
-        message = f"Error: {message}"
-    print(message, file=sys.stderr)
+    message = error_message(error)
+    if str(error).startswith("Error:"):
+        ui.error(ui.rich_text(message), soft_wrap=True)
+    else:
+        ui.error(ui.rich_text(("Error: ", message)), soft_wrap=True)
 
 
 def _load_configured_jj_color(*, repository: Path | None) -> RequestedColorMode | None:

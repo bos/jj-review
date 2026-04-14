@@ -25,7 +25,7 @@ from jj_review.command_ui import resolve_selected_revset
 from jj_review.commands.review_state import describe_status_preparation_error
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
-from jj_review.errors import CliError
+from jj_review.errors import CliError, ErrorMessage, error_message
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
@@ -84,10 +84,10 @@ class CleanupResult:
 
     actions: tuple[CleanupAction, ...]
     applied: bool
-    github_error: str | None
+    github_error: ErrorMessage | None
     github_repository: str | None
     remote: GitRemote | None
-    remote_error: str | None
+    remote_error: ErrorMessage | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,10 +97,10 @@ class PreparedCleanup:
     dry_run: bool
     bookmark_states: dict[str, BookmarkState]
     github_repository: ParsedGithubRepo | None
-    github_repository_error: str | None
+    github_repository_error: ErrorMessage | None
     jj_client: JjClient
     remote: GitRemote | None
-    remote_error: str | None
+    remote_error: ErrorMessage | None
     state: ReviewState
     state_store: ReviewStateStore
 
@@ -155,10 +155,10 @@ class RestackResult:
     actions: tuple[CleanupAction, ...]
     applied: bool
     blocked: bool
-    github_error: str | None
+    github_error: ErrorMessage | None
     github_repository: str | None
     remote: GitRemote | None
-    remote_error: str | None
+    remote_error: ErrorMessage | None
     selected_revset: str
 
 
@@ -370,16 +370,16 @@ def _build_action_streamer(
 def _render_remote_and_github_lines(
     *,
     remote: GitRemote | None,
-    remote_error: str | None,
+    remote_error: ErrorMessage | None,
     github_repository: str | None,
-    github_error: str | None,
+    github_error: ErrorMessage | None,
 ) -> tuple[str, ...]:
     lines: list[str] = []
     if remote is None:
         if remote_error is None:
             lines.append("Selected remote: unavailable")
         else:
-            lines.append(f"Selected remote: unavailable ({remote_error})")
+            lines.append(ui.plain_text(("Selected remote: unavailable (", remote_error, ")")))
 
     if github_repository is None:
         if github_error is not None:
@@ -1380,11 +1380,11 @@ async def _apply_stack_comment_cleanup_action(
         )
 
 
-def _resolve_remote(*, jj_client: JjClient) -> tuple[GitRemote | None, str | None]:
+def _resolve_remote(*, jj_client: JjClient) -> tuple[GitRemote | None, ErrorMessage | None]:
     try:
         return select_submit_remote(jj_client.list_git_remotes()), None
     except CliError as error:
-        return None, str(error)
+        return None, error_message(error)
 
 
 def _load_bookmark_states(

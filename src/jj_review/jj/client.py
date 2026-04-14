@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-from jj_review.errors import CliError
+from jj_review.errors import CliError, ErrorMessage
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.stack import LocalRevision, LocalStack
 
@@ -44,7 +44,7 @@ class UnsupportedStackError(CliError):
 
     def __init__(
         self,
-        message: str,
+        message: ErrorMessage,
         *,
         change_id: str | None = None,
         reason: UnsupportedStackReason | None = None,
