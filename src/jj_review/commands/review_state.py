@@ -13,7 +13,8 @@ import sys
 from contextlib import contextmanager
 from pathlib import Path
 
-from tqdm import tqdm
+from rich.console import Console
+from rich.progress import BarColumn, Progress, TaskID, TaskProgressColumn, TextColumn
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
@@ -872,15 +873,30 @@ def _status_progress_bar(*, prepared_status):
         yield None
         return
 
-    with tqdm(
-        total=len(prepared_status.prepared.status_revisions),
-        desc="Inspecting GitHub",
-        dynamic_ncols=True,
-        file=sys.stderr,
-        leave=False,
-        unit="change",
+    progress_console = Console(file=sys.stderr)
+    with Progress(
+        TextColumn("{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=progress_console,
+        transient=True,
     ) as progress:
-        yield progress
+        task_id = progress.add_task(
+            "Inspecting GitHub",
+            total=len(prepared_status.prepared.status_revisions),
+        )
+        yield _RichStatusProgress(progress=progress, task_id=task_id)
+
+
+class _RichStatusProgress:
+    """Minimal progress handle used by the status streaming path."""
+
+    def __init__(self, *, progress: Progress, task_id: TaskID) -> None:
+        self._progress = progress
+        self._task_id = task_id
+
+    def update(self, amount: int) -> None:
+        self._progress.advance(self._task_id, amount)
 
 
 def _classify_revision_for_summary(

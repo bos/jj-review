@@ -92,6 +92,9 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- `status` now uses Rich's native progress bar for GitHub inspection instead
+  of `tqdm`, so interactive progress rendering stays within the shared Rich
+  output stack and no longer needs a separate dependency.
 - `review_state` now routes its final line emission through the shared
   Rich-backed `ui` helpers instead of mixing direct `print()` calls into the
   status rendering path.

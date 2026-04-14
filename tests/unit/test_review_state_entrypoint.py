@@ -52,20 +52,21 @@ def test_status_updates_tty_progress_bar_while_streaming(
 ) -> None:
     patch_bootstrap(monkeypatch, review_state_module, tmp_path)
     progress_updates: list[int] = []
-    tqdm_kwargs: dict[str, object] = {}
+    progress_kwargs: dict[str, object] = {}
+    added_tasks: list[dict[str, object]] = []
 
     monkeypatch.setattr(
         review_state_module,
         "prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
-                    client=SimpleNamespace(
-                        list_bookmark_states=lambda: {},
-                        render_revision_log_lines=lambda revision, *, color_when: (
-                            f"{revision.subject} [{revision.change_id[:8]}]",
-                        ),
-                        resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
+                client=SimpleNamespace(
+                    list_bookmark_states=lambda: {},
+                    render_revision_log_lines=lambda revision, *, color_when: (
+                        f"{revision.subject} [{revision.change_id[:8]}]",
                     ),
+                    resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
+                ),
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
                 stack=SimpleNamespace(
@@ -86,9 +87,10 @@ def test_status_updates_tty_progress_bar_while_streaming(
         ),
     )
 
-    class FakeTqdm:
-        def __init__(self, **kwargs):
-            tqdm_kwargs.update(kwargs)
+    class FakeProgress:
+        def __init__(self, *columns, **kwargs):
+            progress_kwargs.update(kwargs)
+            progress_kwargs["columns"] = columns
 
         def __enter__(self):
             return self
@@ -96,7 +98,12 @@ def test_status_updates_tty_progress_bar_while_streaming(
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def update(self, amount: int) -> None:
+        def add_task(self, description: str, *, total: int) -> str:
+            added_tasks.append({"description": description, "total": total})
+            return "task-1"
+
+        def advance(self, task_id: str, amount: int) -> None:
+            assert task_id == "task-1"
             progress_updates.append(amount)
 
     def fake_stream_status(**kwargs):
@@ -110,7 +117,7 @@ def test_status_updates_tty_progress_bar_while_streaming(
         )
 
     monkeypatch.setattr(review_state_module, "stream_status", fake_stream_status)
-    monkeypatch.setattr(review_state_module, "tqdm", FakeTqdm)
+    monkeypatch.setattr(review_state_module, "Progress", FakeProgress)
     monkeypatch.setattr(review_state_module.sys.stderr, "isatty", lambda: True)
 
     exit_code = review_state_module.status(
@@ -124,7 +131,8 @@ def test_status_updates_tty_progress_bar_while_streaming(
 
     assert exit_code == 0
     assert progress_updates == [1, 1]
-    assert tqdm_kwargs["desc"] == "Inspecting GitHub"
+    assert progress_kwargs["transient"] is True
+    assert added_tasks == [{"description": "Inspecting GitHub", "total": 2}]
 
 
 def test_status_skips_progress_bar_without_tty(
@@ -137,13 +145,13 @@ def test_status_skips_progress_bar_without_tty(
         "prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
-                    client=SimpleNamespace(
-                        list_bookmark_states=lambda: {},
-                        render_revision_log_lines=lambda revision, *, color_when: (
-                            f"{revision.subject} [{revision.change_id[:8]}]",
-                        ),
-                        resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
+                client=SimpleNamespace(
+                    list_bookmark_states=lambda: {},
+                    render_revision_log_lines=lambda revision, *, color_when: (
+                        f"{revision.subject} [{revision.change_id[:8]}]",
                     ),
+                    resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
+                ),
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
                 stack=SimpleNamespace(
@@ -164,10 +172,10 @@ def test_status_skips_progress_bar_without_tty(
         ),
     )
 
-    def fail_if_tqdm_used(**kwargs):
-        raise AssertionError("tqdm should not run without a TTY")
+    def fail_if_progress_used(*args, **kwargs):
+        raise AssertionError("rich Progress should not run without a TTY")
 
-    monkeypatch.setattr(review_state_module, "tqdm", fail_if_tqdm_used)
+    monkeypatch.setattr(review_state_module, "Progress", fail_if_progress_used)
     monkeypatch.setattr(review_state_module.sys.stderr, "isatty", lambda: False)
     monkeypatch.setattr(
         review_state_module,
