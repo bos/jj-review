@@ -69,7 +69,7 @@ def test_cleanup_prunes_stale_state_without_a_remote(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Selected remote: unavailable" in captured.out
+    assert "Selected remote: unavailable" in captured.err
     assert "remove saved jj-review data" in captured.out
     assert change_id not in state_store.load().changes
 

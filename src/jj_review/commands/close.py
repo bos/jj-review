@@ -187,7 +187,7 @@ def close(
     result = stream_close(prepared_close=prepared_close)
     if result.remote is None:
         if result.remote_error is None:
-            ui.note("Selected remote: unavailable")
+            ui.warning("Selected remote: unavailable")
         else:
             ui.warning(f"Selected remote: unavailable ({result.remote_error})")
     if result.github_repository is None and result.github_error is not None:

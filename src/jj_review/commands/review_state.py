@@ -84,7 +84,8 @@ def status(
         raise CliError(describe_status_preparation_error(error)) from error
 
     selection_lines = render_status_selection_lines(prepared_status=prepared_status)
-    _emit_lines(selection_lines)
+    if selection_lines:
+        _emit_lines(selection_lines, emitter=ui.warning)
 
     with _status_progress_bar(prepared_status=prepared_status) as progress:
 
@@ -102,7 +103,10 @@ def status(
         github_repository=result.github_repository,
         has_revisions=bool(result.revisions),
     )
-    _emit_lines(github_lines)
+    if result.github_error is not None:
+        _emit_lines(github_lines, emitter=ui.warning)
+    else:
+        _emit_lines(github_lines)
 
     if not prepared_status.prepared.status_revisions:
         _emit_lines(
@@ -1006,12 +1010,12 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
     return summary
 
 
-def _emit_lines(lines: tuple[object, ...]) -> None:
+def _emit_lines(lines: tuple[object, ...], *, emitter=ui.output) -> None:
     for line in lines:
         if isinstance(line, str) and "\x1b[" in line:
-            ui.output(ui.ansi_text(line), soft_wrap=True)
+            emitter(ui.ansi_text(line), soft_wrap=True)
             continue
-        ui.output(line, soft_wrap=True)
+        emitter(line, soft_wrap=True)
 
 
 def _prefixed_status_line(prefix: str, body: object) -> object:

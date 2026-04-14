@@ -140,16 +140,14 @@ def _print_import_result(result: ImportResult) -> None:
         ui.output(ui.prefixed_message("Fetched tip commit: ", result.fetched_tip_commit))
     if result.remote is None:
         if result.remote_error is None:
-            remote_message: object = "unavailable"
+            ui.warning("Selected remote: unavailable")
         else:
-            remote_message = ("unavailable (", result.remote_error, ")")
-        ui.output(ui.prefixed_message("Selected remote: ", remote_message))
+            ui.warning(f"Selected remote: unavailable ({result.remote_error})")
     if result.github_repository is None:
         if result.github_error is None:
-            github_message: object = "unavailable"
+            ui.warning("GitHub target: unavailable")
         else:
-            github_message = ("unavailable (", result.github_error, ")")
-        ui.output(ui.prefixed_message("GitHub: ", github_message))
+            ui.warning(f"GitHub target: unavailable ({result.github_error})")
     if result.actions:
         ui.output("Updated local jj-review tracking:")
         for action in result.actions:

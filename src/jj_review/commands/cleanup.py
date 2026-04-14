@@ -204,7 +204,7 @@ def render_cleanup_postamble(*, result: CleanupResult) -> tuple[str, ...]:
     return ()
 
 
-def render_restack_preamble(*, prepared_restack: PreparedRestack) -> tuple[str, ...]:
+def render_restack_preamble(*, prepared_restack: PreparedRestack) -> tuple[tuple[str, str], ...]:
     """Render the non-streaming restack context lines for the CLI."""
 
     prepared_status = prepared_restack.prepared_status
@@ -292,8 +292,11 @@ def _run_cleanup_restack_command(
         )
     except UnsupportedStackError as error:
         raise CliError(describe_status_preparation_error(error)) from error
-    for line in render_restack_preamble(prepared_restack=prepared_restack):
-        ui.output(line)
+    for severity, line in render_restack_preamble(prepared_restack=prepared_restack):
+        if severity == "warning":
+            ui.warning(line)
+        else:
+            ui.output(line)
 
     try:
         result = stream_restack(
@@ -321,7 +324,7 @@ def _run_cleanup_command(
         dry_run=dry_run,
         repo_root=repo_root,
     )
-    for line in _render_remote_and_github_lines(
+    for severity, line in _render_remote_and_github_lines(
         remote=prepared_cleanup.remote,
         remote_error=prepared_cleanup.remote_error,
         github_repository=(
@@ -331,7 +334,10 @@ def _run_cleanup_command(
         ),
         github_error=prepared_cleanup.github_repository_error,
     ):
-        ui.output(line)
+        if severity == "warning":
+            ui.warning(line)
+        else:
+            ui.output(line)
 
     result = stream_cleanup(
         on_action=_build_action_streamer(
@@ -370,15 +376,20 @@ def _render_remote_and_github_lines(
     remote_error: ErrorMessage | None,
     github_repository: str | None,
     github_error: ErrorMessage | None,
-) -> tuple[str, ...]:
-    lines: list[str] = []
+) -> tuple[tuple[str, str], ...]:
+    lines: list[tuple[str, str]] = []
     if remote is None:
         if remote_error is None:
-            lines.append("Selected remote: unavailable")
+            lines.append(("warning", "Selected remote: unavailable"))
         else:
-            lines.append(ui.plain_text(("Selected remote: unavailable (", remote_error, ")")))
+            lines.append(
+                (
+                    "warning",
+                    ui.plain_text(("Selected remote: unavailable (", remote_error, ")")),
+                )
+            )
     if github_repository is None and github_error is not None:
-        lines.append(f"GitHub target: unavailable ({github_error})")
+        lines.append(("warning", f"GitHub target: unavailable ({github_error})"))
     return tuple(lines)
 
 
