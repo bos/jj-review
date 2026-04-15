@@ -15,7 +15,7 @@ from jj_review.commands.close import (
 from jj_review.github.client import GithubClient
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
-from jj_review.models.cache import CachedChange
+from jj_review.models.review_state import CachedChange
 
 
 @pytest.mark.parametrize(

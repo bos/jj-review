@@ -20,39 +20,38 @@ from typing import Any, Literal
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.cache import ReviewStateStore
-from jj_review.command_ui import (
-    resolve_linked_change_for_pull_request,
-    resolve_selected_revset,
-)
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import ErrorMessage
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import parse_github_repo
-from jj_review.intent import (
-    check_same_kind_intent,
+from jj_review.github.stack_comments import is_stack_summary_comment
+from jj_review.jj import JjClient
+from jj_review.models.bookmarks import BookmarkState, GitRemote
+from jj_review.models.github import GithubIssueComment
+from jj_review.models.intent import CloseIntent, LoadedIntent, SubmitIntent
+from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.review.intents import (
     close_intent_mode_relation,
     describe_intent,
     match_close_intent,
-    pid_is_alive,
     retire_superseded_intents,
-    write_new_intent,
 )
-from jj_review.jj import JjClient
-from jj_review.models.bookmarks import BookmarkState, GitRemote
-from jj_review.models.cache import CachedChange, ReviewState
-from jj_review.models.github import GithubIssueComment
-from jj_review.models.intent import CloseIntent, LoadedIntent, SubmitIntent
-from jj_review.review_inspection import PreparedStatus, prepare_status, stream_status
-from jj_review.stack_comments import is_stack_summary_comment
-from jj_review.submit_recovery import (
+from jj_review.review.selection import (
+    resolve_linked_change_for_pull_request,
+    resolve_selected_revset,
+)
+from jj_review.review.status import PreparedStatus, prepare_status, stream_status
+from jj_review.review.submit_recovery import (
     SubmitArtifactObservation,
     SubmitRecoveryIdentity,
     SubmitTargetRelation,
     observe_submit_artifacts,
     should_retire_submit_after_cleanup,
 )
+from jj_review.state.intents import check_same_kind_intent, write_new_intent
+from jj_review.state.store import ReviewStateStore
+from jj_review.system import pid_is_alive
 
 HELP = "Stop reviewing a jj stack on GitHub"
 

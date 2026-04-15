@@ -8,17 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from jj_review.intent import (
-    check_same_kind_intent,
-    intent_is_stale,
-    match_cleanup_restack_intent,
-    match_close_intent,
-    match_ordered_change_ids,
-    pid_is_alive,
-    retire_superseded_intents,
-    scan_intents,
-    write_new_intent,
-)
 from jj_review.models.intent import (
     CleanupIntent,
     CleanupRestackIntent,
@@ -28,6 +17,19 @@ from jj_review.models.intent import (
     RelinkIntent,
     SubmitIntent,
 )
+from jj_review.review.intents import (
+    intent_is_stale,
+    match_cleanup_restack_intent,
+    match_close_intent,
+    match_ordered_change_ids,
+    retire_superseded_intents,
+)
+from jj_review.state.intents import (
+    check_same_kind_intent,
+    scan_intents,
+    write_new_intent,
+)
+from jj_review.system import pid_is_alive
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -456,7 +458,7 @@ def test_pid_based_intents_become_stale_only_when_old_and_dead(
     test_id: str,
 ) -> None:
     del test_id
-    monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda actual_pid: pid_alive)
+    monkeypatch.setattr("jj_review.review.intents.pid_is_alive", lambda actual_pid: pid_alive)
     intent = intent_factory(pid=pid)
     assert intent_is_stale(intent, lambda cid: False, now=now) is expected_stale
 
@@ -470,8 +472,8 @@ def test_check_same_kind_intent_returns_stale_dead_pid_intents(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
-    monkeypatch.setattr("jj_review.intent.time.sleep", lambda s: None)
+    monkeypatch.setattr("jj_review.system.pid_is_alive", lambda pid: False)
+    monkeypatch.setattr("jj_review.state.intents.time.sleep", lambda s: None)
     old_intent = _make_submit_intent(("aaaa", "bbbb"), pid=99999999)
     write_new_intent(tmp_path, old_intent)
 
@@ -486,7 +488,7 @@ def test_check_same_kind_intent_ignores_different_kind(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("jj_review.intent.pid_is_alive", lambda pid: False)
+    monkeypatch.setattr("jj_review.system.pid_is_alive", lambda pid: False)
     # Write a cleanup intent (different kind)
     cleanup_intent = _make_cleanup_intent(pid=99999999)
     write_new_intent(tmp_path, cleanup_intent)
@@ -511,8 +513,8 @@ def test_check_same_kind_intent_waits_for_live_same_kind_intent_to_finish(
 
     sleep_calls: list[float] = []
 
-    monkeypatch.setattr("jj_review.intent.pid_is_alive", fake_pid_is_alive)
-    monkeypatch.setattr("jj_review.intent.time.sleep", lambda s: sleep_calls.append(s))
+    monkeypatch.setattr("jj_review.state.intents.pid_is_alive", fake_pid_is_alive)
+    monkeypatch.setattr("jj_review.state.intents.time.sleep", lambda s: sleep_calls.append(s))
 
     old_intent = _make_submit_intent(("aaaa", "bbbb"), pid=99999999)
     write_new_intent(tmp_path, old_intent)

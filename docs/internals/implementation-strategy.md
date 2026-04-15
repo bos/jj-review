@@ -148,7 +148,7 @@ Recent refactor slices:
   payloads through `pydantic` normalization at the model and helper boundary
   instead of repeating ad hoc nested `isinstance` checks in each response
   helper.
-- shared revset-selection coverage now lives in dedicated `command_ui` unit
+- shared revset-selection coverage now lives in dedicated `selection` unit
   tests so command entrypoint suites do not each repeat the same wrapper-only
   assertions
 - machine-written persisted data now uses JSON plus `pydantic` validation for

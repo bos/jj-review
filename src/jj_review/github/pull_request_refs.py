@@ -1,4 +1,4 @@
-"""Helpers for parsing pull request numbers and URLs."""
+"""Helpers for parsing GitHub pull request numbers and URLs."""
 
 from __future__ import annotations
 

@@ -88,10 +88,10 @@ def test_doctor_warns_for_interrupted_operation(
     monkeypatch,
     capsys,
 ) -> None:
-    from jj_review.cache import ReviewStateStore
-    from jj_review.intent import write_new_intent
     from jj_review.jj import JjClient
     from jj_review.models.intent import SubmitIntent
+    from jj_review.state.intents import write_new_intent
+    from jj_review.state.store import ReviewStateStore
 
     repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = _configure_doctor_environment(monkeypatch, tmp_path, fake_repo)

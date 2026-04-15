@@ -1,4 +1,4 @@
-"""Shared helpers for jj-review stack summary comments."""
+"""Shared helpers for GitHub stack summary comments."""
 
 from __future__ import annotations
 

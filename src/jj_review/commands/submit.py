@@ -18,19 +18,7 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from jj_review import ui
-from jj_review.bookmarks import (
-    BookmarkResolutionResult,
-    BookmarkResolver,
-    BookmarkSource,
-    discover_bookmarks_for_revisions,
-    ensure_unique_bookmarks,
-)
 from jj_review.bootstrap import bootstrap_context
-from jj_review.cache import ReviewStateStore
-from jj_review.command_ui import (
-    parse_comma_separated_flag_values,
-    resolve_selected_revset,
-)
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
@@ -49,26 +37,40 @@ from jj_review.github.resolution import (
     resolve_trunk_branch,
     select_submit_remote,
 )
-from jj_review.intent import (
-    check_same_kind_intent,
-    describe_intent,
-    pid_is_alive,
-    retire_superseded_intents,
-    scan_intents,
-    write_new_intent,
-)
+from jj_review.github.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
-from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
 from jj_review.models.intent import LoadedIntent, SubmitIntent
+from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision, LocalStack
-from jj_review.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
-from jj_review.submit_recovery import (
+from jj_review.review.bookmarks import (
+    BookmarkResolutionResult,
+    BookmarkResolver,
+    BookmarkSource,
+    discover_bookmarks_for_revisions,
+    ensure_unique_bookmarks,
+)
+from jj_review.review.intents import (
+    describe_intent,
+    retire_superseded_intents,
+)
+from jj_review.review.selection import (
+    parse_comma_separated_flag_values,
+    resolve_selected_revset,
+)
+from jj_review.review.submit_recovery import (
     SubmitRecoveryIdentity,
     SubmitStatusDecision,
     submit_status_decision,
 )
+from jj_review.state.intents import (
+    check_same_kind_intent,
+    scan_intents,
+    write_new_intent,
+)
+from jj_review.state.store import ReviewStateStore
+from jj_review.system import pid_is_alive
 
 HELP = "Send a jj stack to GitHub for review"
 
@@ -1082,7 +1084,7 @@ def _bookmark_link_is_proven(
         return True
     if bookmark_source == "discovered":
         return True
-    if bookmark_source != "cache":
+    if bookmark_source != "saved":
         return False
     cached_change = state.changes.get(change_id)
     return (

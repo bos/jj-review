@@ -1,18 +1,18 @@
-"""Shared CLI argument helpers for command modules."""
+"""Revision and pull-request selection helpers for command modules."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
 
-from jj_review.cache import ReviewStateStore
 from jj_review.errors import CliError
-from jj_review.github.resolution import parse_github_repo, select_submit_remote
-from jj_review.jj import JjClient
-from jj_review.pull_request_references import (
+from jj_review.github.pull_request_refs import (
     parse_pull_request_number,
     parse_repository_pull_request_reference,
 )
+from jj_review.github.resolution import parse_github_repo, select_submit_remote
+from jj_review.jj import JjClient
+from jj_review.state.store import ReviewStateStore
 
 
 def resolve_selected_revset(
@@ -71,8 +71,7 @@ def resolve_linked_change_for_pull_request(
     matching_change_ids = [
         change_id
         for change_id, cached_change in state.changes.items()
-        if cached_change.link_state == "active"
-        and cached_change.pr_number == pull_request_number
+        if cached_change.link_state == "active" and cached_change.pr_number == pull_request_number
     ]
     if not matching_change_ids:
         raise CliError(
@@ -86,9 +85,13 @@ def resolve_linked_change_for_pull_request(
         )
 
     change_id = matching_change_ids[0]
-    visible_revisions = JjClient(repo_root).query_revisions_by_change_ids((change_id,)).get(
-        change_id,
-        (),
+    visible_revisions = (
+        JjClient(repo_root)
+        .query_revisions_by_change_ids((change_id,))
+        .get(
+            change_id,
+            (),
+        )
     )
     if not visible_revisions:
         raise CliError(
@@ -103,6 +106,8 @@ def resolve_linked_change_for_pull_request(
             "revision after resolving it."
         )
     return pull_request_number, change_id
+
+
 def _parse_repo_pull_request_number(
     *,
     pull_request_reference: str,

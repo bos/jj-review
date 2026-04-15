@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.jj import JjClient
 from jj_review.jj.client import JjCommandError
+from jj_review.state.store import ReviewStateStore, resolve_state_path
 
 from ..support.fake_github import FakeGithubState, create_app
 from ..support.integration_helpers import (
@@ -51,6 +51,7 @@ def test_land_blocks_unlinked_change(
     rendered = _squash_whitespace(captured.out)
     assert "Land blocked:" in rendered
     assert "unlinked from review tracking" in rendered
+
 
 def test_land_previews_and_finalizes_maximal_ready_prefix(
     tmp_path: Path,
@@ -150,6 +151,7 @@ def test_land_skip_cleanup_keeps_landed_local_review_bookmark(
     bookmark_state = JjClient(repo).get_bookmark_state(bookmark)
     assert bookmark_state.local_target == stack.revisions[0].commit_id
 
+
 def test_land_blocks_unapproved_prefix_by_default(
     tmp_path: Path,
     monkeypatch,
@@ -247,6 +249,7 @@ def test_land_bypass_readiness_previews_and_finalizes_unapproved_change(
     assert fake_repo.pull_requests[1].merged_at is not None
     assert read_remote_ref(fake_repo.git_dir, "main") == stack.revisions[0].commit_id
 
+
 @pytest.mark.parametrize(
     ("push_error", "expected_exit_code", "expected_error"),
     [
@@ -287,6 +290,7 @@ def test_land_restores_local_trunk_bookmark_when_push_does_not_complete(
     assert expected_error in captured.err
     assert JjClient(repo).get_bookmark_state("main").local_target == trunk_before
     assert read_remote_ref(fake_repo.git_dir, "main") == remote_before
+
 
 def test_land_replans_after_interrupted_push_when_landable_prefix_changes(
     tmp_path: Path,
@@ -335,6 +339,7 @@ def test_land_replans_after_interrupted_push_when_landable_prefix_changes(
     assert "simulated trunk push failure" in first_run.err
     assert "Resuming interrupted" not in second_run.out
     assert read_remote_ref(fake_repo.git_dir, "main") == first_landable_commit_id
+
 
 def test_land_resumes_after_trunk_push_interruption(
     tmp_path: Path,

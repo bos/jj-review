@@ -186,10 +186,7 @@ class GithubClient:
 
         results: dict[str, tuple[GithubPullRequest, ...]] = {}
         for chunk in _chunked(refs, size=_GRAPHQL_PULL_REQUEST_BATCH_SIZE):
-            aliases = {
-                f"head_{index}": head_ref
-                for index, head_ref in enumerate(chunk)
-            }
+            aliases = {f"head_{index}": head_ref for index, head_ref in enumerate(chunk)}
             query = _pull_requests_by_head_ref_query(aliases)
             payload = await self._graphql_query(
                 query,
@@ -627,13 +624,9 @@ def _graphql_repository_payload(
 ) -> dict[str, object]:
     repository = payload.get("repository")
     if repository is None:
-        raise GithubClientError(
-            f"GitHub {response_name} response was missing repository data."
-        )
+        raise GithubClientError(f"GitHub {response_name} response was missing repository data.")
     if not isinstance(repository, dict):
-        raise GithubClientError(
-            f"GitHub {response_name} response had invalid repository data."
-        )
+        raise GithubClientError(f"GitHub {response_name} response had invalid repository data.")
     return repository
 
 
@@ -645,9 +638,7 @@ def _graphql_mutation_pull_request_payload(
 ) -> GithubPullRequest:
     result = payload.get(mutation_name)
     if not isinstance(result, dict):
-        raise GithubClientError(
-            f"GitHub {response_name} response was missing mutation data."
-        )
+        raise GithubClientError(f"GitHub {response_name} response was missing mutation data.")
     raw_pull_request = result.get("pullRequest")
     if raw_pull_request is None:
         raise GithubClientError(
@@ -660,9 +651,7 @@ def _graphql_mutation_pull_request_payload(
     )
 
 
-def _chunked(
-    values: Sequence[ChunkValue], *, size: int
-) -> list[tuple[ChunkValue, ...]]:
+def _chunked(values: Sequence[ChunkValue], *, size: int) -> list[tuple[ChunkValue, ...]]:
     return [tuple(values[index : index + size]) for index in range(0, len(values), size)]
 
 
@@ -772,6 +761,7 @@ def _pull_request_graphql_selection(*, indent: str) -> str:
             f"{indent}}}",
         ]
     )
+
 
 def _pull_request_connection_from_graphql(
     *,

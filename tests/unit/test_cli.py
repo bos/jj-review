@@ -116,7 +116,7 @@ def test_main_renders_semantic_cli_errors_without_flattening_first(
     def fake_status(**kwargs) -> int:
         raise CliError(("Problem at ", ui.change_id("abcdefgh1234")))
 
-    monkeypatch.setattr("jj_review.cli.commands.review_state.status", fake_status)
+    monkeypatch.setattr("jj_review.cli.commands.status.status", fake_status)
 
     exit_code = main(["status"])
     captured = capsys.readouterr()

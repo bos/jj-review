@@ -11,14 +11,14 @@ from jj_review.config import ChangeConfig
 from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
 from jj_review.models.bookmarks import BookmarkState
-from jj_review.models.cache import CachedChange, ReviewState
+from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 _DEFAULT_SLUG = "change"
 _REVIEW_NAMESPACE = "review"
 
-BookmarkSource = Literal["cache", "discovered", "generated", "override"]
+BookmarkSource = Literal["saved", "discovered", "generated", "override"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +86,7 @@ class BookmarkResolver:
                     ResolvedBookmark(
                         bookmark=cached_change.bookmark,
                         change_id=revision.change_id,
-                        source="cache",
+                        source="saved",
                     )
                 )
                 continue

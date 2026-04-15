@@ -31,7 +31,7 @@ def configure_submit_environment(
             "jj_review.commands.close",
             "jj_review.commands.cleanup",
             "jj_review.commands.land",
-            "jj_review.review_inspection",
+            "jj_review.review.status",
         ),
         fake_repo=fake_repo,
         monkeypatch=monkeypatch,

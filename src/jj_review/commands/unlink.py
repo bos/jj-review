@@ -13,11 +13,11 @@ from pathlib import Path
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.command_ui import resolve_selected_revset
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
-from jj_review.models.cache import CachedChange
-from jj_review.review_inspection import prepare_status, stream_status_async
+from jj_review.models.review_state import CachedChange
+from jj_review.review.selection import resolve_selected_revset
+from jj_review.review.status import prepare_status, stream_status_async
 
 HELP = "Stop managing one local change as part of review"
 
@@ -116,9 +116,7 @@ async def _run_unlink_async(
 
     github_repository = getattr(prepared_status, "github_repository", None)
     progress_total = (
-        len(prepared_status.prepared.status_revisions)
-        if github_repository is not None
-        else 0
+        len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
     )
     with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = await stream_status_async(
@@ -210,12 +208,16 @@ def _revision_has_active_review_link(
     prepared_revision,
     status_revision,
 ) -> bool:
-    if cached_change is not None and not cached_change.is_unlinked and (
-        cached_change.bookmark is not None
-        or cached_change.pr_number is not None
-        or cached_change.pr_url is not None
-        or cached_change.pr_state is not None
-        or cached_change.stack_comment_id is not None
+    if (
+        cached_change is not None
+        and not cached_change.is_unlinked
+        and (
+            cached_change.bookmark is not None
+            or cached_change.pr_number is not None
+            or cached_change.pr_url is not None
+            or cached_change.pr_state is not None
+            or cached_change.stack_comment_id is not None
+        )
     ):
         return True
     if bookmark is not None:

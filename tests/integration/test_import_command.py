@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.cli import main
 from jj_review.errors import CliError
 from jj_review.jj import JjClient
+from jj_review.state.store import ReviewStateStore, resolve_state_path
 
 from ..support.fake_github import FakeGithubRepository
 from ..support.integration_helpers import (
@@ -105,9 +105,7 @@ def test_import_pull_request_rejects_cross_repository_heads(
 
     assert _main(repo, config_path, "submit") == 0
     state_before = ReviewStateStore.for_repo(repo).load()
-    fake_repo.pull_requests[2].head_label = (
-        f"someone-else:{fake_repo.pull_requests[2].head_ref}"
-    )
+    fake_repo.pull_requests[2].head_label = f"someone-else:{fake_repo.pull_requests[2].head_ref}"
 
     exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
     captured = capsys.readouterr()
@@ -451,7 +449,7 @@ def test_import_revset_rejects_generated_bookmarks_without_selected_remote(
         raise CliError("No submit remote configured.")
 
     monkeypatch.setattr(
-        "jj_review.review_inspection.select_submit_remote",
+        "jj_review.review.status.select_submit_remote",
         _no_selected_remote,
     )
 
@@ -474,7 +472,7 @@ def _configure_import_environment(
     return configure_fake_github_environment(
         command_modules=(
             "jj_review.commands.submit",
-            "jj_review.review_inspection",
+            "jj_review.review.status",
             "jj_review.commands.import_",
         ),
         fake_repo=fake_repo,

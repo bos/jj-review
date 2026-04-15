@@ -2,18 +2,18 @@ from __future__ import annotations
 
 import pytest
 
-from jj_review.bookmarks import (
+from jj_review.config import ChangeConfig
+from jj_review.errors import CliError
+from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
+from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.models.stack import LocalRevision
+from jj_review.review.bookmarks import (
     BookmarkResolver,
     ResolvedBookmark,
     discover_bookmarks_for_revisions,
     ensure_unique_bookmarks,
     generate_bookmark_name,
 )
-from jj_review.config import ChangeConfig
-from jj_review.errors import CliError
-from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
-from jj_review.models.cache import CachedChange, ReviewState
-from jj_review.models.stack import LocalRevision
 
 
 def test_generate_bookmark_name_normalizes_subject() -> None:
@@ -67,7 +67,7 @@ def test_bookmark_resolver_keeps_cached_bookmark_stable_after_subject_change() -
 
     assert result.changed is False
     assert result.resolutions[0].bookmark == "review/fix-cache-invalidation-zvlywqkx"
-    assert result.resolutions[0].source == "cache"
+    assert result.resolutions[0].source == "saved"
 
 
 def test_bookmark_resolver_prefers_override_over_cached_bookmark() -> None:
@@ -99,9 +99,7 @@ def test_bookmark_resolver_reuses_discovered_bookmark_when_cache_is_missing() ->
 
     result = BookmarkResolver(
         ReviewState(),
-        discovered_bookmarks={
-            "zvlywqkxtmnpqrstu": "review/fix-cache-invalidation-zvlywqkx"
-        },
+        discovered_bookmarks={"zvlywqkxtmnpqrstu": "review/fix-cache-invalidation-zvlywqkx"},
     ).pin_revisions((renamed_revision,))
 
     assert result.changed is True
@@ -113,8 +111,9 @@ def test_bookmark_resolver_reuses_discovered_bookmark_when_cache_is_missing() ->
     )
 
 
-def test_discover_bookmarks_reuses_unique_remote_bookmark_with_matching_change_id_suffix(
-) -> None:
+def test_discover_bookmarks_reuses_unique_remote_bookmark_with_matching_change_id_suffix() -> (
+    None
+):
     bookmarks = discover_bookmarks_for_revisions(
         bookmark_states={
             "review/original-title-zvlywqkx": BookmarkState(
@@ -123,9 +122,7 @@ def test_discover_bookmarks_reuses_unique_remote_bookmark_with_matching_change_i
             ),
         },
         remote_name="origin",
-        revisions=(
-            _revision(change_id="zvlywqkxtmnpqrstu", description=""),
-        ),
+        revisions=(_revision(change_id="zvlywqkxtmnpqrstu", description=""),),
     )
 
     assert bookmarks == {"zvlywqkxtmnpqrstu": "review/original-title-zvlywqkx"}
@@ -140,21 +137,15 @@ def test_discover_bookmarks_for_revisions_rejects_ambiguous_matches() -> None:
             bookmark_states={
                 "review/first-zvlywqkx": BookmarkState(
                     name="review/first-zvlywqkx",
-                    remote_targets=(
-                        RemoteBookmarkState(remote="origin", targets=("abc123",)),
-                    ),
+                    remote_targets=(RemoteBookmarkState(remote="origin", targets=("abc123",)),),
                 ),
                 "review/second-zvlywqkx": BookmarkState(
                     name="review/second-zvlywqkx",
-                    remote_targets=(
-                        RemoteBookmarkState(remote="origin", targets=("def456",)),
-                    ),
+                    remote_targets=(RemoteBookmarkState(remote="origin", targets=("def456",)),),
                 ),
             },
             remote_name="origin",
-            revisions=(
-                _revision(change_id="zvlywqkxtmnpqrstu", description=""),
-            ),
+            revisions=(_revision(change_id="zvlywqkxtmnpqrstu", description=""),),
         )
 
 
@@ -168,7 +159,7 @@ def test_ensure_unique_bookmarks_rejects_multiple_changes_resolving_to_same_book
         ResolvedBookmark(
             bookmark="review/shared-name",
             change_id="change-b",
-            source="cache",
+            source="saved",
         ),
     )
 

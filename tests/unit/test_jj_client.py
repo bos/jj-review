@@ -104,6 +104,8 @@ _CHILD_A = _revision_line(
 _CHILD_B = _revision_line(
     commit_id="child-b", parents=["parent"], change_id="child-b-change", description="child b\n"
 )
+
+
 def test_discover_review_stack_returns_empty_revisions_when_head_is_trunk() -> None:
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
@@ -116,8 +118,7 @@ def test_discover_review_stack_returns_empty_revisions_when_head_is_trunk() -> N
     assert stack.head.commit_id == "trunk"
 
 
-def test_discover_review_stack_uses_parent_of_empty_working_copy_as_default_selection(
-) -> None:
+def test_discover_review_stack_uses_parent_of_empty_working_copy_as_default_selection() -> None:
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
         ("jj", "log", "--no-graph", "-r", "@", "-T", _template(), "--limit", "2"): (
@@ -745,6 +746,8 @@ def test_render_revision_log_lines_uses_native_jj_log_output() -> None:
     )
 
     assert lines == ("rendered head", "body line")
+
+
 def test_find_private_commits_returns_empty_when_config_is_unset() -> None:
     def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         assert tuple(command) == ("jj", "config", "get", "git.private-commits")

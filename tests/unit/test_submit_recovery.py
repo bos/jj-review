@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from jj_review.models.intent import SubmitIntent
-from jj_review.submit_recovery import (
+from jj_review.review.submit_recovery import (
     ArtifactPresence,
     SubmitArtifactObservation,
     SubmitRecoveryIdentity,

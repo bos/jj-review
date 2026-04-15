@@ -20,7 +20,7 @@ from jj_review.errors import CliError
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
-from jj_review.review_inspection import PreparedStatus
+from jj_review.review.status import PreparedStatus
 
 
 @dataclass(frozen=True)
@@ -65,8 +65,7 @@ def test_validate_bookmark_state_rejects_selected_remote_conflicts() -> None:
     )
 
 
-def test_resolve_import_bookmark_rejects_generated_bookmark_without_selected_remote(
-    ) -> None:
+def test_resolve_import_bookmark_rejects_generated_bookmark_without_selected_remote() -> None:
     with pytest.raises(CliError) as exc_info:
         _resolve_import_bookmark(
             bookmark_by_change_id={},
@@ -89,9 +88,7 @@ def test_resolve_import_bookmark_rejects_missing_cached_remote_bookmark() -> Non
     with pytest.raises(CliError) as exc_info:
         _resolve_import_bookmark(
             bookmark_by_change_id={"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "review/feature-aaaa"},
-            bookmark_states={
-                "review/feature-aaaa": BookmarkState(name="review/feature-aaaa")
-            },
+            bookmark_states={"review/feature-aaaa": BookmarkState(name="review/feature-aaaa")},
             prepared_revision=SimpleNamespace(
                 bookmark="review/feature-aaaa",
                 bookmark_source="cached",
@@ -104,8 +101,7 @@ def test_resolve_import_bookmark_rejects_missing_cached_remote_bookmark() -> Non
         )
 
     assert (
-        str(exc_info.value)
-        == "Could not safely import the selected stack because saved branch "
+        str(exc_info.value) == "Could not safely import the selected stack because saved branch "
         "'review/feature-aaaa' for aaaaaaaa is not present on the selected remote. "
         "Refresh with `status --fetch` or select an exact pull request."
     )
@@ -135,8 +131,7 @@ def test_resolve_import_bookmark_rejects_stale_cached_remote_bookmark_target() -
         )
 
     assert (
-        str(exc_info.value)
-        == "Could not safely import the selected stack because saved branch "
+        str(exc_info.value) == "Could not safely import the selected stack because saved branch "
         "'review/feature-aaaa' for aaaaaaaa points to a different revision on the "
         "selected remote. Refresh with `status --fetch` or repair the stale remote "
         "match before importing again."
@@ -271,6 +266,8 @@ def test_resolve_pull_request_selection_fetches_selected_branch_when_requested(
 
     assert fetch_calls == [("origin", ("review/feature-aaaaaaaa",))]
     assert selection.fetched_tip_commit == "commit-2"
+
+
 def test_resolve_pull_request_selection_rejects_pull_request_missing_after_head_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -384,9 +381,7 @@ def test_fetch_selected_stack_bookmarks_fetches_only_missing_exact_stack_branche
             return {
                 "review/custom-head": BookmarkState(
                     name="review/custom-head",
-                    remote_targets=(
-                        RemoteBookmarkState(remote="origin", targets=("commit-2",)),
-                    ),
+                    remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-2",)),),
                 ),
                 "review/parent-bbbbbbbb": BookmarkState(name="review/parent-bbbbbbbb"),
             }
@@ -430,6 +425,7 @@ def test_run_import_current_rejects_before_github_inspection(
         "jj_review.commands.import_.JjClient",
         lambda repo_root: object(),
     )
+
     async def fake_resolve_selection(**kwargs):
         return SimpleNamespace(
             default_current_stack=True,

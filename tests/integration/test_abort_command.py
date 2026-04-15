@@ -3,12 +3,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from jj_review.cache import ReviewStateStore
 from jj_review.github.resolution import ParsedGithubRepo
-from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
-from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.intent import AbortIntent, CleanupRestackIntent, SubmitIntent
+from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.state.intents import write_new_intent
+from jj_review.state.store import ReviewStateStore
 
 from ..support.fake_github import initialize_bare_repository
 from ..support.integration_helpers import (

@@ -107,7 +107,7 @@ def test_load_config_ignores_unrelated_jj_config_keys(
         config_path,
         [
             "[git]",
-            'push-new-bookmarks = true',
+            "push-new-bookmarks = true",
         ],
     )
 

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from jj_review.commands import review_state as review_state_module
+from jj_review.commands import status as status_module
 from jj_review.errors import CliError
 from jj_review.jj import UnsupportedStackError
 
@@ -15,7 +15,7 @@ def test_status_reports_targeted_divergent_stack_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    patch_bootstrap(monkeypatch, review_state_module, tmp_path)
+    patch_bootstrap(monkeypatch, status_module, tmp_path)
 
     def raise_unsupported_stack(**kwargs):
         raise UnsupportedStackError(
@@ -25,10 +25,10 @@ def test_status_reports_targeted_divergent_stack_error(
             reason="divergent_change",
         )
 
-    monkeypatch.setattr(review_state_module, "prepare_status", raise_unsupported_stack)
+    monkeypatch.setattr(status_module, "prepare_status", raise_unsupported_stack)
 
     with pytest.raises(CliError, match="Could not inspect review status"):
-        review_state_module.status(
+        status_module.status(
             config_path=None,
             debug=False,
             fetch=False,
@@ -44,19 +44,19 @@ def test_describe_status_preparation_error_falls_back_without_structured_context
         "divergent changes are not supported."
     )
 
-    assert "jj log -r" not in review_state_module.describe_status_preparation_error(error)
+    assert "jj log -r" not in status_module.describe_status_preparation_error(error)
 
 
 def test_status_updates_tty_progress_bar_while_streaming(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    patch_bootstrap(monkeypatch, review_state_module, tmp_path)
+    patch_bootstrap(monkeypatch, status_module, tmp_path)
     progress_updates: list[int] = []
     progress_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(
-        review_state_module,
+        status_module,
         "prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
@@ -107,10 +107,10 @@ def test_status_updates_tty_progress_bar_while_streaming(
             revisions=(),
         )
 
-    monkeypatch.setattr(review_state_module, "stream_status", fake_stream_status)
-    monkeypatch.setattr(review_state_module.ui, "progress", fake_progress)
+    monkeypatch.setattr(status_module, "stream_status", fake_stream_status)
+    monkeypatch.setattr(status_module.ui, "progress", fake_progress)
 
-    exit_code = review_state_module.status(
+    exit_code = status_module.status(
         config_path=None,
         debug=False,
         fetch=False,
@@ -128,11 +128,11 @@ def test_status_passes_cli_color_override_to_native_jj_rendering(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    patch_bootstrap(monkeypatch, review_state_module, tmp_path)
+    patch_bootstrap(monkeypatch, status_module, tmp_path)
     observed: dict[str, object] = {}
     monkeypatch.setattr("jj_review.formatting.requested_color_mode", lambda: "debug")
     monkeypatch.setattr(
-        review_state_module,
+        status_module,
         "prepare_status",
         lambda **kwargs: SimpleNamespace(
             prepared=SimpleNamespace(
@@ -167,7 +167,7 @@ def test_status_passes_cli_color_override_to_native_jj_rendering(
         ),
     )
     monkeypatch.setattr(
-        review_state_module,
+        status_module,
         "stream_status",
         lambda **kwargs: SimpleNamespace(
             github_error=None,
@@ -177,7 +177,7 @@ def test_status_passes_cli_color_override_to_native_jj_rendering(
         ),
     )
 
-    exit_code = review_state_module.status(
+    exit_code = status_module.status(
         config_path=None,
         debug=False,
         fetch=False,

@@ -8,7 +8,7 @@ from jj_review.commands import (
     import_,
     land,
     relink,
-    review_state,
+    status,
     submit,
     unlink,
 )
@@ -21,7 +21,7 @@ __all__ = [
     "import_",
     "land",
     "relink",
-    "review_state",
+    "status",
     "submit",
     "unlink",
 ]

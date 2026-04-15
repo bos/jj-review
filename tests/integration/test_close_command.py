@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github.resolution import ParsedGithubRepo
-from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
-from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.intent import CloseIntent, SubmitIntent
+from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.state.intents import write_new_intent
+from jj_review.state.store import ReviewStateStore, resolve_state_path
 
 from ..support.fake_github import (
     FakeGithubState,
@@ -185,7 +185,7 @@ def test_close_apply_reports_blocked_when_github_is_unavailable(
         monkeypatch,
         app=app,
         fake_repo=fake_repo,
-        modules=("jj_review.commands.close", "jj_review.review_inspection"),
+        modules=("jj_review.commands.close", "jj_review.review.status"),
         client_type=OfflineGithubClient,
     )
 

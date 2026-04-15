@@ -14,20 +14,20 @@ from pathlib import Path
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.cache import ReviewStateStore
-from jj_review.command_ui import resolve_selected_revset
 from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClientError, build_github_client
+from jj_review.github.pull_request_refs import parse_repository_pull_request_reference
 from jj_review.github.resolution import (
     require_github_repo,
     select_submit_remote,
 )
-from jj_review.intent import check_same_kind_intent, write_new_intent
 from jj_review.jj import JjClient
-from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.intent import RelinkIntent
-from jj_review.pull_request_references import parse_repository_pull_request_reference
+from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.review.selection import resolve_selected_revset
+from jj_review.state.intents import check_same_kind_intent, write_new_intent
+from jj_review.state.store import ReviewStateStore
 
 HELP = "Reconnect an existing pull request to a local change"
 
@@ -92,9 +92,7 @@ async def _run_relink_async(
 
     stack = client.discover_review_stack(revset)
     if not stack.revisions:
-        raise CliError(
-            "No reviewable commits between the selected revision and `trunk()`."
-        )
+        raise CliError("No reviewable commits between the selected revision and `trunk()`.")
     revision = stack.head
     selected_revset = stack.selected_revset
 
@@ -147,9 +145,7 @@ async def _run_relink_async(
 
     bookmark_state = client.get_bookmark_state(bookmark)
     if len(bookmark_state.local_targets) > 1:
-        raise CliError(
-            f"Local bookmark {bookmark!r} is conflicted. Resolve it before relinking."
-        )
+        raise CliError(f"Local bookmark {bookmark!r} is conflicted. Resolve it before relinking.")
     if (
         bookmark_state.local_target is not None
         and bookmark_state.local_target != revision.commit_id

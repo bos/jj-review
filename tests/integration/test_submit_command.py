@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from jj_review.bookmarks import BookmarkResolver
-from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError
-from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
-from jj_review.models.cache import ReviewState
 from jj_review.models.intent import SubmitIntent
+from jj_review.models.review_state import ReviewState
+from jj_review.review.bookmarks import BookmarkResolver
+from jj_review.state.intents import write_new_intent
+from jj_review.state.store import ReviewStateStore, resolve_state_path
 
 from ..support.fake_github import (
     FakeGithubState,

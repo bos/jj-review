@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.github.client import GithubClient, GithubClientError
-from jj_review.intent import write_new_intent
 from jj_review.jj import JjClient
 from jj_review.models.intent import SubmitIntent
+from jj_review.state.intents import write_new_intent
+from jj_review.state.store import ReviewStateStore, resolve_state_path
 
 from ..support.fake_github import FakeGithubState, create_app
 from ..support.integration_helpers import (
@@ -119,7 +119,7 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
         monkeypatch,
         app=app,
         fake_repo=fake_repo,
-        modules=("jj_review.review_inspection",),
+        modules=("jj_review.review.status",),
         client_type=FailingPullRequestLookupClient,
     )
 
@@ -153,7 +153,7 @@ def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
         monkeypatch,
         app=app,
         fake_repo=fake_repo,
-        modules=("jj_review.review_inspection",),
+        modules=("jj_review.review.status",),
         client_type=OfflineGithubClient,
     )
 
@@ -192,7 +192,7 @@ def test_status_exits_nonzero_when_pull_request_lookup_fails(
         monkeypatch,
         app=app,
         fake_repo=fake_repo,
-        modules=("jj_review.review_inspection",),
+        modules=("jj_review.review.status",),
         client_type=FailingPullRequestLookupClient,
     )
 
@@ -398,7 +398,7 @@ def test_status_uses_cached_pull_request_metadata_after_prior_online_run(
         monkeypatch,
         app=app,
         fake_repo=fake_repo,
-        modules=("jj_review.review_inspection",),
+        modules=("jj_review.review.status",),
         client_type=OfflineGithubClient,
     )
 
@@ -575,7 +575,7 @@ def test_status_preserves_cached_review_decision_when_review_lookup_fails(
         monkeypatch,
         app=app,
         fake_repo=fake_repo,
-        modules=("jj_review.review_inspection",),
+        modules=("jj_review.review.status",),
         client_type=FailingReviewLookupClient,
     )
 

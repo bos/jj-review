@@ -31,10 +31,6 @@ from typing import Literal, Protocol
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.command_ui import (
-    resolve_linked_change_for_pull_request,
-    resolve_selected_revset,
-)
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
@@ -42,19 +38,20 @@ from jj_review.github.resolution import (
     ParsedGithubRepo,
     resolve_trunk_branch,
 )
-from jj_review.intent import (
-    check_same_kind_intent,
+from jj_review.models.bookmarks import BookmarkState
+from jj_review.models.github import GithubPullRequest
+from jj_review.models.intent import LandIntent, LoadedIntent
+from jj_review.models.review_state import CachedChange
+from jj_review.review.intents import (
     describe_intent,
     match_ordered_change_ids,
     retire_superseded_intents,
-    save_intent,
-    write_new_intent,
 )
-from jj_review.models.bookmarks import BookmarkState
-from jj_review.models.cache import CachedChange
-from jj_review.models.github import GithubPullRequest
-from jj_review.models.intent import LandIntent, LoadedIntent
-from jj_review.review_inspection import (
+from jj_review.review.selection import (
+    resolve_linked_change_for_pull_request,
+    resolve_selected_revset,
+)
+from jj_review.review.status import (
     PreparedRevision,
     PreparedStatus,
     ReviewStatusRevision,
@@ -62,6 +59,7 @@ from jj_review.review_inspection import (
     prepare_status,
     stream_status,
 )
+from jj_review.state.intents import check_same_kind_intent, save_intent, write_new_intent
 
 HELP = "Land the ready changes at the bottom of a stack"
 
@@ -345,9 +343,7 @@ def stream_land(*, prepared_land: PreparedLand) -> LandResult:
     prepared_status = prepared_land.prepared_status
     github_repository = getattr(prepared_status, "github_repository", None)
     progress_total = (
-        len(prepared_status.prepared.status_revisions)
-        if github_repository is not None
-        else 0
+        len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
     )
     with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = stream_status(
@@ -727,9 +723,7 @@ def _report_stale_land_intents(
                     )
                 )
             else:
-                ui.note(
-                    ui.rich_text(("Resuming interrupted ", describe_intent(loaded.intent)))
-                )
+                ui.note(ui.rich_text(("Resuming interrupted ", describe_intent(loaded.intent))))
             continue
         match = match_ordered_change_ids(
             loaded.intent.ordered_change_ids,
@@ -916,8 +910,7 @@ def _land_boundary_message(
     if pull_request_lookup.state == "error":
         detail = pull_request_lookup.message or "GitHub lookup failed"
         return (
-            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
-            t"{detail}"
+            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because {detail}"
         )
     pull_request = pull_request_lookup.pull_request
     if pull_request is None:
@@ -943,8 +936,7 @@ def _planned_land_actions(
 
     actions: list[LandAction] = []
     bookmark_cleanup_by_change_id = {
-        cleanup_plan.change_id: cleanup_plan.action
-        for cleanup_plan in bookmark_cleanup_plans
+        cleanup_plan.change_id: cleanup_plan.action for cleanup_plan in bookmark_cleanup_plans
     }
     if plan.push_trunk and plan.landed_revisions:
         actions.append(

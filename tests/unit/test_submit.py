@@ -20,12 +20,12 @@ from jj_review.commands.submit import (
     _run_description_command,
 )
 from jj_review.errors import CliError
-from jj_review.intent import write_new_intent
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
-from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
 from jj_review.models.intent import SubmitIntent
+from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision
+from jj_review.state.intents import write_new_intent
 from tests.support.revision_helpers import make_revision
 
 
@@ -253,7 +253,7 @@ def test_ensure_remote_can_be_updated_rejects_conflicted_remote_bookmark() -> No
     ):
         _ensure_remote_can_be_updated(
             bookmark="review/foo",
-            bookmark_source="cache",
+            bookmark_source="saved",
             bookmark_state=BookmarkState(name="review/foo"),
             change_id="change-a",
             desired_target="zzz999",

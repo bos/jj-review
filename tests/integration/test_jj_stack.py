@@ -131,6 +131,8 @@ def test_discover_review_stack_rejects_immutable_revisions(tmp_path: Path) -> No
         match="immutable commits are not reviewable",
     ):
         JjClient(repo).discover_review_stack()
+
+
 def _current_parent_commit_id(repo: Path) -> str:
     completed = run_command(
         [

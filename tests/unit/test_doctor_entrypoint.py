@@ -90,9 +90,7 @@ def test_check_github_auth_no_token(monkeypatch: pytest.MonkeyPatch) -> None:
     import jj_review.commands.doctor as doctor_module
 
     monkeypatch.setattr(doctor_module, "github_token_from_env", lambda: None)
-    monkeypatch.setattr(
-        doctor_module, "_github_token_for_base_url", lambda base_url: None
-    )
+    monkeypatch.setattr(doctor_module, "_github_token_for_base_url", lambda base_url: None)
 
     result, token = _check_github_auth("https://api.github.com")
 

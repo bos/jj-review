@@ -421,9 +421,7 @@ def _register_pull_request_routes(app: FastAPI, fake_state: FakeGithubState) -> 
             ]
         if requested_state != "all":
             pull_requests = [
-                candidate
-                for candidate in pull_requests
-                if candidate.state == requested_state
+                candidate for candidate in pull_requests if candidate.state == requested_state
             ]
         return [
             pull_request.to_payload(repository=repository, web_origin=fake_state.web_origin)
@@ -554,8 +552,7 @@ def _register_pull_request_routes(app: FastAPI, fake_state: FakeGithubState) -> 
         repository = _get_repository(fake_state, owner, repo)
         reviews = repository.list_pull_request_reviews(pull_number)
         return [
-            review.to_payload()
-            for review in sorted(reviews, key=lambda candidate: candidate.id)
+            review.to_payload() for review in sorted(reviews, key=lambda candidate: candidate.id)
         ]
 
 

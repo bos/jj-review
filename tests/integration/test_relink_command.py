@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jj_review.cache import ReviewStateStore, resolve_state_path
 from jj_review.jj import JjClient
+from jj_review.state.store import ReviewStateStore, resolve_state_path
 
 from ..support.integration_helpers import (
     commit_file,
@@ -76,6 +76,7 @@ def test_relink_repairs_existing_pull_request_link_for_rewritten_change(
         == rewritten_stack.revisions[-1].commit_id
     )
 
+
 def test_relink_reports_missing_pull_request_without_traceback(
     tmp_path: Path,
     monkeypatch,
@@ -92,6 +93,7 @@ def test_relink_reports_missing_pull_request_without_traceback(
     assert exit_code == 1
     assert "Could not load pull request #999" in captured.err
     assert "Traceback" not in captured.err
+
 
 def test_relink_rejects_existing_local_bookmark_on_different_change(
     tmp_path: Path,
@@ -126,6 +128,7 @@ def test_relink_rejects_existing_local_bookmark_on_different_change(
     assert "already points to a different revision" in captured.err
     assert bookmark_state.local_target == bottom_commit_id
 
+
 def test_relink_rejects_closed_pull_request(
     tmp_path: Path,
     monkeypatch,
@@ -154,6 +157,7 @@ def test_relink_rejects_closed_pull_request(
     assert exit_code == 1
     assert "is not open" in captured.err
 
+
 def test_relink_rejects_cross_repository_pull_request_head(
     tmp_path: Path,
     monkeypatch,
@@ -181,6 +185,7 @@ def test_relink_rejects_cross_repository_pull_request_head(
 
     assert exit_code == 1
     assert "same-repository pull request branches" in captured.err
+
 
 def test_relink_rejects_pull_request_with_missing_remote_head_branch(
     tmp_path: Path,
@@ -225,6 +230,7 @@ def test_relink_rejects_pull_request_with_missing_remote_head_branch(
     assert exit_code == 1
     assert "does not exist" in captured.err
 
+
 def test_relink_clears_unlinked_state(
     tmp_path: Path,
     monkeypatch,
@@ -251,6 +257,7 @@ def test_relink_clears_unlinked_state(
     assert relinked_change.link_state == "active"
     assert relinked_change.pr_number == 1
     assert relinked_change.pr_state == "open"
+
 
 def test_relink_deletes_intent_file_after_successful_relink(
     tmp_path: Path,

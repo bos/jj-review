@@ -22,10 +22,10 @@ from jj_review.commands.land import (
 )
 from jj_review.errors import CliError
 from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
-from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
 from jj_review.models.intent import LandIntent, LoadedIntent
-from jj_review.review_inspection import PreparedStatus, StatusResult
+from jj_review.models.review_state import CachedChange
+from jj_review.review.status import PreparedStatus, StatusResult
 
 
 def test_build_land_plan_uses_maximal_ready_prefix() -> None:
@@ -90,6 +90,7 @@ def test_build_land_plan_uses_maximal_ready_prefix() -> None:
     assert plan.boundary_action is not None
     assert plan.boundary_action.status == "planned"
     assert "stop before feature 3" in plan.boundary_action.message
+
 
 @pytest.mark.parametrize(
     ("bypass_readiness", "revision_factory", "expected_message"),
@@ -168,11 +169,7 @@ def test_build_land_plan_blocks_unready_boundary_changes(
     prepared_status = _prepared_status(("change-1",))
     status_result = cast(
         StatusResult,
-        SimpleNamespace(
-            revisions=(
-                revision_factory(),
-            )
-        ),
+        SimpleNamespace(revisions=(revision_factory(),)),
     )
 
     plan = _build_land_plan(
@@ -259,6 +256,8 @@ def test_updated_landed_change_marks_pr_merged_and_clears_stack_comment() -> Non
     assert updated.pr_review_decision is None
     assert updated.pr_state == "merged"
     assert updated.stack_comment_id is None
+
+
 def test_find_resume_land_intent_matches_exact_path() -> None:
     prepared_status = _prepared_status(("change-1", "change-2"))
     loaded_intent = _loaded_land_intent(
@@ -351,8 +350,7 @@ def test_find_resume_land_intent_returns_none_for_cleanup_mode_mismatch() -> Non
     assert result is None
 
 
-def test_report_stale_land_intents_does_not_claim_resume_without_resume_match(
-) -> None:
+def test_report_stale_land_intents_does_not_claim_resume_without_resume_match() -> None:
     prepared_status = _prepared_status(("change-1", "change-2"))
     loaded_intent = _loaded_land_intent(
         cleanup_bookmarks=False,
@@ -537,9 +535,7 @@ def test_ensure_trunk_branch_matches_selected_trunk_rejects_missing_remote_bookm
             BookmarkState(
                 name="main",
                 local_targets=("commit-1", "commit-2"),
-                remote_targets=(
-                    RemoteBookmarkState(remote="origin", targets=("commit-1",)),
-                ),
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
             ),
             "Local trunk bookmark 'main' is conflicted",
             id="conflicted-local",
@@ -548,9 +544,7 @@ def test_ensure_trunk_branch_matches_selected_trunk_rejects_missing_remote_bookm
             BookmarkState(
                 name="main",
                 local_targets=("commit-2",),
-                remote_targets=(
-                    RemoteBookmarkState(remote="origin", targets=("commit-1",)),
-                ),
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
             ),
             "Local trunk bookmark 'main' no longer matches",
             id="moved-local",
@@ -721,6 +715,8 @@ def _loaded_land_intent(
             started_at="2026-03-22T12:00:00Z",
         ),
     )
+
+
 class _BookmarkClientStub:
     def __init__(self, bookmark_state: BookmarkState) -> None:
         self._bookmark_state = bookmark_state

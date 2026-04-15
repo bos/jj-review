@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from jj_review import ui as ui_module
-from jj_review.commands import review_state as review_state_module
+from jj_review.commands import status as status_module
 
 
 def _render_lines(*lines: object) -> tuple[str, ...]:
@@ -28,7 +28,7 @@ def test_render_status_selection_lines_reports_selected_remote_error() -> None:
     )
 
     assert _render_lines(
-        *review_state_module.render_status_selection_lines(
+        *status_module.render_status_selection_lines(
             prepared_status=prepared_status,
         )
     ) == ("Selected remote: unavailable (no git remote configured)",)
@@ -36,7 +36,7 @@ def test_render_status_selection_lines_reports_selected_remote_error() -> None:
 
 def test_status_reports_github_target_when_empty_stack_was_not_inspected() -> None:
     assert _render_lines(
-        *review_state_module.render_status_github_lines(
+        *status_module.render_status_github_lines(
             github_error=None,
             github_repository="octo-org/stacked-review",
             has_revisions=False,
@@ -65,7 +65,7 @@ def test_render_trunk_status_lines_prefers_unique_local_bookmark() -> None:
         ),
     )
 
-    assert review_state_module.render_trunk_status_lines(
+    assert status_module.render_trunk_status_lines(
         prepared=prepared,
     ) == ("◆ base [trunkcha]",)
 
@@ -88,7 +88,7 @@ def test_status_advises_cleanup_and_restack_when_merged_pr_remains_in_stack() ->
     )
 
     lines = _render_lines(
-        *review_state_module.render_status_advisory_lines(
+        *status_module.render_status_advisory_lines(
             result=SimpleNamespace(
                 revisions=(merged_revision,),
                 selected_revset="@",
@@ -108,7 +108,7 @@ def test_render_status_intent_lines_reports_stale_and_interrupted_operations(
     def fake_pid_is_alive(pid: int) -> bool:
         return pid == 101
 
-    monkeypatch.setattr(review_state_module, "pid_is_alive", fake_pid_is_alive)
+    monkeypatch.setattr(status_module, "pid_is_alive", fake_pid_is_alive)
     prepared_status = SimpleNamespace(
         stale_intents=(
             SimpleNamespace(
@@ -126,7 +126,7 @@ def test_render_status_intent_lines_reports_stale_and_interrupted_operations(
     )
 
     lines = _render_lines(
-        *review_state_module.render_status_intent_lines(prepared_status=prepared_status)
+        *status_module.render_status_intent_lines(prepared_status=prepared_status)
     )
 
     assert "Stale incomplete operations (change IDs no longer in repo):" in lines
@@ -138,7 +138,7 @@ def test_emit_lines_decodes_ansi_styled_native_revision_output() -> None:
     stdout = StringIO()
 
     with ui_module.configured_ui(stdout=stdout, stderr=StringIO(), color_mode="always"):
-        review_state_module._emit_lines(("\x1b[31mred\x1b[0m",))
+        status_module._emit_lines(("\x1b[31mred\x1b[0m",))
 
     assert stdout.getvalue() == "red\n"
 
@@ -158,7 +158,7 @@ def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
         for index in range(8, 0, -1)
     )
 
-    lines = review_state_module.render_status_summary_lines(
+    lines = status_module.render_status_summary_lines(
         client=SimpleNamespace(
             resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
             render_revision_log_lines=lambda revision, *, color_when: (
@@ -192,7 +192,7 @@ def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
 
 
 def test_render_status_summary_lines_show_empty_sections_in_verbose_mode() -> None:
-    lines = review_state_module.render_status_summary_lines(
+    lines = status_module.render_status_summary_lines(
         client=SimpleNamespace(
             resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
             render_revision_log_lines=lambda revision, *, color_when: (),
@@ -214,7 +214,7 @@ def test_render_status_summary_lines_show_empty_sections_in_verbose_mode() -> No
 
 
 def test_render_status_summary_lines_links_submitted_header_to_top_pr() -> None:
-    lines = review_state_module.render_status_summary_lines(
+    lines = status_module.render_status_summary_lines(
         client=SimpleNamespace(
             resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
             render_revision_log_lines=lambda revision, *, color_when: (revision.subject,),
@@ -286,7 +286,7 @@ def test_status_summary_hides_managed_review_bookmark_but_keeps_other_bookmarks(
         subject="feature 8",
     )
 
-    lines = review_state_module.render_status_summary_lines(
+    lines = status_module.render_status_summary_lines(
         client=SimpleNamespace(
             resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
             render_revision_log_lines=lambda current_revision, *, color_when: (

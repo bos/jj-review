@@ -65,7 +65,7 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
         "Core commands",
         (
             _HelpCommand("submit", commands.submit.HELP),
-            _HelpCommand("status", commands.review_state.HELP),
+            _HelpCommand("status", commands.status.HELP),
             _HelpCommand("land", commands.land.HELP),
             _HelpCommand("close", commands.close.HELP),
         ),
@@ -256,9 +256,9 @@ def build_parser() -> ArgumentParser:
     status_parser = _add_revision_command(
         subparsers,
         command="status",
-        help_text=_normalized_help_text(commands.review_state.HELP),
-        description_text=commands.review_state.__doc__ or "",
-        handler=lambda args: commands.review_state.status(
+        help_text=_normalized_help_text(commands.status.HELP),
+        description_text=commands.status.__doc__ or "",
+        handler=lambda args: commands.status.status(
             config_path=args.config,
             debug=args.debug,
             fetch=args.fetch,
@@ -339,10 +339,7 @@ def build_parser() -> ArgumentParser:
     land_parser.add_argument(
         "--bypass-readiness",
         action="store_true",
-        help=(
-            "Skip draft and review-decision checks while keeping normal "
-            "safety checks"
-        ),
+        help=("Skip draft and review-decision checks while keeping normal safety checks"),
     )
     land_parser.add_argument(
         "--skip-cleanup",
@@ -516,8 +513,7 @@ def _format_top_level_help(parser: ArgumentParser, *, include_hidden: bool) -> s
     if not include_hidden:
         sections.append(
             textwrap.fill(
-                "Run `jj-review help --all` to show advanced commands and "
-                "options.",
+                "Run `jj-review help --all` to show advanced commands and options.",
                 width=width,
                 break_long_words=False,
                 break_on_hyphens=False,
@@ -992,9 +988,7 @@ def _normalize_cli_args(argv: Sequence[str]) -> list[str]:
         if draft_mode == "all":
             normalized[index] = "--draft-all"
             continue
-        raise CliError(
-            f"Invalid value for `--draft`: {draft_mode!r}. Expected `new` or `all`."
-        )
+        raise CliError(f"Invalid value for `--draft`: {draft_mode!r}. Expected `new` or `all`.")
     return normalized
 
 

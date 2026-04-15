@@ -10,9 +10,9 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from jj_review.errors import CliError
-from jj_review.intent import scan_intents
-from jj_review.models.cache import ReviewState
 from jj_review.models.intent import LoadedIntent
+from jj_review.models.review_state import ReviewState
+from jj_review.state.intents import scan_intents
 
 STATE_DIRNAME = "jj-review"
 STATE_FILENAME = "state.json"

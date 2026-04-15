@@ -2,13 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from jj_review.command_ui import (
+from jj_review.errors import CliError
+from jj_review.models.bookmarks import GitRemote
+from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.review.selection import (
     resolve_linked_change_for_pull_request,
     resolve_selected_revset,
 )
-from jj_review.errors import CliError
-from jj_review.models.bookmarks import GitRemote
-from jj_review.models.cache import CachedChange, ReviewState
 
 
 def test_resolve_selected_revset_returns_explicit_value() -> None:
@@ -56,7 +56,7 @@ def test_resolve_linked_change_for_pull_request_accepts_numeric_selector_without
         revisions_by_change_id={"change-1": (_revision("change-1"),)},
     )
     monkeypatch.setattr(
-        "jj_review.command_ui.select_submit_remote",
+        "jj_review.review.selection.select_submit_remote",
         lambda remotes: (_ for _ in ()).throw(AssertionError("remote lookup should not run")),
     )
 
@@ -105,6 +105,8 @@ def test_resolve_linked_change_for_pull_request_uses_action_specific_guidance(
             repo_root=_REPO_ROOT,
             revset=None,
         )
+
+
 _REPO_ROOT = Path(__file__).resolve().parent
 
 
@@ -135,7 +137,7 @@ class _JjClientStub:
 
 def _patch_review_state(monkeypatch, state: ReviewState) -> None:
     monkeypatch.setattr(
-        "jj_review.command_ui.ReviewStateStore.for_repo",
+        "jj_review.review.selection.ReviewStateStore.for_repo",
         lambda repo_root: _StateStoreStub(state),
     )
 
@@ -148,7 +150,7 @@ def _patch_jj_client(
 ) -> None:
     _JjClientStub.remotes = remotes
     _JjClientStub.revisions_by_change_id = revisions_by_change_id
-    monkeypatch.setattr("jj_review.command_ui.JjClient", _JjClientStub)
+    monkeypatch.setattr("jj_review.review.selection.JjClient", _JjClientStub)
 
 
 def _revision(change_id: str) -> object:

@@ -22,7 +22,7 @@ def test_main_accepts_global_options_after_subcommand(
         calls.append(kwargs)
         return 0
 
-    monkeypatch.setattr(cli_module.commands.review_state, "status", fake_status)
+    monkeypatch.setattr(cli_module.commands.status, "status", fake_status)
 
     exit_code = main(["status", "--debug", "--fetch", "--repository", str(tmp_path)])
 
@@ -44,7 +44,7 @@ def test_main_reports_keyboard_interrupt_without_traceback(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(
-        cli_module.commands.review_state,
+        cli_module.commands.status,
         "status",
         lambda **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
@@ -66,7 +66,7 @@ def test_main_preserves_partial_handler_output_on_keyboard_interrupt(
         print("before interrupt")
         raise KeyboardInterrupt()
 
-    monkeypatch.setattr(cli_module.commands.review_state, "status", fake_status)
+    monkeypatch.setattr(cli_module.commands.status, "status", fake_status)
 
     exit_code = main(["status"])
     captured = capsys.readouterr()
@@ -86,7 +86,7 @@ def test_main_time_output_prefixes_handler_output(
         print("second line")
         return 0
 
-    monkeypatch.setattr(cli_module.commands.review_state, "status", fake_status)
+    monkeypatch.setattr(cli_module.commands.status, "status", fake_status)
 
     exit_code = main(["status", "--time-output"])
     captured = capsys.readouterr()
@@ -111,7 +111,7 @@ def test_main_uses_configured_jj_color_for_styled_output(
         yield
 
     monkeypatch.setattr(cli_module, "configured_ui", fake_configured_ui)
-    monkeypatch.setattr(cli_module.commands.review_state, "status", lambda **kwargs: 0)
+    monkeypatch.setattr(cli_module.commands.status, "status", lambda **kwargs: 0)
 
     exit_code = main(["status"])
 
@@ -132,7 +132,7 @@ def test_main_color_flag_overrides_configured_jj_color(
         yield
 
     monkeypatch.setattr(cli_module, "configured_ui", fake_configured_ui)
-    monkeypatch.setattr(cli_module.commands.review_state, "status", lambda **kwargs: 0)
+    monkeypatch.setattr(cli_module.commands.status, "status", lambda **kwargs: 0)
 
     exit_code = main(["status", "--color=never"])
 

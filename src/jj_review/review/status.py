@@ -1,4 +1,4 @@
-"""Shared review inspection helpers for `status` and related commands."""
+"""Review status preparation and GitHub inspection helpers."""
 
 from __future__ import annotations
 
@@ -10,13 +10,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from jj_review.bookmarks import (
-    BookmarkResolver,
-    BookmarkSource,
-    discover_bookmarks_for_revisions,
-    ensure_unique_bookmarks,
-)
-from jj_review.cache import ReviewStateStore
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError, ErrorMessage, error_message
@@ -32,14 +25,21 @@ from jj_review.github.resolution import (
     parse_github_repo,
     select_submit_remote,
 )
-from jj_review.intent import intent_is_stale
+from jj_review.github.stack_comments import is_stack_summary_comment
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
-from jj_review.models.cache import CachedChange, LinkState, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
 from jj_review.models.intent import LoadedIntent
+from jj_review.models.review_state import CachedChange, LinkState, ReviewState
 from jj_review.models.stack import LocalRevision, LocalStack
-from jj_review.stack_comments import is_stack_summary_comment
+from jj_review.review.bookmarks import (
+    BookmarkResolver,
+    BookmarkSource,
+    discover_bookmarks_for_revisions,
+    ensure_unique_bookmarks,
+)
+from jj_review.review.intents import intent_is_stale
+from jj_review.state.store import ReviewStateStore
 
 logger = logging.getLogger(__name__)
 _GITHUB_INSPECTION_CONCURRENCY = DEFAULT_BOUNDED_CONCURRENCY

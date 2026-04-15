@@ -22,11 +22,6 @@ from jj_review.formatting import (
     render_revision_lines,
     render_revision_with_suffix_lines,
 )
-from jj_review.intent import (
-    match_cleanup_restack_intent,
-    match_close_intent,
-    pid_is_alive,
-)
 from jj_review.jj import UnsupportedStackError
 from jj_review.models.intent import (
     AbortIntent,
@@ -37,17 +32,22 @@ from jj_review.models.intent import (
     RelinkIntent,
     SubmitIntent,
 )
-from jj_review.review_inspection import (
+from jj_review.review.intents import (
+    match_cleanup_restack_intent,
+    match_close_intent,
+)
+from jj_review.review.status import (
     prepare_status,
     revision_has_merged_pull_request,
     revision_pull_request_number,
     stream_status,
 )
-from jj_review.submit_recovery import (
+from jj_review.review.submit_recovery import (
     SubmitRecoveryIdentity,
     SubmitStatusDecision,
     submit_status_decision,
 )
+from jj_review.system import pid_is_alive
 
 _SUMMARY_SECTION_HEAD_COUNT = 3
 _SUMMARY_SECTION_TAIL_COUNT = 3

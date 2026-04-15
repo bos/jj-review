@@ -220,7 +220,7 @@ def _render_bash_completion(spec: CompletionSpec) -> str:
             "",
             '    command=""',
             "    index=1",
-            '    while (( index < COMP_CWORD )); do',
+            "    while (( index < COMP_CWORD )); do",
             '        word="${COMP_WORDS[index]}"',
             '        case "$word" in',
         ]
@@ -286,9 +286,7 @@ def _render_fish_completion(spec: CompletionSpec) -> str:
         lines.append(_fish_option_line(option, condition=top_level_condition))
     for command in spec.commands:
         if command.visible:
-            lines.append(
-                f"complete -c jj-review -n '{top_level_condition}' -a '{command.name}'"
-            )
+            lines.append(f"complete -c jj-review -n '{top_level_condition}' -a '{command.name}'")
     for command in spec.commands:
         condition = f"__fish_seen_subcommand_from {command.name}"
         for option in command.options:

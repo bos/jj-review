@@ -11,10 +11,10 @@ from jj_review.github.resolution import (
     parse_github_repo,
 )
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
-from jj_review.models.cache import ReviewState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
+from jj_review.models.review_state import ReviewState
 from jj_review.models.stack import LocalRevision, LocalStack
-from jj_review.review_inspection import (
+from jj_review.review.status import (
     PreparedStack,
     PreparedStatus,
     PullRequestLookup,
@@ -86,11 +86,11 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
         raise CliError("jj bookmark list failed")
 
     monkeypatch.setattr(
-        "jj_review.review_inspection._iter_status_revisions_with_github",
+        "jj_review.review.status._iter_status_revisions_with_github",
         fake_iter_status_revisions_with_github,
     )
     monkeypatch.setattr(
-        "jj_review.review_inspection._build_status_revisions_without_github",
+        "jj_review.review.status._build_status_revisions_without_github",
         lambda prepared: local_only_revisions,
     )
 
@@ -125,9 +125,12 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
 
 
 def test_resolve_status_github_repository_returns_resolution_error() -> None:
-    assert parse_github_repo(
-        GitRemote(name="origin", url="ssh://example.com/not-github.git"),
-    ) is None
+    assert (
+        parse_github_repo(
+            GitRemote(name="origin", url="ssh://example.com/not-github.git"),
+        )
+        is None
+    )
 
 
 def test_classify_status_intents_separates_stale_intents_from_live_ones(
@@ -143,7 +146,7 @@ def test_classify_status_intents_separates_stale_intents_from_live_ones(
         ),
     )
     monkeypatch.setattr(
-        "jj_review.review_inspection.intent_is_stale",
+        "jj_review.review.status.intent_is_stale",
         lambda intent, resolver, now: intent.label == "stale",
     )
 
@@ -365,7 +368,7 @@ def test_stream_status_marks_missing_github_target_as_incomplete(monkeypatch) ->
         ),
     )
     monkeypatch.setattr(
-        "jj_review.review_inspection._build_status_revisions_without_github",
+        "jj_review.review.status._build_status_revisions_without_github",
         lambda prepared: local_only_revisions,
     )
 
@@ -470,9 +473,9 @@ def test_prepare_status_fetches_before_remote_bookmark_discovery(
     def build_status(*, fetch_remote_state: bool):
         client = FakeClient()
         state_store = FakeStateStore()
-        monkeypatch.setattr("jj_review.review_inspection.JjClient", lambda _: client)
+        monkeypatch.setattr("jj_review.review.status.JjClient", lambda _: client)
         monkeypatch.setattr(
-            "jj_review.review_inspection.ReviewStateStore.for_repo",
+            "jj_review.review.status.ReviewStateStore.for_repo",
             lambda _: state_store,
         )
         return _prepare_status_for_test(
@@ -499,7 +502,7 @@ def _prepare_status_for_test(
     fetch_remote_state: bool,
     repo_root,
 ) -> PreparedStatus:
-    from jj_review.commands.review_state import prepare_status
+    from jj_review.review.status import prepare_status
 
     return prepare_status(
         change_overrides={},

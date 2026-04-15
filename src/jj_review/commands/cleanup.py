@@ -20,9 +20,7 @@ from typing import Literal
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.cache import ReviewStateStore
-from jj_review.command_ui import resolve_selected_revset
-from jj_review.commands.review_state import describe_status_preparation_error
+from jj_review.commands.status import describe_status_preparation_error
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError, ErrorMessage, error_message
@@ -33,20 +31,20 @@ from jj_review.github.resolution import (
     parse_github_repo,
     select_submit_remote,
 )
-from jj_review.intent import (
-    check_same_kind_intent,
-    describe_intent,
-    match_cleanup_restack_intent,
-    retire_superseded_intents,
-    write_new_intent,
-)
+from jj_review.github.stack_comments import is_stack_summary_comment
 from jj_review.jj import JjClient
 from jj_review.jj.client import UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState, GitRemote
-from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
 from jj_review.models.intent import CleanupIntent, CleanupRestackIntent, LoadedIntent
-from jj_review.review_inspection import (
+from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.review.intents import (
+    describe_intent,
+    match_cleanup_restack_intent,
+    retire_superseded_intents,
+)
+from jj_review.review.selection import resolve_selected_revset
+from jj_review.review.status import (
     PreparedStatus,
     ReviewStatusRevision,
     prepare_status,
@@ -54,7 +52,8 @@ from jj_review.review_inspection import (
     revision_pull_request_number,
     stream_status,
 )
-from jj_review.stack_comments import is_stack_summary_comment
+from jj_review.state.intents import check_same_kind_intent, write_new_intent
+from jj_review.state.store import ReviewStateStore
 
 HELP = "Clean up stale jj-review data for a jj stack"
 
@@ -542,9 +541,7 @@ def stream_restack(
     prepared_status = prepared_restack.prepared_status
     github_repository = getattr(prepared_status, "github_repository", None)
     progress_total = (
-        len(prepared_status.prepared.status_revisions)
-        if github_repository is not None
-        else 0
+        len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
     )
     with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = stream_status(
@@ -730,8 +727,7 @@ def _start_restack_intent(
             )
         elif match == "overlap":
             ui.warning(
-                f"Warning: this restack overlaps an incomplete earlier operation "
-                f"({description})"
+                f"Warning: this restack overlaps an incomplete earlier operation ({description})"
             )
         else:
             ui.note(f"Note: incomplete operation outstanding: {description}")
@@ -846,9 +842,7 @@ def _run_restack_rebase_pass(
             t"{_restack_destination_template(destination_change_id)}"
         )
         if blocked and closed_unmerged_revisions:
-            body = (
-                t"{body} once blocked changes on the stack are resolved"
-            )
+            body = t"{body} once blocked changes on the stack are resolved"
         record_action(
             CleanupAction(
                 kind="restack",
@@ -1028,6 +1022,7 @@ def _revision_pull_request_base_ref(revision: ReviewStatusRevision) -> str | Non
     if lookup is None or lookup.pull_request is None:
         return None
     return lookup.pull_request.base.ref
+
 
 async def _stream_cleanup_async(
     *,
@@ -1441,10 +1436,7 @@ def _cache_action(
     return CleanupAction(
         kind="tracking",
         status=status,
-        body=(
-            t"remove tracking for {ui.change_id(change_id)} "
-            t"({reason})"
-        ),
+        body=(t"remove tracking for {ui.change_id(change_id)} ({reason})"),
     )
 
 

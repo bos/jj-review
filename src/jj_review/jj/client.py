@@ -124,8 +124,8 @@ class JjClient:
         merged_trunk_side_branch_commit_ids: set[str] = set()
         if allow_trunk_ancestors:
             trunk_ancestors_revset = f"::{_quote_revset_symbol(trunk.commit_id)}"
-            merged_trunk_side_branch_commit_ids = (
-                self._merged_trunk_side_branch_commit_ids(trunk_ancestors_revset)
+            merged_trunk_side_branch_commit_ids = self._merged_trunk_side_branch_commit_ids(
+                trunk_ancestors_revset
             )
 
         self._validate_reviewable_revision(
@@ -134,9 +134,7 @@ class JjClient:
             allow_immutable=allow_immutable,
         )
         ancestor_revisions = self._query_revisions(f"::{_quote_revset_symbol(head.commit_id)}")
-        revisions_by_commit_id = {
-            revision.commit_id: revision for revision in ancestor_revisions
-        }
+        revisions_by_commit_id = {revision.commit_id: revision for revision in ancestor_revisions}
         revisions_by_commit_id[head.commit_id] = head
         revisions_by_commit_id[trunk.commit_id] = trunk
 
@@ -151,10 +149,7 @@ class JjClient:
                 )
 
             stack_head_first.append(current)
-            if (
-                allow_trunk_ancestors
-                and current.commit_id in merged_trunk_side_branch_commit_ids
-            ):
+            if allow_trunk_ancestors and current.commit_id in merged_trunk_side_branch_commit_ids:
                 break
             parent_commit_id = current.only_parent_commit_id()
             current = revisions_by_commit_id.get(parent_commit_id) or self.resolve_revision(
@@ -187,9 +182,7 @@ class JjClient:
                 raise friendly_error from error
             raise
         if not revisions:
-            raise CliError(
-                f"Revset {revset!r} did not resolve to a visible revision."
-            )
+            raise CliError(f"Revset {revset!r} did not resolve to a visible revision.")
         if len(revisions) > 1:
             raise CliError(f"Revset {revset!r} resolved to more than one revision.")
         return revisions[0]
@@ -231,10 +224,7 @@ class JjClient:
             )
             for revision in revisions:
                 grouped.setdefault(revision.change_id, []).append(revision)
-        return {
-            change_id: tuple(grouped.get(change_id, ()))
-            for change_id in ordered_change_ids
-        }
+        return {change_id: tuple(grouped.get(change_id, ())) for change_id in ordered_change_ids}
 
     def query_ancestor_revisions(
         self,
@@ -270,16 +260,15 @@ class JjClient:
         trunk = self._resolve_trunk()
         commit_ids = tuple(revision.commit_id for revision in ordered_revisions)
         revisions_by_commit_id = {
-            revision.commit_id: revision
-            for revision in self.query_ancestor_revisions(commit_ids)
+            revision.commit_id: revision for revision in self.query_ancestor_revisions(commit_ids)
         }
         revisions_by_commit_id[trunk.commit_id] = trunk
 
         merged_trunk_side_branch_commit_ids: set[str] = set()
         if allow_trunk_ancestors:
             trunk_ancestors_revset = f"::{_quote_revset_symbol(trunk.commit_id)}"
-            merged_trunk_side_branch_commit_ids = (
-                self._merged_trunk_side_branch_commit_ids(trunk_ancestors_revset)
+            merged_trunk_side_branch_commit_ids = self._merged_trunk_side_branch_commit_ids(
+                trunk_ancestors_revset
             )
 
         support_by_commit_id: dict[str, bool] = {trunk.commit_id: True}
@@ -372,14 +361,12 @@ class JjClient:
             for parent_commit_id in revision.parents:
                 grouped.setdefault(parent_commit_id, []).append(revision)
         return {
-            parent_commit_id: tuple(children)
-            for parent_commit_id, children in grouped.items()
+            parent_commit_id: tuple(children) for parent_commit_id, children in grouped.items()
         }
 
     def _merged_trunk_side_branch_commit_ids(self, trunk_ancestors_revset: str) -> set[str]:
         trunk_ancestor_commit_ids = {
-            revision.commit_id
-            for revision in self._query_revisions(trunk_ancestors_revset)
+            revision.commit_id for revision in self._query_revisions(trunk_ancestors_revset)
         }
         trunk_children_by_parent = self._query_children_by_parent(
             f"children({trunk_ancestors_revset})"
@@ -444,9 +431,7 @@ class JjClient:
                 "1",
             )
         )
-        return tuple(
-            line for line in stdout.rstrip("\n").splitlines() if line.strip() != "~"
-        )
+        return tuple(line for line in stdout.rstrip("\n").splitlines() if line.strip() != "~")
 
     def find_private_commits(
         self,
@@ -457,9 +442,7 @@ class JjClient:
         private_commits_revset = self.get_config_string("git.private-commits")
         if not private_commits_revset or not revisions:
             return ()
-        commit_ids_revset = " | ".join(
-            _quote_revset_symbol(r.commit_id) for r in revisions
-        )
+        commit_ids_revset = " | ".join(_quote_revset_symbol(r.commit_id) for r in revisions)
         combined_revset = f"({private_commits_revset}) & ({commit_ids_revset})"
         return tuple(self.query_revisions(combined_revset))
 
@@ -610,9 +593,7 @@ class JjClient:
                 continue
             commit_id, separator, ref = stripped.partition("\t")
             if not separator or not commit_id or not ref.startswith("refs/heads/"):
-                raise JjCommandError(
-                    f"`git ls-remote` output has unexpected format: {line!r}"
-                )
+                raise JjCommandError(f"`git ls-remote` output has unexpected format: {line!r}")
             branches[ref.removeprefix("refs/heads/")] = commit_id
         return branches
 
@@ -656,15 +637,11 @@ class JjClient:
             return
         command = ["push"]
         for bookmark, expected_remote_target in ordered_deletions:
-            command.append(
-                f"--force-with-lease=refs/heads/{bookmark}:{expected_remote_target}"
-            )
+            command.append(f"--force-with-lease=refs/heads/{bookmark}:{expected_remote_target}")
         command.append(remote)
         for bookmark, _expected_remote_target in ordered_deletions:
             command.append(f":refs/heads/{bookmark}")
-        self._run_git(
-            command
-        )
+        self._run_git(command)
         if fetch:
             self.fetch_remote(remote=remote)
 
@@ -717,8 +694,7 @@ class JjClient:
             message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
             if detect_stale_workspace and "The working copy is stale" in message:
                 raise StaleWorkspaceError(
-                    "The current workspace is stale. Run `jj workspace update-stale` "
-                    "and retry."
+                    "The current workspace is stale. Run `jj workspace update-stale` and retry."
                 )
             raise JjCommandError(f"{shlex.join(command)} failed: {message}")
         return completed.stdout
@@ -860,10 +836,7 @@ def _quote_revset_symbol(symbol: str) -> str:
 
 
 def _union_revset_symbols(symbols: Sequence[str], *, quote: bool = True) -> str:
-    parts = [
-        _quote_revset_symbol(symbol) if quote else symbol
-        for symbol in symbols
-    ]
+    parts = [_quote_revset_symbol(symbol) if quote else symbol for symbol in symbols]
     if not parts:
         raise ValueError("Expected at least one revset symbol.")
     if len(parts) == 1:
@@ -874,7 +847,4 @@ def _union_revset_symbols(symbols: Sequence[str], *, quote: bool = True) -> str:
 def _chunked(values: Sequence[str], *, size: int = 200) -> tuple[tuple[str, ...], ...]:
     if size <= 0:
         raise ValueError("Chunk size must be positive.")
-    return tuple(
-        tuple(values[index : index + size])
-        for index in range(0, len(values), size)
-    )
+    return tuple(tuple(values[index : index + size]) for index in range(0, len(values), size))

@@ -5,7 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
-from jj_review.cache import ReviewStateStore
 from jj_review.commands import cleanup as cleanup_module
 from jj_review.commands.cleanup import (
     CleanupAction,
@@ -24,10 +23,11 @@ from jj_review.github.client import GithubClient
 from jj_review.github.resolution import ParsedGithubRepo
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
-from jj_review.models.cache import CachedChange, ReviewState
 from jj_review.models.github import GithubBranchRef, GithubIssueComment, GithubPullRequest
+from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision
-from jj_review.review_inspection import PreparedStatus, ReviewStatusRevision
+from jj_review.review.status import PreparedStatus, ReviewStatusRevision
+from jj_review.state.store import ReviewStateStore
 
 
 def _local_revision(

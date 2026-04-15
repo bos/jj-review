@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jj_review.bookmarks import BookmarkResolver
-from jj_review.cache import ReviewStateStore
 from jj_review.cli import main
 from jj_review.jj import JjClient
+from jj_review.review.bookmarks import BookmarkResolver
+from jj_review.state.store import ReviewStateStore
 
 from ..support.integration_helpers import (
     commit_file,
@@ -36,7 +36,7 @@ def test_bookmark_pins_survive_subject_rewrites(
     second_result = BookmarkResolver(state_store.load()).pin_revisions(second_stack.revisions)
 
     assert second_result.resolutions[-1].bookmark == initial_bookmark
-    assert second_result.resolutions[-1].source == "cache"
+    assert second_result.resolutions[-1].source == "saved"
 
 
 def test_status_persists_generated_bookmark_pins(

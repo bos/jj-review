@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from enum import Enum
 
 from jj_review.models.bookmarks import BookmarkState
-from jj_review.models.cache import CachedChange
 from jj_review.models.intent import SubmitIntent
+from jj_review.models.review_state import CachedChange
 
 
 class SubmitStackRelation(str, Enum):

@@ -48,9 +48,7 @@ class LoggingConfig(BaseModel):
         level_names = logging.getLevelNamesMapping()
         if level_name not in level_names:
             valid_levels = ", ".join(sorted(level_names))
-            raise ValueError(
-                f"Invalid logging level {value!r}. Expected one of: {valid_levels}"
-            )
+            raise ValueError(f"Invalid logging level {value!r}. Expected one of: {valid_levels}")
         return level_name
 
 

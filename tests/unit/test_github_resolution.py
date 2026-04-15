@@ -201,15 +201,11 @@ def test_resolve_trunk_branch_rejects_ambiguous_remote_bookmarks() -> None:
             bookmark_states={
                 "main": BookmarkState(
                     name="main",
-                    remote_targets=(
-                        RemoteBookmarkState(remote="origin", targets=("trunk123",)),
-                    ),
+                    remote_targets=(RemoteBookmarkState(remote="origin", targets=("trunk123",)),),
                 ),
                 "stable": BookmarkState(
                     name="stable",
-                    remote_targets=(
-                        RemoteBookmarkState(remote="origin", targets=("trunk123",)),
-                    ),
+                    remote_targets=(RemoteBookmarkState(remote="origin", targets=("trunk123",)),),
                 ),
             },
             github_repository_state=_github_repository(default_branch=""),

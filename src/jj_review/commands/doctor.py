@@ -24,7 +24,6 @@ from typing import Literal
 
 from jj_review import ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.cache import ReviewStateStore
 from jj_review.errors import CliError, error_message
 from jj_review.github.client import (
     GithubClient,
@@ -36,7 +35,6 @@ from jj_review.github.resolution import (
     parse_github_repo,
     select_submit_remote,
 )
-from jj_review.intent import describe_intent, pid_is_alive
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import GitRemote
 from jj_review.models.github import GithubRepository
@@ -48,6 +46,9 @@ from jj_review.models.intent import (
     RelinkIntent,
     SubmitIntent,
 )
+from jj_review.review.intents import describe_intent
+from jj_review.state.store import ReviewStateStore
+from jj_review.system import pid_is_alive
 
 HELP = "check GitHub auth, remote resolution, and local state"
 

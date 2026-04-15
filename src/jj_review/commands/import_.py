@@ -21,14 +21,11 @@ from string.templatelib import Template
 from typing import Literal, Protocol
 
 from jj_review import ui
-from jj_review.bookmarks import (
-    bookmark_matches_generated_change_id,
-    discover_bookmarks_for_revisions,
-)
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError, ErrorMessage
 from jj_review.github.client import GithubClientError, build_github_client
+from jj_review.github.pull_request_refs import parse_repository_pull_request_reference
 from jj_review.github.resolution import (
     ParsedGithubRepo,
     require_github_repo,
@@ -36,10 +33,13 @@ from jj_review.github.resolution import (
 )
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
-from jj_review.models.cache import CachedChange
 from jj_review.models.github import GithubPullRequest
-from jj_review.pull_request_references import parse_repository_pull_request_reference
-from jj_review.review_inspection import (
+from jj_review.models.review_state import CachedChange
+from jj_review.review.bookmarks import (
+    bookmark_matches_generated_change_id,
+    discover_bookmarks_for_revisions,
+)
+from jj_review.review.status import (
     PreparedStatus,
     StatusResult,
     prepare_status,
@@ -159,9 +159,7 @@ def _print_import_result(result: ImportResult) -> None:
             )
     else:
         if result.reviewable_revision_count:
-            ui.output(
-                "Local jj-review tracking is already up to date for the selected stack."
-            )
+            ui.output("Local jj-review tracking is already up to date for the selected stack.")
         else:
             ui.output(
                 ui.rich_text(
@@ -219,9 +217,7 @@ async def _run_import_async(
         )
     github_repository = getattr(prepared_status, "github_repository", None)
     progress_total = (
-        len(prepared_status.prepared.status_revisions)
-        if github_repository is not None
-        else 0
+        len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
     )
     with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = await stream_status_async(
@@ -250,8 +246,7 @@ async def _run_import_async(
             authoritative_remote_targets=authoritative_remote_targets,
             remote_name=prepared.remote.name,
             relevant_bookmarks={
-                prepared_revision.bookmark
-                for prepared_revision in prepared.status_revisions
+                prepared_revision.bookmark for prepared_revision in prepared.status_revisions
             },
         )
     bookmark_by_change_id: dict[str, str] = {}
@@ -305,9 +300,7 @@ async def _resolve_selection(
         if present
     )
     if selector_count > 1:
-        raise CliError(
-            "`import` accepts at most one selector: `--pull-request` or `--revset`."
-        )
+        raise CliError("`import` accepts at most one selector: `--pull-request` or `--revset`.")
 
     if selector_count == 0:
         return _Selection(
@@ -401,14 +394,15 @@ def _fetch_selected_stack_bookmarks(
 ) -> dict[str, str]:
     head_change_id = revisions[-1].change_id if revisions else None
     patterns = tuple(
-        sorted({
-            f"refs/heads/{explicit_head_bookmark}",
-            *(
-                "refs/heads/review/*-"
-                f"{revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]}"
-                for revision in revisions
-            ),
-        })
+        sorted(
+            {
+                f"refs/heads/{explicit_head_bookmark}",
+                *(
+                    f"refs/heads/review/*-{revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]}"
+                    for revision in revisions
+                ),
+            }
+        )
     )
     remote_branches = client.list_remote_branches(remote=remote.name, patterns=patterns)
     if explicit_head_bookmark not in remote_branches:
@@ -551,9 +545,7 @@ async def _list_pull_requests_by_head(
                 state="all",
             )
         except GithubClientError as error:
-            raise CliError(
-                f"Could not list pull requests for head {head!r}: {error}"
-            ) from error
+            raise CliError(f"Could not list pull requests for head {head!r}: {error}") from error
     return tuple(pull_requests)
 
 
@@ -577,8 +569,7 @@ def _remote_bookmark_commit_id(
         )
     if len(remote_state.targets) > 1:
         raise CliError(
-            f"Remote bookmark {head!r}@{remote.name} is conflicted. Resolve it before "
-            "importing."
+            f"Remote bookmark {head!r}@{remote.name} is conflicted. Resolve it before importing."
         )
     commit_id = remote_state.target
     if commit_id is None:
@@ -602,9 +593,7 @@ def _import_local_state(
     current_state = state_store.load()
     next_changes = dict(current_state.changes)
     actions: list[ImportAction] = []
-    selected_remote_name = (
-        prepared.remote.name if prepared.remote is not None else None
-    )
+    selected_remote_name = prepared.remote.name if prepared.remote is not None else None
     planned_imports: list[_PlannedImport] = []
 
     seen_bookmarks: set[str] = set()
@@ -617,8 +606,7 @@ def _import_local_state(
         )
         if bookmark in seen_bookmarks:
             raise CliError(
-                "Selected stack resolves multiple changes to the same "
-                f"bookmark {bookmark!r}."
+                f"Selected stack resolves multiple changes to the same bookmark {bookmark!r}."
             )
         seen_bookmarks.add(bookmark)
 
@@ -641,10 +629,9 @@ def _import_local_state(
             and not remote_state.is_tracked
         )
 
-        existing_change = (
-            next_changes.get(prepared_revision.revision.change_id)
-            or current_state.changes.get(prepared_revision.revision.change_id)
-        )
+        existing_change = next_changes.get(
+            prepared_revision.revision.change_id
+        ) or current_state.changes.get(prepared_revision.revision.change_id)
         cached_change = existing_change or CachedChange(bookmark=bookmark)
         updated_change = _update_cached_change_from_status(
             cached_change=cached_change,
@@ -719,9 +706,7 @@ def _validate_bookmark_state(
     selected_remote_name: str | None,
 ) -> None:
     if len(bookmark_state.local_targets) > 1:
-        raise CliError(
-            f"Local bookmark {bookmark!r} is conflicted. Resolve it before importing."
-        )
+        raise CliError(f"Local bookmark {bookmark!r} is conflicted. Resolve it before importing.")
     if (
         bookmark_state.local_target is not None
         and bookmark_state.local_target != desired_commit_id
@@ -859,12 +844,16 @@ def _ensure_selected_head_has_pull_request(
     raise CliError(
         "`import` only supports stacks whose selected head already has a pull "
         "request. Missing pull request for: "
-        f"{ui.plain_text((
-            selected_head.subject,
-            ' (',
-            ui.change_id(selected_head.change_id),
-            ')',
-        ))}."
+        f"{
+            ui.plain_text(
+                (
+                    selected_head.subject,
+                    ' (',
+                    ui.change_id(selected_head.change_id),
+                    ')',
+                )
+            )
+        }."
     )
 
 
