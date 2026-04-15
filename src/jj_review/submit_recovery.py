@@ -185,20 +185,9 @@ def observe_submit_artifacts(
         and _cached_change_has_live_review_artifacts(cached_change)
         for cached_change in current_changes.values()
     )
-
-    local_bookmark_live = False
-    remote_bookmarks = ArtifactPresence.ABSENT
-    for bookmark in intent_bookmarks:
-        bookmark_state = bookmark_states[bookmark]
-        if bookmark_state.local_target is not None:
-            local_bookmark_live = True
-        if target_relation is not SubmitTargetRelation.MATCH:
-            remote_bookmarks = ArtifactPresence.UNKNOWN
-            continue
-        remote_state = bookmark_state.remote_target(intent.remote_name)
-        if remote_state is not None and remote_state.targets:
-            remote_bookmarks = ArtifactPresence.PRESENT
-            break
+    local_bookmark_live = any(
+        bookmark_states[bookmark].local_target is not None for bookmark in intent_bookmarks
+    )
 
     return SubmitArtifactObservation(
         target_relation=target_relation,
@@ -206,7 +195,12 @@ def observe_submit_artifacts(
         local_bookmarks=(
             ArtifactPresence.PRESENT if local_bookmark_live else ArtifactPresence.ABSENT
         ),
-        remote_bookmarks=remote_bookmarks,
+        remote_bookmarks=_observe_remote_submit_bookmarks(
+            bookmark_states=bookmark_states,
+            intent=intent,
+            intent_bookmarks=intent_bookmarks,
+            target_relation=target_relation,
+        ),
     )
 
 
@@ -251,3 +245,22 @@ def _cached_change_has_live_review_artifacts(cached_change: CachedChange) -> boo
             cached_change.pr_url,
         )
     )
+
+
+def _observe_remote_submit_bookmarks(
+    *,
+    bookmark_states: dict[str, BookmarkState],
+    intent: SubmitIntent,
+    intent_bookmarks: frozenset[str],
+    target_relation: SubmitTargetRelation,
+) -> ArtifactPresence:
+    """Return whether the recorded remote bookmarks can still be observed."""
+
+    if target_relation is not SubmitTargetRelation.MATCH:
+        return ArtifactPresence.UNKNOWN
+
+    for bookmark in intent_bookmarks:
+        remote_state = bookmark_states[bookmark].remote_target(intent.remote_name)
+        if remote_state is not None and remote_state.targets:
+            return ArtifactPresence.PRESENT
+    return ArtifactPresence.ABSENT
