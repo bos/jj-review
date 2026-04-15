@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, Protocol
 
-from jj_review import ui
+from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
@@ -292,7 +292,7 @@ def submit(
         del has_revisions, selected_revset
         nonlocal emitted_prepared
         if revset is None:
-            ui.output(
+            console.output(
                 _render_selected_line(
                     selected_change_id=selected_change_id,
                     selected_subject=selected_subject,
@@ -324,7 +324,7 @@ def submit(
     )
     if not emitted_prepared:
         if revset is None:
-            ui.output(
+            console.output(
                 _render_selected_line(
                     selected_change_id=result.selected_change_id,
                     selected_subject=result.selected_subject,
@@ -337,41 +337,41 @@ def submit(
             result=result,
         ):
             if client is None:
-                ui.output(line)
+                console.output(line)
             else:
-                ui.output(line, soft_wrap=True)
-        ui.note(
+                console.output(line, soft_wrap=True)
+        console.note(
             t"No reviewable commits between the selected revision and {ui.revset('trunk()')}.",
             soft_wrap=True,
         )
         return 0
 
     if result.dry_run:
-        ui.note("Dry run: no local, remote, or GitHub changes applied.", soft_wrap=True)
-        ui.output("Planned changes:")
+        console.note("Dry run: no local, remote, or GitHub changes applied.", soft_wrap=True)
+        console.output("Planned changes:")
     else:
-        ui.output("Submitted changes:")
+        console.output("Submitted changes:")
     for revision in reversed(result.revisions):
         for line in _render_submit_revision_lines(
             client=client,
             revision=revision,
         ):
             if client is None:
-                ui.output(line)
+                console.output(line)
             else:
-                ui.output(line, soft_wrap=True)
+                console.output(line, soft_wrap=True)
     for line in _render_submit_trunk_lines(
         client=client,
         result=result,
     ):
         if client is None:
-            ui.output(line)
+            console.output(line)
         else:
-            ui.output(line, soft_wrap=True)
+            console.output(line, soft_wrap=True)
     if not result.dry_run:
         top_pull_request_url = result.revisions[-1].pull_request_url
         if top_pull_request_url is not None:
-            ui.output(ui.prefixed_message("Top of stack: ", top_pull_request_url))
+            console.output(ui.prefixed_line("Top of stack: ", top_pull_request_url))
     return 0
 
 
@@ -415,12 +415,10 @@ def _render_selected_line(
     *,
     selected_change_id: str,
     selected_subject: str,
-) -> ui.Table:
-    return ui.prefixed_message(
+) -> ui.PrefixedLine:
+    return ui.prefixed_line(
         "Selected: ",
-        ui.rich_text(
-            t"{selected_subject} ({ui.change_id(selected_change_id)})",
-        ),
+        t"{selected_subject} ({ui.change_id(selected_change_id)})",
     )
 
 
@@ -432,11 +430,9 @@ def _render_submit_revision_lines(
     summary = _render_submit_revision_summary(revision)
     if client is None:
         return (
-            ui.prefixed_message(
+            ui.prefixed_line(
                 "- ",
-                ui.rich_text(
-                    t"{revision.subject} ({ui.change_id(revision.change_id)}): {summary}"
-                ),
+                t"{revision.subject} ({ui.change_id(revision.change_id)}): {summary}",
             ),
         )
     return render_revision_with_suffix_lines(
@@ -471,12 +467,10 @@ def _render_submit_trunk_lines(
 ) -> tuple[object, ...]:
     if client is None:
         return (
-            ui.prefixed_message(
+            ui.prefixed_line(
                 "Trunk: ",
-                ui.rich_text(
-                    t"{result.trunk_subject} ({ui.change_id(result.trunk_change_id)}) "
-                    t"-> {result.trunk_branch}"
-                ),
+                t"{result.trunk_subject} ({ui.change_id(result.trunk_change_id)}) "
+                t"-> {result.trunk_branch}",
             ),
         )
     return render_revision_lines(
@@ -660,22 +654,22 @@ def _report_stale_submit_intents(
         )
         description = describe_intent(loaded.intent)
         if decision is SubmitStatusDecision.CONTINUE:
-            ui.note(f"Continuing interrupted {description}", soft_wrap=True)
+            console.note(f"Continuing interrupted {description}", soft_wrap=True)
         elif decision is SubmitStatusDecision.CURRENT_STACK:
-            ui.note(
+            console.note(
                 f"Note: interrupted {description} does not match the current stack "
                 "exactly. This submit will use the current stack.",
                 soft_wrap=True,
             )
         elif decision is SubmitStatusDecision.INSPECT:
-            ui.note(
+            console.note(
                 f"Note: interrupted {description} matches the current stack, "
                 "but its recorded submit target does not. This submit will use "
                 "the current stack.",
                 soft_wrap=True,
             )
         else:
-            ui.note(
+            console.note(
                 f"Note: incomplete operation outstanding: {description}",
                 soft_wrap=True,
             )
@@ -874,7 +868,7 @@ async def _run_submit_async(
                 prepared_revisions=prepared_revisions,
                 remote=remote,
             )
-            with ui.progress(
+            with console.progress(
                 description="Syncing pull requests",
                 total=len(prepared_revisions),
             ) as progress:
@@ -896,7 +890,7 @@ async def _run_submit_async(
                     generated_descriptions=prepared_inputs.generated_pull_request_descriptions,
                 )
 
-            with ui.progress(
+            with console.progress(
                 description="Syncing stack comments",
                 total=sum(
                     1

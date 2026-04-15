@@ -15,10 +15,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from string.templatelib import Template
 from typing import Any, Literal
 
-from jj_review import ui
+from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import ErrorMessage
@@ -52,11 +51,12 @@ from jj_review.review.submit_recovery import (
 from jj_review.state.intents import check_same_kind_intent, write_new_intent
 from jj_review.state.store import ReviewStateStore
 from jj_review.system import pid_is_alive
+from jj_review.ui import Message, plain_text
 
 HELP = "Stop reviewing a jj stack on GitHub"
 
 CloseActionStatus = Literal["applied", "blocked", "planned"]
-type CloseActionBody = str | Template | ui.SemanticText | tuple[object, ...]
+type CloseActionBody = Message
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,7 +71,7 @@ class CloseAction:
     def message(self) -> str:
         """Return the plain-text form of this action body."""
 
-        return ui.plain_text(self.body)
+        return plain_text(self.body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,7 +187,7 @@ def close(
             repo_root=context.repo_root,
             revset=revset,
         )
-        ui.note(f"Using PR #{pull_request_number} -> {resolved_revset}")
+        console.note(f"Using PR #{pull_request_number} -> {resolved_revset}")
     else:
         resolved_revset = resolve_selected_revset(
             command_label=command_label,
@@ -207,11 +207,11 @@ def close(
     result = stream_close(prepared_close=prepared_close)
     if result.remote is None:
         if result.remote_error is None:
-            ui.warning("Selected remote: unavailable")
+            console.warning("Selected remote: unavailable")
         else:
-            ui.warning(f"Selected remote: unavailable ({result.remote_error})")
+            console.warning(f"Selected remote: unavailable ({result.remote_error})")
     if result.github_repository is None and result.github_error is not None:
-        ui.warning(f"GitHub target: unavailable ({result.github_error})")
+        console.warning(f"GitHub target: unavailable ({result.github_error})")
     if result.actions:
         if result.blocked:
             header = "Close blocked:"
@@ -219,22 +219,22 @@ def close(
             header = "Applied close actions:"
         else:
             header = "Planned close actions:"
-        ui.output(header)
+        console.output(header)
         for action in result.actions:
             prefix, prefix_style, body_style = _close_action_presentation(action.status)
-            ui.output(
-                ui.prefixed_message(
+            console.output(
+                ui.prefixed_line(
                     f"{prefix} ",
                     _render_close_action_message(action),
-                    prefix_style=prefix_style,
-                    message_style=body_style,
+                    prefix_labels=prefix_style,
+                    message_labels=body_style,
                 )
             )
     else:
         if result.applied:
-            ui.note("No close actions were needed for the selected stack.")
+            console.note("No close actions were needed for the selected stack.")
         else:
-            ui.output("No open pull requests tracked by jj-review on the selected stack.")
+            console.output("Nothing to close on the selected stack.")
     return 1 if result.blocked else 0
 
 
@@ -292,7 +292,7 @@ def stream_close(
     progress_total = (
         len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
     )
-    with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
+    with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = stream_status(
             persist_cache_updates=False,
             on_revision=lambda _revision, _github_available: progress.advance(),
@@ -363,7 +363,7 @@ async def _stream_close_async(
 
         async with build_github_client(base_url=github_repository.api_base_url) as github_client:
             progress_total = len(status_result.revisions) if on_action is None else 0
-            with ui.progress(
+            with console.progress(
                 description="Processing close actions",
                 total=progress_total,
             ) as progress:
@@ -593,35 +593,37 @@ def _report_stale_close_intents(
         )
         description = describe_intent(loaded.intent)
         if mode_relation == "same" and match == "exact":
-            ui.note(f"Continuing interrupted {description}")
+            console.note(f"Continuing interrupted {description}")
         elif mode_relation == "expanded" and match == "exact":
-            ui.note(f"Interrupted {description} is covered by this close --cleanup run.")
+            console.note(f"Interrupted {description} is covered by this close --cleanup run.")
         elif (
             mode_relation == "incompatible"
             and loaded.intent.cleanup
             and not current_cleanup
             and stack_match in {"exact", "same-logical", "covered"}
         ):
-            ui.warning(
+            console.warning(
                 f"Interrupted {description} is still outstanding; plain close "
                 "does not finish cleanup. Run `close --cleanup` to complete it."
             )
         elif match == "same-logical":
-            ui.note(
+            console.note(
                 f"Interrupted {description} targeted the same logical stack, "
                 "but it has been rewritten. This close"
                 f"{' --cleanup' if current_cleanup else ''} will use the current stack."
             )
         elif match == "covered":
-            ui.note(
+            console.note(
                 f"Interrupted {description} targeted changes that are all included "
                 "in the current stack. This close"
                 f"{' --cleanup' if current_cleanup else ''} will use the current stack."
             )
         elif match == "overlap":
-            ui.warning(f"This close overlaps an incomplete earlier operation ({description})")
+            console.warning(
+                f"This close overlaps an incomplete earlier operation ({description})"
+            )
         else:
-            ui.note(f"Incomplete operation outstanding: {description}")
+            console.note(f"Incomplete operation outstanding: {description}")
 
 
 async def _process_close_revisions(
@@ -1293,7 +1295,7 @@ def _has_active_cached_link(cached_change: CachedChange | None) -> bool:
     return cached_change.pr_state == "open"
 
 
-def _revision_label(revision) -> Template:
+def _revision_label(revision) -> Message:
     return t"{revision.subject} ({ui.change_id(revision.change_id)})"
 
 
@@ -1305,23 +1307,23 @@ def _render_close_action_message(action: CloseAction) -> CloseActionBody:
 
 def _close_action_presentation(
     status: CloseActionStatus,
-) -> tuple[str, object | None, object | None]:
+) -> tuple[str, tuple[str, ...] | None, tuple[str, ...] | None]:
     if status == "applied":
         return (
             "  ✓",
-            ui.semantic_style("signature status good"),
+            ("signature status good",),
             None,
         )
     if status == "planned":
         return (
             "  ~",
-            ui.semantic_style("hint heading"),
+            ("hint heading",),
             None,
         )
     if status == "blocked":
         return (
             "  ✗",
-            ui.semantic_style("error heading"),
-            ui.semantic_style("warning heading"),
+            ("error heading",),
+            ("warning heading",),
         )
     return ("  ?", None, None)

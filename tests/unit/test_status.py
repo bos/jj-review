@@ -6,15 +6,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from jj_review import ui as ui_module
+from jj_review import console as console_module
 from jj_review.commands import status as status_module
 
 
 def _render_lines(*lines: object) -> tuple[str, ...]:
     stdout = StringIO()
-    with ui_module.configured_ui(stdout=stdout, stderr=StringIO(), color_mode="never"):
+    with console_module.configured_console(stdout=stdout, stderr=StringIO(), color_mode="never"):
         for line in lines:
-            ui_module.output(line)
+            console_module.output(line)
     return tuple(stdout.getvalue().splitlines())
 
 
@@ -137,7 +137,9 @@ def test_render_status_intent_lines_reports_stale_and_interrupted_operations(
 def test_emit_lines_decodes_ansi_styled_native_revision_output() -> None:
     stdout = StringIO()
 
-    with ui_module.configured_ui(stdout=stdout, stderr=StringIO(), color_mode="always"):
+    with console_module.configured_console(
+        stdout=stdout, stderr=StringIO(), color_mode="never"
+    ):
         status_module._emit_lines(("\x1b[31mred\x1b[0m",))
 
     assert stdout.getvalue() == "red\n"

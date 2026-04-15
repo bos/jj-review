@@ -106,11 +106,11 @@ def test_main_uses_configured_jj_color_for_styled_output(
     monkeypatch.setattr(cli_module, "_load_configured_jj_color", lambda **kwargs: "debug")
 
     @contextmanager
-    def fake_configured_ui(**kwargs):
+    def fake_configured_console(**kwargs):
         observed.update(kwargs)
         yield
 
-    monkeypatch.setattr(cli_module, "configured_ui", fake_configured_ui)
+    monkeypatch.setattr(cli_module, "configured_console", fake_configured_console)
     monkeypatch.setattr(cli_module.commands.status, "status", lambda **kwargs: 0)
 
     exit_code = main(["status"])
@@ -127,11 +127,11 @@ def test_main_color_flag_overrides_configured_jj_color(
     monkeypatch.setattr(cli_module, "_load_configured_jj_color", lambda **kwargs: "debug")
 
     @contextmanager
-    def fake_configured_ui(**kwargs):
+    def fake_configured_console(**kwargs):
         observed.update(kwargs)
         yield
 
-    monkeypatch.setattr(cli_module, "configured_ui", fake_configured_ui)
+    monkeypatch.setattr(cli_module, "configured_console", fake_configured_console)
     monkeypatch.setattr(cli_module.commands.status, "status", lambda **kwargs: 0)
 
     exit_code = main(["status", "--color=never"])

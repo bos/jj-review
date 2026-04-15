@@ -8,7 +8,7 @@ from typing import cast
 
 import pytest
 
-from jj_review import ui
+from jj_review import console
 from jj_review.commands.land import (
     _build_land_plan,
     _ensure_trunk_branch_matches_selected_trunk,
@@ -361,7 +361,7 @@ def test_report_stale_land_intents_does_not_claim_resume_without_resume_match() 
 
     stdout = StringIO()
     stderr = StringIO()
-    with ui.configured_ui(stdout=stdout, stderr=stderr, color_mode="never"):
+    with console.configured_console(stdout=stdout, stderr=stderr, color_mode="never"):
         _report_stale_land_intents(
             current_landed_change_ids=("change-1",),
             prepared_status=prepared_status,

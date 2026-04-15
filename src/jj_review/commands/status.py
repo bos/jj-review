@@ -11,13 +11,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jj_review import ui
+from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.errors import CliError, ErrorMessage
 from jj_review.formatting import (
     format_change_marker,
     format_pull_request_label,
-    format_revision_label,
     format_status_annotation,
     render_revision_lines,
     render_revision_with_suffix_lines,
@@ -42,6 +41,7 @@ from jj_review.review.status import (
     revision_pull_request_number,
     stream_status,
 )
+from jj_review.review.status_messages import describe_status_preparation_error
 from jj_review.review.submit_recovery import (
     SubmitRecoveryIdentity,
     SubmitStatusDecision,
@@ -84,13 +84,13 @@ def status(
 
     selection_lines = render_status_selection_lines(prepared_status=prepared_status)
     if selection_lines:
-        _emit_lines(selection_lines, emitter=ui.warning)
+        _emit_lines(selection_lines, emitter=console.warning)
 
     github_repository = getattr(prepared_status, "github_repository", None)
     progress_total = (
         len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
     )
-    with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
+    with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         result = stream_status(
             on_revision=lambda _revision, _github_available: progress.advance(),
             prepared_status=prepared_status,
@@ -102,7 +102,7 @@ def status(
         has_revisions=bool(result.revisions),
     )
     if result.github_error is not None:
-        _emit_lines(github_lines, emitter=ui.warning)
+        _emit_lines(github_lines, emitter=console.warning)
     else:
         _emit_lines(github_lines)
 
@@ -138,26 +138,6 @@ def status(
     ):
         exit_code = max(exit_code, 1)
     return exit_code
-
-
-def describe_status_preparation_error(error: UnsupportedStackError) -> str:
-    """Describe a `status` preparation failure for users."""
-
-    if error.reason == "divergent_change" and error.change_id is not None:
-        return (
-            "Could not inspect review status because local history no longer forms a "
-            f"supported linear stack. {error} Inspect the divergent revisions with "
-            f"`jj log -r 'change_id({error.change_id})'` and reconcile them before "
-            "retrying. "
-            "This can happen after `status --fetch` or another fetch imports remote "
-            "bookmark updates for merged PRs."
-        )
-    return (
-        "Could not inspect review status because local history no longer forms a "
-        f"supported linear stack. {error}"
-    )
-
-
 def render_status_selection_lines(*, prepared_status) -> tuple[object, ...]:
     """Render exceptional local selection context lines."""
 
@@ -206,13 +186,6 @@ def render_status_github_lines(
                 )
             )
     return tuple(lines)
-
-
-def render_status_revision_line(revision, *, github_available: bool) -> str:
-    """Render one streamed status row."""
-
-    summary = _format_status_summary(revision, github_available=github_available)
-    return f"- {format_revision_label(revision.subject, revision.change_id)}: {summary}"
 
 
 def render_status_summary_lines(
@@ -298,12 +271,10 @@ def render_empty_status_lines(
         *render_trunk_status_lines(
             prepared=prepared_status.prepared,
         ),
-        ui.rich_text(
-            (
-                "No reviewable commits between the selected revision and ",
-                ui.revset("trunk()"),
-                ".",
-            )
+        (
+            "No reviewable commits between the selected revision and ",
+            ui.revset("trunk()"),
+            ".",
         ),
     )
 
@@ -495,7 +466,7 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
             lines.append(
                 _prefixed_intent_line(
                     _render_intent_description(loaded.intent),
-                    ui.rich_text(format_status_annotation(f"{status_str}, {loaded.path.name}")),
+                    format_status_annotation(f"{status_str}, {loaded.path.name}"),
                 )
             )
 
@@ -508,9 +479,7 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
                 lines.append(
                     _prefixed_intent_line(
                         description,
-                        ui.rich_text(
-                            format_status_annotation(f"in progress, PID {loaded.intent.pid}")
-                        ),
+                        format_status_annotation(f"in progress, PID {loaded.intent.pid}"),
                     )
                 )
             elif isinstance(loaded.intent, SubmitIntent):
@@ -547,12 +516,10 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
                 lines.append(
                     _prefixed_intent_line(
                         description,
-                        ui.rich_text(
-                            (
-                                "interrupted, inspect before rerunning ",
-                                ui.semantic_text("relink", "hint"),
-                                " again",
-                            )
+                        (
+                            "interrupted, inspect before rerunning ",
+                            ui.semantic_text("relink", "hint"),
+                            " again",
                         ),
                     )
                 )
@@ -560,12 +527,10 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
                 lines.append(
                     _prefixed_intent_line(
                         description,
-                        ui.rich_text(
-                            (
-                                "interrupted, inspect before rerunning ",
-                                ui.semantic_text("cleanup", "hint"),
-                                " again",
-                            )
+                        (
+                            "interrupted, inspect before rerunning ",
+                            ui.semantic_text("cleanup", "hint"),
+                            " again",
                         ),
                     )
                 )
@@ -573,12 +538,10 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
                 lines.append(
                     _prefixed_intent_line(
                         description,
-                        ui.rich_text(
-                            (
-                                "interrupted, inspect before rerunning ",
-                                ui.semantic_text("abort", "hint"),
-                                " again",
-                            )
+                        (
+                            "interrupted, inspect before rerunning ",
+                            ui.semantic_text("abort", "hint"),
+                            " again",
                         ),
                     )
                 )
@@ -586,12 +549,10 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
                 lines.append(
                     _prefixed_intent_line(
                         description,
-                        ui.rich_text(
-                            (
-                                "interrupted, inspect before rerunning ",
-                                ui.semantic_text("land", "hint"),
-                                " again",
-                            )
+                        (
+                            "interrupted, inspect before rerunning ",
+                            ui.semantic_text("land", "hint"),
+                            " again",
                         ),
                     )
                 )
@@ -599,9 +560,7 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
                 lines.append(
                     _prefixed_intent_line(
                         description,
-                        ui.rich_text(
-                            format_status_annotation("interrupted, inspect before re-running")
-                        ),
+                        format_status_annotation("interrupted, inspect before re-running"),
                     )
                 )
     return tuple(lines)
@@ -679,32 +638,26 @@ def _render_interrupted_submit_status_line(
         current_identity=_current_submit_identity(prepared_status=prepared_status),
     )
     if decision is SubmitStatusDecision.CONTINUE:
-        status = ui.rich_text(
-            (
-                "interrupted, rerun ",
-                rerun_command,
-                " to continue on the current stack",
-            )
+        status = (
+            "interrupted, rerun ",
+            rerun_command,
+            " to continue on the current stack",
         )
     elif decision is SubmitStatusDecision.CURRENT_STACK:
-        status = ui.rich_text(
-            (
-                "interrupted, recorded stack was rewritten; rerunning ",
-                rerun_command,
-                " will submit the current stack",
-            )
+        status = (
+            "interrupted, recorded stack was rewritten; rerunning ",
+            rerun_command,
+            " will submit the current stack",
         )
     elif decision is SubmitStatusDecision.INSPECT:
-        status = ui.rich_text(
-            (
-                "interrupted, current stack matches but the recorded submit target "
-                "does not; inspect before running ",
-                rerun_command,
-                " again",
-            )
+        status = (
+            "interrupted, current stack matches but the recorded submit target "
+            "does not; inspect before running ",
+            rerun_command,
+            " again",
         )
     else:
-        status = ui.rich_text("interrupted, recorded stack differs from the current selection")
+        status = "interrupted, recorded stack differs from the current selection"
     return status
 
 
@@ -752,50 +705,40 @@ def _render_interrupted_cleanup_restack_status_line(
         current_commit_ids=current_commit_ids,
     )
     if match == "exact":
-        status = ui.rich_text(
-            (
-                "interrupted, rerun ",
-                rerun_command,
-                " to continue on the current stack",
-            )
+        status = (
+            "interrupted, rerun ",
+            rerun_command,
+            " to continue on the current stack",
         )
     elif match == "same-logical":
-        status = ui.rich_text(
-            (
-                "interrupted, recorded stack was rewritten; rerunning ",
-                rerun_command,
-                " will use the current stack",
-            )
+        status = (
+            "interrupted, recorded stack was rewritten; rerunning ",
+            rerun_command,
+            " will use the current stack",
         )
     elif match == "covered":
-        status = ui.rich_text(
-            (
-                "interrupted, the recorded changes are all included in the current stack; ",
-                "rerunning ",
-                rerun_command,
-                " will use the current stack",
-            )
+        status = (
+            "interrupted, the recorded changes are all included in the current stack; ",
+            "rerunning ",
+            rerun_command,
+            " will use the current stack",
         )
     elif match == "trimmed":
-        status = ui.rich_text(
-            (
-                "interrupted, the recorded stack still includes changes that are no "
-                "longer on the current stack; ",
-                "rerunning ",
-                rerun_command,
-                " will use the current stack",
-            )
+        status = (
+            "interrupted, the recorded stack still includes changes that are no "
+            "longer on the current stack; ",
+            "rerunning ",
+            rerun_command,
+            " will use the current stack",
         )
     elif match == "overlap":
-        status = ui.rich_text(
-            (
-                "interrupted, current stack differs; inspect before running ",
-                rerun_command,
-                " again",
-            )
+        status = (
+            "interrupted, current stack differs; inspect before running ",
+            rerun_command,
+            " again",
         )
     else:
-        status = ui.rich_text("interrupted, recorded stack differs from the current selection")
+        status = "interrupted, recorded stack differs from the current selection"
     return status
 
 
@@ -822,40 +765,32 @@ def _render_interrupted_close_status_line(
         current_commit_ids=current_commit_ids,
     )
     if match == "exact":
-        status = ui.rich_text(
-            (
-                "interrupted, rerun ",
-                rerun_command,
-                " to continue on the current stack",
-            )
+        status = (
+            "interrupted, rerun ",
+            rerun_command,
+            " to continue on the current stack",
         )
     elif match == "same-logical":
-        status = ui.rich_text(
-            (
-                "interrupted, recorded stack was rewritten; rerunning ",
-                rerun_command,
-                " will use the current stack",
-            )
+        status = (
+            "interrupted, recorded stack was rewritten; rerunning ",
+            rerun_command,
+            " will use the current stack",
         )
     elif match == "covered":
-        status = ui.rich_text(
-            (
-                "interrupted, the recorded changes are all included in the current stack; ",
-                "rerunning ",
-                rerun_command,
-                " will use the current stack",
-            )
+        status = (
+            "interrupted, the recorded changes are all included in the current stack; ",
+            "rerunning ",
+            rerun_command,
+            " will use the current stack",
         )
     elif match == "overlap":
-        status = ui.rich_text(
-            (
-                "interrupted, current stack differs; inspect before running ",
-                rerun_command,
-                " again",
-            )
+        status = (
+            "interrupted, current stack differs; inspect before running ",
+            rerun_command,
+            " again",
         )
     else:
-        status = ui.rich_text("interrupted, recorded stack differs from the current selection")
+        status = "interrupted, recorded stack differs from the current selection"
     return status
 
 
@@ -995,19 +930,19 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
     return summary
 
 
-def _emit_lines(lines: tuple[object, ...], *, emitter=ui.output) -> None:
+def _emit_lines(lines: tuple[object, ...], *, emitter=console.output) -> None:
     for line in lines:
         if isinstance(line, str) and "\x1b[" in line:
-            emitter(ui.ansi_text(line), soft_wrap=True)
+            emitter(console.ansi_text(line), soft_wrap=True)
             continue
         emitter(line, soft_wrap=True)
 
 
 def _prefixed_status_line(prefix: str, body: object) -> object:
-    return ui.prefixed_message(
+    return ui.prefixed_line(
         f"{prefix}: ",
         body,
-        prefix_style=ui.semantic_style("prefix"),
+        prefix_labels=("prefix",),
     )
 
 
@@ -1049,11 +984,11 @@ def _format_review_decision_label(review_decision: str) -> str:
 
 
 def _wrap_advisory(message: object) -> object:
-    return ui.prefixed_message("- ", message)
+    return ui.prefixed_line("- ", message)
 
 
 def _prefixed_intent_line(description: object, status: object) -> object:
-    return ui.prefixed_message("  ", (description, "  ", status))
+    return ui.prefixed_line("  ", (description, "  ", status))
 
 
 def _render_intent_description(intent) -> object:

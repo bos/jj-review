@@ -17,10 +17,9 @@ import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from string.templatelib import Template
 from typing import Literal, Protocol
 
-from jj_review import ui
+from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError, ErrorMessage
@@ -45,12 +44,13 @@ from jj_review.review.status import (
     prepare_status,
     stream_status_async,
 )
+from jj_review.ui import Message, plain_text
 
 HELP = "Connect jj-review to an existing stack of pull requests"
 
 _DISPLAY_CHANGE_ID_LENGTH = 8
 ImportActionStatus = Literal["applied"]
-type ImportActionBody = str | Template | ui.SemanticText | tuple[object, ...]
+type ImportActionBody = Message
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +65,7 @@ class ImportAction:
     def message(self) -> str:
         """Return the plain-text form of this action body."""
 
-        return ui.plain_text(self.body)
+        return plain_text(self.body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,37 +137,37 @@ def import_(
 
 def _print_import_result(result: ImportResult) -> None:
     if result.fetched_tip_commit is not None:
-        ui.output(ui.prefixed_message("Fetched tip commit: ", result.fetched_tip_commit))
+        console.output(ui.prefixed_line("Fetched tip commit: ", result.fetched_tip_commit))
     if result.remote is None:
         if result.remote_error is None:
-            ui.warning("Selected remote: unavailable")
+            console.warning("Selected remote: unavailable")
         else:
-            ui.warning(f"Selected remote: unavailable ({result.remote_error})")
+            console.warning(f"Selected remote: unavailable ({result.remote_error})")
     if result.github_repository is None:
         if result.github_error is None:
-            ui.warning("GitHub target: unavailable")
+            console.warning("GitHub target: unavailable")
         else:
-            ui.warning(f"GitHub target: unavailable ({result.github_error})")
+            console.warning(f"GitHub target: unavailable ({result.github_error})")
     if result.actions:
-        ui.output("Updated local jj-review tracking:")
+        console.output("Updated local jj-review tracking:")
         for action in result.actions:
-            ui.output(
-                ui.prefixed_message(
+            console.output(
+                ui.prefixed_line(
                     "  - applied: ",
                     (ui.semantic_text(action.kind, "prefix"), ": ", action.body),
                 )
             )
     else:
         if result.reviewable_revision_count:
-            ui.output("Local jj-review tracking is already up to date for the selected stack.")
+            console.output(
+                "Local jj-review tracking is already up to date for the selected stack."
+            )
         else:
-            ui.output(
-                ui.rich_text(
-                    (
-                        "No reviewable commits between the selected revision and ",
-                        ui.revset("trunk()"),
-                        ".",
-                    )
+            console.output(
+                (
+                    "No reviewable commits between the selected revision and ",
+                    ui.revset("trunk()"),
+                    ".",
                 )
             )
 
@@ -219,7 +219,7 @@ async def _run_import_async(
     progress_total = (
         len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
     )
-    with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
+    with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = await stream_status_async(
             persist_cache_updates=False,
             prepared_status=prepared_status,

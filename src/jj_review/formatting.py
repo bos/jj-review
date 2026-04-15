@@ -6,7 +6,7 @@ import re
 import sys
 from typing import IO, Literal, Protocol
 
-from jj_review.ui import RequestedColorMode, requested_color_mode
+from jj_review.console import RequestedColorMode, requested_color_mode
 
 
 class NativeRevisionRenderClient(Protocol):
@@ -37,18 +37,6 @@ def format_change_marker(change_id: str) -> str:
     """Render a short change ID marker for CLI output."""
 
     return f"({short_change_id(change_id)})"
-
-
-def format_revision_label(subject: str, change_id: str) -> str:
-    """Render a revision subject with its short change ID marker."""
-
-    return f"{subject} {format_change_marker(change_id)}"
-
-
-def format_action_line(*, status: str, kind: str, message: str) -> str:
-    """Render a status-tagged action line for CLI output."""
-
-    return f"- {status}: {kind}: {message}"
 
 
 def format_status_annotation(annotation: str) -> str:

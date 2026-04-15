@@ -18,10 +18,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar, cast
 
-from jj_review import __version__, commands, ui
+from jj_review import __version__, commands, console
 from jj_review.completion import emit_shell_completion
+from jj_review.console import ColorMode, RequestedColorMode, configured_console, rich_color_mode
 from jj_review.errors import CliError, error_message
-from jj_review.ui import ColorMode, RequestedColorMode, configured_ui, rich_color_mode
 
 logger = logging.getLogger(__name__)
 SubparserT = TypeVar("SubparserT", bound=ArgumentParser)
@@ -690,9 +690,9 @@ def _find_subcommand_parser(
 def _print_cli_error(error: CliError) -> None:
     message = error_message(error)
     if str(error).startswith("Error:"):
-        ui.error(ui.rich_text(message), soft_wrap=True)
+        console.error(message, soft_wrap=True)
     else:
-        ui.error(ui.rich_text(("Error: ", message)), soft_wrap=True)
+        console.error(("Error: ", message), soft_wrap=True)
 
 
 def _load_configured_jj_color(*, repository: Path | None) -> RequestedColorMode | None:
@@ -748,7 +748,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         cli_color=args.color,
         repository=args.repository,
     )
-    with configured_ui(
+    with configured_console(
         color_mode=effective_rich_color_mode,
         repository=args.repository,
         requested_color_mode=args.color,

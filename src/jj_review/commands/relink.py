@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from jj_review import ui
+from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
@@ -71,11 +71,9 @@ def relink(
             ),
         )
     )
-    ui.output(
-        ui.rich_text(
-            t"Relinked PR #{result.pull_request_number} for {result.subject} "
-            t"({ui.change_id(result.change_id)}) -> {ui.bookmark(result.bookmark)}"
-        )
+    console.output(
+        t"Relinked PR #{result.pull_request_number} for {result.subject} "
+        t"({ui.change_id(result.change_id)}) -> {ui.bookmark(result.bookmark)}"
     )
     return 0
 
@@ -183,7 +181,7 @@ async def _run_relink_async(
     )
     stale_intents = check_same_kind_intent(state_dir, intent)
     for loaded in stale_intents:
-        ui.warning(f"A previous relink was interrupted ({loaded.intent.label})")
+        console.warning(f"A previous relink was interrupted ({loaded.intent.label})")
     intent_path = write_new_intent(state_dir, intent)
 
     relink_succeeded = False

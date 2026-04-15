@@ -15,12 +15,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from string.templatelib import Template
 from typing import Literal
 
-from jj_review import ui
+from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.commands.status import describe_status_preparation_error
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError, ErrorMessage, error_message
@@ -52,13 +50,15 @@ from jj_review.review.status import (
     revision_pull_request_number,
     stream_status,
 )
+from jj_review.review.status_messages import describe_status_preparation_error
 from jj_review.state.intents import check_same_kind_intent, write_new_intent
 from jj_review.state.store import ReviewStateStore
+from jj_review.ui import Message, plain_text
 
 HELP = "Clean up stale jj-review data for a jj stack"
 
 CleanupActionStatus = Literal["applied", "blocked", "planned"]
-type CleanupBody = str | Template | ui.SemanticText | tuple[object, ...]
+type CleanupBody = Message
 _GITHUB_INSPECTION_CONCURRENCY = DEFAULT_BOUNDED_CONCURRENCY
 
 
@@ -74,7 +74,7 @@ class CleanupAction:
     def message(self) -> str:
         """Return the plain-text form of this action body."""
 
-        return ui.plain_text(self.body)
+        return plain_text(self.body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -293,9 +293,9 @@ def _run_cleanup_restack_command(
         raise CliError(describe_status_preparation_error(error)) from error
     for severity, line in render_restack_preamble(prepared_restack=prepared_restack):
         if severity == "warning":
-            ui.warning(line)
+            console.warning(line)
         else:
-            ui.output(line)
+            console.output(line)
 
     try:
         result = stream_restack(
@@ -308,7 +308,7 @@ def _run_cleanup_restack_command(
     except UnsupportedStackError as error:
         raise CliError(describe_status_preparation_error(error)) from error
     for line in render_restack_postamble(result=result):
-        ui.output(line)
+        console.output(line)
     return 1 if result.blocked else 0
 
 
@@ -334,9 +334,9 @@ def _run_cleanup_command(
         github_error=prepared_cleanup.github_repository_error,
     ):
         if severity == "warning":
-            ui.warning(line)
+            console.warning(line)
         else:
-            ui.output(line)
+            console.output(line)
 
     result = stream_cleanup(
         on_action=_build_action_streamer(
@@ -346,7 +346,7 @@ def _run_cleanup_command(
         prepared_cleanup=prepared_cleanup,
     )
     for line in render_cleanup_postamble(result=result):
-        ui.output(line)
+        console.output(line)
     return 0
 
 
@@ -362,9 +362,9 @@ def _build_action_streamer(
     def emit_action(action: CleanupAction) -> None:
         nonlocal header_printed
         if not header_printed:
-            ui.output(render_header(dry_run=dry_run))
+            console.output(render_header(dry_run=dry_run))
             header_printed = True
-        ui.output(_render_action(action=action))
+        console.output(_render_action(action=action))
 
     return emit_action
 
@@ -394,24 +394,24 @@ def _render_remote_and_github_lines(
 
 def _action_presentation(
     status: CleanupActionStatus,
-) -> tuple[str, object | None, object | None]:
+) -> tuple[str, tuple[str, ...] | None, tuple[str, ...] | None]:
     if status == "applied":
         return (
             "  ✓",
-            ui.semantic_style("signature status good"),
+            ("signature status good",),
             None,
         )
     if status == "planned":
         return (
             "  ~",
-            ui.semantic_style("hint heading"),
+            ("hint heading",),
             None,
         )
     if status == "blocked":
         return (
             "  ✗",
-            ui.semantic_style("error heading"),
-            ui.semantic_style("warning heading"),
+            ("error heading",),
+            ("warning heading",),
         )
     return ("  ?", None, None)
 
@@ -429,19 +429,23 @@ def _restack_destination_template(destination_change_id: str | None):
 def _render_action(
     *,
     action: CleanupAction,
-) -> ui.Table:
+) -> ui.PrefixedLine:
     """Render one cleanup or restack action line."""
 
     prefix, prefix_style, body_style = _action_presentation(action.status)
-    return ui.prefixed_message(
-        prefix=f"{prefix} ",
-        message=_render_action_body(action=action, body_style=body_style),
-        message_style=body_style,
-        prefix_style=prefix_style,
+    return ui.prefixed_line(
+        f"{prefix} ",
+        _render_action_body(action=action, body_style=body_style),
+        message_labels=body_style,
+        prefix_labels=prefix_style,
     )
 
 
-def _render_action_body(action: CleanupAction, *, body_style: object | None) -> CleanupBody:
+def _render_action_body(
+    action: CleanupAction,
+    *,
+    body_style: tuple[str, ...] | None,
+) -> CleanupBody:
     del body_style
     if action.kind == "tracking":
         return action.body
@@ -543,7 +547,7 @@ def stream_restack(
     progress_total = (
         len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
     )
-    with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
+    with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = stream_status(
             on_revision=lambda _revision, _github_available: progress.advance(),
             prepared_status=prepared_status,
@@ -706,31 +710,31 @@ def _start_restack_intent(
         )
         description = describe_intent(loaded.intent)
         if match == "exact":
-            ui.note(f"Continuing interrupted {description}")
+            console.note(f"Continuing interrupted {description}")
         elif match == "same-logical":
-            ui.note(
+            console.note(
                 f"Note: interrupted {description} targeted the same logical stack, "
                 "but it has been rewritten. This cleanup --restack run will use the "
                 "current stack."
             )
         elif match == "covered":
-            ui.note(
+            console.note(
                 f"Note: interrupted {description} targeted changes that are all "
                 "included in the current stack. This cleanup --restack run will use "
                 "the current stack."
             )
         elif match == "trimmed":
-            ui.note(
+            console.note(
                 f"Note: interrupted {description} still includes changes that are no "
                 "longer on the current stack. This cleanup --restack run will use "
                 "the current stack."
             )
         elif match == "overlap":
-            ui.warning(
+            console.warning(
                 f"Warning: this restack overlaps an incomplete earlier operation ({description})"
             )
         else:
-            ui.note(f"Note: incomplete operation outstanding: {description}")
+            console.note(f"Note: incomplete operation outstanding: {description}")
     return _RestackIntentState(
         intent=intent,
         intent_path=write_new_intent(state_dir, intent),
@@ -1053,7 +1057,7 @@ async def _stream_cleanup_async(
         )
         stale_intents = check_same_kind_intent(state_dir, _intent)
         for _loaded in stale_intents:
-            ui.note(f"Note: a previous cleanup was interrupted ({_loaded.intent.label})")
+            console.note(f"Note: a previous cleanup was interrupted ({_loaded.intent.label})")
         intent_path = write_new_intent(state_dir, _intent)
 
     try:
@@ -1334,7 +1338,7 @@ async def _run_stack_comment_cleanup_pass(
         for prepared_change in prepared_changes
         if prepared_change.inspect_stack_comment
     )
-    with ui.progress(
+    with console.progress(
         description="Inspecting stack comments",
         total=len(stack_comment_changes),
     ) as progress:

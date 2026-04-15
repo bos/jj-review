@@ -26,10 +26,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from string.templatelib import Template
 from typing import Literal, Protocol
 
-from jj_review import ui
+from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
@@ -60,11 +59,12 @@ from jj_review.review.status import (
     stream_status,
 )
 from jj_review.state.intents import check_same_kind_intent, save_intent, write_new_intent
+from jj_review.ui import Message, plain_text
 
 HELP = "Land the ready changes at the bottom of a stack"
 
 LandActionStatus = Literal["applied", "blocked", "planned"]
-type LandActionBody = str | Template | ui.SemanticText | tuple[object, ...]
+type LandActionBody = Message
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +79,7 @@ class LandAction:
     def message(self) -> str:
         """Return the plain-text form of this action body."""
 
-        return ui.plain_text(self.body)
+        return plain_text(self.body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,7 +209,7 @@ def land(
             repo_root=context.repo_root,
             revset=revset,
         )
-        ui.note(f"Using PR #{pull_request_number} -> {resolved_revset}")
+        console.note(f"Using PR #{pull_request_number} -> {resolved_revset}")
     else:
         pull_request_number = None
         resolved_revset = resolve_selected_revset(
@@ -248,9 +248,7 @@ def _resolve_land_revset_for_pull_request(
 
 
 def _print_land_result(result: LandResult) -> None:
-    ui.output(
-        ui.rich_text(t"Trunk: {result.trunk_subject} -> {ui.bookmark(result.trunk_branch)}")
-    )
+    console.output(t"Trunk: {result.trunk_subject} -> {ui.bookmark(result.trunk_branch)}")
     if result.actions:
         if result.applied:
             header = "Applied land actions:"
@@ -258,41 +256,41 @@ def _print_land_result(result: LandResult) -> None:
             header = "Land blocked:"
         else:
             header = "Planned land actions:"
-        ui.output(header)
+        console.output(header)
         for action in result.actions:
             prefix, prefix_style, body_style = _land_action_presentation(action.status)
-            ui.output(
-                ui.prefixed_message(
+            console.output(
+                ui.prefixed_line(
                     f"{prefix} ",
                     (ui.semantic_text(action.kind, "prefix"), ": ", action.body),
-                    prefix_style=prefix_style,
-                    message_style=body_style,
+                    prefix_labels=prefix_style,
+                    message_labels=body_style,
                 )
             )
     if result.follow_up is not None:
-        ui.output(ui.rich_text(result.follow_up))
+        console.output(result.follow_up)
 
 
 def _land_action_presentation(
     status: LandActionStatus,
-) -> tuple[str, object | None, object | None]:
+) -> tuple[str, tuple[str, ...] | None, tuple[str, ...] | None]:
     if status == "applied":
         return (
             "  ✓",
-            ui.semantic_style("signature status good"),
+            ("signature status good",),
             None,
         )
     if status == "planned":
         return (
             "  ~",
-            ui.semantic_style("hint heading"),
+            ("hint heading",),
             None,
         )
     if status == "blocked":
         return (
             "  ✗",
-            ui.semantic_style("error heading"),
-            ui.semantic_style("warning heading"),
+            ("error heading",),
+            ("warning heading",),
         )
     return ("  ?", None, None)
 
@@ -345,7 +343,7 @@ def stream_land(*, prepared_land: PreparedLand) -> LandResult:
     progress_total = (
         len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
     )
-    with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
+    with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = stream_status(
             on_revision=lambda _revision, _github_available: progress.advance(),
             prepared_status=prepared_status,
@@ -515,12 +513,10 @@ async def _stream_land_async(
                     )
                 )
             for landed_revision in execution_plan.landed_revisions:
-                ui.output(
-                    ui.rich_text(
-                        t"Finalizing PR #{landed_revision.pull_request_number} for "
-                        t"{landed_revision.subject} "
-                        t"{ui.change_id(landed_revision.change_id)}..."
-                    )
+                console.output(
+                    t"Finalizing PR #{landed_revision.pull_request_number} for "
+                    t"{landed_revision.subject} "
+                    t"{ui.change_id(landed_revision.change_id)}..."
                 )
                 final_pull_request = await _finalize_landed_pull_request(
                     cached_change=state_changes.get(landed_revision.change_id),
@@ -713,17 +709,15 @@ def _report_stale_land_intents(
             continue
         if resume_intent is not None and loaded.path == resume_intent.path:
             if resume_intent.mode == "tail-after-landed-prefix":
-                ui.note(
-                    ui.rich_text(
-                        (
-                            "Resuming interrupted ",
-                            describe_intent(loaded.intent),
-                            " after the trunk transition already succeeded",
-                        )
+                console.note(
+                    (
+                        "Resuming interrupted ",
+                        describe_intent(loaded.intent),
+                        " after the trunk transition already succeeded",
                     )
                 )
             else:
-                ui.note(ui.rich_text(("Resuming interrupted ", describe_intent(loaded.intent))))
+                console.note(("Resuming interrupted ", describe_intent(loaded.intent)))
             continue
         match = match_ordered_change_ids(
             loaded.intent.ordered_change_ids,
@@ -733,22 +727,16 @@ def _report_stale_land_intents(
             ),
         )
         if match == "overlap":
-            ui.warning(
-                ui.rich_text(
-                    (
-                        "this land overlaps an incomplete earlier operation ",
-                        "(",
-                        describe_intent(loaded.intent),
-                        ")",
-                    )
+            console.warning(
+                (
+                    "this land overlaps an incomplete earlier operation ",
+                    "(",
+                    describe_intent(loaded.intent),
+                    ")",
                 )
             )
         else:
-            ui.note(
-                ui.rich_text(
-                    ("incomplete operation outstanding: ", describe_intent(loaded.intent))
-                )
-            )
+            console.note(("incomplete operation outstanding: ", describe_intent(loaded.intent)))
 
 
 def _build_land_plan(

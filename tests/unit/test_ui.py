@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from jj_review import ui as ui_module
+from jj_review import console as console_module, ui as ui_module
 
 
 def _style_cls():
@@ -18,18 +18,37 @@ def test_output_helpers_route_to_expected_streams() -> None:
     stdout = StringIO()
     stderr = StringIO()
 
-    with ui_module.configured_ui(
+    with console_module.configured_console(
         stdout=stdout,
         stderr=stderr,
         color_mode="never",
     ):
-        ui_module.output("plain", "[status]")
-        ui_module.note("note")
-        ui_module.warning("warn")
-        ui_module.error("boom")
+        console_module.output("plain", "[status]")
+        console_module.note("note")
+        console_module.warning("warn")
+        console_module.error("boom")
 
     assert stdout.getvalue() == "plain [status]\nnote\n"
     assert stderr.getvalue() == "warn\nboom\n"
+
+
+def test_output_accepts_semantic_messages_directly() -> None:
+    stdout = StringIO()
+
+    with console_module.configured_console(
+        stdout=stdout,
+        stderr=StringIO(),
+        color_mode="never",
+    ):
+        console_module.output(
+            t"No reviewable commits between the selected revision and "
+            t"{ui_module.revset('trunk()')}."
+        )
+
+    assert (
+        stdout.getvalue()
+        == "No reviewable commits between the selected revision and trunk().\n"
+    )
 
 
 def test_progress_uses_rich_progress_on_tty(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -66,14 +85,14 @@ def test_progress_uses_rich_progress_on_tty(monkeypatch: pytest.MonkeyPatch) -> 
             assert task_id == "task-1"
             progress_updates.append(amount)
 
-    monkeypatch.setattr(ui_module, "Progress", FakeProgress)
+    monkeypatch.setattr(console_module, "Progress", FakeProgress)
 
-    with ui_module.configured_ui(
+    with console_module.configured_console(
         stdout=StringIO(),
         stderr=TtyStringIO(),
         color_mode="never",
     ):
-        with ui_module.progress(description="Inspecting GitHub", total=2) as progress:
+        with console_module.progress(description="Inspecting GitHub", total=2) as progress:
             progress.advance()
             progress.advance()
 
@@ -87,28 +106,28 @@ def test_progress_skips_rich_progress_without_tty(monkeypatch: pytest.MonkeyPatc
     def fail_if_progress_used(*args, **kwargs):
         raise AssertionError("rich Progress should not run without a TTY")
 
-    monkeypatch.setattr(ui_module, "Progress", fail_if_progress_used)
+    monkeypatch.setattr(console_module, "Progress", fail_if_progress_used)
 
-    with ui_module.configured_ui(
+    with console_module.configured_console(
         stdout=StringIO(),
         stderr=StringIO(),
         color_mode="never",
     ):
-        with ui_module.progress(description="Inspecting GitHub", total=2) as progress:
+        with console_module.progress(description="Inspecting GitHub", total=2) as progress:
             progress.advance()
 
 
 def test_time_output_prefixes_each_rendered_line() -> None:
     stdout = StringIO()
 
-    with ui_module.configured_ui(
+    with console_module.configured_console(
         stdout=stdout,
         stderr=StringIO(),
         color_mode="never",
         time_output=True,
     ):
-        ui_module.output("first\nsecond")
-        ui_module.output("third", end="")
+        console_module.output("first\nsecond")
+        console_module.output("third", end="")
 
     rendered = stdout.getvalue().splitlines()
     assert len(rendered) == 3
@@ -125,9 +144,9 @@ def test_time_output_wraps_content_after_prefix_width(
 ) -> None:
     console_cls = import_module("rich.console").Console
     stream = StringIO()
-    monkeypatch.setattr(ui_module.time, "perf_counter", lambda: 0.0)
+    monkeypatch.setattr(console_module.time, "perf_counter", lambda: 0.0)
 
-    console = ui_module._ConfiguredConsole(
+    console = console_module._ConfiguredConsole(
         console_cls(file=stream, force_terminal=False, width=15),
         prefix_style=None,
         start=0.0,
@@ -147,11 +166,11 @@ def test_time_output_prefix_uses_prefix_and_timestamp_semantic_style(
     def fake_run(command, **kwargs):
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(ui_module.subprocess, "run", fake_run)
-    monkeypatch.setattr(ui_module.time, "perf_counter", lambda: 0.0)
+    monkeypatch.setattr(console_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(console_module.time, "perf_counter", lambda: 0.0)
 
     console_cls = import_module("rich.console").Console
-    with ui_module.configured_ui(
+    with console_module.configured_console(
         stdout=StringIO(),
         stderr=StringIO(),
         color_mode="always",
@@ -160,10 +179,10 @@ def test_time_output_prefix_uses_prefix_and_timestamp_semantic_style(
     ):
         console = console_cls(width=40)
         lines = console.render_lines(
-            ui_module._TimePrefixedRenderable(
+            console_module._TimePrefixedRenderable(
                 renderable="timed",
                 end="",
-                prefix_style=ui_module.semantic_style("prefix", "timestamp"),
+                prefix_style=console_module.semantic_style("prefix", "timestamp"),
                 start=0.0,
             ),
             console.options,
@@ -198,17 +217,17 @@ def test_semantic_style_uses_machine_readable_jj_config(
         assert kwargs["cwd"] == repository
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(ui_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(console_module.subprocess, "run", fake_run)
 
-    with ui_module.configured_ui(
+    with console_module.configured_console(
         stdout=StringIO(),
         stderr=StringIO(),
         color_mode="never",
         repository=repository,
     ):
-        assert ui_module.semantic_style("missing") is None
-        assert ui_module.semantic_style("change_id") == _style_cls()(color="color(81)")
-        assert ui_module.semantic_style("working_copy", "change_id") == _style_cls()(
+        assert console_module.semantic_style("missing") is None
+        assert console_module.semantic_style("change_id") == _style_cls()(color="color(81)")
+        assert console_module.semantic_style("working_copy", "change_id") == _style_cls()(
             color="bright_magenta",
             bold=True,
         )
@@ -227,15 +246,15 @@ def test_rich_text_renders_template_semantics(
     def fake_run(command, **kwargs):
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(ui_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(console_module.subprocess, "run", fake_run)
 
-    with ui_module.configured_ui(
+    with console_module.configured_console(
         stdout=StringIO(),
         stderr=StringIO(),
         color_mode="never",
         repository=repository,
     ):
-        text = ui_module.rich_text(
+        text = console_module.rich_text(
             t"delete {ui_module.bookmark('review/feature-aaaaaaaa')} for "
             t"{ui_module.change_id('aaaa1111bbbb2222')}"
         )
@@ -258,45 +277,16 @@ def test_revset_uses_semantic_style(
     def fake_run(command, **kwargs):
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
-    monkeypatch.setattr(ui_module.subprocess, "run", fake_run)
+    monkeypatch.setattr(console_module.subprocess, "run", fake_run)
 
-    with ui_module.configured_ui(
+    with console_module.configured_console(
         stdout=StringIO(),
         stderr=StringIO(),
         color_mode="never",
         repository=repository,
     ):
-        text = ui_module.rich_text(ui_module.revset("trunk()"))
+        text = console_module.rich_text(ui_module.revset("trunk()"))
 
     assert text.plain == "trunk()"
     assert text.spans == [import_module("rich.text").Span(0, 7, _style_cls()(color="blue"))]
 
-
-def test_status_text_uses_heading_semantic_style(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    repository = Path.cwd()
-    stdout = (
-        'colors."hint heading"\0"cyan"\n'
-        'colors."warning heading"\0"yellow"\n'
-        'colors."error heading"\0"red"\n'
-    )
-
-    def fake_run(command, **kwargs):
-        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
-
-    monkeypatch.setattr(ui_module.subprocess, "run", fake_run)
-
-    with ui_module.configured_ui(
-        stdout=StringIO(),
-        stderr=StringIO(),
-        color_mode="never",
-        repository=repository,
-    ):
-        ok = ui_module.status_text("ok")
-        warn = ui_module.status_text("warn")
-        fail = ui_module.status_text("fail")
-
-    assert ok.spans == [import_module("rich.text").Span(0, 2, _style_cls()(color="cyan"))]
-    assert warn.spans == [import_module("rich.text").Span(0, 4, _style_cls()(color="yellow"))]
-    assert fail.spans == [import_module("rich.text").Span(0, 4, _style_cls()(color="red"))]

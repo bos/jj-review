@@ -16,10 +16,9 @@ import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from string.templatelib import Template
 from typing import Literal
 
-from jj_review import ui
+from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
@@ -43,13 +42,14 @@ from jj_review.review.submit_recovery import recorded_submit_still_exists_exactl
 from jj_review.state.intents import write_new_intent
 from jj_review.state.store import ReviewStateStore
 from jj_review.system import pid_is_alive
+from jj_review.ui import Message, plain_text
 
 HELP = "Undo interrupted jj-review operations"
 
 logger = logging.getLogger(__name__)
 
 AbortActionStatus = Literal["applied", "blocked", "planned", "skipped"]
-type AbortActionBody = str | Template | ui.SemanticText | tuple[object, ...]
+type AbortActionBody = Message
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,7 +64,7 @@ class AbortAction:
     def message(self) -> str:
         """Return the plain-text form of this action body."""
 
-        return ui.plain_text(self.body)
+        return plain_text(self.body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +108,7 @@ def abort(
 
     for loaded in abort_locks:
         if pid_is_alive(loaded.intent.pid):
-            ui.output(
+            console.output(
                 f"Another abort operation is already in progress "
                 f"(PID {loaded.intent.pid}). "
                 "Wait for it to finish, then run abort again."
@@ -119,7 +119,7 @@ def abort(
     loaded_intents = operation_intents
 
     if not loaded_intents:
-        ui.output("Nothing to abort.")
+        console.output("Nothing to abort.")
         return 0
 
     def _resolve_change_id(change_id: str) -> bool:
@@ -138,7 +138,7 @@ def abort(
     if not outstanding:
         count = len(loaded_intents)
         noun = "operation" if count == 1 else "operations"
-        ui.output(
+        console.output(
             f"{count} stale incomplete {noun} found "
             "(changes no longer exist in this repo). "
             "Run `cleanup` to remove stale jj-review data."
@@ -151,7 +151,7 @@ def abort(
     outstanding = [loaded for loaded in outstanding if not pid_is_alive(loaded.intent.pid)]
 
     for loaded in live:
-        ui.output(
+        console.output(
             f"'{loaded.intent.label}' is still in progress "
             f"(PID {loaded.intent.pid}) — wait for it to finish, then run abort again."
         )
@@ -341,7 +341,7 @@ async def _abort_submit(
     async with build_github_client(
         base_url=recorded_github_repository.api_base_url
     ) as github_client:
-        with ui.progress(
+        with console.progress(
             description="Retracting submitted changes",
             total=len(intent.ordered_change_ids),
         ) as progress:
@@ -650,44 +650,44 @@ def _print_abort_result(result: AbortResult) -> None:
     else:
         header = f"Abort incomplete for {result.intent_label!r}:"
 
-    ui.output(header)
+    console.output(header)
     for action in result.actions:
         prefix, prefix_style, body_style = _abort_action_presentation(action.status)
-        ui.output(
-            ui.prefixed_message(
+        console.output(
+            ui.prefixed_line(
                 f"{prefix} ",
                 (ui.semantic_text(action.kind, "prefix"), ": ", action.body),
-                prefix_style=prefix_style,
-                message_style=body_style,
+                prefix_labels=prefix_style,
+                message_labels=body_style,
             )
         )
 
 
 def _abort_action_presentation(
     status: AbortActionStatus,
-) -> tuple[str, object | None, object | None]:
+) -> tuple[str, tuple[str, ...] | None, tuple[str, ...] | None]:
     if status == "applied":
         return (
             "  ✓",
-            ui.semantic_style("signature status good"),
+            ("signature status good",),
             None,
         )
     if status == "planned":
         return (
             "  ~",
-            ui.semantic_style("hint heading"),
+            ("hint heading",),
             None,
         )
     if status == "blocked":
         return (
             "  ✗",
-            ui.semantic_style("error heading"),
-            ui.semantic_style("warning heading"),
+            ("error heading",),
+            ("warning heading",),
         )
     if status == "skipped":
         return (
             "  -",
-            ui.semantic_style("hidden prefix") or ui.semantic_style("rest"),
+            ("hidden prefix", "rest"),
             None,
         )
     return ("  ?", None, None)

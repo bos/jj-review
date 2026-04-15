@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from string.templatelib import Template
+from jj_review.ui import Message, plain_text
 
-from jj_review import ui
-
-type ErrorMessage = str | Template | ui.SemanticText | tuple[object, ...]
+type ErrorMessage = Message
 
 
 def error_message(error: BaseException) -> ErrorMessage:
@@ -24,7 +22,7 @@ class CliError(RuntimeError):
 
     def __init__(self, message: ErrorMessage) -> None:
         self.message = message
-        super().__init__(ui.plain_text(message))
+        super().__init__(plain_text(message))
 
     def __str__(self) -> str:
-        return ui.plain_text(self.message)
+        return plain_text(self.message)

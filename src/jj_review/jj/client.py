@@ -345,12 +345,6 @@ class JjClient:
             )
         return trunk
 
-    def list_reviewable_children(self, commit_id: str) -> list[LocalRevision]:
-        """List visible mutable children that count as reviewable units."""
-
-        revisions = self._query_revisions(f"children('{commit_id}')")
-        return [revision for revision in revisions if revision.is_reviewable()]
-
     def _query_children_by_parent(
         self,
         revset: str,

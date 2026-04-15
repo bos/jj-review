@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from jj_review import ui
+from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
@@ -61,35 +61,18 @@ def unlink(
     )
     revision_label = t"{result.subject} ({ui.change_id(result.change_id)})"
     if result.already_unlinked:
-        ui.output(
-            ui.rich_text(
-                (
-                    revision_label,
-                    " is already unlinked from review tracking.",
-                )
-            )
-        )
+        console.output((revision_label, " is already unlinked from review tracking."))
         return 0
     if result.bookmark is None:
-        ui.output(
-            ui.rich_text(
-                (
-                    "Stopped review tracking for ",
-                    revision_label,
-                    ".",
-                )
-            )
-        )
+        console.output(("Stopped review tracking for ", revision_label, "."))
     else:
-        ui.output(
-            ui.rich_text(
-                (
-                    "Stopped review tracking for ",
-                    revision_label,
-                    ", preserving ",
-                    ui.bookmark(result.bookmark),
-                    ".",
-                )
+        console.output(
+            (
+                "Stopped review tracking for ",
+                revision_label,
+                ", preserving ",
+                ui.bookmark(result.bookmark),
+                ".",
             )
         )
     return 0
@@ -118,7 +101,7 @@ async def _run_unlink_async(
     progress_total = (
         len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
     )
-    with ui.progress(description="Inspecting GitHub", total=progress_total) as progress:
+    with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = await stream_status_async(
             persist_cache_updates=False,
             prepared_status=prepared_status,

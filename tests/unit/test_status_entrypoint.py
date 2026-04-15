@@ -7,6 +7,7 @@ import pytest
 from jj_review.commands import status as status_module
 from jj_review.errors import CliError
 from jj_review.jj import UnsupportedStackError
+from jj_review.review.status_messages import describe_status_preparation_error
 
 from .entrypoint_test_helpers import patch_bootstrap
 
@@ -44,7 +45,7 @@ def test_describe_status_preparation_error_falls_back_without_structured_context
         "divergent changes are not supported."
     )
 
-    assert "jj log -r" not in status_module.describe_status_preparation_error(error)
+    assert "jj log -r" not in describe_status_preparation_error(error)
 
 
 def test_status_updates_tty_progress_bar_while_streaming(
@@ -108,7 +109,7 @@ def test_status_updates_tty_progress_bar_while_streaming(
         )
 
     monkeypatch.setattr(status_module, "stream_status", fake_stream_status)
-    monkeypatch.setattr(status_module.ui, "progress", fake_progress)
+    monkeypatch.setattr(status_module.console, "progress", fake_progress)
 
     exit_code = status_module.status(
         config_path=None,

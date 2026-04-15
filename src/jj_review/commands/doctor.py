@@ -19,10 +19,9 @@ import asyncio
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from string.templatelib import Template
 from typing import Literal
 
-from jj_review import ui
+from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.errors import CliError, error_message
 from jj_review.github.client import (
@@ -49,10 +48,11 @@ from jj_review.models.intent import (
 from jj_review.review.intents import describe_intent
 from jj_review.state.store import ReviewStateStore
 from jj_review.system import pid_is_alive
+from jj_review.ui import Message
 
 HELP = "check GitHub auth, remote resolution, and local state"
 
-type CheckDetail = str | Template | ui.SemanticText | tuple[object, ...]
+type CheckDetail = Message
 
 
 @dataclass(slots=True, frozen=True)
@@ -75,7 +75,7 @@ def doctor(
         debug=debug,
     )
     results = asyncio.run(_run_checks(repo_root=context.repo_root))
-    ui.output(_results_table(results))
+    console.output(_results_table(results))
     return 1 if any(r.status == "fail" for r in results) else 0
 
 
@@ -262,23 +262,22 @@ def _check_interruptions(state_store: ReviewStateStore) -> CheckResult:
     )
 
 
-def _results_table(results: list[CheckResult]) -> ui.Table:
-    table = ui.Table(
-        box=ui.SIMPLE,
-        show_header=True,
-        header_style="bold",
+def _results_table(results: list[CheckResult]) -> ui.DataTable:
+    return ui.DataTable(
+        columns=(
+            ui.TableColumn("Check"),
+            ui.TableColumn("Status", no_wrap=True),
+            ui.TableColumn("Detail"),
+        ),
+        rows=tuple(
+            (
+                result.label,
+                ui.status(result.status),
+                result.detail,
+            )
+            for result in results
+        ),
     )
-    table.add_column("Check")
-    table.add_column("Status", no_wrap=True)
-    table.add_column("Detail")
-
-    for result in results:
-        table.add_row(
-            result.label,
-            ui.status_text(result.status),
-            ui.rich_text(result.detail),
-        )
-    return table
 
 
 def _render_interrupted_intents(interrupted) -> tuple[object, ...]:
