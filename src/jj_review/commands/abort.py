@@ -235,31 +235,24 @@ async def _abort_intent_async(
     )
 
 
-def _non_submit_note(intent) -> str | None:
+def _non_submit_note(intent) -> Message | None:
     if isinstance(intent, LandIntent):
-        return (
-            "Landing cannot be retracted; changes already merged to trunk are "
-            "permanent. The incomplete operation record will be cleared so future "
-            "commands can proceed. Run `status` to inspect the current state."
-        )
+        return t"Landing cannot be retracted; changes already merged to trunk are " \
+            t"permanent. The incomplete operation record will be cleared so future " \
+            t"commands can proceed. Run {ui.cmd('status')} to inspect the current state."
     if isinstance(intent, CleanupRestackIntent):
-        return (
-            "Restack changes to local jj history cannot be automatically reversed. "
-            "The incomplete operation record will be cleared. Inspect with `jj log` "
-            "and repair manually if needed."
-        )
+        return t"Restack changes to local jj history cannot be automatically reversed. " \
+            t"The incomplete operation record will be cleared. Inspect with " \
+            t"{ui.cmd('jj log')} and repair manually if needed."
     if isinstance(intent, CloseIntent):
-        return (
-            "Close operations cannot be automatically reversed here. "
-            "The incomplete operation record will be cleared. Run `status` to inspect "
-            "which pull requests were closed, and reopen them on GitHub if needed."
-        )
+        return t"Close operations cannot be automatically reversed here. " \
+            t"The incomplete operation record will be cleared. Run {ui.cmd('status')} " \
+            t"to inspect which pull requests were closed, and reopen them on GitHub " \
+            t"if needed."
     if isinstance(intent, RelinkIntent):
-        return (
-            "Relink changes which PR a change tracks in local data. "
-            "The incomplete operation record will be cleared. Run `status` to confirm "
-            "the current link state looks correct."
-        )
+        return t"Relink changes which PR a change tracks in local data. " \
+            t"The incomplete operation record will be cleared. Run {ui.cmd('status')} " \
+            t"to confirm the current link state looks correct."
     return None
 
 
@@ -293,12 +286,10 @@ async def _abort_submit(
         actions.append(
             AbortAction(
                 kind="record",
-                body=(
-                    "operation record kept — to continue, run "
-                    f"`submit {short_change_id(intent.head_change_id)}`; "
-                    "to retract the partial work, run "
-                    f"`close --cleanup {short_change_id(intent.head_change_id)}`"
-                ),
+                body=t"operation record kept — to continue, run "
+                t"{ui.cmd(f'submit {short_change_id(intent.head_change_id)}')}; "
+                t"to retract the partial work, run "
+                t"{ui.cmd(f'close --cleanup {short_change_id(intent.head_change_id)}')}",
                 status="skipped",
             )
         )
@@ -322,17 +313,15 @@ async def _abort_submit(
     remotes_by_name = {remote.name: remote for remote in jj_client.list_git_remotes()}
     remote_branch_cleanup_block: str | None = None
     if (recorded_remote := remotes_by_name.get(remote_name)) is None:
-        remote_branch_cleanup_block = (
-            f"recorded remote {remote_name!r} is no longer configured; abort will not "
-            "guess where to delete remote review branches"
-        )
+        remote_branch_cleanup_block = t"recorded remote {ui.bookmark(remote_name)} is no " \
+            t"longer configured; abort will not guess where to delete remote review branches"
     else:
         current_github_repository = parse_github_repo(recorded_remote)
         if current_github_repository != recorded_github_repository:
             remote_branch_cleanup_block = (
-                f"recorded remote {remote_name!r} no longer points at "
-                f"{recorded_github_repository.full_name}; abort will not guess where to "
-                "delete remote review branches"
+                t"recorded remote {ui.bookmark(remote_name)} no longer points at "
+                t"{recorded_github_repository.full_name}; abort will not guess where to "
+                t"delete remote review branches"
             )
 
     per_change_ok: list[bool] = []
@@ -381,8 +370,8 @@ async def _abort_submit(
             AbortAction(
                 kind="record",
                 body=(
-                    "operation record kept — fix the blocked steps above, "
-                    "then run abort again to retry"
+                    t"operation record kept — fix the blocked steps above, "
+                    t"then run {ui.cmd('abort')} again to retry"
                 ),
                 status="skipped",
             )
@@ -514,8 +503,8 @@ def _retract_one_change_local(
                     AbortAction(
                         kind="remote branch",
                         body=(
-                            f"{remote_branch_cleanup_block} "
-                            f"({ui.bookmark(branch_label)} for {ui.change_id(change_id)})"
+                            t"{remote_branch_cleanup_block} "
+                            t"({ui.bookmark(branch_label)} for {ui.change_id(change_id)})"
                         ),
                         status="blocked",
                     )
@@ -528,9 +517,9 @@ def _retract_one_change_local(
                         AbortAction(
                             kind="remote branch",
                             body=(
-                                f"{ui.bookmark(branch_label)} for "
-                                f"{ui.change_id(change_id)} is conflicted on the remote; "
-                                "abort will not guess which target to delete"
+                                t"{ui.bookmark(branch_label)} for "
+                                t"{ui.change_id(change_id)} is conflicted on the remote; "
+                                t"abort will not guess which target to delete"
                             ),
                             status="blocked",
                         )
