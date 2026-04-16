@@ -289,4 +289,3 @@ def test_revset_uses_semantic_style(
 
     assert text.plain == "trunk()"
     assert text.spans == [import_module("rich.text").Span(0, 7, _style_cls()(color="blue"))]
-

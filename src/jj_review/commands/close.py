@@ -595,7 +595,10 @@ def _report_stale_close_intents(
         if mode_relation == "same" and match == "exact":
             console.note(f"Continuing interrupted {description}")
         elif mode_relation == "expanded" and match == "exact":
-            console.note(f"Interrupted {description} is covered by this close --cleanup run.")
+            console.note(
+                t"Interrupted {description} is covered by this "
+                t"{ui.cmd('close --cleanup')} run."
+            )
         elif (
             mode_relation == "incompatible"
             and loaded.intent.cleanup
@@ -603,8 +606,8 @@ def _report_stale_close_intents(
             and stack_match in {"exact", "same-logical", "covered"}
         ):
             console.warning(
-                f"Interrupted {description} is still outstanding; plain close "
-                "does not finish cleanup. Run `close --cleanup` to complete it."
+                t"Interrupted {description} is still outstanding; plain close "
+                t"does not finish cleanup. Run {ui.cmd('close --cleanup')} to complete it."
             )
         elif match == "same-logical":
             console.note(

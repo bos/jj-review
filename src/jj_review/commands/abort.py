@@ -139,9 +139,8 @@ def abort(
         count = len(loaded_intents)
         noun = "operation" if count == 1 else "operations"
         console.output(
-            f"{count} stale incomplete {noun} found "
-            "(changes no longer exist in this repo). "
-            "Run `cleanup` to remove stale jj-review data."
+            t"{count} stale incomplete {noun} found (changes no longer exist in this repo). "
+            t"Run {ui.cmd('cleanup')} to remove stale jj-review data."
         )
         return 1
 

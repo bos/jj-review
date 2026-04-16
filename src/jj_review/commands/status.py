@@ -368,14 +368,10 @@ def render_status_advisory_lines(*, result) -> tuple[object, ...]:
         )
         lines.append(
             _wrap_advisory(
-                (
-                    "Next step: run `",
-                    ui.semantic_text("jj-review cleanup --restack ", "hint"),
-                    ui.revset(result.selected_revset),
-                    "` to rewrite the local stack, or `",
-                    ui.semantic_text("jj-review cleanup --restack --dry-run", "hint"),
-                    "` to preview the restack plan first",
-                )
+                t"Next step: run {ui.cmd('jj-review cleanup --restack')} "
+                t"{ui.revset(result.selected_revset)} to rewrite the local stack, or "
+                t"{ui.cmd('jj-review cleanup --restack --dry-run')} to preview the "
+                t"restack plan first"
             )
         )
         for revision in cleanup_revisions:
@@ -397,16 +393,11 @@ def render_status_advisory_lines(*, result) -> tuple[object, ...]:
     if link_revisions:
         lines.append(
             _wrap_advisory(
-                (
-                    "PR link note: refresh remote and GitHub observations with `",
-                    ui.semantic_text("jj-review status --fetch ", "hint"),
-                    ui.revset(result.selected_revset),
-                    "`. If the existing PR should stay attached to one of these changes, "
-                    "repair that PR link intentionally with `",
-                    ui.semantic_text("jj-review relink <pr> ", "hint"),
-                    ui.revset(result.selected_revset),
-                    "`.",
-                )
+                t"PR link note: refresh remote and GitHub observations with "
+                t"{ui.cmd('jj-review status --fetch')} {ui.revset(result.selected_revset)}. "
+                t"If the existing PR should stay attached to one of these changes, repair "
+                t"that PR link intentionally with {ui.cmd('jj-review relink <pr>')} "
+                t"{ui.revset(result.selected_revset)}."
             )
         )
         for revision in link_revisions:
@@ -443,11 +434,11 @@ def render_status_advisory_lines(*, result) -> tuple[object, ...]:
                 (
                     _status_revision_label(revision),
                     ": resolve the multiple visible revisions for this change before retrying ",
-                    "(`",
-                    ui.semantic_text("jj log -r 'change_id(", "hint"),
+                    "(",
+                    ui.cmd("jj log -r 'change_id("),
                     ui.change_id(revision.change_id),
-                    ui.semantic_text(")'", "hint"),
-                    "`)",
+                    ui.cmd(")'"),
+                    ")",
                 )
             )
         )
@@ -518,7 +509,7 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
                         description,
                         (
                             "interrupted, inspect before rerunning ",
-                            ui.semantic_text("relink", "hint"),
+                            ui.cmd("relink"),
                             " again",
                         ),
                     )
@@ -529,7 +520,7 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
                         description,
                         (
                             "interrupted, inspect before rerunning ",
-                            ui.semantic_text("cleanup", "hint"),
+                            ui.cmd("cleanup"),
                             " again",
                         ),
                     )
@@ -540,7 +531,7 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
                         description,
                         (
                             "interrupted, inspect before rerunning ",
-                            ui.semantic_text("abort", "hint"),
+                            ui.cmd("abort"),
                             " again",
                         ),
                     )
@@ -551,7 +542,7 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
                         description,
                         (
                             "interrupted, inspect before rerunning ",
-                            ui.semantic_text("land", "hint"),
+                            ui.cmd("land"),
                             " again",
                         ),
                     )
@@ -676,7 +667,7 @@ def _render_rerun_command(*, command: str, revset: str) -> tuple[object, ...]:
     """Render an explicit rerun command for the current selection."""
 
     return (
-        ui.semantic_text(command, "hint"),
+        ui.cmd(command),
         " ",
         ui.revset(revset),
     )
@@ -1026,7 +1017,7 @@ def _render_intent_description(intent) -> object:
     if isinstance(intent, LandIntent):
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
         return (
-            ui.semantic_text("land", "hint"),
+            ui.cmd("land"),
             " for ",
             ui.change_id(head_change_id),
             " (from ",
@@ -1036,9 +1027,9 @@ def _render_intent_description(intent) -> object:
     if isinstance(intent, RelinkIntent):
         return ("relink for ", ui.change_id(intent.change_id))
     if isinstance(intent, CleanupIntent):
-        return ui.semantic_text("cleanup", "hint")
+        return ui.cmd("cleanup")
     if isinstance(intent, AbortIntent):
-        return ui.semantic_text("abort", "hint")
+        return ui.cmd("abort")
     return getattr(intent, "label", "operation")
 
 

@@ -1153,8 +1153,8 @@ def _follow_up_message(
         return None
     return (
         t"Next step: remaining descendants still sit above the changes that were landed. "
-        t"Run `cleanup --restack {ui.revset(selected_revset)}` and then "
-        t"`submit {ui.revset(selected_revset)}`."
+        t"Run {ui.cmd('cleanup --restack')} {ui.revset(selected_revset)} and then "
+        t"{ui.cmd('submit')} {ui.revset(selected_revset)}."
     )
 
 

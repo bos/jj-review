@@ -256,7 +256,7 @@ def _check_interruptions(state_store: ReviewStateStore) -> CheckResult:
             f"{count} {noun}: ",
             _render_interrupted_intents(interrupted),
             "; run ",
-            ui.semantic_text("jj-review abort --dry-run", "hint"),
+            ui.cmd("jj-review abort --dry-run"),
             " to preview recovery",
         ),
     )

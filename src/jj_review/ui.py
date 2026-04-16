@@ -87,6 +87,12 @@ def revset(text: str) -> SemanticText:
     return semantic_text(text, "revset")
 
 
+def cmd(text: str) -> SemanticText:
+    """Wrap a command-line snippet for semantic rendering."""
+
+    return semantic_text(text, "command", "hint")
+
+
 def status(value: StatusValue) -> StatusBadge:
     """Wrap a status indicator for semantic rendering."""
 
