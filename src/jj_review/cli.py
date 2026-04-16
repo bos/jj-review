@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar, cast
 
-from jj_review import __version__, commands, console
+from jj_review import __version__, commands, console, ui
 from jj_review.completion import emit_shell_completion
 from jj_review.console import ColorMode, RequestedColorMode, configured_console, rich_color_mode
 from jj_review.errors import CliError, error_message
@@ -669,7 +669,7 @@ def _help_handler(args: Namespace) -> int:
 
     command_parser = _find_subcommand_parser(parser, args.command)
     if command_parser is None:
-        raise CliError(f"Unknown command {args.command!r}.")
+        raise CliError(t"Unknown command {ui.cmd(args.command)}.")
     print(command_parser.format_help(), end="")
     return 0
 
@@ -988,7 +988,9 @@ def _normalize_cli_args(argv: Sequence[str]) -> list[str]:
         if draft_mode == "all":
             normalized[index] = "--draft-all"
             continue
-        raise CliError(f"Invalid value for `--draft`: {draft_mode!r}. Expected `new` or `all`.")
+        raise CliError(
+            t"Invalid value for {ui.cmd('--draft')}: {draft_mode}. Expected new or all."
+        )
     return normalized
 
 

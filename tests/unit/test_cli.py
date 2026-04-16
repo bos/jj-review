@@ -77,7 +77,7 @@ def test_normalize_cli_args_rejects_invalid_draft_mode() -> None:
     with pytest.raises(CliError) as exc_info:
         _normalize_cli_args(["submit", "--draft=oops", "@"])
 
-    assert "Invalid value for `--draft`" in str(exc_info.value)
+    assert "Invalid value for --draft" in str(exc_info.value)
 
 
 def test_main_submit_rejects_draft_and_publish_together() -> None:
