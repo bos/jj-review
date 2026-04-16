@@ -131,7 +131,7 @@ async def _run_relink_async(
     if pull_request.state != "open":
         raise CliError(
             f"Pull request #{pull_request.number} is not open; cannot relink "
-            f"{pull_request.state!r} PRs."
+            f"{pull_request.state} PRs."
         )
 
     bookmark = pull_request.head.ref
