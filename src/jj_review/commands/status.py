@@ -416,30 +416,18 @@ def render_status_advisory_lines(*, result) -> tuple[object, ...]:
         pull_request_number = revision_pull_request_number(revision)
         lines.append(
             _wrap_advisory(
-                (
-                    "Repository policy warning: PR #",
-                    str(pull_request_number),
-                    " merged into ",
-                    base_ref,
-                    "; configure GitHub to block merges of PRs targeting `",
-                    ui.semantic_text("review/*", "hint"),
-                    "`",
-                )
+                t"Repository policy warning: PR #{pull_request_number} merged into "
+                t"{ui.bookmark(base_ref)}; configure GitHub to block merges of PRs "
+                t"targeting {ui.bookmark('review/*')}"
             )
         )
 
     for revision in divergent_revisions:
         lines.append(
             _wrap_advisory(
-                (
-                    _status_revision_label(revision),
-                    ": resolve the multiple visible revisions for this change before retrying ",
-                    "(",
-                    ui.cmd("jj log -r 'change_id("),
-                    ui.change_id(revision.change_id),
-                    ui.cmd(")'"),
-                    ")",
-                )
+                t"{_status_revision_label(revision)}: resolve the multiple visible "
+                t"revisions for this change before retrying "
+                t"({ui.cmd('jj log -r')} {ui.revset(f'change_id({revision.change_id})')})"
             )
         )
     return tuple(lines)
@@ -985,47 +973,28 @@ def _prefixed_intent_line(description: object, status: object) -> object:
 def _render_intent_description(intent) -> object:
     if isinstance(intent, SubmitIntent):
         return (
-            "submit for ",
-            ui.change_id(intent.head_change_id),
-            " (from ",
-            ui.revset(intent.display_revset),
-            ")",
+            t"{ui.cmd('submit')} for {ui.change_id(intent.head_change_id)} "
+            t"(from {ui.revset(intent.display_revset)})"
         )
     if isinstance(intent, CleanupRestackIntent):
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
         return (
-            "cleanup --restack for ",
-            ui.change_id(head_change_id),
-            " (from ",
-            ui.revset(intent.display_revset),
-            ")",
+            t"{ui.cmd('cleanup --restack')} for {ui.change_id(head_change_id)} "
+            t"(from {ui.revset(intent.display_revset)})"
         )
     if isinstance(intent, CloseIntent):
-        verb = ui.semantic_text(
-            "close --cleanup" if intent.cleanup else "close",
-            "hint",
-        )
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
         return (
-            verb,
-            " for ",
-            ui.change_id(head_change_id),
-            " (from ",
-            ui.revset(intent.display_revset),
-            ")",
+            t"{ui.cmd('close --cleanup' if intent.cleanup else 'close')} "
+            t"for {ui.change_id(head_change_id)} "
+            t"(from {ui.revset(intent.display_revset)})"
         )
     if isinstance(intent, LandIntent):
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
-        return (
-            ui.cmd("land"),
-            " for ",
-            ui.change_id(head_change_id),
-            " (from ",
-            ui.revset(intent.display_revset),
-            ")",
-        )
+        return t"{ui.cmd('land')} for {ui.change_id(head_change_id)} " \
+            t"(from {ui.revset(intent.display_revset)})"
     if isinstance(intent, RelinkIntent):
-        return ("relink for ", ui.change_id(intent.change_id))
+        return t"{ui.cmd('relink')} for {ui.change_id(intent.change_id)}"
     if isinstance(intent, CleanupIntent):
         return ui.cmd("cleanup")
     if isinstance(intent, AbortIntent):
