@@ -104,15 +104,15 @@ async def _run_relink_async(
         reference=pull_request_reference,
         github_repository=github_repository,
         invalid_reference_message=(
-            f"`{pull_request_reference}` is not a pull request number or URL for "
+            f"{pull_request_reference} is not a pull request number or URL for "
             f"{github_repository.full_name}."
         ),
         wrong_host_message=(
-            f"`{pull_request_reference}` is not a pull request number or URL for "
+            f"{pull_request_reference} is not a pull request number or URL for "
             f"{github_repository.full_name}."
         ),
         wrong_repository_message=(
-            f"`{pull_request_reference}` does not belong to {github_repository.full_name}."
+            f"{pull_request_reference} does not belong to {github_repository.full_name}."
         ),
     )
 
