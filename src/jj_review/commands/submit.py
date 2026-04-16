@@ -284,12 +284,9 @@ def submit(
     emitted_prepared = False
 
     def emit_prepared(
-        selected_revset: str,
         selected_change_id: str,
         selected_subject: str,
-        has_revisions: bool,
     ) -> None:
-        del has_revisions, selected_revset
         nonlocal emitted_prepared
         if revset is None:
             console.output(
@@ -493,7 +490,7 @@ def _prepare_submit_inputs(
     config: RepoConfig,
     describe_with: str | None,
     dry_run: bool,
-    on_prepared: Callable[[str, str, str, bool], None] | None,
+    on_prepared: Callable[[str, str], None] | None,
     repo_root: Path,
     revset: str | None,
     state_store: ReviewStateStore,
@@ -511,10 +508,8 @@ def _prepare_submit_inputs(
     stack = client.discover_review_stack(revset)
     if on_prepared is not None:
         on_prepared(
-            stack.selected_revset,
             stack.head.change_id,
             stack.head.subject,
-            bool(stack.revisions),
         )
     state = state_store.load()
     discovered_bookmarks = discover_bookmarks_for_revisions(
@@ -747,7 +742,7 @@ async def _run_submit_async(
     draft_mode: SubmitDraftMode,
     dry_run: bool,
     labels: list[str] | None,
-    on_prepared: Callable[[str, str, str, bool], None] | None,
+    on_prepared: Callable[[str, str], None] | None,
     repo_root: Path,
     revset: str | None,
     reviewers: list[str] | None,
