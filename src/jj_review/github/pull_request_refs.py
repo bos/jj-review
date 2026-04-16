@@ -60,16 +60,16 @@ def parse_repository_pull_request_reference(
         raise CliError(
             invalid_reference_message
             or (
-                f"Pull request reference {reference!r} is not a pull request number "
-                f"or URL for {github_repository.full_name!r}."
+                f"Pull request reference {reference} is not a pull request number "
+                f"or URL for {github_repository.full_name}."
             )
         )
     if pull_request_url.host != github_repository.host:
         raise CliError(
             wrong_host_message
             or (
-                f"Pull request URL {reference!r} does not match configured host "
-                f"{github_repository.host!r}."
+                f"Pull request URL {reference} does not match configured host "
+                f"{github_repository.host}."
             )
         )
     if (
@@ -79,8 +79,8 @@ def parse_repository_pull_request_reference(
         raise CliError(
             wrong_repository_message
             or (
-                f"Pull request URL {reference!r} does not match configured repository "
-                f"{github_repository.full_name!r}."
+                f"Pull request URL {reference} does not match configured repository "
+                f"{github_repository.full_name}."
             )
         )
     return pull_request_url.number
