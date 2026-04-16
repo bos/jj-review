@@ -43,7 +43,6 @@ def test_review_state_store_preserves_unlinked_change_metadata(tmp_path: Path) -
             changes={
                 "zvlywqkxtmnpqrstu": CachedChange(
                     bookmark="review/fix-cache-invalidation-zvlywqkx",
-                    unlinked_at="2026-03-22T12:34:56+00:00",
                     link_state="unlinked",
                 )
             }
@@ -53,7 +52,6 @@ def test_review_state_store_preserves_unlinked_change_metadata(tmp_path: Path) -
     loaded_change = store.load().changes["zvlywqkxtmnpqrstu"]
 
     assert loaded_change.bookmark == "review/fix-cache-invalidation-zvlywqkx"
-    assert loaded_change.unlinked_at == "2026-03-22T12:34:56+00:00"
     assert loaded_change.is_unlinked is True
 
 

@@ -15,7 +15,6 @@ class CachedChange(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     bookmark: str | None = None
-    unlinked_at: str | None = None
     last_submitted_commit_id: str | None = None
     link_state: LinkState = "active"
     pr_is_draft: bool | None = None

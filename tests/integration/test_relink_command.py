@@ -253,7 +253,6 @@ def test_relink_clears_unlinked_state(
 
     assert exit_code == 0
     assert "Relinked PR #1" in captured.out
-    assert relinked_change.unlinked_at is None
     assert relinked_change.link_state == "active"
     assert relinked_change.pr_number == 1
     assert relinked_change.pr_state == "open"

@@ -41,7 +41,6 @@ def test_unlink_detaches_change_and_preserves_local_bookmark(
     assert exit_code == 0
     assert "Stopped review tracking for" in captured.out
     assert unlinked_change.bookmark == bookmark
-    assert unlinked_change.unlinked_at is not None
     assert unlinked_change.link_state == "unlinked"
     assert unlinked_change.pr_number is None
     assert unlinked_change.pr_review_decision is None

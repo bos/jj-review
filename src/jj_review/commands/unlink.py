@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 
 from jj_review import console, ui
@@ -142,7 +141,6 @@ async def _run_unlink_async(
     updated_change = (cached_change or CachedChange(bookmark=bookmark)).model_copy(
         update={
             "bookmark": bookmark,
-            "unlinked_at": datetime.now(UTC).isoformat(),
             "link_state": "unlinked",
             "pr_number": None,
             "pr_review_decision": None,
