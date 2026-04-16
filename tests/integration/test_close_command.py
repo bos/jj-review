@@ -484,7 +484,7 @@ def test_close_apply_cleanup_rechecks_cached_comment_ownership_when_pr_is_missin
 
     assert exit_code == 1
     assert "cannot delete saved stack summary comment" in captured.out
-    assert "does not belong to `jj-review`" in captured.out
+    assert "does not belong to jj-review" in captured.out
     assert manual_comment in issue_comments(fake_repo, 1)
 
 

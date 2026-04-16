@@ -1199,7 +1199,7 @@ async def _find_stack_summary_comment(
                         body=(
                             f"cannot delete saved stack summary comment "
                             f"#{cached_stack_comment_id} because it does not belong to "
-                            "`jj-review`"
+                            "jj-review"
                         ),
                         status="blocked",
                     ),
@@ -1231,7 +1231,7 @@ async def _find_stack_summary_comment(
                         body=(
                             f"cannot delete saved stack summary comment "
                             f"#{cached_stack_comment_id} because it does not belong to "
-                            "`jj-review`"
+                            "jj-review"
                         ),
                         status="blocked",
                     ),
