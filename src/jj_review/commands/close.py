@@ -182,7 +182,8 @@ def close(
         else ("close --cleanup" if cleanup else "close" if not dry_run else "close --dry-run")
     )
     if pull_request is not None:
-        pull_request_number, resolved_revset = _resolve_close_revset_for_pull_request(
+        pull_request_number, resolved_revset = resolve_linked_change_for_pull_request(
+            action_name="close",
             pull_request_reference=pull_request,
             repo_root=context.repo_root,
             revset=revset,
@@ -238,20 +239,6 @@ def close(
         else:
             console.output("Nothing to close on the selected stack.")
     return 1 if result.blocked else 0
-
-
-def _resolve_close_revset_for_pull_request(
-    *,
-    pull_request_reference: str,
-    repo_root: Path,
-    revset: str | None,
-) -> tuple[int, str]:
-    return resolve_linked_change_for_pull_request(
-        action_name="close",
-        pull_request_reference=pull_request_reference,
-        repo_root=repo_root,
-        revset=revset,
-    )
 
 
 def prepare_close(
@@ -343,7 +330,6 @@ async def _stream_close_async(
         )
         return _close_result(
             actions=recorder.as_tuple(),
-            applied=False,
             blocked=True,
             github_error=status_result.github_error,
             github_repository=github_repository,
@@ -536,9 +522,11 @@ def _start_close_intent(
         stale_intents=stale_close_intents,
     )
     stale_submit_intents = (
-        _list_stale_submit_intents(
-            state_store=prepared_status.prepared.state_store,
-        )
+        [
+            loaded
+            for loaded in prepared_status.prepared.state_store.list_intents()
+            if isinstance(loaded.intent, SubmitIntent) and not pid_is_alive(loaded.intent.pid)
+        ]
         if prepared_close.cleanup
         else []
     )
@@ -548,19 +536,6 @@ def _start_close_intent(
         stale_close_intents=stale_close_intents,
         stale_submit_intents=stale_submit_intents,
     )
-
-
-def _list_stale_submit_intents(
-    *,
-    state_store: ReviewStateStore,
-) -> list[LoadedIntent]:
-    """Return interrupted submit intents that may be retired by close --cleanup."""
-
-    return [
-        loaded
-        for loaded in state_store.list_intents()
-        if isinstance(loaded.intent, SubmitIntent) and not pid_is_alive(loaded.intent.pid)
-    ]
 
 
 def _report_stale_close_intents(
@@ -712,7 +687,7 @@ async def _process_close_revision(
         return True
 
     cached_change = revision.cached_change or current_state.changes.get(revision.change_id)
-    revision_label = _revision_label(revision)
+    revision_label = t"{revision.subject} ({ui.change_id(revision.change_id)})"
     if lookup.state == "missing":
         return await _process_missing_close_revision(
             cached_change=cached_change,
@@ -726,12 +701,22 @@ async def _process_close_revision(
             revision_label=revision_label,
         )
 
-    cached_change = _close_cached_change(
-        cached_change=cached_change,
-        revision=revision,
-    )
     if cached_change is None:
-        return False
+        if lookup.pull_request is None:
+            return False
+        cached_change = CachedChange(
+            bookmark=revision.bookmark,
+            pr_number=lookup.pull_request.number,
+            pr_state=lookup.pull_request.state,
+            pr_url=lookup.pull_request.html_url,
+            stack_comment_id=(
+                revision.stack_comment_lookup.comment.id
+                if revision.stack_comment_lookup is not None
+                and revision.stack_comment_lookup.state == "present"
+                and revision.stack_comment_lookup.comment is not None
+                else None
+            ),
+        )
     if lookup.state == "open" and lookup.pull_request is not None:
         await _process_open_close_revision(
             cached_change=cached_change,
@@ -775,7 +760,7 @@ async def _process_missing_close_revision(
     revision,
     revision_label: CloseActionBody,
 ) -> bool:
-    if _has_active_cached_link(cached_change):
+    if cached_change is not None and cached_change.pr_state == "open":
         record_action(
             CloseAction(
                 kind="close",
@@ -1273,40 +1258,6 @@ def _retire_cached_change(
     return cached_change.model_copy(update=updates)
 
 
-def _close_cached_change(
-    *,
-    cached_change: CachedChange | None,
-    revision,
-) -> CachedChange | None:
-    if cached_change is not None:
-        return cached_change
-
-    lookup = revision.pull_request_lookup
-    if lookup is None or lookup.pull_request is None:
-        return None
-
-    return CachedChange(
-        bookmark=revision.bookmark,
-        pr_number=lookup.pull_request.number,
-        pr_review_decision=getattr(lookup, "review_decision", None),
-        pr_state=lookup.pull_request.state,
-        pr_url=lookup.pull_request.html_url,
-        stack_comment_id=(
-            revision.stack_comment_lookup.comment.id
-            if revision.stack_comment_lookup is not None
-            and revision.stack_comment_lookup.state == "present"
-            and revision.stack_comment_lookup.comment is not None
-            else None
-        ),
-    )
-
-
-def _has_active_cached_link(cached_change: CachedChange | None) -> bool:
-    if cached_change is None:
-        return False
-    return cached_change.pr_state == "open"
-
-
 def _has_retirable_cached_review_identity(cached_change: CachedChange) -> bool:
     """Return True when saved state proves this change previously had review identity."""
 
@@ -1320,10 +1271,6 @@ def _has_retirable_cached_review_identity(cached_change: CachedChange) -> bool:
             cached_change.stack_comment_id,
         )
     )
-
-
-def _revision_label(revision) -> Message:
-    return t"{revision.subject} ({ui.change_id(revision.change_id)})"
 
 
 def _render_close_action_message(action: CloseAction) -> CloseActionBody:
