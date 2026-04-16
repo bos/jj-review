@@ -128,7 +128,7 @@ def generate_bookmark_name(revision: LocalRevision) -> str:
     """Generate the default bookmark for a change."""
 
     first_line = revision.description.splitlines()[0] if revision.description else ""
-    slug = _slugify(first_line)
+    slug = _NON_ALNUM_RE.sub("-", first_line.lower()).strip("-") or _DEFAULT_SLUG
     return f"{_REVIEW_NAMESPACE}/{slug}-{short_change_id(revision.change_id)}"
 
 
@@ -189,11 +189,6 @@ def _bookmark_state_is_discoverable(bookmark_state: BookmarkState, remote_name: 
         return True
     remote_state = bookmark_state.remote_target(remote_name)
     return remote_state is not None and bool(remote_state.targets)
-
-
-def _slugify(subject: str) -> str:
-    slug = _NON_ALNUM_RE.sub("-", subject.lower()).strip("-")
-    return slug or _DEFAULT_SLUG
 
 
 def _updated_cached_change(
