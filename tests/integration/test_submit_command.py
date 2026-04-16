@@ -642,7 +642,7 @@ def test_submit_rejects_cached_stack_comment_id_for_non_stack_comment(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "does not belong to `jj-review`" in captured.err
+    assert "does not belong to jj-review" in captured.err
     assert manual_comment in issue_comments(fake_repo, 2)
 
 
@@ -681,7 +681,7 @@ def test_submit_rejects_ambiguous_discovered_stack_comments(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "multiple `jj-review` stack summary comments" in captured.err
+    assert "multiple jj-review stack summary comments" in captured.err
 
 
 def test_submit_reports_stack_comment_update_failures_without_traceback(
@@ -1125,7 +1125,7 @@ def test_submit_fails_closed_when_github_reports_closed_pull_request_for_head_br
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "in state 'closed'" in captured.err
+    assert "in state closed" in captured.err
     assert "status --fetch" in captured.err
     assert "relink" in captured.err
     assert state_store.load() == initial_state

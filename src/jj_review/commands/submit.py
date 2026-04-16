@@ -1654,7 +1654,7 @@ def _select_discovered_pull_request(
     if pull_request.state != "open":
         raise CliError(
             t"GitHub reports pull request #{pull_request.number} for head branch "
-            t"{ui.bookmark(head_label)} in state {pull_request.state!r}. Inspect the "
+            t"{ui.bookmark(head_label)} in state {pull_request.state}. Inspect the "
             t"PR link with {ui.cmd('status --fetch')} and repair it with "
             t"{ui.cmd('relink')} before submitting again."
         )
@@ -1988,7 +1988,7 @@ async def _clear_stack_comment(
                 raise CliError(
                     t"Saved stack summary comment #{cached_change.stack_comment_id} for "
                     t"pull request #{pull_request_number} does not belong to "
-                    t"`jj-review`. Inspect the PR link "
+                    t"jj-review. Inspect the PR link "
                     t"with {ui.cmd('status --fetch')} or delete the saved comment ID "
                     t"before submitting again."
                 )
@@ -2044,7 +2044,7 @@ async def _upsert_stack_comment(
                 raise CliError(
                     t"Saved stack summary comment #{cached_change.stack_comment_id} for "
                     t"pull request #{pull_request_number} does not belong to "
-                    t"`jj-review`. Inspect the PR link "
+                    t"jj-review. Inspect the PR link "
                     t"with {ui.cmd('status --fetch')} or delete the saved comment ID "
                     t"before submitting again."
                 )
@@ -2095,7 +2095,7 @@ async def _discover_stack_comment(
     if len(matching_comments) > 1:
         comment_ids = ", ".join(str(comment.id) for comment in matching_comments)
         raise CliError(
-            t"GitHub reports multiple `jj-review` stack "
+            t"GitHub reports multiple jj-review stack "
             t"summary comments for the same pull request: {comment_ids}. Inspect the "
             t"PR link with {ui.cmd('status --fetch')} or delete the extra stack "
             t"summary comments before submitting again."

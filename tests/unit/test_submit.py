@@ -249,7 +249,7 @@ def test_resolve_local_action_rejects_conflicted_bookmark() -> None:
 def test_ensure_remote_can_be_updated_rejects_conflicted_remote_bookmark() -> None:
     with pytest.raises(
         CliError,
-        match="Remote bookmark 'review/foo'@origin is conflicted",
+        match="Remote bookmark review/foo@origin is conflicted",
     ):
         _ensure_remote_can_be_updated(
             bookmark="review/foo",
