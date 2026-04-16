@@ -209,7 +209,9 @@ def land(
             repo_root=context.repo_root,
             revset=revset,
         )
-        console.note(f"Using PR #{pull_request_number} -> {resolved_revset}")
+        console.note(
+            t"Using PR #{pull_request_number} -> {ui.revset(resolved_revset)}"
+        )
     else:
         pull_request_number = None
         resolved_revset = resolve_selected_revset(
@@ -317,10 +319,10 @@ def prepare_land(
     )
     prepared = prepared_status.prepared
     if prepared.remote is None:
-        message = prepared.remote_error or "Could not determine which Git remote to use."
+        message = prepared.remote_error or t"Could not determine which Git remote to use."
         raise CliError(message)
     if prepared_status.github_repository is None:
-        message = prepared_status.github_repository_error or "Could not resolve GitHub target."
+        message = prepared_status.github_repository_error or t"Could not resolve GitHub target."
         raise CliError(message)
 
     if not dry_run:
@@ -365,8 +367,8 @@ async def _stream_land_async(
     prepared = prepared_status.prepared
     if status_result.github_error is not None:
         raise CliError(
-            "Could not inspect GitHub pull request state for `land`: "
-            f"{status_result.github_error}"
+            t"Could not inspect GitHub pull request state for {ui.cmd('land')}: "
+            t"{status_result.github_error}"
         )
 
     github_repository = prepared_status.github_repository
@@ -382,7 +384,7 @@ async def _stream_land_async(
             )
         except GithubClientError as error:
             raise CliError(
-                f"Could not load GitHub repository {github_repository.full_name}: {error}"
+                t"Could not load GitHub repository {github_repository.full_name}: {error}"
             ) from error
         trunk_branch = resolve_trunk_branch(
             bookmark_states=prepared.client.list_bookmark_states(),
@@ -549,10 +551,10 @@ async def _stream_land_async(
                         prepared.client.forget_bookmarks((cleanup_plan.bookmark,))
                         actions.append(
                             LandAction(
-                                kind="local bookmark",
-                                body=t"forget {ui.bookmark(cleanup_plan.bookmark)} "
-                                t"for {ui.change_id(landed_revision.change_id)}",
-                                status="applied",
+                        kind="local bookmark",
+                        body=t"forget {ui.bookmark(cleanup_plan.bookmark)} "
+                        t"for {ui.change_id(landed_revision.change_id)}",
+                        status="applied",
                             )
                         )
                     else:
@@ -710,14 +712,11 @@ def _report_stale_land_intents(
         if resume_intent is not None and loaded.path == resume_intent.path:
             if resume_intent.mode == "tail-after-landed-prefix":
                 console.note(
-                    (
-                        "Resuming interrupted ",
-                        describe_intent(loaded.intent),
-                        " after the trunk transition already succeeded",
-                    )
+                    t"Resuming interrupted {describe_intent(loaded.intent)} after the "
+                    t"trunk transition already succeeded"
                 )
             else:
-                console.note(("Resuming interrupted ", describe_intent(loaded.intent)))
+                console.note(t"Resuming interrupted {describe_intent(loaded.intent)}")
             continue
         match = match_ordered_change_ids(
             loaded.intent.ordered_change_ids,
@@ -728,15 +727,11 @@ def _report_stale_land_intents(
         )
         if match == "overlap":
             console.warning(
-                (
-                    "this land overlaps an incomplete earlier operation ",
-                    "(",
-                    describe_intent(loaded.intent),
-                    ")",
-                )
+                t"this land overlaps an incomplete earlier operation "
+                t"({describe_intent(loaded.intent)})"
             )
         else:
-            console.note(("incomplete operation outstanding: ", describe_intent(loaded.intent)))
+            console.note(t"incomplete operation outstanding: {describe_intent(loaded.intent)}")
 
 
 def _build_land_plan(
@@ -832,7 +827,7 @@ def _land_boundary_message(
     if revision.link_state == "unlinked":
         return (
             t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
-            t"this change is unlinked from review tracking; run `relink` first"
+            t"this change is unlinked from review tracking; run {ui.cmd('relink')} first"
         )
     if revision.local_divergent:
         return (
@@ -843,7 +838,8 @@ def _land_boundary_message(
     if remote_state is None or remote_state.target != prepared_revision.revision.commit_id:
         return (
             t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
-            t"the pushed branch does not match the current local commit; rerun `submit` first"
+            t"the pushed branch does not match the current local commit; rerun "
+            t"{ui.cmd('submit')} first"
         )
     pull_request_lookup = revision.pull_request_lookup
     if pull_request_lookup is None:
@@ -886,14 +882,15 @@ def _land_boundary_message(
     if pull_request_lookup.state == "missing":
         return (
             t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
-            t"GitHub no longer reports a pull request for its branch; run `status --fetch` or "
-            t"`relink` first"
+            t"GitHub no longer reports a pull request for its branch; run "
+            t"{ui.cmd('status --fetch')} or {ui.cmd('relink')} first"
         )
     if pull_request_lookup.state == "ambiguous":
         detail = pull_request_lookup.message or "GitHub reports an ambiguous PR link"
         return (
             t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
-            t"{detail} Run `status --fetch` and repair the PR link with `relink`."
+            t"{detail} Run {ui.cmd('status --fetch')} and repair the PR link with "
+            t"{ui.cmd('relink')}."
         )
     if pull_request_lookup.state == "error":
         detail = pull_request_lookup.message or "GitHub lookup failed"
@@ -906,7 +903,8 @@ def _land_boundary_message(
     if pull_request.state == "merged":
         return (
             t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
-            t"PR #{pull_request.number} is already merged; run `cleanup --restack` first"
+            t"PR #{pull_request.number} is already merged; run "
+            t"{ui.cmd('cleanup --restack')} first"
         )
     return (
         t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
@@ -1043,8 +1041,8 @@ def _resume_land_plan(*, intent: LandIntent, trunk_branch: str) -> _LandPlan:
             )
         except KeyError as error:
             raise CliError(
-                f"Interrupted land intent for {intent.label!r} is incomplete. "
-                "Re-run `land` to refresh the plan."
+                t"Interrupted land intent for {intent.label!r} is incomplete. "
+                t"Re-run {ui.cmd('land')} to refresh the plan."
             ) from error
     return _LandPlan(
         blocked=False,
@@ -1168,35 +1166,37 @@ def _ensure_trunk_branch_matches_selected_trunk(
     bookmark_state = client.get_bookmark_state(trunk_branch)
     if len(bookmark_state.local_targets) > 1:
         raise CliError(
-            f"Local trunk bookmark {trunk_branch!r} is conflicted. Resolve it before landing."
+            t"Local trunk bookmark {ui.bookmark(trunk_branch)} is conflicted. "
+            t"Resolve it before landing."
         )
     local_target = bookmark_state.local_target
     if local_target is not None and local_target != trunk_commit_id:
         raise CliError(
-            f"Local trunk bookmark {trunk_branch!r} no longer matches `trunk()`. Refresh or "
-            "restore the local trunk state before retrying."
+            t"Local trunk bookmark {ui.bookmark(trunk_branch)} no longer matches "
+            t"{ui.revset('trunk()')}. Refresh or restore the local trunk state before "
+            t"retrying."
         )
 
     remote_state = bookmark_state.remote_target(remote_name)
     if remote_state is None:
         raise CliError(
-            f"Remote trunk bookmark {trunk_branch!r}@{remote_name} is not available. Fetch and "
-            "retry."
+            t"Remote trunk bookmark {ui.bookmark(f'{trunk_branch}@{remote_name}')} is not "
+            t"available. Fetch and retry."
         )
     if len(remote_state.targets) > 1:
         raise CliError(
-            f"Remote trunk bookmark {trunk_branch!r}@{remote_name} is conflicted. Resolve it "
-            "before landing."
+            t"Remote trunk bookmark {ui.bookmark(f'{trunk_branch}@{remote_name}')} is "
+            t"conflicted. Resolve it before landing."
         )
     if remote_state.target is None:
         raise CliError(
-            f"Remote trunk bookmark {trunk_branch!r}@{remote_name} is not available. Fetch and "
-            "retry."
+            t"Remote trunk bookmark {ui.bookmark(f'{trunk_branch}@{remote_name}')} is not "
+            t"available. Fetch and retry."
         )
     if remote_state.target != trunk_commit_id:
         raise CliError(
-            f"Remote trunk bookmark {trunk_branch!r}@{remote_name} moved since the selected "
-            "path was resolved. Fetch, restack if needed, and retry."
+            t"Remote trunk bookmark {ui.bookmark(f'{trunk_branch}@{remote_name}')} moved since "
+            t"the selected path was resolved. Fetch, restack if needed, and retry."
         )
 
 
@@ -1216,7 +1216,7 @@ async def _finalize_landed_pull_request(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not load PR #{landed_revision.pull_request_number} during land: {error}"
+            t"Could not load PR #{landed_revision.pull_request_number} during land: {error}"
         ) from error
     pull_request = _normalize_pull_request_state(pull_request)
     if pull_request.state == "open" and pull_request.base.ref != trunk_branch:
@@ -1231,7 +1231,8 @@ async def _finalize_landed_pull_request(
             )
         except GithubClientError as error:
             raise CliError(
-                f"Could not retarget PR #{pull_request.number} to {trunk_branch!r}: {error}"
+                t"Could not retarget PR #{pull_request.number} to "
+                t"{ui.bookmark(trunk_branch)}: {error}"
             ) from error
         pull_request = _normalize_pull_request_state(pull_request)
     if pull_request.state == "open":
@@ -1248,7 +1249,7 @@ async def _finalize_landed_pull_request(
             )
         except GithubClientError as error:
             raise CliError(
-                f"Could not close PR #{pull_request.number} after landing: {error}"
+                t"Could not close PR #{pull_request.number} after landing: {error}"
             ) from error
         pull_request = _normalize_pull_request_state(pull_request)
     if cached_change is not None and cached_change.stack_comment_id is not None:
@@ -1261,8 +1262,8 @@ async def _finalize_landed_pull_request(
         except GithubClientError as error:
             if error.status_code != 404:
                 raise CliError(
-                    f"Could not delete stack summary comment "
-                    f"#{cached_change.stack_comment_id}: {error}"
+                    t"Could not delete stack summary comment "
+                    t"#{cached_change.stack_comment_id}: {error}"
                 ) from error
     return pull_request
 
