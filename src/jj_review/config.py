@@ -10,6 +10,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
+from jj_review import ui
 from jj_review.errors import CliError
 
 CONFIG_SECTION = "jj-review"
@@ -113,13 +114,13 @@ def _jj_config_path(*, scope: str, repo_root: Path | None = None) -> Path:
             text=True,
         )
     except FileNotFoundError as error:
-        raise CliError("`jj` is not installed or is not on PATH.") from error
+        raise CliError(t"{ui.cmd('jj')} is not installed or is not on PATH.") from error
     if completed.returncode != 0:
         message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
         raise CliError(f"Could not determine the jj {scope} config path: {message}")
     path_text = completed.stdout.strip()
     if not path_text:
-        raise CliError(f"`jj config path --{scope}` returned an empty path.")
+        raise CliError(t"{ui.cmd(f'jj config path --{scope}')} returned an empty path.")
     return Path(path_text)
 
 
