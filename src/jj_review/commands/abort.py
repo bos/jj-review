@@ -311,7 +311,7 @@ async def _abort_submit(
         repo=intent.github_repo,
     )
     remotes_by_name = {remote.name: remote for remote in jj_client.list_git_remotes()}
-    remote_branch_cleanup_block: str | None = None
+    remote_branch_cleanup_block: Message | None = None
     if (recorded_remote := remotes_by_name.get(remote_name)) is None:
         remote_branch_cleanup_block = t"recorded remote {ui.bookmark(remote_name)} is no " \
             t"longer configured; abort will not guess where to delete remote review branches"
@@ -419,7 +419,7 @@ async def _retract_one_change(
     github_repository,
     jj_client: JjClient,
     next_changes: dict[str, CachedChange],
-    remote_branch_cleanup_block: str | None,
+    remote_branch_cleanup_block: Message | None,
     remote_name: str | None,
 ) -> bool:
     """Retract one change. Returns True if all steps succeeded (nothing blocked)."""
@@ -486,7 +486,7 @@ def _retract_one_change_local(
     dry_run: bool,
     jj_client: JjClient,
     next_changes: dict[str, CachedChange],
-    remote_branch_cleanup_block: str | None,
+    remote_branch_cleanup_block: Message | None,
     remote_name: str | None,
 ) -> bool:
     """Retract local state for one change. Returns True if no steps were blocked."""
