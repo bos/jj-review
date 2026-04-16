@@ -187,7 +187,9 @@ def close(
             repo_root=context.repo_root,
             revset=revset,
         )
-        console.note(f"Using PR #{pull_request_number} -> {resolved_revset}")
+        console.note(
+            t"Using PR #{pull_request_number} -> {ui.revset(resolved_revset)}"
+        )
     else:
         resolved_revset = resolve_selected_revset(
             command_label=command_label,
@@ -611,19 +613,22 @@ def _report_stale_close_intents(
             )
         elif match == "same-logical":
             console.note(
-                f"Interrupted {description} targeted the same logical stack, "
-                "but it has been rewritten. This close"
-                f"{' --cleanup' if current_cleanup else ''} will use the current stack."
+                t"Interrupted {description} targeted the same logical stack, but it "
+                t"has been rewritten. This "
+                t"{ui.cmd('close --cleanup' if current_cleanup else 'close')} "
+                t"will use the current stack."
             )
         elif match == "covered":
             console.note(
-                f"Interrupted {description} targeted changes that are all included "
-                "in the current stack. This close"
-                f"{' --cleanup' if current_cleanup else ''} will use the current stack."
+                t"Interrupted {description} targeted changes that are all included "
+                t"in the current stack. This "
+                t"{ui.cmd('close --cleanup' if current_cleanup else 'close')} "
+                t"will use the current stack."
             )
         elif match == "overlap":
             console.warning(
-                f"This close overlaps an incomplete earlier operation ({description})"
+                t"This {ui.cmd('close --cleanup' if current_cleanup else 'close')} "
+                t"overlaps an incomplete earlier operation ({description})"
             )
         else:
             console.note(f"Incomplete operation outstanding: {description}")
@@ -775,9 +780,9 @@ async def _process_missing_close_revision(
             CloseAction(
                 kind="close",
                 body=(
-                    f"cannot close {revision_label} because GitHub no longer reports a pull "
-                    "request for its branch; run `status --fetch` or `relink` before "
-                    "retrying"
+                    t"cannot close {revision_label} because GitHub no longer reports a "
+                    t"pull request for its branch; run {ui.cmd('status --fetch')} or "
+                    t"{ui.cmd('relink')} before retrying"
                 ),
                 status="blocked",
             )
