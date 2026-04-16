@@ -543,7 +543,7 @@ async def _load_pull_request(
     if pull_request.head.label != f"{github_repository.owner}:{pull_request.head.ref}":
         pull_request_head = ui.bookmark(pull_request.head.label)
         raise CliError(
-            t"Pull request #{pull_request.number} head '{pull_request_head}' does not belong to "
+            t"Pull request #{pull_request.number} head {pull_request_head} does not belong to "
             t"{github_repository.full_name}. Import only supports same-repository "
             t"pull request branches."
         )
