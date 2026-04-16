@@ -9,4 +9,5 @@ htmlcov/
 .ruff_cache/
 .ty_cache/
 .uv-cache/
+.venv
 .venv/
