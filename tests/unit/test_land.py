@@ -519,7 +519,7 @@ def test_plan_review_bookmark_cleanup_blocks_moved_bookmark() -> None:
 def test_ensure_trunk_branch_matches_selected_trunk_rejects_missing_remote_bookmark() -> None:
     client = _BookmarkClientStub(BookmarkState(name="main", local_targets=("commit-1",)))
 
-    with pytest.raises(CliError, match="Remote trunk bookmark 'main'@origin is not available"):
+    with pytest.raises(CliError, match="Remote trunk bookmark main@origin is not available"):
         _ensure_trunk_branch_matches_selected_trunk(
             client=client,
             remote_name="origin",
@@ -537,7 +537,7 @@ def test_ensure_trunk_branch_matches_selected_trunk_rejects_missing_remote_bookm
                 local_targets=("commit-1", "commit-2"),
                 remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
             ),
-            "Local trunk bookmark 'main' is conflicted",
+            "Local trunk bookmark main is conflicted",
             id="conflicted-local",
         ),
         pytest.param(
@@ -546,7 +546,7 @@ def test_ensure_trunk_branch_matches_selected_trunk_rejects_missing_remote_bookm
                 local_targets=("commit-2",),
                 remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
             ),
-            "Local trunk bookmark 'main' no longer matches",
+            "Local trunk bookmark main no longer matches",
             id="moved-local",
         ),
         pytest.param(
@@ -557,7 +557,7 @@ def test_ensure_trunk_branch_matches_selected_trunk_rejects_missing_remote_bookm
                     RemoteBookmarkState(remote="origin", targets=("commit-1", "commit-2")),
                 ),
             ),
-            "Remote trunk bookmark 'main'@origin is conflicted",
+            "Remote trunk bookmark main@origin is conflicted",
             id="conflicted-remote",
         ),
         pytest.param(
@@ -566,7 +566,7 @@ def test_ensure_trunk_branch_matches_selected_trunk_rejects_missing_remote_bookm
                 local_targets=("commit-1",),
                 remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-2",)),),
             ),
-            "Remote trunk bookmark 'main'@origin moved",
+            "Remote trunk bookmark main@origin moved",
             id="moved-remote",
         ),
     ],
