@@ -7,7 +7,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Literal
 
-from jj_review.formatting import short_change_id
+from jj_review import ui
 from jj_review.models.intent import (
     CleanupIntent,
     CleanupRestackIntent,
@@ -21,6 +21,7 @@ from jj_review.models.intent import (
 )
 from jj_review.review.submit_recovery import should_retire_submit_after_submit
 from jj_review.system import pid_is_alive
+from jj_review.ui import Message
 
 logger = logging.getLogger(__name__)
 
@@ -50,26 +51,36 @@ def match_ordered_change_ids(
     return "disjoint"
 
 
-def describe_intent(intent: IntentFile) -> str:
+def describe_intent(intent: IntentFile) -> Message:
     """Return a user-facing description for an intent."""
 
     if isinstance(intent, SubmitIntent):
         return (
-            f"submit for {short_change_id(intent.head_change_id)} (from {intent.display_revset})"
+            t"{ui.cmd('submit')} for {ui.change_id(intent.head_change_id)} "
+            t"(from {ui.revset(intent.display_revset)})"
         )
     if isinstance(intent, CleanupRestackIntent):
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
         return (
-            f"cleanup --restack for {short_change_id(head_change_id)} "
-            f"(from {intent.display_revset})"
+            t"{ui.cmd('cleanup --restack')} for "
+            t"{ui.change_id(head_change_id) if head_change_id != 'stack' else head_change_id} "
+            t"(from {ui.revset(intent.display_revset)})"
         )
     if isinstance(intent, CloseIntent):
-        verb = "close --cleanup" if intent.cleanup else "close"
+        verb = ui.cmd("close --cleanup" if intent.cleanup else "close")
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
-        return f"{verb} for {short_change_id(head_change_id)} (from {intent.display_revset})"
+        return (
+            t"{verb} for "
+            t"{ui.change_id(head_change_id) if head_change_id != 'stack' else head_change_id} "
+            t"(from {ui.revset(intent.display_revset)})"
+        )
     if isinstance(intent, LandIntent):
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
-        return f"land for {short_change_id(head_change_id)} (from {intent.display_revset})"
+        return (
+            t"{ui.cmd('land')} for "
+            t"{ui.change_id(head_change_id) if head_change_id != 'stack' else head_change_id} "
+            t"(from {ui.revset(intent.display_revset)})"
+        )
     return intent.label
 
 
