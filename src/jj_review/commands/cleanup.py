@@ -128,6 +128,14 @@ class LocalBookmarkCleanupPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class OrphanLocalBookmarkCleanupPlan:
+    """Planned or blocked cleanup for one untracked local review bookmark."""
+
+    action: CleanupAction
+    bookmark: str
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedCleanupChange:
     """Locally prepared cleanup state for one cached change."""
 
@@ -477,7 +485,6 @@ def prepare_cleanup(
             )
     bookmark_states = _load_bookmark_states(
         jj_client=jj_client,
-        remote=remote,
         state=state,
     )
 
@@ -1152,6 +1159,7 @@ def _run_local_cleanup_pass(
 ) -> tuple[PreparedCleanupChange, ...]:
     prepared_changes: list[PreparedCleanupChange] = []
     mutation_plans: list[_StaleCleanupMutationPlan] = []
+    orphan_local_bookmark_plans: list[OrphanLocalBookmarkCleanupPlan] = []
     stale_reasons = _stale_change_reasons(
         change_ids=tuple(prepared_cleanup.state.changes),
         jj_client=prepared_cleanup.jj_client,
@@ -1173,10 +1181,33 @@ def _run_local_cleanup_pass(
         if mutation_plan is not None:
             mutation_plans.append(mutation_plan)
 
+    tracked_bookmarks = {
+        cached_change.bookmark
+        for cached_change in prepared_cleanup.state.changes.values()
+        if cached_change.bookmark is not None
+    }
+    for bookmark, bookmark_state in sorted(prepared_cleanup.bookmark_states.items()):
+        if bookmark in tracked_bookmarks or not bookmark.startswith("review/"):
+            continue
+        orphan_plan = _plan_orphan_local_bookmark_cleanup(
+            bookmark_state=bookmark_state,
+            jj_client=prepared_cleanup.jj_client,
+        )
+        if orphan_plan is None:
+            continue
+        if prepared_cleanup.dry_run:
+            record_action(orphan_plan.action)
+            continue
+        if orphan_plan.action.status != "planned":
+            record_action(orphan_plan.action)
+            continue
+        orphan_local_bookmark_plans.append(orphan_plan)
+
     if not prepared_cleanup.dry_run:
         _apply_stale_cleanup_mutation_plans(
             jj_client=prepared_cleanup.jj_client,
             mutation_plans=tuple(mutation_plans),
+            orphan_local_bookmark_plans=tuple(orphan_local_bookmark_plans),
             record_action=record_action,
             remote=prepared_cleanup.remote,
         )
@@ -1262,6 +1293,7 @@ def _apply_stale_cleanup_mutation_plans(
     *,
     jj_client: JjClient,
     mutation_plans: tuple[_StaleCleanupMutationPlan, ...],
+    orphan_local_bookmark_plans: tuple[OrphanLocalBookmarkCleanupPlan, ...] = (),
     record_action: Callable[[CleanupAction], None],
     remote: GitRemote | None,
 ) -> None:
@@ -1291,6 +1323,12 @@ def _apply_stale_cleanup_mutation_plans(
                 raise AssertionError("Planned local bookmark cleanup requires a bookmark.")
             local_bookmarks.append(bookmark)
             local_actions.append(local_bookmark_plan.action)
+
+    for orphan_plan in orphan_local_bookmark_plans:
+        if orphan_plan.action.status != "planned":
+            continue
+        local_bookmarks.append(orphan_plan.bookmark)
+        local_actions.append(orphan_plan.action)
 
     remote_deleted = False
     try:
@@ -1414,21 +1452,32 @@ def _resolve_remote(*, jj_client: JjClient) -> tuple[GitRemote | None, ErrorMess
 def _load_bookmark_states(
     *,
     jj_client: JjClient,
-    remote: GitRemote | None,
     state: ReviewState,
 ) -> dict[str, BookmarkState]:
-    if remote is None:
+    bookmark_states = jj_client.list_bookmark_states()
+    tracked_bookmarks = {
+        cached_change.bookmark
+        for cached_change in state.changes.values()
+        if cached_change.bookmark is not None
+    }
+    relevant_bookmarks = {
+        bookmark
+        for bookmark, bookmark_state in bookmark_states.items()
+        if bookmark.startswith("review/") and bookmark_state.local_targets
+    }
+    relevant_bookmarks.update(tracked_bookmarks)
+
+    if not relevant_bookmarks:
         return {}
-    bookmarks = sorted(
-        {
-            cached_change.bookmark
-            for cached_change in state.changes.values()
-            if cached_change.bookmark is not None
-        }
-    )
-    if not bookmarks:
-        return {}
-    return jj_client.list_bookmark_states(bookmarks)
+
+    filtered = {
+        bookmark: bookmark_states[bookmark]
+        for bookmark in relevant_bookmarks
+        if bookmark in bookmark_states
+    }
+    for bookmark in tracked_bookmarks:
+        filtered.setdefault(bookmark, BookmarkState(name=bookmark))
+    return filtered
 
 
 def _cache_action(
@@ -1587,6 +1636,50 @@ def _plan_local_bookmark_cleanup(
             status="planned",
             body=t"forget {ui.bookmark(bookmark)} ({stale_reason})",
         )
+    )
+
+
+def _plan_orphan_local_bookmark_cleanup(
+    *,
+    bookmark_state: BookmarkState,
+    jj_client: JjClient,
+) -> OrphanLocalBookmarkCleanupPlan | None:
+    bookmark = bookmark_state.name
+    if not bookmark.startswith("review/") or not bookmark_state.local_targets:
+        return None
+    if len(bookmark_state.local_targets) > 1:
+        return OrphanLocalBookmarkCleanupPlan(
+            bookmark=bookmark,
+            action=CleanupAction(
+                kind="local bookmark",
+                status="blocked",
+                body=t"cannot forget {ui.bookmark(bookmark)} because it is conflicted",
+            ),
+        )
+
+    local_target = bookmark_state.local_target
+    if local_target is None:
+        return None
+
+    revisions = jj_client.query_revisions(local_target)
+    if not revisions:
+        stale_reason = "target is no longer visible locally"
+    else:
+        revision = revisions[0]
+        if not revision.is_reviewable():
+            stale_reason = "target is no longer reviewable"
+        elif revision.change_id not in jj_client.supported_review_stack_change_ids((revision,)):
+            stale_reason = "target no longer participates in a supported review stack"
+        else:
+            return None
+
+    return OrphanLocalBookmarkCleanupPlan(
+        bookmark=bookmark,
+        action=CleanupAction(
+            kind="local bookmark",
+            status="planned",
+            body=t"forget {ui.bookmark(bookmark)} ({stale_reason})",
+        ),
     )
 
 

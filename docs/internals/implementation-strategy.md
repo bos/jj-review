@@ -1448,6 +1448,10 @@ Status: done.
 - `cleanup` now plans local `review/*` bookmark removal for stale tracked
   changes, instead of only pruning saved state and then reporting remote
   review-branch deletion as blocked
+- `cleanup` now also forgets orphaned local `review/*` bookmarks from older
+  runs when they are no longer reviewable or no longer belong to any
+  supported review stack, even if the saved local jj-review state entry is
+  already gone
 - when that local bookmark forget is safe and planned, the paired remote
   review-branch deletion is now planned in the same pass instead of blocked on
   the still-present local bookmark

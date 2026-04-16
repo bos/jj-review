@@ -74,6 +74,50 @@ def test_cleanup_prunes_stale_state_without_a_remote(
     assert change_id not in state_store.load().changes
 
 
+def test_cleanup_forgets_orphan_local_review_bookmark_without_saved_state(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path, with_remote=False)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    run_command(["jj", "bookmark", "set", "review/orphan-immutable", "-r", "main"], repo)
+
+    exit_code = run_main(repo, config_path, "cleanup")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "forget review/orphan-immutable" in " ".join(captured.out.split())
+    assert "review/orphan-immutable" not in run_command(
+        ["jj", "bookmark", "list", "review/orphan-immutable"],
+        repo,
+    ).stdout
+
+
+def test_cleanup_keeps_orphan_local_review_bookmark_on_live_reviewable_change(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path, with_remote=False)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+
+    run_command(["jj", "bookmark", "set", "review/orphan-live", "-r", change_id], repo)
+
+    exit_code = run_main(repo, config_path, "cleanup")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "No cleanup actions needed." in captured.out
+    assert "review/orphan-live" in run_command(
+        ["jj", "bookmark", "list", "review/orphan-live"],
+        repo,
+    ).stdout
+
+
 def test_cleanup_restack_previews_and_rebases_survivor_above_merged_ancestor(
     tmp_path: Path,
     monkeypatch,
