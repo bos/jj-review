@@ -198,6 +198,9 @@ Recent refactor slices:
   GitHub repository identity so repointed remote names fail closed, and closed
   cached PR metadata is treated as historical so `status` no longer reports
   stale submit records after that recovery path
+- `close --cleanup` now ignores status-only saved bookmark pins when GitHub
+  reports no pull request for a branch, so unsubmitted stacks that were merely
+  inspected do not suddenly grow cleanup work
 - interrupted `cleanup --restack` state now records ordered commit IDs, reports
   the recorded stack by head change ID, and treats reruns as current-stack
   restacks rather than selector replay

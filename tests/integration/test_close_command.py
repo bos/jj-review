@@ -104,6 +104,34 @@ def test_close_apply_can_select_a_stack_by_pull_request_number(
     assert refreshed_state.changes[second_change_id].pr_state == "open"
 
 
+def test_close_cleanup_ignores_status_only_bookmark_pins(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+
+    status_exit_code = run_main(repo, config_path, "status")
+    capsys.readouterr()
+    state_after_status = state_store.load()
+
+    close_exit_code = run_main(repo, config_path, "close", "--cleanup", "--dry-run", change_id)
+    captured = capsys.readouterr()
+
+    assert status_exit_code == 0
+    assert state_after_status.changes[change_id].bookmark is not None
+    assert close_exit_code == 0
+    assert "Nothing to close on the selected stack." in captured.out
+    assert "stop review tracking" not in captured.out
+    assert state_store.load() == state_after_status
+
+
 def test_close_dry_run_leaves_remote_state_unchanged_and_reports_planned_actions(
     tmp_path: Path,
     monkeypatch,

@@ -769,7 +769,7 @@ def _record_restack_policy_actions(
                 status="planned",
                 body=(
                     t"PR #{pull_request_number} merged into branch {ui.bookmark(base_ref)}; "
-                    t"configure GitHub to block merges of PRs targeting `review/*`"
+                    t"configure GitHub to block merges of PRs targeting {ui.bookmark('review/*')}"
                 ),
             )
         )

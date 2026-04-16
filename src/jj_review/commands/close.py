@@ -783,7 +783,11 @@ async def _process_missing_close_revision(
             )
         )
         return True
-    if not prepared_close.cleanup or cached_change is None:
+    if (
+        not prepared_close.cleanup
+        or cached_change is None
+        or not _has_retirable_cached_review_identity(cached_change)
+    ):
         return False
 
     updated_change = _record_retired_cached_change(
@@ -1296,6 +1300,21 @@ def _has_active_cached_link(cached_change: CachedChange | None) -> bool:
     if cached_change is None:
         return False
     return cached_change.pr_state == "open"
+
+
+def _has_retirable_cached_review_identity(cached_change: CachedChange) -> bool:
+    """Return True when saved state proves this change previously had review identity."""
+
+    return any(
+        value is not None
+        for value in (
+            cached_change.last_submitted_commit_id,
+            cached_change.pr_number,
+            cached_change.pr_state,
+            cached_change.pr_url,
+            cached_change.stack_comment_id,
+        )
+    )
 
 
 def _revision_label(revision) -> Message:
