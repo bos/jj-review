@@ -102,8 +102,8 @@ def test_resolve_import_bookmark_rejects_missing_cached_remote_bookmark() -> Non
 
     assert (
         str(exc_info.value) == "Could not safely import the selected stack because saved branch "
-        "'review/feature-aaaa' for aaaaaaaa is not present on the selected remote. "
-        "Refresh with `status --fetch` or select an exact pull request."
+        "review/feature-aaaa for aaaaaaaa is not present on the selected remote. "
+        "Refresh with status --fetch or select an exact pull request."
     )
 
 
@@ -132,8 +132,8 @@ def test_resolve_import_bookmark_rejects_stale_cached_remote_bookmark_target() -
 
     assert (
         str(exc_info.value) == "Could not safely import the selected stack because saved branch "
-        "'review/feature-aaaa' for aaaaaaaa points to a different revision on the "
-        "selected remote. Refresh with `status --fetch` or repair the stale remote "
+        "review/feature-aaaa for aaaaaaaa points to a different revision on the "
+        "selected remote. Refresh with status --fetch or repair the stale remote "
         "match before importing again."
     )
 
@@ -210,7 +210,7 @@ def test_resolve_pull_request_selection_requires_fetch_when_remote_bookmark_is_n
             )
         )
 
-    assert "Re-run `import --fetch`" in str(exc_info.value)
+    assert "Re-run import --fetch" in str(exc_info.value)
 
 
 def test_resolve_pull_request_selection_fetches_selected_branch_when_requested(
@@ -347,7 +347,7 @@ def test_resolve_pull_request_selection_rejects_cross_repository_pull_request_he
         fake_cross_repo_pull_requests,
     )
 
-    with pytest.raises(CliError, match="Import only supports same-repository pull request"):
+    with pytest.raises(CliError, match="import only supports same-repository pull request"):
         asyncio.run(
             _resolve_pull_request_selection(
                 client=cast(

@@ -281,7 +281,7 @@ def _render_interrupted_intents(interrupted) -> Message:
     for index, loaded in enumerate(interrupted):
         if index:
             parts.append(", ")
-        parts.extend(_intent_description_content(loaded.intent))
+        parts.append(_intent_description_content(loaded.intent))
     return tuple(parts)
 
 

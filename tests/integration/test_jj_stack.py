@@ -30,7 +30,7 @@ def test_discover_review_stack_rejects_root_fallback_trunk(tmp_path: Path) -> No
 
     with pytest.raises(
         UnsupportedStackError,
-        match=r"`trunk\(\)` resolved to the root commit",
+        match=r"trunk\(\) resolved to the root commit",
     ):
         JjClient(repo).discover_review_stack()
 
@@ -80,7 +80,7 @@ def test_discover_review_stack_fails_with_root_before_trunk(tmp_path: Path) -> N
 
     with pytest.raises(
         UnsupportedStackError,
-        match="stack reached the root commit before `trunk\\(\\)`",
+        match="stack reached the root commit before trunk\\(\\)",
     ):
         JjClient(repo).discover_review_stack(head)
 
@@ -100,7 +100,7 @@ def test_discover_review_stack_rejects_shared_trunk_ancestor_without_merge(
 
     with pytest.raises(
         UnsupportedStackError,
-        match="stack reached the root commit before `trunk\\(\\)`",
+        match="stack reached the root commit before trunk\\(\\)",
     ):
         JjClient(repo).discover_review_stack(
             head,

@@ -58,7 +58,7 @@ class UnsupportedStackError(CliError):
     def stack_shape(
         cls,
         change_id: str,
-        detail: str,
+        detail: ErrorMessage,
         *,
         reason: UnsupportedStackReason,
     ) -> UnsupportedStackError:

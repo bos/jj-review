@@ -378,7 +378,7 @@ async def _resolve_pull_request_selection(
         )
     pull_request = pull_requests[0]
     if pull_request.head.label != f"{github_repository.owner}:{head}":
-        pull_request_head = ui.bookmark(pull_request.head.label)
+        pull_request_head = ui.bookmark(pull_request.head.label or pull_request.head.ref)
         import_cmd = ui.cmd("import")
         raise CliError(
             t"Pull request #{pull_request.number} head {pull_request_head} does not belong to "
@@ -541,7 +541,7 @@ async def _load_pull_request(
             ) from error
 
     if pull_request.head.label != f"{github_repository.owner}:{pull_request.head.ref}":
-        pull_request_head = ui.bookmark(pull_request.head.label)
+        pull_request_head = ui.bookmark(pull_request.head.label or pull_request.head.ref)
         raise CliError(
             t"Pull request #{pull_request.number} head {pull_request_head} does not belong to "
             t"{github_repository.full_name}. Import only supports same-repository "
