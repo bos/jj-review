@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from jj_review import ui
 from jj_review.errors import CliError
 from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.github import GithubRepository
@@ -41,8 +42,8 @@ def select_submit_remote(remotes: tuple[GitRemote, ...]) -> GitRemote:
     if len(remotes) == 1:
         return remotes[0]
     raise CliError(
-        "Could not determine which Git remote to use for submit. Add an `origin` "
-        "remote or leave exactly one remote."
+        t"Could not determine which Git remote to use for submit. Add an "
+        t"{ui.bookmark('origin')} remote or leave exactly one remote."
     )
 
 
@@ -74,8 +75,8 @@ def require_github_repo(remote: GitRemote) -> ParsedGithubRepo:
     if github_repository is not None:
         return github_repository
     raise CliError(
-        f"Could not determine the GitHub repository for remote {remote.name!r}. "
-        "Use a GitHub remote URL."
+        t"Could not determine the GitHub repository for remote {ui.bookmark(remote.name)}. "
+        t"Use a GitHub remote URL."
     )
 
 
@@ -100,14 +101,24 @@ def resolve_trunk_branch(
         return remote_bookmarks[0]
     if len(remote_bookmarks) > 1:
         raise CliError(
-            "Could not determine the trunk branch because multiple remote bookmarks on "
-            f"{remote_name!r} point at `trunk()`: {', '.join(remote_bookmarks)}."
+            t"Could not determine the trunk branch because multiple remote bookmarks on "
+            t"{ui.bookmark(remote_name)} point at {ui.revset('trunk()')}: "
+            t"{_render_bookmark_list(remote_bookmarks)}."
         )
     raise CliError(
-        f"Could not determine the trunk branch for remote {remote_name!r}. Ensure the "
-        "GitHub repository exposes a default branch or create one remote bookmark that "
-        "points at `trunk()`."
+        t"Could not determine the trunk branch for remote {ui.bookmark(remote_name)}. "
+        t"Ensure the GitHub repository exposes a default branch or create one remote "
+        t"bookmark that points at {ui.revset('trunk()')}."
     )
+
+
+def _render_bookmark_list(bookmarks: tuple[str, ...]) -> tuple[object, ...]:
+    parts: list[object] = []
+    for i, bookmark in enumerate(bookmarks):
+        if i:
+            parts.append(", ")
+        parts.append(ui.bookmark(bookmark))
+    return tuple(parts)
 
 
 def remote_bookmarks_pointing_at_commit(
