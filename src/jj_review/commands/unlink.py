@@ -61,19 +61,14 @@ def unlink(
     )
     revision_label = t"{result.subject} ({ui.change_id(result.change_id)})"
     if result.already_unlinked:
-        console.output((revision_label, " is already unlinked from review tracking."))
+        console.output(t"{revision_label} is already unlinked from review tracking.")
         return 0
     if result.bookmark is None:
-        console.output(("Stopped review tracking for ", revision_label, "."))
+        console.output(t"Stopped review tracking for {revision_label}.")
     else:
         console.output(
-            (
-                "Stopped review tracking for ",
-                revision_label,
-                ", preserving ",
-                ui.bookmark(result.bookmark),
-                ".",
-            )
+            t"Stopped review tracking for {revision_label}, preserving "
+            t"{ui.bookmark(result.bookmark)}."
         )
     return 0
 
@@ -95,7 +90,9 @@ async def _run_unlink_async(
     )
     prepared = prepared_status.prepared
     if not prepared.status_revisions:
-        raise CliError("No reviewable commits between the selected revision and `trunk()`.")
+        raise CliError(
+            t"No reviewable commits between the selected revision and {ui.revset('trunk()')}."
+        )
 
     github_repository = getattr(prepared_status, "github_repository", None)
     progress_total = (
@@ -138,8 +135,8 @@ async def _run_unlink_async(
         status_revision=status_revision,
     ):
         raise CliError(
-            "The selected change has no active review tracking link to unlink. "
-            "Use `relink` only when you need to attach an existing PR intentionally."
+            t"The selected change has no active review tracking link to unlink. "
+            t"Use {ui.cmd('relink')} only when you need to attach an existing PR intentionally."
         )
 
     updated_change = (cached_change or CachedChange(bookmark=bookmark)).model_copy(
