@@ -52,7 +52,6 @@ from jj_review.review.bookmarks import (
     ensure_unique_bookmarks,
 )
 from jj_review.review.intents import (
-    describe_intent,
     retire_superseded_intents,
 )
 from jj_review.review.selection import (
@@ -71,6 +70,7 @@ from jj_review.state.intents import (
 )
 from jj_review.state.store import ReviewStateStore
 from jj_review.system import pid_is_alive
+from jj_review.ui import Message
 
 HELP = "Send a jj stack to GitHub for review"
 
@@ -470,7 +470,7 @@ def _render_submit_trunk_lines(
             ui.prefixed_line(
                 "Trunk: ",
                 t"{result.trunk_subject} ({ui.change_id(result.trunk_change_id)}) "
-                t"-> {result.trunk_branch}",
+                t"-> {ui.bookmark(result.trunk_branch)}",
             ),
         )
     return render_revision_lines(
@@ -652,27 +652,32 @@ def _report_stale_submit_intents(
             current_commit_ids=ordered_commit_ids,
             current_identity=SubmitRecoveryIdentity.from_intent(current_intent),
         )
-        description = describe_intent(loaded.intent)
+        description = _render_submit_intent_description(loaded.intent)
         if decision is SubmitStatusDecision.CONTINUE:
-            console.note(f"Continuing interrupted {description}", soft_wrap=True)
+            console.note(t"Continuing interrupted {description}", soft_wrap=True)
         elif decision is SubmitStatusDecision.CURRENT_STACK:
             console.note(
-                f"Note: interrupted {description} does not match the current stack "
-                "exactly. This submit will use the current stack.",
+                t"Note: interrupted {description} does not match the current stack "
+                t"exactly. This submit will use the current stack.",
                 soft_wrap=True,
             )
         elif decision is SubmitStatusDecision.INSPECT:
             console.note(
-                f"Note: interrupted {description} matches the current stack, "
-                "but its recorded submit target does not. This submit will use "
-                "the current stack.",
+                t"Note: interrupted {description} matches the current stack, "
+                t"but its recorded submit target does not. This submit will use "
+                t"the current stack.",
                 soft_wrap=True,
             )
         else:
             console.note(
-                f"Note: incomplete operation outstanding: {description}",
+                t"Note: incomplete operation outstanding: {description}",
                 soft_wrap=True,
             )
+
+
+def _render_submit_intent_description(intent: SubmitIntent) -> ui.Message:
+    return t"{ui.cmd('submit')} for {ui.change_id(intent.head_change_id)} " \
+        t"(from {ui.revset(intent.display_revset)})"
 
 
 def _prepare_submit_revisions(
@@ -1011,8 +1016,9 @@ def _resolve_local_action(
 ) -> LocalBookmarkAction:
     if len(local_targets) > 1:
         raise CliError(
-            f"Bookmark {bookmark!r} has {len(local_targets)} conflicting local targets. "
-            "Resolve the bookmark conflict with `jj bookmark` before submitting."
+            t"Bookmark {ui.bookmark(bookmark)} has {len(local_targets)} conflicting "
+            t"local targets. Resolve the bookmark conflict with "
+            t"{ui.cmd('jj bookmark')} before submitting."
         )
     local_target = local_targets[0] if local_targets else None
     if local_target == desired_target:
@@ -1046,8 +1052,8 @@ def _ensure_remote_can_be_updated(
         return
     if len(remote_state.targets) > 1:
         raise CliError(
-            f"Remote bookmark {bookmark!r}@{remote} is conflicted. Resolve it with `jj "
-            "git fetch` and retry."
+            t"Remote bookmark {ui.bookmark(f'{bookmark}@{remote}')} is conflicted. "
+            t"Resolve it with {ui.cmd('jj git fetch')} and retry."
         )
     if remote_state.target == desired_target:
         return
@@ -1060,9 +1066,10 @@ def _ensure_remote_can_be_updated(
     ):
         return
     raise CliError(
-        f"Remote bookmark {bookmark!r}@{remote} already exists and points elsewhere. "
-        "Submit will not take over an existing remote branch unless its link is "
-        "already proven by local state, saved jj-review data, or explicit relinking."
+        t"Remote bookmark {ui.bookmark(f'{bookmark}@{remote}')} already exists and "
+        t"points elsewhere. Submit will not take over an existing remote branch "
+        t"unless its link is already proven by local state, saved jj-review data, "
+        t"or explicit relinking."
     )
 
 
@@ -1106,10 +1113,15 @@ def _preflight_private_commits(
     private = client.find_private_commits(revisions)
     if not private:
         return
-    subjects = ", ".join(f"{short_change_id(r.change_id)} ({r.subject})" for r in private)
+    subjects: list[Message] = []
+    for index, revision in enumerate(private):
+        if index:
+            subjects.append(", ")
+        subjects.append(t"{ui.change_id(revision.change_id)} ({revision.subject})")
     raise CliError(
-        f"Stack contains commits blocked by `git.private-commits`: {subjects}. "
-        "Remove these changes from the stack before submitting."
+        t"Stack contains commits blocked by "
+        t"{ui.semantic_text('git.private-commits', 'code')}: {tuple(subjects)}. "
+        t"Remove these changes from the stack before submitting."
     )
 
 
@@ -1129,7 +1141,7 @@ async def _discover_pull_requests_by_bookmark(
             head_refs=bookmarks,
         )
     except GithubClientError as error:
-        raise CliError(f"Could not batch pull request discovery for branches: {error}") from error
+        raise CliError(t"Could not batch pull request discovery for branches: {error}") from error
 
     return {
         bookmark: _select_discovered_pull_request(
@@ -1268,10 +1280,12 @@ def _describe_with_diffstat(*, repo_root: Path, revset: str) -> str:
             text=True,
         )
     except OSError as error:
-        raise CliError(f"Could not collect diffstat for --stack {revset!r}: {error}") from error
+        raise CliError(
+            t"Could not collect diffstat for --stack {ui.revset(revset)}: {error}"
+        ) from error
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip() or "unknown jj failure"
-        raise CliError(f"Could not collect diffstat for --stack {revset!r}: {detail}")
+        raise CliError(t"Could not collect diffstat for --stack {ui.revset(revset)}: {detail}")
 
     lines = completed.stdout.rstrip().splitlines()
     diffstat_lines: list[str] = []
@@ -1309,38 +1323,51 @@ def _run_description_command(
             text=True,
         )
     except FileNotFoundError as error:
-        raise CliError(f"Describe helper {command!r} was not found.") from error
+        raise CliError(t"Describe helper {ui.cmd(command)} was not found.") from error
     except OSError as error:
-        raise CliError(f"Could not run describe helper {command!r}: {error}") from error
+        raise CliError(t"Could not run describe helper {ui.cmd(command)}: {error}") from error
 
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
         if not detail:
             detail = f"exit status {completed.returncode}"
-        raise CliError(f"Describe helper {command!r} failed for --{kind} {revset!r}: {detail}")
+        raise CliError(
+            t"Describe helper {ui.cmd(command)} failed for {ui.cmd(f'--{kind}')} "
+            t"{ui.revset(revset)}: {detail}"
+        )
 
     output = completed.stdout.strip()
     if not output:
-        raise CliError(f"Describe helper {command!r} produced no JSON for --{kind} {revset!r}.")
+        raise CliError(
+            t"Describe helper {ui.cmd(command)} produced no JSON for "
+            t"{ui.cmd(f'--{kind}')} "
+            t"{ui.revset(revset)}."
+        )
 
     try:
         payload = json.loads(output)
     except json.JSONDecodeError as error:
         raise CliError(
-            f"Describe helper {command!r} returned invalid JSON for --{kind} {revset!r}: {error}"
+            t"Describe helper {ui.cmd(command)} returned invalid JSON for "
+            t"{ui.cmd(f'--{kind}')} "
+            t"{ui.revset(revset)}: {error}"
         ) from error
 
     if not isinstance(payload, dict):
         raise CliError(
-            f"Describe helper {command!r} must return a JSON object for --{kind} {revset!r}."
+            t"Describe helper {ui.cmd(command)} must return a JSON object for "
+            t"{ui.cmd(f'--{kind}')} "
+            t"{ui.revset(revset)}."
         )
 
     title = payload.get("title")
     body = payload.get("body")
     if not isinstance(title, str) or not isinstance(body, str):
         raise CliError(
-            f"Describe helper {command!r} must return string `title` and `body` "
-            f"fields for --{kind} {revset!r}."
+            t"Describe helper {ui.cmd(command)} must return string "
+            t"{ui.semantic_text('title', 'hint')} and "
+            t"{ui.semantic_text('body', 'hint')} fields for "
+            t"{ui.cmd(f'--{kind}')} {ui.revset(revset)}."
         )
 
     return GeneratedDescription(body=body, title=title)
@@ -1616,18 +1643,20 @@ def _select_discovered_pull_request(
 ) -> GithubPullRequest | None:
     if len(pull_requests) > 1:
         raise CliError(
-            f"GitHub reports multiple pull requests for head branch {head_label!r}. "
-            "Inspect the PR link with `status --fetch` and repair it with `relink` "
-            "before submitting again."
+            t"GitHub reports multiple pull requests for head branch "
+            t"{ui.bookmark(head_label)}. Inspect the PR link with "
+            t"{ui.cmd('status --fetch')} and repair it with {ui.cmd('relink')} "
+            t"before submitting again."
         )
     if not pull_requests:
         return None
     pull_request = pull_requests[0]
     if pull_request.state != "open":
         raise CliError(
-            f"GitHub reports pull request #{pull_request.number} for head branch "
-            f"{head_label!r} in state {pull_request.state!r}. Inspect the PR link with "
-            "`status --fetch` and repair it with `relink` before submitting again."
+            t"GitHub reports pull request #{pull_request.number} for head branch "
+            t"{ui.bookmark(head_label)} in state {pull_request.state!r}. Inspect the "
+            t"PR link with {ui.cmd('status --fetch')} and repair it with "
+            t"{ui.cmd('relink')} before submitting again."
         )
     return pull_request
 
@@ -1649,22 +1678,24 @@ def _ensure_pull_request_link_is_consistent(
         return
     if discovered_pull_request is None:
         raise CliError(
-            f"Saved pull request link exists for bookmark {bookmark!r}, but GitHub "
-            "no longer reports a PR for that head branch. Inspect the PR link with "
-            "`status --fetch` and repair it with `relink` before submitting again."
+            t"Saved pull request link exists for bookmark {ui.bookmark(bookmark)}, "
+            t"but GitHub no longer reports a PR for that head branch. Inspect the "
+            t"PR link with {ui.cmd('status --fetch')} and repair it with "
+            t"{ui.cmd('relink')} before submitting again."
         )
     if cached_change.pr_number not in (None, discovered_pull_request.number):
         raise CliError(
-            f"Saved pull request #{cached_change.pr_number} does not match the PR "
-            f"GitHub reports for bookmark {bookmark!r} "
-            f"(#{discovered_pull_request.number}). Inspect the PR link with "
-            "`status --fetch` and repair it with `relink` before submitting again."
+            t"Saved pull request #{cached_change.pr_number} does not match the PR "
+            t"GitHub reports for bookmark {ui.bookmark(bookmark)} "
+            t"(#{discovered_pull_request.number}). Inspect the PR link with "
+            t"{ui.cmd('status --fetch')} and repair it with {ui.cmd('relink')} "
+            t"before submitting again."
         )
     if cached_change.pr_url not in (None, discovered_pull_request.html_url):
         raise CliError(
-            f"Saved pull request URL for bookmark {bookmark!r} does not match "
-            "GitHub. Inspect the PR link with `status --fetch` and repair it with "
-            "`relink` before submitting again."
+            t"Saved pull request URL for bookmark {ui.bookmark(bookmark)} does not "
+            t"match GitHub. Inspect the PR link with {ui.cmd('status --fetch')} and "
+            t"repair it with {ui.cmd('relink')} before submitting again."
         )
 
 
@@ -1676,9 +1707,8 @@ def _ensure_change_is_not_unlinked(
     if cached_change is None or not cached_change.is_unlinked:
         return
     raise CliError(
-        f"Change {short_change_id(change_id)} is unlinked from review tracking. Run "
-        "`relink` to "
-        "reattach it before submitting again."
+        t"Change {ui.change_id(change_id)} is unlinked from review tracking. Run "
+        t"{ui.cmd('relink')} to reattach it before submitting again."
     )
 
 
@@ -1704,7 +1734,8 @@ async def _create_pull_request(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not create a pull request for branch {head_branch!r}: {error}"
+            t"Could not create a pull request for branch {ui.bookmark(head_branch)}: "
+            t"{error}"
         ) from error
 
 
@@ -1735,7 +1766,8 @@ async def _sync_pull_request_metadata(
             )
     except GithubClientError as error:
         raise CliError(
-            f"Could not synchronize metadata for pull request #{pull_request_number}: {error}"
+            t"Could not synchronize metadata for pull request "
+            t"#{pull_request_number}: {error}"
         ) from error
 
 
@@ -1756,8 +1788,8 @@ async def _mark_pull_request_ready_for_review(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not publish draft pull request #{pull_request.number} for "
-            f"{github_repository.full_name}: {error}"
+            t"Could not publish draft pull request #{pull_request.number} for "
+            t"{github_repository.full_name}: {error}"
         ) from error
 
 
@@ -1778,8 +1810,8 @@ async def _convert_pull_request_to_draft(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not return pull request #{pull_request.number} to draft for "
-            f"{github_repository.full_name}: {error}"
+            t"Could not return pull request #{pull_request.number} to draft for "
+            t"{github_repository.full_name}: {error}"
         ) from error
 
 
@@ -1803,7 +1835,7 @@ async def _update_pull_request(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not update pull request #{pull_request.number}: {error}"
+            t"Could not update pull request #{pull_request.number}: {error}"
         ) from error
 
 
@@ -1943,8 +1975,8 @@ async def _clear_stack_comment(
         )
     except GithubClientError as error:
         raise CliError(
-            "Could not list stack summary comments for pull request "
-            f"#{pull_request_number}: {error}"
+            t"Could not list stack summary comments for pull request "
+            t"#{pull_request_number}: {error}"
         ) from error
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
@@ -1954,10 +1986,11 @@ async def _clear_stack_comment(
         if cached_comment is not None:
             if not is_stack_summary_comment(cached_comment.body):
                 raise CliError(
-                    f"Saved stack summary comment #{cached_change.stack_comment_id} for "
-                    f"pull request #{pull_request_number} does not belong to "
-                    "`jj-review`. Inspect the PR link with `status --fetch` or delete "
-                    "the saved comment ID before submitting again."
+                    t"Saved stack summary comment #{cached_change.stack_comment_id} for "
+                    t"pull request #{pull_request_number} does not belong to "
+                    t"`jj-review`. Inspect the PR link "
+                    t"with {ui.cmd('status --fetch')} or delete the saved comment ID "
+                    t"before submitting again."
                 )
             if not dry_run:
                 await _delete_stack_comment(
@@ -1998,8 +2031,8 @@ async def _upsert_stack_comment(
         )
     except GithubClientError as error:
         raise CliError(
-            "Could not list stack summary comments for pull request "
-            f"#{pull_request_number}: {error}"
+            t"Could not list stack summary comments for pull request "
+            t"#{pull_request_number}: {error}"
         ) from error
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
@@ -2009,10 +2042,11 @@ async def _upsert_stack_comment(
         if cached_comment is not None:
             if not is_stack_summary_comment(cached_comment.body):
                 raise CliError(
-                    f"Saved stack summary comment #{cached_change.stack_comment_id} for "
-                    f"pull request #{pull_request_number} does not belong to "
-                    "`jj-review`. Inspect the PR link with `status --fetch` or delete "
-                    "the saved comment ID before submitting again."
+                    t"Saved stack summary comment #{cached_change.stack_comment_id} for "
+                    t"pull request #{pull_request_number} does not belong to "
+                    t"`jj-review`. Inspect the PR link "
+                    t"with {ui.cmd('status --fetch')} or delete the saved comment ID "
+                    t"before submitting again."
                 )
             if cached_comment.body == comment_body:
                 return cached_comment
@@ -2061,9 +2095,10 @@ async def _discover_stack_comment(
     if len(matching_comments) > 1:
         comment_ids = ", ".join(str(comment.id) for comment in matching_comments)
         raise CliError(
-            "GitHub reports multiple `jj-review` stack summary comments for the same "
-            f"pull request: {comment_ids}. Inspect the PR link with `status --fetch` "
-            "or delete the extra stack summary comments before submitting again."
+            t"GitHub reports multiple `jj-review` stack "
+            t"summary comments for the same pull request: {comment_ids}. Inspect the "
+            t"PR link with {ui.cmd('status --fetch')} or delete the extra stack "
+            t"summary comments before submitting again."
         )
     return matching_comments[0]
 
@@ -2084,8 +2119,8 @@ async def _create_stack_comment(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not create a stack summary comment for pull request "
-            f"#{pull_request_number}: {error}"
+            t"Could not create a stack summary comment for pull request "
+            t"#{pull_request_number}: {error}"
         ) from error
 
 
@@ -2105,7 +2140,7 @@ async def _update_stack_comment(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not update stack summary comment #{comment_id}: {error}"
+            t"Could not update stack summary comment #{comment_id}: {error}"
         ) from error
 
 
@@ -2125,7 +2160,7 @@ async def _delete_stack_comment(
         if error.status_code == 404:
             return
         raise CliError(
-            f"Could not delete stack summary comment #{comment_id}: {error}"
+            t"Could not delete stack summary comment #{comment_id}: {error}"
         ) from error
 
 
