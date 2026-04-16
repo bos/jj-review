@@ -84,7 +84,7 @@ def _resolve_logging_level(level_name: str, *, original_value: str) -> int:
     if level_name not in level_names:
         valid_levels = ", ".join(sorted(level_names))
         raise CliError(
-            f"Invalid logging level {original_value!r}. Expected one of: {valid_levels}"
+            f"Invalid logging level {original_value}. Expected one of: {valid_levels}"
         )
     return level_names[level_name]
 
