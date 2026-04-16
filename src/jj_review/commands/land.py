@@ -204,7 +204,8 @@ def land(
         debug=debug,
     )
     if pull_request is not None:
-        pull_request_number, resolved_revset = _resolve_land_revset_for_pull_request(
+        pull_request_number, resolved_revset = resolve_linked_change_for_pull_request(
+            action_name="land",
             pull_request_reference=pull_request,
             repo_root=context.repo_root,
             revset=revset,
@@ -233,20 +234,6 @@ def land(
     result = stream_land(prepared_land=prepared_land)
     _print_land_result(result)
     return 1 if result.blocked else 0
-
-
-def _resolve_land_revset_for_pull_request(
-    *,
-    pull_request_reference: str,
-    repo_root: Path,
-    revset: str | None,
-) -> tuple[int, str]:
-    return resolve_linked_change_for_pull_request(
-        action_name="land",
-        pull_request_reference=pull_request_reference,
-        repo_root=repo_root,
-        revset=revset,
-    )
 
 
 def _print_land_result(result: LandResult) -> None:
