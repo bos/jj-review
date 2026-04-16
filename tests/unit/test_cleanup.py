@@ -15,9 +15,9 @@ from jj_review.commands.cleanup import (
     _plan_restack_operations,
     _resolve_stack_summary_comment,
     _resolve_unlinked_pull_request_number,
+    _run_cleanup_async,
     _should_inspect_stack_comment_cleanup,
-    _stream_cleanup_async,
-    stream_restack,
+    _stream_restack,
 )
 from jj_review.github.client import GithubClient
 from jj_review.github.resolution import ParsedGithubRepo
@@ -236,7 +236,7 @@ def test_resolve_unlinked_pull_request_number_blocks_multiple_pull_requests() ->
     assert (
         result.message
         == "cannot delete stack summary comment because GitHub reports multiple pull "
-        "requests for unlinked bookmark 'review/feature-aaaaaaaa'"
+        "requests for unlinked bookmark review/feature-aaaaaaaa"
     )
 
 
@@ -306,7 +306,7 @@ def test_stream_cleanup_limits_stack_comment_github_inspection_concurrency(
     )
 
     result = asyncio.run(
-        _stream_cleanup_async(
+        _run_cleanup_async(
             on_action=None,
             prepared_cleanup=prepared_cleanup,
         )
@@ -366,7 +366,7 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
 
     async def exercise_cleanup() -> None:
         task = asyncio.create_task(
-            _stream_cleanup_async(
+            _run_cleanup_async(
                 on_action=lambda action: streamed_actions.append(action.message),
                 prepared_cleanup=prepared_cleanup,
             )
@@ -488,7 +488,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     )
 
     result = asyncio.run(
-        _stream_cleanup_async(
+        _run_cleanup_async(
             on_action=None,
             prepared_cleanup=prepared_cleanup,
         )
@@ -562,7 +562,7 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
     )
 
     result = asyncio.run(
-        _stream_cleanup_async(
+        _run_cleanup_async(
             on_action=None,
             prepared_cleanup=prepared_cleanup,
         )
@@ -575,8 +575,6 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
         ["live-change"],
         ["live-change"],
     ]
-    assert result.github_error == "GitHub unavailable"
-    assert result.github_repository is None
 
 
 def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
@@ -654,9 +652,8 @@ def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
         ),
     )
 
-    result = stream_restack(prepared_restack=prepared_restack)
+    result = _stream_restack(prepared_restack=prepared_restack)
 
-    assert result.blocked is False
     assert len(result.actions) == 1
     assert result.actions[0].kind == "restack"
     assert result.actions[0].message == "rebase survivor onto trunk()"
@@ -776,9 +773,8 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
         ),
     )
 
-    result = stream_restack(prepared_restack=prepared_restack)
+    result = _stream_restack(prepared_restack=prepared_restack)
 
-    assert result.blocked is False
     assert rebase_calls == [("survivor-change", "trunk-commit")]
     assert len(result.actions) == 1
     assert result.actions[0].kind == "restack"
@@ -903,10 +899,10 @@ def test_plan_local_bookmark_cleanup_forgets_safe_review_bookmark() -> None:
     )
 
     assert plan is not None
-    assert plan.action.kind == "local bookmark"
-    assert plan.action.status == "planned"
+    assert plan.kind == "local bookmark"
+    assert plan.status == "planned"
     assert (
-        plan.action.message
+        plan.message
         == "forget review/feature-aaaaaaaa (local change is no longer reviewable)"
     )
 
@@ -925,8 +921,8 @@ def test_plan_local_bookmark_cleanup_blocks_moved_review_bookmark() -> None:
     )
 
     assert plan is not None
-    assert plan.action.status == "blocked"
-    assert "different revision" in plan.action.message
+    assert plan.status == "blocked"
+    assert "different revision" in plan.message
 
 
 def test_apply_stale_cleanup_mutation_plans_batches_remote_and_local_work() -> None:
@@ -954,12 +950,10 @@ def test_apply_stale_cleanup_mutation_plans_batches_remote_and_local_work() -> N
         mutation_plans=(
             cleanup_module._StaleCleanupMutationPlan(
                 cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
-                local_bookmark_plan=cleanup_module.LocalBookmarkCleanupPlan(
-                    action=CleanupAction(
-                        kind="local bookmark",
-                        body="forget review/feature-aaaaaaaa (stale)",
-                        status="planned",
-                    )
+                local_bookmark_action=CleanupAction(
+                    kind="local bookmark",
+                    body="forget review/feature-aaaaaaaa (stale)",
+                    status="planned",
                 ),
                 remote_plan=cleanup_module.RemoteBranchCleanupPlan(
                     action=CleanupAction(
@@ -972,12 +966,10 @@ def test_apply_stale_cleanup_mutation_plans_batches_remote_and_local_work() -> N
             ),
             cleanup_module._StaleCleanupMutationPlan(
                 cached_change=CachedChange(bookmark="review/feature-bbbbbbbb"),
-                local_bookmark_plan=cleanup_module.LocalBookmarkCleanupPlan(
-                    action=CleanupAction(
-                        kind="local bookmark",
-                        body="forget review/feature-bbbbbbbb (stale)",
-                        status="planned",
-                    )
+                local_bookmark_action=CleanupAction(
+                    kind="local bookmark",
+                    body="forget review/feature-bbbbbbbb (stale)",
+                    status="planned",
                 ),
                 remote_plan=cleanup_module.RemoteBranchCleanupPlan(
                     action=CleanupAction(

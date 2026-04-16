@@ -82,11 +82,6 @@ class CleanupResult:
     """Rendered cleanup result for the selected repository."""
 
     actions: tuple[CleanupAction, ...]
-    applied: bool
-    github_error: ErrorMessage | None
-    github_repository: str | None
-    remote: GitRemote | None
-    remote_error: ErrorMessage | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,13 +116,6 @@ class RemoteBranchCleanupPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class LocalBookmarkCleanupPlan:
-    """Planned or blocked local-bookmark cleanup details."""
-
-    action: CleanupAction
-
-
-@dataclass(frozen=True, slots=True)
 class OrphanLocalBookmarkCleanupPlan:
     """Planned or blocked cleanup for one untracked local review bookmark."""
 
@@ -151,7 +139,7 @@ class _StaleCleanupMutationPlan:
     """Planned local bookmark and remote branch mutations for one stale change."""
 
     cached_change: CachedChange
-    local_bookmark_plan: LocalBookmarkCleanupPlan | None
+    local_bookmark_action: CleanupAction | None
     remote_plan: RemoteBranchCleanupPlan | None
 
 
@@ -160,13 +148,7 @@ class RestackResult:
     """Rendered restack result for one selected local stack."""
 
     actions: tuple[CleanupAction, ...]
-    applied: bool
     blocked: bool
-    github_error: ErrorMessage | None
-    github_repository: str | None
-    remote: GitRemote | None
-    remote_error: ErrorMessage | None
-    selected_revset: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -470,8 +452,8 @@ def _prepare_cleanup(
         github_repository = parse_github_repo(remote)
         if github_repository is None:
             github_error = (
-                t"Could not determine the GitHub repository for remote {ui.bookmark(remote.name)}. "
-                t"Use a GitHub remote URL."
+                t"Could not determine the GitHub repository for remote "
+                t"{ui.bookmark(remote.name)}. Use a GitHub remote URL."
             )
     bookmark_states = _load_bookmark_states(
         jj_client=jj_client,
@@ -535,13 +517,7 @@ def _stream_restack(
         )
         return RestackResult(
             actions=tuple(actions),
-            applied=not prepared_restack.dry_run,
             blocked=True,
-            github_error=status_result.github_error,
-            github_repository=status_result.github_repository,
-            remote=status_result.remote,
-            remote_error=status_result.remote_error,
-            selected_revset=status_result.selected_revset,
         )
 
     operation_plan = _plan_restack_operations(
@@ -553,13 +529,7 @@ def _stream_restack(
     if not merged_revisions:
         return RestackResult(
             actions=(),
-            applied=not prepared_restack.dry_run,
             blocked=False,
-            github_error=status_result.github_error,
-            github_repository=status_result.github_repository,
-            remote=status_result.remote,
-            remote_error=status_result.remote_error,
-            selected_revset=status_result.selected_revset,
         )
 
     closed_unmerged_revisions = operation_plan.closed_unmerged_revisions
@@ -603,13 +573,7 @@ def _stream_restack(
         _restack_succeeded = True
         return RestackResult(
             actions=tuple(actions),
-            applied=not prepared_restack.dry_run,
             blocked=blocked,
-            github_error=status_result.github_error,
-            github_repository=status_result.github_repository,
-            remote=status_result.remote,
-            remote_error=status_result.remote_error,
-            selected_revset=status_result.selected_revset,
         )
     finally:
         if (
@@ -991,7 +955,6 @@ async def _run_cleanup_async(
     next_changes = dict(prepared_cleanup.state.changes)
     actions: list[CleanupAction] = []
     dry_run = prepared_cleanup.dry_run
-    remote = prepared_cleanup.remote
 
     def record_action(action: CleanupAction) -> None:
         actions.append(action)
@@ -1030,11 +993,6 @@ async def _run_cleanup_async(
             _cleanup_succeeded = True
             return CleanupResult(
                 actions=tuple(actions),
-                applied=not dry_run,
-                github_error=prepared_cleanup.github_repository_error,
-                github_repository=None,
-                remote=remote,
-                remote_error=prepared_cleanup.remote_error,
             )
 
         github_repository = prepared_cleanup.github_repository
@@ -1061,43 +1019,12 @@ async def _run_cleanup_async(
         _cleanup_succeeded = True
         return CleanupResult(
             actions=tuple(actions),
-            applied=not dry_run,
-            github_error=prepared_cleanup.github_repository_error,
-            github_repository=github_repository.full_name,
-            remote=remote,
-            remote_error=prepared_cleanup.remote_error,
         )
     finally:
         if _cleanup_succeeded and intent_path is not None:
             for loaded in stale_intents:
                 loaded.path.unlink(missing_ok=True)
             intent_path.unlink(missing_ok=True)
-
-
-def _prepare_cleanup_change(
-    *,
-    cached_change: CachedChange,
-    change_id: str,
-    prepared_cleanup: PreparedCleanup,
-    stale_reason: str | None,
-) -> PreparedCleanupChange:
-    bookmark_state = prepared_cleanup.bookmark_states.get(
-        cached_change.bookmark or "",
-        BookmarkState(name=cached_change.bookmark or ""),
-    )
-    return PreparedCleanupChange(
-        bookmark_state=bookmark_state,
-        cached_change=cached_change,
-        change_id=change_id,
-        inspect_stack_comment=_should_inspect_stack_comment_cleanup(
-            bookmark_state=bookmark_state,
-            cached_change=cached_change,
-            remote=prepared_cleanup.remote,
-            stale_reason=stale_reason,
-        ),
-        stale_reason=stale_reason,
-    )
-
 
 def _run_local_cleanup_pass(
     *,
@@ -1113,11 +1040,22 @@ def _run_local_cleanup_pass(
         jj_client=prepared_cleanup.jj_client,
     )
     for change_id, cached_change in prepared_cleanup.state.changes.items():
-        prepared_change = _prepare_cleanup_change(
+        stale_reason = stale_reasons.get(change_id)
+        bookmark_state = prepared_cleanup.bookmark_states.get(
+            cached_change.bookmark or "",
+            BookmarkState(name=cached_change.bookmark or ""),
+        )
+        prepared_change = PreparedCleanupChange(
+            bookmark_state=bookmark_state,
             cached_change=cached_change,
             change_id=change_id,
-            prepared_cleanup=prepared_cleanup,
-            stale_reason=stale_reasons.get(change_id),
+            inspect_stack_comment=_should_inspect_stack_comment_cleanup(
+                bookmark_state=bookmark_state,
+                cached_change=cached_change,
+                remote=prepared_cleanup.remote,
+                stale_reason=stale_reason,
+            ),
+            stale_reason=stale_reason,
         )
         prepared_changes.append(prepared_change)
         mutation_plan = _process_stale_cleanup_change(
@@ -1178,10 +1116,11 @@ def _process_stale_cleanup_change(
         return None
 
     record_action(
-        _cache_action(
-            change_id=prepared_change.change_id,
-            reason=stale_reason,
+        CleanupAction(
+            kind="tracking",
             status="planned" if prepared_cleanup.dry_run else "applied",
+            body=t"remove tracking for {ui.change_id(prepared_change.change_id)} "
+            t"({stale_reason})",
         )
     )
     if not prepared_cleanup.dry_run:
@@ -1196,43 +1135,30 @@ def _process_stale_cleanup_change(
         bookmark_state=prepared_change.bookmark_state,
         cached_change=prepared_change.cached_change,
         local_bookmark_forget_planned=(
-            local_bookmark_plan is not None and local_bookmark_plan.action.status == "planned"
+            local_bookmark_plan is not None and local_bookmark_plan.status == "planned"
         ),
         remote=prepared_cleanup.remote,
     )
     if prepared_cleanup.dry_run:
         if local_bookmark_plan is not None:
-            _process_local_bookmark_cleanup(
-                dry_run=prepared_cleanup.dry_run,
-                cached_change=prepared_change.cached_change,
-                jj_client=prepared_cleanup.jj_client,
-                local_bookmark_plan=local_bookmark_plan,
-                record_action=record_action,
-            )
+            record_action(local_bookmark_plan)
         if remote_plan is not None:
-            _process_remote_branch_cleanup(
-                dry_run=prepared_cleanup.dry_run,
-                cached_change=prepared_change.cached_change,
-                jj_client=prepared_cleanup.jj_client,
-                record_action=record_action,
-                remote=prepared_cleanup.remote,
-                remote_plan=remote_plan,
-            )
+            record_action(remote_plan.action)
         return None
 
-    if local_bookmark_plan is not None and local_bookmark_plan.action.status != "planned":
-        record_action(local_bookmark_plan.action)
+    if local_bookmark_plan is not None and local_bookmark_plan.status != "planned":
+        record_action(local_bookmark_plan)
     if remote_plan is not None and remote_plan.action.status != "planned":
         record_action(remote_plan.action)
 
-    if (local_bookmark_plan is None or local_bookmark_plan.action.status != "planned") and (
+    if (local_bookmark_plan is None or local_bookmark_plan.status != "planned") and (
         remote_plan is None or remote_plan.action.status != "planned"
     ):
         return None
 
     return _StaleCleanupMutationPlan(
         cached_change=prepared_change.cached_change,
-        local_bookmark_plan=local_bookmark_plan,
+        local_bookmark_action=local_bookmark_plan,
         remote_plan=remote_plan,
     )
 
@@ -1264,13 +1190,13 @@ def _apply_stale_cleanup_mutation_plans(
             remote_deletions.append((bookmark, remote_plan.expected_remote_target))
             remote_actions.append(remote_plan.action)
 
-        local_bookmark_plan = mutation_plan.local_bookmark_plan
-        if local_bookmark_plan is not None and local_bookmark_plan.action.status == "planned":
+        local_bookmark_action = mutation_plan.local_bookmark_action
+        if local_bookmark_action is not None and local_bookmark_action.status == "planned":
             bookmark = mutation_plan.cached_change.bookmark
             if bookmark is None:
                 raise AssertionError("Planned local bookmark cleanup requires a bookmark.")
             local_bookmarks.append(bookmark)
-            local_actions.append(local_bookmark_plan.action)
+            local_actions.append(local_bookmark_action)
 
     for orphan_plan in orphan_local_bookmark_plans:
         if orphan_plan.action.status != "planned":
@@ -1428,30 +1354,6 @@ def _load_bookmark_states(
     return filtered
 
 
-def _cache_action(
-    *,
-    change_id: str,
-    reason: str,
-    status: CleanupActionStatus,
-) -> CleanupAction:
-    return CleanupAction(
-        kind="tracking",
-        status=status,
-        body=(t"remove tracking for {ui.change_id(change_id)} ({reason})"),
-    )
-
-
-def _stale_change_reason(
-    *,
-    change_id: str,
-    jj_client: JjClient,
-) -> str | None:
-    return _stale_change_reasons(
-        change_ids=(change_id,),
-        jj_client=jj_client,
-    )[change_id]
-
-
 def _stale_change_reasons(
     *,
     change_ids: tuple[str, ...],
@@ -1546,19 +1448,17 @@ def _plan_local_bookmark_cleanup(
     bookmark_state: BookmarkState,
     cached_change: CachedChange,
     stale_reason: str,
-) -> LocalBookmarkCleanupPlan | None:
+) -> CleanupAction | None:
     bookmark = cached_change.bookmark
     if bookmark is None or not bookmark.startswith("review/"):
         return None
     if not bookmark_state.local_targets:
         return None
     if len(bookmark_state.local_targets) > 1:
-        return LocalBookmarkCleanupPlan(
-            action=CleanupAction(
-                kind="local bookmark",
-                status="blocked",
-                body=t"cannot forget {ui.bookmark(bookmark)} because it is conflicted",
-            )
+        return CleanupAction(
+            kind="local bookmark",
+            status="blocked",
+            body=t"cannot forget {ui.bookmark(bookmark)} because it is conflicted",
         )
 
     local_target = bookmark_state.local_target
@@ -1567,23 +1467,19 @@ def _plan_local_bookmark_cleanup(
 
     expected_target = cached_change.last_submitted_commit_id
     if expected_target is not None and local_target != expected_target:
-        return LocalBookmarkCleanupPlan(
-            action=CleanupAction(
-                kind="local bookmark",
-                status="blocked",
-                body=(
-                    t"cannot forget {ui.bookmark(bookmark)} because it already points "
-                    t"to a different revision"
-                ),
-            )
+        return CleanupAction(
+            kind="local bookmark",
+            status="blocked",
+            body=(
+                t"cannot forget {ui.bookmark(bookmark)} because it already points "
+                t"to a different revision"
+            ),
         )
 
-    return LocalBookmarkCleanupPlan(
-        action=CleanupAction(
-            kind="local bookmark",
-            status="planned",
-            body=t"forget {ui.bookmark(bookmark)} ({stale_reason})",
-        )
+    return CleanupAction(
+        kind="local bookmark",
+        status="planned",
+        body=t"forget {ui.bookmark(bookmark)} ({stale_reason})",
     )
 
 
@@ -1629,53 +1525,6 @@ def _plan_orphan_local_bookmark_cleanup(
             body=t"forget {ui.bookmark(bookmark)} ({stale_reason})",
         ),
     )
-
-
-def _process_local_bookmark_cleanup(
-    *,
-    dry_run: bool,
-    cached_change: CachedChange,
-    jj_client: JjClient,
-    local_bookmark_plan: LocalBookmarkCleanupPlan,
-    record_action: Callable[[CleanupAction], None],
-) -> None:
-    local_action = local_bookmark_plan.action
-    if not dry_run and local_action.status == "planned":
-        bookmark = cached_change.bookmark
-        if bookmark is None:
-            raise AssertionError("Planned local bookmark cleanup requires a bookmark.")
-        jj_client.forget_bookmarks((bookmark,))
-        local_action = replace(local_action, status="applied")
-    record_action(local_action)
-
-
-def _process_remote_branch_cleanup(
-    *,
-    dry_run: bool,
-    cached_change: CachedChange,
-    jj_client: JjClient,
-    record_action: Callable[[CleanupAction], None],
-    remote: GitRemote | None,
-    remote_plan: RemoteBranchCleanupPlan,
-) -> None:
-    remote_action = remote_plan.action
-    if (
-        not dry_run
-        and remote_action.status == "planned"
-        and remote is not None
-        and remote_plan.expected_remote_target is not None
-    ):
-        jj_client.delete_remote_bookmarks(
-            remote=remote.name,
-            deletions=(
-                (
-                    cached_change.bookmark or "",
-                    remote_plan.expected_remote_target,
-                ),
-            ),
-        )
-        remote_action = replace(remote_action, status="applied")
-    record_action(remote_action)
 
 
 def _should_inspect_stack_comment_cleanup(
