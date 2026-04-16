@@ -1064,7 +1064,7 @@ def _preflight_private_commits(
     )
     raise CliError(
         t"Stack contains commits blocked by "
-        t"{ui.semantic_text('git.private-commits', 'code')}: {subjects}. "
+        t"{ui.code('git.private-commits')}: {subjects}. "
         t"Remove these changes from the stack before submitting."
     )
 
@@ -1309,8 +1309,8 @@ def _run_description_command(
     if not isinstance(title, str) or not isinstance(body, str):
         raise CliError(
             t"Describe helper {ui.cmd(command)} must return string "
-            t"{ui.semantic_text('title', 'hint')} and "
-            t"{ui.semantic_text('body', 'hint')} fields for "
+            t"{ui.cmd('title')} and "
+            t"{ui.cmd('body')} fields for "
             t"{ui.cmd(f'--{kind}')} {ui.revset(revset)}."
         )
 

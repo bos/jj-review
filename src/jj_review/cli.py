@@ -6,7 +6,6 @@ import builtins
 import io
 import logging
 import re
-import shutil
 import subprocess
 import sys
 import textwrap
@@ -16,7 +15,7 @@ from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeVar, cast
+from typing import Any, TypeVar, cast
 
 from jj_review import __version__, commands, console, ui
 from jj_review.completion import emit_shell_completion
@@ -26,12 +25,7 @@ from jj_review.errors import CliError, error_message
 logger = logging.getLogger(__name__)
 SubparserT = TypeVar("SubparserT", bound=ArgumentParser)
 _COLOR_CHOICES: tuple[RequestedColorMode, ...] = ("always", "never", "debug", "auto")
-_TOP_LEVEL_HELP_WIDTH = 80
-_TOP_LEVEL_HELP_USAGE = "jj-review [-h] [--color WHEN] [--version] <command> ..."
-_TOP_LEVEL_HELP_USAGE_ALL = (
-    "jj-review [-h] [--repository REPOSITORY] [--config CONFIG] [--debug] "
-    "[--color WHEN] [--time-output] [--version] <command> ..."
-)
+_TOP_LEVEL_HELP_USAGE = "jj-review [--help] [--color WHEN] [--version] <command> ..."
 _TOP_LEVEL_HELP_DESCRIPTION = """
 jj-review lets you review a local jj stack on GitHub as stacked pull requests.
 
@@ -41,6 +35,9 @@ ready changes, and clean up stale jj-review data.
 _TOP_LEVEL_HIDDEN_OPTION_STRINGS = frozenset(
     {"--repository", "--config", "--debug", "--time-output"}
 )
+_REORDERABLE_GLOBAL_FLAGS = frozenset({"--debug", "--time-output"})
+_REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES = frozenset({"--repository", "--config", "--color"})
+_HELP_FLAGS = frozenset({"-h", "--help"})
 _COMPLETION_HELP = "Print shell completion setup for bash, zsh, or fish"
 _HELP_HELP = "Show help for this command or another command"
 _COMPLETION_DESCRIPTION = """
@@ -95,16 +92,16 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
         (_HelpCommand("help", _HELP_HELP, hidden=True),),
     ),
 )
+_KNOWN_COMMANDS = frozenset(
+    entry.name for _, entries in _TOP_LEVEL_HELP_GROUPS for entry in entries
+)
 
 
 class _TopLevelArgumentParser(ArgumentParser):
     """ArgumentParser with custom grouped help for the top-level CLI."""
 
-    def format_help(self) -> str:
-        return _format_top_level_help(self, include_hidden=False)
-
     def format_usage(self) -> str:
-        return _format_top_level_usage(include_hidden=False) + "\n"
+        return f"usage: {_TOP_LEVEL_HELP_USAGE}\n"
 
 
 class _TitleCaseHelpFormatter(HelpFormatter):
@@ -112,23 +109,6 @@ class _TitleCaseHelpFormatter(HelpFormatter):
 
     def add_usage(self, usage, actions, groups, prefix=None):
         return super().add_usage(usage, actions, groups, prefix="Usage: ")
-
-    def _fill_text(self, text: str, width: int, indent: str) -> str:
-        return _fill_help_paragraphs(
-            text,
-            width=width,
-            initial_indent=indent,
-            subsequent_indent=indent,
-        )
-
-    def _split_lines(self, text: str, width: int) -> list[str]:
-        rendered = _fill_help_paragraphs(
-            text,
-            width=width,
-            initial_indent="",
-            subsequent_indent="",
-        )
-        return rendered.splitlines()
 
 
 class _CommandArgumentParser(ArgumentParser):
@@ -181,34 +161,35 @@ def build_parser() -> ArgumentParser:
             revset=args.revset,
             team_reviewers=args.team_reviewers,
         ),
-        revset_help="Revision to submit; defaults to @- (the current stack head)",
+        revset_help=(
+            t"Revision to submit; defaults to {ui.revset('@-')} "
+            t"(the current stack head)"
+        ),
     )
-    submit_parser.add_argument(
+    _add_help_argument(
+        submit_parser,
         "--dry-run",
         action="store_true",
         help="Print the submit plan without mutating local, remote, or GitHub state",
     )
-    submit_parser.add_argument(
+    _add_help_argument(
+        submit_parser,
         "-d",
         "--describe-with",
-        help=_normalized_help_text(
-            """
-            Executable to invoke as `helper --pr <change_id>` for each PR and
-            `helper --stack <revset>` for stack-comment prose; the helper must
-            print JSON with string `title` and `body` fields
-            """
+        help=(
+            t"Executable to invoke as {ui.cmd('helper --pr <change_id>')} for each PR and "
+            t"{ui.cmd('helper --stack <revset>')} for stack-comment prose; the helper must "
+            t"print JSON with string {ui.cmd('title')} and {ui.cmd('body')} fields"
         ),
     )
     submit_draft_mode = submit_parser.add_mutually_exclusive_group()
-    submit_draft_mode.add_argument(
+    _add_help_argument(
+        submit_draft_mode,
         "--draft",
         action="store_true",
-        help=_normalized_help_text(
-            """
-            Create newly opened pull requests as drafts; use `--draft=all` to
-            also return existing published pull requests on the selected stack
-            to draft
-            """
+        help=(
+            t"Create newly opened pull requests as drafts; use {ui.cmd('--draft=all')} to also "
+            t"return existing published pull requests on the selected stack to draft"
         ),
     )
     submit_draft_mode.add_argument(
@@ -221,37 +202,34 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         help="Mark existing draft pull requests ready for review on submit",
     )
-    submit_parser.add_argument(
+    _add_help_argument(
+        submit_parser,
         "--label",
         dest="labels",
         action="append",
-        help=_normalized_help_text(
-            """
-            Comma-separated GitHub labels to apply to submitted pull requests;
-            repeat to add more; overrides configured labels
-            """
+        help=(
+            "Comma-separated GitHub labels to apply to submitted pull requests; "
+            "repeat to add more; overrides configured labels"
         ),
     )
-    submit_parser.add_argument(
+    _add_help_argument(
+        submit_parser,
         "--reviewers",
         dest="reviewers",
         action="append",
-        help=_normalized_help_text(
-            """
-            Comma-separated GitHub usernames to request on submitted pull
-            requests; repeat to add more; overrides configured reviewers
-            """
+        help=(
+            "Comma-separated GitHub usernames to request on submitted pull requests; "
+            "repeat to add more; overrides configured reviewers"
         ),
     )
-    submit_parser.add_argument(
+    _add_help_argument(
+        submit_parser,
         "--team-reviewers",
         dest="team_reviewers",
         action="append",
-        help=_normalized_help_text(
-            """
-            Comma-separated GitHub team slugs to request on submitted pull
-            requests; repeat to add more; overrides configured team reviewers
-            """
+        help=(
+            "Comma-separated GitHub team slugs to request on submitted pull requests; "
+            "repeat to add more; overrides configured team reviewers"
         ),
     )
     status_parser = _add_revision_command(
@@ -324,8 +302,8 @@ def build_parser() -> ArgumentParser:
             skip_cleanup=args.skip_cleanup,
         ),
         revset_help=(
-            "Revision to land; defaults to @- (the current stack head); "
-            "cannot be combined with --pull-request"
+            t"Revision to land; defaults to {ui.revset('@-')} (the current stack head); "
+            t"cannot be combined with {ui.cmd('--pull-request')}"
         ),
     )
     land_parser.add_argument(
@@ -333,7 +311,8 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         help="Print the landing plan without mutating jj or GitHub state",
     )
-    land_parser.add_argument(
+    _add_help_argument(
+        land_parser,
         "--pull-request",
         help="Select the local change linked to this pull request number or URL",
     )
@@ -362,8 +341,8 @@ def build_parser() -> ArgumentParser:
             revset=args.revset,
         ),
         revset_help=(
-            "Revision to close; defaults to @- (the current stack head); "
-            "cannot be combined with --pull-request"
+            t"Revision to close; defaults to {ui.revset('@-')} (the current stack head); "
+            t"cannot be combined with {ui.cmd('--pull-request')}"
         ),
     )
     close_parser.add_argument(
@@ -376,7 +355,8 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         help="Also delete the review branches and tracking data for the stack",
     )
-    close_parser.add_argument(
+    _add_help_argument(
+        close_parser,
         "--pull-request",
         help="Select the local change linked to this pull request number or URL",
     )
@@ -407,17 +387,20 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         help="Print cleanup actions without mutating jj-review or GitHub state",
     )
-    cleanup_parser.add_argument(
+    _add_help_argument(
+        cleanup_parser,
         "--restack",
         action="store_true",
         help="Preview or apply a local restack for merged changes on the selected stack",
     )
-    cleanup_parser.add_argument(
+    _add_help_argument(
+        cleanup_parser,
         "revset",
         nargs="?",
         help=(
-            "Revision whose stack should be restacked; ignored unless "
-            "`--restack` is passed, and defaults to @- for restack"
+            t"Revision whose stack should be restacked; ignored unless "
+            t"{ui.cmd('--restack')} is passed, and defaults to {ui.revset('@-')} "
+            t"for restack"
         ),
     )
     cleanup_parser.set_defaults(
@@ -485,7 +468,8 @@ def build_parser() -> ArgumentParser:
         description=_normalized_help_text(_HELP_DESCRIPTION),
     )
     _normalize_help_action_text(help_parser)
-    help_parser.add_argument(
+    _add_help_argument(
+        help_parser,
         "--all",
         action="store_true",
         help="Include advanced repair and shell integration commands",
@@ -499,100 +483,191 @@ def build_parser() -> ArgumentParser:
     return parser
 
 
-def _format_top_level_help(parser: ArgumentParser, *, include_hidden: bool) -> str:
-    width = _top_level_help_width()
-    sections: list[str] = [
-        _format_top_level_usage(include_hidden=include_hidden, width=width),
-        _format_top_level_description(parser.description or "", width=width),
-    ]
+def _format_option_label(action) -> str:
+    if action.nargs == 0:
+        return ", ".join(action.option_strings)
+    metavar = action.metavar or action.dest.upper()
+    return ", ".join(f"{option} {metavar}" for option in action.option_strings)
+
+
+def _normalized_help_text(content: ui.Message | str) -> str:
+    return textwrap.dedent(ui.plain_text(content)).strip()
+
+
+def _help_paragraphs(text: str) -> tuple[str, ...]:
+    normalized = _normalized_help_text(text)
+    if not normalized:
+        return ()
+    return tuple(" ".join(paragraph.split()) for paragraph in re.split(r"\n\s*\n", normalized))
+
+
+def _help_inline_code(text: str) -> ui.SemanticText:
+    if text.startswith("review/"):
+        return ui.bookmark(text)
+    if text.startswith("@") or ("(" in text and text.endswith(")")):
+        return ui.revset(text)
+    return ui.cmd(text)
+
+
+def _help_rich_text(text: str) -> ui.Message | str:
+    parts: list[object] = []
+    last_index = 0
+    for match in re.finditer(r"`([^`]+)`", text):
+        start, end = match.span()
+        if start > last_index:
+            parts.append(text[last_index:start])
+        parts.append(_help_inline_code(match.group(1)))
+        last_index = end
+    if last_index == 0:
+        return text
+    if last_index < len(text):
+        parts.append(text[last_index:])
+    return tuple(parts)
+
+
+def _help_heading(text: str) -> ui.SemanticText:
+    return ui.semantic_text(text, "hint", "heading")
+
+
+_ACTION_HELP_RENDERABLES: dict[int, ui.Message] = {}
+
+
+def _add_help_argument(
+    parser: Any,
+    *name_or_flags: str,
+    help: ui.Message | str,
+    **kwargs: Any,
+) -> Any:
+    action = parser.add_argument(*name_or_flags, **kwargs)
+    action.help = _normalized_help_text(help)
+    if not isinstance(help, str):
+        _ACTION_HELP_RENDERABLES[id(action)] = help
+    return action
+
+
+def _action_help_body(action: Any) -> ui.Message | str:
+    content = _ACTION_HELP_RENDERABLES.get(id(action))
+    if content is not None:
+        return content
+    return "\n\n".join(_help_paragraphs(action.help or ""))
+
+
+def _top_level_usage_message(*, include_hidden: bool) -> ui.Message:
+    if include_hidden:
+        return (
+            t"{ui.cmd('jj-review')} [{ui.cmd('--help')}] "
+            t"[{ui.cmd('--repository REPOSITORY')}] "
+            t"[{ui.cmd('--config CONFIG')}] [{ui.cmd('--debug')}] [{ui.cmd('--color WHEN')}] "
+            t"[{ui.cmd('--time-output')}] [{ui.cmd('--version')}] "
+            t"{ui.cmd('<command>')} ..."
+        )
+    return (
+        t"{ui.cmd('jj-review')} [{ui.cmd('--help')}] [{ui.cmd('--color WHEN')}] "
+        t"[{ui.cmd('--version')}] {ui.cmd('<command>')} ..."
+    )
+
+
+def _usage_body_from_parser(parser: ArgumentParser) -> str:
+    usage = " ".join(parser.format_usage().split())
+    usage = re.sub(r"^(?:[Uu]sage:\s*)+", "", usage)
+    usage = re.sub(r"\[-h\]", "[--help]", usage)
+    return usage
+
+
+def _command_usage_message(parser: ArgumentParser) -> ui.Message | str:
+    body = _usage_body_from_parser(parser)
+    if body.startswith(parser.prog):
+        return (ui.cmd(parser.prog), body.removeprefix(parser.prog))
+    return body
+
+
+def _action_label_message(action) -> ui.Message:
+    if action.option_strings:
+        return ui.cmd(_format_option_label(action))
+    return ui.cmd(str(action.metavar or action.dest))
+
+
+def _help_table(
+    rows: Sequence[tuple[Any, Any]],
+) -> ui.DataTable:
+    label_width = max(len(ui.plain_text(label)) for label, _ in rows) + 2
+    return ui.DataTable(
+        columns=(
+            ui.TableColumn("", no_wrap=True, width=label_width),
+            ui.TableColumn(""),
+        ),
+        rows=tuple(rows),
+        box="",
+        show_header=False,
+    )
+
+
+def _action_rows_for_actions(
+    actions: Sequence[Any],
+) -> tuple[tuple[Any, Any], ...]:
+    return tuple(
+        (
+            _action_label_message(action),
+            _action_help_body(action),
+        )
+        for action in actions
+    )
+
+
+def _emit_help_table_section(title: str, rows: Sequence[tuple[Any, Any]]) -> None:
+    console.output(_help_heading(f"{title}:"))
+    console.output(_help_table(rows))
+
+
+def _action_rows(actions: Sequence[Any]) -> tuple[tuple[Any, Any], ...] | None:
+    visible_actions = [action for action in actions if action.help is not SUPPRESS]
+    if not visible_actions:
+        return None
+    return _action_rows_for_actions(visible_actions)
+
+
+def _emit_help_paragraphs(text: str) -> None:
+    for index, paragraph in enumerate(_help_paragraphs(text)):
+        if index:
+            console.output()
+        console.output(_help_rich_text(paragraph))
+
+
+def _emit_top_level_help(parser: ArgumentParser, *, include_hidden: bool) -> None:
+    console.output(
+        ui.prefixed_line(
+            _help_heading("Usage: "),
+            _top_level_usage_message(include_hidden=include_hidden),
+        )
+    )
+
+    if parser.description:
+        console.output()
+        _emit_help_paragraphs(parser.description)
+
     for title, entries in _TOP_LEVEL_HELP_GROUPS:
         visible_entries = [entry for entry in entries if include_hidden or not entry.hidden]
         if not visible_entries:
             continue
-        sections.append(_format_help_command_section(title, visible_entries, width=width))
+        console.output()
+        _emit_help_table_section(
+            title,
+            tuple(
+                (
+                    ui.cmd(entry.name),
+                    _normalized_help_text(entry.summary),
+                )
+                for entry in visible_entries
+            ),
+        )
 
     if not include_hidden:
-        sections.append(
-            textwrap.fill(
-                "Run `jj-review help --all` to show advanced commands and options.",
-                width=width,
-                break_long_words=False,
-                break_on_hyphens=False,
-            )
+        console.output()
+        console.output(
+            t"Run {ui.cmd('jj-review help --all')} to show advanced commands and options."
         )
 
-    sections.append(
-        _format_help_option_section(
-            parser,
-            include_hidden=include_hidden,
-            width=width,
-        )
-    )
-    return "\n\n".join(section for section in sections if section).rstrip() + "\n"
-
-
-def _format_top_level_usage(*, include_hidden: bool, width: int | None = None) -> str:
-    effective_width = _top_level_help_width() if width is None else width
-    return textwrap.fill(
-        _TOP_LEVEL_HELP_USAGE_ALL if include_hidden else _TOP_LEVEL_HELP_USAGE,
-        width=effective_width,
-        initial_indent="usage: ",
-        subsequent_indent="       ",
-        break_long_words=False,
-        break_on_hyphens=False,
-    )
-
-
-def _format_top_level_description(description: str, *, width: int | None = None) -> str:
-    normalized_description = _normalized_help_text(description)
-    if not normalized_description:
-        return ""
-
-    effective_width = _top_level_help_width() if width is None else width
-    paragraphs = [
-        textwrap.fill(
-            paragraph,
-            width=effective_width,
-            break_long_words=False,
-            break_on_hyphens=False,
-        )
-        for paragraph in normalized_description.split("\n\n")
-    ]
-    return "\n\n".join(paragraphs)
-
-
-def _format_help_command_section(
-    title: str,
-    entries: Sequence[_HelpCommand],
-    *,
-    width: int | None = None,
-) -> str:
-    effective_width = _top_level_help_width() if width is None else width
-    label_width = max(len(entry.name) for entry in entries) + 2
-    lines = [f"{title}:"]
-    for entry in entries:
-        initial_indent = f"  {entry.name.ljust(label_width)}"
-        lines.append(
-            textwrap.fill(
-                _normalized_help_text(entry.summary),
-                width=effective_width,
-                initial_indent=initial_indent,
-                subsequent_indent=" " * len(initial_indent),
-                break_long_words=False,
-                break_on_hyphens=False,
-            )
-        )
-    return "\n".join(lines)
-
-
-def _format_help_option_section(
-    parser: ArgumentParser,
-    *,
-    include_hidden: bool,
-    width: int | None = None,
-) -> str:
-    effective_width = _top_level_help_width() if width is None else width
-    actions = [
+    option_actions = [
         action
         for action in parser._actions
         if action.option_strings
@@ -604,74 +679,45 @@ def _format_help_option_section(
             )
         )
     ]
-    label_width = max(len(_format_option_label(action)) for action in actions) + 2
-    lines = ["Options:"]
-    for action in actions:
-        label = _format_option_label(action)
-        initial_indent = f"  {label.ljust(label_width)}"
-        lines.append(
-            textwrap.fill(
-                action.help or "",
-                width=effective_width,
-                initial_indent=initial_indent,
-                subsequent_indent=" " * len(initial_indent),
-                break_long_words=False,
-                break_on_hyphens=False,
-            )
-        )
-    return "\n".join(lines)
-
-
-def _format_option_label(action) -> str:
-    if action.nargs == 0:
-        return ", ".join(action.option_strings)
-    metavar = action.metavar or action.dest.upper()
-    return ", ".join(f"{option} {metavar}" for option in action.option_strings)
-
-
-def _normalized_help_text(text: str) -> str:
-    return textwrap.dedent(text).strip()
-
-
-def _fill_help_paragraphs(
-    text: str,
-    *,
-    width: int,
-    initial_indent: str,
-    subsequent_indent: str,
-) -> str:
-    paragraphs = re.split(r"\n\s*\n", text)
-    return "\n\n".join(
-        textwrap.fill(
-            " ".join(paragraph.split()),
-            width=width,
-            initial_indent=initial_indent,
-            subsequent_indent=subsequent_indent,
-            break_long_words=False,
-            break_on_hyphens=False,
-        )
-        for paragraph in paragraphs
-    )
-
-
-def _top_level_help_width() -> int:
-    if not any(stream.isatty() for stream in (sys.stdout, sys.stderr)):
-        return _TOP_LEVEL_HELP_WIDTH
-
-    columns = shutil.get_terminal_size(fallback=(_TOP_LEVEL_HELP_WIDTH, 24)).columns
-    return columns if columns > 0 else _TOP_LEVEL_HELP_WIDTH
+    option_rows = _action_rows(option_actions)
+    if option_rows is not None:
+        console.output()
+        _emit_help_table_section("Options", option_rows)
 
 
 def _help_handler(args: Namespace) -> int:
     parser = build_parser()
     if args.command is None:
-        print(_format_top_level_help(parser, include_hidden=args.all), end="")
+        _emit_top_level_help(parser, include_hidden=args.all)
         return 0
 
     command_parser = _find_subcommand_parser(parser, args.command)
     if command_parser is None:
         raise CliError(t"Unknown command {ui.cmd(args.command)}.")
-    print(command_parser.format_help(), end="")
+
+    console.output(
+        ui.prefixed_line(
+            _help_heading("Usage: "),
+            _command_usage_message(command_parser),
+        )
+    )
+
+    if command_parser.description:
+        console.output()
+        _emit_help_paragraphs(command_parser.description)
+
+    positional_rows = _action_rows(command_parser._positionals._group_actions)
+    if positional_rows is not None:
+        console.output()
+        _emit_help_table_section(
+            command_parser._positionals.title or "Positional Arguments",
+            positional_rows,
+        )
+
+    option_rows = _action_rows(command_parser._optionals._group_actions)
+    if option_rows is not None:
+        console.output()
+        _emit_help_table_section(command_parser._optionals.title or "Options", option_rows)
     return 0
 
 
@@ -758,7 +804,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         with _time_output(enabled=args.time_output):
             handler = args.handler
             if handler is None:
-                print(parser.format_help(), end="")
+                _emit_top_level_help(parser, include_hidden=False)
                 return 0
 
             try:
@@ -767,7 +813,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 _print_cli_error(error)
                 return error.exit_code
             except KeyboardInterrupt:
-                print("Interrupted.", file=sys.stderr)
+                console.stderr_output("Interrupted.")
                 return 130
 
 
@@ -779,7 +825,7 @@ def _add_revision_command(
     description_text: str,
     handler,
     revset_nargs: str | int | None = "?",
-    revset_help: str = "Revision to operate on",
+    revset_help: ui.Message | str = "Revision to operate on",
 ) -> SubparserT:
     parser = subparsers.add_parser(
         command,
@@ -788,7 +834,7 @@ def _add_revision_command(
     )
     _add_common_options(parser)
     _normalize_help_action_text(parser)
-    parser.add_argument("revset", nargs=revset_nargs, help=revset_help)
+    _add_help_argument(parser, "revset", nargs=revset_nargs, help=revset_help)
     parser.set_defaults(handler=handler)
     return parser
 
@@ -808,10 +854,9 @@ def _add_relink_parser(
     )
     _add_common_options(parser)
     _normalize_help_action_text(parser)
-    parser.add_argument("pull_request", help="Pull request number or URL")
-    parser.add_argument(
-        "revset",
-        help="Revision to reassociate with the pull request",
+    _add_help_argument(parser, "pull_request", help="Pull request number or URL")
+    _add_help_argument(
+        parser, "revset", help="Revision to reassociate with the pull request"
     )
     parser.set_defaults(handler=handler)
     return parser
@@ -833,23 +878,20 @@ def _add_import_parser(
     _add_common_options(parser)
     _normalize_help_action_text(parser)
     selector = parser.add_mutually_exclusive_group(required=False)
-    selector.add_argument(
-        "--pull-request",
-        help="Pull request number or URL",
-    )
-    selector.add_argument(
+    _add_help_argument(selector, "--pull-request", help="Pull request number or URL")
+    _add_help_argument(
+        selector,
         "--revset",
         help="Explicit revset whose exact stack should be imported",
     )
-    parser.add_argument(
+    _add_help_argument(
+        parser,
         "--fetch",
         action="store_true",
-        help=_normalized_help_text(
-            """
-            Refresh the selected stack's remote bookmark state and, for
-            `--pull-request`, fetch only the branches needed to import
-            that stack
-            """
+        help=(
+            t"Refresh the selected stack's remote bookmark state and, for "
+            t"{ui.cmd('--pull-request')}, fetch only the branches needed to import "
+            t"that stack"
         ),
     )
     parser.set_defaults(handler=handler)
@@ -902,7 +944,7 @@ def _normalize_help_action_text(parser: ArgumentParser) -> None:
 
 
 def _completion_handler(args: Namespace) -> int:
-    print(emit_shell_completion(build_parser(), args.shell), end="")
+    console.output(emit_shell_completion(build_parser(), args.shell), end="")
     return 0
 
 
@@ -987,7 +1029,54 @@ def _normalize_cli_args(argv: Sequence[str]) -> list[str]:
         raise CliError(
             t"Invalid value for {ui.cmd('--draft')}: {draft_mode}. Expected new or all."
         )
-    return normalized
+    return _rewrite_help_args(normalized)
+
+
+def _extract_reorderable_global_options(argv: Sequence[str]) -> tuple[list[str], list[str]]:
+    globals_: list[str] = []
+    rest: list[str] = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg in _REORDERABLE_GLOBAL_FLAGS or any(
+            arg.startswith(f"{opt}=") for opt in _REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES
+        ):
+            globals_.append(arg)
+            index += 1
+        elif arg in _REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES and index + 1 < len(argv):
+            globals_.extend((arg, argv[index + 1]))
+            index += 2
+        else:
+            rest.append(arg)
+            index += 1
+    return globals_, rest
+
+
+def _rewrite_help_args(argv: list[str]) -> list[str]:
+    if not argv:
+        return argv
+    starts_with_help = argv[0] == "help"
+    if not starts_with_help and not any(arg in _HELP_FLAGS for arg in argv):
+        return argv
+
+    source = argv[1:] if starts_with_help else argv
+    globals_, rest = _extract_reorderable_global_options(source)
+
+    if starts_with_help:
+        return [*globals_, "help", *(arg for arg in rest if arg not in _HELP_FLAGS)]
+
+    subcommands = _KNOWN_COMMANDS - {"help"}
+    for arg in rest:
+        if arg in _HELP_FLAGS:
+            break
+        if arg.startswith("-"):
+            continue
+        if arg in subcommands:
+            return [*globals_, "help", arg]
+        return [*globals_, "help"]
+
+    tail = ["--all"] if "--all" in argv else []
+    return [*globals_, "help", *tail]
 
 
 if __name__ == "__main__":

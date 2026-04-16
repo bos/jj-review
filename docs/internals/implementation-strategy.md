@@ -92,6 +92,10 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- top-level and subcommand `help` output now build on shared `ui` definition-
+  list and prefixed-line primitives, so section headings, command labels, and
+  option labels render through the Rich-backed console path instead of
+  hand-wrapped `print()` output in `cli.py`
 - applied action rows in `close`, `cleanup`, `land`, and `abort` now keep
   success emphasis on the status marker instead of tinting the full action
   description, and tracking-removal messages now use plain "review tracking"

@@ -66,7 +66,7 @@ def resolve_linked_change_for_pull_request(
     action_label = action_name.capitalize()
     if revset is not None:
         raise CliError(
-            t"Use either {ui.revset('<revset>')} or {ui.cmd('--pull-request')}, "
+            t"Use either {ui.cmd('<revset>')} or {ui.cmd('--pull-request')}, "
             t"not both."
         )
 

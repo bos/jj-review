@@ -47,6 +47,11 @@ ColorMode = Literal["auto", "always", "never"]
 RequestedColorMode = Literal["always", "auto", "debug", "never"]
 _JJ_COLORS_TEMPLATE = r'name ++ "\0" ++ json(value) ++ "\n"'
 _JJ_STYLE_ATTRIBUTES = frozenset({"bg", "bold", "dim", "fg", "italic", "reverse", "underline"})
+_SEMANTIC_STYLE_FALLBACKS: tuple[tuple[frozenset[str], tuple[str, ...]], ...] = (
+    (frozenset({"command"}), ("config_list", "name")),
+    (frozenset({"revset"}), ("bookmark",)),
+    (frozenset({"code"}), ("config_list", "value")),
+)
 StyleArg = Style | str
 
 
@@ -84,13 +89,31 @@ class _SemanticStyles:
         if not normalized_labels:
             return None
 
+        style, matched_labels = self._resolve_direct_style(normalized_labels)
+        matched = style != Style.null()
+        for trigger_labels, fallback_labels in _SEMANTIC_STYLE_FALLBACKS:
+            if not trigger_labels.issubset(normalized_labels):
+                continue
+            if trigger_labels.issubset(matched_labels):
+                continue
+            fallback_style, _ = self._resolve_direct_style(frozenset(fallback_labels))
+            if fallback_style == Style.null():
+                continue
+            style += fallback_style
+            matched = True
+        return style if matched else None
+
+    def _resolve_direct_style(
+        self,
+        normalized_labels: frozenset[str],
+    ) -> tuple[Style, frozenset[str]]:
         style = Style.null()
-        matched = False
+        matched_labels: set[str] = set()
         for rule in self._rules:
             if rule.labels.issubset(normalized_labels):
                 style += rule.style
-                matched = True
-        return style if matched else None
+                matched_labels.update(rule.labels)
+        return style, frozenset(matched_labels)
 
 
 @dataclass(slots=True)
@@ -118,6 +141,42 @@ class _TimePrefixedRenderable:
             yield Segment.line()
         elif self.end:
             yield from console.render(self.end, options)
+
+
+@dataclass(slots=True)
+class _HangingIndentRenderable:
+    """Render a prefix once and indent wrapped body lines to the same column."""
+
+    prefix: Any
+    prefix_width: int
+    body: Any
+
+    def __rich_console__(self, console, options):
+        if options.no_wrap:
+            no_wrap_options = options.update(no_wrap=True, overflow="ignore")
+            yield from console.render(self.prefix, no_wrap_options)
+            yield from console.render(self.body, no_wrap_options)
+            return
+
+        prefix_options = options.update(width=self.prefix_width, max_width=self.prefix_width)
+        body_width = max(1, options.max_width - self.prefix_width)
+        body_options = options.update(width=body_width, max_width=body_width)
+
+        prefix_lines = console.render_lines(self.prefix, prefix_options, pad=False)
+        prefix_line = prefix_lines[0] if prefix_lines else []
+        body_lines = console.render_lines(self.body, body_options, pad=False)
+        if not body_lines:
+            body_lines = [[]]
+
+        indent = Segment(" " * self.prefix_width)
+        for index, line in enumerate(body_lines):
+            if index == 0:
+                yield from prefix_line
+            else:
+                yield indent
+            yield from line
+            if index < len(body_lines) - 1:
+                yield Segment.line()
 
 
 class _ConfiguredConsole:
@@ -418,6 +477,13 @@ def error(*objects, **kwargs) -> None:
     _STDERR_CONSOLE.print(*(_coerce_renderable(obj) for obj in objects), **kwargs)
 
 
+def stderr_output(*objects, **kwargs) -> None:
+    """Write plain user-facing output to stderr."""
+
+    kwargs.setdefault("markup", False)
+    _STDERR_CONSOLE.print(*(_coerce_renderable(obj) for obj in objects), **kwargs)
+
+
 def warning(*objects, **kwargs) -> None:
     """Write styled warning output to stderr."""
 
@@ -658,14 +724,10 @@ def _to_rich_style(style: object) -> Style:
     return cast(Style, style)
 
 
-def _render_prefixed_line(line: ui.PrefixedLine) -> Table:
+def _render_prefixed_line(line: ui.PrefixedLine) -> _HangingIndentRenderable:
     """Render one semantic hanging-indent line."""
 
     prefix_width = max(1, len(ui.plain_text(line.prefix)))
-    table = Table.grid(padding=(0, 0), expand=False)
-    table.add_column(width=prefix_width, no_wrap=True)
-    table.add_column()
-
     message_style = line.message_style
     if line.message_labels is not None:
         message_style = _combine_styles(message_style, semantic_style(*line.message_labels))
@@ -681,9 +743,11 @@ def _render_prefixed_line(line: ui.PrefixedLine) -> Table:
         prefix_cell: Any = rich_text(line.prefix, style=prefix_style)
     else:
         prefix_cell = _coerce_renderable(line.prefix)
-
-    table.add_row(cast(Any, prefix_cell), cast(Any, message_cell))
-    return table
+    return _HangingIndentRenderable(
+        prefix=cast(Any, prefix_cell),
+        prefix_width=prefix_width,
+        body=cast(Any, message_cell),
+    )
 
 
 def _render_data_table(table_data: ui.DataTable) -> Table:

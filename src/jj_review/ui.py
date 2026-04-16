@@ -89,8 +89,17 @@ def revset(text: str) -> SemanticText:
     return semantic_text(text, "revset")
 
 
+def code(text: str) -> SemanticText:
+    """Wrap a code-like token for semantic rendering."""
+
+    return semantic_text(text, "code")
+
+
 def cmd(text: str) -> SemanticText:
-    """Wrap a command-line snippet for semantic rendering."""
+    """Wrap a command-line snippet for semantic rendering.
+
+    This can be used for commands, options, or arguments.
+    """
 
     return semantic_text(text, "command", "hint")
 

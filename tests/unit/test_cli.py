@@ -64,9 +64,17 @@ def test_main_reports_invalid_logging_level_without_traceback(
     [
         (["submit", "--draft=new", "@"], ["submit", "--draft", "@"]),
         (["submit", "--draft=all", "@"], ["submit", "--draft-all", "@"]),
+        (
+            ["help", "cleanup", "--color=never"],
+            ["--color=never", "help", "cleanup"],
+        ),
+        (
+            ["cleanup", "--help", "--color=never"],
+            ["--color=never", "help", "cleanup"],
+        ),
     ],
 )
-def test_normalize_cli_args_rewrites_supported_draft_modes(
+def test_normalize_cli_args_rewrites_shorthand_forms(
     args: list[str],
     expected: list[str],
 ) -> None:
@@ -123,3 +131,16 @@ def test_main_renders_semantic_cli_errors_without_flattening_first(
 
     assert exit_code == 1
     assert "Error: Problem at abcdefgh" in captured.err
+
+
+def test_main_renders_inline_backtick_help_spans_without_literal_backticks(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["--color=never", "help", "cleanup"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "`--restack`" not in captured.out
+    assert "`--dry-run`" not in captured.out
+    assert "--restack" in captured.out
+    assert "--dry-run" in captured.out
