@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from jj_review import ui
 from jj_review.config import AppConfig, load_config
 from jj_review.errors import CliError
 
@@ -105,14 +106,14 @@ def resolve_repo_root(start_dir: Path) -> Path:
             text=True,
         )
     except FileNotFoundError as error:
-        raise CliError("`jj` is not installed or is not on PATH.") from error
+        raise CliError(t"{ui.cmd('jj')} is not installed or is not on PATH.") from error
     if completed.returncode != 0:
         message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
         raise CliError(f"Not inside a jj workspace (from {start_dir}): {message}")
 
     root = completed.stdout.strip()
     if not root:
-        raise CliError(f"`jj root` returned an empty path (from {start_dir}).")
+        raise CliError(t"{ui.cmd('jj root')} returned an empty path (from {start_dir}).")
     return Path(root)
 
 
@@ -131,17 +132,17 @@ def check_jj_version() -> None:
             text=True,
         )
     except FileNotFoundError as error:
-        raise CliError("`jj` is not installed or is not on PATH.") from error
+        raise CliError(t"{ui.cmd('jj')} is not installed or is not on PATH.") from error
 
     if completed.returncode != 0:
         message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
-        raise CliError(f"`jj --version` failed: {message}")
+        raise CliError(t"{ui.cmd('jj --version')} failed: {message}")
 
     version = _parse_jj_version(completed.stdout.strip())
     if version is None:
         raise CliError(
-            f"Could not parse `jj --version` output: {completed.stdout.strip()!r}. "
-            f"jj-review requires jj {_MINIMUM_JJ_VERSION_STRING} or later."
+            t"Could not parse {ui.cmd('jj --version')} output: {completed.stdout.strip()!r}. "
+            t"jj-review requires jj {_MINIMUM_JJ_VERSION_STRING} or later."
         )
     if version < _MINIMUM_JJ_VERSION:
         installed = ".".join(str(x) for x in version)
