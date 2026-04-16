@@ -143,7 +143,7 @@ def test_discover_review_stack_rejects_root_fallback_trunk() -> None:
     }
 
     client = JjClient(Path("/repo"), runner=_runner(responses))
-    with pytest.raises(UnsupportedStackError, match=r"`trunk\(\)` resolved to the root commit"):
+    with pytest.raises(UnsupportedStackError, match=r"trunk\(\) resolved to the root commit"):
         client.discover_review_stack("head")
 
 
@@ -342,7 +342,7 @@ def test_discover_review_stack_rejects_shared_trunk_ancestor_without_merge() -> 
     }
 
     client = JjClient(Path("/repo"), runner=_runner(responses))
-    with pytest.raises(UnsupportedStackError, match="root commit before `trunk\\(\\)`"):
+    with pytest.raises(UnsupportedStackError, match=r"root commit before trunk\(\)"):
         client.discover_review_stack(
             "head-4",
             allow_immutable=True,
@@ -971,7 +971,7 @@ def test_query_ancestor_revisions_and_children_by_parent_for_commit_ids() -> Non
                 "Error: Failed to parse revset: Syntax error\n"
                 "Hint: See https://docs.jj-vcs.dev/latest/revsets/\n"
             ),
-            r"Invalid revset 'x\(': Failed to parse revset: Syntax error\.",
+            r"Invalid revset x\(: Failed to parse revset: Syntax error\.",
             id="invalid-revset",
         ),
     ],

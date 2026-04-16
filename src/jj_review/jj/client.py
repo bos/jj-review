@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from jj_review import ui
 from jj_review.errors import CliError, ErrorMessage
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.stack import LocalRevision, LocalStack
@@ -62,7 +63,7 @@ class UnsupportedStackError(CliError):
         reason: UnsupportedStackReason,
     ) -> UnsupportedStackError:
         return cls(
-            f"Unsupported stack shape at {change_id}: {detail}",
+            t"Unsupported stack shape at {ui.change_id(change_id)}: {detail}",
             change_id=change_id,
             reason=reason,
         )
@@ -182,9 +183,9 @@ class JjClient:
                 raise friendly_error from error
             raise
         if not revisions:
-            raise CliError(f"Revset {revset!r} did not resolve to a visible revision.")
+            raise CliError(t"Revset {ui.revset(revset)} did not resolve to a visible revision.")
         if len(revisions) > 1:
-            raise CliError(f"Revset {revset!r} resolved to more than one revision.")
+            raise CliError(t"Revset {ui.revset(revset)} resolved to more than one revision.")
         return revisions[0]
 
     def query_revisions(
@@ -339,8 +340,8 @@ class JjClient:
         trunk = self.resolve_revision("trunk()")
         if len(trunk.parents) == 0:
             raise UnsupportedStackError(
-                "`trunk()` resolved to the root commit. Configure a concrete trunk bookmark "
-                "before discovering a review stack.",
+                t"{ui.revset('trunk()')} resolved to the root commit. Configure a concrete trunk "
+                t"bookmark before discovering a review stack.",
                 reason="trunk_resolved_to_root",
             )
         return trunk
@@ -477,12 +478,12 @@ class JjClient:
             raw_bookmark = json.loads(stripped)
             if not isinstance(raw_bookmark, dict):
                 raise JjCommandError(
-                    "Unexpected `jj bookmark list` payload: expected a JSON object."
+                    t"Unexpected {ui.cmd('jj bookmark list')} payload: expected a JSON object."
                 )
             name = raw_bookmark["name"]
             if not isinstance(name, str):
                 raise JjCommandError(
-                    "Unexpected `jj bookmark list` payload: missing bookmark name."
+                    t"Unexpected {ui.cmd('jj bookmark list')} payload: missing bookmark name."
                 )
             bookmark_state = grouped.setdefault(name, _RawBookmarkState())
             targets = tuple(_require_sequence(raw_bookmark.get("target", ())))
@@ -492,7 +493,8 @@ class JjClient:
                 continue
             if not isinstance(remote_name, str):
                 raise JjCommandError(
-                    "Unexpected `jj bookmark list` payload: invalid remote bookmark entry."
+                    t"Unexpected {ui.cmd('jj bookmark list')} payload: invalid remote bookmark "
+                    t"entry."
                 )
             tracking_target = raw_bookmark.get("tracking_target", ())
             bookmark_state.remote_targets.append(
@@ -587,7 +589,9 @@ class JjClient:
                 continue
             commit_id, separator, ref = stripped.partition("\t")
             if not separator or not commit_id or not ref.startswith("refs/heads/"):
-                raise JjCommandError(f"`git ls-remote` output has unexpected format: {line!r}")
+                raise JjCommandError(
+                    t"{ui.cmd('git ls-remote')} output has unexpected format: {line!r}"
+                )
             branches[ref.removeprefix("refs/heads/")] = commit_id
         return branches
 
@@ -661,14 +665,14 @@ class JjClient:
     def _run_jj(self, args: Sequence[str]) -> str:
         return self._run_command(
             ["jj", *args],
-            missing_tool_message="`jj` is not installed or is not on PATH.",
+            missing_tool_message=t"{ui.cmd('jj')} is not installed or is not on PATH.",
             detect_stale_workspace=True,
         )
 
     def _run_git(self, args: Sequence[str]) -> str:
         return self._run_command(
             ["git", *args],
-            missing_tool_message="`git` is not installed or is not on PATH.",
+            missing_tool_message=t"{ui.cmd('git')} is not installed or is not on PATH.",
             detect_stale_workspace=False,
         )
 
@@ -676,7 +680,7 @@ class JjClient:
         self,
         command: Sequence[str],
         *,
-        missing_tool_message: str,
+        missing_tool_message: ErrorMessage,
         detect_stale_workspace: bool,
     ) -> str:
         try:
@@ -688,9 +692,10 @@ class JjClient:
             message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
             if detect_stale_workspace and "The working copy is stale" in message:
                 raise StaleWorkspaceError(
-                    "The current workspace is stale. Run `jj workspace update-stale` and retry."
+                    t"The current workspace is stale. Run {ui.cmd('jj workspace update-stale')} "
+                    t"and retry."
                 )
-            raise JjCommandError(f"{shlex.join(command)} failed: {message}")
+            raise JjCommandError(t"{ui.cmd(shlex.join(command))} failed: {message}")
         return completed.stdout
 
     def _validate_reviewable_revision(
@@ -706,7 +711,7 @@ class JjClient:
         if len(revision.parents) == 0:
             raise UnsupportedStackError.stack_shape(
                 revision.change_id,
-                "stack reached the root commit before `trunk()`.",
+                t"stack reached the root commit before {ui.revset('trunk()')}.",
                 reason="reached_root_before_trunk",
             )
         if revision.hidden:
@@ -768,7 +773,7 @@ def _revset_resolution_error(revset: str, error: JjCommandError) -> CliError | N
     first_line = raw_message.splitlines()[0].strip()
     if first_line.startswith("Error: Failed to parse revset:"):
         detail = first_line.removeprefix("Error: ").strip()
-        return CliError(f"Invalid revset {revset!r}: {detail}.")
+        return CliError(t"Invalid revset {ui.revset(revset)}: {detail}.")
 
     return None
 
@@ -777,8 +782,8 @@ def _parse_revision_line(line: str) -> LocalRevision:
     parts = line.split("\t")
     if len(parts) != _EXPECTED_FIELD_COUNT:
         raise JjCommandError(
-            f"`jj log` output has unexpected format: expected {_EXPECTED_FIELD_COUNT} "
-            f"tab-separated fields, got {len(parts)}. Raw line: {line!r}"
+            t"{ui.cmd('jj log')} output has unexpected format: expected {_EXPECTED_FIELD_COUNT} "
+            t"tab-separated fields, got {len(parts)}. Raw line: {line!r}"
         )
     (
         change_id_json,
@@ -795,8 +800,8 @@ def _parse_revision_line(line: str) -> LocalRevision:
         parents_raw = json.loads(parents_json)
         if not isinstance(parents_raw, list):
             raise JjCommandError(
-                f"`jj log` output has unexpected field types: "
-                f"parents field is not a JSON array. Raw line: {line!r}"
+                t"{ui.cmd('jj log')} output has unexpected field types: "
+                t"parents field is not a JSON array. Raw line: {line!r}"
             )
         return LocalRevision(
             change_id=json.loads(change_id_json),
@@ -811,17 +816,19 @@ def _parse_revision_line(line: str) -> LocalRevision:
         )
     except json.JSONDecodeError as error:
         raise JjCommandError(
-            f"`jj log` output contains invalid JSON: {error}. Raw line: {line!r}"
+            t"{ui.cmd('jj log')} output contains invalid JSON: {error}. Raw line: {line!r}"
         ) from error
     except (TypeError, ValueError) as error:
         raise JjCommandError(
-            f"`jj log` output has unexpected field types: {error}. Raw line: {line!r}"
+            t"{ui.cmd('jj log')} output has unexpected field types: {error}. Raw line: {line!r}"
         ) from error
 
 
 def _require_sequence(value: Any) -> Sequence[str]:
     if not isinstance(value, list | tuple):
-        raise JjCommandError("Unexpected `jj bookmark list` payload: expected a sequence.")
+        raise JjCommandError(
+            t"Unexpected {ui.cmd('jj bookmark list')} payload: expected a sequence."
+        )
     return tuple(str(item) for item in value if item is not None)
 
 
