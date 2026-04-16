@@ -480,8 +480,8 @@ def prepare_cleanup(
         github_repository = parse_github_repo(remote)
         if github_repository is None:
             github_error = (
-                f"Could not determine the GitHub repository for remote {remote.name!r}. "
-                "Use a GitHub remote URL."
+                t"Could not determine the GitHub repository for remote {ui.bookmark(remote.name)}. "
+                t"Use a GitHub remote URL."
             )
     bookmark_states = _load_bookmark_states(
         jj_client=jj_client,
@@ -524,21 +524,6 @@ def prepare_restack(
             repo_root=repo_root,
             revset=revset,
         ),
-    )
-
-
-def stream_cleanup(
-    *,
-    on_action: Callable[[CleanupAction], None] | None = None,
-    prepared_cleanup: PreparedCleanup,
-) -> CleanupResult:
-    """Inspect GitHub state for prepared cleanup inputs and optionally stream actions."""
-
-    return asyncio.run(
-        _stream_cleanup_async(
-            on_action=on_action,
-            prepared_cleanup=prepared_cleanup,
-        )
     )
 
 
@@ -675,6 +660,21 @@ def stream_restack(
             restack_intent_state.intent_path.unlink(missing_ok=True)
 
 
+def stream_cleanup(
+    *,
+    on_action: Callable[[CleanupAction], None] | None = None,
+    prepared_cleanup: PreparedCleanup,
+) -> CleanupResult:
+    """Inspect GitHub state for prepared cleanup inputs and optionally stream actions."""
+
+    return asyncio.run(
+        _stream_cleanup_async(
+            on_action=on_action,
+            prepared_cleanup=prepared_cleanup,
+        )
+    )
+
+
 def _start_restack_intent(
     *,
     blocked: bool,
@@ -717,31 +717,30 @@ def _start_restack_intent(
         )
         description = describe_intent(loaded.intent)
         if match == "exact":
-            console.note(f"Continuing interrupted {description}")
+            console.note(t"Continuing interrupted {description}")
         elif match == "same-logical":
             console.note(
-                f"Note: interrupted {description} targeted the same logical stack, "
-                "but it has been rewritten. This cleanup --restack run will use the "
-                "current stack."
+                t"Note: interrupted {description} targeted the same logical stack, "
+                t"but it has been rewritten. This {ui.cmd('cleanup --restack')} run "
+                t"will use the current stack."
             )
         elif match == "covered":
             console.note(
-                f"Note: interrupted {description} targeted changes that are all "
-                "included in the current stack. This cleanup --restack run will use "
-                "the current stack."
+                t"Note: interrupted {description} targeted changes that are all "
+                t"included in the current stack. This {ui.cmd('cleanup --restack')} "
+                t"run will use the current stack."
             )
         elif match == "trimmed":
             console.note(
-                f"Note: interrupted {description} still includes changes that are no "
-                "longer on the current stack. This cleanup --restack run will use "
-                "the current stack."
+                t"Note: interrupted {description} still includes changes that are no "
+                t"longer on the current stack. This {ui.cmd('cleanup --restack')} run "
+                t"will use the current stack."
             )
         elif match == "overlap":
-            console.warning(
-                f"Warning: this restack overlaps an incomplete earlier operation ({description})"
-            )
+            console.warning(t"Warning: this restack overlaps an incomplete earlier "
+                            t"operation ({description})")
         else:
-            console.note(f"Note: incomplete operation outstanding: {description}")
+            console.note(t"Note: incomplete operation outstanding: {description}")
     return _RestackIntentState(
         intent=intent,
         intent_path=write_new_intent(state_dir, intent),
@@ -1567,7 +1566,7 @@ def _plan_remote_branch_cleanup(
                 status="blocked",
                 body=(
                     t"cannot delete {ui.bookmark(branch_label)} while the local "
-                    t"bookmark '{ui.bookmark(bookmark)}' still exists"
+                    t"bookmark {ui.bookmark(bookmark)} still exists"
                 ),
             ),
         )
@@ -1877,8 +1876,7 @@ async def _resolve_stack_summary_comment(
                     status="blocked",
                     body=(
                         "cannot delete saved stack summary comment "
-                        f"#{cached_comment.id} because it does not belong to "
-                        "`jj-review`"
+                        f"#{cached_comment.id} because it does not belong to us"
                     ),
                 )
             return cached_comment
@@ -1918,7 +1916,8 @@ async def _resolve_unlinked_pull_request_number(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not list pull requests for unlinked bookmark {bookmark_state.name!r}: {error}"
+            t"Could not list pull requests for unlinked bookmark "
+            t"{ui.bookmark(bookmark_state.name)}: {error}"
         ) from error
 
     if not pull_requests:
@@ -1928,10 +1927,8 @@ async def _resolve_unlinked_pull_request_number(
             kind="stack summary comment",
             status="blocked",
             body=(
-                "cannot delete stack summary comment because GitHub reports multiple "
-                "pull requests for unlinked bookmark '",
-                ui.bookmark(bookmark_state.name),
-                "'",
+                t"cannot delete stack summary comment because GitHub reports multiple "
+                t"pull requests for unlinked bookmark {ui.bookmark(bookmark_state.name)}"
             ),
         )
     return pull_requests[0].number
