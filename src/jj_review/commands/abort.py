@@ -33,7 +33,7 @@ from jj_review.models.intent import (
     RelinkIntent,
     SubmitIntent,
 )
-from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.models.review_state import CachedChange
 from jj_review.review.intents import (
     describe_intent,
     intent_is_stale,

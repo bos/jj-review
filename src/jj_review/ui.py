@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from string.templatelib import Interpolation, Template, convert
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +21,7 @@ class SemanticText:
 
 StatusValue = Literal["ok", "warn", "fail", "skip"]
 type Message = str | Template | SemanticText | tuple[Any, ...]
+T = TypeVar("T")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +71,7 @@ def semantic_text(text: str, *labels: str) -> SemanticText:
 
 
 def bookmark(name: str) -> SemanticText:
-    """Wrap a bookmark or remote bookmark label for semantic rendering."""
+    """Wrap bookmark-like names, including Git remotes, for semantic rendering."""
 
     label = "remote_bookmarks" if "@" in name else "local_bookmarks"
     return semantic_text(name, label)
@@ -97,6 +99,20 @@ def status(value: StatusValue) -> StatusBadge:
     """Wrap a status indicator for semantic rendering."""
 
     return StatusBadge(value=value)
+
+
+def join(
+    render_item: Callable[[T], object],
+    items: Iterable[T],
+) -> tuple[object, ...]:
+    """Render and comma-join items."""
+
+    parts: list[object] = []
+    for index, item in enumerate(items):
+        if index:
+            parts.append(", ")
+        parts.append(render_item(item))
+    return tuple(parts)
 
 
 def prefixed_line(

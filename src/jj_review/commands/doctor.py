@@ -253,7 +253,9 @@ def _check_interruptions(state_store: ReviewStateStore) -> CheckResult:
     return CheckResult(
         "interruptions",
         "warn",
-        t"{count} {noun}: {_render_interrupted_intents(interrupted)}; run "
+        t"{count} {noun}: "
+        t"{ui.join(_intent_description_content, (loaded.intent for loaded in interrupted))}; "
+        t"run "
         t"{ui.cmd('jj-review abort --dry-run')} to preview recovery",
     )
 
@@ -274,16 +276,6 @@ def _results_table(results: list[CheckResult]) -> ui.DataTable:
             for result in results
         ),
     )
-
-
-def _render_interrupted_intents(interrupted) -> Message:
-    parts: list[object] = []
-    for index, loaded in enumerate(interrupted):
-        if index:
-            parts.append(", ")
-        parts.append(_intent_description_content(loaded.intent))
-    return tuple(parts)
-
 
 def _intent_description_content(intent: IntentFile) -> Message:
     if isinstance(intent, SubmitIntent):

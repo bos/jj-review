@@ -51,9 +51,7 @@ from jj_review.review.bookmarks import (
     discover_bookmarks_for_revisions,
     ensure_unique_bookmarks,
 )
-from jj_review.review.intents import (
-    retire_superseded_intents,
-)
+from jj_review.review.intents import retire_superseded_intents
 from jj_review.review.selection import (
     parse_comma_separated_flag_values,
     resolve_selected_revset,
@@ -70,7 +68,6 @@ from jj_review.state.intents import (
 )
 from jj_review.state.store import ReviewStateStore
 from jj_review.system import pid_is_alive
-from jj_review.ui import Message
 
 HELP = "Send a jj stack to GitHub for review"
 
@@ -304,7 +301,9 @@ def submit(
             config=context.config.repo,
             describe_with=describe_with,
             draft_mode=(
-                "draft_all" if draft_all else "draft" if draft else "publish" if publish else "default"
+                "draft_all"
+                if draft_all
+                else "draft" if draft else "publish" if publish else "default"
             ),
             dry_run=dry_run,
             labels=label_list,
@@ -1059,14 +1058,13 @@ def _preflight_private_commits(
     private = client.find_private_commits(revisions)
     if not private:
         return
-    subjects: list[Message] = []
-    for index, revision in enumerate(private):
-        if index:
-            subjects.append(", ")
-        subjects.append(t"{ui.change_id(revision.change_id)} ({revision.subject})")
+    subjects = ui.join(
+        lambda revision: t"{ui.change_id(revision.change_id)} ({revision.subject})",
+        private,
+    )
     raise CliError(
         t"Stack contains commits blocked by "
-        t"{ui.semantic_text('git.private-commits', 'code')}: {tuple(subjects)}. "
+        t"{ui.semantic_text('git.private-commits', 'code')}: {subjects}. "
         t"Remove these changes from the stack before submitting."
     )
 

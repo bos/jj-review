@@ -153,7 +153,7 @@ def discover_bookmarks_for_revisions(
             raise CliError(
                 t"Could not safely rediscover the bookmark for change "
                 t"{ui.change_id(revision.change_id)}: multiple existing bookmarks match "
-                t"its stable change-ID suffix: {_join_semantic_bookmarks(unique_candidates)}."
+                t"its stable change-ID suffix: {ui.join(ui.bookmark, unique_candidates)}."
             )
         discovered[revision.change_id] = unique_candidates[0]
     return discovered
@@ -172,11 +172,13 @@ def ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
     if not duplicates:
         return
 
-    collision_descriptions = _join_collision_descriptions(duplicates)
+    collisions = ui.join(
+        lambda item: t"{ui.bookmark(item[0])} for changes {ui.join(ui.change_id, item[1])}",
+        sorted(duplicates.items()),
+    )
     raise CliError(
         t"Selected stack resolves multiple changes to the same bookmark: "
-        t"{collision_descriptions}. Configure distinct bookmark names before "
-        t"submitting."
+        t"{collisions}. Configure distinct bookmark names before submitting."
     )
 
 
@@ -198,31 +200,3 @@ def _updated_cached_change(
     if cached_change is None:
         return CachedChange(bookmark=bookmark)
     return cached_change.model_copy(update={"bookmark": bookmark})
-
-
-def _join_semantic_bookmarks(bookmarks: tuple[str, ...]) -> tuple[object, ...]:
-    return _join_semantic_items(tuple(ui.bookmark(bookmark) for bookmark in bookmarks))
-
-
-def _join_collision_descriptions(
-    duplicates: dict[str, list[str]],
-) -> tuple[object, ...]:
-    parts: list[object] = []
-    for index, (bookmark, change_ids) in enumerate(sorted(duplicates.items())):
-        if index:
-            parts.append(", ")
-        parts.append(ui.bookmark(bookmark))
-        parts.append(" for changes ")
-        parts.append(
-            _join_semantic_items(tuple(ui.change_id(change_id) for change_id in change_ids))
-        )
-    return tuple(parts)
-
-
-def _join_semantic_items(items: tuple[object, ...]) -> tuple[object, ...]:
-    parts: list[object] = []
-    for index, item in enumerate(items):
-        if index:
-            parts.append(", ")
-        parts.append(item)
-    return tuple(parts)

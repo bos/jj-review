@@ -564,9 +564,12 @@ def _stream_restack(
 
         if not actions and merged_revisions:
             record_action(
-                _restack_noop_action(
-                    dry_run=prepared_restack.dry_run,
-                    merged_revisions=merged_revisions,
+                CleanupAction(
+                    kind="restack",
+                    status="planned" if prepared_restack.dry_run else "applied",
+                    body=t"merged changes remain on the selected stack "
+                    t"({ui.join(_revision_label_template, merged_revisions)}), but no "
+                    t"surviving descendants need to move",
                 )
             )
 
@@ -685,27 +688,6 @@ def _record_restack_policy_actions(
                 ),
             )
         )
-
-
-def _restack_noop_action(
-    *,
-    dry_run: bool,
-    merged_revisions: tuple[ReviewStatusRevision, ...],
-) -> CleanupAction:
-    """Describe a merged stack path that does not require any descendant moves."""
-
-    body: list[object] = ["merged changes remain on the selected stack ("]
-    for index, revision in enumerate(merged_revisions):
-        if index > 0:
-            body.append(", ")
-        body.append(_revision_label_template(revision))
-    body.append("), but no surviving descendants need to move")
-    return CleanupAction(
-        kind="restack",
-        status="planned" if dry_run else "applied",
-        body=tuple(body),
-    )
-
 
 def _resolve_restack_path_revisions(
     *,

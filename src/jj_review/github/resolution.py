@@ -113,12 +113,7 @@ def resolve_trunk_branch(
 
 
 def _render_bookmark_list(bookmarks: tuple[str, ...]) -> tuple[object, ...]:
-    parts: list[object] = []
-    for i, bookmark in enumerate(bookmarks):
-        if i:
-            parts.append(", ")
-        parts.append(ui.bookmark(bookmark))
-    return tuple(parts)
+    return ui.join(ui.bookmark, bookmarks)
 
 
 def remote_bookmarks_pointing_at_commit(
