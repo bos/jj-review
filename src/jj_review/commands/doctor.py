@@ -142,7 +142,8 @@ def _check_git_remote(jj_client: JjClient) -> tuple[CheckResult, GitRemote | Non
             CheckResult(
                 "remote",
                 "fail",
-                "no Git remotes configured; run `jj git remote add origin <url>` to add one",
+                t"no Git remotes configured; run {ui.cmd('jj git remote add origin <url>')} "
+                t"to add one",
             ),
             None,
         )
@@ -152,7 +153,7 @@ def _check_git_remote(jj_client: JjClient) -> tuple[CheckResult, GitRemote | Non
     except CliError as error:
         return CheckResult("remote", "fail", error_message(error)), None
 
-    return CheckResult("remote", "ok", remote.name), remote
+    return CheckResult("remote", "ok", ui.bookmark(remote.name)), remote
 
 
 def _check_github_remote(remote: GitRemote) -> tuple[CheckResult, ParsedGithubRepo | None]:
@@ -162,8 +163,8 @@ def _check_github_remote(remote: GitRemote) -> tuple[CheckResult, ParsedGithubRe
             CheckResult(
                 "GitHub remote",
                 "fail",
-                f"remote {remote.name!r} does not look like a GitHub URL: {remote.url}"
-                "; use a GitHub HTTPS or SSH remote URL",
+                t"remote {ui.bookmark(remote.name)} does not look like "
+                t"a GitHub URL: {remote.url}; use a GitHub HTTPS or SSH remote URL",
             ),
             None,
         )
@@ -185,7 +186,7 @@ def _check_github_auth(base_url: str) -> tuple[CheckResult, str | None]:
         CheckResult(
             "GitHub auth",
             "fail",
-            "no token found; set GITHUB_TOKEN or run `gh auth login`",
+            t"no token found; set GITHUB_TOKEN or run {ui.cmd('gh auth login')}",
         ),
         None,
     )
@@ -227,8 +228,8 @@ def _check_trunk_branch(github_repo: GithubRepository) -> CheckResult:
     return CheckResult(
         "trunk branch",
         "warn",
-        "GitHub repository has no default branch set"
-        "; set a default branch on GitHub or configure `trunk()` in jj",
+        t"GitHub repository has no default branch set; set a default branch on GitHub "
+        t"or configure {ui.revset('trunk()')} in jj",
     )
 
 
@@ -252,13 +253,8 @@ def _check_interruptions(state_store: ReviewStateStore) -> CheckResult:
     return CheckResult(
         "interruptions",
         "warn",
-        (
-            f"{count} {noun}: ",
-            _render_interrupted_intents(interrupted),
-            "; run ",
-            ui.cmd("jj-review abort --dry-run"),
-            " to preview recovery",
-        ),
+        t"{count} {noun}: {_render_interrupted_intents(interrupted)}; run "
+        t"{ui.cmd('jj-review abort --dry-run')} to preview recovery",
     )
 
 
@@ -280,7 +276,7 @@ def _results_table(results: list[CheckResult]) -> ui.DataTable:
     )
 
 
-def _render_interrupted_intents(interrupted) -> tuple[object, ...]:
+def _render_interrupted_intents(interrupted) -> Message:
     parts: list[object] = []
     for index, loaded in enumerate(interrupted):
         if index:
@@ -289,44 +285,27 @@ def _render_interrupted_intents(interrupted) -> tuple[object, ...]:
     return tuple(parts)
 
 
-def _intent_description_content(intent: IntentFile) -> tuple[object, ...]:
+def _intent_description_content(intent: IntentFile) -> Message:
     if isinstance(intent, SubmitIntent):
-        return (
-            "submit for ",
-            ui.change_id(intent.head_change_id),
-            " (from ",
-            ui.revset(intent.display_revset),
-            ")",
-        )
+        return t"{ui.cmd('submit')} for {ui.change_id(intent.head_change_id)} " \
+            t"(from {ui.revset(intent.display_revset)})"
     if isinstance(intent, CleanupRestackIntent):
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
-        return (
-            "cleanup --restack for ",
-            ui.change_id(head_change_id),
-            " (from ",
-            ui.revset(intent.display_revset),
-            ")",
-        )
+        return t"{ui.cmd('cleanup --restack')} for {ui.change_id(head_change_id)} " \
+            t"(from {ui.revset(intent.display_revset)})"
     if isinstance(intent, CloseIntent):
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
+        command = ui.cmd("close --cleanup" if intent.cleanup else "close")
         return (
-            "close",
-            " --cleanup" if intent.cleanup else "",
-            " for ",
-            ui.change_id(head_change_id),
-            " (from ",
-            ui.revset(intent.display_revset),
-            ")",
+            t"{command} for {ui.change_id(head_change_id)} (from "
+            t"{ui.revset(intent.display_revset)})"
         )
     if isinstance(intent, LandIntent):
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
         return (
-            "land for ",
-            ui.change_id(head_change_id),
-            " (from ",
-            ui.revset(intent.display_revset),
-            ")",
+            t"{ui.cmd('land')} for {ui.change_id(head_change_id)} (from "
+            t"{ui.revset(intent.display_revset)})"
         )
     if isinstance(intent, RelinkIntent):
-        return ("relink for ", ui.change_id(intent.change_id))
-    return (describe_intent(intent),)
+        return t"{ui.cmd('relink')} for {ui.change_id(intent.change_id)}"
+    return describe_intent(intent)
