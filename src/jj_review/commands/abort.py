@@ -352,12 +352,15 @@ async def _abort_submit(
 
     all_retracted = all(per_change_ok) if per_change_ok else True
 
-    _plan_state_save(
-        actions=actions,
-        dry_run=dry_run,
-        next_changes=next_changes,
-        state=state,
-    )
+    if next_changes != dict(state.changes):
+        verb = "would clear" if dry_run else "cleared"
+        actions.append(
+            AbortAction(
+                kind="saved state",
+                body=f"{verb} saved jj-review data for aborted changes",
+                status="planned" if dry_run else "applied",
+            )
+        )
     if not dry_run and next_changes != dict(state.changes):
         state_store.save(state.model_copy(update={"changes": next_changes}))
 
@@ -589,24 +592,6 @@ def _retract_one_change_local(
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
-
-
-def _plan_state_save(
-    *,
-    actions: list[AbortAction],
-    dry_run: bool,
-    next_changes: dict[str, CachedChange],
-    state: ReviewState,
-) -> None:
-    if next_changes != dict(state.changes):
-        verb = "would clear" if dry_run else "cleared"
-        actions.append(
-            AbortAction(
-                kind="saved state",
-                body=f"{verb} saved jj-review data for aborted changes",
-                status="planned" if dry_run else "applied",
-            )
-        )
 
 
 def _plan_intent_file_removal(
