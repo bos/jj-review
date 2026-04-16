@@ -776,7 +776,7 @@ def _pull_request_connection_from_graphql(
         connection,
         model=_GraphqlPullRequestConnection,
         error_message=(
-            f"GitHub {response_name} response had invalid connection payload for {alias!r}."
+            f"GitHub {response_name} response had invalid connection payload for {alias}."
         ),
     )
     if parsed.nodes is None:
@@ -787,7 +787,7 @@ def _pull_request_connection_from_graphql(
             raw_node,
             model=GithubPullRequest,
             error_message=(
-                f"GitHub {response_name} response had invalid pull request payload for {alias!r}."
+                f"GitHub {response_name} response had invalid pull request payload for {alias}."
             ),
         )
         if expected_head_label is not None and pull_request.head.label != expected_head_label:
@@ -854,7 +854,7 @@ def _review_decision_from_graphql(
         return None
     if not isinstance(raw_pull_request, dict):
         raise GithubClientError(
-            f"GitHub {response_name} response had invalid pull request payload for {alias!r}."
+            f"GitHub {response_name} response had invalid pull request payload for {alias}."
         )
     raw_latest_reviews = raw_pull_request.get("latestOpinionatedReviews")
     if raw_latest_reviews is None:
@@ -863,7 +863,7 @@ def _review_decision_from_graphql(
         raw_latest_reviews,
         model=_GraphqlReviewConnection,
         error_message=(
-            f"GitHub {response_name} response had invalid latest reviews payload for {alias!r}."
+            f"GitHub {response_name} response had invalid latest reviews payload for {alias}."
         ),
     )
     if parsed.nodes is None:
@@ -875,7 +875,7 @@ def _review_decision_from_graphql(
             raw_node,
             model=_GraphqlReview,
             error_message=(
-                f"GitHub {response_name} response had invalid review payload for {alias!r}."
+                f"GitHub {response_name} response had invalid review payload for {alias}."
             ),
         )
         if review.author is None:
