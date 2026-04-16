@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from jj_review import ui
 from jj_review.errors import CliError
 from jj_review.github.pull_request_refs import (
     parse_pull_request_number,
@@ -27,7 +28,9 @@ def resolve_selected_revset(
     if revset is not None:
         return revset
     if require_explicit:
-        raise CliError(f"`{command_label}` requires an explicit revision selection.")
+        raise CliError(
+            t"{ui.cmd(command_label)} requires an explicit revision selection."
+        )
     return default_revset
 
 
@@ -60,8 +63,12 @@ def resolve_linked_change_for_pull_request(
 ) -> tuple[int, str]:
     """Resolve `--pull-request` to one linked visible local change ID."""
 
+    action_label = action_name.capitalize()
     if revset is not None:
-        raise CliError("Use either `<revset>` or `--pull-request`, not both.")
+        raise CliError(
+            t"Use either {ui.revset('<revset>')} or {ui.cmd('--pull-request')}, "
+            t"not both."
+        )
 
     pull_request_number = _parse_repo_pull_request_number(
         pull_request_reference=pull_request_reference,
@@ -75,13 +82,13 @@ def resolve_linked_change_for_pull_request(
     ]
     if not matching_change_ids:
         raise CliError(
-            f"PR #{pull_request_number} is not linked to any local change. "
-            "Use a revision instead, or import or relink it first."
+            t"PR #{pull_request_number} is not linked to any local change. "
+            t"Use a revision instead, or {ui.cmd('import')} or {ui.cmd('relink')} it first."
         )
     if len(matching_change_ids) > 1:
         raise CliError(
-            f"PR #{pull_request_number} is linked to multiple local changes. "
-            f"{action_name.capitalize()} by explicit revision after repairing the links."
+            t"PR #{pull_request_number} is linked to multiple local changes. "
+            t"{action_label} by explicit revision after repairing the links."
         )
 
     change_id = matching_change_ids[0]
@@ -95,15 +102,15 @@ def resolve_linked_change_for_pull_request(
     )
     if not visible_revisions:
         raise CliError(
-            f"PR #{pull_request_number} is linked to local change {change_id}, "
-            f"but that change is not visible. {action_name.capitalize()} by revision once "
-            "it is visible again."
+            t"PR #{pull_request_number} is linked to local change {ui.change_id(change_id)}, "
+            t"but that change is not visible. {action_label} by revision once "
+            t"it is visible again."
         )
     if len(visible_revisions) > 1:
         raise CliError(
-            f"PR #{pull_request_number} is linked to local change {change_id}, "
-            f"but that change is divergent. {action_name.capitalize()} by explicit "
-            "revision after resolving it."
+            t"PR #{pull_request_number} is linked to local change {ui.change_id(change_id)}, "
+            t"but that change is divergent. {action_label} by explicit "
+            t"revision after resolving it."
         )
     return pull_request_number, change_id
 
@@ -124,14 +131,14 @@ def _parse_repo_pull_request_number(
         remote = select_submit_remote(remotes)
     except CliError as error:
         raise CliError(
-            "Could not determine the GitHub repository for `--pull-request`; "
-            "use a pull request number or fix the selected remote."
+            t"Could not determine the GitHub repository for {ui.cmd('--pull-request')}; "
+            t"use a pull request number or fix the selected remote."
         ) from error
     github_repository = parse_github_repo(remote)
     if github_repository is None:
         raise CliError(
-            "Could not determine the GitHub repository for `--pull-request`; "
-            "use a pull request number or fix the selected remote."
+            t"Could not determine the GitHub repository for {ui.cmd('--pull-request')}; "
+            t"use a pull request number or fix the selected remote."
         )
 
     return parse_repository_pull_request_reference(
