@@ -444,11 +444,22 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
 
     class FakeGithubClientContext:
         async def __aenter__(self):
-            return object()
+            return SimpleNamespace(
+                delete_issue_comment=lambda owner, repo, *, comment_id: _record_deleted_comment(
+                    comment_id
+                )
+            )
 
         async def __aexit__(self, exc_type, exc, tb) -> None:
             return None
 
+    async def _record_deleted_comment(comment_id: int) -> None:
+        deleted_comment_ids.append(comment_id)
+
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.build_github_client",
+        lambda **kwargs: FakeGithubClientContext(),
+    )
     async def fake_plan_stack_comment_cleanup(**kwargs):
         return StackCommentCleanupPlan(
             action=CleanupAction(
@@ -458,14 +469,6 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
             ),
             comment_id=12,
         )
-
-    async def fake_delete_issue_comment(**kwargs):
-        deleted_comment_ids.append(kwargs["comment_id"])
-
-    monkeypatch.setattr(
-        "jj_review.commands.cleanup.build_github_client",
-        lambda **kwargs: FakeGithubClientContext(),
-    )
     monkeypatch.setattr(
         "jj_review.commands.cleanup._stale_change_reasons",
         lambda **kwargs: {change_id: None for change_id in kwargs["change_ids"]},
@@ -473,10 +476,6 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     monkeypatch.setattr(
         "jj_review.commands.cleanup._plan_stack_comment_cleanup",
         fake_plan_stack_comment_cleanup,
-    )
-    monkeypatch.setattr(
-        "jj_review.commands.cleanup._delete_issue_comment",
-        fake_delete_issue_comment,
     )
     monkeypatch.setattr(
         "jj_review.commands.cleanup.check_same_kind_intent",

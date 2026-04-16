@@ -33,7 +33,7 @@ from jj_review.github.stack_comments import is_stack_summary_comment
 from jj_review.jj import JjClient
 from jj_review.jj.client import UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState, GitRemote
-from jj_review.models.github import GithubIssueComment, GithubPullRequest
+from jj_review.models.github import GithubIssueComment
 from jj_review.models.intent import CleanupIntent, CleanupRestackIntent, LoadedIntent
 from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.review.intents import (
@@ -1281,11 +1281,16 @@ async def _apply_stack_comment_cleanup_action(
         and comment_action.status == "planned"
         and comment_plan.comment_id is not None
     ):
-        await _delete_issue_comment(
-            comment_id=comment_plan.comment_id,
-            github_client=github_client,
-            github_repository=github_repository,
-        )
+        try:
+            await github_client.delete_issue_comment(
+                github_repository.owner,
+                github_repository.repo,
+                comment_id=comment_plan.comment_id,
+            )
+        except GithubClientError as error:
+            raise CliError(
+                f"Could not delete stack summary comment #{comment_plan.comment_id}: {error}"
+            ) from error
         if change_id in next_changes:
             next_changes[change_id] = next_changes[change_id].model_copy(
                 update={"stack_comment_id": None}
@@ -1553,21 +1558,24 @@ async def _plan_stack_comment_cleanup(
     if pull_request_number is None:
         return None
 
-    pull_request = await _load_pull_request(
-        github_client=github_client,
-        github_repository=github_repository,
-        pull_request_number=pull_request_number,
-    )
-    if pull_request is None:
-        return None
+    try:
+        pull_request = await github_client.get_pull_request(
+            github_repository.owner,
+            github_repository.repo,
+            pull_number=pull_request_number,
+        )
+    except GithubClientError as error:
+        if error.status_code == 404:
+            return None
+        raise CliError(f"Could not load pull request #{pull_request_number}: {error}") from error
 
-    if not _pull_request_is_unlinked_or_detached(
-        bookmark=cached_change.bookmark,
-        unlinked=cached_change.is_unlinked,
-        github_repository=github_repository,
-        pull_request=pull_request,
-    ):
-        return None
+    if not cached_change.is_unlinked:
+        bookmark = cached_change.bookmark
+        if bookmark is None:
+            return None
+        expected_label = f"{github_repository.owner}:{bookmark}"
+        if pull_request.head.ref == bookmark and pull_request.head.label == expected_label:
+            return None
 
     stack_summary_comment = await _resolve_stack_summary_comment(
         cached_change=cached_change,
@@ -1591,41 +1599,6 @@ async def _plan_stack_comment_cleanup(
         ),
         comment_id=stack_summary_comment.id,
     )
-
-
-async def _load_pull_request(
-    *,
-    github_client: GithubClient,
-    github_repository,
-    pull_request_number: int,
-) -> GithubPullRequest | None:
-    try:
-        return await github_client.get_pull_request(
-            github_repository.owner,
-            github_repository.repo,
-            pull_number=pull_request_number,
-        )
-    except GithubClientError as error:
-        if error.status_code == 404:
-            return None
-        raise CliError(f"Could not load pull request #{pull_request_number}: {error}") from error
-
-
-def _pull_request_is_unlinked_or_detached(
-    *,
-    bookmark: str | None,
-    unlinked: bool,
-    github_repository,
-    pull_request: GithubPullRequest,
-) -> bool:
-    if unlinked:
-        return True
-    if bookmark is None:
-        return False
-    expected_label = f"{github_repository.owner}:{bookmark}"
-    return pull_request.head.ref != bookmark or pull_request.head.label != expected_label
-
-
 async def _resolve_stack_summary_comment(
     *,
     cached_change: CachedChange,
@@ -1661,9 +1634,7 @@ async def _resolve_stack_summary_comment(
                 )
             return cached_comment
 
-    stack_summary_comments = [
-        comment for comment in comments if is_stack_summary_comment(comment.body)
-    ]
+    stack_summary_comments = [c for c in comments if is_stack_summary_comment(c.body)]
     if len(stack_summary_comments) > 1:
         return CleanupAction(
             kind="stack summary comment",
@@ -1712,21 +1683,3 @@ async def _resolve_unlinked_pull_request_number(
             ),
         )
     return pull_requests[0].number
-
-
-async def _delete_issue_comment(
-    *,
-    comment_id: int,
-    github_client: GithubClient,
-    github_repository,
-) -> None:
-    try:
-        await github_client.delete_issue_comment(
-            github_repository.owner,
-            github_repository.repo,
-            comment_id=comment_id,
-        )
-    except GithubClientError as error:
-        raise CliError(
-            f"Could not delete stack summary comment #{comment_id}: {error}"
-        ) from error
