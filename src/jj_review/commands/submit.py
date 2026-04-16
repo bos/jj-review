@@ -306,10 +306,8 @@ def submit(
             change_overrides=context.config.change,
             config=context.config.repo,
             describe_with=describe_with,
-            draft_mode=_submit_draft_mode(
-                draft=draft,
-                draft_all=draft_all,
-                publish=publish,
+            draft_mode=(
+                "draft_all" if draft_all else "draft" if draft else "publish" if publish else "default"
             ),
             dry_run=dry_run,
             labels=label_list,
@@ -373,21 +371,6 @@ def submit(
         if top_pull_request_url is not None:
             console.output(ui.prefixed_line("Top of stack: ", top_pull_request_url))
     return 0
-
-
-def _submit_draft_mode(
-    *,
-    draft: bool,
-    draft_all: bool,
-    publish: bool,
-) -> SubmitDraftMode:
-    if draft_all:
-        return "draft_all"
-    if draft:
-        return "draft"
-    if publish:
-        return "publish"
-    return "default"
 
 
 def _render_submit_pr_suffix(
@@ -722,10 +705,15 @@ def _prepare_submit_revisions(
             client.set_bookmark(resolution.bookmark, revision.commit_id)
 
         expected_remote_target: str | None = None
-        if _remote_is_up_to_date(remote_state, revision.commit_id):
+        if remote_state is not None and remote_state.target == revision.commit_id:
             push_operation: PushOperation = "up_to_date"
             remote_action: RemoteBookmarkAction = "up to date"
-        elif _should_update_untracked_remote_with_git(remote_state, revision.commit_id):
+        elif (
+            remote_state is not None
+            and not remote_state.is_tracked
+            and len(remote_state.targets) == 1
+            and remote_state.target != revision.commit_id
+        ):
             if remote_state is None:
                 raise AssertionError("Checked remote bookmark state must exist.")
             expected_remote_target = remote_state.target
@@ -1028,15 +1016,6 @@ def _resolve_local_action(
     return "moved"
 
 
-def _remote_is_up_to_date(
-    remote_state: RemoteBookmarkState | None,
-    desired_target: str,
-) -> bool:
-    if remote_state is None:
-        return False
-    return remote_state.target == desired_target
-
-
 def _ensure_remote_can_be_updated(
     *,
     bookmark: str,
@@ -1093,17 +1072,6 @@ def _bookmark_link_is_proven(
         and not cached_change.is_unlinked
         and cached_change.bookmark == bookmark
     )
-
-
-def _should_update_untracked_remote_with_git(
-    remote_state: RemoteBookmarkState | None,
-    desired_target: str,
-) -> bool:
-    if remote_state is None or remote_state.is_tracked:
-        return False
-    if len(remote_state.targets) != 1:
-        return False
-    return remote_state.target != desired_target
 
 
 def _preflight_private_commits(
@@ -1553,11 +1521,10 @@ async def _sync_pull_request(
                 title=title,
             )
         action: PullRequestAction = "created"
-    elif _pull_request_matches(
-        base_branch=base_branch,
-        body=body,
-        pull_request=discovered_pull_request,
-        title=title,
+    elif (
+        discovered_pull_request.base.ref == base_branch
+        and (discovered_pull_request.body or "") == body
+        and discovered_pull_request.title == title
     ):
         pull_request = discovered_pull_request
         action = "unchanged"
@@ -2236,20 +2203,6 @@ def _pull_request_body(description: str) -> str:
     if body:
         return body
     return lines[0].strip()
-
-
-def _pull_request_matches(
-    *,
-    base_branch: str,
-    body: str,
-    pull_request: GithubPullRequest,
-    title: str,
-) -> bool:
-    return (
-        pull_request.base.ref == base_branch
-        and (pull_request.body or "") == body
-        and pull_request.title == title
-    )
 
 
 def _updated_cached_change(
