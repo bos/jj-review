@@ -137,7 +137,8 @@ class _CommandArgumentParser(ArgumentParser):
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("formatter_class", _TitleCaseHelpFormatter)
         super().__init__(*args, **kwargs)
-        _normalize_argument_section_titles(self)
+        self._positionals.title = "Positional Arguments"
+        self._optionals.title = "Options"
 
 
 def build_parser() -> ArgumentParser:
@@ -898,11 +899,6 @@ def _normalize_help_action_text(parser: ArgumentParser) -> None:
         if action.option_strings == ["-h", "--help"]:
             action.help = "Show help"
             return
-
-
-def _normalize_argument_section_titles(parser: ArgumentParser) -> None:
-    parser._positionals.title = "Positional Arguments"
-    parser._optionals.title = "Options"
 
 
 def _completion_handler(args: Namespace) -> int:
