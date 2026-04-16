@@ -75,7 +75,7 @@ class AbortResult:
     applied: bool
     dry_run: bool
     intent_kind: str
-    intent_label: str
+    intent_label: Message
     intent_started_at: str
 
 
@@ -151,7 +151,7 @@ def abort(
 
     for loaded in live:
         console.output(
-            f"'{loaded.intent.label}' is still in progress "
+            f"{loaded.intent.label} is still in progress "
             f"(PID {loaded.intent.pid}) — wait for it to finish, then run abort again."
         )
 
@@ -632,11 +632,11 @@ def _plan_intent_file_removal(
 
 def _print_abort_result(result: AbortResult) -> None:
     if result.dry_run:
-        header = f"Planned abort actions for {result.intent_label!r}:"
+        header = t"Planned abort actions for {result.intent_label}:"
     elif result.applied:
-        header = f"Applied abort actions for {result.intent_label!r}:"
+        header = t"Applied abort actions for {result.intent_label}:"
     else:
-        header = f"Abort incomplete for {result.intent_label!r}:"
+        header = t"Abort incomplete for {result.intent_label}:"
 
     console.output(header)
     for action in result.actions:
