@@ -312,7 +312,6 @@ def submit(
             dry_run=dry_run,
             labels=label_list,
             on_prepared=emit_prepared,
-            on_trunk_resolved=lambda *_args: None,
             repo_root=context.repo_root,
             revset=selected_revset,
             reviewers=reviewer_list,
@@ -749,7 +748,6 @@ async def _run_submit_async(
     dry_run: bool,
     labels: list[str] | None,
     on_prepared: Callable[[str, str, str, bool], None] | None,
-    on_trunk_resolved: Callable[[str, str, str, bool], None] | None,
     repo_root: Path,
     revset: str | None,
     reviewers: list[str] | None,
@@ -783,13 +781,6 @@ async def _run_submit_async(
         )
         if len(remote_bookmarks) == 1:
             trunk_branch = remote_bookmarks[0]
-        if on_trunk_resolved is not None:
-            on_trunk_resolved(
-                stack.trunk.subject,
-                stack.trunk.change_id,
-                trunk_branch,
-                False,
-            )
         return _build_submit_result(
             client=client,
             dry_run=dry_run,
@@ -839,14 +830,6 @@ async def _run_submit_async(
                     resolution.bookmark for resolution in bookmark_result.resolutions
                 ),
             )
-            if on_trunk_resolved is not None:
-                on_trunk_resolved(
-                    stack.trunk.subject,
-                    stack.trunk.change_id,
-                    trunk_branch,
-                    True,
-                )
-
             prepared_revisions = _prepare_submit_revisions(
                 bookmark_result=bookmark_result,
                 client=client,
