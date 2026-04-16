@@ -365,15 +365,15 @@ async def _resolve_pull_request_selection(
         if not pull_requests:
             raise CliError(
                 t"GitHub no longer reports a pull request for head branch {head_branch}. "
-                t"Inspect the PR link with `{status_fetch_cmd}` and repair it with "
-                t"`{relink_cmd}` "
+                t"Inspect the PR link with {status_fetch_cmd} and repair it with "
+                t"{relink_cmd} "
                 t"before importing again."
             )
         numbers = ", ".join(str(pull_request.number) for pull_request in pull_requests)
         raise CliError(
             t"GitHub reports multiple pull requests for head branch {head_branch}: {numbers}. "
-            t"Inspect the PR link with `{status_fetch_cmd}` and repair it with "
-            t"`{relink_cmd}` "
+            t"Inspect the PR link with {status_fetch_cmd} and repair it with "
+            t"{relink_cmd} "
             t"before importing again."
         )
     pull_request = pull_requests[0]
@@ -578,34 +578,28 @@ def _remote_bookmark_commit_id(
     head: str,
 ) -> str:
     bookmark_token = ui.bookmark(head)
+    remote_token = ui.bookmark(remote.name)
     if remote_state is None or not remote_state.targets:
         if not fetch:
-            import_fetch_cmd = ui.cmd("import --fetch")
-            import_fetch_cmd_text = f"`{import_fetch_cmd}`"
-            bookmark_location = f"'{bookmark_token}'@{remote.name}"
             raise CliError(
-                f"Remote bookmark {bookmark_location} is not available in remembered local "
-                f"remote state. Re-run {import_fetch_cmd_text} to fetch that branch "
-                f"before importing."
+                t"Remote bookmark {bookmark_token}@{remote_token} is not available in "
+                t"remembered local remote state. Re-run {ui.cmd('import --fetch')} to "
+                t"fetch that branch before importing."
             )
-        bookmark_location = f"'{bookmark_token}'@{remote.name}"
         raise CliError(
-            f"Remote bookmark {bookmark_location} does not exist. Fetch and retry once "
-            "that branch is visible on the selected remote."
+            t"Remote bookmark {bookmark_token}@{remote_token} does not exist. Fetch and "
+            t"retry once that branch is visible on the selected remote."
         )
     if len(remote_state.targets) > 1:
-        bookmark_location = f"'{bookmark_token}'@{remote.name}"
         raise CliError(
-            f"Remote bookmark {bookmark_location} is conflicted. Resolve it before importing."
+            t"Remote bookmark {bookmark_token}@{remote_token} is conflicted. Resolve it "
+            t"before importing."
         )
     commit_id = remote_state.target
     if commit_id is None:
-        import_cmd = ui.cmd("import")
-        import_cmd_text = f"`{import_cmd}`"
-        bookmark_location = f"'{bookmark_token}'@{remote.name}"
         raise CliError(
-            f"Remote bookmark {bookmark_location} is ambiguous. {import_cmd_text} requires one "
-            "exact branch."
+            t"Remote bookmark {bookmark_token}@{remote_token} is ambiguous. "
+            t"{ui.cmd('import')} requires one exact branch."
         )
     return commit_id
 
