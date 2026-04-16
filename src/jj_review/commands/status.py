@@ -317,7 +317,15 @@ def _render_summary_section(
 def _render_submitted_section_title(revisions: tuple) -> str:
     """Render the submitted-section heading, linking the newest submitted PR when possible."""
 
-    top_pull_request_url = _revision_pull_request_url(revisions[0]) if revisions else None
+    if revisions:
+        _lookup = revisions[0].pull_request_lookup
+        top_pull_request_url = (
+            getattr(_lookup.pull_request, "html_url", None)
+            if _lookup is not None and _lookup.pull_request is not None
+            else None
+        )
+    else:
+        top_pull_request_url = None
     if top_pull_request_url is None:
         return "Submitted stack"
     return f"Submitted stack ({top_pull_request_url})"
@@ -793,15 +801,6 @@ def _render_summary_revision_lines(
     )
 
 
-def _revision_pull_request_url(revision) -> str | None:
-    """Return the GitHub URL for a revision's linked pull request when one is available."""
-
-    lookup = revision.pull_request_lookup
-    if lookup is None or lookup.pull_request is None:
-        return None
-    return getattr(lookup.pull_request, "html_url", None)
-
-
 def _classify_revision_for_summary(
     revision,
     *,
@@ -865,10 +864,12 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
             lookup.pull_request.number,
             is_draft=getattr(lookup.pull_request, "is_draft", False),
         )
-        review_decision = _effective_review_decision(
-            cached_change=cached_change,
-            lookup=lookup,
-        )
+        review_decision = getattr(lookup, "review_decision", None)
+        if review_decision is None:
+            if getattr(lookup, "review_decision_error", None) is None or cached_change is None:
+                review_decision = None
+            else:
+                review_decision = cached_change.pr_review_decision
         if getattr(lookup.pull_request, "is_draft", False):
             pass
         elif review_decision == "approved":
@@ -943,23 +944,9 @@ def _format_cached_pull_request_label(cached_change) -> str | None:
         and not cached_change.pr_is_draft
         and cached_change.pr_review_decision is not None
     ):
-        details.append(_format_review_decision_label(cached_change.pr_review_decision))
+        _rd = cached_change.pr_review_decision
+        details.append("changes requested" if _rd == "changes_requested" else _rd)
     return f"{label} ({', '.join(details)})"
-
-
-def _effective_review_decision(*, cached_change, lookup) -> str | None:
-    review_decision = getattr(lookup, "review_decision", None)
-    if review_decision is not None:
-        return review_decision
-    if getattr(lookup, "review_decision_error", None) is None or cached_change is None:
-        return None
-    return cached_change.pr_review_decision
-
-
-def _format_review_decision_label(review_decision: str) -> str:
-    if review_decision == "changes_requested":
-        return "changes requested"
-    return review_decision
 
 
 def _wrap_advisory(message: object) -> object:
