@@ -377,7 +377,18 @@ def _build_action_streamer(
         if not header_printed:
             console.output(render_header(dry_run=dry_run))
             header_printed = True
-        console.output(_render_action(action=action))
+        prefix, prefix_style, body_style = _action_presentation(action.status)
+        body = action.body
+        if action.kind != "tracking":
+            body = (ui.semantic_text(action.kind, "prefix"), ": ", body)
+        console.output(
+            ui.prefixed_line(
+                f"{prefix} ",
+                body,
+                message_labels=body_style,
+                prefix_labels=prefix_style,
+            )
+        )
 
     return emit_action
 
@@ -437,32 +448,6 @@ def _restack_destination_template(destination_change_id: str | None):
     if destination_change_id is None:
         return ui.revset("trunk()")
     return ui.change_id(destination_change_id)
-
-
-def _render_action(
-    *,
-    action: CleanupAction,
-) -> ui.PrefixedLine:
-    """Render one cleanup or restack action line."""
-
-    prefix, prefix_style, body_style = _action_presentation(action.status)
-    return ui.prefixed_line(
-        f"{prefix} ",
-        _render_action_body(action=action, body_style=body_style),
-        message_labels=body_style,
-        prefix_labels=prefix_style,
-    )
-
-
-def _render_action_body(
-    action: CleanupAction,
-    *,
-    body_style: tuple[str, ...] | None,
-) -> CleanupBody:
-    del body_style
-    if action.kind == "tracking":
-        return action.body
-    return (ui.semantic_text(action.kind, "prefix"), ": ", action.body)
 
 
 def _prepare_cleanup(
