@@ -255,7 +255,7 @@ def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "multiple `jj-review` stack summary comments" in captured.out
+    assert "multiple jj-review stack summary comments" in captured.out
 
 
 def test_status_fetch_surfaces_unlinked_state_without_repopulating_link(

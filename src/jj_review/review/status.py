@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from jj_review import ui
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError, ErrorMessage, error_message
@@ -40,6 +41,7 @@ from jj_review.review.bookmarks import (
 )
 from jj_review.review.intents import intent_is_stale
 from jj_review.state.store import ReviewStateStore
+from jj_review.ui import Message
 
 logger = logging.getLogger(__name__)
 _GITHUB_INSPECTION_CONCURRENCY = DEFAULT_BOUNDED_CONCURRENCY
@@ -54,12 +56,12 @@ StackCommentLookupState = Literal["ambiguous", "error", "missing", "present"]
 class PullRequestLookup:
     """Best-effort GitHub pull request lookup for one branch."""
 
-    message: str | None
+    message: ErrorMessage | None
     pull_request: GithubPullRequest | None
     state: PullRequestLookupState
     review_decision: str | None = None
     review_decision_error: str | None = None
-    repository_error: str | None = None
+    repository_error: ErrorMessage | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +69,7 @@ class StackCommentLookup:
     """Best-effort GitHub stack summary comment lookup for one pull request."""
 
     comment: GithubIssueComment | None
-    message: str | None
+    message: ErrorMessage | None
     state: StackCommentLookupState
 
 
@@ -172,8 +174,8 @@ def prepare_status(
         github_repository = parse_github_repo(prepared.remote)
         if github_repository is None:
             github_repository_error = (
-                "Could not determine the GitHub repository for remote "
-                f"{prepared.remote.name!r}. Use a GitHub remote URL."
+                t"Could not determine the GitHub repository for remote "
+                t"{ui.bookmark(prepared.remote.name)}. Use a GitHub remote URL."
             )
     outstanding_intents, stale_intents = _classify_status_intents(prepared)
 
@@ -728,7 +730,7 @@ async def _discover_pull_request_lookups(
 
     return {
         bookmark: _pull_request_lookup_from_discovered(
-            head_label=f"{github_repository.owner}:{bookmark}",
+            head_label=t"{github_repository.owner}:{ui.bookmark(bookmark)}",
             pull_requests=discovered_pull_requests.get(bookmark, ()),
         )
         for bookmark in bookmarks
@@ -783,7 +785,7 @@ async def _attach_review_decisions_to_pull_request_lookups(
 
 def _pull_request_lookup_from_discovered(
     *,
-    head_label: str,
+    head_label: Message,
     pull_requests: tuple[GithubPullRequest, ...],
 ) -> PullRequestLookup:
     if not pull_requests:
@@ -797,8 +799,8 @@ def _pull_request_lookup_from_discovered(
         numbers = ", ".join(str(pull_request.number) for pull_request in pull_requests)
         return PullRequestLookup(
             message=(
-                f"GitHub reports multiple pull requests for head branch {head_label!r}: "
-                f"{numbers}."
+                t"GitHub reports multiple pull requests for head branch "
+                t"{head_label}: {numbers}."
             ),
             pull_request=None,
             repository_error=None,
@@ -810,8 +812,9 @@ def _pull_request_lookup_from_discovered(
     if effective_pull_request.state != "open":
         return PullRequestLookup(
             message=(
-                f"GitHub reports pull request #{effective_pull_request.number} for head branch "
-                f"{head_label!r} in state {effective_pull_request.state!r}."
+                t"GitHub reports pull request #{effective_pull_request.number} "
+                t"for head branch {head_label} in state "
+                t"{effective_pull_request.state}."
             ),
             pull_request=effective_pull_request,
             review_decision=None,
@@ -866,7 +869,7 @@ async def _inspect_stack_comment(
         return StackCommentLookup(
             comment=None,
             message=(
-                "GitHub reports multiple `jj-review` stack summary comments for the same "
+                "GitHub reports multiple jj-review stack summary comments for the same "
                 f"request: {comment_ids}."
             ),
             state="ambiguous",
