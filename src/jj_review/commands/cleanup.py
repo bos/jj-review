@@ -197,13 +197,13 @@ class _RestackIntentState:
     stale_intents: list[LoadedIntent]
 
 
-def render_cleanup_action_header(*, dry_run: bool) -> str:
+def _render_cleanup_action_header(*, dry_run: bool) -> str:
     """Render the cleanup action section header."""
 
     return "Planned cleanup actions:" if dry_run else "Applied cleanup actions:"
 
 
-def render_cleanup_postamble(*, result: CleanupResult) -> tuple[str, ...]:
+def _render_cleanup_postamble(*, result: CleanupResult) -> tuple[str, ...]:
     """Render cleanup lines that only depend on the completed result."""
 
     if not result.actions:
@@ -211,7 +211,7 @@ def render_cleanup_postamble(*, result: CleanupResult) -> tuple[str, ...]:
     return ()
 
 
-def render_restack_preamble(*, prepared_restack: PreparedRestack) -> tuple[tuple[str, str], ...]:
+def _render_restack_preamble(*, prepared_restack: PreparedRestack) -> tuple[tuple[str, str], ...]:
     """Render the non-streaming restack context lines for the CLI."""
 
     prepared_status = prepared_restack.prepared_status
@@ -228,13 +228,13 @@ def render_restack_preamble(*, prepared_restack: PreparedRestack) -> tuple[tuple
     )
 
 
-def render_restack_action_header(*, dry_run: bool) -> str:
+def _render_restack_action_header(*, dry_run: bool) -> str:
     """Render the restack action section header."""
 
     return "Planned restack actions:" if dry_run else "Applied restack actions:"
 
 
-def render_restack_postamble(*, result: RestackResult) -> tuple[str, ...]:
+def _render_restack_postamble(*, result: RestackResult) -> tuple[str, ...]:
     """Render restack lines that only depend on the completed result."""
 
     if not result.actions:
@@ -290,32 +290,35 @@ def _run_cleanup_restack_command(
         revset=revset,
     )
     try:
-        prepared_restack = prepare_restack(
+        prepared_restack = PreparedRestack(
             dry_run=dry_run,
-            change_overrides=change_overrides,
-            config=config,
-            repo_root=repo_root,
-            revset=selected_revset,
+            prepared_status=prepare_status(
+                change_overrides=change_overrides,
+                config=config,
+                fetch_remote_state=True,
+                repo_root=repo_root,
+                revset=selected_revset,
+            ),
         )
     except UnsupportedStackError as error:
         raise CliError(describe_status_preparation_error(error)) from error
-    for severity, line in render_restack_preamble(prepared_restack=prepared_restack):
+    for severity, line in _render_restack_preamble(prepared_restack=prepared_restack):
         if severity == "warning":
             console.warning(line)
         else:
             console.output(line)
 
     try:
-        result = stream_restack(
+        result = _stream_restack(
             on_action=_build_action_streamer(
                 dry_run=prepared_restack.dry_run,
-                render_header=render_restack_action_header,
+                render_header=_render_restack_action_header,
             ),
             prepared_restack=prepared_restack,
         )
     except UnsupportedStackError as error:
         raise CliError(describe_status_preparation_error(error)) from error
-    for line in render_restack_postamble(result=result):
+    for line in _render_restack_postamble(result=result):
         console.output(line)
     return 1 if result.blocked else 0
 
@@ -327,7 +330,7 @@ def _run_cleanup_command(
 ) -> int:
     """Render and run the stale cleanup command path."""
 
-    prepared_cleanup = prepare_cleanup(
+    prepared_cleanup = _prepare_cleanup(
         dry_run=dry_run,
         repo_root=repo_root,
     )
@@ -346,14 +349,16 @@ def _run_cleanup_command(
         else:
             console.output(line)
 
-    result = stream_cleanup(
-        on_action=_build_action_streamer(
-            dry_run=prepared_cleanup.dry_run,
-            render_header=render_cleanup_action_header,
-        ),
-        prepared_cleanup=prepared_cleanup,
+    result = asyncio.run(
+        _run_cleanup_async(
+            on_action=_build_action_streamer(
+                dry_run=prepared_cleanup.dry_run,
+                render_header=_render_cleanup_action_header,
+            ),
+            prepared_cleanup=prepared_cleanup,
+        )
     )
-    for line in render_cleanup_postamble(result=result):
+    for line in _render_cleanup_postamble(result=result):
         console.output(line)
     return 0
 
@@ -460,7 +465,7 @@ def _render_action_body(
     return (ui.semantic_text(action.kind, "prefix"), ": ", action.body)
 
 
-def prepare_cleanup(
+def _prepare_cleanup(
     *,
     dry_run: bool,
     repo_root: Path,
@@ -501,33 +506,7 @@ def prepare_cleanup(
     )
 
 
-def prepare_restack(
-    *,
-    dry_run: bool,
-    change_overrides: dict[str, ChangeConfig],
-    config: RepoConfig,
-    repo_root: Path,
-    revset: str | None,
-) -> PreparedRestack:
-    """Resolve local restack inputs before any rewrite."""
-
-    state_store = ReviewStateStore.for_repo(repo_root)
-    if not dry_run:
-        state_store.require_writable()
-
-    return PreparedRestack(
-        dry_run=dry_run,
-        prepared_status=prepare_status(
-            change_overrides=change_overrides,
-            config=config,
-            fetch_remote_state=True,
-            repo_root=repo_root,
-            revset=revset,
-        ),
-    )
-
-
-def stream_restack(
+def _stream_restack(
     *,
     on_action: Callable[[CleanupAction], None] | None = None,
     prepared_restack: PreparedRestack,
@@ -658,21 +637,6 @@ def stream_restack(
                 restack_intent_state.intent,
             )
             restack_intent_state.intent_path.unlink(missing_ok=True)
-
-
-def stream_cleanup(
-    *,
-    on_action: Callable[[CleanupAction], None] | None = None,
-    prepared_cleanup: PreparedCleanup,
-) -> CleanupResult:
-    """Inspect GitHub state for prepared cleanup inputs and optionally stream actions."""
-
-    return asyncio.run(
-        _stream_cleanup_async(
-            on_action=on_action,
-            prepared_cleanup=prepared_cleanup,
-        )
-    )
 
 
 def _start_restack_intent(
@@ -1034,7 +998,7 @@ def _revision_pull_request_base_ref(revision: ReviewStatusRevision) -> str | Non
     return lookup.pull_request.base.ref
 
 
-async def _stream_cleanup_async(
+async def _run_cleanup_async(
     *,
     on_action: Callable[[CleanupAction], None] | None,
     prepared_cleanup: PreparedCleanup,
