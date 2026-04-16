@@ -779,7 +779,7 @@ def _resolve_land_path_revisions(
         revision = revisions_by_change_id.get(change_id)
         if revision is None:
             raise AssertionError(
-                f"Prepared land revision {change_id!r} is missing from the status result."
+                f"Prepared land revision {change_id} is missing from the status result."
             )
         path_revisions.append((prepared_revision, revision))
     return tuple(path_revisions)
@@ -1041,7 +1041,7 @@ def _resume_land_plan(*, intent: LandIntent, trunk_branch: str) -> _LandPlan:
             )
         except KeyError as error:
             raise CliError(
-                t"Interrupted land intent for {intent.label!r} is incomplete. "
+                t"Interrupted land intent for {intent.label} is incomplete. "
                 t"Re-run {ui.cmd('land')} to refresh the plan."
             ) from error
     return _LandPlan(
