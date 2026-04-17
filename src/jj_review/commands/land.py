@@ -371,7 +371,7 @@ async def _stream_land_async(
             )
         except GithubClientError as error:
             raise CliError(
-                t"Could not load GitHub repository {github_repository.full_name}: {error}"
+                t"Could not load GitHub repository {github_repository.full_name}"
             ) from error
         trunk_branch = resolve_trunk_branch(
             bookmark_states=prepared.client.list_bookmark_states(),
@@ -1203,7 +1203,7 @@ async def _finalize_landed_pull_request(
         )
     except GithubClientError as error:
         raise CliError(
-            t"Could not load PR #{landed_revision.pull_request_number} during land: {error}"
+            t"Could not load PR #{landed_revision.pull_request_number} during land"
         ) from error
     pull_request = _normalize_pull_request_state(pull_request)
     if pull_request.state == "open" and pull_request.base.ref != trunk_branch:
@@ -1219,7 +1219,7 @@ async def _finalize_landed_pull_request(
         except GithubClientError as error:
             raise CliError(
                 t"Could not retarget PR #{pull_request.number} to "
-                t"{ui.bookmark(trunk_branch)}: {error}"
+                t"{ui.bookmark(trunk_branch)}"
             ) from error
         pull_request = _normalize_pull_request_state(pull_request)
     if pull_request.state == "open":
@@ -1235,9 +1235,7 @@ async def _finalize_landed_pull_request(
                 pull_number=pull_request.number,
             )
         except GithubClientError as error:
-            raise CliError(
-                t"Could not close PR #{pull_request.number} after landing: {error}"
-            ) from error
+            raise CliError(t"Could not close PR #{pull_request.number} after landing") from error
         pull_request = _normalize_pull_request_state(pull_request)
     if cached_change is not None and cached_change.stack_comment_id is not None:
         try:
@@ -1249,8 +1247,7 @@ async def _finalize_landed_pull_request(
         except GithubClientError as error:
             if error.status_code != 404:
                 raise CliError(
-                    t"Could not delete stack summary comment "
-                    t"#{cached_change.stack_comment_id}: {error}"
+                    t"Could not delete stack summary comment #{cached_change.stack_comment_id}"
                 ) from error
     return pull_request
 

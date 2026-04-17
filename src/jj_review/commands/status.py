@@ -15,7 +15,7 @@ from pathlib import Path
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.console import requested_color_mode
-from jj_review.errors import CliError, ErrorMessage
+from jj_review.errors import ErrorMessage
 from jj_review.formatting import (
     format_change_marker,
     format_pull_request_label,
@@ -41,9 +41,9 @@ from jj_review.review.status import (
     prepare_status,
     revision_has_merged_pull_request,
     revision_pull_request_number,
+    status_preparation_cli_error,
     stream_status,
 )
-from jj_review.review.status_messages import describe_status_preparation_error
 from jj_review.review.submit_recovery import (
     SubmitRecoveryIdentity,
     SubmitStatusDecision,
@@ -82,7 +82,7 @@ def status(
             revset=revset,
         )
     except UnsupportedStackError as error:
-        raise CliError(describe_status_preparation_error(error)) from error
+        raise status_preparation_cli_error(error) from error
 
     selection_lines = render_status_selection_lines(prepared_status=prepared_status)
     if selection_lines:
@@ -104,7 +104,7 @@ def status(
         has_revisions=bool(result.revisions),
     )
     if result.github_error is not None:
-        _emit_lines(github_lines, emitter=console.warning)
+        _emit_lines(github_lines, emitter=console.warning, soft_wrap=False)
     else:
         _emit_lines(github_lines)
 
@@ -178,26 +178,18 @@ def render_status_github_lines(
     """Render GitHub availability lines as status streaming begins."""
 
     lines: list[object] = []
-    if github_repository is None:
-        if github_error is not None:
-            lines.append(
-                _prefixed_status_line("GitHub target", ("unavailable (", github_error, ")"))
+    if github_error is not None:
+        if github_repository is None:
+            lines.append(t"GitHub target error: {github_error}")
+        else:
+            lines.append(t"GitHub target: {github_repository} (error: {github_error})")
+    elif github_repository is not None and not has_revisions:
+        lines.append(
+            _prefixed_status_line(
+                "GitHub target",
+                f"{github_repository} (not inspected; no reviewable commits)",
             )
-    else:
-        if github_error is None and not has_revisions:
-            lines.append(
-                _prefixed_status_line(
-                    "GitHub target",
-                    f"{github_repository} (not inspected; no reviewable commits)",
-                )
-            )
-        elif github_error is not None:
-            lines.append(
-                _prefixed_status_line(
-                    "GitHub target",
-                    (github_repository, " (", github_error, ")"),
-                )
-            )
+        )
     return tuple(lines)
 
 
@@ -956,12 +948,14 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
     return summary
 
 
-def _emit_lines(lines: tuple[object, ...], *, emitter=console.output) -> None:
+def _emit_lines(
+    lines: tuple[object, ...], *, emitter=console.output, soft_wrap: bool = True
+) -> None:
     for line in lines:
         if isinstance(line, str) and "\x1b[" in line:
-            emitter(console.ansi_text(line), soft_wrap=True)
+            emitter(console.ansi_text(line), soft_wrap=soft_wrap)
             continue
-        emitter(line, soft_wrap=True)
+        emitter(line, soft_wrap=soft_wrap)
 
 
 def _prefixed_status_line(prefix: str, body: object) -> object:

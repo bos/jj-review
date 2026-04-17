@@ -26,9 +26,11 @@ from jj_review.bootstrap import bootstrap_context
 from jj_review.errors import CliError, error_message
 from jj_review.github.client import (
     GithubClient,
+    GithubClientError,
     _github_token_for_base_url,
     github_token_from_env,
 )
+from jj_review.github.error_messages import summarize_github_repository_error
 from jj_review.github.resolution import (
     ParsedGithubRepo,
     parse_github_repo,
@@ -202,13 +204,22 @@ async def _check_github_connectivity(
     async with GithubClient(base_url=parsed_repo.api_base_url, token=token) as client:
         try:
             github_repo = await client.get_repository(parsed_repo.owner, parsed_repo.repo)
+        except GithubClientError as error:
+            return (
+                CheckResult(
+                    "connectivity",
+                    "fail",
+                    f"{parsed_repo.host}/{parsed_repo.full_name}: "
+                    f"{summarize_github_repository_error(error)}",
+                ),
+                None,
+            )
         except Exception as error:
             return (
                 CheckResult(
                     "connectivity",
                     "fail",
-                    f"could not reach {parsed_repo.host}/{parsed_repo.full_name}: {error}"
-                    "; check network connectivity and that the repository exists",
+                    f"{parsed_repo.host}/{parsed_repo.full_name}: request failed ({error})",
                 ),
                 None,
             )

@@ -19,7 +19,9 @@ from jj_review.github.client import (
     GithubClient,
     GithubClientError,
     build_github_client,
-    github_token_from_env,
+)
+from jj_review.github.error_messages import (
+    summarize_github_lookup_error,
 )
 from jj_review.github.resolution import (
     ParsedGithubRepo,
@@ -27,7 +29,7 @@ from jj_review.github.resolution import (
     select_submit_remote,
 )
 from jj_review.github.stack_comments import is_stack_summary_comment
-from jj_review.jj import JjClient
+from jj_review.jj import JjClient, UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
 from jj_review.models.intent import LoadedIntent
@@ -141,6 +143,24 @@ class PreparedRevision:
     bookmark_source: BookmarkSource
     cached_change: CachedChange | None
     revision: LocalRevision
+
+
+def status_preparation_cli_error(error: UnsupportedStackError) -> CliError:
+    """Translate stack-shape preparation failures into a user-facing CLI error."""
+
+    if error.reason == "divergent_change" and error.change_id is not None:
+        return CliError(
+            t"Could not inspect review status because local history no longer forms a "
+            t"supported linear stack. {error} Inspect the divergent revisions with "
+            t"{ui.cmd('jj log -r')} {ui.revset(f'change_id({error.change_id})')} and "
+            t"reconcile them before retrying. This can happen after "
+            t"{ui.cmd('status --fetch')} or another fetch imports remote bookmark "
+            t"updates for merged PRs."
+        )
+    return CliError(
+        t"Could not inspect review status because local history no longer forms a "
+        t"supported linear stack. {error}"
+    )
 
 
 def prepare_status(
@@ -713,8 +733,8 @@ async def _discover_pull_request_lookups(
         )
     except GithubClientError as error:
         if _is_repository_level_github_lookup_error(error):
-            raise CliError(_summarize_github_repository_error(error)) from error
-        lookup_error = _summarize_github_lookup_error(
+            raise CliError("") from error
+        lookup_error = summarize_github_lookup_error(
             action="pull request lookup",
             error=error,
         )
@@ -852,7 +872,7 @@ async def _inspect_stack_comment(
     except GithubClientError as error:
         return StackCommentLookup(
             comment=None,
-            message=_summarize_github_lookup_error(
+            message=summarize_github_lookup_error(
                 action=f"stack summary comment lookup for pull request #{pull_request_number}",
                 error=error,
             ),
@@ -877,48 +897,12 @@ async def _inspect_stack_comment(
     return StackCommentLookup(comment=matching_comments[0], message=None, state="present")
 
 
-def _summarize_github_lookup_error(*, action: str, error: GithubClientError) -> str:
-    """Render a concise GitHub lookup failure for `status` output."""
-
-    if error.status_code is None:
-        return "GitHub is unavailable - check network connectivity"
-    if error.status_code == 401:
-        return "GitHub authentication failed - check GITHUB_TOKEN"
-    if error.status_code == 403:
-        return "GitHub access was denied - check GITHUB_TOKEN and repo access"
-    if error.status_code >= 500:
-        return "GitHub is unavailable - check network connectivity"
-    return f"{action} failed (GitHub {error.status_code})"
-
-
-def _summarize_github_repository_error(error: GithubClientError) -> str:
-    """Render a concise repo-level GitHub availability failure."""
-
-    if error.status_code is None:
-        return "unavailable - check network connectivity"
-    if error.status_code == 401:
-        return "auth failed - check GITHUB_TOKEN"
-    if error.status_code == 403:
-        return "access denied - check GITHUB_TOKEN and repo access"
-    if error.status_code == 404:
-        return _github_auth_failure_message("repo not found or inaccessible")
-    if error.status_code >= 500:
-        return "unavailable - check network connectivity"
-    return f"request failed (GitHub {error.status_code})"
-
-
 def _is_repository_level_github_lookup_error(error: GithubClientError) -> bool:
     if error.status_code is None:
         return True
     if error.status_code in {401, 403, 404}:
         return True
     return error.status_code >= 500
-
-
-def _github_auth_failure_message(message: str) -> str:
-    if github_token_from_env() is None:
-        return f"{message} - check GITHUB_TOKEN or gh auth"
-    return message
 
 
 def _change_id_resolves(client: JjClient, change_id: str) -> bool:

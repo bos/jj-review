@@ -128,7 +128,7 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
     normalized_err = " ".join(captured.err.split())
 
     assert exit_code == 1
-    assert "GitHub target: octo-org/stacked-review" in normalized_err
+    assert "GitHub target: octo-org/stacked-review (error:" in normalized_err
     assert "repo not found or inaccessible - check GITHUB_TOKEN or gh auth" in normalized_err
     assert "documentation_url" not in captured.out
     assert "saved PR #1 (open)" in captured.out
@@ -162,8 +162,8 @@ def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
     normalized_err = " ".join(captured.err.split())
 
     assert exit_code == 1
-    assert "GitHub target: octo-org/stacked-review" in normalized_err
-    assert "unavailable - check network connectivity" in normalized_err
+    assert "GitHub target: octo-org/stacked-review (error:" in normalized_err
+    assert "request failed (Connection refused)" in normalized_err
     assert "GitHub status unknown" in captured.out
 
 
@@ -407,8 +407,8 @@ def test_status_uses_cached_pull_request_metadata_after_prior_online_run(
     normalized_err = " ".join(captured.err.split())
 
     assert exit_code == 1
-    assert "GitHub target: octo-org/stacked-review" in normalized_err
-    assert "unavailable - check network connectivity" in normalized_err
+    assert "GitHub target: octo-org/stacked-review (error:" in normalized_err
+    assert "request failed (Connection refused)" in normalized_err
     assert "saved PR #1 (open)" in captured.out
 
 

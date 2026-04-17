@@ -23,6 +23,7 @@ from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import ErrorMessage
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
+from jj_review.github.error_messages import summarize_github_error_reason
 from jj_review.github.resolution import parse_github_repo
 from jj_review.github.stack_comments import is_stack_summary_comment
 from jj_review.jj import JjClient
@@ -1171,7 +1172,9 @@ async def _find_stack_summary_comment(
                         kind="stack summary comment",
                         body=(
                             "cannot inspect saved stack summary comment "
-                            f"#{cached_stack_comment_id}: {cached_comment_error}"
+                            "#"
+                            f"{cached_stack_comment_id}: "
+                            f"{summarize_github_error_reason(cached_comment_error)}"
                         ),
                         status="blocked",
                     ),
@@ -1196,7 +1199,7 @@ async def _find_stack_summary_comment(
                 kind="stack summary comment",
                 body=(
                     f"cannot inspect stack summary comments for PR #{pull_request_number}: "
-                    f"{error}"
+                    f"{summarize_github_error_reason(error)}"
                 ),
                 status="blocked",
             ),

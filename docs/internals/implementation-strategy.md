@@ -92,6 +92,10 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- `status` now renders GitHub target failures as ordinary warning lines with
+  explicit `error:` wording instead of the hanging-indent status helper, so
+  lookup failures and non-GitHub remotes no longer split awkwardly across
+  lines
 - top-level and subcommand `help` output now build on shared `ui` definition-
   list and prefixed-line primitives, so section headings, command labels, and
   option labels render through the Rich-backed console path instead of

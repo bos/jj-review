@@ -7,7 +7,7 @@ import pytest
 from jj_review.commands import status as status_module
 from jj_review.errors import CliError
 from jj_review.jj import UnsupportedStackError
-from jj_review.review.status_messages import describe_status_preparation_error
+from jj_review.review.status import status_preparation_cli_error
 from jj_review.ui import plain_text
 
 from .entrypoint_test_helpers import patch_bootstrap
@@ -40,13 +40,16 @@ def test_status_reports_targeted_divergent_stack_error(
         )
 
 
-def test_describe_status_preparation_error_falls_back_without_structured_context() -> None:
+def test_status_preparation_cli_error_falls_back_without_structured_context() -> None:
     error = UnsupportedStackError(
         "Unsupported stack shape at nznokxmvrnysowwwkktpmroswxqsozqq: "
         "divergent changes are not supported."
     )
 
-    assert "jj log -r" not in plain_text(describe_status_preparation_error(error))
+    translated = status_preparation_cli_error(error)
+
+    assert isinstance(translated, CliError)
+    assert "jj log -r" not in plain_text(translated.message)
 
 
 def test_status_updates_tty_progress_bar_while_streaming(

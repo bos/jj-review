@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 
 import jj_review.commands.doctor as doctor_mod
-from jj_review.github.client import GithubClient
+from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github.resolution import ParsedGithubRepo
 
 from ..support.fake_github import FakeGithubState, create_app
@@ -146,3 +146,31 @@ def test_doctor_fails_when_github_token_missing(
     assert "connectivity" in captured.out
     assert "trunk branch" in captured.out
     assert "prior check failed" in captured.out
+
+
+def test_doctor_reports_repo_access_failure_without_network_hint(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = _configure_doctor_environment(monkeypatch, tmp_path, fake_repo)
+
+    class FailingGithubClient(GithubClient):
+        async def get_repository(self, owner: str, repo: str):
+            raise GithubClientError(
+                'GitHub request failed: 404 {"message":"Not Found","documentation_url":"x"}',
+                status_code=404,
+            )
+
+    monkeypatch.setattr(doctor_mod, "GithubClient", FailingGithubClient)
+
+    exit_code = run_main(repo, config_path, "doctor")
+    captured = capsys.readouterr()
+    normalized_out = " ".join(captured.out.split())
+
+    assert exit_code == 1
+    assert "connectivity" in normalized_out
+    assert "repo not found or inaccessible" in normalized_out
+    assert "check network connectivity" not in normalized_out
+    assert "documentation_url" not in normalized_out

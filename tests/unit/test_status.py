@@ -44,6 +44,45 @@ def test_status_reports_github_target_when_empty_stack_was_not_inspected() -> No
     ) == ("GitHub target: octo-org/stacked-review (not inspected; no reviewable commits)",)
 
 
+def test_status_reports_github_target_error_when_remote_is_not_a_github_url() -> None:
+    lines = _render_lines(
+        *status_module.render_status_github_lines(
+            github_error=(
+                "Could not determine the GitHub repository for remote origin. "
+                "Use a GitHub remote URL."
+            ),
+            github_repository=None,
+            has_revisions=True,
+        )
+    )
+
+    assert lines[0] == (
+        "GitHub target error: Could not determine the GitHub repository for remote "
+    )
+    assert "".join(lines) == (
+        "GitHub target error: Could not determine the GitHub repository for remote "
+        "origin. Use a GitHub remote URL."
+    )
+
+
+def test_status_reports_github_lookup_errors_inline_with_the_target() -> None:
+    lines = _render_lines(
+        *status_module.render_status_github_lines(
+            github_error="unavailable - check network connectivity",
+            github_repository="octo-org/stacked-review",
+            has_revisions=True,
+        )
+    )
+
+    assert lines[0] == (
+        "GitHub target: octo-org/stacked-review (error: unavailable - check network "
+    )
+    assert "".join(lines) == (
+        "GitHub target: octo-org/stacked-review (error: unavailable - check network "
+        "connectivity)"
+    )
+
+
 def test_render_trunk_status_lines_prefers_unique_local_bookmark() -> None:
     prepared = SimpleNamespace(
         client=SimpleNamespace(

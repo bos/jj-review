@@ -48,9 +48,9 @@ from jj_review.review.status import (
     prepare_status,
     revision_has_merged_pull_request,
     revision_pull_request_number,
+    status_preparation_cli_error,
     stream_status,
 )
-from jj_review.review.status_messages import describe_status_preparation_error
 from jj_review.state.intents import check_same_kind_intent, write_new_intent
 from jj_review.state.store import ReviewStateStore
 from jj_review.ui import Message, plain_text
@@ -283,7 +283,7 @@ def _run_cleanup_restack_command(
             ),
         )
     except UnsupportedStackError as error:
-        raise CliError(describe_status_preparation_error(error)) from error
+        raise status_preparation_cli_error(error) from error
     for severity, line in _render_restack_preamble(prepared_restack=prepared_restack):
         if severity == "warning":
             console.warning(line)
@@ -299,7 +299,7 @@ def _run_cleanup_restack_command(
             prepared_restack=prepared_restack,
         )
     except UnsupportedStackError as error:
-        raise CliError(describe_status_preparation_error(error)) from error
+        raise status_preparation_cli_error(error) from error
     for line in _render_restack_postamble(result=result):
         console.output(line)
     return 1 if result.blocked else 0
@@ -1289,7 +1289,7 @@ async def _apply_stack_comment_cleanup_action(
             )
         except GithubClientError as error:
             raise CliError(
-                f"Could not delete stack summary comment #{comment_plan.comment_id}: {error}"
+                f"Could not delete stack summary comment #{comment_plan.comment_id}"
             ) from error
         if change_id in next_changes:
             next_changes[change_id] = next_changes[change_id].model_copy(
@@ -1567,7 +1567,7 @@ async def _plan_stack_comment_cleanup(
     except GithubClientError as error:
         if error.status_code == 404:
             return None
-        raise CliError(f"Could not load pull request #{pull_request_number}: {error}") from error
+        raise CliError(f"Could not load pull request #{pull_request_number}") from error
 
     if not cached_change.is_unlinked:
         bookmark = cached_change.bookmark
@@ -1614,8 +1614,7 @@ async def _resolve_stack_summary_comment(
         )
     except GithubClientError as error:
         raise CliError(
-            "Could not list stack summary comments for pull request "
-            f"#{pull_request_number}: {error}"
+            f"Could not list stack summary comments for pull request #{pull_request_number}"
         ) from error
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
@@ -1668,7 +1667,7 @@ async def _resolve_unlinked_pull_request_number(
     except GithubClientError as error:
         raise CliError(
             t"Could not list pull requests for unlinked bookmark "
-            t"{ui.bookmark(bookmark_state.name)}: {error}"
+            t"{ui.bookmark(bookmark_state.name)}"
         ) from error
 
     if not pull_requests:

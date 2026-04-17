@@ -20,6 +20,7 @@ from typing import Literal
 
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
+from jj_review.errors import error_message
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import ParsedGithubRepo, parse_github_repo
@@ -459,7 +460,7 @@ async def _retract_one_change(
                             kind="pull request",
                             body=(
                                 t"could not close PR #{pr_number} for "
-                                t"{ui.change_id(change_id)}: {error}"
+                                t"{ui.change_id(change_id)}: {error_message(error)}"
                             ),
                             status="blocked",
                         )

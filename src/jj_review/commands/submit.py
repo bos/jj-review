@@ -816,7 +816,7 @@ async def _run_submit_async(
                 )
             except GithubClientError as error:
                 raise CliError(
-                    f"Could not load GitHub repository {github_repository.full_name}: {error}"
+                    f"Could not load GitHub repository {github_repository.full_name}"
                 ) from error
             trunk_branch = resolve_trunk_branch(
                 bookmark_states=client.list_bookmark_states(),
@@ -1093,7 +1093,7 @@ async def _discover_pull_requests_by_bookmark(
             head_refs=bookmarks,
         )
     except GithubClientError as error:
-        raise CliError(f"Could not batch pull request discovery for branches: {error}") from error
+        raise CliError("Could not batch pull request discovery for branches") from error
 
     return {
         bookmark: _select_discovered_pull_request(
@@ -1630,7 +1630,7 @@ async def _load_re_request_reviewers(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not load reviews for pull request #{pull_request_number}: {error}"
+            f"Could not load reviews for pull request #{pull_request_number}"
         ) from error
     return _reviewers_to_re_request(reviews)
 
@@ -1772,8 +1772,7 @@ async def _create_pull_request(
         )
     except GithubClientError as error:
         raise CliError(
-            t"Could not create a pull request for branch {ui.bookmark(head_branch)}: "
-            t"{error}"
+            t"Could not create a pull request for branch {ui.bookmark(head_branch)}"
         ) from error
 
 
@@ -1804,8 +1803,7 @@ async def _sync_pull_request_metadata(
             )
     except GithubClientError as error:
         raise CliError(
-            f"Could not synchronize metadata for pull request "
-            f"#{pull_request_number}: {error}"
+            f"Could not synchronize metadata for pull request #{pull_request_number}"
         ) from error
 
 
@@ -1827,7 +1825,7 @@ async def _mark_pull_request_ready_for_review(
     except GithubClientError as error:
         raise CliError(
             f"Could not publish draft pull request #{pull_request.number} for "
-            f"{github_repository.full_name}: {error}"
+            f"{github_repository.full_name}"
         ) from error
 
 
@@ -1849,7 +1847,7 @@ async def _convert_pull_request_to_draft(
     except GithubClientError as error:
         raise CliError(
             f"Could not return pull request #{pull_request.number} to draft for "
-            f"{github_repository.full_name}: {error}"
+            f"{github_repository.full_name}"
         ) from error
 
 
@@ -1872,9 +1870,7 @@ async def _update_pull_request(
             title=title,
         )
     except GithubClientError as error:
-        raise CliError(
-            f"Could not update pull request #{pull_request.number}: {error}"
-        ) from error
+        raise CliError(f"Could not update pull request #{pull_request.number}") from error
 
 
 async def _sync_stack_comments(
@@ -2013,8 +2009,7 @@ async def _clear_stack_comment(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not list stack summary comments for pull request "
-            f"#{pull_request_number}: {error}"
+            f"Could not list stack summary comments for pull request #{pull_request_number}"
         ) from error
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
@@ -2069,8 +2064,7 @@ async def _upsert_stack_comment(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not list stack summary comments for pull request "
-            f"#{pull_request_number}: {error}"
+            f"Could not list stack summary comments for pull request #{pull_request_number}"
         ) from error
     if cached_change.stack_comment_id is not None:
         cached_comment = next(
@@ -2157,8 +2151,7 @@ async def _create_stack_comment(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not create a stack summary comment for pull request "
-            f"#{pull_request_number}: {error}"
+            f"Could not create a stack summary comment for pull request #{pull_request_number}"
         ) from error
 
 
@@ -2177,9 +2170,7 @@ async def _update_stack_comment(
             body=comment_body,
         )
     except GithubClientError as error:
-        raise CliError(
-            f"Could not update stack summary comment #{comment_id}: {error}"
-        ) from error
+        raise CliError(f"Could not update stack summary comment #{comment_id}") from error
 
 
 async def _delete_stack_comment(
@@ -2197,9 +2188,7 @@ async def _delete_stack_comment(
     except GithubClientError as error:
         if error.status_code == 404:
             return
-        raise CliError(
-            f"Could not delete stack summary comment #{comment_id}: {error}"
-        ) from error
+        raise CliError(f"Could not delete stack summary comment #{comment_id}") from error
 
 
 def _render_stack_comment(

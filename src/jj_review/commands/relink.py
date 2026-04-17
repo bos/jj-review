@@ -125,7 +125,7 @@ async def _run_relink_async(
             )
         except GithubClientError as error:
             raise CliError(
-                f"Could not load pull request #{pull_request_number}: {error}"
+                f"Could not load pull request #{pull_request_number}"
             ) from error
 
     if pull_request.state != "open":

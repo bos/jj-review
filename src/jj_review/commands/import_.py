@@ -538,7 +538,7 @@ async def _load_pull_request(
             )
         except GithubClientError as error:
             raise CliError(
-                f"Could not load pull request #{pull_request_number}: {error}"
+                f"Could not load pull request #{pull_request_number}"
             ) from error
 
     if pull_request.head.label != f"{github_repository.owner}:{pull_request.head.ref}":
@@ -566,7 +566,7 @@ async def _list_pull_requests_by_head(
             )
         except GithubClientError as error:
             raise CliError(
-                t"Could not list pull requests for head {ui.bookmark(head)}: {error}"
+                t"Could not list pull requests for head {ui.bookmark(head)}"
             ) from error
     return tuple(pull_requests)
 
