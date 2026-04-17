@@ -101,17 +101,12 @@ class JjClient:
         *,
         allow_divergent: bool = False,
         allow_immutable: bool = False,
-        allow_trunk_ancestors: bool = False,
     ) -> LocalStack:
-        """Resolve a review stack from a selected head back to `trunk()`."""
+        """Resolve the selected review stack plus its trunk and base-parent context."""
 
-        merged_trunk_side_branch_commit_ids: set[str] = set()
-        if allow_trunk_ancestors:
-            trunk, merged_trunk_side_branch_commit_ids = (
-                self._resolve_trunk_with_merged_side_branch_commit_ids()
-            )
-        else:
-            trunk = self._resolve_trunk()
+        trunk, merged_trunk_side_branch_commit_ids = (
+            self._resolve_trunk_with_merged_side_branch_commit_ids()
+        )
         if revset is None:
             head, selected_revset = self.resolve_default_head()
         else:
@@ -126,6 +121,7 @@ class JjClient:
 
         if head.commit_id == trunk.commit_id:
             return LocalStack(
+                base_parent=trunk,
                 head=head,
                 revisions=(),
                 selected_revset=selected_revset,
@@ -137,36 +133,56 @@ class JjClient:
             allow_divergent=allow_divergent,
             allow_immutable=allow_immutable,
         )
-        path_start_commit_ids = (trunk.commit_id, *sorted(merged_trunk_side_branch_commit_ids))
+        boundary, include_boundary_in_stack = self._resolve_review_stack_boundary(
+            head_commit_id=head.commit_id,
+            trunk=trunk,
+            merged_trunk_side_branch_commit_ids=merged_trunk_side_branch_commit_ids,
+        )
         ancestor_revisions = self._query_revisions(
-            f"{_union_revset_symbols(path_start_commit_ids)}::"
-            f"{_quote_revset_symbol(head.commit_id)}"
+            f"{_quote_revset_symbol(boundary.commit_id)}::{_quote_revset_symbol(head.commit_id)}"
         )
         revisions_by_commit_id = {revision.commit_id: revision for revision in ancestor_revisions}
         revisions_by_commit_id[head.commit_id] = head
+        revisions_by_commit_id[boundary.commit_id] = boundary
         revisions_by_commit_id[trunk.commit_id] = trunk
 
         stack_head_first: list[LocalRevision] = []
         current = head
-        while current.commit_id != trunk.commit_id:
+        while True:
+            if current.commit_id == boundary.commit_id:
+                if include_boundary_in_stack:
+                    if current.commit_id != head.commit_id:
+                        self._validate_reviewable_revision(
+                            current,
+                            allow_divergent=allow_divergent,
+                            allow_immutable=allow_immutable,
+                        )
+                    stack_head_first.append(current)
+                break
             if current.commit_id != head.commit_id:
                 self._validate_reviewable_revision(
                     current,
                     allow_divergent=allow_divergent,
                     allow_immutable=allow_immutable,
                 )
-
             stack_head_first.append(current)
-            if allow_trunk_ancestors and current.commit_id in merged_trunk_side_branch_commit_ids:
-                break
             parent_commit_id = current.only_parent_commit_id()
             current = revisions_by_commit_id.get(parent_commit_id) or self.resolve_revision(
                 parent_commit_id
             )
 
+        stack_revisions = tuple(reversed(stack_head_first))
+        stack_base_parent = trunk
+        if stack_revisions:
+            stack_base_parent_commit_id = stack_revisions[0].only_parent_commit_id()
+            stack_base_parent = revisions_by_commit_id.get(
+                stack_base_parent_commit_id
+            ) or self.resolve_revision(stack_base_parent_commit_id)
+
         return LocalStack(
+            base_parent=stack_base_parent,
             head=head,
-            revisions=tuple(reversed(stack_head_first)),
+            revisions=stack_revisions,
             selected_revset=selected_revset,
             trunk=trunk,
         )
@@ -269,64 +285,21 @@ class JjClient:
         *,
         allow_divergent: bool = False,
         allow_immutable: bool = False,
-        allow_trunk_ancestors: bool = False,
     ) -> set[str]:
         """Return change IDs whose selected-parent path remains a supported review stack."""
 
-        ordered_revisions = tuple(candidate_revisions)
-        if not ordered_revisions:
-            return set()
-
-        trunk = self._resolve_trunk()
-        commit_ids = tuple(revision.commit_id for revision in ordered_revisions)
-        revisions_by_commit_id = {
-            revision.commit_id: revision for revision in self.query_ancestor_revisions(commit_ids)
-        }
-        revisions_by_commit_id[trunk.commit_id] = trunk
-
-        merged_trunk_side_branch_commit_ids: set[str] = set()
-        if allow_trunk_ancestors:
-            merged_trunk_side_branch_commit_ids = self._merged_trunk_side_branch_commit_ids(
-                trunk.commit_id
-            )
-
-        support_by_commit_id: dict[str, bool] = {trunk.commit_id: True}
-
-        def is_supported(commit_id: str) -> bool:
-            if commit_id in support_by_commit_id:
-                return support_by_commit_id[commit_id]
-
-            revision = revisions_by_commit_id.get(commit_id)
-            if revision is None:
-                support_by_commit_id[commit_id] = False
-                return False
-
+        supported_change_ids: set[str] = set()
+        for revision in candidate_revisions:
             try:
-                self._validate_reviewable_revision(
-                    revision,
+                self.discover_review_stack(
+                    revision.commit_id,
                     allow_divergent=allow_divergent,
                     allow_immutable=allow_immutable,
                 )
             except UnsupportedStackError:
-                support_by_commit_id[commit_id] = False
-                return False
-
-            if (
-                allow_trunk_ancestors
-                and revision.commit_id in merged_trunk_side_branch_commit_ids
-            ):
-                support_by_commit_id[commit_id] = True
-                return True
-
-            support = is_supported(revision.only_parent_commit_id())
-            support_by_commit_id[commit_id] = support
-            return support
-
-        return {
-            revision.change_id
-            for revision in ordered_revisions
-            if is_supported(revision.commit_id)
-        }
+                continue
+            supported_change_ids.add(revision.change_id)
+        return supported_change_ids
 
     def query_children_by_parent_for_commit_ids(
         self,
@@ -363,6 +336,40 @@ class JjClient:
                 reason="trunk_resolved_to_root",
             )
         return trunk
+
+    def _resolve_review_stack_boundary(
+        self,
+        *,
+        head_commit_id: str,
+        trunk: LocalRevision,
+        merged_trunk_side_branch_commit_ids: set[str],
+    ) -> tuple[LocalRevision, bool]:
+        """Resolve the nearest stack boundary on the selected-parent path to `head`."""
+
+        candidate_revset = f"::{_quote_revset_symbol(trunk.commit_id)}"
+        if merged_trunk_side_branch_commit_ids:
+            candidate_revset = (
+                f"({candidate_revset} | "
+                f"{_union_revset_symbols(sorted(merged_trunk_side_branch_commit_ids))})"
+            )
+        boundary_candidates = self._query_revisions(
+            f"heads(first_ancestors({_quote_revset_symbol(head_commit_id)}) & {candidate_revset})",
+            limit=2,
+        )
+        if not boundary_candidates:
+            raise UnsupportedStackError.stack_shape(
+                head_commit_id,
+                t"selected-parent path reached the root commit before {ui.revset('trunk()')}",
+                reason="reached_root_before_trunk",
+            )
+        boundary = boundary_candidates[0]
+        if len(boundary.parents) == 0:
+            raise UnsupportedStackError.stack_shape(
+                head_commit_id,
+                t"selected-parent path reached the root commit before {ui.revset('trunk()')}",
+                reason="reached_root_before_trunk",
+            )
+        return boundary, boundary.commit_id in merged_trunk_side_branch_commit_ids
 
     def _resolve_trunk_with_merged_side_branch_commit_ids(
         self,

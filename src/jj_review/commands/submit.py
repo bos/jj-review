@@ -116,7 +116,7 @@ class SubmitResult:
     selected_subject: str
     trunk_change_id: str
     trunk_branch: str
-    trunk_revision: LocalRevision
+    trunk: LocalRevision
     trunk_subject: str
 
 
@@ -340,7 +340,7 @@ def submit(
             else:
                 console.output(line, soft_wrap=True)
         console.note(
-            t"No reviewable commits between the selected revision and {ui.revset('trunk()')}.",
+            "No reviewable commits on the selected stack.",
             soft_wrap=True,
         )
         return 0
@@ -459,7 +459,7 @@ def _render_submit_trunk_lines(
         )
     return render_revision_lines(
         client=client,
-        revision=result.trunk_revision,
+        revision=result.trunk,
     )
 
 
@@ -484,7 +484,7 @@ def _build_submit_result(
         selected_subject=stack.head.subject,
         trunk_change_id=stack.trunk.change_id,
         trunk_branch=trunk_branch,
-        trunk_revision=stack.trunk,
+        trunk=stack.trunk,
         trunk_subject=stack.trunk.subject,
     )
 
@@ -570,9 +570,7 @@ def _start_submit_intent(
         ),
         display_revset=stack.selected_revset,
         ordered_commit_ids=ordered_commit_ids,
-        head_change_id=(
-            stack.revisions[-1].change_id if stack.revisions else stack.trunk.change_id
-        ),
+        head_change_id=(stack.revisions[-1].change_id if stack.revisions else stack.trunk.change_id),
         remote_name=remote_name,
         github_host=github_repository.host,
         github_owner=github_repository.owner,

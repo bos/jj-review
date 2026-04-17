@@ -77,6 +77,49 @@ def test_relink_repairs_existing_pull_request_link_for_rewritten_change(
     )
 
 
+def test_relink_accepts_stack_forked_from_trunk_ancestor(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    base_commit_id = JjClient(repo).resolve_revision("@-").commit_id
+
+    commit_file(repo, "trunk 1", "trunk-1.txt")
+    run_command(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
+    run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+
+    run_command(["jj", "new", base_commit_id], repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    stack = JjClient(repo).discover_review_stack(allow_immutable=True)
+    change_id = stack.revisions[-1].change_id
+    manual_bookmark = "review/manual-feature-1"
+    run_command(["jj", "bookmark", "create", manual_bookmark, "-r", change_id], repo)
+    run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", manual_bookmark], repo)
+    fake_repo.create_pull_request(
+        base_ref="main",
+        body="manual body",
+        head_ref=manual_bookmark,
+        title="manual title",
+    )
+    run_command(["jj", "bookmark", "forget", manual_bookmark], repo)
+    run_command(
+        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 relinked"],
+        repo,
+    )
+
+    exit_code = run_main(repo, config_path, "relink", "1", change_id)
+    captured = capsys.readouterr()
+    relinked_state = ReviewStateStore.for_repo(repo).load()
+
+    assert exit_code == 0
+    assert "Relinked PR #1" in captured.out
+    assert relinked_state.changes[change_id].bookmark == manual_bookmark
+    assert relinked_state.changes[change_id].pr_number == 1
+
+
 def test_relink_reports_missing_pull_request_without_traceback(
     tmp_path: Path,
     monkeypatch,

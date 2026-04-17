@@ -40,15 +40,9 @@ def test_output_accepts_semantic_messages_directly() -> None:
         stderr=StringIO(),
         color_mode="never",
     ):
-        console_module.output(
-            t"No reviewable commits between the selected revision and "
-            t"{ui_module.revset('trunk()')}."
-        )
+        console_module.output("No reviewable commits on the selected stack.")
 
-    assert (
-        stdout.getvalue()
-        == "No reviewable commits between the selected revision and trunk().\n"
-    )
+    assert stdout.getvalue() == "No reviewable commits on the selected stack.\n"
 
 
 def test_progress_uses_rich_progress_on_tty(monkeypatch: pytest.MonkeyPatch) -> None:

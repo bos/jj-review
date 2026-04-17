@@ -415,7 +415,7 @@ async def _stream_land_async(
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
                 trunk_branch=trunk_branch,
-                trunk_subject=status_result.trunk_subject,
+                trunk_subject=prepared.stack.trunk.subject,
             )
 
         try:
@@ -428,7 +428,7 @@ async def _stream_land_async(
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
                 trunk_branch=trunk_branch,
-                trunk_subject=status_result.trunk_subject,
+                trunk_subject=prepared.stack.trunk.subject,
             )
         except _CompletedLandResume as resume:
             return resume.result
@@ -445,7 +445,7 @@ async def _stream_land_async(
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
                 trunk_branch=trunk_branch,
-                trunk_subject=status_result.trunk_subject,
+                trunk_subject=prepared.stack.trunk.subject,
             )
 
         state = prepared.state_store.load()
@@ -567,7 +567,7 @@ async def _stream_land_async(
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
                 trunk_branch=trunk_branch,
-                trunk_subject=status_result.trunk_subject,
+                trunk_subject=prepared.stack.trunk.subject,
             )
         finally:
             if succeeded:

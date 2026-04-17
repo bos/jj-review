@@ -11,12 +11,15 @@ Create some local changes that you want reviewed. For example:
 - add the UI
 
 Keep your stack linear (or rewrite it to be linear prior to review). `jj-review` is
-intentionally focused on one linear chain of reviewable changes at a time.
+intentionally focused on one linear stack at a time.
 
 ## 2. Inspect before submitting
 
-`jj-review` will by default submit the stack of changed between `trunk()` and `@-` (the most
-recent change below your working directory).
+`jj-review` will by default submit the current stack ending at `@-` (the most recent completed
+change below your working directory). In the common case that is the stack you just built on
+top of `trunk()`. If `trunk()` has advanced since you last rebased, your stack instead starts
+from an older ancestor of `trunk()` — `jj-review status` shows that ancestor in the footer
+beneath the stack, so you can see exactly what the stack is based on.
 
 You can easily check what the tool thinks that stack is:
 
@@ -108,9 +111,9 @@ By default, a successful `land` also forgets the local `review/...` bookmarks
 for the changes that actually landed. Use `--skip-cleanup` if you want to keep
 those local review bookmarks.
 
-`land` works on consecutive changes above `trunk()`, not on arbitrary changes in the middle of
-your stack. To land mid-stack changes, use e.g. `jj arrange` or `jj rebase` to reorder your
-stack to move them to the bottom.
+`land` works on the consecutive ready prefix of the selected stack, not on arbitrary changes in
+the middle of your stack. To land mid-stack changes, use e.g. `jj arrange` or `jj rebase` to
+reorder your stack and move them to the bottom first.
 
 ## 7. Restack remaining work
 

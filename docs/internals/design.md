@@ -332,7 +332,11 @@ Given a selected head revision:
 1. Resolve the selected head revision. When the operator explicitly asks to
    submit the current stack by omitting `<revset>`, select `@-`. The
    working-copy commit `@` remains explicit user intent.
-2. Walk parents back toward `trunk()`, building a linear chain of visible mutable changes.
+2. Walk the selected-parent chain downward, building a linear chain of visible
+   mutable changes until reaching the stack boundary. In the common case that
+   boundary is `trunk()`, but it may also be a recent shared ancestor of the
+   selected head and `trunk()`, or an allowed merged-side boundary discovered
+   during status-style stack inspection.
 3. Reject ambiguous shapes instead of inventing metadata to patch around them.
 4. Resolve each change's bookmark by reuse-first, generation-second:
    - explicit override, if present
@@ -488,10 +492,12 @@ Unlike `submit`, it may fall back to local-only reporting when the
 repo is not configured well enough to resolve a remote or GitHub target.
 Its default output should stay concise and summarize the effective status for
 each change rather than dumping saved-data and transport diagnostics inline.
-The selected stack revisions and the `trunk()` footer should both respect the
-user's native `jj log` formatting rather than rebuilding commit rows inside
-`jj-review`; status-specific suffixes such as PR state may be appended to the
-first rendered line.
+The selected stack revisions and the footer row beneath them should both
+respect the user's native `jj log` formatting rather than rebuilding commit
+rows inside `jj-review`; status-specific suffixes such as PR state may be
+appended to the first rendered line. That footer row should render the
+selected stack's `base_parent` (the immediate parent of the bottom selected
+change), which may or may not be the actual resolved `trunk()`.
 When GitHub data is available, that summary should distinguish merged pull
 requests from merely closed ones, and may surface a concise review-decision
 summary such as approval or changes requested for still-open pull requests.

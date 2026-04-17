@@ -103,7 +103,7 @@ class StatusResult:
     remote_error: ErrorMessage | None
     revisions: tuple[ReviewStatusRevision, ...]
     selected_revset: str
-    trunk_subject: str
+    base_parent_subject: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +116,7 @@ class PreparedStatus:
     prepared: PreparedStack
     selected_revset: str
     stale_intents: tuple[LoadedIntent, ...]
-    trunk_subject: str
+    base_parent_subject: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,7 +207,7 @@ def prepare_status(
         prepared=prepared,
         selected_revset=prepared.stack.selected_revset,
         stale_intents=stale_intents,
-        trunk_subject=prepared.stack.trunk.subject,
+        base_parent_subject=prepared.stack.base_parent.subject,
     )
 
 
@@ -258,7 +258,7 @@ async def stream_status_async(
 ) -> StatusResult:
     prepared = prepared_status.prepared
     selected_revset = prepared_status.selected_revset
-    trunk_subject = prepared_status.trunk_subject
+    base_parent_subject = prepared_status.base_parent_subject
     github_repository = prepared_status.github_repository
     github_repository_error = prepared_status.github_repository_error
 
@@ -277,7 +277,7 @@ async def stream_status_async(
             remote_error=prepared.remote_error,
             revisions=display_revisions,
             selected_revset=selected_revset,
-            trunk_subject=trunk_subject,
+            base_parent_subject=base_parent_subject,
         )
 
     if github_repository is None:
@@ -296,7 +296,7 @@ async def stream_status_async(
             remote_error=None,
             revisions=display_revisions,
             selected_revset=selected_revset,
-            trunk_subject=trunk_subject,
+            base_parent_subject=base_parent_subject,
         )
 
     github_status_reported = False
@@ -323,7 +323,7 @@ async def stream_status_async(
             remote_error=None,
             revisions=(),
             selected_revset=selected_revset,
-            trunk_subject=trunk_subject,
+            base_parent_subject=base_parent_subject,
         )
 
     revisions: list[ReviewStatusRevision] = []
@@ -354,7 +354,7 @@ async def stream_status_async(
             remote_error=None,
             revisions=fallback_revisions,
             selected_revset=selected_revset,
-            trunk_subject=trunk_subject,
+            base_parent_subject=base_parent_subject,
         )
 
     if not github_status_reported:
@@ -369,7 +369,7 @@ async def stream_status_async(
         remote_error=None,
         revisions=tuple(revisions),
         selected_revset=selected_revset,
-        trunk_subject=trunk_subject,
+        base_parent_subject=base_parent_subject,
     )
 
 
@@ -388,7 +388,6 @@ def _prepare_stack(
         revset,
         allow_divergent=True,
         allow_immutable=True,
-        allow_trunk_ancestors=True,
     )
     state_store = ReviewStateStore.for_repo(repo_root)
     state = state_store.load()

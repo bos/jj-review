@@ -971,8 +971,11 @@ Implemented in the first vertical cut:
 - local stack discovery now fetches head ancestors and their immediate
   children in bulk `jj log` queries instead of walking one parent at a time,
   which significantly reduces status startup latency on deeper stacks
-- `status` now renders the `trunk()` commit as a footer row beneath the stack,
-  using the same native `jj log` rendering path as the rest of the stack
+- `status` now renders the stack's base parent as a footer row beneath the
+  stack, using the same native `jj log` rendering path as the rest of the
+  stack; when the bottom selected change sits directly on trunk that footer is
+  `trunk()`, and when the stack forks from a recent trunk ancestor the footer
+  is that fork-point parent instead
 - the CLI now supports `--time-output` as a global debugging aid that prefixes
   printed lines with elapsed time from process start
 - `status` now inspects per-change GitHub PR link with bounded concurrency on
@@ -1444,8 +1447,9 @@ Status: done.
 - `status` summary sections now render each displayed revision through a
   direct `jj log` call instead of rebuilding commit lines inside
   `jj-review`
-- the `trunk()` footer now uses that same native `jj log` rendering path, so
-  status no longer special-cases the base row format
+- the base-parent footer now uses that same native `jj log` rendering path, so
+  status no longer special-cases the base row format or conflates it with the
+  actual resolved `trunk()`
 - the first rendered `jj log` line now carries the appended review status
   suffix, while any additional lines from the user's configured log template
   stay unchanged

@@ -52,10 +52,11 @@ class LocalRevision(BaseModel):
 
 
 class LocalStack(BaseModel):
-    """A linear stack of reviewable revisions from `trunk()` to a selected head."""
+    """A linear stack of reviewable revisions with explicit trunk and base-parent context."""
 
     model_config = ConfigDict(frozen=True)
 
+    base_parent: LocalRevision
     head: LocalRevision
     revisions: tuple[LocalRevision, ...]
     selected_revset: str

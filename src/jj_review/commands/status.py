@@ -120,7 +120,7 @@ def status(
     prerendered_blocks = _prefetch_revision_log_blocks(
         client=prepared_status.prepared.client,
         revisions=result.revisions,
-        trunk=prepared_status.prepared.stack.trunk,
+        trunk=prepared_status.prepared.stack.base_parent,
     )
     _emit_lines(
         render_status_summary_lines(
@@ -263,7 +263,7 @@ def render_trunk_status_lines(
 ) -> tuple[str, ...]:
     """Render the trunk footer with native `jj log` formatting."""
 
-    trunk = prepared.stack.trunk
+    trunk = prepared.stack.base_parent
     return render_revision_lines(
         client=prepared.client,
         revision=trunk,

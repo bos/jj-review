@@ -17,7 +17,7 @@ You (or your agent) use `jj` to manage mutable local history in the ways you'd e
 agent to review:
 
 - picking the selected linear stack
-- assigning one `git` review branch and one PR per reviewable change
+- assigning one `git` review branch and one PR per change in the stack
 - setting the base branch for each PR
 - refreshing those PRs after local rewrites
 - inspecting review state and landing ready changes
@@ -49,8 +49,9 @@ This has a few consequences:
 ## What gets reviewed on GitHub
 
 The "unit to review" is one visible mutable `jj` change. We issue one pull request per change,
-from the bottom change above `trunk()` to the selected head. Each successive PR is based on the
-preceding PR in the stack.
+from the bottom of the selected stack to the selected head. Often that bottom change sits directly
+on `trunk()`, but it may also fork from a recent ancestor of `trunk()`. Each successive PR is
+based on the preceding PR in the stack.
 
 This allows you to escape from the trap of thinking about "one long-lived local branch per pull
 request."  `jj-review` creates `git` review branches only because GitHub requires them. Those

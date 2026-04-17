@@ -65,6 +65,36 @@ def test_status_truncates_long_unsubmitted_stack_summary(
     assert "feature 3" in captured.out
 
 
+def test_status_renders_base_parent_for_stack_forked_from_trunk_ancestor(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    base_commit_id = JjClient(repo).resolve_revision("@-").commit_id
+
+    commit_file(repo, "trunk 1", "trunk-1.txt")
+    run_command(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
+    run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+
+    run_command(["jj", "new", base_commit_id], repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    stack = JjClient(repo).discover_review_stack(allow_immutable=True)
+
+    exit_code = run_main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Unsubmitted stack:" in captured.out
+    assert stack.revisions[-1].subject in captured.out
+    assert stack.base_parent.subject in captured.out
+    assert captured.out.index(stack.revisions[-1].subject) < captured.out.index(
+        stack.base_parent.subject
+    )
+    assert stack.trunk.subject not in captured.out
+
+
 def test_status_ignores_off_path_reviewable_child(
     tmp_path: Path,
     monkeypatch,

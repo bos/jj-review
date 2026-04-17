@@ -1153,6 +1153,38 @@ def test_submit_reports_no_reviewable_commits_without_mutation_when_head_is_trun
     assert fake_repo.pull_requests == {}
 
 
+def test_submit_accepts_stack_forked_from_trunk_ancestor(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    base_commit_id = JjClient(repo).resolve_revision("@-").commit_id
+
+    commit_file(repo, "trunk 1", "trunk-1.txt")
+    run_command(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
+    run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+
+    run_command(["jj", "new", base_commit_id], repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    stack = JjClient(repo).discover_review_stack(allow_immutable=True)
+
+    exit_code = run_main(repo, config_path, "submit")
+    captured = capsys.readouterr()
+    state = ReviewStateStore.for_repo(repo).load()
+    change_id = stack.revisions[-1].change_id
+    bookmark = state.changes[change_id].bookmark
+
+    assert exit_code == 0
+    assert "Submitted changes:" in captured.out
+    assert stack.revisions[-1].subject in captured.out
+    assert len(fake_repo.pull_requests) == 1
+    assert fake_repo.pull_requests[1].base_ref == "main"
+    assert bookmark is not None
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == stack.revisions[-1].commit_id
+
+
 def test_submit_rejects_duplicate_bookmark_overrides_before_projection(
     tmp_path: Path,
     monkeypatch,

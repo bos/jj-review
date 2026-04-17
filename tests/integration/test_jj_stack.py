@@ -80,12 +80,12 @@ def test_discover_review_stack_fails_with_root_before_trunk(tmp_path: Path) -> N
 
     with pytest.raises(
         UnsupportedStackError,
-        match="stack reached the root commit before trunk\\(\\)",
+        match="selected-parent path reached the root commit before trunk\\(\\)",
     ):
         JjClient(repo).discover_review_stack(head)
 
 
-def test_discover_review_stack_rejects_shared_trunk_ancestor_without_merge(
+def test_discover_review_stack_stops_at_recent_shared_trunk_ancestor(
     tmp_path: Path,
 ) -> None:
     repo = init_repo(tmp_path)
@@ -98,15 +98,9 @@ def test_discover_review_stack_rejects_shared_trunk_ancestor_without_merge(
     commit_file(repo, "feature 1", "feature-1.txt")
     head = _current_parent_commit_id(repo)
 
-    with pytest.raises(
-        UnsupportedStackError,
-        match="stack reached the root commit before trunk\\(\\)",
-    ):
-        JjClient(repo).discover_review_stack(
-            head,
-            allow_immutable=True,
-            allow_trunk_ancestors=True,
-        )
+    stack = JjClient(repo).discover_review_stack(head, allow_immutable=True)
+
+    assert [revision.subject for revision in stack.revisions] == ["feature 1"]
 
 
 def test_discover_review_stack_rejects_immutable_revisions(tmp_path: Path) -> None:

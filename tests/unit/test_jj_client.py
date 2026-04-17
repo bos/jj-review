@@ -316,18 +316,31 @@ def test_discover_review_stack_excludes_revisions_already_reachable_from_trunk()
             "log",
             "--no-graph",
             "-r",
-            "('current-trunk' | 'merged')::'head-3'",
+            "heads(first_ancestors('head-3') & (::'current-trunk' | 'merged'))",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        ): merged,
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "'merged'::'head-3'",
             "-T",
             _template(),
         ): (
-            head + merged + old_trunk + _ROOT
+            head + merged
+        ),
+        ("jj", "log", "--no-graph", "-r", "old-trunk", "-T", _template(), "--limit", "2"): (
+            old_trunk
         ),
     }
 
     stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack(
         "head-3",
         allow_immutable=True,
-        allow_trunk_ancestors=True,
     )
 
     assert [revision.subject for revision in stack.revisions] == [
@@ -336,7 +349,7 @@ def test_discover_review_stack_excludes_revisions_already_reachable_from_trunk()
     ]
 
 
-def test_discover_review_stack_rejects_shared_trunk_ancestor_without_merge() -> None:
+def test_discover_review_stack_stops_at_recent_shared_trunk_ancestor() -> None:
     current_trunk = _revision_line(
         commit_id="current-trunk",
         parents=["old-trunk"],
@@ -368,20 +381,71 @@ def test_discover_review_stack_rejects_shared_trunk_ancestor_without_merge() -> 
             "-T",
             _trunk_scan_template(),
         ): trunk_scan,
-        ("jj", "log", "--no-graph", "-r", "'current-trunk'::'head-4'", "-T", _template()): "",
-        ("jj", "log", "--no-graph", "-r", "old-trunk", "-T", _template(), "--limit", "2"): (
-            old_trunk
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "heads(first_ancestors('head-4') & ::'current-trunk')",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        ): old_trunk,
+        ("jj", "log", "--no-graph", "-r", "'old-trunk'::'head-4'", "-T", _template()): (
+            head + old_trunk
         ),
-        ("jj", "log", "--no-graph", "-r", "root", "-T", _template(), "--limit", "2"): _ROOT,
+    }
+
+    stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack(
+        "head-4",
+        allow_immutable=True,
+    )
+
+    assert [revision.subject for revision in stack.revisions] == ["head 4"]
+
+
+def test_discover_review_stack_rejects_root_shared_trunk_ancestor_without_merge() -> None:
+    current_trunk = _revision_line(
+        commit_id="current-trunk",
+        parents=["root"],
+        change_id="trunk-change",
+        description="main\n",
+    )
+    head = _revision_line(
+        commit_id="head-4",
+        parents=["root"],
+        change_id="head-4-change",
+        description="head 4\n",
+    )
+    trunk_scan = _revision_with_flag_line(current_trunk, is_trunk=True)
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "log", "--no-graph", "-r", "head-4", "-T", _template(), "--limit", "2"): head,
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "trunk() | (merges() & ::trunk())",
+            "-T",
+            _trunk_scan_template(),
+        ): trunk_scan,
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "heads(first_ancestors('head-4') & ::'current-trunk')",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        ): _ROOT,
     }
 
     client = JjClient(Path("/repo"), runner=_runner(responses))
     with pytest.raises(UnsupportedStackError, match=r"root commit before trunk\(\)"):
-        client.discover_review_stack(
-            "head-4",
-            allow_immutable=True,
-            allow_trunk_ancestors=True,
-        )
+        client.discover_review_stack("head-4")
 
 
 def test_discover_review_stack_rejects_hidden_revisions() -> None:
@@ -430,11 +494,9 @@ def test_discover_review_stack_surfaces_stale_workspace_errors() -> None:
             "log",
             "--no-graph",
             "-r",
-            "trunk()",
+            "trunk() | (merges() & ::trunk())",
             "-T",
-            _template(),
-            "--limit",
-            "2",
+            _trunk_scan_template(),
         )
         assert cwd == Path("/repo")
         return subprocess.CompletedProcess(
@@ -496,8 +558,35 @@ def test_supported_review_stack_change_ids_allows_sibling_stacks() -> None:
     )
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "::('child-a' | 'child-b')", "-T", _template()): (
-            _CHILD_A + _CHILD_B + _PARENT + _TRUNK
+        ("jj", "log", "--no-graph", "-r", "child-a", "-T", _template(), "--limit", "2"): _CHILD_A,
+        ("jj", "log", "--no-graph", "-r", "child-b", "-T", _template(), "--limit", "2"): _CHILD_B,
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "heads(first_ancestors('child-a') & ::'trunk')",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        ): _TRUNK,
+        ("jj", "log", "--no-graph", "-r", "'trunk'::'child-a'", "-T", _template()): (
+            _CHILD_A + _PARENT + _TRUNK
+        ),
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "heads(first_ancestors('child-b') & ::'trunk')",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        ): _TRUNK,
+        ("jj", "log", "--no-graph", "-r", "'trunk'::'child-b'", "-T", _template()): (
+            _CHILD_B + _PARENT + _TRUNK
         ),
     }
 
@@ -1065,6 +1154,74 @@ def _runner(
     def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
         key = tuple(command)
         assert cwd == Path("/repo")
+        if key not in responses and key == (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "trunk() | (merges() & ::trunk())",
+            "-T",
+            _trunk_scan_template(),
+        ):
+            fallback_key = (
+                "jj",
+                "log",
+                "--no-graph",
+                "-r",
+                "trunk()",
+                "-T",
+                _template(),
+                "--limit",
+                "2",
+            )
+            if fallback_key in responses:
+                trunk_line = responses[fallback_key]
+                return subprocess.CompletedProcess(
+                    command,
+                    0,
+                    stdout=_revision_with_flag_line(trunk_line, is_trunk=True),
+                    stderr="",
+                )
+        if (
+            key not in responses
+            and len(key) == 8
+            and key[:4] == ("jj", "log", "--no-graph", "-r")
+            and key[5] == "-T"
+            and key[6] == _template()
+            and key[7] == "--limit"
+        ):
+            # Defensive guard; the boundary probe always includes the limit value.
+            raise AssertionError(f"Unexpected truncated command: {key!r}")
+        if (
+            key not in responses
+            and len(key) == 9
+            and key[:4] == ("jj", "log", "--no-graph", "-r")
+            and key[5] == "-T"
+            and key[6] == _template()
+            and key[7:] == ("--limit", "2")
+        ):
+            boundary_revset = key[4]
+            if boundary_revset.startswith("heads(first_ancestors(") and boundary_revset.endswith(
+                "& ::'trunk')"
+            ):
+                fallback_key = (
+                    "jj",
+                    "log",
+                    "--no-graph",
+                    "-r",
+                    "trunk()",
+                    "-T",
+                    _template(),
+                    "--limit",
+                    "2",
+                )
+                if fallback_key in responses:
+                    return subprocess.CompletedProcess(
+                        command,
+                        0,
+                        stdout=responses[fallback_key],
+                        stderr="",
+                    )
         if key not in responses:
             raise AssertionError(f"Unexpected command: {key!r}")
         return subprocess.CompletedProcess(command, 0, stdout=responses[key], stderr="")

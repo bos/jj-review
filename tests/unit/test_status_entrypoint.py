@@ -81,6 +81,11 @@ def test_status_updates_tty_progress_bar_while_streaming(
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
                 stack=SimpleNamespace(
+                    base_parent=SimpleNamespace(
+                        change_id="trunkchangeid",
+                        commit_id="trunk-commit",
+                        subject="base",
+                    ),
                     trunk=SimpleNamespace(
                         change_id="trunkchangeid",
                         commit_id="trunk-commit",
@@ -94,7 +99,7 @@ def test_status_updates_tty_progress_bar_while_streaming(
             outstanding_intents=(),
             selected_revset="@",
             stale_intents=(),
-            trunk_subject="base",
+            base_parent_subject="base",
         ),
     )
 
@@ -161,6 +166,11 @@ def test_status_passes_cli_color_override_to_native_jj_rendering(
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
                 stack=SimpleNamespace(
+                    base_parent=SimpleNamespace(
+                        change_id="trunkchangeid",
+                        commit_id="trunk-commit",
+                        subject="base",
+                    ),
                     trunk=SimpleNamespace(
                         change_id="trunkchangeid",
                         commit_id="trunk-commit",
@@ -174,7 +184,7 @@ def test_status_passes_cli_color_override_to_native_jj_rendering(
             outstanding_intents=(),
             selected_revset="@",
             stale_intents=(),
-            trunk_subject="base",
+            base_parent_subject="base",
         ),
     )
     monkeypatch.setattr(
