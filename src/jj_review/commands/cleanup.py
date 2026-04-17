@@ -46,6 +46,7 @@ from jj_review.review.status import (
     PreparedStatus,
     ReviewStatusRevision,
     prepare_status,
+    prepared_status_github_inspection_count,
     revision_has_merged_pull_request,
     revision_pull_request_number,
     status_preparation_cli_error,
@@ -481,9 +482,8 @@ def _stream_restack(
     """Inspect and optionally execute a local restack plan after merged changes."""
 
     prepared_status = prepared_restack.prepared_status
-    github_repository = getattr(prepared_status, "github_repository", None)
-    progress_total = (
-        len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
+    progress_total = prepared_status_github_inspection_count(
+        prepared_status=prepared_status,
     )
     with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = stream_status(

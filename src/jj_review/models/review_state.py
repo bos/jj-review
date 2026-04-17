@@ -25,6 +25,28 @@ class CachedChange(BaseModel):
     stack_comment_id: int | None = None
 
     @property
+    def has_review_identity(self) -> bool:
+        """Whether saved state proves this change was attached to review before."""
+
+        return any(
+            value is not None
+            for value in (
+                self.last_submitted_commit_id,
+                self.pr_number,
+                self.pr_review_decision,
+                self.pr_state,
+                self.pr_url,
+                self.stack_comment_id,
+            )
+        )
+
+    @property
+    def is_tracked(self) -> bool:
+        """Whether this change is actively tracked for review."""
+
+        return self.link_state == "active" and self.has_review_identity
+
+    @property
     def is_unlinked(self) -> bool:
         """Whether this change has been intentionally unlinked from review tracking."""
 

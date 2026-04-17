@@ -168,7 +168,7 @@ def prepare_status(
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     fetch_remote_state: bool = False,
-    persist_bookmarks: bool = True,
+    persist_bookmarks: bool = False,
     repo_root: Path,
     revset: str | None,
 ) -> PreparedStatus:
@@ -232,6 +232,7 @@ def _classify_status_intents(
 
 def stream_status(
     *,
+    discover_remote_review: bool = False,
     persist_cache_updates: bool = True,
     prepared_status: PreparedStatus,
     on_github_status: Callable[[str | None, ErrorMessage | None], None] | None = None,
@@ -241,6 +242,7 @@ def stream_status(
 
     return asyncio.run(
         stream_status_async(
+            discover_remote_review=discover_remote_review,
             on_github_status=on_github_status,
             on_revision=on_revision,
             persist_cache_updates=persist_cache_updates,
@@ -251,6 +253,7 @@ def stream_status(
 
 async def stream_status_async(
     *,
+    discover_remote_review: bool = False,
     on_github_status: Callable[[str | None, ErrorMessage | None], None] | None,
     on_revision: Callable[[ReviewStatusRevision, bool], None] | None,
     persist_cache_updates: bool = True,
@@ -326,12 +329,34 @@ async def stream_status_async(
             base_parent_subject=base_parent_subject,
         )
 
+    fallback_revisions = tuple(reversed(_build_status_revisions_without_github(prepared)))
+    prepared_revisions_for_github = tuple(
+        prepared_revision
+        for prepared_revision in prepared.status_revisions
+        if _prepared_revision_needs_github_inspection(
+            prepared_revision,
+            discover_remote_review=discover_remote_review,
+        )
+    )
+    if not prepared_revisions_for_github:
+        return StatusResult(
+            github_error=None,
+            github_repository=github_repository.full_name,
+            incomplete=_status_is_incomplete(fallback_revisions),
+            remote=prepared.remote,
+            remote_error=None,
+            revisions=fallback_revisions,
+            selected_revset=selected_revset,
+            base_parent_subject=base_parent_subject,
+        )
+
     revisions: list[ReviewStatusRevision] = []
     try:
         async for revision in _iter_status_revisions_with_github(
             github_repository=github_repository,
             on_github_status=emit_github_status,
             prepared=prepared,
+            prepared_revisions=prepared_revisions_for_github,
         ):
             revisions.append(revision)
             if on_revision is not None:
@@ -339,7 +364,6 @@ async def stream_status_async(
     except CliError as error:
         if not github_status_reported:
             emit_github_status(None)
-        fallback_revisions = tuple(reversed(_build_status_revisions_without_github(prepared)))
         github_error = error_message(error)
         logger.debug("status github inspection failed: %s", github_error)
         streamed_change_ids = {revision.change_id for revision in revisions}
@@ -359,15 +383,20 @@ async def stream_status_async(
 
     if not github_status_reported:
         emit_github_status(None)
+    revisions_by_change_id = {revision.change_id: revision for revision in revisions}
+    display_revisions = tuple(
+        revisions_by_change_id.get(revision.change_id, revision)
+        for revision in fallback_revisions
+    )
     if persist_cache_updates:
-        _persist_status_cache_updates(prepared=prepared, revisions=tuple(revisions))
+        _persist_status_cache_updates(prepared=prepared, revisions=display_revisions)
     return StatusResult(
         github_error=None,
         github_repository=github_repository.full_name,
-        incomplete=_status_is_incomplete(tuple(revisions)),
+        incomplete=_status_is_incomplete(display_revisions),
         remote=prepared.remote,
         remote_error=None,
-        revisions=tuple(revisions),
+        revisions=display_revisions,
         selected_revset=selected_revset,
         base_parent_subject=base_parent_subject,
     )
@@ -493,6 +522,36 @@ def _build_status_revisions_without_github(
     )
 
 
+def prepared_status_github_inspection_count(
+    *,
+    discover_remote_review: bool = False,
+    prepared_status: PreparedStatus,
+) -> int:
+    """Return how many selected revisions need live GitHub inspection."""
+
+    if prepared_status.github_repository is None:
+        return 0
+    return sum(
+        1
+        for prepared_revision in prepared_status.prepared.status_revisions
+        if _prepared_revision_needs_github_inspection(
+            prepared_revision,
+            discover_remote_review=discover_remote_review,
+        )
+    )
+
+
+def _prepared_revision_needs_github_inspection(
+    prepared_revision: PreparedRevision,
+    *,
+    discover_remote_review: bool,
+) -> bool:
+    if discover_remote_review:
+        return True
+    cached_change = getattr(prepared_revision, "cached_change", None)
+    return cached_change is not None and cached_change.has_review_identity
+
+
 def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
     for revision in revisions:
         if revision.local_divergent and not revision_has_merged_pull_request(revision):
@@ -560,13 +619,15 @@ def _persist_status_cache_updates(
         cached_change = state_changes.get(revision.change_id) or prepared.state.changes.get(
             revision.change_id
         )
-        updated_change = cached_change or CachedChange(bookmark=revision.bookmark)
+        updated_change = cached_change
         if cached_change is not None and cached_change.is_unlinked:
             if updated_change != cached_change:
-                state_changes[revision.change_id] = updated_change
+                state_changes[revision.change_id] = cached_change
             continue
         pull_request_lookup = revision.pull_request_lookup
         if pull_request_lookup is not None:
+            if updated_change is None:
+                updated_change = CachedChange(bookmark=revision.bookmark)
             if pull_request_lookup.state == "missing":
                 updated_change = updated_change.model_copy(
                     update={
@@ -598,6 +659,8 @@ def _persist_status_cache_updates(
                     updated_change = updated_change.model_copy(update={"stack_comment_id": None})
         stack_comment_lookup = revision.stack_comment_lookup
         if stack_comment_lookup is not None:
+            if updated_change is None:
+                updated_change = CachedChange(bookmark=revision.bookmark)
             if stack_comment_lookup.state == "present":
                 if stack_comment_lookup.comment is None:
                     raise AssertionError(
@@ -608,7 +671,7 @@ def _persist_status_cache_updates(
                 )
             elif stack_comment_lookup.state == "missing":
                 updated_change = updated_change.model_copy(update={"stack_comment_id": None})
-        if updated_change != cached_change:
+        if updated_change is not None and updated_change != cached_change:
             state_changes[revision.change_id] = updated_change
 
     next_state = prepared.state.model_copy(update={"changes": state_changes})
@@ -621,8 +684,9 @@ async def _iter_status_revisions_with_github(
     github_repository: ParsedGithubRepo,
     on_github_status: Callable[[str | None], None] | None,
     prepared: PreparedStack,
+    prepared_revisions: tuple[PreparedRevision, ...],
 ) -> AsyncIterator[ReviewStatusRevision]:
-    ordered_prepared_revisions = tuple(reversed(prepared.status_revisions))
+    ordered_prepared_revisions = tuple(reversed(prepared_revisions))
     async with build_github_client(base_url=github_repository.api_base_url) as github_client:
         pull_request_lookups = await _discover_pull_request_lookups(
             github_client=github_client,
@@ -706,7 +770,7 @@ async def _inspect_revision_with_github(
                 if prepared_revision.cached_change is not None
                 else "active"
             ),
-            local_divergent=getattr(prepared_revision.revision, "divergent", False),
+            local_divergent=prepared_revision.revision.divergent,
             pull_request_lookup=pull_request_lookup,
             remote_state=remote_state,
             stack_comment_lookup=stack_comment_lookup,

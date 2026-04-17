@@ -16,7 +16,11 @@ from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.models.review_state import CachedChange
 from jj_review.review.selection import resolve_selected_revset
-from jj_review.review.status import prepare_status, stream_status_async
+from jj_review.review.status import (
+    prepare_status,
+    prepared_status_github_inspection_count,
+    stream_status_async,
+)
 
 HELP = "Stop managing one local change as part of review"
 
@@ -91,9 +95,8 @@ async def _run_unlink_async(
     if not prepared.status_revisions:
         raise CliError("The selected stack has no changes to review.")
 
-    github_repository = getattr(prepared_status, "github_repository", None)
-    progress_total = (
-        len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
+    progress_total = prepared_status_github_inspection_count(
+        prepared_status=prepared_status,
     )
     with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = await stream_status_async(

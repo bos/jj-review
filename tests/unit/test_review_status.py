@@ -17,7 +17,7 @@ from jj_review.github.resolution import (
 )
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
-from jj_review.models.review_state import ReviewState
+from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision, LocalStack
 from jj_review.review.status import (
     PreparedStack,
@@ -47,7 +47,12 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
             SimpleNamespace(
                 remote=remote,
                 remote_error=None,
-                status_revisions=(SimpleNamespace(change_id="aaaaaaaaaaaa"),),
+                status_revisions=(
+                    SimpleNamespace(
+                        cached_change=CachedChange(pr_number=1),
+                        change_id="aaaaaaaaaaaa",
+                    ),
+                ),
             ),
         ),
         selected_revset="@",
@@ -204,6 +209,83 @@ def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> No
     assert result.revisions == ()
 
 
+def test_stream_status_skips_github_discovery_for_untracked_stack(monkeypatch) -> None:
+    remote = GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git")
+    local_only_revisions = (
+        ReviewStatusRevision(
+            bookmark="review/feature-1-aaaaaaaa",
+            bookmark_source="generated",
+            cached_change=None,
+            change_id="aaaaaaaaaaaa",
+            commit_id="commit-1",
+            link_state="active",
+            local_divergent=False,
+            pull_request_lookup=None,
+            remote_state=None,
+            stack_comment_lookup=None,
+            subject="feature 1",
+        ),
+    )
+    prepared_status = PreparedStatus(
+        github_repository=ParsedGithubRepo(
+            host="github.com",
+            owner="octo-org",
+            repo="stacked-review",
+        ),
+        github_repository_error=None,
+        outstanding_intents=(),
+        prepared=cast(
+            PreparedStack,
+            SimpleNamespace(
+                remote=remote,
+                remote_error=None,
+                status_revisions=(
+                    SimpleNamespace(
+                        bookmark="review/feature-1-aaaaaaaa",
+                        bookmark_source="generated",
+                        cached_change=None,
+                        revision=SimpleNamespace(
+                            change_id="aaaaaaaaaaaa",
+                            commit_id="commit-1",
+                            subject="feature 1",
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        selected_revset="@",
+        stale_intents=(),
+        base_parent_subject="base",
+    )
+    monkeypatch.setattr(
+        "jj_review.review.status._build_status_revisions_without_github",
+        lambda prepared: local_only_revisions,
+    )
+
+    async def fail_iter_status_revisions_with_github(**kwargs):
+        if False:
+            yield None
+        raise AssertionError("unexpected GitHub inspection for untracked stack")
+
+    monkeypatch.setattr(
+        "jj_review.review.status._iter_status_revisions_with_github",
+        fail_iter_status_revisions_with_github,
+    )
+
+    result = asyncio.run(
+        stream_status_async(
+            on_github_status=None,
+            on_revision=None,
+            prepared_status=prepared_status,
+        )
+    )
+
+    assert result.github_error is None
+    assert result.github_repository == "octo-org/stacked-review"
+    assert result.incomplete is False
+    assert result.revisions == local_only_revisions
+
+
 def test_summarize_github_repository_error_detects_graphql_repo_not_found(
     monkeypatch,
 ) -> None:
@@ -313,6 +395,7 @@ def test_stream_status_marks_missing_remote_as_incomplete() -> None:
                         revision=SimpleNamespace(
                             change_id="aaaaaaaaaaaa",
                             commit_id="commit-1",
+                            divergent=False,
                             subject="feature 1",
                         ),
                     ),

@@ -611,6 +611,7 @@ def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
         prepared_status=cast(
             PreparedStatus,
             SimpleNamespace(
+                github_repository=None,
                 prepared=SimpleNamespace(
                     client=SimpleNamespace(),
                     stack=SimpleNamespace(trunk=SimpleNamespace(commit_id="trunk-commit")),
@@ -731,6 +732,7 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
         prepared_status=cast(
             PreparedStatus,
             SimpleNamespace(
+                github_repository=None,
                 prepared=SimpleNamespace(
                     client=FakeClient(),
                     state_store=SimpleNamespace(require_writable=lambda: Path("/tmp")),

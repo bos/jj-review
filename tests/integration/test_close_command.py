@@ -104,7 +104,7 @@ def test_close_apply_can_select_a_stack_by_pull_request_number(
     assert refreshed_state.changes[second_change_id].pr_state == "open"
 
 
-def test_close_cleanup_ignores_status_only_bookmark_pins(
+def test_close_cleanup_ignores_plain_untracked_status(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -125,7 +125,7 @@ def test_close_cleanup_ignores_status_only_bookmark_pins(
     captured = capsys.readouterr()
 
     assert status_exit_code == 0
-    assert state_after_status.changes[change_id].bookmark is not None
+    assert state_after_status.changes == {}
     assert close_exit_code == 0
     assert "Nothing to close on the selected stack." in captured.out
     assert "stop review tracking" not in captured.out
@@ -519,7 +519,7 @@ def test_close_apply_cleanup_keeps_comment_cleanup_after_bookmark_block(
     assert fake_repo.pull_requests[1].state == "closed"
 
 
-def test_close_apply_closes_discovered_pull_request_after_sparse_state_loss(
+def test_close_apply_requires_import_after_sparse_state_loss(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -540,10 +540,9 @@ def test_close_apply_closes_discovered_pull_request_after_sparse_state_loss(
     refreshed_state = ReviewStateStore.for_repo(repo).load()
 
     assert exit_code == 0
-    assert "Applied close actions:" in captured.out
-    assert fake_repo.pull_requests[1].state == "closed"
-    assert refreshed_state.changes[change_id].pr_number == 1
-    assert refreshed_state.changes[change_id].pr_state == "closed"
+    assert "No close actions were needed for the selected stack." in captured.out
+    assert fake_repo.pull_requests[1].state == "open"
+    assert refreshed_state.changes == {}
 
 
 def test_close_apply_cleanup_exits_nonzero_when_cleanup_is_blocked(

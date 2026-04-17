@@ -92,6 +92,10 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- `status` is now local-first for untracked stacks: it no longer creates
+  bookmark-only saved state or does speculative GitHub PR discovery for
+  never-tracked local changes, while `import` is the explicit recovery path
+  for pre-existing remote review state
 - `land` now preflights the selected stack's `base_parent` against the resolved
   `trunk()` and refuses stacks that fork from an older trunk ancestor (or a
   merged-side-branch boundary), pointing the operator at `cleanup --restack`

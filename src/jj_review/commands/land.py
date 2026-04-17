@@ -56,6 +56,7 @@ from jj_review.review.status import (
     ReviewStatusRevision,
     StatusResult,
     prepare_status,
+    prepared_status_github_inspection_count,
     stream_status,
 )
 from jj_review.state.intents import check_same_kind_intent, save_intent, write_new_intent
@@ -337,9 +338,8 @@ def stream_land(*, prepared_land: PreparedLand) -> LandResult:
     """Inspect GitHub state for the prepared path and optionally execute `land`."""
 
     prepared_status = prepared_land.prepared_status
-    github_repository = getattr(prepared_status, "github_repository", None)
-    progress_total = (
-        len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
+    progress_total = prepared_status_github_inspection_count(
+        prepared_status=prepared_status,
     )
     with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = stream_status(

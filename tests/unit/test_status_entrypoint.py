@@ -7,6 +7,7 @@ import pytest
 from jj_review.commands import status as status_module
 from jj_review.errors import CliError
 from jj_review.jj import UnsupportedStackError
+from jj_review.models.review_state import CachedChange
 from jj_review.review.status import status_preparation_cli_error
 from jj_review.ui import plain_text
 
@@ -92,7 +93,10 @@ def test_status_updates_tty_progress_bar_while_streaming(
                         subject="base",
                     )
                 ),
-                status_revisions=(object(), object()),
+                status_revisions=(
+                    SimpleNamespace(cached_change=CachedChange(pr_number=1)),
+                    SimpleNamespace(cached_change=CachedChange(pr_number=2)),
+                ),
             ),
             github_repository=SimpleNamespace(full_name="octo-org/stacked-review"),
             github_repository_error=None,

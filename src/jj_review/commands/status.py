@@ -39,6 +39,7 @@ from jj_review.review.intents import (
 )
 from jj_review.review.status import (
     prepare_status,
+    prepared_status_github_inspection_count,
     revision_has_merged_pull_request,
     revision_pull_request_number,
     status_preparation_cli_error,
@@ -78,6 +79,7 @@ def status(
             change_overrides=context.config.change,
             config=context.config.repo,
             fetch_remote_state=fetch,
+            persist_bookmarks=False,
             repo_root=context.repo_root,
             revset=revset,
         )
@@ -88,9 +90,8 @@ def status(
     if selection_lines:
         _emit_lines(selection_lines, emitter=console.warning)
 
-    github_repository = getattr(prepared_status, "github_repository", None)
-    progress_total = (
-        len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
+    progress_total = prepared_status_github_inspection_count(
+        prepared_status=prepared_status,
     )
     with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         result = stream_status(
@@ -350,7 +351,7 @@ def _render_submitted_section_title(revisions: tuple) -> str:
     if revisions:
         _lookup = revisions[0].pull_request_lookup
         top_pull_request_url = (
-            getattr(_lookup.pull_request, "html_url", None)
+            _lookup.pull_request.html_url
             if _lookup is not None and _lookup.pull_request is not None
             else None
         )
@@ -373,8 +374,7 @@ def render_status_advisory_lines(*, result) -> tuple[object, ...]:
     divergent_revisions = [
         revision
         for revision in result.revisions
-        if getattr(revision, "local_divergent", False)
-        and not revision_has_merged_pull_request(revision)
+        if revision.local_divergent and not revision_has_merged_pull_request(revision)
     ]
     link_revisions = [
         revision for revision in result.revisions if _revision_has_link_advisory(revision)
@@ -842,26 +842,30 @@ def _classify_revision_for_summary(
 ) -> str:
     """Classify a revision into submitted, unsubmitted, or other."""
 
-    if getattr(revision, "link_state", "active") == "unlinked":
+    if revision.link_state == "unlinked":
         return "submitted"
 
     lookup = revision.pull_request_lookup
     if lookup is None:
-        if _has_cached_pull_request(revision.cached_change):
+        if _has_cached_review_identity(revision.cached_change):
             return "submitted"
         return "unsubmitted"
 
     if lookup.state in {"open", "closed"}:
         return "submitted"
     if lookup.state == "missing":
-        return "submitted" if _has_cached_pull_request(revision.cached_change) else "unsubmitted"
+        if _has_cached_review_identity(revision.cached_change):
+            return "submitted"
+        return "unsubmitted"
     if lookup.state in {"ambiguous", "error"}:
-        return "submitted" if _has_cached_pull_request(revision.cached_change) else "unsubmitted"
+        if _has_cached_review_identity(revision.cached_change):
+            return "submitted"
+        return "unsubmitted"
     return "unsubmitted"
 
 
-def _has_cached_pull_request(cached_change) -> bool:
-    return cached_change is not None and cached_change.pr_number is not None
+def _has_cached_review_identity(cached_change) -> bool:
+    return cached_change is not None and cached_change.has_review_identity
 
 
 def _format_status_summary(revision, *, github_available: bool) -> str:
@@ -869,13 +873,13 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
     cached_change = revision.cached_change
     cached_label = _format_cached_pull_request_label(cached_change)
     summary: str
-    if getattr(revision, "link_state", "active") == "unlinked":
+    if revision.link_state == "unlinked":
         if lookup is not None and lookup.pull_request is not None:
             pull_request = lookup.pull_request
             if pull_request.state == "open":
                 summary = format_pull_request_label(
                     pull_request.number,
-                    is_draft=getattr(pull_request, "is_draft", False),
+                    is_draft=pull_request.is_draft,
                     prefix="unlinked ",
                 )
             else:
@@ -896,15 +900,15 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
             raise AssertionError("Open pull request lookup must include a pull request.")
         summary = format_pull_request_label(
             lookup.pull_request.number,
-            is_draft=getattr(lookup.pull_request, "is_draft", False),
+            is_draft=lookup.pull_request.is_draft,
         )
-        review_decision = getattr(lookup, "review_decision", None)
+        review_decision = lookup.review_decision
         if review_decision is None:
-            if getattr(lookup, "review_decision_error", None) is None or cached_change is None:
+            if lookup.review_decision_error is None or cached_change is None:
                 review_decision = None
             else:
                 review_decision = cached_change.pr_review_decision
-        if getattr(lookup.pull_request, "is_draft", False):
+        if lookup.pull_request.is_draft:
             pass
         elif review_decision == "approved":
             summary = f"{summary} approved"
@@ -929,9 +933,7 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
         else:
             summary = message
 
-    if getattr(revision, "local_divergent", False) and not revision_has_merged_pull_request(
-        revision
-    ):
+    if revision.local_divergent and not revision_has_merged_pull_request(revision):
         summary = f"{summary}, multiple visible revisions"
 
     stack_comment_lookup = revision.stack_comment_lookup
@@ -1022,7 +1024,7 @@ def _render_intent_description(intent) -> object:
         return ui.cmd("cleanup")
     if isinstance(intent, AbortIntent):
         return ui.cmd("abort")
-    return getattr(intent, "label", "operation")
+    return intent.label
 
 
 def _status_revision_label(revision) -> str:
@@ -1030,7 +1032,7 @@ def _status_revision_label(revision) -> str:
 
 
 def _revision_has_link_advisory(revision) -> bool:
-    if getattr(revision, "link_state", "active") == "unlinked":
+    if revision.link_state == "unlinked":
         return False
     lookup = revision.pull_request_lookup
     if lookup is None:

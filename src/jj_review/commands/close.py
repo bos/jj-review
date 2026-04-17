@@ -41,7 +41,12 @@ from jj_review.review.selection import (
     resolve_linked_change_for_pull_request,
     resolve_selected_revset,
 )
-from jj_review.review.status import PreparedStatus, prepare_status, stream_status
+from jj_review.review.status import (
+    PreparedStatus,
+    prepare_status,
+    prepared_status_github_inspection_count,
+    stream_status,
+)
 from jj_review.review.submit_recovery import (
     SubmitArtifactObservation,
     SubmitRecoveryIdentity,
@@ -278,9 +283,8 @@ def stream_close(
     """Inspect GitHub state for prepared close inputs and optionally stream actions."""
 
     prepared_status = prepared_close.prepared_status
-    github_repository = getattr(prepared_status, "github_repository", None)
-    progress_total = (
-        len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
+    progress_total = prepared_status_github_inspection_count(
+        prepared_status=prepared_status,
     )
     with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = stream_status(

@@ -39,7 +39,7 @@ def test_bookmark_pins_survive_subject_rewrites(
     assert second_result.resolutions[-1].source == "saved"
 
 
-def test_status_persists_generated_bookmark_pins(
+def test_status_does_not_persist_generated_bookmark_pins(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -54,8 +54,6 @@ def test_status_persists_generated_bookmark_pins(
     assert exit_code == 1
     state = ReviewStateStore.for_repo(repo).load()
 
-    assert set(state.changes) == {revision.change_id for revision in stack.revisions}
-    for revision in stack.revisions:
-        cached_change = state.changes[revision.change_id]
-        assert cached_change.bookmark is not None
+    assert stack.revisions
+    assert state.changes == {}
     assert not (repo / ".jj-review.toml").exists()

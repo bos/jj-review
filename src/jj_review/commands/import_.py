@@ -42,6 +42,7 @@ from jj_review.review.status import (
     PreparedStatus,
     StatusResult,
     prepare_status,
+    prepared_status_github_inspection_count,
     stream_status_async,
 )
 from jj_review.ui import Message, plain_text
@@ -216,12 +217,13 @@ async def _run_import_async(
             t"{import_cmd} cannot proceed because the current stack has no matching "
             t"remote pull request."
         )
-    github_repository = getattr(prepared_status, "github_repository", None)
-    progress_total = (
-        len(prepared_status.prepared.status_revisions) if github_repository is not None else 0
+    progress_total = prepared_status_github_inspection_count(
+        discover_remote_review=True,
+        prepared_status=prepared_status,
     )
     with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = await stream_status_async(
+            discover_remote_review=True,
             persist_cache_updates=False,
             prepared_status=prepared_status,
             on_github_status=None,
@@ -759,11 +761,11 @@ def _validate_bookmark_state(
 
 
 def _find_status_revision(
-    revisions: Sequence[object],
+    revisions: Sequence[_RevisionWithChangeId],
     change_id: str,
 ):
     for revision in revisions:
-        if getattr(revision, "change_id", None) == change_id:
+        if revision.change_id == change_id:
             return revision
     raise AssertionError("Status revision for imported change was not found.")
 
@@ -777,7 +779,7 @@ def _update_cached_change_from_status(
     updated_change = cached_change.model_copy(update={"bookmark": bookmark})
     if cached_change.is_unlinked:
         return updated_change
-    pull_request_lookup = getattr(status_revision, "pull_request_lookup", None)
+    pull_request_lookup = status_revision.pull_request_lookup
     if pull_request_lookup is not None:
         if pull_request_lookup.state == "missing":
             updated_change = updated_change.model_copy(
@@ -798,23 +800,17 @@ def _update_cached_change_from_status(
                     "pr_url": pull_request.html_url,
                 }
             )
-            if getattr(pull_request_lookup, "review_decision_error", None) is None:
+            if pull_request_lookup.review_decision_error is None:
                 updated_change = updated_change.model_copy(
-                    update={
-                        "pr_review_decision": getattr(
-                            pull_request_lookup,
-                            "review_decision",
-                            None,
-                        )
-                    }
+                    update={"pr_review_decision": pull_request_lookup.review_decision}
                 )
             if pull_request_lookup.state != "open":
                 updated_change = updated_change.model_copy(update={"stack_comment_id": None})
 
-    stack_comment_lookup = getattr(status_revision, "stack_comment_lookup", None)
+    stack_comment_lookup = status_revision.stack_comment_lookup
     if stack_comment_lookup is not None:
         if stack_comment_lookup.state == "present":
-            comment = getattr(stack_comment_lookup, "comment", None)
+            comment = stack_comment_lookup.comment
             if comment is not None:
                 updated_change = updated_change.model_copy(
                     update={"stack_comment_id": comment.id}

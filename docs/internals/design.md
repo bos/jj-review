@@ -244,16 +244,27 @@ All of that already lives in the commit DAG, the change ID model, and the bookma
 
 If the tool stores any machine-written local state, it should be limited to:
 
-- pinned generated bookmark name for a specific change, if bookmark names
-  include mutable text such as the subject slug
+- pinned generated bookmark name for a specific change once jj-review is
+  already attached to live or historical review identity for that change
 - saved PR number and URL
 - saved stack-summary comment identifier, if the tool uses a dedicated PR comment
 - last known PR state, only as saved fallback data
 - a durable unlinked marker for a change the operator explicitly
   unlinked, because that is user intent the tool must not silently undo
 
+Machine-written state should distinguish three cases cleanly:
+
+- untracked: no saved review identity yet; predicted bookmark names and remote
+  observations alone do not mean the change is under review
+- tracked: saved local review identity exists and jj-review should inspect or
+  mutate that review state normally
+- unlinked: saved local review identity exists, but the operator explicitly
+  detached it and jj-review must not silently reattach it
+
 Even the PR link can often be rediscovered by asking GitHub for the PR whose
-head branch matches the saved bookmark name.
+head branch matches the saved bookmark name, but that remote discovery should
+remain an explicit recovery flow rather than something plain `status` does for
+never-tracked local changes.
 
 User-authored settings and overrides are a separate category and should not be
 mixed into machine-written jj-review data. Those include:
@@ -469,14 +480,15 @@ Read-only inspection may remain ergonomic:
 - `import` may omit its explicit selector flags and default to the current
   stack headed by `@-`
 
-`jj review status [<revset>]` should show the selected local stack, pinned or
-discovered bookmarks, and any saved or discovered GitHub PR link for those
-bookmarks. It is read-only with respect to GitHub and local bookmarks. It may
-persist generated bookmark pins and last-known GitHub PR link into saved local
-jj-review data, but that data remains advisory rather than a source of truth.
+`jj review status [<revset>]` should show the selected local stack and any
+locally known review identity for it. It is local-first: if a change has never
+been locally attached to review, status should report it as not submitted and
+must not query GitHub for speculative PR matches derived only from predicted
+bookmark names or fetched remote observations. Plain status must not create
+local tracking for a never-tracked change, including bookmark-only saved state.
 `jj review status --fetch [<revset>]` is the same inspection command, but it
 refreshes remote bookmark observations first so the report reflects the latest
-remote state before it inspects GitHub PR state.
+remote state before it inspects already-known GitHub PR state.
 Because fetched GitHub state often produces extra visible revisions for merged
 changes, status should not insist that every visible revision in the repo still
 forms one supported review stack. Instead, it should discover the selected
@@ -548,6 +560,12 @@ The explicit stack import command is:
   resolves one exact review stack and
   sets up saved local jj-review data for that stack without mutating
   GitHub
+
+`import` is the explicit recovery and bootstrap path for review state that
+already exists remotely. If a stack already has PRs on GitHub but local
+jj-review tracking is missing on this machine or workspace, `import` is the
+command that should discover and attach that state. Plain `status` should not
+try to do that implicitly.
 
 Selector handling should stay collision-free. In particular, the command
 should not overload a bare positional argument to mean either a revset or a PR

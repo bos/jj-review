@@ -65,6 +65,37 @@ def test_status_truncates_long_unsubmitted_stack_summary(
     assert "feature 3" in captured.out
 
 
+def test_status_skips_github_when_stack_has_no_local_review_tracking(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    class FailingGithubClient(GithubClient):
+        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
+            raise GithubClientError("status should stay local-only for untracked stacks")
+
+    patch_github_client_builders(
+        monkeypatch,
+        app=create_app(FakeGithubState.single_repository(fake_repo)),
+        fake_repo=fake_repo,
+        modules=("jj_review.review.status",),
+        client_type=FailingGithubClient,
+    )
+
+    exit_code = run_main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Unsubmitted stack:" in captured.out
+    assert "feature 1" in captured.out
+    assert "GitHub target:" not in captured.out
+    assert "status should stay local-only" not in captured.err
+
+
 def test_status_renders_base_parent_for_stack_forked_from_trunk_ancestor(
     tmp_path: Path,
     monkeypatch,
@@ -164,7 +195,7 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
     assert "saved PR #1 (open)" in captured.out
 
 
-def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
+def test_status_stays_local_when_github_is_unavailable_and_no_cache_exists(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -191,10 +222,10 @@ def test_status_reports_unknown_when_github_is_unavailable_and_no_cache_exists(
     captured = capsys.readouterr()
     normalized_err = " ".join(captured.err.split())
 
-    assert exit_code == 1
-    assert "GitHub target: octo-org/stacked-review (error:" in normalized_err
-    assert "request failed (Connection refused)" in normalized_err
-    assert "GitHub status unknown" in captured.out
+    assert exit_code == 0
+    assert normalized_err == ""
+    assert "Unsubmitted stack:" in captured.out
+    assert "GitHub status unknown" not in captured.out
 
 
 def test_status_exits_nonzero_when_pull_request_lookup_fails(
@@ -361,7 +392,7 @@ def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
     assert refreshed_state.changes[change_id].stack_comment_id == 1
 
 
-def test_status_refreshes_cached_pull_request_metadata_after_state_loss(
+def test_status_reports_unsubmitted_after_state_loss(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -375,9 +406,6 @@ def test_status_refreshes_cached_pull_request_metadata_after_state_loss(
 
     stack = JjClient(repo).discover_review_stack()
     change_id = stack.revisions[-1].change_id
-    initial_state = ReviewStateStore.for_repo(repo).load()
-    bookmark = initial_state.changes[change_id].bookmark
-    assert bookmark is not None
     resolve_state_path(repo).unlink()
 
     exit_code = run_main(repo, config_path, "status", change_id)
@@ -385,17 +413,12 @@ def test_status_refreshes_cached_pull_request_metadata_after_state_loss(
     refreshed_state = ReviewStateStore.for_repo(repo).load()
 
     assert exit_code == 0
-    assert "PR #1" in captured.out
-    assert refreshed_state.changes[change_id].bookmark == bookmark
-    assert refreshed_state.changes[change_id].pr_number == 1
-    assert refreshed_state.changes[change_id].pr_state == "open"
-    assert (
-        refreshed_state.changes[change_id].pr_url
-        == "https://github.test/octo-org/stacked-review/pull/1"
-    )
+    assert "Unsubmitted stack:" in captured.out
+    assert "PR #1" not in captured.out
+    assert refreshed_state.changes == {}
 
 
-def test_status_uses_cached_pull_request_metadata_after_prior_online_run(
+def test_status_stays_local_after_state_loss_even_if_github_is_unavailable(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -409,10 +432,6 @@ def test_status_uses_cached_pull_request_metadata_after_prior_online_run(
 
     stack = JjClient(repo).discover_review_stack()
     change_id = stack.revisions[-1].change_id
-    state_store = ReviewStateStore.for_repo(repo)
-    initial_state = state_store.load()
-    bookmark = initial_state.changes[change_id].bookmark
-    assert bookmark is not None
     resolve_state_path(repo).unlink()
 
     assert run_main(repo, config_path, "status", change_id) == 0
@@ -436,10 +455,10 @@ def test_status_uses_cached_pull_request_metadata_after_prior_online_run(
     captured = capsys.readouterr()
     normalized_err = " ".join(captured.err.split())
 
-    assert exit_code == 1
-    assert "GitHub target: octo-org/stacked-review (error:" in normalized_err
-    assert "request failed (Connection refused)" in normalized_err
-    assert "saved PR #1 (open)" in captured.out
+    assert exit_code == 0
+    assert normalized_err == ""
+    assert "Unsubmitted stack:" in captured.out
+    assert "saved PR #1" not in captured.out
 
 
 def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
