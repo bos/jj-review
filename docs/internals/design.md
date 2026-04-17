@@ -1031,6 +1031,11 @@ The landing unit should be one precise thing: the consecutive changes from
 
 That means:
 
+- require the selected stack's `base_parent` to equal the resolved `trunk()`
+  before any mutation; if the stack forks from an older ancestor of `trunk()`
+  or sits on a merged side-branch boundary, refuse the land with a targeted
+  local diagnostic pointing at `jj review cleanup --restack` or plain
+  `jj rebase` rather than force-moving the local trunk bookmark sideways
 - walk the selected local stack upward from `trunk()`
 - by default, include consecutive changes whose PRs are still open, not draft,
   approved, and whose link is unambiguous

@@ -92,6 +92,11 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- `land` now preflights the selected stack's `base_parent` against the resolved
+  `trunk()` and refuses stacks that fork from an older trunk ancestor (or a
+  merged-side-branch boundary), pointing the operator at `cleanup --restack`
+  or plain `jj rebase` instead of failing deep inside a non-fast-forward local
+  trunk bookmark move
 - integration coverage now smoke-tests empty repos, disconnected-root stack
   shapes, non-GitHub remotes, and merge-commit selections so core commands
   fail cleanly without tracebacks on realistic boundary cases

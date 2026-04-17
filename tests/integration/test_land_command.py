@@ -14,6 +14,7 @@ from ..support.fake_github import FakeGithubState, create_app
 from ..support.integration_helpers import (
     commit_file,
     init_fake_github_repo,
+    run_command,
 )
 from .submit_command_helpers import (
     approve_pull_requests,
@@ -150,6 +151,35 @@ def test_land_skip_cleanup_keeps_landed_local_review_bookmark(
     assert f"forget local bookmark {bookmark}" not in captured.out
     bookmark_state = JjClient(repo).get_bookmark_state(bookmark)
     assert bookmark_state.local_target == stack.revisions[0].commit_id
+
+
+def test_land_rejects_stack_forked_from_trunk_ancestor(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    base_commit_id = JjClient(repo).resolve_revision("@-").commit_id
+
+    commit_file(repo, "trunk 1", "trunk-1.txt")
+    run_command(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
+    run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+
+    run_command(["jj", "new", base_commit_id], repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    approve_pull_requests(fake_repo, 1)
+
+    exit_code = run_main(repo, config_path, "land")
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+
+    assert exit_code == 1
+    assert "not based on trunk()" in combined
+    assert "cleanup --restack" in combined
 
 
 def test_land_blocks_unapproved_prefix_by_default(

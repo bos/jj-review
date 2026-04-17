@@ -312,6 +312,15 @@ def prepare_land(
         message = prepared_status.github_repository_error or t"Could not resolve GitHub target."
         raise CliError(message)
 
+    stack = prepared.stack
+    if stack.revisions and stack.base_parent.commit_id != stack.trunk.commit_id:
+        raise CliError(
+            t"Selected stack is not based on {ui.revset('trunk()')}. Rebase the stack "
+            t"onto {ui.revset('trunk()')} before landing. Run "
+            t"{ui.cmd('jj-review cleanup --restack')} when ancestors have merged, "
+            t"or {ui.cmd('jj rebase')} otherwise."
+        )
+
     if not dry_run:
         prepared.state_store.require_writable()
     return PreparedLand(
