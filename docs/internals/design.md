@@ -405,6 +405,11 @@ Given a selected head revision:
      - plain `submit --draft` must not convert an already-published PR back to
        draft
 
+   - `submit --re-request` asks GitHub to request review again from users
+     whose latest review on that pull request is `APPROVED` or
+     `CHANGES_REQUESTED`
+   - `submit --re-request` must not disturb still-pending review requests
+
 This bottom-up ordering matches the dependency order in the stack, and the
 parent relationship is derived from the DAG rather than loaded from side
 metadata.
@@ -771,6 +776,7 @@ The tool can stay small. A reasonable surface would be:
 
 - `jj review submit [--draft[=new|all] | --publish]
   [--reviewers <login[,login...]>] [--team-reviewers <slug[,slug...]>]
+  [--re-request]
   [<revset>]`
 - `jj review status [--fetch] [<revset>]`
 - `jj review relink <pr> <revset>`
@@ -809,6 +815,8 @@ Target selection should stay simple:
 - `submit --draft[=new|all]` and `submit --publish` are mutually exclusive
 - `submit --reviewers` and `submit --team-reviewers` override configured
   reviewer defaults for that invocation only
+- `submit --re-request` re-requests users whose latest review is `APPROVED`
+  or `CHANGES_REQUESTED`; pending review requests stay in place
 - `relink` and `unlink` require one explicit `<revset>`
 - `import` accepts at most one explicit selector flag and otherwise defaults to
   the current stack headed by `@-`

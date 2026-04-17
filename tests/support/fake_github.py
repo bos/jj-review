@@ -522,9 +522,15 @@ def _register_pull_request_routes(app: FastAPI, fake_state: FakeGithubState) -> 
         reviewers = payload.get("reviewers", [])
         team_reviewers = payload.get("team_reviewers", [])
         if isinstance(reviewers, list):
-            pull_request.requested_reviewers = [str(r) for r in reviewers]
+            for reviewer in reviewers:
+                normalized = str(reviewer)
+                if normalized not in pull_request.requested_reviewers:
+                    pull_request.requested_reviewers.append(normalized)
         if isinstance(team_reviewers, list):
-            pull_request.requested_team_reviewers = [str(t) for t in team_reviewers]
+            for team_reviewer in team_reviewers:
+                normalized = str(team_reviewer)
+                if normalized not in pull_request.requested_team_reviewers:
+                    pull_request.requested_team_reviewers.append(normalized)
         return pull_request.to_payload(repository=repository, web_origin=fake_state.web_origin)
 
     @app.post("/repos/{owner}/{repo}/issues/{issue_number}/labels")

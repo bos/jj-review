@@ -56,23 +56,6 @@ two changes could theoretically produce the same slug+suffix. The 8-char
 it and fail with a clear diagnostic describing what went wrong and how to
 resolve it (e.g., set an explicit bookmark override for one of the changes).
 
-## Re-Request Review
-
-_Benefit: medium — common review workflow need, but requires design work to
-pick the right reviewer source of truth before implementing._
-
-A future `submit --re-request-review` style option may be worthwhile for the
-"addressed feedback, please look again" workflow.
-
-The feature concept is straightforward, but the source of truth for "who
-should be re-requested" is not. Possible inputs include the current requested
-reviewer list on GitHub, prior review authors, or tool-configured reviewers,
-and each choice has surprising edge cases once reviewers are added, removed,
-or changed outside `jj-review`.
-
-Design separately before implementing so the eventual UX is explicit about
-which reviewer set it uses and when notifications are sent.
-
 ## Repo-Scoped Sync
 
 _Benefit: medium — useful for operators managing several stacks at once, but

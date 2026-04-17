@@ -1452,6 +1452,80 @@ def test_submit_unchanged_rerun_skips_pull_request_metadata_writes(
     assert metadata_write_calls == []
 
 
+def test_submit_re_request_adds_prior_approved_and_changes_requested_reviewers(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
+    config_path = write_config(
+        tmp_path,
+        fake_repo,
+        extra_lines=[
+            'reviewers = ["pending-reviewer"]',
+        ],
+    )
+    commit_file(repo, "feature 1", "feature-1.txt")
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    patch_github_client_builders(
+        monkeypatch,
+        app=app,
+        fake_repo=fake_repo,
+        modules=("jj_review.commands.submit",),
+    )
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    fake_repo.create_pull_request_review(
+        pull_number=1,
+        reviewer_login="alice",
+        state="APPROVED",
+    )
+    fake_repo.create_pull_request_review(
+        pull_number=1,
+        reviewer_login="alice",
+        state="DISMISSED",
+    )
+    fake_repo.create_pull_request_review(
+        pull_number=1,
+        reviewer_login="bob",
+        state="CHANGES_REQUESTED",
+    )
+    fake_repo.create_pull_request_review(
+        pull_number=1,
+        reviewer_login="carol",
+        state="APPROVED",
+    )
+    fake_repo.create_pull_request_review(
+        pull_number=1,
+        reviewer_login="dave",
+        state="COMMENTED",
+    )
+    fake_repo.create_pull_request_review(
+        pull_number=1,
+        reviewer_login="erin",
+        state="CHANGES_REQUESTED",
+    )
+    fake_repo.create_pull_request_review(
+        pull_number=1,
+        reviewer_login="erin",
+        state="APPROVED",
+    )
+
+    assert run_main(repo, config_path, "submit", "--re-request") == 0
+    capsys.readouterr()
+
+    assert fake_repo.pull_requests[1].requested_reviewers == [
+        "pending-reviewer",
+        "bob",
+        "carol",
+        "erin",
+    ]
+
+
 def test_submit_cli_reviewers_override_configured_reviewers(
     tmp_path: Path,
     monkeypatch,

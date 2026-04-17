@@ -40,7 +40,11 @@ from jj_review.github.resolution import (
 from jj_review.github.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
-from jj_review.models.github import GithubIssueComment, GithubPullRequest
+from jj_review.models.github import (
+    GithubIssueComment,
+    GithubPullRequest,
+    GithubPullRequestReview,
+)
 from jj_review.models.intent import LoadedIntent, SubmitIntent
 from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision, LocalStack
@@ -257,6 +261,7 @@ def submit(
     dry_run: bool,
     labels: Sequence[str] | None,
     publish: bool,
+    re_request: bool,
     repository: Path | None,
     reviewers: Sequence[str] | None,
     revset: str | None,
@@ -308,6 +313,7 @@ def submit(
             dry_run=dry_run,
             labels=label_list,
             on_prepared=emit_prepared,
+            re_request=re_request,
             repo_root=context.repo_root,
             revset=selected_revset,
             reviewers=reviewer_list,
@@ -742,6 +748,7 @@ async def _run_submit_async(
     dry_run: bool,
     labels: list[str] | None,
     on_prepared: Callable[[str, str], None] | None,
+    re_request: bool,
     repo_root: Path,
     revset: str | None,
     reviewers: list[str] | None,
@@ -851,6 +858,7 @@ async def _run_submit_async(
                     discovered_pull_requests=discovered_pull_requests,
                     labels=resolved_labels,
                     on_progress=progress.advance,
+                    re_request=re_request,
                     reviewers=resolved_reviewers,
                     state=bookmark_result.state,
                     state_changes=state_changes,
@@ -1326,6 +1334,7 @@ async def _sync_pull_requests(
     github_client: GithubClient,
     github_repository: ParsedGithubRepo,
     labels: list[str],
+    re_request: bool,
     prepared_revisions: tuple[PreparedSubmitRevision, ...],
     reviewers: list[str],
     state: ReviewState,
@@ -1366,6 +1375,7 @@ async def _sync_pull_requests(
             github_repository=github_repository,
             labels=labels,
             pending_sync=pending_sync,
+            re_request=re_request,
             reviewers=reviewers,
             state=state,
             team_reviewers=team_reviewers,
@@ -1401,6 +1411,7 @@ async def _sync_pull_request_task(
     github_repository: ParsedGithubRepo,
     labels: list[str],
     pending_sync: PendingPullRequestSync,
+    re_request: bool,
     reviewers: list[str],
     state: ReviewState,
     team_reviewers: list[str],
@@ -1417,6 +1428,7 @@ async def _sync_pull_request_task(
         github_client=github_client,
         github_repository=github_repository,
         labels=labels,
+        re_request=re_request,
         reviewers=reviewers,
         revision=prepared_revision.revision,
         state=state,
@@ -1469,6 +1481,7 @@ async def _sync_pull_request(
     github_client: GithubClient,
     github_repository: ParsedGithubRepo,
     labels: list[str],
+    re_request: bool,
     reviewers: list[str],
     revision: LocalRevision,
     state: ReviewState,
@@ -1541,6 +1554,7 @@ async def _sync_pull_request(
         and _should_sync_pull_request_metadata(
             action=action,
             cached_change=cached_change,
+            re_request=False,
         )
     ):
         await _sync_pull_request_metadata(
@@ -1551,6 +1565,26 @@ async def _sync_pull_request(
             reviewers=reviewers,
             team_reviewers=team_reviewers,
         )
+
+    if not dry_run and re_request and pull_request is not None:
+        re_request_reviewers = await _load_re_request_reviewers(
+            github_client=github_client,
+            github_repository=github_repository,
+            pull_request_number=pull_request.number,
+        )
+        merged_reviewers = _merge_re_request_reviewers(
+            reviewers=reviewers,
+            re_request_reviewers=re_request_reviewers,
+        )
+        if merged_reviewers != reviewers:
+            await _sync_pull_request_metadata(
+                github_client=github_client,
+                github_repository=github_repository,
+                labels=[],
+                pull_request_number=pull_request.number,
+                reviewers=merged_reviewers,
+                team_reviewers=[],
+            )
 
     next_cached_change: CachedChange | None = None
     if pull_request is not None:
@@ -1571,12 +1605,73 @@ def _should_sync_pull_request_metadata(
     *,
     action: PullRequestAction,
     cached_change: CachedChange | None,
+    re_request: bool,
 ) -> bool:
+    if re_request:
+        return True
     if action != "unchanged":
         return True
     if cached_change is None:
         return True
     return cached_change.pr_number is None and cached_change.pr_url is None
+
+
+async def _load_re_request_reviewers(
+    *,
+    github_client: GithubClient,
+    github_repository: ParsedGithubRepo,
+    pull_request_number: int,
+) -> list[str]:
+    try:
+        reviews = await github_client.list_pull_request_reviews(
+            github_repository.owner,
+            github_repository.repo,
+            pull_number=pull_request_number,
+        )
+    except GithubClientError as error:
+        raise CliError(
+            f"Could not load reviews for pull request #{pull_request_number}: {error}"
+        ) from error
+    return _reviewers_to_re_request(reviews)
+
+
+def _reviewers_to_re_request(
+    reviews: Sequence[GithubPullRequestReview],
+) -> list[str]:
+    latest_reviews_by_user: dict[str, GithubPullRequestReview] = {}
+    for review in sorted(reviews, key=lambda item: item.id):
+        reviewer = review.user
+        if reviewer is None:
+            continue
+        normalized_state = review.state.upper()
+        if normalized_state not in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}:
+            continue
+        latest_reviews_by_user[reviewer.login] = review
+
+    selected_reviews = sorted(
+        (
+            review
+            for review in latest_reviews_by_user.values()
+            if review.state.upper() in {"APPROVED", "CHANGES_REQUESTED"}
+        ),
+        key=lambda item: item.id,
+    )
+    return [review.user.login for review in selected_reviews if review.user is not None]
+
+
+def _merge_re_request_reviewers(
+    *,
+    reviewers: list[str],
+    re_request_reviewers: list[str],
+) -> list[str]:
+    merged = list(reviewers)
+    seen = set(reviewers)
+    for reviewer in re_request_reviewers:
+        if reviewer in seen:
+            continue
+        seen.add(reviewer)
+        merged.append(reviewer)
+    return merged
 
 
 def _select_discovered_pull_request(

@@ -864,6 +864,9 @@ Implemented in a follow-up:
   "new PRs only" mode
 - `submit` now accepts `--reviewers` and `--team-reviewers` as one-shot
   overrides for the configured reviewer defaults
+- `submit` now accepts `--re-request` to request review again from users
+  whose latest review on the pull request is `APPROVED` or
+  `CHANGES_REQUESTED`, while leaving still-pending review requests alone
 - `submit` now accepts `-d` / `--describe-with` to invoke one external helper
   as `helper --pr <change_id>` for each pull request and `helper --stack
   <selected-revset>` once for stack-comment prose; the helper returns JSON

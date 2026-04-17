@@ -157,6 +157,7 @@ def build_parser() -> ArgumentParser:
             dry_run=args.dry_run,
             labels=args.labels,
             publish=args.publish,
+            re_request=args.re_request,
             repository=args.repository,
             reviewers=args.reviewers,
             revset=args.revset,
@@ -231,6 +232,15 @@ def build_parser() -> ArgumentParser:
         help=(
             "Comma-separated GitHub team slugs to request on submitted pull requests; "
             "repeat to add more; overrides configured team reviewers"
+        ),
+    )
+    _add_help_argument(
+        submit_parser,
+        "--re-request",
+        action="store_true",
+        help=(
+            "Request review again from users whose latest review on an existing "
+            "pull request approved it or requested changes"
         ),
     )
     status_parser = _add_revision_command(

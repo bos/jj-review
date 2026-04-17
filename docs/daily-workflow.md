@@ -59,6 +59,15 @@ Once the local stack looks right again, refresh GitHub:
 jj-review submit
 ```
 
+If you want to ask prior reviewers to take another look after addressing
+feedback, run:
+
+```bash
+jj-review submit --re-request
+```
+
+This will notify reviewers who approved or asked for changes to a PR.
+
 ## 5. Check readiness
 
 Use `status` when you need to answer:
