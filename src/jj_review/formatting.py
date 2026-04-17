@@ -26,6 +26,13 @@ class NativeRevisionRenderClient(Protocol):
         color_when: Literal["always", "debug", "never"],
     ) -> tuple[str, ...]: ...
 
+    def render_revision_log_blocks(
+        self,
+        revisions,
+        *,
+        color_when: Literal["always", "debug", "never"],
+    ) -> dict[str, tuple[str, ...]]: ...
+
 
 def short_change_id(change_id: str) -> str:
     """Return a stable short prefix for a full change ID."""
@@ -90,6 +97,24 @@ def render_revision_lines(
     if suffix is not None:
         lines[0] = f"{lines[0]}: {suffix}"
     return tuple(lines)
+
+
+def render_revision_blocks(
+    *,
+    client: NativeRevisionRenderClient,
+    revisions,
+    stdout: IO[str] | None = None,
+) -> dict[str, tuple[str, ...]]:
+    """Render several revisions using the active CLI/UI color policy."""
+
+    if not revisions:
+        return {}
+    stream = sys.stdout if stdout is None else stdout
+    color_when = client.resolve_color_when(
+        cli_color=requested_color_mode(),
+        stdout_is_tty=stream.isatty(),
+    )
+    return client.render_revision_log_blocks(revisions, color_when=color_when)
 
 
 def render_revision_with_suffix_lines(

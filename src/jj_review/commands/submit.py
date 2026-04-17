@@ -24,6 +24,7 @@ from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
 from jj_review.formatting import (
     format_pull_request_label,
+    render_revision_blocks,
     render_revision_lines,
     render_revision_with_suffix_lines,
     short_change_id,
@@ -94,6 +95,7 @@ class SubmittedRevision:
     change_id: str
     commit_id: str
     local_action: LocalBookmarkAction
+    native_revision: LocalRevision
     pull_request_action: PullRequestAction
     pull_request_is_draft: bool | None
     pull_request_number: int | None
@@ -331,9 +333,19 @@ def submit(
                 )
             )
     client = result.client
+    prerendered_blocks: dict[str, tuple[str, ...]] = {}
+    if client is not None:
+        # Overlap the native `jj log` subprocess startup cost before we print
+        # the final summary for large stacks.
+        prerendered_blocks = render_revision_blocks(
+            client=client,
+            revisions=tuple(revision.native_revision for revision in result.revisions)
+            + (result.trunk,),
+        )
     if not result.revisions:
         for line in _render_submit_trunk_lines(
             client=client,
+            prerendered_lines=prerendered_blocks.get(result.trunk.commit_id),
             result=result,
         ):
             if client is None:
@@ -354,6 +366,7 @@ def submit(
     for revision in reversed(result.revisions):
         for line in _render_submit_revision_lines(
             client=client,
+            prerendered_lines=prerendered_blocks.get(revision.commit_id),
             revision=revision,
         ):
             if client is None:
@@ -362,6 +375,7 @@ def submit(
                 console.output(line, soft_wrap=True)
     for line in _render_submit_trunk_lines(
         client=client,
+        prerendered_lines=prerendered_blocks.get(result.trunk.commit_id),
         result=result,
     ):
         if client is None:
@@ -410,6 +424,7 @@ def _render_selected_line(
 def _render_submit_revision_lines(
     *,
     client: JjClient | None,
+    prerendered_lines: tuple[str, ...] | None = None,
     revision,
 ) -> tuple[object, ...]:
     summary = _render_submit_revision_summary(revision)
@@ -422,6 +437,7 @@ def _render_submit_revision_lines(
         )
     return render_revision_with_suffix_lines(
         client=client,
+        prerendered_lines=prerendered_lines,
         revision=revision,
         bookmark=revision.bookmark,
         suffix=summary,
@@ -448,6 +464,7 @@ def _render_submit_revision_summary(revision) -> str:
 def _render_submit_trunk_lines(
     *,
     client: JjClient | None,
+    prerendered_lines: tuple[str, ...] | None = None,
     result,
 ) -> tuple[object, ...]:
     if client is None:
@@ -460,6 +477,7 @@ def _render_submit_trunk_lines(
         )
     return render_revision_lines(
         client=client,
+        prerendered_lines=prerendered_lines,
         revision=result.trunk,
     )
 
@@ -786,6 +804,7 @@ def _build_local_only_dry_run_result(
                 change_id=prepared_revision.change_id,
                 commit_id=prepared_revision.revision.commit_id,
                 local_action=prepared_revision.local_action,
+                native_revision=prepared_revision.revision,
                 pull_request_action="created",
                 pull_request_is_draft=None,
                 pull_request_number=None,
@@ -1524,6 +1543,7 @@ async def _sync_pull_request_task(
             change_id=prepared_revision.change_id,
             commit_id=prepared_revision.revision.commit_id,
             local_action=prepared_revision.local_action,
+            native_revision=prepared_revision.revision,
             pull_request_action=pull_request_result.action,
             pull_request_is_draft=(
                 pull_request_result.pull_request.is_draft

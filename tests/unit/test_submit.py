@@ -524,6 +524,11 @@ def _submitted_revision(
         change_id=change_id,
         commit_id=commit_id or f"{change_id}-commit",
         local_action="unchanged",
+        native_revision=make_revision(
+            commit_id=commit_id or f"{change_id}-commit",
+            change_id=change_id,
+            description=f"{subject}\n",
+        ),
         pull_request_action="unchanged",
         pull_request_is_draft=False,
         pull_request_number=pull_request_number,

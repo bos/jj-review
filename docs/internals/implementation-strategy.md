@@ -891,6 +891,9 @@ Implemented in a follow-up:
 - submit preparation now reuses one batched `jj bookmark list --all-remotes`
   snapshot across bookmark rediscovery, per-revision planning, and local-only
   dry-run decisions instead of spawning one extra bookmark query per revision
+- submit now also pre-renders the native `jj log` rows for the final stack
+  summary in parallel before printing, so large stacks no longer pay one `jj`
+  subprocess startup per displayed row
 - `submit` now accepts `--draft=all` to return already-published PRs on the
   selected stack to draft while keeping plain `--draft` as the conservative
   "new PRs only" mode

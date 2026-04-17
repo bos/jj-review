@@ -9,17 +9,16 @@ being queried.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.console import requested_color_mode
 from jj_review.errors import ErrorMessage
 from jj_review.formatting import (
     format_change_marker,
     format_pull_request_label,
     format_status_annotation,
+    render_revision_blocks,
     render_revision_lines,
     render_revision_with_suffix_lines,
 )
@@ -303,11 +302,7 @@ def _prefetch_revision_log_blocks(
             continue
         seen.add(revision.commit_id)
         ordered.append(revision)
-    color_when = client.resolve_color_when(
-        cli_color=requested_color_mode(),
-        stdout_is_tty=sys.stdout.isatty(),
-    )
-    return client.render_revision_log_blocks(ordered, color_when=color_when)
+    return render_revision_blocks(client=client, revisions=tuple(ordered))
 
 
 def _render_summary_section(
