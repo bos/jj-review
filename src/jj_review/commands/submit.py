@@ -329,7 +329,7 @@ def submit(
                     selected_subject=result.selected_subject,
                 )
             )
-    client = getattr(result, "client", None)
+    client = result.client
     if not result.revisions:
         for line in _render_submit_trunk_lines(
             client=client,
@@ -437,7 +437,7 @@ def _render_submit_revision_summary(revision) -> str:
     parts.append(
         _render_submit_pr_suffix(
             action=revision.pull_request_action,
-            is_draft=getattr(revision, "pull_request_is_draft", None),
+            is_draft=revision.pull_request_is_draft,
             pull_request_number=revision.pull_request_number,
         )
     )
