@@ -121,6 +121,7 @@ class PreparedStatus:
 class PreparedStack:
     """Prepared local stack inputs shared across inspection-driven commands."""
 
+    bookmark_states: dict[str, BookmarkState]
     bookmark_result_changed: bool
     client: JjClient
     remote: GitRemote | None
@@ -390,10 +391,14 @@ def _prepare_stack(
     if remote is not None and refresh_remote_state:
         client.fetch_remote(remote=remote.name)
 
+    bookmark_states: dict[str, BookmarkState] = {}
+    if remote is not None:
+        bookmark_states = client.list_bookmark_states()
+
     discovered_bookmarks: dict[str, str] = {}
     if remote is not None:
         discovered_bookmarks = discover_bookmarks_for_revisions(
-            bookmark_states=client.list_bookmark_states(),
+            bookmark_states=bookmark_states,
             remote_name=remote.name,
             revisions=stack.revisions,
         )
@@ -424,6 +429,7 @@ def _prepare_stack(
         )
     )
     return PreparedStack(
+        bookmark_states=bookmark_states,
         bookmark_result_changed=persist_bookmarks and bookmark_result.changed,
         client=client,
         remote=remote,
@@ -439,9 +445,6 @@ def _prepare_stack(
 def _build_status_revisions_without_github(
     prepared: PreparedStack,
 ) -> tuple[ReviewStatusRevision, ...]:
-    bookmark_states = prepared.client.list_bookmark_states(
-        tuple(revision.bookmark for revision in prepared.status_revisions)
-    )
     return tuple(
         ReviewStatusRevision(
             bookmark=revision.bookmark,
@@ -457,7 +460,7 @@ def _build_status_revisions_without_github(
             local_divergent=getattr(revision.revision, "divergent", False),
             pull_request_lookup=None,
             remote_state=(
-                bookmark_states.get(
+                prepared.bookmark_states.get(
                     revision.bookmark,
                     BookmarkState(name=revision.bookmark),
                 ).remote_target(prepared.remote.name)
@@ -601,9 +604,6 @@ async def _iter_status_revisions_with_github(
     prepared: PreparedStack,
 ) -> AsyncIterator[ReviewStatusRevision]:
     ordered_prepared_revisions = tuple(reversed(prepared.status_revisions))
-    bookmark_states = prepared.client.list_bookmark_states(
-        tuple(revision.bookmark for revision in ordered_prepared_revisions)
-    )
     async with build_github_client(base_url=github_repository.api_base_url) as github_client:
         pull_request_lookups = await _discover_pull_request_lookups(
             github_client=github_client,
@@ -621,7 +621,7 @@ async def _iter_status_revisions_with_github(
         tasks = tuple(
             asyncio.create_task(
                 _inspect_revision_with_github(
-                    bookmark_states=bookmark_states,
+                    bookmark_states=prepared.bookmark_states,
                     github_client=github_client,
                     github_repository=github_repository,
                     prepared=prepared,

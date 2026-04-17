@@ -171,8 +171,20 @@ class JjClient:
     def resolve_default_head(self) -> tuple[LocalRevision, str]:
         """Resolve the default head revision used when the CLI omits `<revset>`."""
 
-        working_copy = self.resolve_revision("@")
-        if working_copy.current_working_copy and working_copy.empty:
+        revisions = self._query_revisions("@ | @-", limit=2)
+        working_copy = next(
+            (revision for revision in revisions if revision.current_working_copy),
+            None,
+        )
+        if working_copy is None:
+            raise CliError("Could not resolve the current working-copy revision.")
+        if working_copy.empty:
+            parent = next(
+                (revision for revision in revisions if not revision.current_working_copy),
+                None,
+            )
+            if parent is not None:
+                return parent, "@-"
             return self.resolve_revision("@-"), "@-"
         return working_copy, "@"
 

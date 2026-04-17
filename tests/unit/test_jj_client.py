@@ -121,10 +121,9 @@ def test_discover_review_stack_returns_empty_revisions_when_head_is_trunk() -> N
 def test_discover_review_stack_uses_parent_of_empty_working_copy_as_default_selection() -> None:
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "@", "-T", _template(), "--limit", "2"): (
-            _EMPTY_WORKING_COPY
+        ("jj", "log", "--no-graph", "-r", "@ | @-", "-T", _template(), "--limit", "2"): (
+            _EMPTY_WORKING_COPY + _HEAD
         ),
-        ("jj", "log", "--no-graph", "-r", "@-", "-T", _template(), "--limit", "2"): _HEAD,
         ("jj", "log", "--no-graph", "-r", "'trunk'::'head'", "-T", _template()): (
             _HEAD + _PARENT + _TRUNK
         ),
@@ -133,6 +132,30 @@ def test_discover_review_stack_uses_parent_of_empty_working_copy_as_default_sele
     stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack()
 
     assert stack.selected_revset == "@-"
+    assert [revision.subject for revision in stack.revisions] == ["parent", "head"]
+
+
+def test_discover_review_stack_uses_non_empty_working_copy_as_default_selection() -> None:
+    working_copy_head = _revision_line(
+        commit_id="head",
+        parents=["parent"],
+        change_id="head-change",
+        description="head\n",
+        working_copy=True,
+    )
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
+        ("jj", "log", "--no-graph", "-r", "@ | @-", "-T", _template(), "--limit", "2"): (
+            working_copy_head + _PARENT
+        ),
+        ("jj", "log", "--no-graph", "-r", "'trunk'::'head'", "-T", _template()): (
+            working_copy_head + _PARENT + _TRUNK
+        ),
+    }
+
+    stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack()
+
+    assert stack.selected_revset == "@"
     assert [revision.subject for revision in stack.revisions] == ["parent", "head"]
 
 
