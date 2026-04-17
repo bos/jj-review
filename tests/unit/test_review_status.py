@@ -611,8 +611,8 @@ def test_prepare_status_fetches_before_remote_bookmark_discovery(
 
 
 def test_pinned_bookmarks_for_revisions_returns_none_when_any_revision_unpinned() -> None:
-    pinned_revision = SimpleNamespace(change_id="aaaaaaaa1234")
-    unpinned_revision = SimpleNamespace(change_id="bbbbbbbb5678")
+    pinned_revision = cast(LocalRevision, SimpleNamespace(change_id="aaaaaaaa1234"))
+    unpinned_revision = cast(LocalRevision, SimpleNamespace(change_id="bbbbbbbb5678"))
     state = ReviewState(
         changes={
             "aaaaaaaa1234": CachedChange(bookmark="review/feature-1-aaaaaaaa"),
@@ -631,9 +631,9 @@ def test_pinned_bookmarks_for_revisions_returns_none_when_any_revision_unpinned(
 def test_pinned_bookmarks_for_revisions_prefers_override_then_cached_and_dedupes() -> None:
     from jj_review.config import ChangeConfig
 
-    first = SimpleNamespace(change_id="aaaaaaaa1234")
-    second = SimpleNamespace(change_id="bbbbbbbb5678")
-    third = SimpleNamespace(change_id="cccccccc9abc")
+    first = cast(LocalRevision, SimpleNamespace(change_id="aaaaaaaa1234"))
+    second = cast(LocalRevision, SimpleNamespace(change_id="bbbbbbbb5678"))
+    third = cast(LocalRevision, SimpleNamespace(change_id="cccccccc9abc"))
     state = ReviewState(
         changes={
             "aaaaaaaa1234": CachedChange(bookmark="review/saved-aaaaaaaa"),

@@ -141,6 +141,70 @@ def test_close_apply_can_select_a_stack_by_pull_request_number(
     assert refreshed_state.changes[second_change_id].pr_state == "open"
 
 
+def test_close_noop_short_circuit_retires_covered_interrupted_close_intent(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    revision = JjClient(repo).discover_review_stack().revisions[-1]
+    state_dir = resolve_state_path(repo).parent
+    old_intent_path = write_new_intent(
+        state_dir,
+        CloseIntent(
+            kind="close",
+            pid=99999999,
+            label="close on @",
+            display_revset="@",
+            ordered_change_ids=(revision.change_id,),
+            ordered_commit_ids=(revision.commit_id,),
+            cleanup=False,
+            started_at="2026-01-01T00:00:00+00:00",
+        ),
+    )
+
+    exit_code = run_main(repo, config_path, "close")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert (
+        "Nothing to close on the selected stack."
+        in captured.out
+    )
+    assert not old_intent_path.exists()
+    assert list(state_dir.glob("incomplete-*.json")) == []
+
+
+def test_close_plain_matches_dry_run_on_fully_untracked_stack(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    state_store = ReviewStateStore.for_repo(repo)
+    initial_state = state_store.load()
+
+    dry_run_exit_code = run_main(repo, config_path, "close", "--dry-run")
+    dry_run_captured = capsys.readouterr()
+    close_exit_code = run_main(repo, config_path, "close")
+    close_captured = capsys.readouterr()
+
+    assert dry_run_exit_code == 0
+    assert close_exit_code == 0
+    assert close_captured.out == dry_run_captured.out
+    assert (
+        "Nothing to close on the selected stack."
+        in close_captured.out
+    )
+    assert state_store.load() == initial_state
+
+
 def test_close_cleanup_ignores_plain_untracked_status(
     tmp_path: Path,
     monkeypatch,
@@ -577,7 +641,10 @@ def test_close_apply_requires_import_after_sparse_state_loss(
     refreshed_state = ReviewStateStore.for_repo(repo).load()
 
     assert exit_code == 0
-    assert "No close actions were needed for the selected stack." in captured.out
+    assert (
+        "Nothing to close on the selected stack."
+        in captured.out
+    )
     assert fake_repo.pull_requests[1].state == "open"
     assert refreshed_state.changes == {}
 

@@ -321,6 +321,27 @@ async def _stream_close_async(
             prepared_close=prepared_close,
         )
 
+    if _inspected_close_has_no_work(
+        prepared_close=prepared_close,
+        revisions=status_result.revisions,
+    ):
+        intent_state = _start_close_intent(prepared_close=prepared_close)
+        try:
+            return _close_result(
+                actions=(),
+                applied=False,
+                blocked=False,
+                github_error=status_result.github_error,
+                github_repository=github_repository,
+                prepared_close=prepared_close,
+            )
+        finally:
+            if intent_state.intent_path is not None and intent_state.intent is not None:
+                retire_superseded_intents(
+                    intent_state.stale_close_intents, intent_state.intent
+                )
+                intent_state.intent_path.unlink(missing_ok=True)
+
     if status_result.github_error is not None or github_repository is None:
         recorder.record(
             CloseAction(
@@ -450,6 +471,28 @@ def _observe_submit_artifacts(
         },
         target_relation=target_relation,
     )
+
+
+def _inspected_close_has_no_work(
+    *,
+    prepared_close: PreparedClose,
+    revisions,
+) -> bool:
+    """Whether plain close has nothing to do for the inspected revisions.
+
+    Cleanup mode still has potential work even when no revision has review
+    identity, because it may need to delete bookmarks resolved via config
+    override. Plain close, in contrast, only acts on review-linked state, so a
+    stack where no revision carries review identity is a true no-op.
+    """
+
+    if prepared_close.cleanup:
+        return False
+    for revision in revisions:
+        cached = revision.cached_change
+        if cached is not None and cached.has_review_identity:
+            return False
+    return True
 
 
 def _prepare_close_execution_state(*, prepared_close: PreparedClose) -> _CloseExecutionState:
