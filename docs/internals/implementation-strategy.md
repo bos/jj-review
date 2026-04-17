@@ -296,6 +296,10 @@ Recent refactor slices:
 - `close --cleanup` now ignores status-only saved bookmark pins when GitHub
   reports no pull request for a branch, so unsubmitted stacks that were merely
   inspected do not suddenly grow cleanup work
+- `close` now reuses the normal inspected status result to recognize true
+  no-op stacks before opening its second GitHub phase, so `close` and
+  `close --dry-run` share the same no-op result without adding a separate
+  branch-only shortcut that could miss PRs GitHub still reports by head ref
 - fully untracked stacks now take the same close no-op fast path for
   `close --cleanup` as for plain `close`, skipping bookmark discovery when the
   selected stack has no saved review identity at all while still forcing the

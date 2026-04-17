@@ -144,7 +144,8 @@ jj-review close --pull-request 7
 
 This closes the selected stack's pull requests. Add `--cleanup` if you also
 want to delete the review branches and clean up local tracking data for that
-stack.
+stack. When GitHub reports that the selected stack has no tracked pull
+requests, `close` and `close --dry-run` now report the same no-op result.
 
 ## A command was interrupted before it finished
 
