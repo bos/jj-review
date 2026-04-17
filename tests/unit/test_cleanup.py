@@ -617,18 +617,20 @@ def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
                     stack=SimpleNamespace(trunk=SimpleNamespace(commit_id="trunk-commit")),
                     status_revisions=(
                         SimpleNamespace(
+                            cached_change=CachedChange(pr_number=1, pr_state="merged"),
                             revision=SimpleNamespace(
                                 change_id="merged-change",
                                 commit_id="merged-commit",
                                 only_parent_commit_id=lambda: "trunk-commit",
-                            )
+                            ),
                         ),
                         SimpleNamespace(
+                            cached_change=CachedChange(pr_number=2, pr_state="open"),
                             revision=SimpleNamespace(
                                 change_id="survivor-change",
                                 commit_id="survivor-commit",
                                 only_parent_commit_id=lambda: "merged-commit",
-                            )
+                            ),
                         ),
                     ),
                 ),
@@ -739,18 +741,20 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
                     stack=SimpleNamespace(trunk=SimpleNamespace(commit_id="trunk-commit")),
                     status_revisions=(
                         SimpleNamespace(
+                            cached_change=CachedChange(pr_number=1, pr_state="merged"),
                             revision=SimpleNamespace(
                                 change_id="merged-change",
                                 commit_id="merged-commit",
                                 only_parent_commit_id=lambda: "trunk-commit",
-                            )
+                            ),
                         ),
                         SimpleNamespace(
+                            cached_change=CachedChange(pr_number=2, pr_state="open"),
                             revision=SimpleNamespace(
                                 change_id="survivor-change",
                                 commit_id="survivor-commit",
                                 only_parent_commit_id=lambda: "merged-commit",
-                            )
+                            ),
                         ),
                     ),
                 ),

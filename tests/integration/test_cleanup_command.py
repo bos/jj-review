@@ -168,6 +168,37 @@ def test_cleanup_restack_previews_and_rebases_survivor_above_merged_ancestor(
     assert JjClient(repo).resolve_revision(bottom_change_id).commit_id != rewritten_top.commit_id
 
 
+def test_cleanup_restack_skips_inspection_on_fully_untracked_stack(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    original_fetch_remote = JjClient.fetch_remote
+    fetch_calls: list[str] = []
+
+    def tracking_fetch_remote(self, *, remote: str, branches=None) -> None:
+        fetch_calls.append(remote)
+        return original_fetch_remote(self, remote=remote, branches=branches)
+
+    monkeypatch.setattr(
+        "jj_review.review.status.JjClient.fetch_remote",
+        tracking_fetch_remote,
+    )
+
+    exit_code = run_main(repo, config_path, "cleanup", "--restack")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "No merged changes on the selected stack need restacking." in captured.out
+    assert "Planned restack actions:" not in captured.out
+    assert "Applied restack actions:" not in captured.out
+    assert fetch_calls == []
+
+
 def test_cleanup_restack_continues_exact_interrupted_restack(
     tmp_path: Path,
     monkeypatch,

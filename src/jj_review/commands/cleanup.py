@@ -279,6 +279,7 @@ def _run_cleanup_restack_command(
                 change_overrides=change_overrides,
                 config=config,
                 fetch_remote_state=True,
+                fetch_only_when_tracked=True,
                 repo_root=repo_root,
                 revset=selected_revset,
             ),
@@ -474,6 +475,23 @@ def _prepare_cleanup(
     )
 
 
+def _prepared_restack_has_potential_work(*, prepared_status: PreparedStatus) -> bool:
+    """Whether any selected revision could possibly need restacking.
+
+    Restack rebases surviving descendants past merged ancestors, so a stack
+    where no revision carries review identity cannot have any known merged PRs
+    and has nothing for restack to plan. Skipping the GitHub inspection here
+    also avoids misreporting GitHub outages as restack-blocking when there
+    would have been nothing to restack regardless.
+    """
+
+    for prepared_revision in prepared_status.prepared.status_revisions:
+        cached = prepared_revision.cached_change
+        if cached is not None and cached.has_review_identity:
+            return True
+    return False
+
+
 def _stream_restack(
     *,
     on_action: Callable[[CleanupAction], None] | None = None,
@@ -482,6 +500,8 @@ def _stream_restack(
     """Inspect and optionally execute a local restack plan after merged changes."""
 
     prepared_status = prepared_restack.prepared_status
+    if not _prepared_restack_has_potential_work(prepared_status=prepared_status):
+        return RestackResult(actions=(), blocked=False)
     progress_total = prepared_status_github_inspection_count(
         prepared_status=prepared_status,
     )
