@@ -25,6 +25,7 @@ from jj_review.review.status import (
     PullRequestLookup,
     ReviewStatusRevision,
     _classify_status_intents,
+    _pinned_bookmarks_for_revisions,
     _status_is_incomplete,
     stream_status_async,
 )
@@ -607,6 +608,156 @@ def test_prepare_status_fetches_before_remote_bookmark_discovery(
     assert prepared_without_fetch.prepared.status_revisions[0].bookmark_source == "generated"
     assert prepared_with_fetch.prepared.status_revisions[0].bookmark == discovered_bookmark
     assert prepared_with_fetch.prepared.status_revisions[0].bookmark_source == "discovered"
+
+
+def test_pinned_bookmarks_for_revisions_returns_none_when_any_revision_unpinned() -> None:
+    pinned_revision = SimpleNamespace(change_id="aaaaaaaa1234")
+    unpinned_revision = SimpleNamespace(change_id="bbbbbbbb5678")
+    state = ReviewState(
+        changes={
+            "aaaaaaaa1234": CachedChange(bookmark="review/feature-1-aaaaaaaa"),
+        }
+    )
+
+    result = _pinned_bookmarks_for_revisions(
+        change_overrides={},
+        revisions=(pinned_revision, unpinned_revision),
+        state=state,
+    )
+
+    assert result is None
+
+
+def test_pinned_bookmarks_for_revisions_prefers_override_then_cached_and_dedupes() -> None:
+    from jj_review.config import ChangeConfig
+
+    first = SimpleNamespace(change_id="aaaaaaaa1234")
+    second = SimpleNamespace(change_id="bbbbbbbb5678")
+    third = SimpleNamespace(change_id="cccccccc9abc")
+    state = ReviewState(
+        changes={
+            "aaaaaaaa1234": CachedChange(bookmark="review/saved-aaaaaaaa"),
+            "bbbbbbbb5678": CachedChange(bookmark="review/override-from-config"),
+            "cccccccc9abc": CachedChange(bookmark="review/saved-aaaaaaaa"),
+        }
+    )
+    change_overrides = {
+        "bbbbbbbb5678": ChangeConfig(bookmark_override="review/override-from-config"),
+    }
+
+    result = _pinned_bookmarks_for_revisions(
+        change_overrides=change_overrides,
+        revisions=(first, second, third),
+        state=state,
+    )
+
+    assert result == ("review/saved-aaaaaaaa", "review/override-from-config")
+
+
+def test_prepare_status_narrows_bookmark_listing_when_all_revisions_are_pinned(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    first = LocalRevision(
+        change_id="aaaaaaaa1234",
+        commit_id="commit-1",
+        current_working_copy=False,
+        description="feature 1",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=("trunk-commit",),
+    )
+    second = LocalRevision(
+        change_id="bbbbbbbb5678",
+        commit_id="commit-2",
+        current_working_copy=False,
+        description="feature 2",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=("commit-1",),
+    )
+    trunk = LocalRevision(
+        change_id="trunkchangeid",
+        commit_id="trunk-commit",
+        current_working_copy=False,
+        description="base",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=True,
+        parents=("root",),
+    )
+    stack = LocalStack(
+        base_parent=trunk,
+        head=second,
+        revisions=(first, second),
+        selected_revset="@",
+        trunk=trunk,
+    )
+    remote = GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git")
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.list_calls: list[tuple[str, ...] | None] = []
+
+        def discover_review_stack(self, revset, *, allow_divergent=False, allow_immutable=False):
+            return stack
+
+        def list_git_remotes(self):
+            return (remote,)
+
+        def fetch_remote(self, *, remote: str) -> None:
+            pass
+
+        def list_bookmark_states(self, bookmarks=None):
+            self.list_calls.append(None if bookmarks is None else tuple(bookmarks))
+            return {}
+
+    class FakeStateStore:
+        def __init__(self, state: ReviewState) -> None:
+            self.state = state
+
+        def load(self) -> ReviewState:
+            return self.state
+
+        def save(self, state: ReviewState) -> None:
+            self.state = state
+
+        def list_intents(self) -> list[object]:
+            return []
+
+    def build_client(saved_state: ReviewState) -> FakeClient:
+        client = FakeClient()
+        monkeypatch.setattr("jj_review.review.status.JjClient", lambda _: client)
+        monkeypatch.setattr(
+            "jj_review.review.status.ReviewStateStore.for_repo",
+            lambda _: FakeStateStore(saved_state),
+        )
+        return client
+
+    pinned_state = ReviewState(
+        changes={
+            "aaaaaaaa1234": CachedChange(bookmark="review/feature-1-aaaaaaaa"),
+            "bbbbbbbb5678": CachedChange(bookmark="review/feature-2-bbbbbbbb"),
+        }
+    )
+    client = build_client(pinned_state)
+    _prepare_status_for_test(config=RepoConfig(), fetch_remote_state=False, repo_root=tmp_path)
+    assert client.list_calls == [
+        ("review/feature-1-aaaaaaaa", "review/feature-2-bbbbbbbb"),
+    ]
+
+    client = build_client(
+        ReviewState(
+            changes={"aaaaaaaa1234": CachedChange(bookmark="review/feature-1-aaaaaaaa")}
+        )
+    )
+    _prepare_status_for_test(config=RepoConfig(), fetch_remote_state=False, repo_root=tmp_path)
+    assert client.list_calls == [None]
 
 
 def _prepare_status_for_test(

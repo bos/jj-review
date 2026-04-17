@@ -439,12 +439,17 @@ def _prepare_stack(
     if remote is not None and refresh_remote_state:
         client.fetch_remote(remote=remote.name)
 
+    pinned_bookmarks = _pinned_bookmarks_for_revisions(
+        change_overrides=change_overrides,
+        revisions=stack.revisions,
+        state=state,
+    )
     bookmark_states: dict[str, BookmarkState] = {}
     if remote is not None:
-        bookmark_states = client.list_bookmark_states()
+        bookmark_states = client.list_bookmark_states(pinned_bookmarks)
 
     discovered_bookmarks: dict[str, str] = {}
-    if remote is not None:
+    if remote is not None and pinned_bookmarks is None:
         discovered_bookmarks = discover_bookmarks_for_revisions(
             bookmark_states=bookmark_states,
             remote_name=remote.name,
@@ -488,6 +493,33 @@ def _prepare_stack(
         state_store=state_store,
         status_revisions=status_revisions,
     )
+
+
+def _pinned_bookmarks_for_revisions(
+    *,
+    change_overrides: dict[str, ChangeConfig],
+    revisions: tuple[LocalRevision, ...],
+    state: ReviewState,
+) -> tuple[str, ...] | None:
+    """Return pinned bookmark names if every revision is already pinned, else None.
+
+    Used to avoid listing every repo bookmark when rediscovery is impossible: if
+    every revision has an override or saved bookmark, the rediscovery search has
+    nothing to look for.
+    """
+
+    pinned: list[str] = []
+    for revision in revisions:
+        override = change_overrides.get(revision.change_id)
+        if override is not None and override.bookmark_override:
+            pinned.append(override.bookmark_override)
+            continue
+        cached = state.changes.get(revision.change_id)
+        if cached is not None and cached.bookmark:
+            pinned.append(cached.bookmark)
+            continue
+        return None
+    return tuple(dict.fromkeys(pinned))
 
 
 def _build_status_revisions_without_github(
