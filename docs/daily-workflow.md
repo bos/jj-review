@@ -117,11 +117,19 @@ reorder your stack and move them to the bottom first.
 
 ## 7. Restack remaining work
 
-If later changes remain outstanding above work that just landed, you can quickly fix up your
-local stack:
+`jj-review cleanup --restack` is specifically about removing merged ancestors from your local
+stack and rebasing surviving descendants onto `trunk()`. If later changes remain outstanding
+above work that just landed, you can quickly fix up your local stack:
 
 ```bash
 jj-review cleanup --restack
+```
+
+`cleanup --restack` does not otherwise rewrite history. If your stack simply drifted because
+`trunk()` advanced without anything in your stack landing, rebase with plain `jj`:
+
+```bash
+jj rebase -s <bottom-of-stack> -d 'trunk()'
 ```
 
 There might be open PRs for your remaining not-yet-landed changes on GitHub, which could now
