@@ -125,9 +125,8 @@ class JjClient:
 
         merged_trunk_side_branch_commit_ids: set[str] = set()
         if allow_trunk_ancestors:
-            trunk_ancestors_revset = f"::{_quote_revset_symbol(trunk.commit_id)}"
             merged_trunk_side_branch_commit_ids = self._merged_trunk_side_branch_commit_ids(
-                trunk_ancestors_revset
+                trunk.commit_id
             )
 
         self._validate_reviewable_revision(
@@ -268,9 +267,8 @@ class JjClient:
 
         merged_trunk_side_branch_commit_ids: set[str] = set()
         if allow_trunk_ancestors:
-            trunk_ancestors_revset = f"::{_quote_revset_symbol(trunk.commit_id)}"
             merged_trunk_side_branch_commit_ids = self._merged_trunk_side_branch_commit_ids(
-                trunk_ancestors_revset
+                trunk.commit_id
             )
 
         support_by_commit_id: dict[str, bool] = {trunk.commit_id: True}
@@ -360,23 +358,22 @@ class JjClient:
             parent_commit_id: tuple(children) for parent_commit_id, children in grouped.items()
         }
 
-    def _merged_trunk_side_branch_commit_ids(self, trunk_ancestors_revset: str) -> set[str]:
-        trunk_ancestor_commit_ids = {
-            revision.commit_id for revision in self._query_revisions(trunk_ancestors_revset)
-        }
-        trunk_children_by_parent = self._query_children_by_parent(
-            f"children({trunk_ancestors_revset})"
+    def _merged_trunk_side_branch_commit_ids(self, trunk_commit_id: str) -> set[str]:
+        """Return side-branch tips merged into trunk via non-first-parent merges.
+
+        `status` only needs the merge-side parents that make a selected-parent
+        walk safely stop before reaching the root. Querying every trunk ancestor
+        and all of their children scales with total repo history, so in large
+        repos we derive the same stop-set from trunk merge commits directly.
+        """
+
+        merge_revisions = self._query_revisions(
+            f"(merges() & ::{_quote_revset_symbol(trunk_commit_id)})"
         )
         return {
             parent_commit_id
-            for parent_commit_id, children in trunk_children_by_parent.items()
-            if parent_commit_id in trunk_ancestor_commit_ids
-            and any(
-                child.commit_id in trunk_ancestor_commit_ids
-                and len(child.parents) > 1
-                and child.parents[0] != parent_commit_id
-                for child in children
-            )
+            for revision in merge_revisions
+            for parent_commit_id in revision.parents[1:]
         }
 
     def get_config_string(self, key: str) -> str | None:

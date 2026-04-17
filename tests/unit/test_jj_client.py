@@ -278,17 +278,19 @@ def test_discover_review_stack_excludes_revisions_already_reachable_from_trunk()
             current_trunk
         ),
         ("jj", "log", "--no-graph", "-r", "head-3", "-T", _template(), "--limit", "2"): head,
-        ("jj", "log", "--no-graph", "-r", "::'current-trunk'", "-T", _template()): (
-            current_trunk + merged + old_trunk + _ROOT
-        ),
-        ("jj", "log", "--no-graph", "-r", "children(::'current-trunk')", "-T", _template()): (
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "(merges() & ::'current-trunk')",
+            "-T",
+            _template(),
+        ): (
             current_trunk
         ),
         ("jj", "log", "--no-graph", "-r", "::'head-3'", "-T", _template()): (
             head + merged + old_trunk + _ROOT
-        ),
-        ("jj", "log", "--no-graph", "-r", "children(::'head-3')", "-T", _template()): (
-            head + merged
         ),
     }
 
@@ -329,16 +331,18 @@ def test_discover_review_stack_rejects_shared_trunk_ancestor_without_merge() -> 
             current_trunk
         ),
         ("jj", "log", "--no-graph", "-r", "head-4", "-T", _template(), "--limit", "2"): head,
-        ("jj", "log", "--no-graph", "-r", "::'current-trunk'", "-T", _template()): (
-            current_trunk + old_trunk + _ROOT
-        ),
-        ("jj", "log", "--no-graph", "-r", "children(::'current-trunk')", "-T", _template()): (
-            current_trunk
-        ),
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "(merges() & ::'current-trunk')",
+            "-T",
+            _template(),
+        ): "",
         ("jj", "log", "--no-graph", "-r", "::'head-4'", "-T", _template()): (
             head + old_trunk + _ROOT
         ),
-        ("jj", "log", "--no-graph", "-r", "children(::'head-4')", "-T", _template()): head,
     }
 
     client = JjClient(Path("/repo"), runner=_runner(responses))
