@@ -56,9 +56,6 @@ def test_status_reports_github_target_error_when_remote_is_not_a_github_url() ->
         )
     )
 
-    assert lines[0] == (
-        "GitHub target error: Could not determine the GitHub repository for remote "
-    )
     assert "".join(lines) == (
         "GitHub target error: Could not determine the GitHub repository for remote "
         "origin. Use a GitHub remote URL."
@@ -74,9 +71,6 @@ def test_status_reports_github_lookup_errors_inline_with_the_target() -> None:
         )
     )
 
-    assert lines[0] == (
-        "GitHub target: octo-org/stacked-review (error: unavailable - check network "
-    )
     assert "".join(lines) == (
         "GitHub target: octo-org/stacked-review (error: unavailable - check network "
         "connectivity)"
