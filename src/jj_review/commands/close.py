@@ -263,14 +263,13 @@ def prepare_close(
     state_store = ReviewStateStore.for_repo(repo_root)
     if not dry_run:
         state_store.require_writable()
-    if not cleanup:
-        fast_path = _prepare_untracked_close_fast_path(repo_root=repo_root, revset=revset)
-        if fast_path is not None:
-            return PreparedClose(
-                dry_run=dry_run,
-                cleanup=cleanup,
-                prepared_status=fast_path,
-            )
+    fast_path = _prepare_untracked_close_fast_path(repo_root=repo_root, revset=revset)
+    if fast_path is not None:
+        return PreparedClose(
+            dry_run=dry_run,
+            cleanup=cleanup,
+            prepared_status=fast_path,
+        )
     return PreparedClose(
         dry_run=dry_run,
         cleanup=cleanup,
@@ -291,12 +290,12 @@ def _prepare_untracked_close_fast_path(
     repo_root: Path,
     revset: str | None,
 ) -> PreparedStatus | None:
-    """Build the plain-close no-op path without bookmark discovery.
+    """Build the no-op close path without bookmark discovery.
 
-    Plain `close` only acts on revisions with saved review identity. When the
-    selected stack has none, we can skip bookmark-state discovery and GitHub
-    preparation while still preserving the normal remote diagnostics and stale
-    intent retirement behavior.
+    Both plain `close` and `close --cleanup` are true no-ops when the selected
+    stack has no saved review identity at all. In that case we can skip
+    bookmark-state discovery and GitHub preparation while still preserving the
+    normal remote diagnostics and stale-intent retirement behavior.
     """
 
     client = JjClient(repo_root)

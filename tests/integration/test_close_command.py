@@ -197,9 +197,18 @@ def test_close_and_cleanup_match_dry_run_on_fully_untracked_stack(
         fetch_calls.append(remote)
         return original_fetch_remote(self, remote=remote, branches=branches)
 
+    def fail_list_bookmark_states(*args, **kwargs):
+        raise AssertionError(
+            "close should not inspect bookmark state for a fully untracked stack"
+        )
+
     monkeypatch.setattr(
         "jj_review.review.status.JjClient.fetch_remote",
         tracking_fetch_remote,
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.close.JjClient.list_bookmark_states",
+        fail_list_bookmark_states,
     )
 
     dry_run_exit_code = run_main(repo, config_path, "close", "--dry-run")

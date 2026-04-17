@@ -227,6 +227,10 @@ Recent refactor slices:
 - `close --cleanup` now ignores status-only saved bookmark pins when GitHub
   reports no pull request for a branch, so unsubmitted stacks that were merely
   inspected do not suddenly grow cleanup work
+- fully untracked stacks now take the same close no-op fast path for
+  `close --cleanup` as for plain `close`, skipping bookmark discovery when the
+  selected stack has no saved review identity at all while still forcing the
+  full cleanup path for stacks that retain any recorded review artifacts
 - interrupted `cleanup --restack` state now records ordered commit IDs, reports
   the recorded stack by head change ID, and treats reruns as current-stack
   restacks rather than selector replay
