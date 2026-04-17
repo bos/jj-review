@@ -92,6 +92,9 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- integration coverage now smoke-tests empty repos, disconnected-root stack
+  shapes, non-GitHub remotes, and merge-commit selections so core commands
+  fail cleanly without tracebacks on realistic boundary cases
 - `status` now renders GitHub target failures as ordinary warning lines with
   explicit `error:` wording instead of the hanging-indent status helper, so
   lookup failures and non-GitHub remotes no longer split awkwardly across

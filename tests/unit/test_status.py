@@ -96,7 +96,7 @@ def test_render_trunk_status_lines_prefers_unique_local_bookmark() -> None:
         ),
         remote=SimpleNamespace(name="origin"),
         stack=SimpleNamespace(
-            trunk=SimpleNamespace(
+            base_parent=SimpleNamespace(
                 change_id="trunkchangeid",
                 commit_id="trunk-commit",
                 subject="base",

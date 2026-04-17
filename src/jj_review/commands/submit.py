@@ -570,7 +570,9 @@ def _start_submit_intent(
         ),
         display_revset=stack.selected_revset,
         ordered_commit_ids=ordered_commit_ids,
-        head_change_id=(stack.revisions[-1].change_id if stack.revisions else stack.trunk.change_id),
+        head_change_id=(
+            stack.revisions[-1].change_id if stack.revisions else stack.trunk.change_id
+        ),
         remote_name=remote_name,
         github_host=github_repository.host,
         github_owner=github_repository.owner,

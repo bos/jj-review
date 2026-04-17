@@ -353,7 +353,10 @@ class JjClient:
                 f"{_union_revset_symbols(sorted(merged_trunk_side_branch_commit_ids))})"
             )
         boundary_candidates = self._query_revisions(
-            f"heads(first_ancestors({_quote_revset_symbol(head_commit_id)}) & {candidate_revset})",
+            "heads("
+            f"first_ancestors({_quote_revset_symbol(head_commit_id)}) & "
+            f"{candidate_revset}"
+            ")",
             limit=2,
         )
         if not boundary_candidates:

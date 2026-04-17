@@ -296,10 +296,10 @@ def test_discover_review_stack_excludes_revisions_already_reachable_from_trunk()
         description="old trunk\n",
         immutable=True,
     )
-    trunk_scan = _revision_with_flag_line(current_trunk, is_trunk=True) + _revision_with_flag_line(
+    trunk_scan = _revision_with_flag_line(
         current_trunk,
-        is_trunk=False,
-    )
+        is_trunk=True,
+    ) + _revision_with_flag_line(current_trunk, is_trunk=False)
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "head-3", "-T", _template(), "--limit", "2"): head,
         (
@@ -1141,7 +1141,10 @@ def _template() -> str:
 
 
 def _trunk_scan_template() -> str:
-    return _template().removesuffix(r'"\n"') + r'"\t" ++ json(self.contained_in("trunk()")) ++ "\n"'
+    return (
+        _template().removesuffix(r'"\n"')
+        + r'"\t" ++ json(self.contained_in("trunk()")) ++ "\n"'
+    )
 
 
 def _revision_with_flag_line(revision_line: str, *, is_trunk: bool) -> str:
