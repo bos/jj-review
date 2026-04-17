@@ -134,7 +134,11 @@ class JjClient:
             allow_divergent=allow_divergent,
             allow_immutable=allow_immutable,
         )
-        ancestor_revisions = self._query_revisions(f"::{_quote_revset_symbol(head.commit_id)}")
+        path_start_commit_ids = (trunk.commit_id, *sorted(merged_trunk_side_branch_commit_ids))
+        ancestor_revisions = self._query_revisions(
+            f"{_union_revset_symbols(path_start_commit_ids)}::"
+            f"{_quote_revset_symbol(head.commit_id)}"
+        )
         revisions_by_commit_id = {revision.commit_id: revision for revision in ancestor_revisions}
         revisions_by_commit_id[head.commit_id] = head
         revisions_by_commit_id[trunk.commit_id] = trunk

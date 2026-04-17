@@ -125,7 +125,7 @@ def test_discover_review_stack_uses_parent_of_empty_working_copy_as_default_sele
             _EMPTY_WORKING_COPY
         ),
         ("jj", "log", "--no-graph", "-r", "@-", "-T", _template(), "--limit", "2"): _HEAD,
-        ("jj", "log", "--no-graph", "-r", "::'head'", "-T", _template()): (
+        ("jj", "log", "--no-graph", "-r", "'trunk'::'head'", "-T", _template()): (
             _HEAD + _PARENT + _TRUNK
         ),
     }
@@ -191,7 +191,7 @@ def test_discover_review_stack_allows_divergent_ancestor_for_inspection() -> Non
     responses: dict[tuple[str, ...], str] = {
         ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
         ("jj", "log", "--no-graph", "-r", "head-2", "-T", _template(), "--limit", "2"): head,
-        ("jj", "log", "--no-graph", "-r", "::'head-2'", "-T", _template()): (
+        ("jj", "log", "--no-graph", "-r", "'trunk'::'head-2'", "-T", _template()): (
             head + divergent_parent + _PARENT + _TRUNK
         ),
     }
@@ -214,7 +214,7 @@ def test_discover_review_stack_rejects_immutable_revisions() -> None:
         ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): (
             _HEAD_ON_IMMUTABLE_PARENT
         ),
-        ("jj", "log", "--no-graph", "-r", "::'head'", "-T", _template()): (
+        ("jj", "log", "--no-graph", "-r", "'trunk'::'head'", "-T", _template()): (
             _HEAD_ON_IMMUTABLE_PARENT + _IMMUTABLE_PARENT + _TRUNK
         ),
     }
@@ -230,7 +230,7 @@ def test_discover_review_stack_allows_immutable_ancestor_for_inspection() -> Non
         ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): (
             _HEAD_ON_IMMUTABLE_PARENT
         ),
-        ("jj", "log", "--no-graph", "-r", "::'head'", "-T", _template()): (
+        ("jj", "log", "--no-graph", "-r", "'trunk'::'head'", "-T", _template()): (
             _HEAD_ON_IMMUTABLE_PARENT + _IMMUTABLE_PARENT + _TRUNK
         ),
     }
@@ -289,7 +289,15 @@ def test_discover_review_stack_excludes_revisions_already_reachable_from_trunk()
         ): (
             current_trunk
         ),
-        ("jj", "log", "--no-graph", "-r", "::'head-3'", "-T", _template()): (
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "('current-trunk' | 'merged')::'head-3'",
+            "-T",
+            _template(),
+        ): (
             head + merged + old_trunk + _ROOT
         ),
     }
@@ -340,9 +348,11 @@ def test_discover_review_stack_rejects_shared_trunk_ancestor_without_merge() -> 
             "-T",
             _template(),
         ): "",
-        ("jj", "log", "--no-graph", "-r", "::'head-4'", "-T", _template()): (
-            head + old_trunk + _ROOT
+        ("jj", "log", "--no-graph", "-r", "'current-trunk'::'head-4'", "-T", _template()): "",
+        ("jj", "log", "--no-graph", "-r", "old-trunk", "-T", _template(), "--limit", "2"): (
+            old_trunk
         ),
+        ("jj", "log", "--no-graph", "-r", "root", "-T", _template(), "--limit", "2"): _ROOT,
     }
 
     client = JjClient(Path("/repo"), runner=_runner(responses))
