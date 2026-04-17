@@ -267,7 +267,7 @@ def prepare_close(
         prepared_status=prepare_status(
             change_overrides=change_overrides,
             config=config,
-            fetch_remote_state=not dry_run,
+            fetch_remote_state=cleanup,
             persist_bookmarks=False,
             repo_root=repo_root,
             revset=revset,

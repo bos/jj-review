@@ -63,6 +63,43 @@ def test_close_apply_closes_pull_request_and_retires_active_state(
     assert issue_comments(fake_repo, 1) == []
 
 
+def test_close_plain_skips_remote_fetch_but_cleanup_refreshes(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    original_fetch_remote = JjClient.fetch_remote
+    fetch_calls: list[str] = []
+
+    def tracking_fetch_remote(self, *, remote: str, branches=None) -> None:
+        fetch_calls.append(remote)
+        return original_fetch_remote(self, remote=remote, branches=branches)
+
+    monkeypatch.setattr(
+        "jj_review.review.status.JjClient.fetch_remote",
+        tracking_fetch_remote,
+    )
+
+    assert run_main(repo, config_path, "close", "--dry-run") == 0
+    capsys.readouterr()
+    assert fetch_calls == []
+
+    assert run_main(repo, config_path, "close") == 0
+    capsys.readouterr()
+    assert fetch_calls == []
+
+    assert run_main(repo, config_path, "close", "--cleanup") == 0
+    capsys.readouterr()
+    assert fetch_calls and fetch_calls[0] == "origin"
+
+
 def test_close_apply_can_select_a_stack_by_pull_request_number(
     tmp_path: Path,
     monkeypatch,
