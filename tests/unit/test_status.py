@@ -194,17 +194,6 @@ def test_render_status_intent_lines_reports_stale_and_interrupted_operations(
     assert any("land on @" in line and "inspect before re-running" in line for line in lines)
 
 
-def test_emit_lines_decodes_ansi_styled_native_revision_output() -> None:
-    stdout = StringIO()
-
-    with console_module.configured_console(
-        stdout=stdout, stderr=StringIO(), color_mode="never"
-    ):
-        status_module._emit_lines(("\x1b[31mred\x1b[0m",))
-
-    assert stdout.getvalue() == "red\n"
-
-
 def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
     revisions = tuple(
         SimpleNamespace(

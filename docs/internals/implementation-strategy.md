@@ -112,6 +112,9 @@ Recent refactor slices:
   list and prefixed-line primitives, so section headings, command labels, and
   option labels render through the Rich-backed console path instead of
   hand-wrapped `print()` output in `cli.py`
+- shared console output now decodes ANSI-bearing native `jj` strings before
+  printing them, so commands like `submit --dry-run` no longer leak raw escape
+  sequences when repo color config forces native `jj` rendering
 - applied action rows in `close`, `cleanup`, `land`, and `abort` now keep
   success emphasis on the status marker instead of tinting the full action
   description, and tracking-removal messages now use plain "review tracking"

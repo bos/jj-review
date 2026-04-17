@@ -45,6 +45,19 @@ def test_output_accepts_semantic_messages_directly() -> None:
     assert stdout.getvalue() == "The selected stack has no changes to review.\n"
 
 
+def test_output_decodes_ansi_strings_before_printing() -> None:
+    stdout = StringIO()
+
+    with console_module.configured_console(
+        stdout=stdout,
+        stderr=StringIO(),
+        color_mode="never",
+    ):
+        console_module.output("\x1b[31mred\x1b[0m")
+
+    assert stdout.getvalue() == "red\n"
+
+
 def test_progress_uses_rich_progress_on_tty(monkeypatch: pytest.MonkeyPatch) -> None:
     progress_updates: list[int] = []
     progress_calls: list[dict[str, object]] = []

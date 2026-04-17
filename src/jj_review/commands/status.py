@@ -950,9 +950,6 @@ def _emit_lines(
     lines: tuple[object, ...], *, emitter=console.output, soft_wrap: bool = True
 ) -> None:
     for line in lines:
-        if isinstance(line, str) and "\x1b[" in line:
-            emitter(console.ansi_text(line), soft_wrap=soft_wrap)
-            continue
         emitter(line, soft_wrap=soft_wrap)
 
 

@@ -465,6 +465,8 @@ def _is_semantic_message_object(value: object) -> bool:
 
 
 def _coerce_renderable(value: object) -> object:
+    if isinstance(value, str) and "\x1b[" in value:
+        return ansi_text(value)
     if isinstance(value, ui.StatusBadge):
         return _render_status_badge(value)
     if isinstance(value, ui.PrefixedLine):
