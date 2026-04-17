@@ -141,6 +141,9 @@ Recent refactor slices:
   through one long async path.
 - `cleanup` now routes its CLI modes through separate helpers and keeps restack
   intent setup, policy warnings, and survivor-rebase planning in named phases.
+- plain `cleanup` now defers remote and GitHub target resolution until stale
+  remote-branch or stack-comment work is actually possible, so local-only and
+  no-op runs avoid repo-wide remote discovery overhead.
 - `cleanup` now retires stale interrupted cleanup intents after a successful
   rerun so `status` stops reporting already-resolved cleanup work.
 - `land` now routes dry-run planning, resume validation, and execution through

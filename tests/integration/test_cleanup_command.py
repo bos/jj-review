@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from jj_review.commands import cleanup as cleanup_module
 from jj_review.jj import JjClient
 from jj_review.models.intent import CleanupIntent, CleanupRestackIntent
 from jj_review.models.review_state import CachedChange, ReviewState
@@ -64,12 +65,19 @@ def test_cleanup_prunes_stale_state_without_a_remote(
     state_store.save(ReviewState(changes={change_id: CachedChange()}))
 
     run_command(["jj", "abandon", change_id], repo)
+    monkeypatch.setattr(
+        cleanup_module.JjClient,
+        "list_git_remotes",
+        lambda self: (_ for _ in ()).throw(
+            AssertionError("plain cleanup should not resolve remotes for local-only stale state")
+        ),
+    )
 
     exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Selected remote: unavailable" in captured.err
+    assert "Selected remote: unavailable" not in captured.err
     assert "remove tracking for" in captured.out
     assert change_id not in state_store.load().changes
 

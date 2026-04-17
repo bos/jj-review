@@ -122,6 +122,20 @@ def test_cleanup_skips_stack_comment_lookup_for_closed_pull_request() -> None:
     assert should_inspect is False
 
 
+def test_cleanup_skips_stack_comment_lookup_when_no_bookmark_or_cached_comment_remains() -> None:
+    should_inspect = _should_inspect_stack_comment_cleanup(
+        bookmark_state=BookmarkState(name=""),
+        cached_change=CachedChange(
+            pr_number=7,
+            pr_state="open",
+        ),
+        remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
+        stale_reason="local change is no longer reviewable",
+    )
+
+    assert should_inspect is False
+
+
 def test_stale_change_reasons_classifies_cached_changes_in_bulk() -> None:
     live = _local_revision(
         change_id="live-change",
@@ -269,6 +283,7 @@ def test_stream_cleanup_limits_stack_comment_github_inspection_concurrency(
         jj_client=cast(JjClient, SimpleNamespace()),
         remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
         remote_error=None,
+        remote_context_loaded=True,
         state=state,
         state_store=cast(ReviewStateStore, SimpleNamespace(save=lambda state: None)),
     )
@@ -348,6 +363,7 @@ def test_stream_cleanup_emits_cache_actions_before_waiting_for_comment_inspectio
         jj_client=cast(JjClient, SimpleNamespace()),
         remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
         remote_error=None,
+        remote_context_loaded=True,
         state=state,
         state_store=cast(ReviewStateStore, SimpleNamespace(save=lambda state: None)),
     )
@@ -439,6 +455,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
         jj_client=cast(JjClient, SimpleNamespace()),
         remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
         remote_error=None,
+        remote_context_loaded=True,
         state=state,
         state_store=state_store,
     )
@@ -539,6 +556,7 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
         jj_client=cast(JjClient, SimpleNamespace()),
         remote=None,
         remote_error=None,
+        remote_context_loaded=False,
         state=state,
         state_store=state_store,
     )
@@ -600,6 +618,7 @@ def test_stream_cleanup_skips_github_client_when_no_comment_inspection_is_needed
         jj_client=cast(JjClient, SimpleNamespace()),
         remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
         remote_error=None,
+        remote_context_loaded=True,
         state=ReviewState(),
         state_store=state_store,
     )
@@ -637,6 +656,7 @@ def test_stream_cleanup_skips_github_client_when_no_comment_inspection_is_needed
         _run_cleanup_async(
             on_action=None,
             prepared_cleanup=prepared_cleanup,
+            stale_reasons={},
         )
     )
 

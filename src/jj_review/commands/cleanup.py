@@ -59,6 +59,7 @@ from jj_review.ui import Message, plain_text
 HELP = "Clean up stale jj-review data for a jj stack"
 
 CleanupActionStatus = Literal["applied", "blocked", "planned"]
+type StackCommentCleanupEligibility = Literal["inspect", "needs-remote-check", "skip"]
 type CleanupBody = Message
 _GITHUB_INSPECTION_CONCURRENCY = DEFAULT_BOUNDED_CONCURRENCY
 
@@ -96,6 +97,7 @@ class PreparedCleanup:
     jj_client: JjClient
     remote: GitRemote | None
     remote_error: ErrorMessage | None
+    remote_context_loaded: bool
     state: ReviewState
     state_store: ReviewStateStore
 
@@ -318,20 +320,29 @@ def _run_cleanup_command(
         dry_run=dry_run,
         repo_root=repo_root,
     )
-    for severity, line in _render_remote_and_github_lines(
-        remote=prepared_cleanup.remote,
-        remote_error=prepared_cleanup.remote_error,
-        github_repository=(
-            prepared_cleanup.github_repository.full_name
-            if prepared_cleanup.github_repository is not None
-            else None
-        ),
-        github_error=prepared_cleanup.github_repository_error,
+    stale_reasons = _stale_change_reasons(
+        change_ids=tuple(prepared_cleanup.state.changes),
+        jj_client=prepared_cleanup.jj_client,
+    )
+    if _cleanup_needs_remote_context(
+        prepared_cleanup=prepared_cleanup,
+        stale_reasons=stale_reasons,
     ):
-        if severity == "warning":
-            console.warning(line)
-        else:
-            console.output(line)
+        prepared_cleanup = _load_cleanup_remote_context(prepared_cleanup=prepared_cleanup)
+        for severity, line in _render_remote_and_github_lines(
+            remote=prepared_cleanup.remote,
+            remote_error=prepared_cleanup.remote_error,
+            github_repository=(
+                prepared_cleanup.github_repository.full_name
+                if prepared_cleanup.github_repository is not None
+                else None
+            ),
+            github_error=prepared_cleanup.github_repository_error,
+        ):
+            if severity == "warning":
+                console.warning(line)
+            else:
+                console.output(line)
 
     result = asyncio.run(
         _run_cleanup_async(
@@ -340,6 +351,7 @@ def _run_cleanup_command(
                 render_header=_render_cleanup_action_header,
             ),
             prepared_cleanup=prepared_cleanup,
+            stale_reasons=stale_reasons,
         )
     )
     for line in _render_cleanup_postamble(result=result):
@@ -447,16 +459,6 @@ def _prepare_cleanup(
     if not dry_run:
         state_store.require_writable()
 
-    remote, remote_error = _resolve_remote(jj_client=jj_client)
-    github_repository = None
-    github_error = None
-    if remote is not None:
-        github_repository = parse_github_repo(remote)
-        if github_repository is None:
-            github_error = (
-                t"Could not determine the GitHub repository for remote "
-                t"{ui.bookmark(remote.name)}. Use a GitHub remote URL."
-            )
     bookmark_states = _load_bookmark_states(
         jj_client=jj_client,
         state=state,
@@ -465,11 +467,12 @@ def _prepare_cleanup(
     return PreparedCleanup(
         dry_run=dry_run,
         bookmark_states=bookmark_states,
-        github_repository=github_repository,
-        github_repository_error=github_error,
+        github_repository=None,
+        github_repository_error=None,
         jj_client=jj_client,
-        remote=remote,
-        remote_error=remote_error,
+        remote=None,
+        remote_error=None,
+        remote_context_loaded=False,
         state=state,
         state_store=state_store,
     )
@@ -953,6 +956,7 @@ async def _run_cleanup_async(
     *,
     on_action: Callable[[CleanupAction], None] | None,
     prepared_cleanup: PreparedCleanup,
+    stale_reasons: dict[str, str | None] | None = None,
 ) -> CleanupResult:
     next_changes = dict(prepared_cleanup.state.changes)
     actions: list[CleanupAction] = []
@@ -981,10 +985,21 @@ async def _run_cleanup_async(
         intent_path = write_new_intent(state_dir, _intent)
 
     try:
+        if stale_reasons is None:
+            stale_reasons = _stale_change_reasons(
+                change_ids=tuple(prepared_cleanup.state.changes),
+                jj_client=prepared_cleanup.jj_client,
+            )
+        if _cleanup_needs_remote_context(
+            prepared_cleanup=prepared_cleanup,
+            stale_reasons=stale_reasons,
+        ):
+            prepared_cleanup = _load_cleanup_remote_context(prepared_cleanup=prepared_cleanup)
         prepared_changes = _run_local_cleanup_pass(
             next_changes=next_changes,
             prepared_cleanup=prepared_cleanup,
             record_action=record_action,
+            stale_reasons=stale_reasons,
         )
         if prepared_cleanup.github_repository is None:
             _save_cleanup_state_if_changed(
@@ -1041,14 +1056,11 @@ def _run_local_cleanup_pass(
     next_changes: dict[str, CachedChange],
     prepared_cleanup: PreparedCleanup,
     record_action: Callable[[CleanupAction], None],
+    stale_reasons: dict[str, str | None],
 ) -> tuple[PreparedCleanupChange, ...]:
     prepared_changes: list[PreparedCleanupChange] = []
     mutation_plans: list[_StaleCleanupMutationPlan] = []
     orphan_local_bookmark_plans: list[OrphanLocalBookmarkCleanupPlan] = []
-    stale_reasons = _stale_change_reasons(
-        change_ids=tuple(prepared_cleanup.state.changes),
-        jj_client=prepared_cleanup.jj_client,
-    )
     for change_id, cached_change in prepared_cleanup.state.changes.items():
         stale_reason = stale_reasons.get(change_id)
         bookmark_state = prepared_cleanup.bookmark_states.get(
@@ -1338,6 +1350,88 @@ def _resolve_remote(*, jj_client: JjClient) -> tuple[GitRemote | None, ErrorMess
         return None, error_message(error)
 
 
+def _load_cleanup_remote_context(*, prepared_cleanup: PreparedCleanup) -> PreparedCleanup:
+    """Resolve remote and GitHub target details once plain cleanup actually needs them."""
+
+    if prepared_cleanup.remote_context_loaded:
+        return prepared_cleanup
+
+    remote, remote_error = _resolve_remote(jj_client=prepared_cleanup.jj_client)
+    github_repository = None
+    github_error = None
+    if remote is not None:
+        github_repository = parse_github_repo(remote)
+        if github_repository is None:
+            github_error = (
+                t"Could not determine the GitHub repository for remote "
+                t"{ui.bookmark(remote.name)}. Use a GitHub remote URL."
+            )
+
+    return replace(
+        prepared_cleanup,
+        github_repository=github_repository,
+        github_repository_error=github_error,
+        remote=remote,
+        remote_error=remote_error,
+        remote_context_loaded=True,
+    )
+
+
+def _cleanup_needs_remote_context(
+    *,
+    prepared_cleanup: PreparedCleanup,
+    stale_reasons: dict[str, str | None],
+) -> bool:
+    """Whether plain cleanup might need remote or GitHub state beyond local checks."""
+
+    for change_id, cached_change in prepared_cleanup.state.changes.items():
+        stale_reason = stale_reasons.get(change_id)
+        bookmark = cached_change.bookmark
+        bookmark_state = prepared_cleanup.bookmark_states.get(
+            bookmark or "",
+            BookmarkState(name=bookmark or ""),
+        )
+        if (
+            stale_reason is not None
+            and bookmark is not None
+            and bookmark.startswith("review/")
+            and bookmark_state.remote_targets
+        ):
+            return True
+        if _stack_comment_cleanup_eligibility(
+            cached_change=cached_change,
+            stale_reason=stale_reason,
+        ) != "skip":
+            return True
+    return False
+
+
+def _stack_comment_cleanup_eligibility(
+    *,
+    cached_change: CachedChange,
+    stale_reason: str | None,
+) -> StackCommentCleanupEligibility:
+    """Classify whether cleanup can inspect stack comments for this change."""
+
+    if cached_change.pr_number is None:
+        if cached_change.is_unlinked and cached_change.bookmark is not None:
+            return "inspect"
+        return "skip"
+    if cached_change.is_unlinked:
+        return "inspect"
+    if cached_change.bookmark is None and cached_change.stack_comment_id is None:
+        return "skip"
+    if stale_reason is None:
+        return "inspect"
+    if cached_change.pr_state in {"closed", "merged"}:
+        return "skip"
+    if cached_change.stack_comment_id is not None:
+        return "inspect"
+    if cached_change.bookmark is None:
+        return "skip"
+    return "needs-remote-check"
+
+
 def _load_bookmark_states(
     *,
     jj_client: JjClient,
@@ -1549,16 +1643,14 @@ def _should_inspect_stack_comment_cleanup(
     remote: GitRemote | None,
     stale_reason: str | None,
 ) -> bool:
-    if cached_change.pr_number is None:
-        return cached_change.is_unlinked and cached_change.bookmark is not None
-    if cached_change.is_unlinked:
+    eligibility = _stack_comment_cleanup_eligibility(
+        cached_change=cached_change,
+        stale_reason=stale_reason,
+    )
+    if eligibility == "inspect":
         return True
-    if stale_reason is None:
-        return True
-    if cached_change.pr_state in {"closed", "merged"}:
+    if eligibility == "skip":
         return False
-    if cached_change.stack_comment_id is not None:
-        return True
     if remote is None:
         return False
 
