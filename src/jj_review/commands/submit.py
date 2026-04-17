@@ -183,6 +183,7 @@ class PendingStackCommentSync:
 class _PreparedSubmitInputs:
     """Local submit inputs prepared before GitHub mutations begin."""
 
+    bookmark_states: dict[str, BookmarkState]
     bookmark_result: BookmarkResolutionResult
     client: JjClient
     generated_pull_request_descriptions: dict[str, GeneratedDescription]
@@ -517,8 +518,9 @@ def _prepare_submit_inputs(
             stack.head.subject,
         )
     state = state_store.load()
+    bookmark_states = client.list_bookmark_states()
     discovered_bookmarks = discover_bookmarks_for_revisions(
-        bookmark_states=client.list_bookmark_states(),
+        bookmark_states=bookmark_states,
         remote_name=remote.name,
         revisions=stack.revisions,
     )
@@ -539,6 +541,7 @@ def _prepare_submit_inputs(
         revisions=stack.revisions,
     )
     return _PreparedSubmitInputs(
+        bookmark_states=bookmark_states,
         bookmark_result=bookmark_result,
         client=client,
         generated_pull_request_descriptions=generated_pull_request_descriptions,
@@ -665,6 +668,7 @@ def _render_submit_intent_description(intent: SubmitIntent) -> ui.Message:
 def _prepare_submit_revisions(
     *,
     bookmark_result: BookmarkResolutionResult,
+    bookmark_states: dict[str, BookmarkState],
     client: JjClient,
     dry_run: bool,
     remote: GitRemote,
@@ -682,7 +686,10 @@ def _prepare_submit_revisions(
             cached_change=bookmark_result.state.changes.get(revision.change_id),
             change_id=revision.change_id,
         )
-        bookmark_state = client.get_bookmark_state(resolution.bookmark)
+        bookmark_state = bookmark_states.get(
+            resolution.bookmark,
+            BookmarkState(name=resolution.bookmark),
+        )
         local_action = _resolve_local_action(
             resolution.bookmark,
             bookmark_state.local_targets,
@@ -739,6 +746,66 @@ def _prepare_submit_revisions(
     return tuple(prepared_revisions)
 
 
+def _build_local_only_dry_run_result(
+    *,
+    client: JjClient,
+    bookmark_result: BookmarkResolutionResult,
+    bookmark_states: dict[str, BookmarkState],
+    prepared_revisions: tuple[PreparedSubmitRevision, ...],
+    remote: GitRemote,
+    remote_name: str,
+    stack: LocalStack,
+) -> SubmitResult | None:
+    """Return a local-only dry-run result when no GitHub inspection is needed."""
+
+    remote_bookmarks = remote_bookmarks_pointing_at_commit(
+        bookmark_states=bookmark_states,
+        remote_name=remote_name,
+        commit_id=stack.trunk.commit_id,
+    )
+    if len(remote_bookmarks) != 1:
+        return None
+
+    revisions: list[SubmittedRevision] = []
+    for prepared_revision in prepared_revisions:
+        cached_change = bookmark_result.state.changes.get(prepared_revision.change_id)
+        if cached_change is not None and cached_change.has_review_identity:
+            return None
+        if prepared_revision.bookmark_source in {"discovered", "saved"}:
+            return None
+        bookmark_state = bookmark_states.get(
+            prepared_revision.bookmark,
+            BookmarkState(name=prepared_revision.bookmark),
+        )
+        if bookmark_state.remote_target(remote_name) is not None:
+            return None
+        revisions.append(
+            SubmittedRevision(
+                bookmark=prepared_revision.bookmark,
+                bookmark_source=prepared_revision.bookmark_source,
+                change_id=prepared_revision.change_id,
+                commit_id=prepared_revision.revision.commit_id,
+                local_action=prepared_revision.local_action,
+                pull_request_action="created",
+                pull_request_is_draft=None,
+                pull_request_number=None,
+                pull_request_title=None,
+                pull_request_url=None,
+                remote_action=prepared_revision.remote_action,
+                subject=prepared_revision.revision.subject,
+            )
+        )
+
+    return _build_submit_result(
+        client=client,
+        dry_run=True,
+        remote=remote,
+        revisions=tuple(revisions),
+        stack=stack,
+        trunk_branch=remote_bookmarks[0],
+    )
+
+
 async def _run_submit_async(
     *,
     change_overrides: dict[str, ChangeConfig],
@@ -768,6 +835,7 @@ async def _run_submit_async(
     client = prepared_inputs.client
     remote = prepared_inputs.remote
     stack = prepared_inputs.stack
+    bookmark_states = prepared_inputs.bookmark_states
     bookmark_result = prepared_inputs.bookmark_result
     state = prepared_inputs.state
 
@@ -795,6 +863,14 @@ async def _run_submit_async(
     resolved_labels = config.labels if labels is None else labels
     resolved_reviewers = config.reviewers if reviewers is None else reviewers
     resolved_team_reviewers = config.team_reviewers if team_reviewers is None else team_reviewers
+    prepared_revisions = _prepare_submit_revisions(
+        bookmark_result=bookmark_result,
+        bookmark_states=bookmark_states,
+        client=client,
+        dry_run=dry_run,
+        remote=remote,
+        stack=stack,
+    )
     state_changes = dict(bookmark_result.state.changes)
     intent_state = _start_submit_intent(
         bookmark_result=bookmark_result,
@@ -804,6 +880,18 @@ async def _run_submit_async(
         stack=stack,
         state_store=state_store,
     )
+    if dry_run:
+        local_only_dry_run = _build_local_only_dry_run_result(
+            client=client,
+            bookmark_result=bookmark_result,
+            bookmark_states=bookmark_states,
+            prepared_revisions=prepared_revisions,
+            remote=remote,
+            remote_name=remote.name,
+            stack=stack,
+        )
+        if local_only_dry_run is not None:
+            return local_only_dry_run
 
     succeeded = False
     submitted_revisions: tuple[SubmittedRevision, ...] = ()
@@ -830,13 +918,6 @@ async def _run_submit_async(
                 bookmarks=tuple(
                     resolution.bookmark for resolution in bookmark_result.resolutions
                 ),
-            )
-            prepared_revisions = _prepare_submit_revisions(
-                bookmark_result=bookmark_result,
-                client=client,
-                dry_run=dry_run,
-                remote=remote,
-                stack=stack,
             )
 
             _sync_remote_bookmarks(
@@ -876,18 +957,19 @@ async def _run_submit_async(
                     if revision.pull_request_number is not None
                 ),
             ) as progress:
-                await _sync_stack_comments(
-                    dry_run=dry_run,
-                    generated_stack_description=prepared_inputs.generated_stack_description,
-                    github_client=github_client,
-                    github_repository=github_repository,
-                    on_progress=progress.advance,
-                    revisions=submitted_revisions,
-                    state=bookmark_result.state,
-                    state_changes=state_changes,
-                    state_store=state_store,
-                    trunk_branch=trunk_branch,
-                )
+                if not dry_run:
+                    await _sync_stack_comments(
+                        dry_run=dry_run,
+                        generated_stack_description=prepared_inputs.generated_stack_description,
+                        github_client=github_client,
+                        github_repository=github_repository,
+                        on_progress=progress.advance,
+                        revisions=submitted_revisions,
+                        state=bookmark_result.state,
+                        state_changes=state_changes,
+                        state_store=state_store,
+                        trunk_branch=trunk_branch,
+                    )
 
         if not dry_run:
             next_state = bookmark_result.state.model_copy(update={"changes": state_changes})

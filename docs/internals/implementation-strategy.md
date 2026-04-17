@@ -881,6 +881,16 @@ Implemented in a follow-up:
 - `submit` now also supports `--dry-run`, which resolves the stack, bookmark
   actions, push actions, and PR actions through the normal submit path while
   skipping local, remote, GitHub, saved-data, and intent-file mutations
+- `submit --dry-run` now also skips stack-comment GitHub reads because the
+  dry-run plan does not surface stack-comment actions and does not update
+  cached comment IDs, which trims avoidable per-PR latency from planning
+- `submit --dry-run` now also stays fully local for never-tracked stacks when
+  the trunk remote bookmark is already unambiguous, deriving `new PR` actions
+  and the trunk branch from local jj state instead of paying GitHub repository
+  and pull-request discovery round trips just to confirm an all-new plan
+- submit preparation now reuses one batched `jj bookmark list --all-remotes`
+  snapshot across bookmark rediscovery, per-revision planning, and local-only
+  dry-run decisions instead of spawning one extra bookmark query per revision
 - `submit` now accepts `--draft=all` to return already-published PRs on the
   selected stack to draft while keeping plain `--draft` as the conservative
   "new PRs only" mode

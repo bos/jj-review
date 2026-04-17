@@ -237,7 +237,6 @@ def test_pull_request_body_uses_remaining_commit_description_when_present() -> N
         "body line\nbody detail"
     )
 
-
 def test_resolve_local_action_rejects_conflicted_bookmark() -> None:
     with pytest.raises(
         CliError,

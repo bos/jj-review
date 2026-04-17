@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.jj import JjClient
+from jj_review.models.github import GithubPullRequest
 from jj_review.models.intent import SubmitIntent
 from jj_review.models.review_state import ReviewState
 from jj_review.review.bookmarks import BookmarkResolver
@@ -443,6 +445,60 @@ def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
     assert remote_refs(fake_repo.git_dir) == initial_remote_refs
 
 
+def test_submit_dry_run_skips_github_for_never_tracked_local_stack(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    class NoGithubReadsClient(GithubClient):
+        async def get_repository(self, owner: str, repo: str):
+            raise AssertionError("dry-run should not load the GitHub repository")
+
+        async def get_pull_requests_by_head_refs(
+            self,
+            owner: str,
+            repo: str,
+            *,
+            head_refs: Sequence[str],
+        ) -> dict[str, tuple[GithubPullRequest, ...]]:
+            raise AssertionError(
+                f"dry-run should not discover pull requests for {head_refs!r}"
+            )
+
+        async def list_issue_comments(
+            self,
+            owner: str,
+            repo: str,
+            *,
+            issue_number: int,
+        ):
+            raise AssertionError(
+                f"dry-run should not inspect stack comments for pull request #{issue_number}"
+            )
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+    patch_github_client_builders(
+        monkeypatch,
+        app=app,
+        fake_repo=fake_repo,
+        modules=("jj_review.commands.submit",),
+        client_type=NoGithubReadsClient,
+    )
+
+    exit_code = run_main(repo, config_path, "submit", "--dry-run")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
+    assert "Planned changes:" in captured.out
+    assert fake_repo.pull_requests == {}
+
+
 def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
     tmp_path: Path,
     monkeypatch,
@@ -473,6 +529,48 @@ def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
     assert remote_refs(fake_repo.git_dir) == remote_refs_before
     assert ReviewStateStore.for_repo(repo).load() == state_before
     assert list(resolve_state_path(repo).parent.glob("incomplete-*.json")) == []
+
+
+def test_submit_dry_run_skips_stack_comment_github_reads(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    class NoCommentReadsClient(GithubClient):
+        async def list_issue_comments(
+            self,
+            owner: str,
+            repo: str,
+            *,
+            issue_number: int,
+        ):
+            raise AssertionError(
+                f"dry-run should not inspect stack comments for pull request #{issue_number}"
+            )
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+    patch_github_client_builders(
+        monkeypatch,
+        app=app,
+        fake_repo=fake_repo,
+        modules=("jj_review.commands.submit",),
+        client_type=NoCommentReadsClient,
+    )
+
+    exit_code = run_main(repo, config_path, "submit", "--dry-run")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
+    assert "Planned changes:" in captured.out
 
 
 def test_submit_rediscovers_and_regenerates_stack_comments_when_cache_is_missing(
