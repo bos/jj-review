@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
-from jj_review import __version__, commands, console, ui
+from jj_review import __version__, bootstrap, commands, console, ui
+from jj_review.bootstrap import APP_START
 from jj_review.completion import emit_shell_completion
 from jj_review.console import ColorMode, RequestedColorMode, configured_console, rich_color_mode
 from jj_review.errors import CliError, error_message
@@ -954,12 +955,11 @@ def _time_output(*, enabled: bool):
         yield
         return
 
-    start = time.perf_counter()
     original_print = builtins.print
     at_line_start: dict[int, bool] = {}
 
     def timed_print(*args, **kwargs) -> None:
-        elapsed = time.perf_counter() - start
+        elapsed = time.perf_counter() - APP_START
         destination = kwargs.pop("file", sys.stdout)
         flush = kwargs.pop("flush", False)
         end = kwargs.get("end", "\n")
@@ -989,9 +989,11 @@ def _time_output(*, enabled: bool):
             destination.flush()
 
     builtins.print = timed_print  # noqa: B010
+    bootstrap.time_output_active = True
     try:
         yield
     finally:
+        bootstrap.time_output_active = False
         builtins.print = original_print  # noqa: B010
 
 

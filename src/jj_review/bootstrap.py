@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,6 +14,23 @@ from jj_review.errors import CliError
 
 _MINIMUM_JJ_VERSION = (0, 39, 0)
 _MINIMUM_JJ_VERSION_STRING = "0.39.0"
+
+APP_START = time.perf_counter()
+
+time_output_active: bool = False
+
+
+class _ElapsedFormatter(logging.Formatter):
+    """Prepend the `--time-output` prefix when it's active."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        base = super().format(record)
+        if not time_output_active:
+            return base
+        from jj_review import console
+
+        elapsed = time.perf_counter() - APP_START
+        return console.style_time_prefix(f"[{elapsed:0.6f}] ") + base
 
 
 @dataclass(slots=True, frozen=True)
@@ -72,6 +90,9 @@ def configure_logging(*, debug: bool, configured_level: str) -> None:
         force=True,
         level=root_level,
     )
+    formatter = _ElapsedFormatter("%(levelname)s %(name)s: %(message)s")
+    for handler in logging.getLogger().handlers:
+        handler.setFormatter(formatter)
     app_level = logging.DEBUG if debug else root_level
     logging.getLogger("jj_review").setLevel(app_level)
     logging.getLogger("httpx").setLevel(logging.WARNING)

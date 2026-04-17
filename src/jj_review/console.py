@@ -446,6 +446,20 @@ def ansi_text(text: str) -> Text:
     return Text.from_ansi(text)
 
 
+def style_time_prefix(text: str) -> str:
+    """Style the `--time-output` prefix using the active semantic theme."""
+
+    style = semantic_style("prefix", "timestamp")
+    if style is None:
+        return text
+    rich_console = getattr(_STDERR_CONSOLE, "_console", None)
+    if rich_console is None:
+        return text
+    with rich_console.capture() as capture:
+        rich_console.print(Text(text, style=style), end="")
+    return capture.get()
+
+
 def _is_semantic_message_object(value: object) -> bool:
     return isinstance(value, Template | ui.SemanticText | tuple)
 
