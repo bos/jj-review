@@ -77,8 +77,26 @@ def test_parse_github_repo_parses_https_remote_url() -> None:
     assert repository.repo == "stacked-review"
 
 
+def test_parse_github_repo_parses_scp_style_remote_without_user() -> None:
+    repository = parse_github_repo(
+        GitRemote(
+            name="origin",
+            url="github.com:octo-org/stacked-review.git",
+        ),
+    )
+
+    assert repository is not None
+    assert repository.host == "github.com"
+    assert repository.owner == "octo-org"
+    assert repository.repo == "stacked-review"
+
+
 def test_parse_github_repo_returns_none_for_unparseable_remote() -> None:
     assert parse_github_repo(GitRemote(name="origin", url="/tmp/remote.git")) is None
+
+
+def test_parse_github_repo_rejects_windows_drive_path() -> None:
+    assert parse_github_repo(GitRemote(name="origin", url="C:/tmp/remote.git")) is None
 
 
 def test_github_token_from_env_prefers_github_token(

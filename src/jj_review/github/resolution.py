@@ -54,7 +54,7 @@ def parse_github_repo(remote: GitRemote) -> ParsedGithubRepo | None:
     if parsed.scheme in {"http", "https", "ssh"} and parsed.hostname:
         host = parsed.hostname
         raw_path = parsed.path
-    elif parsed.scheme == "" and ":" in remote.url and "@" in remote.url.partition(":")[0]:
+    elif _looks_like_scp_remote(remote.url):
         host, _, raw_path = remote.url.partition(":")
         host = host.rsplit("@", maxsplit=1)[-1]
     else:
@@ -66,6 +66,20 @@ def parse_github_repo(remote: GitRemote) -> ParsedGithubRepo | None:
         return None
     owner, repo = parts
     return ParsedGithubRepo(host=host, owner=owner, repo=repo)
+
+
+def _looks_like_scp_remote(url: str) -> bool:
+    """Return whether a remote uses Git's scp-style host:path shorthand."""
+
+    prefix, separator, suffix = url.partition(":")
+    if not separator or not prefix or not suffix:
+        return False
+    if "/" in prefix or "\\" in prefix:
+        return False
+    # Reject Windows drive paths like C:/repo.git.
+    if len(prefix) == 1 and prefix.isalpha():
+        return False
+    return True
 
 
 def require_github_repo(remote: GitRemote) -> ParsedGithubRepo:
