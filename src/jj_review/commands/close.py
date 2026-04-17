@@ -268,6 +268,7 @@ def prepare_close(
             change_overrides=change_overrides,
             config=config,
             fetch_remote_state=cleanup,
+            fetch_only_when_tracked=True,
             persist_bookmarks=False,
             repo_root=repo_root,
             revset=revset,
@@ -321,28 +322,12 @@ async def _stream_close_async(
             prepared_close=prepared_close,
         )
 
-    if _inspected_close_has_no_work(
+    no_work = _inspected_close_has_no_work(
         prepared_close=prepared_close,
         revisions=status_result.revisions,
-    ):
-        intent_state = _start_close_intent(prepared_close=prepared_close)
-        try:
-            return _close_result(
-                actions=(),
-                applied=False,
-                blocked=False,
-                github_error=status_result.github_error,
-                github_repository=github_repository,
-                prepared_close=prepared_close,
-            )
-        finally:
-            if intent_state.intent_path is not None and intent_state.intent is not None:
-                retire_superseded_intents(
-                    intent_state.stale_close_intents, intent_state.intent
-                )
-                intent_state.intent_path.unlink(missing_ok=True)
+    )
 
-    if status_result.github_error is not None or github_repository is None:
+    if not no_work and (status_result.github_error is not None or github_repository is None):
         recorder.record(
             CloseAction(
                 kind="close",
@@ -375,6 +360,18 @@ async def _stream_close_async(
             prepared_close=prepared_close,
         )
 
+        if no_work:
+            completed = True
+            return _close_result(
+                actions=(),
+                applied=False,
+                blocked=False,
+                github_error=status_result.github_error,
+                github_repository=github_repository,
+                prepared_close=prepared_close,
+            )
+
+        assert github_repository is not None
         async with build_github_client(base_url=github_repository.api_base_url) as github_client:
             progress_total = len(status_result.revisions) if on_action is None else 0
             with console.progress(
@@ -478,16 +475,17 @@ def _inspected_close_has_no_work(
     prepared_close: PreparedClose,
     revisions,
 ) -> bool:
-    """Whether plain close has nothing to do for the inspected revisions.
+    """Whether close has nothing to do for the inspected revisions.
 
-    Cleanup mode still has potential work even when no revision has review
-    identity, because it may need to delete bookmarks resolved via config
-    override. Plain close, in contrast, only acts on review-linked state, so a
-    stack where no revision carries review identity is a true no-op.
+    Both plain close and cleanup only act on changes jj-review tracks: closing
+    a linked pull request, forgetting a bookmark we saved, deleting a remote
+    branch we pushed. None of those exist for a change without review
+    identity, so either variant is a true no-op on such a stack. A
+    config-pinned bookmark without review identity is intentionally ignored --
+    we never pushed that branch and must not delete it.
     """
 
-    if prepared_close.cleanup:
-        return False
+    del prepared_close  # unused; same predicate for plain and cleanup
     for revision in revisions:
         cached = revision.cached_change
         if cached is not None and cached.has_review_identity:

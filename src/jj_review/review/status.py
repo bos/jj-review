@@ -168,6 +168,7 @@ def prepare_status(
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     fetch_remote_state: bool = False,
+    fetch_only_when_tracked: bool = False,
     persist_bookmarks: bool = False,
     repo_root: Path,
     revset: str | None,
@@ -179,6 +180,7 @@ def prepare_status(
         config=config,
         persist_bookmarks=persist_bookmarks,
         refresh_remote_state=fetch_remote_state,
+        refresh_requires_tracked=fetch_only_when_tracked,
         repo_root=repo_root,
         require_remote=False,
         revset=revset,
@@ -408,6 +410,7 @@ def _prepare_stack(
     config: RepoConfig,
     persist_bookmarks: bool,
     refresh_remote_state: bool,
+    refresh_requires_tracked: bool = False,
     repo_root: Path,
     require_remote: bool,
     revset: str | None,
@@ -437,7 +440,12 @@ def _prepare_stack(
         remote_error,
     )
     if remote is not None and refresh_remote_state:
-        client.fetch_remote(remote=remote.name)
+        if not refresh_requires_tracked or any(
+            (cached := state.changes.get(revision.change_id)) is not None
+            and cached.has_review_identity
+            for revision in stack.revisions
+        ):
+            client.fetch_remote(remote=remote.name)
 
     pinned_bookmarks = _pinned_bookmarks_for_revisions(
         change_overrides=change_overrides,

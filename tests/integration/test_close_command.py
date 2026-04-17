@@ -178,7 +178,7 @@ def test_close_noop_short_circuit_retires_covered_interrupted_close_intent(
     assert list(state_dir.glob("incomplete-*.json")) == []
 
 
-def test_close_plain_matches_dry_run_on_fully_untracked_stack(
+def test_close_and_cleanup_match_dry_run_on_fully_untracked_stack(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -190,19 +190,36 @@ def test_close_plain_matches_dry_run_on_fully_untracked_stack(
     state_store = ReviewStateStore.for_repo(repo)
     initial_state = state_store.load()
 
+    original_fetch_remote = JjClient.fetch_remote
+    fetch_calls: list[str] = []
+
+    def tracking_fetch_remote(self, *, remote: str, branches=None) -> None:
+        fetch_calls.append(remote)
+        return original_fetch_remote(self, remote=remote, branches=branches)
+
+    monkeypatch.setattr(
+        "jj_review.review.status.JjClient.fetch_remote",
+        tracking_fetch_remote,
+    )
+
     dry_run_exit_code = run_main(repo, config_path, "close", "--dry-run")
     dry_run_captured = capsys.readouterr()
     close_exit_code = run_main(repo, config_path, "close")
     close_captured = capsys.readouterr()
+    cleanup_exit_code = run_main(repo, config_path, "close", "--cleanup")
+    cleanup_captured = capsys.readouterr()
 
     assert dry_run_exit_code == 0
     assert close_exit_code == 0
+    assert cleanup_exit_code == 0
     assert close_captured.out == dry_run_captured.out
+    assert cleanup_captured.out == dry_run_captured.out
     assert (
         "Nothing to close on the selected stack."
         in close_captured.out
     )
     assert state_store.load() == initial_state
+    assert fetch_calls == []
 
 
 def test_close_cleanup_ignores_plain_untracked_status(
@@ -930,7 +947,10 @@ def test_cleanup_close_keeps_interrupted_submit_when_only_local_bookmark_remains
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "No close actions were needed for the selected stack." in captured.out
+    assert (
+        "Nothing to close on the selected stack."
+        in captured.out
+    )
     assert old_intent_path.exists()
 
 
