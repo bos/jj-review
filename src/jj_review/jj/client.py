@@ -23,6 +23,9 @@ _COMMIT_TEMPLATE = (
     r'json(current_working_copy) ++ "\t" ++ json(self.hidden()) ++ "\t" ++ '
     r'json(immutable) ++ "\n"'
 )
+_TRUNK_SCAN_TEMPLATE = _COMMIT_TEMPLATE.removesuffix(r'"\n"') + (
+    r'"\t" ++ json(self.contained_in("trunk()")) ++ "\n"'
+)
 _BOOKMARK_TEMPLATE = r'json(self) ++ "\n"'
 
 
@@ -102,7 +105,13 @@ class JjClient:
     ) -> LocalStack:
         """Resolve a review stack from a selected head back to `trunk()`."""
 
-        trunk = self._resolve_trunk()
+        merged_trunk_side_branch_commit_ids: set[str] = set()
+        if allow_trunk_ancestors:
+            trunk, merged_trunk_side_branch_commit_ids = (
+                self._resolve_trunk_with_merged_side_branch_commit_ids()
+            )
+        else:
+            trunk = self._resolve_trunk()
         if revset is None:
             head, selected_revset = self.resolve_default_head()
         else:
@@ -121,12 +130,6 @@ class JjClient:
                 revisions=(),
                 selected_revset=selected_revset,
                 trunk=trunk,
-            )
-
-        merged_trunk_side_branch_commit_ids: set[str] = set()
-        if allow_trunk_ancestors:
-            merged_trunk_side_branch_commit_ids = self._merged_trunk_side_branch_commit_ids(
-                trunk.commit_id
             )
 
         self._validate_reviewable_revision(
@@ -360,6 +363,33 @@ class JjClient:
                 reason="trunk_resolved_to_root",
             )
         return trunk
+
+    def _resolve_trunk_with_merged_side_branch_commit_ids(
+        self,
+    ) -> tuple[LocalRevision, set[str]]:
+        """Resolve trunk plus merged side-branch parents in one `jj log` call."""
+
+        revisions_with_trunk_membership = self._query_revisions_with_trunk_membership(
+            "trunk() | (merges() & ::trunk())"
+        )
+        trunk: LocalRevision | None = None
+        merged_side_branch_commit_ids: set[str] = set()
+        for revision, is_trunk in revisions_with_trunk_membership:
+            if is_trunk and trunk is None:
+                trunk = revision
+            if len(revision.parents) > 1:
+                merged_side_branch_commit_ids.update(revision.parents[1:])
+        if trunk is None:
+            raise JjCommandError(
+                t"{ui.cmd('jj log')} did not resolve {ui.revset('trunk()')}."
+            )
+        if len(trunk.parents) == 0:
+            raise UnsupportedStackError(
+                t"{ui.revset('trunk()')} resolved to the root commit. Configure a concrete trunk "
+                t"bookmark before discovering a review stack.",
+                reason="trunk_resolved_to_root",
+            )
+        return trunk, merged_side_branch_commit_ids
 
     def _query_children_by_parent(
         self,
@@ -711,6 +741,19 @@ class JjClient:
             revisions.append(_parse_revision_line(stripped))
         return revisions
 
+    def _query_revisions_with_trunk_membership(
+        self,
+        revset: str,
+    ) -> list[tuple[LocalRevision, bool]]:
+        stdout = self._run_jj(("log", "--no-graph", "-r", revset, "-T", _TRUNK_SCAN_TEMPLATE))
+        revisions: list[tuple[LocalRevision, bool]] = []
+        for line in stdout.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            revisions.append(_parse_revision_with_flag_line(stripped))
+        return revisions
+
     def _run_jj(self, args: Sequence[str]) -> str:
         return self._run_command(
             ["jj", *args],
@@ -800,6 +843,7 @@ def _default_runner(command: Sequence[str], cwd: Path) -> subprocess.CompletedPr
 
 
 _EXPECTED_FIELD_COUNT = 9
+_EXPECTED_FIELD_COUNT_WITH_FLAG = 10
 
 
 def _is_missing_revision_error(message: str) -> bool:
@@ -863,6 +907,23 @@ def _parse_revision_line(line: str) -> LocalRevision:
             immutable=json.loads(immutable_json),
             parents=tuple(parents_raw),
         )
+    except json.JSONDecodeError as error:
+        raise JjCommandError(
+            t"{ui.cmd('jj log')} output contains invalid JSON: {error}. Raw line: {line!r}"
+        ) from error
+
+
+def _parse_revision_with_flag_line(line: str) -> tuple[LocalRevision, bool]:
+    parts = line.split("\t")
+    if len(parts) != _EXPECTED_FIELD_COUNT_WITH_FLAG:
+        raise JjCommandError(
+            t"{ui.cmd('jj log')} output has unexpected format: expected "
+            t"{_EXPECTED_FIELD_COUNT_WITH_FLAG} tab-separated fields, got {len(parts)}. "
+            t"Raw line: {line!r}"
+        )
+    revision = _parse_revision_line("\t".join(parts[:_EXPECTED_FIELD_COUNT]))
+    try:
+        return revision, bool(json.loads(parts[_EXPECTED_FIELD_COUNT]))
     except json.JSONDecodeError as error:
         raise JjCommandError(
             t"{ui.cmd('jj log')} output contains invalid JSON: {error}. Raw line: {line!r}"

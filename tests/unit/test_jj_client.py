@@ -296,22 +296,21 @@ def test_discover_review_stack_excludes_revisions_already_reachable_from_trunk()
         description="old trunk\n",
         immutable=True,
     )
+    trunk_scan = _revision_with_flag_line(current_trunk, is_trunk=True) + _revision_with_flag_line(
+        current_trunk,
+        is_trunk=False,
+    )
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): (
-            current_trunk
-        ),
         ("jj", "log", "--no-graph", "-r", "head-3", "-T", _template(), "--limit", "2"): head,
         (
             "jj",
             "log",
             "--no-graph",
             "-r",
-            "(merges() & ::'current-trunk')",
+            "trunk() | (merges() & ::trunk())",
             "-T",
-            _template(),
-        ): (
-            current_trunk
-        ),
+            _trunk_scan_template(),
+        ): trunk_scan,
         (
             "jj",
             "log",
@@ -357,20 +356,18 @@ def test_discover_review_stack_rejects_shared_trunk_ancestor_without_merge() -> 
         description="old trunk\n",
         immutable=True,
     )
+    trunk_scan = _revision_with_flag_line(current_trunk, is_trunk=True)
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): (
-            current_trunk
-        ),
         ("jj", "log", "--no-graph", "-r", "head-4", "-T", _template(), "--limit", "2"): head,
         (
             "jj",
             "log",
             "--no-graph",
             "-r",
-            "(merges() & ::'current-trunk')",
+            "trunk() | (merges() & ::trunk())",
             "-T",
-            _template(),
-        ): "",
+            _trunk_scan_template(),
+        ): trunk_scan,
         ("jj", "log", "--no-graph", "-r", "'current-trunk'::'head-4'", "-T", _template()): "",
         ("jj", "log", "--no-graph", "-r", "old-trunk", "-T", _template(), "--limit", "2"): (
             old_trunk
@@ -1052,6 +1049,14 @@ def _template() -> str:
         r'json(current_working_copy) ++ "\t" ++ json(self.hidden()) ++ "\t" ++ '
         r'json(immutable) ++ "\n"'
     )
+
+
+def _trunk_scan_template() -> str:
+    return _template().removesuffix(r'"\n"') + r'"\t" ++ json(self.contained_in("trunk()")) ++ "\n"'
+
+
+def _revision_with_flag_line(revision_line: str, *, is_trunk: bool) -> str:
+    return revision_line.removesuffix("\n") + f"\t{'true' if is_trunk else 'false'}\n"
 
 
 def _runner(
