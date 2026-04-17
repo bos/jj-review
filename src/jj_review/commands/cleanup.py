@@ -981,12 +981,25 @@ async def _run_cleanup_async(
         intent_path = write_new_intent(state_dir, _intent)
 
     try:
+        prepared_changes = _run_local_cleanup_pass(
+            next_changes=next_changes,
+            prepared_cleanup=prepared_cleanup,
+            record_action=record_action,
+        )
         if prepared_cleanup.github_repository is None:
-            _run_local_cleanup_pass(
+            _save_cleanup_state_if_changed(
                 next_changes=next_changes,
                 prepared_cleanup=prepared_cleanup,
-                record_action=record_action,
             )
+
+            _cleanup_succeeded = True
+            return CleanupResult(
+                actions=tuple(actions),
+            )
+
+        if not any(
+            prepared_change.inspect_stack_comment for prepared_change in prepared_changes
+        ):
             _save_cleanup_state_if_changed(
                 next_changes=next_changes,
                 prepared_cleanup=prepared_cleanup,
@@ -999,11 +1012,6 @@ async def _run_cleanup_async(
 
         github_repository = prepared_cleanup.github_repository
         async with build_github_client(base_url=github_repository.api_base_url) as github_client:
-            prepared_changes = _run_local_cleanup_pass(
-                next_changes=next_changes,
-                prepared_cleanup=prepared_cleanup,
-                record_action=record_action,
-            )
             await _run_stack_comment_cleanup_pass(
                 github_client=github_client,
                 github_repository=github_repository,

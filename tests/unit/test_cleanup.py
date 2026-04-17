@@ -9,6 +9,7 @@ from jj_review.commands import cleanup as cleanup_module
 from jj_review.commands.cleanup import (
     CleanupAction,
     PreparedCleanup,
+    PreparedCleanupChange,
     PreparedRestack,
     StackCommentCleanupPlan,
     _plan_remote_branch_cleanup,
@@ -574,6 +575,72 @@ def test_stream_cleanup_without_github_repository_reuses_local_cleanup_pass(
         ["live-change"],
         ["live-change"],
     ]
+
+
+def test_stream_cleanup_skips_github_client_when_no_comment_inspection_is_needed(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    state_store = cast(
+        ReviewStateStore,
+        SimpleNamespace(
+            require_writable=lambda: tmp_path,
+            save=lambda _state: None,
+        ),
+    )
+    prepared_cleanup = PreparedCleanup(
+        dry_run=False,
+        bookmark_states={},
+        github_repository=ParsedGithubRepo(
+            host="github.com",
+            owner="octo-org",
+            repo="stacked-review",
+        ),
+        github_repository_error=None,
+        jj_client=cast(JjClient, SimpleNamespace()),
+        remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
+        remote_error=None,
+        state=ReviewState(),
+        state_store=state_store,
+    )
+
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup._run_local_cleanup_pass",
+        lambda **kwargs: (
+            PreparedCleanupChange(
+                bookmark_state=BookmarkState(name="review/feature-aaaaaaaa"),
+                cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
+                change_id="change-1",
+                inspect_stack_comment=False,
+                stale_reason=None,
+            ),
+        ),
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.build_github_client",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError(
+                "cleanup should not build a GitHub client when no comment inspection is needed"
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.check_same_kind_intent",
+        lambda *args, **kwargs: (),
+    )
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup.write_new_intent",
+        lambda *args, **kwargs: tmp_path / "incomplete-cleanup.json",
+    )
+
+    result = asyncio.run(
+        _run_cleanup_async(
+            on_action=None,
+            prepared_cleanup=prepared_cleanup,
+        )
+    )
+
+    assert result.actions == ()
 
 
 def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(

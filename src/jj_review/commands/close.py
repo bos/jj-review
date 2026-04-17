@@ -20,11 +20,11 @@ from typing import Any, Literal
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import ChangeConfig, RepoConfig
-from jj_review.errors import ErrorMessage
+from jj_review.errors import CliError, ErrorMessage, error_message
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.error_messages import summarize_github_error_reason
-from jj_review.github.resolution import parse_github_repo
+from jj_review.github.resolution import parse_github_repo, select_submit_remote
 from jj_review.github.stack_comments import is_stack_summary_comment
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote
@@ -42,6 +42,8 @@ from jj_review.review.selection import (
     resolve_selected_revset,
 )
 from jj_review.review.status import (
+    PreparedRevision,
+    PreparedStack,
     PreparedStatus,
     prepare_status,
     prepared_status_github_inspection_count,
@@ -261,6 +263,14 @@ def prepare_close(
     state_store = ReviewStateStore.for_repo(repo_root)
     if not dry_run:
         state_store.require_writable()
+    if not cleanup:
+        fast_path = _prepare_untracked_close_fast_path(repo_root=repo_root, revset=revset)
+        if fast_path is not None:
+            return PreparedClose(
+                dry_run=dry_run,
+                cleanup=cleanup,
+                prepared_status=fast_path,
+            )
     return PreparedClose(
         dry_run=dry_run,
         cleanup=cleanup,
@@ -273,6 +283,84 @@ def prepare_close(
             repo_root=repo_root,
             revset=revset,
         ),
+    )
+
+
+def _prepare_untracked_close_fast_path(
+    *,
+    repo_root: Path,
+    revset: str | None,
+) -> PreparedStatus | None:
+    """Build the plain-close no-op path without bookmark discovery.
+
+    Plain `close` only acts on revisions with saved review identity. When the
+    selected stack has none, we can skip bookmark-state discovery and GitHub
+    preparation while still preserving the normal remote diagnostics and stale
+    intent retirement behavior.
+    """
+
+    client = JjClient(repo_root)
+    stack = client.discover_review_stack(
+        revset,
+        allow_divergent=True,
+        allow_immutable=True,
+    )
+    state_store = ReviewStateStore.for_repo(repo_root)
+    state = state_store.load()
+
+    status_revisions: list[PreparedRevision] = []
+    for revision in stack.revisions:
+        cached_change = state.changes.get(revision.change_id)
+        if cached_change is not None and cached_change.has_review_identity:
+            return None
+        status_revisions.append(
+            PreparedRevision(
+                bookmark=(cached_change.bookmark or "") if cached_change is not None else "",
+                bookmark_source="generated",
+                cached_change=cached_change,
+                revision=revision,
+            )
+        )
+
+    remotes = client.list_git_remotes()
+    remote: GitRemote | None = None
+    remote_error: ErrorMessage | None = None
+    if remotes:
+        try:
+            remote = select_submit_remote(remotes)
+        except CliError as error:
+            remote_error = error_message(error)
+
+    github_repository = None
+    github_repository_error = None
+    if remote is not None:
+        github_repository = parse_github_repo(remote)
+        if github_repository is None:
+            github_repository_error = (
+                t"Could not determine the GitHub repository for remote "
+                t"{ui.bookmark(remote.name)}. Use a GitHub remote URL."
+            )
+
+    prepared = PreparedStack(
+        bookmark_states={},
+        bookmark_result_changed=False,
+        client=client,
+        remote=remote,
+        remote_error=remote_error,
+        stack=stack,
+        state=state,
+        state_changes=dict(state.changes),
+        state_store=state_store,
+        status_revisions=tuple(status_revisions),
+    )
+    return PreparedStatus(
+        github_repository=github_repository,
+        github_repository_error=github_repository_error,
+        outstanding_intents=(),
+        prepared=prepared,
+        selected_revset=stack.selected_revset,
+        stale_intents=(),
+        base_parent_subject=stack.base_parent.subject,
     )
 
 

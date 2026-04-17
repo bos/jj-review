@@ -222,6 +222,32 @@ def test_close_and_cleanup_match_dry_run_on_fully_untracked_stack(
     assert fetch_calls == []
 
 
+def test_close_untracked_fast_path_skips_bookmark_lookup(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    def fail_list_bookmark_states(*args, **kwargs):
+        raise AssertionError(
+            "plain close should not inspect bookmark state for an untracked stack"
+        )
+
+    monkeypatch.setattr(
+        "jj_review.commands.close.JjClient.list_bookmark_states",
+        fail_list_bookmark_states,
+    )
+
+    exit_code = run_main(repo, config_path, "close")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Nothing to close on the selected stack." in captured.out
+
+
 def test_close_cleanup_ignores_plain_untracked_status(
     tmp_path: Path,
     monkeypatch,
