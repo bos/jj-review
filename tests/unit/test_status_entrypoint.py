@@ -67,6 +67,12 @@ def test_status_updates_tty_progress_bar_while_streaming(
                     render_revision_log_lines=lambda revision, *, color_when: (
                         f"{revision.subject} [{revision.change_id[:8]}]",
                     ),
+                    render_revision_log_blocks=lambda revisions, *, color_when: {
+                        revision.commit_id: (
+                            f"{revision.subject} [{revision.change_id[:8]}]",
+                        )
+                        for revision in revisions
+                    },
                     resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
                 ),
                 remote=SimpleNamespace(name="origin"),

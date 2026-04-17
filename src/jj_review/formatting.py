@@ -66,17 +66,22 @@ def render_revision_lines(
     bookmark: str | None = None,
     stdout: IO[str] | None = None,
     suffix: str | None = None,
+    prerendered_lines: tuple[str, ...] | None = None,
 ) -> tuple[str, ...]:
     """Render one revision using the active CLI/UI color policy."""
 
-    stream = sys.stdout if stdout is None else stdout
-    color_when = client.resolve_color_when(
-        cli_color=requested_color_mode(),
-        stdout_is_tty=stream.isatty(),
-    )
+    if prerendered_lines is None:
+        stream = sys.stdout if stdout is None else stdout
+        color_when = client.resolve_color_when(
+            cli_color=requested_color_mode(),
+            stdout_is_tty=stream.isatty(),
+        )
+        raw_lines = client.render_revision_log_lines(revision, color_when=color_when)
+    else:
+        raw_lines = prerendered_lines
     lines = list(
         strip_revision_bookmark_from_rendered_lines(
-            client.render_revision_log_lines(revision, color_when=color_when),
+            raw_lines,
             bookmark=bookmark or "",
         )
     )
@@ -93,6 +98,7 @@ def render_revision_with_suffix_lines(
     revision,
     bookmark: str | None = None,
     suffix: str | None = None,
+    prerendered_lines: tuple[str, ...] | None = None,
 ) -> tuple[str, ...]:
     """Render one revision with native `jj log` output plus an optional suffix."""
 
@@ -101,6 +107,7 @@ def render_revision_with_suffix_lines(
         revision=revision,
         bookmark=bookmark,
         suffix=suffix,
+        prerendered_lines=prerendered_lines,
     )
 
 

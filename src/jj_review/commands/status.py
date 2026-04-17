@@ -9,10 +9,12 @@ being queried.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
+from jj_review.console import requested_color_mode
 from jj_review.errors import CliError, ErrorMessage
 from jj_review.formatting import (
     format_change_marker,
@@ -115,6 +117,11 @@ def status(
         return 0
 
     github_available = result.github_repository is not None and result.github_error is None
+    prerendered_blocks = _prefetch_revision_log_blocks(
+        client=prepared_status.prepared.client,
+        revisions=result.revisions,
+        trunk=prepared_status.prepared.stack.trunk,
+    )
     _emit_lines(
         render_status_summary_lines(
             client=prepared_status.prepared.client,
@@ -122,9 +129,15 @@ def status(
             github_available=github_available,
             leading_separator=bool(selection_lines or github_lines),
             verbose=verbose,
+            prerendered_blocks=prerendered_blocks,
         )
     )
-    _emit_lines(render_trunk_status_lines(prepared=prepared_status.prepared))
+    _emit_lines(
+        render_trunk_status_lines(
+            prepared=prepared_status.prepared,
+            prerendered_blocks=prerendered_blocks,
+        )
+    )
     _emit_lines(render_status_advisory_lines(result=result))
     _emit_lines(render_status_intent_lines(prepared_status=prepared_status))
 
@@ -195,6 +208,7 @@ def render_status_summary_lines(
     leading_separator: bool,
     result,
     verbose: bool,
+    prerendered_blocks: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[str, ...]:
     """Render capped submitted and unsubmitted summaries before the trunk row."""
 
@@ -222,6 +236,7 @@ def render_status_summary_lines(
             revision=revision,
             github_available=github_available,
             show_status=False,
+            prerendered_blocks=prerendered_blocks,
         ),
     )
     if unsubmitted_lines:
@@ -237,6 +252,7 @@ def render_status_summary_lines(
             revision=revision,
             github_available=github_available,
             show_status=True,
+            prerendered_blocks=prerendered_blocks,
         ),
     )
     if submitted_lines:
@@ -251,6 +267,7 @@ def render_status_summary_lines(
 def render_trunk_status_lines(
     *,
     prepared,
+    prerendered_blocks: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[str, ...]:
     """Render the trunk footer with native `jj log` formatting."""
 
@@ -258,6 +275,9 @@ def render_trunk_status_lines(
     return render_revision_lines(
         client=prepared.client,
         revision=trunk,
+        prerendered_lines=(
+            prerendered_blocks.get(trunk.commit_id) if prerendered_blocks else None
+        ),
     )
 
 
@@ -277,6 +297,28 @@ def render_empty_status_lines(
             ".",
         ),
     )
+
+
+def _prefetch_revision_log_blocks(
+    *,
+    client,
+    revisions,
+    trunk,
+) -> dict[str, tuple[str, ...]]:
+    """Render the `jj log` block for every revision we will print, in parallel."""
+
+    seen: set[str] = set()
+    ordered: list[object] = []
+    for revision in (*revisions, trunk):
+        if revision.commit_id in seen:
+            continue
+        seen.add(revision.commit_id)
+        ordered.append(revision)
+    color_when = client.resolve_color_when(
+        cli_color=requested_color_mode(),
+        stdout_is_tty=sys.stdout.isatty(),
+    )
+    return client.render_revision_log_blocks(ordered, color_when=color_when)
 
 
 def _render_summary_section(
@@ -787,6 +829,7 @@ def _render_summary_revision_lines(
     revision,
     github_available: bool,
     show_status: bool,
+    prerendered_blocks: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[str, ...]:
     """Render one revision inside a submitted or unsubmitted summary section."""
 
@@ -798,6 +841,9 @@ def _render_summary_revision_lines(
         revision=revision,
         bookmark=revision.bookmark,
         suffix=summary,
+        prerendered_lines=(
+            prerendered_blocks.get(revision.commit_id) if prerendered_blocks else None
+        ),
     )
 
 

@@ -6,6 +6,7 @@ import json
 import shlex
 import subprocess
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -427,6 +428,41 @@ class JjClient:
             )
         )
         return tuple(line for line in stdout.rstrip("\n").splitlines() if line.strip() != "~")
+
+    def render_revision_log_blocks(
+        self,
+        revisions: Sequence[LocalRevision],
+        *,
+        color_when: JjColorWhen,
+    ) -> dict[str, tuple[str, ...]]:
+        """Render several revisions in parallel, keyed by commit_id.
+
+        Each `jj log` invocation pays a substantial startup cost, so rendering
+        a stack sequentially dominates the wall-clock time of commands like
+        `status`. Fan the per-revision calls out onto a thread pool so their
+        subprocess spawns overlap.
+        """
+
+        if not revisions:
+            return {}
+        if len(revisions) == 1:
+            revision = revisions[0]
+            return {
+                revision.commit_id: self.render_revision_log_lines(
+                    revision, color_when=color_when
+                )
+            }
+        with ThreadPoolExecutor(max_workers=min(len(revisions), 10)) as pool:
+            rendered = list(
+                pool.map(
+                    lambda revision: (
+                        revision.commit_id,
+                        self.render_revision_log_lines(revision, color_when=color_when),
+                    ),
+                    revisions,
+                )
+            )
+        return dict(rendered)
 
     def find_private_commits(
         self,
