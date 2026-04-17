@@ -18,3 +18,6 @@ If you are looking for how to use `jj-review`, see the [user guide](../README.md
   checklist for reviewing unit test quality.
 - **[backlog.md](backlog.md)** — deferred features, open design questions,
   and non-blocking follow-up items.
+- **[help-and-docs-plan.md](help-and-docs-plan.md)** — plan for bringing
+  built-in help and `docs/` to parity with `gt` and `gh stack`. Shrinks as
+  items ship.
