@@ -283,11 +283,7 @@ def render_empty_status_lines(
         *render_trunk_status_lines(
             prepared=prepared_status.prepared,
         ),
-        (
-            "No reviewable commits between the selected revision and ",
-            ui.revset("trunk()"),
-            ".",
-        ),
+        "The selected stack has no changes to review.",
     )
 
 

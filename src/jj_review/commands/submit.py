@@ -340,7 +340,7 @@ def submit(
             else:
                 console.output(line, soft_wrap=True)
         console.note(
-            "No reviewable commits on the selected stack.",
+            "The selected stack has no changes to review.",
             soft_wrap=True,
         )
         return 0

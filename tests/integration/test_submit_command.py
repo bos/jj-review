@@ -1147,7 +1147,7 @@ def test_submit_reports_no_reviewable_commits_without_mutation_when_head_is_trun
 
     assert exit_code == 0
     assert stack.trunk.subject in captured.out
-    assert "No reviewable commits" in captured.out
+    assert "The selected stack has no changes to review." in captured.out
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert set(remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
     assert fake_repo.pull_requests == {}

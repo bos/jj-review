@@ -162,15 +162,12 @@ def _print_import_result(result: ImportResult) -> None:
                 )
             )
     else:
-        trunk_revset = ui.revset("trunk()")
         if result.reviewable_revision_count:
             console.output(
                 "Local jj-review tracking is already up to date for the selected stack."
             )
         else:
-            console.output(
-                t"No reviewable commits between the selected revision and {trunk_revset}."
-            )
+            console.output("The selected stack has no changes to review.")
 
 
 async def _run_import_async(

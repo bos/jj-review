@@ -40,9 +40,9 @@ def test_output_accepts_semantic_messages_directly() -> None:
         stderr=StringIO(),
         color_mode="never",
     ):
-        console_module.output("No reviewable commits on the selected stack.")
+        console_module.output("The selected stack has no changes to review.")
 
-    assert stdout.getvalue() == "No reviewable commits on the selected stack.\n"
+    assert stdout.getvalue() == "The selected stack has no changes to review.\n"
 
 
 def test_progress_uses_rich_progress_on_tty(monkeypatch: pytest.MonkeyPatch) -> None:

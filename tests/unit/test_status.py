@@ -83,6 +83,33 @@ def test_status_reports_github_lookup_errors_inline_with_the_target() -> None:
     )
 
 
+def test_render_empty_status_lines_pins_wording_to_user_facing_phrasing() -> None:
+    prepared_status = SimpleNamespace(
+        prepared=SimpleNamespace(
+            client=SimpleNamespace(
+                resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
+                render_revision_log_lines=lambda revision, *, color_when: (
+                    f"◆ {revision.subject} [{revision.change_id[:8]}]",
+                ),
+            ),
+            stack=SimpleNamespace(
+                base_parent=SimpleNamespace(
+                    change_id="trunkchangeid",
+                    commit_id="trunk-commit",
+                    subject="base",
+                )
+            ),
+        )
+    )
+
+    assert _render_lines(
+        *status_module.render_empty_status_lines(prepared_status=prepared_status)
+    ) == (
+        "◆ base [trunkcha]",
+        "The selected stack has no changes to review.",
+    )
+
+
 def test_render_trunk_status_lines_prefers_unique_local_bookmark() -> None:
     prepared = SimpleNamespace(
         client=SimpleNamespace(

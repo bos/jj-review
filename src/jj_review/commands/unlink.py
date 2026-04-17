@@ -89,7 +89,7 @@ async def _run_unlink_async(
     )
     prepared = prepared_status.prepared
     if not prepared.status_revisions:
-        raise CliError("No reviewable commits on the selected stack.")
+        raise CliError("The selected stack has no changes to review.")
 
     github_repository = getattr(prepared_status, "github_repository", None)
     progress_total = (

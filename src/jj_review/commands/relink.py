@@ -90,7 +90,7 @@ async def _run_relink_async(
 
     stack = client.discover_review_stack(revset)
     if not stack.revisions:
-        raise CliError("No reviewable commits on the selected stack.")
+        raise CliError("The selected stack has no changes to review.")
     revision = stack.head
     selected_revset = stack.selected_revset
 

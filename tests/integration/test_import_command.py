@@ -136,7 +136,7 @@ def test_import_reports_up_to_date_when_selected_stack_is_already_imported(
     assert "Local jj-review tracking is already up to date for the selected stack." in (
         captured.out
     )
-    assert "No reviewable commits" not in captured.out
+    assert "no changes to review" not in captured.out
 
 
 def test_import_current_fails_closed_when_head_has_no_discoverable_remote_review_link(
