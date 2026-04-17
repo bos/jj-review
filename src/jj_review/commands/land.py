@@ -37,6 +37,7 @@ from jj_review.github.resolution import (
     ParsedGithubRepo,
     resolve_trunk_branch,
 )
+from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.github import GithubPullRequest
 from jj_review.models.intent import LandIntent, LoadedIntent
@@ -298,6 +299,19 @@ def prepare_land(
 ) -> PreparedLand:
     """Resolve local landing inputs before GitHub planning and execution."""
 
+    stack = JjClient(repo_root).discover_review_stack(
+        revset,
+        allow_divergent=True,
+        allow_immutable=True,
+    )
+    if stack.revisions and stack.base_parent.commit_id != stack.trunk.commit_id:
+        raise CliError(
+            t"Selected stack is not based on {ui.revset('trunk()')}. Rebase the stack "
+            t"onto {ui.revset('trunk()')} before landing. Run "
+            t"{ui.cmd('jj-review cleanup --restack')} when ancestors have merged, "
+            t"or {ui.cmd('jj rebase')} otherwise."
+        )
+
     prepared_status = prepare_status(
         change_overrides=change_overrides,
         config=config,
@@ -312,15 +326,6 @@ def prepare_land(
     if prepared_status.github_repository is None:
         message = prepared_status.github_repository_error or t"Could not resolve GitHub target."
         raise CliError(message)
-
-    stack = prepared.stack
-    if stack.revisions and stack.base_parent.commit_id != stack.trunk.commit_id:
-        raise CliError(
-            t"Selected stack is not based on {ui.revset('trunk()')}. Rebase the stack "
-            t"onto {ui.revset('trunk()')} before landing. Run "
-            t"{ui.cmd('jj-review cleanup --restack')} when ancestors have merged, "
-            t"or {ui.cmd('jj rebase')} otherwise."
-        )
 
     if not dry_run:
         prepared.state_store.require_writable()

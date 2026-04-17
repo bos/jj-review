@@ -173,6 +173,18 @@ def test_land_rejects_stack_forked_from_trunk_ancestor(
     capsys.readouterr()
     approve_pull_requests(fake_repo, 1)
 
+    original_fetch_remote = JjClient.fetch_remote
+    fetch_calls: list[str] = []
+
+    def tracking_fetch_remote(self, *, remote: str, branches=None) -> None:
+        fetch_calls.append(remote)
+        return original_fetch_remote(self, remote=remote, branches=branches)
+
+    monkeypatch.setattr(
+        "jj_review.review.status.JjClient.fetch_remote",
+        tracking_fetch_remote,
+    )
+
     exit_code = run_main(repo, config_path, "land")
     captured = capsys.readouterr()
     combined = captured.out + captured.err
@@ -180,6 +192,7 @@ def test_land_rejects_stack_forked_from_trunk_ancestor(
     assert exit_code == 1
     assert "not based on trunk()" in combined
     assert "cleanup --restack" in combined
+    assert fetch_calls == []
 
 
 def test_land_blocks_unapproved_prefix_by_default(

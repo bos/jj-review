@@ -1247,6 +1247,9 @@ generic recovery path:
 
 - link problems should point to `status --fetch` / `relink`
 - local ancestry repair should point to `cleanup --restack`
+- land now performs the local "stack must be based on trunk()" check before
+  status preparation refreshes remote state, so obviously unlandable stacks
+  fail fast instead of paying the normal remote refresh cost first
 - policy or branch-protection failures should stop immediately with no fallback
 - interrupted runs should either resume exact post-push bookkeeping or
   recompute from the current stack instead of assuming an earlier preview is
