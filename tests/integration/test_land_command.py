@@ -15,6 +15,7 @@ from ..support.integration_helpers import (
     commit_file,
     init_fake_github_repo,
     run_command,
+    write_file,
 )
 from .submit_command_helpers import (
     approve_pull_requests,
@@ -193,6 +194,31 @@ def test_land_rejects_stack_forked_from_trunk_ancestor(
     assert "not based on trunk()" in combined
     assert "cleanup --restack" in combined
     assert fetch_calls == []
+
+
+def test_land_defaults_to_at_minus_when_working_copy_is_non_empty(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    approve_pull_requests(fake_repo, 1)
+
+    write_file(repo / "wip.txt", "wip\n")
+
+    exit_code = run_main(repo, config_path, "land", "--dry-run")
+    captured = capsys.readouterr()
+    rendered = _squash_whitespace(captured.out)
+
+    assert exit_code == 0
+    assert "Planned land actions:" in rendered
+    assert "finalize PR #1" in rendered
+    assert "unlinked from review tracking" not in rendered
 
 
 def test_land_blocks_unapproved_prefix_by_default(

@@ -101,6 +101,15 @@ Recent refactor slices:
   merged-side-branch boundary), pointing the operator at `cleanup --restack`
   or plain `jj rebase` instead of failing deep inside a non-fast-forward local
   trunk bookmark move
+- default stack discovery now resolves `trunk()`, `@`, `@-`, and any merged
+  side-branch parents in one `jj` query instead of separate trunk and
+  default-head probes, trimming the subprocess cost of common implicit-stack
+  commands while preserving merge-boundary parity with the explicit revset
+  path
+- explicit stack selection now resolves `trunk()`, merged side-branch
+  boundaries, and the selected head revision in one `jj` query, so selectors
+  like `@-`, a change ID, or a bookmark that all name the same revision take
+  the same fast stack-discovery path instead of diverging by selector spelling
 - integration coverage now smoke-tests empty repos, disconnected-root stack
   shapes, non-GitHub remotes, and merge-commit selections so core commands
   fail cleanly without tracebacks on realistic boundary cases

@@ -103,6 +103,27 @@ def test_discover_review_stack_stops_at_recent_shared_trunk_ancestor(
     assert [revision.subject for revision in stack.revisions] == ["feature 1"]
 
 
+def test_discover_review_stack_default_head_stops_at_recent_shared_trunk_ancestor(
+    tmp_path: Path,
+) -> None:
+    repo = init_repo(tmp_path)
+    base = _current_parent_commit_id(repo)
+
+    commit_file(repo, "trunk 1", "trunk-1.txt")
+    run_command(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
+
+    run_command(["jj", "new", base], repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    stack = JjClient(repo).discover_review_stack(allow_immutable=True)
+
+    assert stack.selected_revset == "@-"
+    assert stack.head.subject == "feature 1"
+    assert stack.base_parent.subject == "base"
+    assert stack.trunk.subject == "trunk 1"
+    assert [revision.subject for revision in stack.revisions] == ["feature 1"]
+
+
 def test_discover_review_stack_rejects_immutable_revisions(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     commit_file(repo, "feature 1", "feature-1.txt")

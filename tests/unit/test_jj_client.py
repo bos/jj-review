@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -108,8 +109,7 @@ _CHILD_B = _revision_line(
 
 def test_discover_review_stack_returns_empty_revisions_when_head_is_trunk() -> None:
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "trunk", "-T", _template(), "--limit", "2"): _TRUNK,
+        _selection_scan_command("trunk"): _selection_scan_response((_TRUNK, True, True)),
     }
 
     stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack("trunk")
@@ -119,11 +119,32 @@ def test_discover_review_stack_returns_empty_revisions_when_head_is_trunk() -> N
 
 
 def test_discover_review_stack_uses_parent_of_empty_working_copy_as_default_selection() -> None:
+    trunk_scan = _revision_with_flag_line(_TRUNK, is_trunk=True)
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "@ | @-", "-T", _template(), "--limit", "2"): (
-            _EMPTY_WORKING_COPY + _HEAD
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "trunk() | @ | @- | (merges() & ::trunk())",
+            "-T",
+            _trunk_scan_template(),
+        ): (
+            trunk_scan
+            + _revision_with_flag_line(_EMPTY_WORKING_COPY, is_trunk=False)
+            + _revision_with_flag_line(_HEAD, is_trunk=False)
         ),
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "heads(first_ancestors('head') & ::'trunk')",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        ): _TRUNK,
         ("jj", "log", "--no-graph", "-r", "'trunk'::'head'", "-T", _template()): (
             _HEAD + _PARENT + _TRUNK
         ),
@@ -143,11 +164,32 @@ def test_discover_review_stack_uses_non_empty_working_copy_as_default_selection(
         description="head\n",
         working_copy=True,
     )
+    trunk_scan = _revision_with_flag_line(_TRUNK, is_trunk=True)
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "@ | @-", "-T", _template(), "--limit", "2"): (
-            working_copy_head + _PARENT
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "trunk() | @ | @- | (merges() & ::trunk())",
+            "-T",
+            _trunk_scan_template(),
+        ): (
+            trunk_scan
+            + _revision_with_flag_line(working_copy_head, is_trunk=False)
+            + _revision_with_flag_line(_PARENT, is_trunk=False)
         ),
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "heads(first_ancestors('head') & ::'trunk')",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        ): _TRUNK,
         ("jj", "log", "--no-graph", "-r", "'trunk'::'head'", "-T", _template()): (
             working_copy_head + _PARENT + _TRUNK
         ),
@@ -159,10 +201,88 @@ def test_discover_review_stack_uses_non_empty_working_copy_as_default_selection(
     assert [revision.subject for revision in stack.revisions] == ["parent", "head"]
 
 
+def test_discover_review_stack_default_head_includes_merged_side_branch_boundary() -> None:
+    current_trunk = _revision_line(
+        commit_id="current-trunk",
+        parents=["old-trunk", "merged"],
+        change_id="trunk-change",
+        description="main\n",
+    )
+    merged = _revision_line(
+        commit_id="merged",
+        parents=["old-trunk"],
+        change_id="merged-change",
+        description="merged\n",
+        immutable=True,
+    )
+    head = _revision_line(
+        commit_id="head-3",
+        parents=["merged"],
+        change_id="head-3-change",
+        description="head 3\n",
+        working_copy=True,
+    )
+    old_trunk = _revision_line(
+        commit_id="old-trunk",
+        parents=["root"],
+        change_id="old-trunk-change",
+        description="old trunk\n",
+        immutable=True,
+    )
+    trunk_scan = (
+        _revision_with_flag_line(current_trunk, is_trunk=True)
+        + _revision_with_flag_line(head, is_trunk=False)
+        + _revision_with_flag_line(merged, is_trunk=False)
+    )
+    responses: dict[tuple[str, ...], str] = {
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "trunk() | @ | @- | (merges() & ::trunk())",
+            "-T",
+            _trunk_scan_template(),
+        ): trunk_scan,
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "heads(first_ancestors('head-3') & (::'current-trunk' | 'merged'))",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        ): merged,
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "'merged'::'head-3'",
+            "-T",
+            _template(),
+        ): (head + merged),
+        ("jj", "log", "--no-graph", "-r", "old-trunk", "-T", _template(), "--limit", "2"): (
+            old_trunk
+        ),
+    }
+
+    stack = JjClient(Path("/repo"), runner=_runner(responses)).discover_review_stack(
+        allow_immutable=True,
+    )
+
+    assert stack.selected_revset == "@"
+    assert [revision.subject for revision in stack.revisions] == ["merged", "head 3"]
+
+
 def test_discover_review_stack_rejects_root_fallback_trunk() -> None:
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _ROOT,
-        ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): _HEAD,
+        _selection_scan_command("head"): _selection_scan_response(
+            (_ROOT, True, False),
+            (_HEAD, False, True),
+        ),
     }
 
     client = JjClient(Path("/repo"), runner=_runner(responses))
@@ -172,8 +292,10 @@ def test_discover_review_stack_rejects_root_fallback_trunk() -> None:
 
 def test_discover_review_stack_rejects_merge_commits() -> None:
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "merge", "-T", _template(), "--limit", "2"): _MERGE,
+        _selection_scan_command("merge"): _selection_scan_response(
+            (_TRUNK, True, False),
+            (_MERGE, False, True),
+        ),
     }
 
     client = JjClient(Path("/repo"), runner=_runner(responses))
@@ -183,9 +305,9 @@ def test_discover_review_stack_rejects_merge_commits() -> None:
 
 def test_discover_review_stack_rejects_divergent_changes() -> None:
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "divergent", "-T", _template(), "--limit", "2"): (
-            _DIVERGENT
+        _selection_scan_command("divergent"): _selection_scan_response(
+            (_TRUNK, True, False),
+            (_DIVERGENT, False, True),
         ),
     }
 
@@ -212,8 +334,21 @@ def test_discover_review_stack_allows_divergent_ancestor_for_inspection() -> Non
         description="head 2\n",
     )
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "head-2", "-T", _template(), "--limit", "2"): head,
+        _selection_scan_command("head-2"): _selection_scan_response(
+            (_TRUNK, True, False),
+            (head, False, True),
+        ),
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "heads(first_ancestors('head-2') & ::'trunk')",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        ): _TRUNK,
         ("jj", "log", "--no-graph", "-r", "'trunk'::'head-2'", "-T", _template()): (
             head + divergent_parent + _PARENT + _TRUNK
         ),
@@ -233,10 +368,21 @@ def test_discover_review_stack_allows_divergent_ancestor_for_inspection() -> Non
 
 def test_discover_review_stack_rejects_immutable_revisions() -> None:
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): (
-            _HEAD_ON_IMMUTABLE_PARENT
+        _selection_scan_command("head"): _selection_scan_response(
+            (_TRUNK, True, False),
+            (_HEAD_ON_IMMUTABLE_PARENT, False, True),
         ),
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "heads(first_ancestors('head') & ::'trunk')",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        ): _TRUNK,
         ("jj", "log", "--no-graph", "-r", "'trunk'::'head'", "-T", _template()): (
             _HEAD_ON_IMMUTABLE_PARENT + _IMMUTABLE_PARENT + _TRUNK
         ),
@@ -249,10 +395,21 @@ def test_discover_review_stack_rejects_immutable_revisions() -> None:
 
 def test_discover_review_stack_allows_immutable_ancestor_for_inspection() -> None:
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): (
-            _HEAD_ON_IMMUTABLE_PARENT
+        _selection_scan_command("head"): _selection_scan_response(
+            (_TRUNK, True, False),
+            (_HEAD_ON_IMMUTABLE_PARENT, False, True),
         ),
+        (
+            "jj",
+            "log",
+            "--no-graph",
+            "-r",
+            "heads(first_ancestors('head') & ::'trunk')",
+            "-T",
+            _template(),
+            "--limit",
+            "2",
+        ): _TRUNK,
         ("jj", "log", "--no-graph", "-r", "'trunk'::'head'", "-T", _template()): (
             _HEAD_ON_IMMUTABLE_PARENT + _IMMUTABLE_PARENT + _TRUNK
         ),
@@ -296,21 +453,11 @@ def test_discover_review_stack_excludes_revisions_already_reachable_from_trunk()
         description="old trunk\n",
         immutable=True,
     )
-    trunk_scan = _revision_with_flag_line(
-        current_trunk,
-        is_trunk=True,
-    ) + _revision_with_flag_line(current_trunk, is_trunk=False)
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "head-3", "-T", _template(), "--limit", "2"): head,
-        (
-            "jj",
-            "log",
-            "--no-graph",
-            "-r",
-            "trunk() | (merges() & ::trunk())",
-            "-T",
-            _trunk_scan_template(),
-        ): trunk_scan,
+        _selection_scan_command("head-3"): _selection_scan_response(
+            (current_trunk, True, False),
+            (head, False, True),
+        ),
         (
             "jj",
             "log",
@@ -369,18 +516,11 @@ def test_discover_review_stack_stops_at_recent_shared_trunk_ancestor() -> None:
         description="old trunk\n",
         immutable=True,
     )
-    trunk_scan = _revision_with_flag_line(current_trunk, is_trunk=True)
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "head-4", "-T", _template(), "--limit", "2"): head,
-        (
-            "jj",
-            "log",
-            "--no-graph",
-            "-r",
-            "trunk() | (merges() & ::trunk())",
-            "-T",
-            _trunk_scan_template(),
-        ): trunk_scan,
+        _selection_scan_command("head-4"): _selection_scan_response(
+            (current_trunk, True, False),
+            (head, False, True),
+        ),
         (
             "jj",
             "log",
@@ -418,18 +558,11 @@ def test_discover_review_stack_rejects_root_shared_trunk_ancestor_without_merge(
         change_id="head-4-change",
         description="head 4\n",
     )
-    trunk_scan = _revision_with_flag_line(current_trunk, is_trunk=True)
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "head-4", "-T", _template(), "--limit", "2"): head,
-        (
-            "jj",
-            "log",
-            "--no-graph",
-            "-r",
-            "trunk() | (merges() & ::trunk())",
-            "-T",
-            _trunk_scan_template(),
-        ): trunk_scan,
+        _selection_scan_command("head-4"): _selection_scan_response(
+            (current_trunk, True, False),
+            (head, False, True),
+        ),
         (
             "jj",
             "log",
@@ -450,8 +583,10 @@ def test_discover_review_stack_rejects_root_shared_trunk_ancestor_without_merge(
 
 def test_discover_review_stack_rejects_hidden_revisions() -> None:
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "hidden", "-T", _template(), "--limit", "2"): _HIDDEN,
+        _selection_scan_command("hidden"): _selection_scan_response(
+            (_TRUNK, True, False),
+            (_HIDDEN, False, True),
+        ),
     }
 
     client = JjClient(Path("/repo"), runner=_runner(responses))
@@ -461,9 +596,9 @@ def test_discover_review_stack_rejects_hidden_revisions() -> None:
 
 def test_discover_review_stack_raises_jj_command_error_on_wrong_field_count() -> None:
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): (
-            "not\tenough\n"
+        _selection_scan_command("head"): (
+            _revision_with_two_flags_line(_TRUNK, is_trunk=True, is_selected=False)
+            + "not\tenough\n"
         ),
     }
 
@@ -476,9 +611,10 @@ def test_discover_review_stack_raises_jj_command_error_on_invalid_json() -> None
     # An invalid JSON value in any field should raise JjCommandError, not a
     # bare json.JSONDecodeError.
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): (
-            'NOT_JSON\t"commit-id"\t"desc"\t[]\tfalse\tfalse\tfalse\tfalse\tfalse\n'
+        _selection_scan_command("head"): (
+            _revision_with_two_flags_line(_TRUNK, is_trunk=True, is_selected=False)
+            + 'NOT_JSON\t"commit-id"\t"desc"\t[]\tfalse\tfalse\tfalse\tfalse\tfalse'
+            '\tfalse\ttrue\n'
         ),
     }
 
@@ -494,9 +630,9 @@ def test_discover_review_stack_surfaces_stale_workspace_errors() -> None:
             "log",
             "--no-graph",
             "-r",
-            "trunk() | (merges() & ::trunk())",
+            "trunk() | (head) | (merges() & ::trunk())",
             "-T",
-            _trunk_scan_template(),
+            _selection_scan_template("head"),
         )
         assert cwd == Path("/repo")
         return subprocess.CompletedProcess(
@@ -518,13 +654,13 @@ def test_discover_review_stack_raises_jj_command_error_on_wrong_field_type() -> 
     # A JSON value of the wrong type (e.g. parents as a string, not a list)
     # should raise JjCommandError rather than a bare TypeError/ValueError.
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "head", "-T", _template(), "--limit", "2"): (
-            '"change-id"\t'
+        _selection_scan_command("head"): (
+            _revision_with_two_flags_line(_TRUNK, is_trunk=True, is_selected=False)
+            + '"change-id"\t'
             '"commit-id"\t'
             '"desc"\t'
-            '"not-a-list"\t'  # parents must be a list
-            "false\tfalse\tfalse\tfalse\tfalse\n"
+            '"not-a-list"\t'
+            "false\tfalse\tfalse\tfalse\tfalse\tfalse\ttrue\n"
         ),
     }
 
@@ -557,9 +693,14 @@ def test_supported_review_stack_change_ids_allows_sibling_stacks() -> None:
         parents=("parent",),
     )
     responses: dict[tuple[str, ...], str] = {
-        ("jj", "log", "--no-graph", "-r", "trunk()", "-T", _template(), "--limit", "2"): _TRUNK,
-        ("jj", "log", "--no-graph", "-r", "child-a", "-T", _template(), "--limit", "2"): _CHILD_A,
-        ("jj", "log", "--no-graph", "-r", "child-b", "-T", _template(), "--limit", "2"): _CHILD_B,
+        _selection_scan_command("child-a"): _selection_scan_response(
+            (_TRUNK, True, False),
+            (_CHILD_A, False, True),
+        ),
+        _selection_scan_command("child-b"): _selection_scan_response(
+            (_TRUNK, True, False),
+            (_CHILD_B, False, True),
+        ),
         (
             "jj",
             "log",
@@ -1141,14 +1282,60 @@ def _template() -> str:
 
 
 def _trunk_scan_template() -> str:
+    return _scan_template_prefix() + r'json(self.contained_in("trunk()")) ++ "\n"'
+
+
+def _selection_scan_template(selection_revset: str) -> str:
     return (
-        _template().removesuffix(r'"\n"')
-        + r'"\t" ++ json(self.contained_in("trunk()")) ++ "\n"'
+        _scan_template_prefix()
+        + r'json(self.contained_in("trunk()")) ++ "\t" ++ json(self.contained_in('
+        + json.dumps(selection_revset)
+        + r')) ++ "\n"'
     )
+
+
+def _scan_template_prefix() -> str:
+    return _template().removesuffix(r'"\n"') + r'"\t" ++ '
 
 
 def _revision_with_flag_line(revision_line: str, *, is_trunk: bool) -> str:
     return revision_line.removesuffix("\n") + f"\t{'true' if is_trunk else 'false'}\n"
+
+
+def _revision_with_two_flags_line(
+    revision_line: str,
+    *,
+    is_trunk: bool,
+    is_selected: bool,
+) -> str:
+    return (
+        revision_line.removesuffix("\n")
+        + f"\t{'true' if is_trunk else 'false'}\t"
+        + f"{'true' if is_selected else 'false'}\n"
+    )
+
+
+def _selection_scan_command(selection_revset: str) -> tuple[str, ...]:
+    return (
+        "jj",
+        "log",
+        "--no-graph",
+        "-r",
+        f"trunk() | ({selection_revset}) | (merges() & ::trunk())",
+        "-T",
+        _selection_scan_template(selection_revset),
+    )
+
+
+def _selection_scan_response(*entries: tuple[str, bool, bool]) -> str:
+    return "".join(
+        _revision_with_two_flags_line(
+            revision_line,
+            is_trunk=is_trunk,
+            is_selected=is_selected,
+        )
+        for revision_line, is_trunk, is_selected in entries
+    )
 
 
 def _runner(

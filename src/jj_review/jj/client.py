@@ -23,9 +23,8 @@ _COMMIT_TEMPLATE = (
     r'json(current_working_copy) ++ "\t" ++ json(self.hidden()) ++ "\t" ++ '
     r'json(immutable) ++ "\n"'
 )
-_TRUNK_SCAN_TEMPLATE = _COMMIT_TEMPLATE.removesuffix(r'"\n"') + (
-    r'"\t" ++ json(self.contained_in("trunk()")) ++ "\n"'
-)
+_SCAN_TEMPLATE_PREFIX = _COMMIT_TEMPLATE.removesuffix(r'"\n"') + r'"\t" ++ '
+_TRUNK_SCAN_TEMPLATE = _SCAN_TEMPLATE_PREFIX + r'json(self.contained_in("trunk()")) ++ "\n"'
 _BOOKMARK_TEMPLATE = r'json(self) ++ "\n"'
 
 
@@ -104,13 +103,17 @@ class JjClient:
     ) -> LocalStack:
         """Resolve the selected review stack plus its trunk and base-parent context."""
 
-        trunk, merged_trunk_side_branch_commit_ids = (
-            self._resolve_trunk_with_merged_side_branch_commit_ids()
-        )
         if revset is None:
-            head, selected_revset = self.resolve_default_head()
+            (
+                trunk,
+                head,
+                selected_revset,
+                merged_trunk_side_branch_commit_ids,
+            ) = self._resolve_default_head_and_trunk()
         else:
-            head = self.resolve_revision(revset)
+            trunk, head, merged_trunk_side_branch_commit_ids = (
+                self._resolve_selected_head_and_trunk(revset)
+            )
             selected_revset = revset
             if head.current_working_copy and head.empty:
                 raise UnsupportedStackError(
@@ -187,25 +190,45 @@ class JjClient:
             trunk=trunk,
         )
 
-    def resolve_default_head(self) -> tuple[LocalRevision, str]:
-        """Resolve the default head revision used when the CLI omits `<revset>`."""
+    def _resolve_default_head_and_trunk(
+        self,
+    ) -> tuple[LocalRevision, LocalRevision, str, set[str]]:
+        """Resolve the default head, `trunk()`, and merged side-branch parents in one call."""
 
-        revisions = self._query_revisions("@ | @-", limit=2)
-        working_copy = next(
-            (revision for revision in revisions if revision.current_working_copy),
-            None,
+        revisions_with_trunk_membership = self._query_revisions_with_trunk_membership(
+            "trunk() | @ | @- | (merges() & ::trunk())"
         )
+        trunk: LocalRevision | None = None
+        working_copy: LocalRevision | None = None
+        merged_side_branch_commit_ids: set[str] = set()
+        revisions_by_commit_id: dict[str, LocalRevision] = {}
+        for revision, is_trunk in revisions_with_trunk_membership:
+            revisions_by_commit_id[revision.commit_id] = revision
+            if is_trunk and trunk is None:
+                trunk = revision
+            if revision.current_working_copy:
+                working_copy = revision
+            if len(revision.parents) > 1:
+                merged_side_branch_commit_ids.update(revision.parents[1:])
+        trunk = self._validate_trunk(trunk)
         if working_copy is None:
             raise CliError("Could not resolve the current working-copy revision.")
         if working_copy.empty:
-            parent = next(
-                (revision for revision in revisions if not revision.current_working_copy),
-                None,
+            parent_commit_id = working_copy.parents[0] if working_copy.parents else None
+            parent = (
+                revisions_by_commit_id.get(parent_commit_id)
+                if parent_commit_id is not None
+                else None
             )
             if parent is not None:
-                return parent, "@-"
-            return self.resolve_revision("@-"), "@-"
-        return working_copy, "@"
+                return trunk, parent, "@-", merged_side_branch_commit_ids
+            return (
+                trunk,
+                self.resolve_revision("@-"),
+                "@-",
+                merged_side_branch_commit_ids,
+            )
+        return trunk, working_copy, "@", merged_side_branch_commit_ids
 
     def resolve_revision(self, revset: str) -> LocalRevision:
         """Resolve a revset to exactly one revision."""
@@ -328,7 +351,15 @@ class JjClient:
     def _resolve_trunk(self) -> LocalRevision:
         """Resolve `trunk()` and reject the implicit root fallback."""
 
-        trunk = self.resolve_revision("trunk()")
+        return self._validate_trunk(self.resolve_revision("trunk()"))
+
+    def _validate_trunk(self, trunk: LocalRevision | None) -> LocalRevision:
+        """Reject missing-trunk and implicit-root-fallback resolutions."""
+
+        if trunk is None:
+            raise JjCommandError(
+                t"{ui.cmd('jj log')} did not resolve {ui.revset('trunk()')}."
+            )
         if len(trunk.parents) == 0:
             raise UnsupportedStackError(
                 t"{ui.revset('trunk()')} resolved to the root commit. Configure a concrete trunk "
@@ -374,32 +405,40 @@ class JjClient:
             )
         return boundary, boundary.commit_id in merged_trunk_side_branch_commit_ids
 
-    def _resolve_trunk_with_merged_side_branch_commit_ids(
+    def _resolve_selected_head_and_trunk(
         self,
-    ) -> tuple[LocalRevision, set[str]]:
-        """Resolve trunk plus merged side-branch parents in one `jj log` call."""
+        revset: str,
+    ) -> tuple[LocalRevision, LocalRevision, set[str]]:
+        """Resolve `revset`, `trunk()`, and merged side-branch parents in one call."""
 
-        revisions_with_trunk_membership = self._query_revisions_with_trunk_membership(
-            "trunk() | (merges() & ::trunk())"
-        )
+        try:
+            revisions = self._query_revisions_with_trunk_and_selection_membership(
+                f"trunk() | ({revset}) | (merges() & ::trunk())",
+                selection_revset=revset,
+            )
+        except JjCommandError as error:
+            friendly_error = _revset_resolution_error(revset, error)
+            if friendly_error is not None:
+                raise friendly_error from error
+            raise
+
         trunk: LocalRevision | None = None
+        selected: list[LocalRevision] = []
         merged_side_branch_commit_ids: set[str] = set()
-        for revision, is_trunk in revisions_with_trunk_membership:
+        for revision, is_trunk, is_selected in revisions:
             if is_trunk and trunk is None:
                 trunk = revision
+            if is_selected:
+                selected.append(revision)
             if len(revision.parents) > 1:
                 merged_side_branch_commit_ids.update(revision.parents[1:])
-        if trunk is None:
-            raise JjCommandError(
-                t"{ui.cmd('jj log')} did not resolve {ui.revset('trunk()')}."
-            )
-        if len(trunk.parents) == 0:
-            raise UnsupportedStackError(
-                t"{ui.revset('trunk()')} resolved to the root commit. Configure a concrete trunk "
-                t"bookmark before discovering a review stack.",
-                reason="trunk_resolved_to_root",
-            )
-        return trunk, merged_side_branch_commit_ids
+
+        if not selected:
+            raise CliError(t"Revset {ui.revset(revset)} did not resolve to a visible revision.")
+        if len(selected) > 1:
+            raise CliError(t"Revset {ui.revset(revset)} resolved to more than one revision.")
+
+        return self._validate_trunk(trunk), selected[0], merged_side_branch_commit_ids
 
     def _query_children_by_parent(
         self,
@@ -764,6 +803,30 @@ class JjClient:
             revisions.append(_parse_revision_with_flag_line(stripped))
         return revisions
 
+    def _query_revisions_with_trunk_and_selection_membership(
+        self,
+        revset: str,
+        *,
+        selection_revset: str,
+    ) -> list[tuple[LocalRevision, bool, bool]]:
+        stdout = self._run_jj(
+            (
+                "log",
+                "--no-graph",
+                "-r",
+                revset,
+                "-T",
+                _selection_scan_template(selection_revset),
+            )
+        )
+        revisions: list[tuple[LocalRevision, bool, bool]] = []
+        for line in stdout.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            revisions.append(_parse_revision_with_two_flag_line(stripped))
+        return revisions
+
     def _run_jj(self, args: Sequence[str]) -> str:
         return self._run_command(
             ["jj", *args],
@@ -854,6 +917,7 @@ def _default_runner(command: Sequence[str], cwd: Path) -> subprocess.CompletedPr
 
 _EXPECTED_FIELD_COUNT = 9
 _EXPECTED_FIELD_COUNT_WITH_FLAG = 10
+_EXPECTED_FIELD_COUNT_WITH_TWO_FLAGS = 11
 
 
 def _is_missing_revision_error(message: str) -> bool:
@@ -944,12 +1008,47 @@ def _parse_revision_with_flag_line(line: str) -> tuple[LocalRevision, bool]:
         ) from error
 
 
+def _parse_revision_with_two_flag_line(line: str) -> tuple[LocalRevision, bool, bool]:
+    parts = line.split("\t")
+    if len(parts) != _EXPECTED_FIELD_COUNT_WITH_TWO_FLAGS:
+        raise JjCommandError(
+            t"{ui.cmd('jj log')} output has unexpected format: expected "
+            t"{_EXPECTED_FIELD_COUNT_WITH_TWO_FLAGS} tab-separated fields, got {len(parts)}. "
+            t"Raw line: {line!r}"
+        )
+    revision = _parse_revision_line("\t".join(parts[:_EXPECTED_FIELD_COUNT]))
+    try:
+        return (
+            revision,
+            bool(json.loads(parts[_EXPECTED_FIELD_COUNT])),
+            bool(json.loads(parts[_EXPECTED_FIELD_COUNT + 1])),
+        )
+    except json.JSONDecodeError as error:
+        raise JjCommandError(
+            t"{ui.cmd('jj log')} output contains invalid JSON: {error}. Raw line: {line!r}"
+        ) from error
+    except (TypeError, ValueError) as error:
+        raise JjCommandError(
+            t"{ui.cmd('jj log')} output has unexpected field types: {error}. Raw line: {line!r}"
+        ) from error
+
+
 def _require_sequence(value: Any) -> Sequence[str]:
     if not isinstance(value, list | tuple):
         raise JjCommandError(
             t"Unexpected {ui.cmd('jj bookmark list')} payload: expected a sequence."
         )
     return tuple(str(item) for item in value if item is not None)
+
+
+def _selection_scan_template(selection_revset: str) -> str:
+    return (
+        _SCAN_TEMPLATE_PREFIX
+        + r'json(self.contained_in("trunk()")) ++ "\t" ++ '
+        + r'json(self.contained_in('
+        + json.dumps(selection_revset)
+        + r')) ++ "\n"'
+    )
 
 
 def _quote_revset_symbol(symbol: str) -> str:
