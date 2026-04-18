@@ -1484,6 +1484,11 @@ This slice is done when:
 Backlog should keep repo-scoped `sync` as a separate question. This slice
 solves explicit import/materialization, not whole-repo refresh policy.
 
+Submit now also performs a local conflict preflight before any bookmark,
+remote, or GitHub mutation. A selected stack with unresolved `jj` conflicts
+fails closed with targeted local guidance instead of pushing an unmergeable
+review snapshot.
+
 ### Close
 
 `close` is implemented. The normal user-facing "stop review for this stack"

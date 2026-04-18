@@ -5,6 +5,7 @@ import pytest
 from jj_review.commands.submit import (
     _ensure_pull_request_link_is_consistent,
     _ensure_remote_can_be_updated,
+    _preflight_conflicted_revisions,
     _preflight_private_commits,
     _resolve_local_action,
 )
@@ -142,6 +143,40 @@ def test_preflight_private_commits_error_names_the_blocked_changes() -> None:
 
     with pytest.raises(CliError, match="secret work"):
         _preflight_private_commits(client, (private,))
+def test_preflight_conflicted_revisions_raises_on_conflicted_change() -> None:
+    conflicted = LocalRevision(
+        change_id="head-change",
+        commit_id="head",
+        conflict=True,
+        current_working_copy=False,
+        description="conflicted feature\n",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=("trunk",),
+    )
+
+    with pytest.raises(CliError, match="unresolved conflicts"):
+        _preflight_conflicted_revisions((conflicted,))
+
+
+def test_preflight_conflicted_revisions_error_names_the_blocked_changes() -> None:
+    conflicted = LocalRevision(
+        change_id="abcd1234",
+        commit_id="abc12345",
+        conflict=True,
+        current_working_copy=False,
+        description="conflicted feature\n",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=("trunk",),
+    )
+
+    with pytest.raises(CliError, match="conflicted feature"):
+        _preflight_conflicted_revisions((conflicted,))
 
 
 def _github_pull_request(number: int) -> GithubPullRequest:

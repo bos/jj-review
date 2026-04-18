@@ -360,6 +360,9 @@ Given a selected head revision:
    selected head and `trunk()`, or an allowed merged-side boundary discovered
    during status-style stack inspection.
 3. Reject ambiguous shapes instead of inventing metadata to patch around them.
+   Also fail closed if any selected local change still has unresolved
+   conflicts; submit must not push or open review state for a conflicted local
+   stack snapshot.
 4. Resolve each change's bookmark by reuse-first, generation-second:
    - explicit override, if present
    - otherwise previously chosen local or saved name, or the head branch of an

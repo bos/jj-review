@@ -1,7 +1,9 @@
 """Create or update GitHub pull requests for the selected stack of changes.
 
 This pushes or updates the GitHub branches for that stack, then opens or
-refreshes one pull request per change from bottom to top.
+refreshes one pull request per change from bottom to top. Selected local
+changes must be free of unresolved conflicts before submit will mutate
+bookmarks, remotes, or GitHub state.
 
 Use `--describe-with HELPER` to delegate pull request titles and bodies plus
 stack-comment prose. `jj-review` invokes the helper as
@@ -577,6 +579,7 @@ def _prepare_submit_inputs(
         discovered_bookmarks=discovered_bookmarks,
     ).pin_revisions(stack.revisions)
     ensure_unique_bookmarks(bookmark_result.resolutions)
+    _preflight_conflicted_revisions(stack.revisions)
     _preflight_private_commits(client, stack.revisions)
     (
         generated_pull_request_descriptions,
@@ -1205,6 +1208,20 @@ def _preflight_private_commits(
         t"Stack contains commits blocked by "
         t"{ui.code('git.private-commits')}: {subjects}.",
         hint="Remove these changes from the stack before submitting.",
+    )
+
+
+def _preflight_conflicted_revisions(revisions: tuple[LocalRevision, ...]) -> None:
+    conflicted = tuple(revision for revision in revisions if revision.conflict)
+    if not conflicted:
+        return
+    subjects = ui.join(
+        lambda revision: t"{ui.change_id(revision.change_id)} ({revision.subject})",
+        conflicted,
+    )
+    raise CliError(
+        t"Stack contains changes with unresolved conflicts: {subjects}. "
+        t"Resolve these changes before submitting."
     )
 
 

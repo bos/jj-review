@@ -299,6 +299,38 @@ def test_submit_invalid_revset_reports_clean_error_without_mutation(
     assert fake_repo.pull_requests == {}
 
 
+def test_submit_blocks_unresolved_conflicted_rebase_without_mutation(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "shared.txt")
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[0].change_id
+
+    run_command(["jj", "new", "main"], repo)
+    write_file(repo / "shared.txt", "trunk 1\n")
+    run_command(["jj", "commit", "-m", "trunk 1"], repo)
+    run_command(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
+    run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+    run_command(["jj", "rebase", "-s", change_id, "-d", "main"], repo)
+
+    rebased_stack = JjClient(repo).discover_review_stack(change_id)
+    assert rebased_stack.revisions[0].conflict is True
+
+    exit_code = run_main(repo, config_path, "submit", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "unresolved conflicts" in captured.err
+    assert ReviewStateStore.for_repo(repo).load().changes == {}
+    assert set(remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
+    assert fake_repo.pull_requests == {}
+
+
 def test_submit_creates_navigation_comment_for_each_pull_request_in_multi_pr_stack(
     tmp_path: Path,
     monkeypatch,
