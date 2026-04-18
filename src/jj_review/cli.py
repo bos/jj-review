@@ -21,7 +21,7 @@ from jj_review import __version__, bootstrap, commands, console, ui
 from jj_review.bootstrap import APP_START
 from jj_review.completion import emit_shell_completion
 from jj_review.console import ColorMode, RequestedColorMode, configured_console, rich_color_mode
-from jj_review.errors import CliError, error_message
+from jj_review.errors import CliError, error_hint, error_message
 
 logger = logging.getLogger(__name__)
 SubparserT = TypeVar("SubparserT", bound=ArgumentParser)
@@ -751,6 +751,12 @@ def _print_cli_error(error: CliError) -> None:
         console.error(message, soft_wrap=True)
     else:
         console.error(("Error: ", message), soft_wrap=True)
+    hint = error_hint(error)
+    if hint is not None:
+        console.stderr_output(
+            (ui.semantic_text("Hint: ", "hint", "heading"), hint),
+            soft_wrap=True,
+        )
 
 
 def _load_configured_jj_color(*, repository: Path | None) -> RequestedColorMode | None:

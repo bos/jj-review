@@ -11,6 +11,8 @@ import pytest
 from jj_review import console
 from jj_review.commands.land import (
     DivergenceKind,
+    LandResult,
+    PreparedLand,
     _build_land_plan,
     _ensure_trunk_branch_matches_selected_trunk,
     _find_resume_land_intent,
@@ -20,9 +22,11 @@ from jj_review.commands.land import (
     _report_stale_land_intents,
     _restore_local_trunk_bookmark,
     _resume_land_plan,
-    _stack_not_on_trunk_message,
+    _stack_not_on_trunk_error,
     _updated_landed_change,
+    stream_land,
 )
+from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
@@ -90,6 +94,50 @@ def test_build_land_plan_uses_maximal_ready_prefix() -> None:
     assert plan.boundary_action is not None
     assert plan.boundary_action.status == "planned"
     assert "before feature 3" in plan.boundary_action.message
+
+
+def test_stream_land_skips_stack_comment_inspection(monkeypatch) -> None:
+    prepared_status = _prepared_status(("change-1",))
+    prepared_land = PreparedLand(
+        cleanup_bookmarks=True,
+        dry_run=True,
+        bypass_readiness=False,
+        config=RepoConfig(),
+        prepared_status=prepared_status,
+        selected_pr_number=None,
+    )
+    expected_result = LandResult(
+        actions=(),
+        applied=False,
+        bypass_readiness=False,
+        blocked=False,
+        follow_up=None,
+        github_repository="octo-org/stacked-review",
+        remote_name="origin",
+        selected_revset="@-",
+        trunk_branch="main",
+        trunk_subject="base",
+    )
+
+    monkeypatch.setattr(
+        "jj_review.commands.land.prepared_status_github_inspection_count",
+        lambda *, prepared_status: 0,
+    )
+
+    def fake_stream_status(**kwargs):
+        assert kwargs["inspect_stack_comments"] is False
+        return cast(StatusResult, SimpleNamespace())
+
+    async def fake_stream_land_async(*, prepared_land, status_result):
+        assert status_result is not None
+        return expected_result
+
+    monkeypatch.setattr("jj_review.commands.land.stream_status", fake_stream_status)
+    monkeypatch.setattr("jj_review.commands.land._stream_land_async", fake_stream_land_async)
+
+    result = stream_land(prepared_land=prepared_land)
+
+    assert result == expected_result
 
 
 @pytest.mark.parametrize(
@@ -446,7 +494,7 @@ def test_build_land_plan_bypass_readiness_uses_maximal_open_prefix() -> None:
     assert "before feature 3" in plan.boundary_action.message
 
 
-def test_stack_not_on_trunk_message_recommends_rebase_when_no_changes_are_merged() -> None:
+def test_stack_not_on_trunk_error_recommends_rebase_when_no_changes_have_landed() -> None:
     prepared_status = _prepared_status(("change-1", "change-2"), selected_revset="@-")
     status_result = cast(
         StatusResult,
@@ -473,17 +521,19 @@ def test_stack_not_on_trunk_message_recommends_rebase_when_no_changes_are_merged
         ),
     )
 
-    message = _stack_not_on_trunk_message(
+    error = _stack_not_on_trunk_error(
         prepared_status=prepared_status,
         status_result=status_result,
     )
 
-    rendered = plain_text(message)
-    assert "jj rebase -s change-1 -d 'trunk()'" in rendered
-    assert "cleanup --restack" not in rendered
+    assert plain_text(error.message) == "Selected stack is not based on the current trunk()."
+    assert error.hint is not None
+    rendered_hint = plain_text(error.hint)
+    assert "jj rebase -s change-1 -d 'trunk()'" in rendered_hint
+    assert "cleanup --restack" not in rendered_hint
 
 
-def test_stack_not_on_trunk_message_recommends_cleanup_when_stack_has_merged_change() -> None:
+def test_stack_not_on_trunk_error_recommends_cleanup_when_stack_has_landed_change() -> None:
     prepared_status = _prepared_status(("change-1", "change-2"), selected_revset="@-")
     status_result = cast(
         StatusResult,
@@ -511,14 +561,16 @@ def test_stack_not_on_trunk_message_recommends_cleanup_when_stack_has_merged_cha
         ),
     )
 
-    message = _stack_not_on_trunk_message(
+    error = _stack_not_on_trunk_error(
         prepared_status=prepared_status,
         status_result=status_result,
     )
 
-    rendered = plain_text(message)
-    assert "cleanup --restack @-" in rendered
-    assert "jj rebase -s" not in rendered
+    assert plain_text(error.message) == "Selected stack is not based on the current trunk()."
+    assert error.hint is not None
+    rendered_hint = plain_text(error.hint)
+    assert "cleanup --restack @-" in rendered_hint
+    assert "jj rebase -s" not in rendered_hint
 
 
 def test_updated_landed_change_marks_pr_merged_and_clears_stack_comment() -> None:

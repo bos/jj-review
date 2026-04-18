@@ -610,6 +610,101 @@ def test_prepare_status_fetches_before_remote_bookmark_discovery(
     assert prepared_with_fetch.prepared.status_revisions[0].bookmark_source == "discovered"
 
 
+def test_prepare_status_skips_initial_stack_walk_when_fetch_is_unconditional(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    revision = LocalRevision(
+        change_id="aaaaaaaa1234",
+        commit_id="commit-1",
+        current_working_copy=False,
+        description="feature 1",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=("trunk-commit",),
+    )
+    trunk = LocalRevision(
+        change_id="trunkchangeid",
+        commit_id="trunk-commit",
+        current_working_copy=False,
+        description="base",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=True,
+        parents=("root",),
+    )
+    stack = LocalStack(
+        base_parent=trunk,
+        head=revision,
+        revisions=(revision,),
+        selected_revset="@",
+        trunk=trunk,
+    )
+    remote = GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git")
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.discover_calls = 0
+            self.fetch_calls = 0
+
+        def discover_review_stack(
+            self,
+            revset,
+            *,
+            allow_divergent=False,
+            allow_immutable=False,
+        ):
+            self.discover_calls += 1
+            assert revset is None
+            assert allow_divergent is True
+            assert allow_immutable is True
+            return stack
+
+        def list_git_remotes(self):
+            return (remote,)
+
+        def fetch_remote(self, *, remote: str) -> None:
+            assert remote == "origin"
+            self.fetch_calls += 1
+
+        def list_bookmark_states(self, bookmarks=None):
+            return {}
+
+    class FakeStateStore:
+        def load(self) -> ReviewState:
+            return ReviewState()
+
+        def save(self, state: ReviewState) -> None:
+            raise AssertionError("unexpected save")
+
+        def list_intents(self) -> list[object]:
+            return []
+
+    client = FakeClient()
+    monkeypatch.setattr("jj_review.review.status.JjClient", lambda _: client)
+    monkeypatch.setattr(
+        "jj_review.review.status.ReviewStateStore.for_repo",
+        lambda _: FakeStateStore(),
+    )
+
+    from jj_review.review.status import prepare_status
+
+    prepare_status(
+        change_overrides={},
+        config=RepoConfig(),
+        fetch_remote_state=True,
+        re_resolve_after_remote_refresh=True,
+        repo_root=tmp_path,
+        revset=None,
+    )
+
+    assert client.fetch_calls == 1
+    assert client.discover_calls == 1
+
+
 def test_pinned_bookmarks_for_revisions_returns_none_when_any_revision_unpinned() -> None:
     pinned_revision = cast(LocalRevision, SimpleNamespace(change_id="aaaaaaaa1234"))
     unpinned_revision = cast(LocalRevision, SimpleNamespace(change_id="bbbbbbbb5678"))

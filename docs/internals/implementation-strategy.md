@@ -92,6 +92,14 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- `land` now skips stack-summary comment lookups during its readiness/status
+  inspection, because the command does not use that data to plan or dry-run a
+  landing; that trims one GitHub issue-comment request per open PR from
+  `land --dry-run` and the preflight path before execution
+- status preparation now skips the first selected-stack discovery when a
+  command will unconditionally fetch and then immediately re-resolve the stack,
+  so `land` avoids one redundant round of `jj log` stack-walk queries before
+  refresh
 - `status` is now local-first for untracked stacks: it no longer creates
   bookmark-only saved state or does speculative GitHub PR discovery for
   never-tracked local changes, while `import` is the explicit recovery path
@@ -117,6 +125,9 @@ Recent refactor slices:
   explicit `error:` wording instead of the hanging-indent status helper, so
   lookup failures and non-GitHub remotes no longer split awkwardly across
   lines
+- CLI failures can now separate the diagnosis from the next-step guidance,
+  rendering `Error:` on its own line and any actionable `Hint:` on the next
+  line instead of tinting both as one long failure sentence
 - top-level and subcommand `help` output now build on shared `ui` definition-
   list and prefixed-line primitives, so section headings, command labels, and
   option labels render through the Rich-backed console path instead of

@@ -188,11 +188,11 @@ def test_land_rejects_stack_forked_from_trunk_ancestor(
 
     exit_code = run_main(repo, config_path, "land")
     captured = capsys.readouterr()
-    combined = captured.out + captured.err
 
     assert exit_code == 1
-    assert "Selected stack is not based on the current trunk()" in combined
-    assert "jj rebase -s" in combined
+    assert "Error: Selected stack is not based on the current trunk()." in captured.err
+    assert "\nHint: No change in the selected stack has landed yet." in captured.err
+    assert "jj rebase -s" in captured.err
     assert fetch_calls == ["origin"]
 
 
@@ -223,9 +223,10 @@ def test_land_reports_current_trunk_drift_after_fetch_instead_of_bookmark_mismat
     combined = captured.out + captured.err
 
     assert exit_code == 1
-    assert "Selected stack is not based on the current trunk()" in combined
-    assert "jj rebase -s" in combined
-    assert "cleanup --restack" not in combined
+    assert "Error: Selected stack is not based on the current trunk()." in captured.err
+    assert "\nHint: No change in the selected stack has landed yet." in captured.err
+    assert "jj rebase -s" in captured.err
+    assert "cleanup --restack" not in captured.err
     assert "Local bookmark main points to a different revision" not in combined
 
 
@@ -256,12 +257,12 @@ def test_land_recommends_cleanup_when_selected_stack_already_has_merged_changes(
 
     exit_code = run_main(repo, config_path, "land", "--dry-run")
     captured = capsys.readouterr()
-    combined = captured.out + captured.err
 
     assert exit_code == 1
-    assert "Selected stack is not based on the current trunk()" in combined
-    assert "cleanup --restack" in combined
-    assert "jj rebase -s" not in combined
+    assert "Error: Selected stack is not based on the current trunk()." in captured.err
+    assert "\nHint: Some lower changes from this stack already landed." in captured.err
+    assert "cleanup --restack" in captured.err
+    assert "jj rebase -s" not in captured.err
 
 
 def test_land_defaults_to_at_minus_when_working_copy_is_non_empty(

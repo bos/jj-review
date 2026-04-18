@@ -1091,8 +1091,8 @@ def _resolve_local_action(
     if len(local_targets) > 1:
         raise CliError(
             t"Bookmark {ui.bookmark(bookmark)} has {len(local_targets)} conflicting "
-            t"local targets. Resolve the bookmark conflict with "
-            t"{ui.cmd('jj bookmark')} before submitting."
+            t"local targets.",
+            hint=t"Resolve the bookmark conflict with {ui.cmd('jj bookmark')} before submitting.",
         )
     local_target = local_targets[0] if local_targets else None
     if local_target == desired_target:
@@ -1173,8 +1173,8 @@ def _preflight_private_commits(
     )
     raise CliError(
         t"Stack contains commits blocked by "
-        t"{ui.code('git.private-commits')}: {subjects}. "
-        t"Remove these changes from the stack before submitting."
+        t"{ui.code('git.private-commits')}: {subjects}.",
+        hint="Remove these changes from the stack before submitting.",
     )
 
 
@@ -1784,9 +1784,11 @@ def _select_discovered_pull_request(
     if len(pull_requests) > 1:
         raise CliError(
             t"GitHub reports multiple pull requests for head branch "
-            t"{ui.bookmark(head_label)}. Inspect the PR link with "
-            t"{ui.cmd('status --fetch')} and repair it with {ui.cmd('relink')} "
-            t"before submitting again."
+            t"{ui.bookmark(head_label)}.",
+            hint=(
+                t"Inspect the PR link with {ui.cmd('status --fetch')} and repair it "
+                t"with {ui.cmd('relink')} before submitting again."
+            ),
         )
     if not pull_requests:
         return None
@@ -1794,9 +1796,11 @@ def _select_discovered_pull_request(
     if pull_request.state != "open":
         raise CliError(
             t"GitHub reports pull request #{pull_request.number} for head branch "
-            t"{ui.bookmark(head_label)} in state {pull_request.state}. Inspect the "
-            t"PR link with {ui.cmd('status --fetch')} and repair it with "
-            t"{ui.cmd('relink')} before submitting again."
+            t"{ui.bookmark(head_label)} in state {pull_request.state}.",
+            hint=(
+                t"Inspect the PR link with {ui.cmd('status --fetch')} and repair it "
+                t"with {ui.cmd('relink')} before submitting again."
+            ),
         )
     return pull_request
 
@@ -1819,23 +1823,30 @@ def _ensure_pull_request_link_is_consistent(
     if discovered_pull_request is None:
         raise CliError(
             t"Saved pull request link exists for bookmark {ui.bookmark(bookmark)}, "
-            t"but GitHub no longer reports a PR for that head branch. Inspect the "
-            t"PR link with {ui.cmd('status --fetch')} and repair it with "
-            t"{ui.cmd('relink')} before submitting again."
+            t"but GitHub no longer reports a PR for that head branch.",
+            hint=(
+                t"Inspect the PR link with {ui.cmd('status --fetch')} and repair it "
+                t"with {ui.cmd('relink')} before submitting again."
+            ),
         )
     if cached_change.pr_number not in (None, discovered_pull_request.number):
         raise CliError(
             t"Saved pull request #{cached_change.pr_number} does not match the PR "
             t"GitHub reports for bookmark {ui.bookmark(bookmark)} "
-            t"(#{discovered_pull_request.number}). Inspect the PR link with "
-            t"{ui.cmd('status --fetch')} and repair it with {ui.cmd('relink')} "
-            t"before submitting again."
+            t"(#{discovered_pull_request.number}).",
+            hint=(
+                t"Inspect the PR link with {ui.cmd('status --fetch')} and repair it "
+                t"with {ui.cmd('relink')} before submitting again."
+            ),
         )
     if cached_change.pr_url not in (None, discovered_pull_request.html_url):
         raise CliError(
             t"Saved pull request URL for bookmark {ui.bookmark(bookmark)} does not "
-            t"match GitHub. Inspect the PR link with {ui.cmd('status --fetch')} and "
-            t"repair it with {ui.cmd('relink')} before submitting again."
+            t"match GitHub.",
+            hint=(
+                t"Inspect the PR link with {ui.cmd('status --fetch')} and repair it "
+                t"with {ui.cmd('relink')} before submitting again."
+            ),
         )
 
 
@@ -1847,8 +1858,8 @@ def _ensure_change_is_not_unlinked(
     if cached_change is None or not cached_change.is_unlinked:
         return
     raise CliError(
-        t"Change {ui.change_id(change_id)} is unlinked from review tracking. Run "
-        t"{ui.cmd('relink')} to reattach it before submitting again."
+        t"Change {ui.change_id(change_id)} is unlinked from review tracking.",
+        hint=t"Run {ui.cmd('relink')} to reattach it before submitting again.",
     )
 
 
@@ -2123,9 +2134,11 @@ async def _clear_stack_comment(
                 raise CliError(
                     t"Saved stack summary comment #{cached_change.stack_comment_id} for "
                     t"pull request #{pull_request_number} does not belong to "
-                    t"jj-review. Inspect the PR link "
-                    t"with {ui.cmd('status --fetch')} or delete the saved comment ID "
-                    t"before submitting again."
+                    t"jj-review.",
+                    hint=(
+                        t"Inspect the PR link with {ui.cmd('status --fetch')} or "
+                        t"delete the saved comment ID before submitting again."
+                    ),
                 )
             if not dry_run:
                 await _delete_stack_comment(
@@ -2178,9 +2191,11 @@ async def _upsert_stack_comment(
                 raise CliError(
                     t"Saved stack summary comment #{cached_change.stack_comment_id} for "
                     t"pull request #{pull_request_number} does not belong to "
-                    t"jj-review. Inspect the PR link "
-                    t"with {ui.cmd('status --fetch')} or delete the saved comment ID "
-                    t"before submitting again."
+                    t"jj-review.",
+                    hint=(
+                        t"Inspect the PR link with {ui.cmd('status --fetch')} or "
+                        t"delete the saved comment ID before submitting again."
+                    ),
                 )
             if cached_comment.body == comment_body:
                 return cached_comment
@@ -2230,9 +2245,11 @@ async def _discover_stack_comment(
         comment_ids = ", ".join(str(comment.id) for comment in matching_comments)
         raise CliError(
             t"GitHub reports multiple jj-review stack "
-            t"summary comments for the same pull request: {comment_ids}. Inspect the "
-            t"PR link with {ui.cmd('status --fetch')} or delete the extra stack "
-            t"summary comments before submitting again."
+            t"summary comments for the same pull request: {comment_ids}.",
+            hint=(
+                t"Inspect the PR link with {ui.cmd('status --fetch')} or delete the "
+                t"extra stack summary comments before submitting again."
+            ),
         )
     return matching_comments[0]
 

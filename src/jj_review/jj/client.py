@@ -870,8 +870,8 @@ class JjClient:
             message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
             if detect_stale_workspace and "The working copy is stale" in message:
                 raise StaleWorkspaceError(
-                    t"The current workspace is stale. Run {ui.cmd('jj workspace update-stale')} "
-                    t"and retry."
+                    "The current workspace is stale.",
+                    hint=t"Run {ui.cmd('jj workspace update-stale')} and retry.",
                 )
             raise JjCommandError(t"{ui.cmd(shlex.join(command))} failed: {message}")
         return completed.stdout

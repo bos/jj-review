@@ -135,8 +135,11 @@ async def _run_unlink_async(
         status_revision=status_revision,
     ):
         raise CliError(
-            t"The selected change has no active review tracking link to unlink. "
-            t"Use {ui.cmd('relink')} only when you need to attach an existing PR intentionally."
+            t"The selected change has no active review tracking link to unlink.",
+            hint=(
+                t"Use {ui.cmd('relink')} only when you need to attach an existing PR "
+                t"intentionally."
+            ),
         )
 
     updated_change = (cached_change or CachedChange(bookmark=bookmark)).model_copy(

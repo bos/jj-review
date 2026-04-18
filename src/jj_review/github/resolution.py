@@ -42,8 +42,8 @@ def select_submit_remote(remotes: tuple[GitRemote, ...]) -> GitRemote:
     if len(remotes) == 1:
         return remotes[0]
     raise CliError(
-        t"Could not determine which Git remote to use for submit. Add an "
-        t"{ui.bookmark('origin')} remote or leave exactly one remote."
+        "Could not determine which Git remote to use for submit.",
+        hint=t"Add an {ui.bookmark('origin')} remote or leave exactly one remote.",
     )
 
 
@@ -89,8 +89,8 @@ def require_github_repo(remote: GitRemote) -> ParsedGithubRepo:
     if github_repository is not None:
         return github_repository
     raise CliError(
-        t"Could not determine the GitHub repository for remote {ui.bookmark(remote.name)}. "
-        t"Use a GitHub remote URL."
+        t"Could not determine the GitHub repository for remote {ui.bookmark(remote.name)}.",
+        hint="Use a GitHub remote URL.",
     )
 
 
@@ -120,9 +120,11 @@ def resolve_trunk_branch(
             t"{_render_bookmark_list(remote_bookmarks)}."
         )
     raise CliError(
-        t"Could not determine the trunk branch for remote {ui.bookmark(remote_name)}. "
-        t"Ensure the GitHub repository exposes a default branch or create one remote "
-        t"bookmark that points at {ui.revset('trunk()')}."
+        t"Could not determine the trunk branch for remote {ui.bookmark(remote_name)}.",
+        hint=(
+            t"Ensure the GitHub repository exposes a default branch or create one "
+            t"remote bookmark that points at {ui.revset('trunk()')}."
+        ),
     )
 
 

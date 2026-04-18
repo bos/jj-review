@@ -352,6 +352,7 @@ def stream_land(*, prepared_land: PreparedLand) -> LandResult:
     )
     with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = stream_status(
+            inspect_stack_comments=False,
             on_revision=lambda _revision, _github_available: progress.advance(),
             prepared_status=prepared_status,
         )
@@ -376,11 +377,9 @@ async def _stream_land_async(
             t"{status_result.github_error}"
         )
     if _selected_stack_is_not_on_current_trunk(prepared_status=prepared_status):
-        raise CliError(
-            _stack_not_on_trunk_message(
-                prepared_status=prepared_status,
-                status_result=status_result,
-            )
+        raise _stack_not_on_trunk_error(
+            prepared_status=prepared_status,
+            status_result=status_result,
         )
 
     github_repository = prepared_status.github_repository
@@ -659,25 +658,30 @@ def _selected_stack_is_not_on_current_trunk(*, prepared_status: PreparedStatus) 
     )
 
 
-def _stack_not_on_trunk_message(
+def _stack_not_on_trunk_error(
     *,
     prepared_status: PreparedStatus,
     status_result: StatusResult,
-) -> LandActionBody:
+) -> CliError:
+    message = t"Selected stack is not based on the current {ui.revset('trunk()')}."
     if any(revision_has_merged_pull_request(revision) for revision in status_result.revisions):
-        return (
-            t"Selected stack is not based on the current {ui.revset('trunk()')}. "
-            t"Some lower changes from this stack already landed, so run "
-            t"{ui.cmd('cleanup --restack')} {ui.revset(status_result.selected_revset)} "
-            t"to restack the remaining local changes before retrying."
+        return CliError(
+            message,
+            hint=(
+                t"Some lower changes from this stack already landed. Run "
+                t"{ui.cmd('cleanup --restack')} {ui.revset(status_result.selected_revset)} "
+                t"to restack the remaining local changes before retrying."
+            ),
         )
 
     bottom_change_id = prepared_status.prepared.status_revisions[0].revision.change_id
     rebase_command = f"jj rebase -s {short_change_id(bottom_change_id)} -d 'trunk()'"
-    return (
-        t"Selected stack is not based on the current {ui.revset('trunk()')}. "
-        t"No change in the selected stack has landed yet, so move the whole stack onto "
-        t"{ui.revset('trunk()')} with {ui.cmd(rebase_command)} before retrying."
+    return CliError(
+        message,
+        hint=(
+            t"No change in the selected stack has landed yet. Move the whole stack onto "
+            t"{ui.revset('trunk()')} with {ui.cmd(rebase_command)} before retrying."
+        ),
     )
 
 
@@ -1319,40 +1323,46 @@ def _ensure_trunk_branch_matches_selected_trunk(
     bookmark_state = client.get_bookmark_state(trunk_branch)
     if len(bookmark_state.local_targets) > 1:
         raise CliError(
-            t"Local trunk bookmark {ui.bookmark(trunk_branch)} is conflicted. "
-            t"Resolve it before landing."
+            t"Local trunk bookmark {ui.bookmark(trunk_branch)} is conflicted.",
+            hint="Resolve it before landing.",
         )
     local_target = bookmark_state.local_target
     if local_target is not None and local_target != trunk_commit_id:
         inspect_command = f"jj log -r '{trunk_branch}|trunk()'"
         raise CliError(
             t"Local bookmark {ui.bookmark(trunk_branch)} points to a different "
-            t"revision than {ui.revset('trunk()')}. Inspect both with "
-            t"{ui.cmd(inspect_command)} and move "
-            t"{ui.bookmark(trunk_branch)} back to {ui.revset('trunk()')} before "
-            t"retrying."
+            t"revision than {ui.revset('trunk()')}.",
+            hint=(
+                t"Inspect both with {ui.cmd(inspect_command)} and move "
+                t"{ui.bookmark(trunk_branch)} back to {ui.revset('trunk()')} before "
+                t"retrying."
+            ),
         )
 
     remote_state = bookmark_state.remote_target(remote_name)
     if remote_state is None:
         raise CliError(
             t"Remote trunk bookmark {ui.bookmark(f'{trunk_branch}@{remote_name}')} is not "
-            t"available. Fetch and retry."
+            t"available.",
+            hint="Fetch and retry.",
         )
     if len(remote_state.targets) > 1:
         raise CliError(
             t"Remote trunk bookmark {ui.bookmark(f'{trunk_branch}@{remote_name}')} is "
-            t"conflicted. Resolve it before landing."
+            t"conflicted.",
+            hint="Resolve it before landing.",
         )
     if remote_state.target is None:
         raise CliError(
             t"Remote trunk bookmark {ui.bookmark(f'{trunk_branch}@{remote_name}')} is not "
-            t"available. Fetch and retry."
+            t"available.",
+            hint="Fetch and retry.",
         )
     if remote_state.target != trunk_commit_id:
         raise CliError(
             t"Remote trunk bookmark {ui.bookmark(f'{trunk_branch}@{remote_name}')} moved since "
-            t"the selected path was resolved. Fetch, restack if needed, and retry."
+            t"the selected path was resolved.",
+            hint="Fetch, restack if needed, and retry.",
         )
 
 

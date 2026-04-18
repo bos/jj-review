@@ -196,8 +196,8 @@ async def _run_import_async(
         bookmark_token = ui.bookmark(selection.head_bookmark)
         import_fetch_cmd = ui.cmd("import --fetch")
         raise CliError(
-            t"Branch {bookmark_token} is not present locally. Re-run "
-            t"{import_fetch_cmd} to fetch that stack before importing."
+            t"Branch {bookmark_token} is not present locally.",
+            hint=t"Re-run {import_fetch_cmd} to fetch that stack before importing.",
         )
     prepared_status = prepare_status(
         change_overrides=change_overrides,
@@ -363,17 +363,19 @@ async def _resolve_pull_request_selection(
         head_branch = ui.bookmark(f"{github_repository.owner}:{head}")
         if not pull_requests:
             raise CliError(
-                t"GitHub no longer reports a pull request for head branch {head_branch}. "
-                t"Inspect the PR link with {status_fetch_cmd} and repair it with "
-                t"{relink_cmd} "
-                t"before importing again."
+                t"GitHub no longer reports a pull request for head branch {head_branch}.",
+                hint=(
+                    t"Inspect the PR link with {status_fetch_cmd} and repair it with "
+                    t"{relink_cmd} before importing again."
+                ),
             )
         numbers = ", ".join(str(pull_request.number) for pull_request in pull_requests)
         raise CliError(
-            t"GitHub reports multiple pull requests for head branch {head_branch}: {numbers}. "
-            t"Inspect the PR link with {status_fetch_cmd} and repair it with "
-            t"{relink_cmd} "
-            t"before importing again."
+            t"GitHub reports multiple pull requests for head branch {head_branch}: {numbers}.",
+            hint=(
+                t"Inspect the PR link with {status_fetch_cmd} and repair it with "
+                t"{relink_cmd} before importing again."
+            ),
         )
     pull_request = pull_requests[0]
     if pull_request.head.label != f"{github_repository.owner}:{head}":
@@ -424,8 +426,8 @@ def _fetch_selected_stack_bookmarks(
     if explicit_head_bookmark not in remote_branches:
         remote_bookmark = ui.bookmark(f"{explicit_head_bookmark}@{remote.name}")
         raise CliError(
-            t"Remote bookmark {remote_bookmark} does not exist. Fetch and retry once "
-            t"that branch is visible on the selected remote."
+            t"Remote bookmark {remote_bookmark} does not exist.",
+            hint="Fetch and retry once that branch is visible on the selected remote.",
         )
     selected_branch_targets = {
         explicit_head_bookmark: remote_branches[explicit_head_bookmark],
@@ -583,17 +585,17 @@ def _remote_bookmark_commit_id(
         if not fetch:
             raise CliError(
                 t"Remote bookmark {bookmark_token}@{remote_token} is not available in "
-                t"remembered local remote state. Re-run {ui.cmd('import --fetch')} to "
-                t"fetch that branch before importing."
+                t"remembered local remote state.",
+                hint=t"Re-run {ui.cmd('import --fetch')} to fetch that branch before importing.",
             )
         raise CliError(
-            t"Remote bookmark {bookmark_token}@{remote_token} does not exist. Fetch and "
-            t"retry once that branch is visible on the selected remote."
+            t"Remote bookmark {bookmark_token}@{remote_token} does not exist.",
+            hint="Fetch and retry once that branch is visible on the selected remote.",
         )
     if len(remote_state.targets) > 1:
         raise CliError(
-            t"Remote bookmark {bookmark_token}@{remote_token} is conflicted. Resolve it "
-            t"before importing."
+            t"Remote bookmark {bookmark_token}@{remote_token} is conflicted.",
+            hint="Resolve it before importing.",
         )
     commit_id = remote_state.target
     if commit_id is None:
@@ -727,8 +729,8 @@ def _validate_bookmark_state(
     if len(bookmark_state.local_targets) > 1:
         bookmark_token = ui.bookmark(bookmark)
         raise CliError(
-            t"Local bookmark {bookmark_token} is conflicted. "
-            t"Resolve it before importing."
+            t"Local bookmark {bookmark_token} is conflicted.",
+            hint="Resolve it before importing.",
         )
     if (
         bookmark_state.local_target is not None
@@ -736,8 +738,8 @@ def _validate_bookmark_state(
     ):
         bookmark_token = ui.bookmark(bookmark)
         raise CliError(
-            t"Local bookmark {bookmark_token} already points to a different revision. "
-            t"Move or forget it explicitly before importing."
+            t"Local bookmark {bookmark_token} already points to a different revision.",
+            hint="Move or forget it explicitly before importing.",
         )
     if selected_remote_name is None:
         return
@@ -748,15 +750,15 @@ def _validate_bookmark_state(
         remote_bookmark = ui.bookmark(bookmark)
         remote_bookmark_location = f"'{remote_bookmark}'@{selected_remote_name}"
         raise CliError(
-            f"Remote bookmark {remote_bookmark_location} is conflicted. "
-            f"Resolve it before importing."
+            f"Remote bookmark {remote_bookmark_location} is conflicted.",
+            hint="Resolve it before importing.",
         )
     if remote_state.target is not None and remote_state.target != desired_commit_id:
         remote_bookmark = ui.bookmark(bookmark)
         remote_bookmark_location = f"'{remote_bookmark}'@{selected_remote_name}"
         raise CliError(
-            f"Remote bookmark {remote_bookmark_location} already points to a different revision. "
-            "Import will not overwrite a stale remote identity."
+            f"Remote bookmark {remote_bookmark_location} already points to a different revision.",
+            hint="Import will not overwrite a stale remote identity.",
         )
 
 
@@ -903,8 +905,8 @@ def _resolve_import_bookmark(
         raise CliError(
             t"Could not safely import the selected stack because saved branch "
             t"{bookmark_token} for {ui.change_id(prepared_revision.revision.change_id)} "
-            t"is not present on the selected remote. Refresh with {status_fetch_cmd} "
-            t"or select an exact pull request."
+            t"is not present on the selected remote.",
+            hint=t"Refresh with {status_fetch_cmd} or select an exact pull request.",
         )
     if remote_state.target != prepared_revision.revision.commit_id:
         bookmark_token = ui.bookmark(bookmark)
@@ -912,7 +914,10 @@ def _resolve_import_bookmark(
         raise CliError(
             t"Could not safely import the selected stack because saved branch "
             t"{bookmark_token} for {ui.change_id(prepared_revision.revision.change_id)} "
-            t"points to a different revision on the selected remote. Refresh with "
-            t"{status_fetch_cmd} or repair the stale remote match before importing again."
+            t"points to a different revision on the selected remote.",
+            hint=(
+                t"Refresh with {status_fetch_cmd} or repair the stale remote match "
+                t"before importing again."
+            ),
         )
     return bookmark

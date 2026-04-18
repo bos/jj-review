@@ -7,6 +7,7 @@ from jj_review.github.error_messages import summarize_github_error_reason
 from jj_review.ui import Message, plain_text
 
 type ErrorMessage = Message
+type ErrorHint = Message
 
 
 def error_message(error: BaseException) -> ErrorMessage:
@@ -23,14 +24,31 @@ def error_message(error: BaseException) -> ErrorMessage:
     return str(error)
 
 
+def error_hint(error: BaseException) -> ErrorHint | None:
+    """Return the follow-up hint for an exception, if any."""
+
+    if isinstance(error, CliError):
+        return error.hint
+    return None
+
+
 class CliError(RuntimeError):
     """Base error for user-facing CLI failures."""
 
     exit_code = 1
 
-    def __init__(self, message: ErrorMessage) -> None:
+    def __init__(self, message: ErrorMessage, *, hint: ErrorHint | None = None) -> None:
         self.message = message
+        self.hint = hint
         super().__init__(plain_text(message))
 
     def __str__(self) -> str:
-        return plain_text(error_message(self))
+        message = plain_text(error_message(self)).strip()
+        if self.hint is None:
+            return message
+        hint = plain_text(self.hint).strip()
+        if not message:
+            return hint
+        if not hint:
+            return message
+        return f"{message} {hint}"

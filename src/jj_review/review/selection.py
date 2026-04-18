@@ -82,13 +82,16 @@ def resolve_linked_change_for_pull_request(
     ]
     if not matching_change_ids:
         raise CliError(
-            t"PR #{pull_request_number} is not linked to any local change. "
-            t"Use a revision instead, or {ui.cmd('import')} or {ui.cmd('relink')} it first."
+            t"PR #{pull_request_number} is not linked to any local change.",
+            hint=(
+                t"Use an explicit revision instead, or run {ui.cmd('import')} or "
+                t"{ui.cmd('relink')} first."
+            ),
         )
     if len(matching_change_ids) > 1:
         raise CliError(
-            t"PR #{pull_request_number} is linked to multiple local changes. "
-            t"{action_label} by explicit revision after repairing the links."
+            t"PR #{pull_request_number} is linked to multiple local changes.",
+            hint=t"{action_label} by explicit revision after repairing the links.",
         )
 
     change_id = matching_change_ids[0]
@@ -103,14 +106,14 @@ def resolve_linked_change_for_pull_request(
     if not visible_revisions:
         raise CliError(
             t"PR #{pull_request_number} is linked to local change {ui.change_id(change_id)}, "
-            t"but that change is not visible. {action_label} by revision once "
-            t"it is visible again."
+            t"but that change is not visible.",
+            hint=t"{action_label} by revision once it is visible again.",
         )
     if len(visible_revisions) > 1:
         raise CliError(
             t"PR #{pull_request_number} is linked to local change {ui.change_id(change_id)}, "
-            t"but that change is divergent. {action_label} by explicit "
-            t"revision after resolving it."
+            t"but that change is divergent.",
+            hint=t"{action_label} by explicit revision after resolving it.",
         )
     return pull_request_number, change_id
 
@@ -132,7 +135,8 @@ def _parse_repo_pull_request_number(
     except CliError as error:
         raise CliError(
             t"Could not determine the GitHub repository for {ui.cmd('--pull-request')}; "
-            t"use a pull request number or fix the selected remote."
+            t"use a pull request number or fix the selected remote.",
+            hint=error.hint,
         ) from error
     github_repository = parse_github_repo(remote)
     if github_repository is None:

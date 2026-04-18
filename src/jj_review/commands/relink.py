@@ -144,26 +144,29 @@ async def _run_relink_async(
     bookmark_state = client.get_bookmark_state(bookmark)
     if len(bookmark_state.local_targets) > 1:
         raise CliError(
-            t"Local bookmark {ui.bookmark(bookmark)} is conflicted. Resolve it before relinking."
+            t"Local bookmark {ui.bookmark(bookmark)} is conflicted.",
+            hint="Resolve it before relinking.",
         )
     if (
         bookmark_state.local_target is not None
         and bookmark_state.local_target != revision.commit_id
     ):
         raise CliError(
-            t"Local bookmark {ui.bookmark(bookmark)} already points to a different revision. "
-            t"Move or forget it explicitly before relinking."
+            t"Local bookmark {ui.bookmark(bookmark)} already points to a different revision.",
+            hint="Move or forget it explicitly before relinking.",
         )
     remote_state = bookmark_state.remote_target(remote.name)
     if remote_state is None or not remote_state.targets:
         raise CliError(
-            t"Remote bookmark {ui.bookmark(f'{bookmark}@{remote.name}')} does not exist. Fetch "
-            t"and retry once the PR head branch is visible on the selected remote."
+            t"Remote bookmark {ui.bookmark(f'{bookmark}@{remote.name}')} does not exist.",
+            hint=(
+                "Fetch and retry once the PR head branch is visible on the selected remote."
+            ),
         )
     if len(remote_state.targets) > 1:
         raise CliError(
-            t"Remote bookmark {ui.bookmark(f'{bookmark}@{remote.name}')} is conflicted. "
-            t"Resolve it before relinking."
+            t"Remote bookmark {ui.bookmark(f'{bookmark}@{remote.name}')} is conflicted.",
+            hint="Resolve it before relinking.",
         )
 
     state = state_store.load()

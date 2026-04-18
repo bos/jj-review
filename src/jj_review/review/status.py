@@ -151,11 +151,13 @@ def status_preparation_cli_error(error: UnsupportedStackError) -> CliError:
     if error.reason == "divergent_change" and error.change_id is not None:
         return CliError(
             t"Could not inspect review status because local history no longer forms a "
-            t"supported linear stack. {error} Inspect the divergent revisions with "
-            t"{ui.cmd('jj log -r')} {ui.revset(f'change_id({error.change_id})')} and "
-            t"reconcile them before retrying. This can happen after "
-            t"{ui.cmd('status --fetch')} or another fetch imports remote bookmark "
-            t"updates for merged PRs."
+            t"supported linear stack. {error}",
+            hint=(
+                t"Inspect the divergent revisions with {ui.cmd('jj log -r')} "
+                t"{ui.revset(f'change_id({error.change_id})')} and reconcile them "
+                t"before retrying. This can happen after {ui.cmd('status --fetch')} "
+                t"or another fetch imports remote bookmark updates for landed PRs."
+            ),
         )
     return CliError(
         t"Could not inspect review status because local history no longer forms a "
@@ -237,6 +239,7 @@ def _classify_status_intents(
 def stream_status(
     *,
     discover_remote_review: bool = False,
+    inspect_stack_comments: bool = True,
     persist_cache_updates: bool = True,
     prepared_status: PreparedStatus,
     on_github_status: Callable[[str | None, ErrorMessage | None], None] | None = None,
@@ -247,6 +250,7 @@ def stream_status(
     return asyncio.run(
         stream_status_async(
             discover_remote_review=discover_remote_review,
+            inspect_stack_comments=inspect_stack_comments,
             on_github_status=on_github_status,
             on_revision=on_revision,
             persist_cache_updates=persist_cache_updates,
@@ -258,6 +262,7 @@ def stream_status(
 async def stream_status_async(
     *,
     discover_remote_review: bool = False,
+    inspect_stack_comments: bool = True,
     on_github_status: Callable[[str | None, ErrorMessage | None], None] | None,
     on_revision: Callable[[ReviewStatusRevision, bool], None] | None,
     persist_cache_updates: bool = True,
@@ -358,6 +363,7 @@ async def stream_status_async(
     try:
         async for revision in _iter_status_revisions_with_github(
             github_repository=github_repository,
+            inspect_stack_comments=inspect_stack_comments,
             on_github_status=emit_github_status,
             prepared=prepared,
             prepared_revisions=prepared_revisions_for_github,
@@ -421,11 +427,6 @@ def _prepare_stack(
     client = JjClient(repo_root)
     state_store = ReviewStateStore.for_repo(repo_root)
     state = state_store.load()
-    stack = client.discover_review_stack(
-        revset,
-        allow_divergent=True,
-        allow_immutable=True,
-    )
     remotes = client.list_git_remotes()
     remote: GitRemote | None = None
     remote_error: ErrorMessage | None = None
@@ -442,20 +443,37 @@ def _prepare_stack(
         remote.name if remote is not None else None,
         remote_error,
     )
-    if remote is not None and refresh_remote_state:
-        should_fetch = not refresh_requires_tracked or any(
-            (cached := state.changes.get(revision.change_id)) is not None
-            and cached.has_review_identity
-            for revision in stack.revisions
+    stack: LocalStack | None = None
+    if (
+        remote is not None
+        and refresh_remote_state
+        and re_resolve_after_remote_refresh
+        and not refresh_requires_tracked
+    ):
+        client.fetch_remote(remote=remote.name)
+    else:
+        stack = client.discover_review_stack(
+            revset,
+            allow_divergent=True,
+            allow_immutable=True,
         )
-        if should_fetch:
-            client.fetch_remote(remote=remote.name)
-            if re_resolve_after_remote_refresh:
-                stack = client.discover_review_stack(
-                    revset,
-                    allow_divergent=True,
-                    allow_immutable=True,
-                )
+        if remote is not None and refresh_remote_state:
+            should_fetch = not refresh_requires_tracked or any(
+                (cached := state.changes.get(revision.change_id)) is not None
+                and cached.has_review_identity
+                for revision in stack.revisions
+            )
+            if should_fetch:
+                client.fetch_remote(remote=remote.name)
+                if re_resolve_after_remote_refresh:
+                    stack = None
+
+    if stack is None:
+        stack = client.discover_review_stack(
+            revset,
+            allow_divergent=True,
+            allow_immutable=True,
+        )
 
     pinned_bookmarks = _pinned_bookmarks_for_revisions(
         change_overrides=change_overrides,
@@ -732,6 +750,7 @@ def _persist_status_cache_updates(
 async def _iter_status_revisions_with_github(
     *,
     github_repository: ParsedGithubRepo,
+    inspect_stack_comments: bool,
     on_github_status: Callable[[str | None], None] | None,
     prepared: PreparedStack,
     prepared_revisions: tuple[PreparedRevision, ...],
@@ -757,6 +776,7 @@ async def _iter_status_revisions_with_github(
                     bookmark_states=prepared.bookmark_states,
                     github_client=github_client,
                     github_repository=github_repository,
+                    inspect_stack_comments=inspect_stack_comments,
                     prepared=prepared,
                     prepared_revision=prepared_revision,
                     pull_request_lookup=pull_request_lookups[prepared_revision.bookmark],
@@ -780,6 +800,7 @@ async def _inspect_revision_with_github(
     bookmark_states: dict[str, BookmarkState],
     github_client: GithubClient,
     github_repository,
+    inspect_stack_comments: bool,
     prepared: PreparedStack,
     prepared_revision: PreparedRevision,
     pull_request_lookup: PullRequestLookup,
@@ -794,7 +815,7 @@ async def _inspect_revision_with_github(
             bookmark_state.remote_target(prepared.remote.name) if prepared.remote else None
         )
         stack_comment_lookup: StackCommentLookup | None = None
-        if pull_request_lookup.state == "open":
+        if inspect_stack_comments and pull_request_lookup.state == "open":
             pull_request = pull_request_lookup.pull_request
             if pull_request is None:
                 raise AssertionError("Open pull request lookup must include a pull request.")

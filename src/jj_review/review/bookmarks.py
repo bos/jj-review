@@ -178,7 +178,8 @@ def ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
     )
     raise CliError(
         t"Selected stack resolves multiple changes to the same bookmark: "
-        t"{collisions}. Configure distinct bookmark names before submitting."
+        t"{collisions}.",
+        hint="Configure distinct bookmark names before submitting.",
     )
 
 

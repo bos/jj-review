@@ -133,6 +133,25 @@ def test_main_renders_semantic_cli_errors_without_flattening_first(
     assert "Error: Problem at abcdefgh" in captured.err
 
 
+def test_main_renders_cli_error_hint_on_separate_line(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def fake_status(**kwargs) -> int:
+        raise CliError("Problem at trunk.", hint="Run status --fetch and retry.")
+
+    monkeypatch.setattr("jj_review.cli.commands.status.status", fake_status)
+
+    exit_code = main(["status"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert captured.err.splitlines() == [
+        "Error: Problem at trunk.",
+        "Hint: Run status --fetch and retry.",
+    ]
+
+
 def test_main_renders_inline_backtick_help_spans_without_literal_backticks(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
