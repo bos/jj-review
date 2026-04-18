@@ -10,14 +10,17 @@ import pytest
 
 from jj_review import console
 from jj_review.commands.land import (
+    DivergenceKind,
     _build_land_plan,
     _ensure_trunk_branch_matches_selected_trunk,
     _find_resume_land_intent,
+    _land_boundary_message,
     _plan_review_bookmark_cleanup,
     _remote_trunk_matches_commit,
     _report_stale_land_intents,
     _restore_local_trunk_bookmark,
     _resume_land_plan,
+    _stack_not_on_trunk_message,
     _updated_landed_change,
 )
 from jj_review.errors import CliError
@@ -25,28 +28,24 @@ from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
 from jj_review.models.github import GithubBranchRef, GithubPullRequest
 from jj_review.models.intent import LandIntent, LoadedIntent
 from jj_review.models.review_state import CachedChange
-from jj_review.review.status import PreparedStatus, StatusResult
+from jj_review.review.status import PreparedStatus, ReviewStatusRevision, StatusResult
+from jj_review.ui import plain_text
+
+
+def _assume_diff_equivalent(local_commit_id: str, remote_target: str | None) -> DivergenceKind:
+    if remote_target is None or remote_target == local_commit_id:
+        return "in_sync"
+    return "diff_equivalent"
+
+
+def _assume_content_divergent(local_commit_id: str, remote_target: str | None) -> DivergenceKind:
+    if remote_target is None or remote_target == local_commit_id:
+        return "in_sync"
+    return "content_divergent"
 
 
 def test_build_land_plan_uses_maximal_ready_prefix() -> None:
-    prepared_status = cast(
-        PreparedStatus,
-        SimpleNamespace(
-            prepared=SimpleNamespace(
-                status_revisions=(
-                    SimpleNamespace(
-                        revision=SimpleNamespace(change_id="change-1", commit_id="commit-1")
-                    ),
-                    SimpleNamespace(
-                        revision=SimpleNamespace(change_id="change-2", commit_id="commit-2")
-                    ),
-                    SimpleNamespace(
-                        revision=SimpleNamespace(change_id="change-3", commit_id="commit-3")
-                    ),
-                )
-            )
-        ),
-    )
+    prepared_status = _prepared_status(("change-1", "change-2", "change-3"))
     status_result = cast(
         StatusResult,
         SimpleNamespace(
@@ -80,6 +79,7 @@ def test_build_land_plan_uses_maximal_ready_prefix() -> None:
 
     plan = _build_land_plan(
         bypass_readiness=False,
+        classify_divergence=_assume_diff_equivalent,
         prepared_status=prepared_status,
         status_result=status_result,
         trunk_branch="main",
@@ -89,7 +89,7 @@ def test_build_land_plan_uses_maximal_ready_prefix() -> None:
     assert [revision.pull_request_number for revision in plan.landed_revisions] == [1, 2]
     assert plan.boundary_action is not None
     assert plan.boundary_action.status == "planned"
-    assert "stop before feature 3" in plan.boundary_action.message
+    assert "before feature 3" in plan.boundary_action.message
 
 
 @pytest.mark.parametrize(
@@ -174,6 +174,7 @@ def test_build_land_plan_blocks_unready_boundary_changes(
 
     plan = _build_land_plan(
         bypass_readiness=bypass_readiness,
+        classify_divergence=_assume_diff_equivalent,
         prepared_status=prepared_status,
         status_result=status_result,
         trunk_branch="main",
@@ -182,6 +183,222 @@ def test_build_land_plan_blocks_unready_boundary_changes(
     assert plan.blocked is True
     assert plan.boundary_action is not None
     assert expected_message in plan.boundary_action.message
+
+
+def test_build_land_plan_allows_rebased_prefix_when_pr_link_still_matches() -> None:
+    prepared_status = _prepared_status(("change-1",))
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    remote_target="old-commit-1",
+                    pull_request=_pull_request(number=1),
+                    pull_request_state="open",
+                    review_decision="approved",
+                    subject="feature 1",
+                ),
+            )
+        ),
+    )
+
+    plan = _build_land_plan(
+        bypass_readiness=False,
+        classify_divergence=_assume_diff_equivalent,
+        prepared_status=prepared_status,
+        status_result=status_result,
+        trunk_branch="main",
+    )
+
+    assert plan.blocked is False
+    assert [revision.pull_request_number for revision in plan.landed_revisions] == [1]
+    assert [revision.needs_resubmit for revision in plan.landed_revisions] == [True]
+    assert plan.resubmit_revisions == plan.landed_revisions
+    assert plan.boundary_action is None
+
+
+def test_build_land_plan_blocks_conflicted_local_revision() -> None:
+    prepared_status = _prepared_status(("change-1",), conflicted_change_ids=("change-1",))
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    pull_request=_pull_request(number=1),
+                    pull_request_state="open",
+                    review_decision="approved",
+                    subject="feature 1",
+                ),
+            )
+        ),
+    )
+
+    plan = _build_land_plan(
+        bypass_readiness=False,
+        classify_divergence=_assume_diff_equivalent,
+        prepared_status=prepared_status,
+        status_result=status_result,
+        trunk_branch="main",
+    )
+
+    assert plan.blocked is True
+    assert plan.boundary_action is not None
+    assert "still has unresolved conflicts" in plan.boundary_action.message
+
+
+def test_build_land_plan_blocks_content_divergent_rebased_revision() -> None:
+    prepared_status = _prepared_status(("change-1",))
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    remote_target="old-commit-1",
+                    pull_request=_pull_request(number=1),
+                    pull_request_state="open",
+                    review_decision="approved",
+                    subject="feature 1",
+                ),
+            )
+        ),
+    )
+
+    plan = _build_land_plan(
+        bypass_readiness=False,
+        classify_divergence=_assume_content_divergent,
+        prepared_status=prepared_status,
+        status_result=status_result,
+        trunk_branch="main",
+    )
+
+    assert plan.blocked is True
+    assert plan.boundary_action is not None
+    assert "differs from what reviewers approved" in plan.boundary_action.message
+    assert plan.landed_revisions == ()
+    assert plan.resubmit_revisions == ()
+
+
+def test_land_boundary_message_allows_rebased_revision_when_pr_link_is_ready() -> None:
+    prepared_revision = _prepared_status(("change-1",)).prepared.status_revisions[0]
+    revision = _status_revision(
+        change_id="change-1",
+        commit_id="commit-1",
+        remote_target="other-tip",
+        pull_request=_pull_request(number=1),
+        pull_request_state="open",
+        review_decision="approved",
+        subject="feature 1",
+    )
+
+    message = _land_boundary_message(
+        bypass_readiness=False,
+        classify_divergence=_assume_diff_equivalent,
+        prepared_revision=prepared_revision,
+        revision=revision,
+    )
+
+    assert message is None
+
+
+def test_land_boundary_message_allows_ready_revision_without_remote_state() -> None:
+    prepared_revision = _prepared_status(("change-1",)).prepared.status_revisions[0]
+    revision = _status_revision(
+        change_id="change-1",
+        commit_id="commit-1",
+        pull_request=_pull_request(number=1),
+        pull_request_state="open",
+        review_decision="approved",
+        subject="feature 1",
+        with_remote_state=False,
+    )
+
+    message = _land_boundary_message(
+        bypass_readiness=False,
+        classify_divergence=_assume_diff_equivalent,
+        prepared_revision=prepared_revision,
+        revision=revision,
+    )
+
+    assert message is None
+
+
+def test_land_boundary_message_blocks_content_divergent_revision() -> None:
+    prepared_revision = _prepared_status(("change-1",)).prepared.status_revisions[0]
+    revision = _status_revision(
+        change_id="change-1",
+        commit_id="commit-1",
+        remote_target="old-commit-1",
+        pull_request=_pull_request(number=1),
+        pull_request_state="open",
+        review_decision="approved",
+        subject="feature 1",
+    )
+
+    message = _land_boundary_message(
+        bypass_readiness=False,
+        classify_divergence=_assume_content_divergent,
+        prepared_revision=prepared_revision,
+        revision=revision,
+    )
+
+    assert message is not None
+    assert "differs from what reviewers approved" in plain_text(message)
+
+
+def test_land_boundary_message_prefers_unlinked_state_over_content_divergence() -> None:
+    prepared_revision = _prepared_status(("change-1",)).prepared.status_revisions[0]
+    revision = _status_revision(
+        change_id="change-1",
+        commit_id="commit-1",
+        link_state="unlinked",
+        remote_target="old-commit-1",
+        pull_request=_pull_request(number=1),
+        pull_request_state="open",
+        review_decision="approved",
+        subject="feature 1",
+    )
+
+    message = _land_boundary_message(
+        bypass_readiness=False,
+        classify_divergence=_assume_content_divergent,
+        prepared_revision=prepared_revision,
+        revision=revision,
+    )
+
+    assert message is not None
+    rendered = plain_text(message)
+    assert "unlinked from review tracking" in rendered
+    assert "differs from what reviewers approved" not in rendered
+
+
+def test_land_boundary_message_prefers_missing_pr_over_content_divergence() -> None:
+    prepared_revision = _prepared_status(("change-1",)).prepared.status_revisions[0]
+    revision = _status_revision(
+        change_id="change-1",
+        commit_id="commit-1",
+        remote_target="old-commit-1",
+        pull_request=_pull_request(number=1),
+        pull_request_state="missing",
+        subject="feature 1",
+    )
+
+    message = _land_boundary_message(
+        bypass_readiness=False,
+        classify_divergence=_assume_content_divergent,
+        prepared_revision=prepared_revision,
+        revision=revision,
+    )
+
+    assert message is not None
+    rendered = plain_text(message)
+    assert "GitHub no longer reports a pull request" in rendered
+    assert "differs from what reviewers approved" not in rendered
 
 
 def test_build_land_plan_bypass_readiness_uses_maximal_open_prefix() -> None:
@@ -217,6 +434,7 @@ def test_build_land_plan_bypass_readiness_uses_maximal_open_prefix() -> None:
 
     plan = _build_land_plan(
         bypass_readiness=True,
+        classify_divergence=_assume_diff_equivalent,
         prepared_status=prepared_status,
         status_result=status_result,
         trunk_branch="main",
@@ -225,7 +443,82 @@ def test_build_land_plan_bypass_readiness_uses_maximal_open_prefix() -> None:
     assert plan.blocked is False
     assert [revision.pull_request_number for revision in plan.landed_revisions] == [1, 2]
     assert plan.boundary_action is not None
-    assert "stop before feature 3" in plan.boundary_action.message
+    assert "before feature 3" in plan.boundary_action.message
+
+
+def test_stack_not_on_trunk_message_recommends_rebase_when_no_changes_are_merged() -> None:
+    prepared_status = _prepared_status(("change-1", "change-2"), selected_revset="@-")
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-2",
+                    commit_id="commit-2",
+                    pull_request=_pull_request(number=2),
+                    pull_request_state="open",
+                    review_decision="approved",
+                    subject="feature 2",
+                ),
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    pull_request=_pull_request(number=1),
+                    pull_request_state="open",
+                    review_decision="approved",
+                    subject="feature 1",
+                ),
+            ),
+            selected_revset="@-",
+        ),
+    )
+
+    message = _stack_not_on_trunk_message(
+        prepared_status=prepared_status,
+        status_result=status_result,
+    )
+
+    rendered = plain_text(message)
+    assert "jj rebase -s change-1 -d 'trunk()'" in rendered
+    assert "cleanup --restack" not in rendered
+
+
+def test_stack_not_on_trunk_message_recommends_cleanup_when_stack_has_merged_change() -> None:
+    prepared_status = _prepared_status(("change-1", "change-2"), selected_revset="@-")
+    status_result = cast(
+        StatusResult,
+        SimpleNamespace(
+            revisions=(
+                _status_revision(
+                    change_id="change-2",
+                    commit_id="commit-2",
+                    pull_request=_pull_request(number=2),
+                    pull_request_state="open",
+                    review_decision="approved",
+                    subject="feature 2",
+                ),
+                _status_revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    pull_request=_pull_request(number=1).model_copy(
+                        update={"state": "merged", "merged_at": "2026-03-22T12:00:00Z"}
+                    ),
+                    pull_request_state="closed",
+                    subject="feature 1",
+                ),
+            ),
+            selected_revset="@-",
+        ),
+    )
+
+    message = _stack_not_on_trunk_message(
+        prepared_status=prepared_status,
+        status_result=status_result,
+    )
+
+    rendered = plain_text(message)
+    assert "cleanup --restack @-" in rendered
+    assert "jj rebase -s" not in rendered
 
 
 def test_updated_landed_change_marks_pr_merged_and_clears_stack_comment() -> None:
@@ -546,7 +839,7 @@ def test_ensure_trunk_branch_matches_selected_trunk_rejects_missing_remote_bookm
                 local_targets=("commit-2",),
                 remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
             ),
-            "Local trunk bookmark main no longer matches",
+            "Local bookmark main points to a different revision",
             id="moved-local",
         ),
         pytest.param(
@@ -590,27 +883,39 @@ def _status_revision(
     *,
     change_id: str,
     commit_id: str,
+    remote_target: str | None = None,
+    with_remote_state: bool = True,
     pull_request: GithubPullRequest,
     pull_request_state: str,
     review_decision: str | None = None,
     review_decision_error: str | None = None,
     subject: str,
     link_state: str = "active",
-):
-    return SimpleNamespace(
-        bookmark=f"review/{change_id}",
-        change_id=change_id,
-        link_state=link_state,
-        local_divergent=False,
-        pull_request_lookup=SimpleNamespace(
-            message=None,
-            pull_request=pull_request,
-            review_decision=review_decision,
-            review_decision_error=review_decision_error,
-            state=pull_request_state,
+) -> ReviewStatusRevision:
+    return cast(
+        ReviewStatusRevision,
+        SimpleNamespace(
+            bookmark=f"review/{change_id}",
+            change_id=change_id,
+            link_state=link_state,
+            local_divergent=False,
+            pull_request_lookup=SimpleNamespace(
+                message=None,
+                pull_request=pull_request,
+                review_decision=review_decision,
+                review_decision_error=review_decision_error,
+                state=pull_request_state,
+            ),
+            remote_state=(
+                RemoteBookmarkState(
+                    remote="origin",
+                    targets=((remote_target,) if remote_target is not None else (commit_id,)),
+                )
+                if with_remote_state
+                else None
+            ),
+            subject=subject,
         ),
-        remote_state=RemoteBookmarkState(remote="origin", targets=(commit_id,)),
-        subject=subject,
     )
 
 
@@ -638,6 +943,7 @@ def _prepared_status(
     change_ids: tuple[str, ...],
     *,
     commit_ids: tuple[str, ...] | None = None,
+    conflicted_change_ids: tuple[str, ...] = (),
     selected_revset: str = "@-",
 ) -> PreparedStatus:
     resolved_commit_ids = commit_ids or tuple(
@@ -648,6 +954,7 @@ def _prepared_status(
             revision=SimpleNamespace(
                 change_id=change_id,
                 commit_id=commit_id,
+                conflict=change_id in conflicted_change_ids,
             )
         )
         for change_id, commit_id in zip(change_ids, resolved_commit_ids, strict=True)

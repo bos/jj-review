@@ -170,6 +170,7 @@ def prepare_status(
     fetch_remote_state: bool = False,
     fetch_only_when_tracked: bool = False,
     persist_bookmarks: bool = False,
+    re_resolve_after_remote_refresh: bool = False,
     repo_root: Path,
     revset: str | None,
 ) -> PreparedStatus:
@@ -179,6 +180,7 @@ def prepare_status(
         change_overrides=change_overrides,
         config=config,
         persist_bookmarks=persist_bookmarks,
+        re_resolve_after_remote_refresh=re_resolve_after_remote_refresh,
         refresh_remote_state=fetch_remote_state,
         refresh_requires_tracked=fetch_only_when_tracked,
         repo_root=repo_root,
@@ -409,6 +411,7 @@ def _prepare_stack(
     change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     persist_bookmarks: bool,
+    re_resolve_after_remote_refresh: bool,
     refresh_remote_state: bool,
     refresh_requires_tracked: bool = False,
     repo_root: Path,
@@ -416,13 +419,13 @@ def _prepare_stack(
     revset: str | None,
 ) -> PreparedStack:
     client = JjClient(repo_root)
+    state_store = ReviewStateStore.for_repo(repo_root)
+    state = state_store.load()
     stack = client.discover_review_stack(
         revset,
         allow_divergent=True,
         allow_immutable=True,
     )
-    state_store = ReviewStateStore.for_repo(repo_root)
-    state = state_store.load()
     remotes = client.list_git_remotes()
     remote: GitRemote | None = None
     remote_error: ErrorMessage | None = None
@@ -440,12 +443,19 @@ def _prepare_stack(
         remote_error,
     )
     if remote is not None and refresh_remote_state:
-        if not refresh_requires_tracked or any(
+        should_fetch = not refresh_requires_tracked or any(
             (cached := state.changes.get(revision.change_id)) is not None
             and cached.has_review_identity
             for revision in stack.revisions
-        ):
+        )
+        if should_fetch:
             client.fetch_remote(remote=remote.name)
+            if re_resolve_after_remote_refresh:
+                stack = client.discover_review_stack(
+                    revset,
+                    allow_divergent=True,
+                    allow_immutable=True,
+                )
 
     pinned_bookmarks = _pinned_bookmarks_for_revisions(
         change_overrides=change_overrides,

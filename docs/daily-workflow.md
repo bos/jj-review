@@ -95,8 +95,14 @@ When the bottom part of the stack is ready to go:
 jj-review land
 ```
 
-(What does "ready to go" mean? State on GitHub is open, not draft, approved, and no outstanding
-changes requested.)
+(What does "ready to go" mean? State on GitHub is open, not draft,
+approved, and no outstanding changes requested, and the local change has
+no unresolved conflicts.)
+
+If you rebased a reviewed change without changing its diff, `land` refreshes
+the review branch for you before it pushes `trunk()`. If you changed the diff
+since the last review, rerun `submit` first so the PR shows the new content
+and reviewers can take another look.
 
 If you want to inspect the landing plan first:
 

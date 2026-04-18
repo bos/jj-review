@@ -1055,10 +1055,11 @@ That means:
   local diagnostic pointing at `jj review cleanup --restack` or plain
   `jj rebase` rather than force-moving the local trunk bookmark sideways
 - walk the selected local stack upward from `trunk()`
+- stop immediately if any selected local change still has unresolved conflicts
 - by default, include consecutive changes whose PRs are still open, not draft,
   approved, and whose link is unambiguous
 - stop at the first merged, closed-unmerged, missing, ambiguous, draft,
-  changes-requested, or not-yet-approved change
+  conflicted, changes-requested, or not-yet-approved change
   - if none of those changes can be landed, report that directly
 
 `land` may also offer an explicit readiness-bypass flag for operators who want
@@ -1066,12 +1067,33 @@ to preview or apply the open prefix anyway, but that bypass must stay narrow:
 
 - it may bypass readiness gates such as draft or review-decision state
 - it must not bypass ambiguous or missing PR linkage
-- it must not bypass remote/local commit mismatch checks
 - it must not bypass trunk push protection or other integrity checks
 
 This is intentionally not "the entire selected stack no matter what" and not
 "whatever open PR the operator typed". It keeps the command aligned with the
 local DAG and avoids partial-stack guesses.
+
+When the local commit for a landable change no longer matches the
+corresponding `review/*` branch tip on the remote, `land` classifies the
+drift:
+
+- if the local diff against the local parent is byte-identical to the
+  remote commit's diff against its parent, the rebase is tree-equivalent;
+  `land` refreshes each affected `review/*` branch to the rebased commit as
+  a pre-land step, announces that refresh, then performs the normal trunk
+  transition so reviewers looking at the closed PR see the commit that
+  actually landed
+- otherwise the local tree diverges from what was reviewed; `land` refuses
+  and points the operator at `submit` so the PR can be updated and
+  re-review requested before landing proceeds
+- `--dry-run` describes the planned refresh but does not push
+
+The auto-refresh only covers pre-land state synchronization. `land` does not
+mutate review content, rewrite history, or bypass readiness checks in the
+process: after the refresh push, it re-verifies the PR approval state before
+touching trunk, so repository policies that dismiss approvals on push abort
+the landing before trunk moves, leaving the refreshed branch in place for
+the operator to re-request review and retry.
 
 This design also needs to respect the recommended GitHub policy above:
 

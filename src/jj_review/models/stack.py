@@ -12,6 +12,7 @@ class LocalRevision(BaseModel):
 
     change_id: str
     commit_id: str
+    conflict: bool = False
     current_working_copy: bool
     description: str
     divergent: bool

@@ -19,6 +19,7 @@ def _revision_line(
     parents: list[str],
     change_id: str,
     description: str,
+    conflict: bool = False,
     empty: bool = False,
     divergent: bool = False,
     hidden: bool = False,
@@ -37,6 +38,7 @@ def _revision_line(
         "true" if working_copy else "false",
         "true" if hidden else "false",
         "true" if immutable else "false",
+        "true" if conflict else "false",
     ]
     return "\t".join(fields) + "\n"
 
@@ -614,7 +616,7 @@ def test_discover_review_stack_raises_jj_command_error_on_invalid_json() -> None
         _selection_scan_command("head"): (
             _revision_with_two_flags_line(_TRUNK, is_trunk=True, is_selected=False)
             + 'NOT_JSON\t"commit-id"\t"desc"\t[]\tfalse\tfalse\tfalse\tfalse\tfalse'
-            '\tfalse\ttrue\n'
+            '\tfalse\tfalse\ttrue\n'
         ),
     }
 
@@ -660,7 +662,7 @@ def test_discover_review_stack_raises_jj_command_error_on_wrong_field_type() -> 
             '"commit-id"\t'
             '"desc"\t'
             '"not-a-list"\t'
-            "false\tfalse\tfalse\tfalse\tfalse\tfalse\ttrue\n"
+            "false\tfalse\tfalse\tfalse\tfalse\tfalse\tfalse\ttrue\n"
         ),
     }
 
@@ -822,6 +824,31 @@ def test_delete_remote_bookmarks_batches_push_and_fetch() -> None:
             ":refs/heads/review/bar",
         ),
         ("jj", "git", "fetch", "--remote", "origin"),
+    ]
+
+
+def test_get_commit_diff_returns_unified_diff_for_revision() -> None:
+    commands: list[tuple[str, ...]] = []
+    expected_diff = (
+        "diff --git a/feature.txt b/feature.txt\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/feature.txt\n"
+        "@@ -0,0 +1,1 @@\n"
+        "+feature 1\n"
+    )
+
+    def run(command: Sequence[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        commands.append(tuple(command))
+        assert cwd == Path("/repo")
+        return subprocess.CompletedProcess(command, 0, stdout=expected_diff, stderr="")
+
+    client = JjClient(Path("/repo"), runner=run)
+    diff = client.get_commit_diff("change-1")
+
+    assert diff == expected_diff
+    assert commands == [
+        ("jj", "diff", "--git", "--no-pager", "-r", "'change-1'"),
     ]
 
 
@@ -1277,7 +1304,7 @@ def _template() -> str:
         r'json(parents.map(|p| p.commit_id())) ++ "\t" ++ '
         r'json(empty) ++ "\t" ++ json(divergent) ++ "\t" ++ '
         r'json(current_working_copy) ++ "\t" ++ json(self.hidden()) ++ "\t" ++ '
-        r'json(immutable) ++ "\n"'
+        r'json(immutable) ++ "\t" ++ json(self.conflict()) ++ "\n"'
     )
 
 

@@ -1,8 +1,9 @@
 """Land the consecutive changes above `trunk()` that are ready to land now.
 
-By default, `land` requires each pull request to be open, not draft, approved,
-and free of outstanding changes requested. Use `--bypass-readiness` to skip
-those checks while still enforcing the normal safety checks.
+By default, `land` requires each selected change to be free of unresolved local
+conflicts and each pull request to be open, not draft, approved, and free of
+outstanding changes requested. Use `--bypass-readiness` to skip those
+readiness checks while still enforcing the normal safety checks.
 
 By default, this command performs the landing. Use `--dry-run` to inspect the
 landing plan without mutating jj or GitHub state.
@@ -22,7 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +33,7 @@ from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import ChangeConfig, RepoConfig
 from jj_review.errors import CliError
+from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import (
     ParsedGithubRepo,
@@ -58,6 +60,7 @@ from jj_review.review.status import (
     StatusResult,
     prepare_status,
     prepared_status_github_inspection_count,
+    revision_has_merged_pull_request,
     stream_status,
 )
 from jj_review.state.intents import check_same_kind_intent, save_intent, write_new_intent
@@ -66,7 +69,9 @@ from jj_review.ui import Message, plain_text
 HELP = "Land the ready changes at the bottom of a stack"
 
 LandActionStatus = Literal["applied", "blocked", "planned"]
+DivergenceKind = Literal["in_sync", "diff_equivalent", "content_divergent"]
 type LandActionBody = Message
+type DivergenceClassifier = Callable[[str, str | None], DivergenceKind]
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +124,7 @@ class _LandRevision:
     bookmark: str
     change_id: str
     commit_id: str
+    needs_resubmit: bool
     pull_request_number: int
     subject: str
 
@@ -132,6 +138,10 @@ class _LandPlan:
     landed_revisions: tuple[_LandRevision, ...]
     push_trunk: bool
     trunk_branch: str
+
+    @property
+    def resubmit_revisions(self) -> tuple[_LandRevision, ...]:
+        return tuple(revision for revision in self.landed_revisions if revision.needs_resubmit)
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,7 +263,7 @@ def _print_land_result(result: LandResult) -> None:
             console.output(
                 ui.prefixed_line(
                     f"{prefix} ",
-                    (ui.semantic_text(action.kind, "prefix"), ": ", action.body),
+                    (_render_land_action_label(action), ": ", action.body),
                     prefix_labels=prefix_style,
                     message_labels=body_style,
                 )
@@ -286,6 +296,12 @@ def _land_action_presentation(
     return ("  ?", None, None)
 
 
+def _render_land_action_label(action: LandAction) -> ui.Message:
+    if action.kind == "boundary":
+        return ui.semantic_text("stop", "prefix")
+    return ui.semantic_text(action.kind, "prefix")
+
+
 def prepare_land(
     *,
     cleanup_bookmarks: bool,
@@ -299,23 +315,11 @@ def prepare_land(
 ) -> PreparedLand:
     """Resolve local landing inputs before GitHub planning and execution."""
 
-    stack = JjClient(repo_root).discover_review_stack(
-        revset,
-        allow_divergent=True,
-        allow_immutable=True,
-    )
-    if stack.revisions and stack.base_parent.commit_id != stack.trunk.commit_id:
-        raise CliError(
-            t"Selected stack is not based on {ui.revset('trunk()')}. Rebase the stack "
-            t"onto {ui.revset('trunk()')} before landing. Run "
-            t"{ui.cmd('jj-review cleanup --restack')} when ancestors have merged, "
-            t"or {ui.cmd('jj rebase')} otherwise."
-        )
-
     prepared_status = prepare_status(
         change_overrides=change_overrides,
         config=config,
         fetch_remote_state=True,
+        re_resolve_after_remote_refresh=True,
         repo_root=repo_root,
         revset=revset,
     )
@@ -371,6 +375,13 @@ async def _stream_land_async(
             t"Could not inspect GitHub pull request state for {ui.cmd('land')}: "
             t"{status_result.github_error}"
         )
+    if _selected_stack_is_not_on_current_trunk(prepared_status=prepared_status):
+        raise CliError(
+            _stack_not_on_trunk_message(
+                prepared_status=prepared_status,
+                status_result=status_result,
+            )
+        )
 
     github_repository = prepared_status.github_repository
     remote = prepared.remote
@@ -401,6 +412,7 @@ async def _stream_land_async(
         )
         plan = _build_land_plan(
             bypass_readiness=prepared_land.bypass_readiness,
+            classify_divergence=_make_divergence_classifier(prepared.client),
             prepared_status=prepared_status,
             status_result=status_result,
             trunk_branch=trunk_branch,
@@ -490,6 +502,56 @@ async def _stream_land_async(
         original_trunk_target = prepared.client.get_bookmark_state(trunk_branch).local_target
         try:
             if execution_plan.push_trunk:
+                resubmit_revisions = execution_plan.resubmit_revisions
+                if resubmit_revisions:
+                    console.output(
+                        t"Refreshing {len(resubmit_revisions)} review "
+                        t"{'branch' if len(resubmit_revisions) == 1 else 'branches'} "
+                        t"to match the rebased local stack..."
+                    )
+                    for resubmit_revision in resubmit_revisions:
+                        prepared.client.set_bookmark(
+                            resubmit_revision.bookmark,
+                            resubmit_revision.commit_id,
+                            allow_backwards=True,
+                        )
+                    prepared.client.push_bookmarks(
+                        remote=remote.name,
+                        bookmarks=tuple(
+                            revision.bookmark for revision in resubmit_revisions
+                        ),
+                    )
+                    for resubmit_revision in resubmit_revisions:
+                        actions.append(
+                            LandAction(
+                                kind="review branch",
+                                body=t"refresh {ui.bookmark(resubmit_revision.bookmark)} to "
+                                t"{resubmit_revision.subject} "
+                                t"{ui.change_id(resubmit_revision.change_id)}",
+                                status="applied",
+                            )
+                        )
+                    dismissed_action = await _check_post_resubmit_approvals(
+                        bypass_readiness=prepared_land.bypass_readiness,
+                        github_client=github_client,
+                        github_repository=github_repository,
+                        resubmit_revisions=resubmit_revisions,
+                        trunk_branch=trunk_branch,
+                    )
+                    if dismissed_action is not None:
+                        actions.append(dismissed_action)
+                        return LandResult(
+                            actions=tuple(actions),
+                            applied=True,
+                            bypass_readiness=prepared_land.bypass_readiness,
+                            blocked=True,
+                            follow_up=None,
+                            github_repository=github_repository.full_name,
+                            remote_name=remote.name,
+                            selected_revset=status_result.selected_revset,
+                            trunk_branch=trunk_branch,
+                            trunk_subject=prepared.stack.trunk.subject,
+                        )
                 try:
                     prepared.client.set_bookmark(
                         trunk_branch,
@@ -587,6 +649,36 @@ async def _stream_land_async(
             if succeeded:
                 retire_superseded_intents(execution_state.stale_intents, land_intent)
                 intent_path.unlink(missing_ok=True)
+
+
+def _selected_stack_is_not_on_current_trunk(*, prepared_status: PreparedStatus) -> bool:
+    prepared = prepared_status.prepared
+    return (
+        bool(prepared.stack.revisions)
+        and prepared.stack.base_parent.commit_id != prepared.stack.trunk.commit_id
+    )
+
+
+def _stack_not_on_trunk_message(
+    *,
+    prepared_status: PreparedStatus,
+    status_result: StatusResult,
+) -> LandActionBody:
+    if any(revision_has_merged_pull_request(revision) for revision in status_result.revisions):
+        return (
+            t"Selected stack is not based on the current {ui.revset('trunk()')}. "
+            t"Some lower changes from this stack already landed, so run "
+            t"{ui.cmd('cleanup --restack')} {ui.revset(status_result.selected_revset)} "
+            t"to restack the remaining local changes before retrying."
+        )
+
+    bottom_change_id = prepared_status.prepared.status_revisions[0].revision.change_id
+    rebase_command = f"jj rebase -s {short_change_id(bottom_change_id)} -d 'trunk()'"
+    return (
+        t"Selected stack is not based on the current {ui.revset('trunk()')}. "
+        t"No change in the selected stack has landed yet, so move the whole stack onto "
+        t"{ui.revset('trunk()')} with {ui.cmd(rebase_command)} before retrying."
+    )
 
 
 def _prepare_land_execution_state(
@@ -738,6 +830,7 @@ def _report_stale_land_intents(
 def _build_land_plan(
     *,
     bypass_readiness: bool,
+    classify_divergence: DivergenceClassifier,
     prepared_status: PreparedStatus,
     status_result: StatusResult,
     trunk_branch: str,
@@ -748,6 +841,7 @@ def _build_land_plan(
     )
     landed_revisions, boundary_action = _collect_landable_prefix(
         bypass_readiness=bypass_readiness,
+        classify_divergence=classify_divergence,
         path_revisions=path_revisions,
     )
 
@@ -764,6 +858,34 @@ def _build_land_plan(
         push_trunk=True,
         trunk_branch=trunk_branch,
     )
+
+
+def _classify_revision_divergence(
+    *,
+    client: JjClient,
+    local_commit_id: str,
+    remote_target: str | None,
+) -> DivergenceKind:
+    """Classify how the local commit differs from the remote review branch tip."""
+
+    if remote_target is None or remote_target == local_commit_id:
+        return "in_sync"
+    local_diff = client.get_commit_diff(local_commit_id)
+    remote_diff = client.get_commit_diff(remote_target)
+    if local_diff == remote_diff:
+        return "diff_equivalent"
+    return "content_divergent"
+
+
+def _make_divergence_classifier(client: JjClient) -> DivergenceClassifier:
+    def classifier(local_commit_id: str, remote_target: str | None) -> DivergenceKind:
+        return _classify_revision_divergence(
+            client=client,
+            local_commit_id=local_commit_id,
+            remote_target=remote_target,
+        )
+
+    return classifier
 
 
 def _resolve_land_path_revisions(
@@ -789,12 +911,14 @@ def _resolve_land_path_revisions(
 def _collect_landable_prefix(
     *,
     bypass_readiness: bool,
+    classify_divergence: DivergenceClassifier,
     path_revisions: tuple[tuple[PreparedRevision, ReviewStatusRevision], ...],
 ) -> tuple[tuple[_LandRevision, ...], LandAction | None]:
     landed_revisions: list[_LandRevision] = []
     for prepared_revision, revision in path_revisions:
         boundary_message = _land_boundary_message(
             bypass_readiness=bypass_readiness,
+            classify_divergence=classify_divergence,
             prepared_revision=prepared_revision,
             revision=revision,
         )
@@ -807,11 +931,17 @@ def _collect_landable_prefix(
         pull_request_lookup = revision.pull_request_lookup
         if pull_request_lookup is None or pull_request_lookup.pull_request is None:
             raise AssertionError("Landable revisions require resolved pull requests.")
+        local_commit_id = prepared_revision.revision.commit_id
+        remote_target = (
+            revision.remote_state.target if revision.remote_state is not None else None
+        )
+        divergence = classify_divergence(local_commit_id, remote_target)
         landed_revisions.append(
             _LandRevision(
                 bookmark=revision.bookmark,
                 change_id=revision.change_id,
-                commit_id=prepared_revision.revision.commit_id,
+                commit_id=local_commit_id,
+                needs_resubmit=divergence == "diff_equivalent",
                 pull_request_number=pull_request_lookup.pull_request.number,
                 subject=revision.subject,
             )
@@ -822,30 +952,29 @@ def _collect_landable_prefix(
 def _land_boundary_message(
     *,
     bypass_readiness: bool,
+    classify_divergence: DivergenceClassifier,
     prepared_revision: PreparedRevision,
     revision: ReviewStatusRevision,
 ) -> LandActionBody | None:
+    if prepared_revision.revision.conflict:
+        return (
+            t"before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"this change still has unresolved conflicts"
+        )
     if revision.link_state == "unlinked":
         return (
-            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"before {revision.subject} {ui.change_id(revision.change_id)} because "
             t"this change is unlinked from review tracking; run {ui.cmd('relink')} first"
         )
     if revision.local_divergent:
         return (
-            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"before {revision.subject} {ui.change_id(revision.change_id)} because "
             t"multiple visible revisions still share that change ID"
-        )
-    remote_state = revision.remote_state
-    if remote_state is None or remote_state.target != prepared_revision.revision.commit_id:
-        return (
-            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
-            t"the pushed branch does not match the current local commit; rerun "
-            t"{ui.cmd('submit')} first"
         )
     pull_request_lookup = revision.pull_request_lookup
     if pull_request_lookup is None:
         return (
-            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"before {revision.subject} {ui.change_id(revision.change_id)} because "
             t"GitHub pull request state is unavailable"
         )
     if pull_request_lookup.state == "open":
@@ -855,60 +984,72 @@ def _land_boundary_message(
         if pull_request_lookup.review_decision_error is not None:
             detail = pull_request_lookup.review_decision_error
             return (
-                t"stop before {revision.subject} {ui.change_id(revision.change_id)} "
+                t"before {revision.subject} {ui.change_id(revision.change_id)} "
                 t"because {detail}"
+            )
+        remote_target = (
+            revision.remote_state.target if revision.remote_state is not None else None
+        )
+        if (
+            classify_divergence(prepared_revision.revision.commit_id, remote_target)
+            == "content_divergent"
+        ):
+            return (
+                t"before {revision.subject} {ui.change_id(revision.change_id)} because "
+                t"the local change differs from what reviewers approved; rerun "
+                t"{ui.cmd('submit')} to update the PR and request re-review"
             )
         if pull_request.is_draft:
             if bypass_readiness:
                 return None
             return (
-                t"stop before {revision.subject} {ui.change_id(revision.change_id)} "
+                t"before {revision.subject} {ui.change_id(revision.change_id)} "
                 t"because PR #{pull_request.number} is still a draft"
             )
         if pull_request_lookup.review_decision == "changes_requested":
             if bypass_readiness:
                 return None
             return (
-                t"stop before {revision.subject} {ui.change_id(revision.change_id)} "
+                t"before {revision.subject} {ui.change_id(revision.change_id)} "
                 t"because PR #{pull_request.number} has changes requested"
             )
         if pull_request_lookup.review_decision != "approved":
             if bypass_readiness:
                 return None
             return (
-                t"stop before {revision.subject} {ui.change_id(revision.change_id)} "
+                t"before {revision.subject} {ui.change_id(revision.change_id)} "
                 t"because PR #{pull_request.number} is not approved"
             )
         return None
     if pull_request_lookup.state == "missing":
         return (
-            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"before {revision.subject} {ui.change_id(revision.change_id)} because "
             t"GitHub no longer reports a pull request for its branch; run "
             t"{ui.cmd('status --fetch')} or {ui.cmd('relink')} first"
         )
     if pull_request_lookup.state == "ambiguous":
         detail = pull_request_lookup.message or "GitHub reports an ambiguous PR link"
         return (
-            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"before {revision.subject} {ui.change_id(revision.change_id)} because "
             t"{detail} Run {ui.cmd('status --fetch')} and repair the PR link with "
             t"{ui.cmd('relink')}."
         )
     if pull_request_lookup.state == "error":
         detail = pull_request_lookup.message or "GitHub lookup failed"
         return (
-            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because {detail}"
+            t"before {revision.subject} {ui.change_id(revision.change_id)} because {detail}"
         )
     pull_request = pull_request_lookup.pull_request
     if pull_request is None:
         raise AssertionError("Closed land boundary requires a pull request payload.")
     if pull_request.state == "merged":
         return (
-            t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+            t"before {revision.subject} {ui.change_id(revision.change_id)} because "
             t"PR #{pull_request.number} is already merged; run "
             t"{ui.cmd('cleanup --restack')} first"
         )
     return (
-        t"stop before {revision.subject} {ui.change_id(revision.change_id)} because "
+        t"before {revision.subject} {ui.change_id(revision.change_id)} because "
         t"PR #{pull_request.number} is closed without merge"
     )
 
@@ -926,6 +1067,16 @@ def _planned_land_actions(
         cleanup_plan.change_id: cleanup_plan.action for cleanup_plan in bookmark_cleanup_plans
     }
     if plan.push_trunk and plan.landed_revisions:
+        for resubmit_revision in plan.resubmit_revisions:
+            actions.append(
+                LandAction(
+                    kind="review branch",
+                    body=t"refresh {ui.bookmark(resubmit_revision.bookmark)} to match "
+                    t"{resubmit_revision.subject} "
+                    t"{ui.change_id(resubmit_revision.change_id)} before landing",
+                    status="planned",
+                )
+            )
         actions.append(
             LandAction(
                 kind="trunk",
@@ -1036,6 +1187,7 @@ def _resume_land_plan(*, intent: LandIntent, trunk_branch: str) -> _LandPlan:
                     bookmark=intent.landed_bookmarks[change_id],
                     change_id=change_id,
                     commit_id=intent.landed_commit_ids[change_id],
+                    needs_resubmit=False,
                     pull_request_number=intent.landed_pull_request_numbers[change_id],
                     subject=intent.landed_subjects[change_id],
                 )
@@ -1172,9 +1324,12 @@ def _ensure_trunk_branch_matches_selected_trunk(
         )
     local_target = bookmark_state.local_target
     if local_target is not None and local_target != trunk_commit_id:
+        inspect_command = f"jj log -r '{trunk_branch}|trunk()'"
         raise CliError(
-            t"Local trunk bookmark {ui.bookmark(trunk_branch)} no longer matches "
-            t"{ui.revset('trunk()')}. Refresh or restore the local trunk state before "
+            t"Local bookmark {ui.bookmark(trunk_branch)} points to a different "
+            t"revision than {ui.revset('trunk()')}. Inspect both with "
+            t"{ui.cmd(inspect_command)} and move "
+            t"{ui.bookmark(trunk_branch)} back to {ui.revset('trunk()')} before "
             t"retrying."
         )
 
@@ -1199,6 +1354,44 @@ def _ensure_trunk_branch_matches_selected_trunk(
             t"Remote trunk bookmark {ui.bookmark(f'{trunk_branch}@{remote_name}')} moved since "
             t"the selected path was resolved. Fetch, restack if needed, and retry."
         )
+
+
+async def _check_post_resubmit_approvals(
+    *,
+    bypass_readiness: bool,
+    github_client: GithubClient,
+    github_repository: ParsedGithubRepo,
+    resubmit_revisions: tuple[_LandRevision, ...],
+    trunk_branch: str,
+) -> LandAction | None:
+    """Return a blocking action if the resubmit push dismissed any approval."""
+
+    if bypass_readiness or not resubmit_revisions:
+        return None
+    try:
+        decisions = await github_client.get_review_decisions_by_pull_request_numbers(
+            github_repository.owner,
+            github_repository.repo,
+            pull_numbers=tuple(
+                revision.pull_request_number for revision in resubmit_revisions
+            ),
+        )
+    except GithubClientError as error:
+        raise CliError(
+            t"Could not re-check PR review decisions after refreshing review branches"
+        ) from error
+    for revision in resubmit_revisions:
+        decision = decisions.get(revision.pull_request_number)
+        if decision != "approved":
+            return LandAction(
+                kind="boundary",
+                body=t"before pushing {ui.bookmark(trunk_branch)} because refreshing "
+                t"{ui.bookmark(revision.bookmark)} dismissed the approval on "
+                t"PR #{revision.pull_request_number}; request re-review and rerun "
+                t"{ui.cmd('land')}",
+                status="blocked",
+            )
+    return None
 
 
 async def _finalize_landed_pull_request(

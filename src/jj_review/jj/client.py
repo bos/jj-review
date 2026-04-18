@@ -21,7 +21,7 @@ _COMMIT_TEMPLATE = (
     r'json(parents.map(|p| p.commit_id())) ++ "\t" ++ '
     r'json(empty) ++ "\t" ++ json(divergent) ++ "\t" ++ '
     r'json(current_working_copy) ++ "\t" ++ json(self.hidden()) ++ "\t" ++ '
-    r'json(immutable) ++ "\n"'
+    r'json(immutable) ++ "\t" ++ json(self.conflict()) ++ "\n"'
 )
 _SCAN_TEMPLATE_PREFIX = _COMMIT_TEMPLATE.removesuffix(r'"\n"') + r'"\t" ++ '
 _TRUNK_SCAN_TEMPLATE = _SCAN_TEMPLATE_PREFIX + r'json(self.contained_in("trunk()")) ++ "\n"'
@@ -569,6 +569,19 @@ class JjClient:
         combined_revset = f"({private_commits_revset}) & ({commit_ids_revset})"
         return tuple(self.query_revisions(combined_revset))
 
+    def get_commit_diff(self, revision: str) -> str:
+        """Return the `jj diff` output for one revision against its parent."""
+
+        return self._run_jj(
+            (
+                "diff",
+                "--git",
+                "--no-pager",
+                "-r",
+                _quote_revset_symbol(revision),
+            )
+        )
+
     def list_git_remotes(self) -> tuple[GitRemote, ...]:
         """List configured Git remotes for the repository."""
 
@@ -915,9 +928,9 @@ def _default_runner(command: Sequence[str], cwd: Path) -> subprocess.CompletedPr
     )
 
 
-_EXPECTED_FIELD_COUNT = 9
-_EXPECTED_FIELD_COUNT_WITH_FLAG = 10
-_EXPECTED_FIELD_COUNT_WITH_TWO_FLAGS = 11
+_EXPECTED_FIELD_COUNT = 10
+_EXPECTED_FIELD_COUNT_WITH_FLAG = 11
+_EXPECTED_FIELD_COUNT_WITH_TWO_FLAGS = 12
 
 
 def _is_missing_revision_error(message: str) -> bool:
@@ -962,6 +975,7 @@ def _parse_revision_line(line: str) -> LocalRevision:
         working_copy_json,
         hidden_json,
         immutable_json,
+        conflict_json,
     ) = parts
     try:
         parents_raw = json.loads(parents_json)
@@ -973,6 +987,7 @@ def _parse_revision_line(line: str) -> LocalRevision:
         return LocalRevision(
             change_id=json.loads(change_id_json),
             commit_id=json.loads(commit_id_json),
+            conflict=json.loads(conflict_json),
             current_working_copy=json.loads(working_copy_json),
             description=json.loads(description_json),
             divergent=json.loads(divergent_json),

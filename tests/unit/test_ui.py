@@ -58,6 +58,26 @@ def test_output_decodes_ansi_strings_before_printing() -> None:
     assert stdout.getvalue() == "red\n"
 
 
+def test_output_prefixed_line_ends_with_newline() -> None:
+    stdout = StringIO()
+
+    with console_module.configured_console(
+        stdout=stdout,
+        stderr=StringIO(),
+        color_mode="always",
+    ):
+        console_module.output(
+            ui_module.prefixed_line(
+                "  ✗ ",
+                (ui_module.semantic_text("stop", "prefix"), ": ", "before something"),
+                prefix_labels=("error heading",),
+                message_labels=("warning heading",),
+            )
+        )
+
+    assert stdout.getvalue().endswith("\n")
+
+
 def test_progress_uses_rich_progress_on_tty(monkeypatch: pytest.MonkeyPatch) -> None:
     progress_updates: list[int] = []
     progress_calls: list[dict[str, object]] = []

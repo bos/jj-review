@@ -92,7 +92,7 @@ def test_land_previews_and_finalizes_maximal_ready_prefix(
     assert "finalize PR #2" in rendered_preview
     assert f"forget {bookmark_1}" in rendered_preview
     assert f"forget {bookmark_2}" in rendered_preview
-    assert "stop before feature 3" in rendered_preview
+    assert "before feature 3" in rendered_preview
 
     apply_exit_code = run_main(repo, config_path, "land")
     applied = capsys.readouterr()
@@ -191,9 +191,77 @@ def test_land_rejects_stack_forked_from_trunk_ancestor(
     combined = captured.out + captured.err
 
     assert exit_code == 1
-    assert "not based on trunk()" in combined
+    assert "Selected stack is not based on the current trunk()" in combined
+    assert "jj rebase -s" in combined
+    assert fetch_calls == ["origin"]
+
+
+def test_land_reports_current_trunk_drift_after_fetch_instead_of_bookmark_mismatch(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    approve_pull_requests(fake_repo, 1)
+
+    other = tmp_path / "other"
+    run_command(["git", "clone", str(fake_repo.git_dir), str(other)], tmp_path)
+    run_command(["git", "config", "user.name", "Other User"], other)
+    run_command(["git", "config", "user.email", "other@example.com"], other)
+    write_file(other / "trunk-1.txt", "trunk 1\n")
+    run_command(["git", "add", "trunk-1.txt"], other)
+    run_command(["git", "commit", "-m", "trunk 1"], other)
+    run_command(["git", "push", "origin", "HEAD:main"], other)
+
+    exit_code = run_main(repo, config_path, "land", "--dry-run")
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+
+    assert exit_code == 1
+    assert "Selected stack is not based on the current trunk()" in combined
+    assert "jj rebase -s" in combined
+    assert "cleanup --restack" not in combined
+    assert "Local bookmark main points to a different revision" not in combined
+
+
+def test_land_recommends_cleanup_when_selected_stack_already_has_merged_changes(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    approve_pull_requests(fake_repo, 1, 2)
+    fake_repo.pull_requests[1].state = "closed"
+    fake_repo.pull_requests[1].merged_at = "2026-04-18T12:00:00Z"
+
+    other = tmp_path / "other"
+    run_command(["git", "clone", str(fake_repo.git_dir), str(other)], tmp_path)
+    run_command(["git", "config", "user.name", "Other User"], other)
+    run_command(["git", "config", "user.email", "other@example.com"], other)
+    write_file(other / "trunk-1.txt", "trunk 1\n")
+    run_command(["git", "add", "trunk-1.txt"], other)
+    run_command(["git", "commit", "-m", "trunk 1"], other)
+    run_command(["git", "push", "origin", "HEAD:main"], other)
+
+    exit_code = run_main(repo, config_path, "land", "--dry-run")
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+
+    assert exit_code == 1
+    assert "Selected stack is not based on the current trunk()" in combined
     assert "cleanup --restack" in combined
-    assert fetch_calls == []
+    assert "jj rebase -s" not in combined
 
 
 def test_land_defaults_to_at_minus_when_working_copy_is_non_empty(
@@ -317,6 +385,231 @@ def test_land_bypass_readiness_previews_and_finalizes_unapproved_change(
     assert fake_repo.pull_requests[1].state == "closed"
     assert fake_repo.pull_requests[1].merged_at is not None
     assert read_remote_ref(fake_repo.git_dir, "main") == stack.revisions[0].commit_id
+
+
+def test_land_auto_resubmits_rebased_branch_before_landing(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    approve_pull_requests(fake_repo, 1)
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[0].change_id
+    old_commit_id = stack.revisions[0].commit_id
+    submitted_state = ReviewStateStore.for_repo(repo).load()
+    bookmark = submitted_state.changes[change_id].bookmark
+    if bookmark is None:
+        raise AssertionError("Expected saved bookmark after submit.")
+
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "trunk 1", "trunk-1.txt")
+    run_command(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
+    run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+    run_command(["jj", "rebase", "-s", change_id, "-d", "main"], repo)
+
+    rebased_stack = JjClient(repo).discover_review_stack(change_id)
+    rebased_commit_id = rebased_stack.revisions[0].commit_id
+
+    assert rebased_commit_id != old_commit_id
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == old_commit_id
+
+    preview_exit_code = run_main(repo, config_path, "land", "--dry-run", change_id)
+    preview = capsys.readouterr()
+
+    assert preview_exit_code == 0
+    assert f"refresh {bookmark} to match feature 1" in preview.out
+    assert "push main to feature 1" in preview.out
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == old_commit_id
+
+    apply_exit_code = run_main(repo, config_path, "land", change_id)
+    applied = capsys.readouterr()
+
+    assert apply_exit_code == 0
+    assert "Refreshing 1 review branch" in applied.out
+    assert "Finalizing PR #1 for feature 1" in applied.out
+    assert read_remote_ref(fake_repo.git_dir, "main") == rebased_commit_id
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == rebased_commit_id
+    assert fake_repo.pull_requests[1].state == "closed"
+    state = ReviewStateStore.for_repo(repo).load()
+    assert state.changes[change_id].pr_state == "merged"
+
+
+def test_land_blocks_content_divergent_rebased_change(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    approve_pull_requests(fake_repo, 1)
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[0].change_id
+    old_commit_id = stack.revisions[0].commit_id
+    submitted_state = ReviewStateStore.for_repo(repo).load()
+    bookmark = submitted_state.changes[change_id].bookmark
+    if bookmark is None:
+        raise AssertionError("Expected saved bookmark after submit.")
+
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "trunk 1", "trunk-1.txt")
+    run_command(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
+    run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+    run_command(["jj", "rebase", "-s", change_id, "-d", "main"], repo)
+    run_command(["jj", "edit", change_id], repo)
+    write_file(repo / "feature-1.txt", "feature 1 with extra tweak\n")
+    run_command(["jj", "new"], repo)
+
+    exit_code = run_main(repo, config_path, "land", "--dry-run", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    rendered = _squash_whitespace(captured.out)
+    assert "Land blocked:" in rendered
+    assert "differs from what reviewers approved" in rendered
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == old_commit_id
+
+
+def test_land_blocks_dismissed_approval_after_resubmit(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    approve_pull_requests(fake_repo, 1)
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[0].change_id
+    submitted_state = ReviewStateStore.for_repo(repo).load()
+    bookmark = submitted_state.changes[change_id].bookmark
+    if bookmark is None:
+        raise AssertionError("Expected saved bookmark after submit.")
+
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "trunk 1", "trunk-1.txt")
+    run_command(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
+    run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+    run_command(["jj", "rebase", "-s", change_id, "-d", "main"], repo)
+
+    original_push = JjClient.push_bookmarks
+
+    def dismissing_push(self, *, remote, bookmarks):
+        original_push(self, remote=remote, bookmarks=bookmarks)
+        for review in fake_repo.pull_request_reviews[1]:
+            review.state = "DISMISSED"
+
+    monkeypatch.setattr(
+        "jj_review.commands.land.JjClient.push_bookmarks",
+        dismissing_push,
+    )
+
+    rebased_stack = JjClient(repo).discover_review_stack(change_id)
+    rebased_commit_id = rebased_stack.revisions[0].commit_id
+    trunk_target_before_land = read_remote_ref(fake_repo.git_dir, "main")
+
+    exit_code = run_main(repo, config_path, "land", change_id)
+    captured = capsys.readouterr()
+    rendered = _squash_whitespace(captured.out)
+
+    assert exit_code == 1
+    assert "Refreshing 1 review branch" in captured.out
+    assert "dismissed the approval" in rendered
+    assert read_remote_ref(fake_repo.git_dir, "main") == trunk_target_before_land
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == rebased_commit_id
+    assert fake_repo.pull_requests[1].state == "open"
+
+
+def test_land_blocks_unresolved_conflicted_rebase(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "shared.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    approve_pull_requests(fake_repo, 1)
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[0].change_id
+
+    run_command(["jj", "new", "main"], repo)
+    write_file(repo / "shared.txt", "trunk 1\n")
+    run_command(["jj", "commit", "-m", "trunk 1"], repo)
+    run_command(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
+    run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+    run_command(["jj", "rebase", "-s", change_id, "-d", "main"], repo)
+
+    rebased_stack = JjClient(repo).discover_review_stack(change_id)
+    assert rebased_stack.revisions[0].conflict is True
+
+    exit_code = run_main(repo, config_path, "land", "--dry-run", change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Land blocked:" in captured.out
+    assert "still has unresolved conflicts" in _squash_whitespace(captured.out)
+
+
+def test_rebased_partial_land_keeps_descendant_cleanup_path_clear(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    for index in range(3):
+        commit_file(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    approve_pull_requests(fake_repo, 1, 2)
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    top_change_id = stack.revisions[2].change_id
+    fake_repo.pull_requests[3].state = "closed"
+
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "trunk 1", "trunk-1.txt")
+    run_command(["jj", "bookmark", "move", "main", "--to", "@-"], repo)
+    run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+    run_command(["jj", "rebase", "-s", bottom_change_id, "-d", "main"], repo)
+
+    assert run_main(repo, config_path, "land", top_change_id) == 0
+    capsys.readouterr()
+
+    cleanup_exit_code = run_main(
+        repo,
+        config_path,
+        "cleanup",
+        "--restack",
+        "--dry-run",
+        top_change_id,
+    )
+    cleanup = capsys.readouterr()
+
+    assert cleanup_exit_code == 0
+    assert "closed without merge" not in _squash_whitespace(cleanup.out)
+    assert "No merged changes on the selected stack need restacking." in cleanup.out
 
 
 @pytest.mark.parametrize(

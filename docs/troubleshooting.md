@@ -50,6 +50,8 @@ Cause:
 
 - some changes at the bottom of your stack landed
 - the remaining changes are still based on the old history
+- `trunk()` advanced elsewhere and `jj-review` noticed that when it refreshed
+  remote state
 
 What to do:
 
@@ -60,6 +62,28 @@ jj-review submit
 
 `cleanup --restack` rebases your remaining changes above the newly landed
 commits. After that, `submit` refreshes the open PRs to reflect the new base.
+
+## `land` says the local change differs from what reviewers approved
+
+Cause:
+
+- you rewrote a reviewed change in a way that changed its diff
+- the PR branch on GitHub still shows the older reviewed content
+
+What to do:
+
+```bash
+jj-review submit
+```
+
+If you want to notify prior reviewers again after updating the PR, follow with:
+
+```bash
+jj-review submit --re-request
+```
+
+A pure rebase with the same diff does not need this. In that case `land`
+refreshes the review branch automatically before pushing `trunk()`.
 
 ## PRs for this stack exist on GitHub but `jj-review` doesn't know about them
 

@@ -1234,7 +1234,7 @@ arbitrary PR subsets.
 The default landing boundary is now readiness-based instead of merely
 open-PR-based. In the first readiness slice, that means the prefix stops at the
 first PR that is draft, unapproved, or has changes requested, while still
-failing closed on ambiguous linkage or stale pushed state. A narrow
+failing closed on ambiguous linkage. A narrow
 `--bypass-readiness` flag may ignore only those readiness gates; it must not
 skip linkage safety or trunk push policy.
 
@@ -1271,9 +1271,36 @@ This slice is now in place with the current implementation:
 - default `land` selection now uses the ready prefix rather than the merely
   open prefix, so draft, unapproved, and changes-requested PRs block the
   landing boundary just like closed or ambiguous PR state already did
+- `land` also stops on local changes that still carry unresolved conflicts,
+  even after an otherwise valid rebase, so the ready prefix remains something
+  that can actually be replayed onto trunk
+- `land` compares each landable change's local diff against the diff of the
+  commit currently on its `review/*` branch: tree-equivalent rebases trigger
+  a pre-land refresh push that realigns the PR branch with the local commit,
+  while content-divergent rebases (conflict resolution, amends) block with a
+  pointer to `submit` and re-request review
+- blocked `land` diagnostics now check unlinked, ambiguous, and missing review
+  state before rewrite drift, so the command points at `relink` or
+  `status --fetch` when the PR link itself is the real problem instead of
+  defaulting to a misleading `submit` rerun
+- `land` stack preparation now re-resolves the selected stack after its
+  remote-state fetch can move `trunk()`, so the command stops on the actual
+  "stack is no longer based on current trunk" condition instead of surfacing a
+  bogus local bookmark mismatch against pre-fetch state
+- `land` now picks the repair command for that trunk-drift case: it points at
+  `cleanup --restack` when the selected stack already contains merged review
+  changes, and otherwise gives a concrete `jj rebase -s <bottom> -d 'trunk()'`
+  command for whole-stack drift
+- after a pre-land refresh push succeeds, `land` re-queries the affected PR
+  approval decisions and stops before the trunk push if any approval was
+  dismissed by the refresh (e.g., because the repo policy dismisses stale
+  approvals); the refreshed `review/*` branch stays in place for the
+  operator to re-request review and retry
+- `land --dry-run` surfaces the planned refresh-then-push sequence without
+  mutating any remote state
 - `land --bypass-readiness` may still select the open prefix for exceptional
-  cases, but only by bypassing readiness checks; linkage, stale-submit, and
-  trunk-protection checks still fail closed
+  cases, but only by bypassing readiness checks; linkage and trunk-protection
+  checks still fail closed
 - blocked `land` output does not advertise `--bypass-readiness`; operators may
   discover that override from help, but normal failure guidance stays focused
   on the blocking state itself

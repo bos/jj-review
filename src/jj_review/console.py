@@ -150,6 +150,7 @@ class _HangingIndentRenderable:
     prefix: Any
     prefix_width: int
     body: Any
+    end: str = "\n"
 
     def __rich_console__(self, console, options):
         if options.no_wrap:
@@ -177,6 +178,10 @@ class _HangingIndentRenderable:
             yield from line
             if index < len(body_lines) - 1:
                 yield Segment.line()
+        if self.end == "\n":
+            yield Segment.line()
+        elif self.end:
+            yield from console.render(self.end, options)
 
 
 class _ConfiguredConsole:
