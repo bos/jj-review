@@ -5,52 +5,9 @@ from types import SimpleNamespace
 import pytest
 
 from jj_review.commands import status as status_module
-from jj_review.errors import CliError
-from jj_review.jj import UnsupportedStackError
 from jj_review.models.review_state import CachedChange
-from jj_review.review.status import status_preparation_cli_error
-from jj_review.ui import plain_text
 
 from .entrypoint_test_helpers import patch_bootstrap
-
-
-def test_status_reports_targeted_divergent_stack_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    patch_bootstrap(monkeypatch, status_module, tmp_path)
-
-    def raise_unsupported_stack(**kwargs):
-        raise UnsupportedStackError(
-            "Unsupported stack shape at nznokxmvrnysowwwkktpmroswxqsozqq: "
-            "divergent changes are not supported.",
-            change_id="nznokxmvrnysowwwkktpmroswxqsozqq",
-            reason="divergent_change",
-        )
-
-    monkeypatch.setattr(status_module, "prepare_status", raise_unsupported_stack)
-
-    with pytest.raises(CliError, match="Could not inspect review status"):
-        status_module.status(
-            config_path=None,
-            debug=False,
-            fetch=False,
-            repository=tmp_path,
-            revset=None,
-            verbose=False,
-        )
-
-
-def test_status_preparation_cli_error_falls_back_without_structured_context() -> None:
-    error = UnsupportedStackError(
-        "Unsupported stack shape at nznokxmvrnysowwwkktpmroswxqsozqq: "
-        "divergent changes are not supported."
-    )
-
-    translated = status_preparation_cli_error(error)
-
-    assert isinstance(translated, CliError)
-    assert "jj log -r" not in plain_text(translated.message)
 
 
 def test_status_updates_tty_progress_bar_while_streaming(

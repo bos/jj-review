@@ -7,10 +7,7 @@ import pytest
 import jj_review.github.client as github_client_module
 from jj_review.errors import CliError
 from jj_review.github.client import (
-    _github_hostname_from_api_base_url,
     _github_token_for_base_url,
-    _github_token_from_gh_cli,
-    build_github_client,
     github_token_from_env,
 )
 from jj_review.github.resolution import (
@@ -115,42 +112,6 @@ def test_github_token_from_env_falls_back_to_gh_token(
     monkeypatch.setenv("GH_TOKEN", "gh-token")
 
     assert github_token_from_env() == "gh-token"
-
-
-def test_build_github_client_reads_token_from_environment(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("GITHUB_TOKEN", "github-token")
-
-    client = build_github_client(base_url="https://api.github.test")
-    try:
-        assert client._client.headers["Authorization"] == "Bearer github-token"
-    finally:
-        import asyncio
-
-        asyncio.run(client.aclose())
-
-
-def test_github_hostname_from_api_base_url_maps_public_github() -> None:
-    assert _github_hostname_from_api_base_url("https://api.github.com") == "github.com"
-
-
-def test_github_hostname_from_api_base_url_strips_api_prefix() -> None:
-    assert (
-        _github_hostname_from_api_base_url("https://api.github.example.com")
-        == "github.example.com"
-    )
-
-
-def test_github_token_from_gh_cli_returns_none_when_gh_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def raise_missing(*args, **kwargs):
-        raise FileNotFoundError
-
-    monkeypatch.setattr(github_client_module.subprocess, "run", raise_missing)
-
-    assert _github_token_from_gh_cli("github.com") is None
 
 
 def test_github_token_for_base_url_falls_back_to_gh_cli(

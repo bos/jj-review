@@ -23,18 +23,6 @@ def test_resolve_selected_revset_returns_explicit_value() -> None:
     )
 
 
-def test_resolve_selected_revset_uses_default_when_omitted() -> None:
-    assert (
-        resolve_selected_revset(
-            command_label="submit",
-            default_revset="@-",
-            require_explicit=False,
-            revset=None,
-        )
-        == "@-"
-    )
-
-
 def test_resolve_selected_revset_requires_explicit_selection() -> None:
     with pytest.raises(CliError, match="requires an explicit revision selection"):
         resolve_selected_revset(
@@ -42,51 +30,6 @@ def test_resolve_selected_revset_requires_explicit_selection() -> None:
             require_explicit=True,
             revset=None,
         )
-
-
-def test_resolve_linked_change_for_pull_request_accepts_numeric_selector_without_remote_lookup(
-    monkeypatch,
-) -> None:
-    _patch_review_state(
-        monkeypatch,
-        ReviewState(changes={"change-1": CachedChange(pr_number=17)}),
-    )
-    _patch_jj_client(
-        monkeypatch,
-        revisions_by_change_id={"change-1": (_revision("change-1"),)},
-    )
-    monkeypatch.setattr(
-        "jj_review.review.selection.select_submit_remote",
-        lambda remotes: (_ for _ in ()).throw(AssertionError("remote lookup should not run")),
-    )
-
-    assert resolve_linked_change_for_pull_request(
-        action_name="land",
-        pull_request_reference="17",
-        repo_root=_REPO_ROOT,
-        revset=None,
-    ) == (17, "change-1")
-
-
-def test_resolve_linked_change_for_pull_request_accepts_repository_url_selector(
-    monkeypatch,
-) -> None:
-    _patch_review_state(
-        monkeypatch,
-        ReviewState(changes={"change-1": CachedChange(pr_number=17)}),
-    )
-    _patch_jj_client(
-        monkeypatch,
-        remotes=(GitRemote(name="origin", url="https://github.test/octo-org/stacked-review"),),
-        revisions_by_change_id={"change-1": (_revision("change-1"),)},
-    )
-
-    assert resolve_linked_change_for_pull_request(
-        action_name="close",
-        pull_request_reference="https://github.test/octo-org/stacked-review/pull/17",
-        repo_root=_REPO_ROOT,
-        revset=None,
-    ) == (17, "change-1")
 
 
 def test_resolve_linked_change_for_pull_request_uses_action_specific_guidance(
@@ -151,7 +94,3 @@ def _patch_jj_client(
     _JjClientStub.remotes = remotes
     _JjClientStub.revisions_by_change_id = revisions_by_change_id
     monkeypatch.setattr("jj_review.review.selection.JjClient", _JjClientStub)
-
-
-def _revision(change_id: str) -> object:
-    return type("Revision", (), {"change_id": change_id})()

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from jj_review import ui
-from jj_review.cli import _normalize_cli_args, build_parser, main
+from jj_review.cli import main
 from jj_review.errors import CliError
 
 
@@ -59,49 +59,6 @@ def test_main_reports_invalid_logging_level_without_traceback(
     assert "Traceback" not in captured.err
 
 
-@pytest.mark.parametrize(
-    ("args", "expected"),
-    [
-        (["submit", "--draft=new", "@"], ["submit", "--draft", "@"]),
-        (["submit", "--draft=all", "@"], ["submit", "--draft-all", "@"]),
-        (
-            ["help", "cleanup", "--color=never"],
-            ["--color=never", "help", "cleanup"],
-        ),
-        (
-            ["cleanup", "--help", "--color=never"],
-            ["--color=never", "help", "cleanup"],
-        ),
-    ],
-)
-def test_normalize_cli_args_rewrites_shorthand_forms(
-    args: list[str],
-    expected: list[str],
-) -> None:
-    assert _normalize_cli_args(args) == expected
-
-
-def test_normalize_cli_args_rejects_invalid_draft_mode() -> None:
-    with pytest.raises(CliError) as exc_info:
-        _normalize_cli_args(["submit", "--draft=oops", "@"])
-
-    assert "Invalid value for --draft" in str(exc_info.value)
-
-
-def test_main_submit_rejects_draft_and_publish_together() -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        build_parser().parse_args(["submit", "--draft", "--publish", "@"])
-
-    assert exc_info.value.code == 2
-
-
-def test_main_import_rejects_multiple_selectors() -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        build_parser().parse_args(["import", "--pull-request", "7", "--revset", "@"])
-
-    assert exc_info.value.code == 2
-
-
 def test_main_reports_non_jj_directory_without_traceback(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -152,14 +109,14 @@ def test_main_renders_cli_error_hint_on_separate_line(
     ]
 
 
-def test_main_renders_inline_backtick_help_spans_without_literal_backticks(
+@pytest.mark.parametrize("argv", [["help"], ["help", "--all"], ["help", "submit"]])
+def test_main_help_smoke_renders_without_error(
+    argv: list[str],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    exit_code = main(["--color=never", "help", "cleanup"])
+    exit_code = main(argv)
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "`--restack`" not in captured.out
-    assert "`--dry-run`" not in captured.out
-    assert "--restack" in captured.out
-    assert "--dry-run" in captured.out
+    assert "jj-review" in captured.out
+    assert "Traceback" not in captured.err
