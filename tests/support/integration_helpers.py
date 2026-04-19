@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import atexit
 import importlib
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -15,6 +18,10 @@ from .fake_github import (
     create_app,
     initialize_bare_repository,
 )
+
+_TEMPLATE_OWNER = "octo-org"
+_TEMPLATE_NAME = "stacked-review"
+_CACHED_TEMPLATE: Path | None = None
 
 
 def configure_fake_github_environment(
@@ -56,28 +63,64 @@ def configure_fake_github_environment(
     return config_path
 
 
+def _copy_fake_github_repo_from_template(
+    tmp_path: Path,
+    template_root: Path,
+) -> tuple[Path, FakeGithubRepository]:
+    shutil.copytree(template_root / "repo", tmp_path / "repo")
+    shutil.copytree(template_root / "remotes", tmp_path / "remotes")
+    repo = tmp_path / "repo"
+    git_dir = tmp_path / "remotes" / _TEMPLATE_OWNER / f"{_TEMPLATE_NAME}.git"
+    run_command(["jj", "git", "remote", "set-url", "origin", str(git_dir)], repo)
+    fake_repo = FakeGithubRepository(
+        default_branch="main",
+        git_dir=git_dir,
+        name=_TEMPLATE_NAME,
+        owner=_TEMPLATE_OWNER,
+    )
+    return repo, fake_repo
+
+
+def _init_fake_github_repo_fresh(
+    tmp_path: Path,
+    *,
+    with_remote: bool,
+) -> tuple[Path, FakeGithubRepository]:
+    repo = tmp_path / "repo"
+    fake_repo = initialize_bare_repository(
+        tmp_path / "remotes",
+        owner=_TEMPLATE_OWNER,
+        name=_TEMPLATE_NAME,
+    )
+    run_command(["jj", "git", "init", str(repo)], tmp_path)
+    write_file(repo / "README.md", "base\n")
+    run_command(["jj", "commit", "-m", "base"], repo)
+    run_command(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
+    if with_remote:
+        run_command(["jj", "git", "remote", "add", "origin", str(fake_repo.git_dir)], repo)
+        run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
+    return repo, fake_repo
+
+
+def _get_cached_template() -> Path:
+    global _CACHED_TEMPLATE
+    if _CACHED_TEMPLATE is None:
+        template_root = Path(tempfile.mkdtemp(prefix="jjr_tpl_"))
+        atexit.register(lambda: shutil.rmtree(template_root, ignore_errors=True))
+        _init_fake_github_repo_fresh(template_root, with_remote=True)
+        _CACHED_TEMPLATE = template_root
+    return _CACHED_TEMPLATE
+
+
 def init_fake_github_repo(
     tmp_path: Path,
     *,
     with_remote: bool = True,
 ) -> tuple[Path, FakeGithubRepository]:
-    repo = tmp_path / "repo"
-    fake_repo = initialize_bare_repository(
-        tmp_path / "remotes",
-        owner="octo-org",
-        name="stacked-review",
-    )
-    run_command(["jj", "git", "init", str(repo)], tmp_path)
-    run_command(["jj", "config", "set", "--repo", "user.name", "Test User"], repo)
-    run_command(["jj", "config", "set", "--repo", "user.email", "test@example.com"], repo)
-    write_file(repo / "README.md", "base\n")
-    run_command(["jj", "commit", "-m", "base"], repo)
-    run_command(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
-    run_command(["jj", "config", "set", "--repo", 'revset-aliases."trunk()"', "main"], repo)
-    if with_remote:
-        run_command(["jj", "git", "remote", "add", "origin", str(fake_repo.git_dir)], repo)
-        run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "main"], repo)
-    return repo, fake_repo
+    if not with_remote:
+        return _init_fake_github_repo_fresh(tmp_path, with_remote=False)
+    template_root = _get_cached_template()
+    return _copy_fake_github_repo_from_template(tmp_path, template_root)
 
 
 def init_repo(
@@ -87,13 +130,10 @@ def init_repo(
 ) -> Path:
     repo = tmp_path / "repo"
     run_command(["jj", "git", "init", str(repo)], tmp_path)
-    run_command(["jj", "config", "set", "--repo", "user.name", "Test User"], repo)
-    run_command(["jj", "config", "set", "--repo", "user.email", "test@example.com"], repo)
     write_file(repo / "README.md", "base\n")
     run_command(["jj", "commit", "-m", "base"], repo)
     if configure_trunk:
         run_command(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
-        run_command(["jj", "config", "set", "--repo", 'revset-aliases."trunk()"', "main"], repo)
     return repo
 
 
