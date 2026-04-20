@@ -125,7 +125,7 @@ def import_(
     result = asyncio.run(
         _run_import_async(
             change_overrides=context.config.change,
-            config=context.config.repo,
+            config=context.config,
             fetch=fetch,
             pull_request_reference=pull_request,
             repo_root=context.repo_root,

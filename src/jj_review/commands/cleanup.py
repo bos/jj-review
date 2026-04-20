@@ -250,13 +250,13 @@ def cleanup(
         return _run_cleanup_restack_command(
             dry_run=dry_run,
             change_overrides=context.config.change,
-            config=context.config.repo,
+            config=context.config,
             repo_root=context.repo_root,
             revset=revset,
         )
 
     return _run_cleanup_command(
-        config=context.config.repo,
+        config=context.config,
         dry_run=dry_run,
         repo_root=context.repo_root,
     )

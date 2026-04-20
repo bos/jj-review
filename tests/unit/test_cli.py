@@ -17,7 +17,7 @@ def test_main_reports_invalid_config_without_traceback(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     config_path = tmp_path / "bad.toml"
-    config_path.write_text("[jj-review.repo]\nremote = [\n", encoding="utf-8")
+    config_path.write_text("[jj-review]\nbookmark_prefix = [\n", encoding="utf-8")
 
     exit_code = main(["--config", str(config_path), "submit"])
     captured = capsys.readouterr()

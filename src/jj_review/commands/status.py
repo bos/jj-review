@@ -78,7 +78,7 @@ def status(
     try:
         prepared_status = prepare_status(
             change_overrides=context.config.change,
-            config=context.config.repo,
+            config=context.config,
             fetch_remote_state=fetch,
             persist_bookmarks=False,
             repo_root=context.repo_root,
@@ -140,7 +140,7 @@ def status(
             prerendered_blocks=prerendered_blocks,
         )
     )
-    _emit_lines(render_status_advisory_lines(config=context.config.repo, result=result))
+    _emit_lines(render_status_advisory_lines(config=context.config, result=result))
     _emit_lines(render_status_intent_lines(prepared_status=prepared_status))
 
     exit_code = 1 if result.incomplete else 0

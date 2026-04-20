@@ -20,7 +20,7 @@ DEFAULT_BOOKMARK_PREFIX = "review"
 class RepoConfig(BaseModel):
     """Repository defaults resolved before command planning."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     bookmark_prefix: str = DEFAULT_BOOKMARK_PREFIX
     labels: list[str] = Field(default_factory=list)
@@ -41,7 +41,7 @@ class RepoConfig(BaseModel):
 class ChangeConfig(BaseModel):
     """User-authored per-change configuration."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     bookmark_override: str | None = None
 
@@ -49,7 +49,7 @@ class ChangeConfig(BaseModel):
 class LoggingConfig(BaseModel):
     """User-configurable logging defaults."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     http_debug: bool = False
     level: str = "WARNING"
@@ -65,22 +65,13 @@ class LoggingConfig(BaseModel):
         return level_name
 
 
-class AppConfig(BaseModel):
+class AppConfig(RepoConfig):
     """Top-level configuration model."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    change: dict[str, ChangeConfig] = Field(default_factory=dict)
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)
-    repo: RepoConfig = Field(default_factory=RepoConfig)
-
-
-class _ConfigDocument(BaseModel):
-    """Wrapper for `jj-review` keys inside a jj config file."""
 
     model_config = ConfigDict(extra="ignore")
 
-    jj_review: AppConfig = Field(default_factory=AppConfig, alias=CONFIG_SECTION)
+    change: dict[str, ChangeConfig] = Field(default_factory=dict)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 
 def load_config(*, repo_root: Path | None, config_path: Path | None = None) -> AppConfig:
@@ -149,11 +140,25 @@ def _load_config_layer(config_path: Path) -> dict[str, object]:
     except OSError as error:
         raise CliError(f"Could not read config file {config_path}: {error}") from error
 
-    try:
-        document = _ConfigDocument.model_validate(raw_config)
-    except ValidationError as error:
-        raise CliError(f"Invalid jj-review config in {config_path}: {error}") from error
-    return document.jj_review.model_dump(exclude_unset=True)
+    config_section = raw_config.get(CONFIG_SECTION)
+    if config_section is None:
+        return {}
+    if not isinstance(config_section, Mapping):
+        raise CliError(
+            f"Invalid jj-review config in {config_path}: [{CONFIG_SECTION}] must be a table."
+        )
+
+    config_data = dict(config_section)
+    if "repo" in config_data:
+        raise CliError(
+            f"Invalid jj-review config in {config_path}: repo defaults live directly under "
+            f"[{CONFIG_SECTION}], not [{CONFIG_SECTION}.repo].",
+            hint=(
+                f"Move bookmark_prefix, reviewers, team_reviewers, and labels into "
+                f"[{CONFIG_SECTION}]."
+            ),
+        )
+    return _validate_config(config_data, source=str(config_path)).model_dump(exclude_unset=True)
 
 
 def _merge_config_data(
@@ -174,4 +179,24 @@ def _validate_config(config_data: dict[str, object], *, source: str) -> AppConfi
     try:
         return AppConfig.model_validate(config_data)
     except ValidationError as error:
-        raise CliError(f"Invalid jj-review config in {source}: {error}") from error
+        raise CliError(_format_validation_error(source=source, error=error)) from error
+
+
+def _format_validation_error(*, source: str, error: ValidationError) -> str:
+    details = [
+        _format_validation_issue(tuple(str(part) for part in issue["loc"]), str(issue["msg"]))
+        for issue in error.errors(include_url=False)
+    ]
+    return f"Invalid jj-review config in {source}: {'; '.join(details)}"
+
+
+def _format_validation_issue(location: tuple[str, ...], message: str) -> str:
+    if len(location) == 1:
+        return f"[{CONFIG_SECTION}].{location[0]}: {message}"
+    if location[:1] == ("logging",) and len(location) == 2:
+        return f"[{CONFIG_SECTION}.logging].{location[1]}: {message}"
+    if location[:1] == ("change",) and len(location) == 3:
+        return f'[{CONFIG_SECTION}.change."{location[1]}"].{location[2]}: {message}'
+    if not location:
+        return message
+    return f"[{CONFIG_SECTION}].{'.'.join(location)}: {message}"

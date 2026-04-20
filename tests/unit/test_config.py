@@ -22,8 +22,8 @@ def test_load_config_returns_defaults_when_jj_config_is_missing(
     config = load_config(repo_root=tmp_path)
 
     assert config.logging.level == "WARNING"
-    assert config.repo.bookmark_prefix == "review"
-    assert config.repo.labels == []
+    assert config.bookmark_prefix == "review"
+    assert config.labels == []
 
 
 def test_load_config_merges_jj_config_layers(
@@ -52,7 +52,7 @@ def test_load_config_merges_jj_config_layers(
     _write_config(
         repo_path,
         [
-            "[jj-review.repo]",
+            "[jj-review]",
             'bookmark_prefix = "bosullivan"',
             'reviewers = ["octocat"]',
             'team_reviewers = ["platform"]',
@@ -61,7 +61,7 @@ def test_load_config_merges_jj_config_layers(
     _write_config(
         workspace_path,
         [
-            "[jj-review.repo]",
+            "[jj-review]",
             'labels = ["needs-review"]',
         ],
     )
@@ -69,10 +69,10 @@ def test_load_config_merges_jj_config_layers(
     config = load_config(repo_root=tmp_path)
 
     assert config.logging.level == "INFO"
-    assert config.repo.bookmark_prefix == "bosullivan"
-    assert config.repo.reviewers == ["octocat"]
-    assert config.repo.team_reviewers == ["platform"]
-    assert config.repo.labels == ["needs-review"]
+    assert config.bookmark_prefix == "bosullivan"
+    assert config.reviewers == ["octocat"]
+    assert config.team_reviewers == ["platform"]
+    assert config.labels == ["needs-review"]
     assert config.change[change_id].bookmark_override == "review/from-user"
 
 
@@ -81,7 +81,7 @@ def test_load_config_reads_explicit_jj_review_config_file(tmp_path: Path) -> Non
     _write_config(
         config_path,
         [
-            "[jj-review.repo]",
+            "[jj-review]",
             'labels = ["needs-review"]',
             "",
             "[jj-review.logging]",
@@ -91,7 +91,7 @@ def test_load_config_reads_explicit_jj_review_config_file(tmp_path: Path) -> Non
 
     config = load_config(repo_root=None, config_path=config_path)
 
-    assert config.repo.labels == ["needs-review"]
+    assert config.labels == ["needs-review"]
     assert config.logging.level == "DEBUG"
 
 
@@ -117,22 +117,40 @@ def test_load_config_ignores_unrelated_jj_config_keys(
     config = load_config(repo_root=tmp_path)
 
     assert config.logging.level == "WARNING"
-    assert config.repo.labels == []
+    assert config.labels == []
 
 
-def test_load_config_rejects_invalid_keys_inside_jj_review_section(
+def test_load_config_ignores_unknown_keys_inside_jj_review_section(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "ignored.toml"
+    _write_config(
+        config_path,
+        [
+            "[jj-review]",
+            'potato = "round"',
+        ],
+    )
+
+    config = load_config(repo_root=None, config_path=config_path)
+
+    assert config.bookmark_prefix == "review"
+    assert config.labels == []
+
+
+def test_load_config_rejects_repo_subtable(
     tmp_path: Path,
 ) -> None:
     config_path = tmp_path / "invalid.toml"
     _write_config(
         config_path,
         [
-            "[jj-review]",
-            'remote = "origin"',
+            "[jj-review.repo]",
+            'bookmark_prefix = "bosullivan"',
         ],
     )
 
-    with pytest.raises(CliError, match="Extra inputs are not permitted"):
+    with pytest.raises(CliError, match=r"live directly under \[jj-review\]"):
         load_config(repo_root=None, config_path=config_path)
 
 
@@ -159,7 +177,7 @@ def test_load_config_rejects_bookmark_prefix_with_slash(
     _write_config(
         config_path,
         [
-            "[jj-review.repo]",
+            "[jj-review]",
             'bookmark_prefix = "bosullivan/review"',
         ],
     )

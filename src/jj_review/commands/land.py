@@ -240,7 +240,7 @@ def land(
         dry_run=dry_run,
         bypass_readiness=bypass_readiness,
         change_overrides=context.config.change,
-        config=context.config.repo,
+        config=context.config,
         repo_root=context.repo_root,
         revset=resolved_revset,
         selected_pr_number=pull_request_number,

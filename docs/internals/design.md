@@ -144,7 +144,7 @@ That bookmark name should be readable to humans and stable for tooling.
 
 By default, it should be derived from:
 
-- the configured bookmark prefix, from `[jj-review.repo] bookmark_prefix`
+- the configured bookmark prefix, from `[jj-review] bookmark_prefix`
   (default `review`)
 - a normalized slug from the first line of the commit description
 - a short fixed-length `change_id` suffix to give stable, near-certain
@@ -1220,7 +1220,7 @@ jj config edit --workspace
 Store `jj-review` settings under the `jj-review` namespace, for example:
 
 ```toml
-[jj-review.repo]
+[jj-review]
 reviewers = ["octocat"]
 labels = ["needs-review"]
 ```

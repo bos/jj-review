@@ -190,7 +190,7 @@ directly from `git`, `jj`, and `gh` whenever possible.
 Repo-level config can be helpful for defaults such as reviewers and labels:
 
 ```toml
-[jj-review.repo]
+[jj-review]
 bookmark_prefix = "bosullivan"
 reviewers = ["octocat"]
 labels = ["needs-review"]

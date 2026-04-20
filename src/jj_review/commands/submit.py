@@ -306,7 +306,7 @@ def submit(
     result = asyncio.run(
         _run_submit_async(
             change_overrides=context.config.change,
-            config=context.config.repo,
+            config=context.config,
             describe_with=describe_with,
             draft_mode=(
                 "draft_all"

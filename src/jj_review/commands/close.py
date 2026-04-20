@@ -214,7 +214,7 @@ def close(
         dry_run=dry_run,
         cleanup=cleanup,
         change_overrides=context.config.change,
-        config=context.config.repo,
+        config=context.config,
         repo_root=context.repo_root,
         revset=resolved_revset,
     )

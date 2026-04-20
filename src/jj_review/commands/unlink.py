@@ -53,7 +53,7 @@ def unlink(
     result = asyncio.run(
         _run_unlink_async(
             change_overrides=context.config.change,
-            config=context.config.repo,
+            config=context.config,
             repo_root=context.repo_root,
             revset=resolve_selected_revset(
                 command_label="unlink",

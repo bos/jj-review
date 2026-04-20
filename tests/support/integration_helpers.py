@@ -267,7 +267,7 @@ def write_fake_github_config(
 ) -> Path:
     config_path = tmp_path / "jj-review-config.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    lines = ["[jj-review.repo]"]
+    lines = ["[jj-review]"]
     if extra_lines:
         lines.append("")
         lines.extend(extra_lines)
