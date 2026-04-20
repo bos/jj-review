@@ -14,6 +14,7 @@ from ..support.fake_github import FakeGithubState, create_app
 from ..support.integration_helpers import (
     commit_file,
     init_fake_github_repo,
+    init_fake_github_repo_with_submitted_feature,
     run_command,
     write_file,
 )
@@ -35,12 +36,8 @@ def test_land_blocks_unlinked_change(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
 
     change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
     assert run_main(repo, config_path, "unlink", change_id) == 0
@@ -129,12 +126,8 @@ def test_land_skip_cleanup_keeps_landed_local_review_bookmark(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
     approve_pull_requests(fake_repo, 1)
 
     stack = JjClient(repo).discover_review_stack()
@@ -201,12 +194,8 @@ def test_land_reports_current_trunk_drift_after_fetch_instead_of_bookmark_mismat
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
     approve_pull_requests(fake_repo, 1)
 
     other = tmp_path / "other"
@@ -270,12 +259,8 @@ def test_land_defaults_to_at_minus_when_working_copy_is_non_empty(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
     approve_pull_requests(fake_repo, 1)
 
     write_file(repo / "wip.txt", "wip\n")
@@ -295,12 +280,8 @@ def test_land_blocks_unapproved_prefix_by_default(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
 
     exit_code = run_main(repo, config_path, "land")
     captured = capsys.readouterr()
@@ -354,12 +335,8 @@ def test_land_bypass_readiness_previews_and_finalizes_unapproved_change(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
     stack = JjClient(repo).discover_review_stack()
 
     preview_exit_code = run_main(
@@ -393,12 +370,8 @@ def test_land_auto_resubmits_rebased_branch_before_landing(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
     approve_pull_requests(fake_repo, 1)
 
     stack = JjClient(repo).discover_review_stack()
@@ -447,12 +420,8 @@ def test_land_blocks_content_divergent_rebased_change(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
     approve_pull_requests(fake_repo, 1)
 
     stack = JjClient(repo).discover_review_stack()
@@ -487,12 +456,8 @@ def test_land_blocks_dismissed_approval_after_resubmit(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
     approve_pull_requests(fake_repo, 1)
 
     stack = JjClient(repo).discover_review_stack()

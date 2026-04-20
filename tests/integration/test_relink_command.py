@@ -8,6 +8,7 @@ from jj_review.state.store import ReviewStateStore, resolve_state_path
 from ..support.integration_helpers import (
     commit_file,
     init_fake_github_repo,
+    init_fake_github_repo_with_submitted_feature,
     run_command,
     write_file,
 )
@@ -279,12 +280,8 @@ def test_relink_clears_unlinked_state(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
 
     change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
     assert run_main(repo, config_path, "unlink", change_id) == 0

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import atexit
+import contextlib
 import importlib
+import io
+import os
+import pickle
 import shutil
 import subprocess
 import tempfile
@@ -22,6 +26,16 @@ from .fake_github import (
 _TEMPLATE_OWNER = "octo-org"
 _TEMPLATE_NAME = "stacked-review"
 _CACHED_TEMPLATE: Path | None = None
+_CACHED_SUBMITTED_FEATURE_TEMPLATE: Path | None = None
+_SUBMIT_CONFIG_MODULES = (
+    "jj_review.commands.abort",
+    "jj_review.commands.submit",
+    "jj_review.commands.relink",
+    "jj_review.commands.close",
+    "jj_review.commands.cleanup",
+    "jj_review.commands.land",
+    "jj_review.review.status",
+)
 
 
 def configure_fake_github_environment(
@@ -121,6 +135,117 @@ def init_fake_github_repo(
         return _init_fake_github_repo_fresh(tmp_path, with_remote=False)
     template_root = _get_cached_template()
     return _copy_fake_github_repo_from_template(tmp_path, template_root)
+
+
+def _build_submitted_feature_template(template_root: Path) -> None:
+    from jj_review.cli import main
+
+    prior_state_home = os.environ.get("XDG_STATE_HOME")
+    os.environ["XDG_STATE_HOME"] = str(template_root / "state-home")
+
+    saved_attrs: list[tuple[object, str, object]] = []
+    try:
+        repo, fake_repo = _copy_fake_github_repo_from_template(
+            template_root, _get_cached_template()
+        )
+        commit_file(repo, "feature 1", "feature-1.txt")
+
+        app = create_app(FakeGithubState.single_repository(fake_repo))
+
+        def build_github_client(*, base_url: str) -> GithubClient:
+            return GithubClient(base_url=base_url, transport=httpx.ASGITransport(app=app))
+
+        def parse_github_repo(*_args, **_kwargs) -> ParsedGithubRepo:
+            return ParsedGithubRepo(
+                host="github.test", owner=fake_repo.owner, repo=fake_repo.name
+            )
+
+        for mod_name in _SUBMIT_CONFIG_MODULES:
+            mod = importlib.import_module(mod_name)
+            for attr, new in (
+                ("build_github_client", build_github_client),
+                ("parse_github_repo", parse_github_repo),
+                ("require_github_repo", parse_github_repo),
+            ):
+                if hasattr(mod, attr):
+                    saved_attrs.append((mod, attr, getattr(mod, attr)))
+                    setattr(mod, attr, new)
+
+        config_path = write_fake_github_config(template_root, fake_repo)
+        # The template is built lazily inside the first test that calls the
+        # helper, so pytest's capsys is active. Any output produced here would
+        # land in that test's buffer and be asserted against. Future templates
+        # that run production code during build must redirect stdout/stderr too.
+        with (
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
+            exit_code = main(
+                ["--config", str(config_path), "--repository", str(repo), "submit"]
+            )
+        if exit_code != 0:
+            raise RuntimeError(f"submitted-feature template build failed: exit {exit_code}")
+
+        (template_root / "fake_repo.pkl").write_bytes(pickle.dumps(fake_repo))
+    finally:
+        for mod, attr, original in saved_attrs:
+            setattr(mod, attr, original)
+        if prior_state_home is None:
+            os.environ.pop("XDG_STATE_HOME", None)
+        else:
+            os.environ["XDG_STATE_HOME"] = prior_state_home
+
+
+def _get_cached_submitted_feature_template() -> Path:
+    global _CACHED_SUBMITTED_FEATURE_TEMPLATE
+    if _CACHED_SUBMITTED_FEATURE_TEMPLATE is None:
+        template_root = Path(tempfile.mkdtemp(prefix="jjr_tpl_sub_"))
+        atexit.register(lambda: shutil.rmtree(template_root, ignore_errors=True))
+        _build_submitted_feature_template(template_root)
+        _CACHED_SUBMITTED_FEATURE_TEMPLATE = template_root
+    return _CACHED_SUBMITTED_FEATURE_TEMPLATE
+
+
+def init_fake_github_repo_with_submitted_feature(
+    tmp_path: Path,
+) -> tuple[Path, FakeGithubRepository]:
+    """Drop-in replacement for `init_fake_github_repo + commit_file("feature 1", ...) + submit`.
+
+    Returns a repo with `feature 1` already committed and submitted as PR #1
+    in the returned `fake_repo`. Callers still need to invoke
+    `configure_submit_environment` to wire the monkeypatches for their own
+    fake_repo instance.
+    """
+    template = _get_cached_submitted_feature_template()
+    template_repo = template / "repo"
+
+    repo, fake_repo = _copy_fake_github_repo_from_template(tmp_path, template)
+
+    template_state_home = template / "state-home"
+    test_state_home = tmp_path / "state-home"
+    if template_state_home.exists():
+        shutil.copytree(template_state_home, test_state_home, dirs_exist_ok=True)
+        template_repos_root = test_state_home / "jj-review" / "repos"
+        template_hash = _repo_state_hash(template_repo)
+        test_hash = _repo_state_hash(repo)
+        if template_hash != test_hash:
+            src = template_repos_root / template_hash
+            if src.exists():
+                (template_repos_root / test_hash).mkdir(parents=True, exist_ok=True)
+                for entry in src.iterdir():
+                    entry.rename(template_repos_root / test_hash / entry.name)
+                src.rmdir()
+
+    pickled = pickle.loads((template / "fake_repo.pkl").read_bytes())
+    pickled.git_dir = fake_repo.git_dir
+    return repo, pickled
+
+
+def _repo_state_hash(repo_root: Path) -> str:
+    import hashlib
+
+    storage_root = (repo_root / ".jj" / "repo").resolve()
+    return hashlib.sha256(str(storage_root).encode("utf-8")).hexdigest()
 
 
 def init_repo(
