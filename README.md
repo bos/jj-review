@@ -22,9 +22,11 @@ unwieldy. `jj-review` takes a different approach:
 - each change gets one review branch and one PR
 - mutable history stays in `jj`, not in a parallel branch-management layer
 
-Those review branches show up locally as `jj` bookmarks with a `review/`
-prefix. They are the GitHub PR head branches. `jj-review` manages them for
-you, so most of the time you do not need to think about them directly.
+Those review branches show up locally as `jj` bookmarks with a configurable
+prefix. By default they use `review/...`, but a repo can pick another prefix
+such as `bosullivan/...`. They are the GitHub PR head branches. `jj-review`
+manages them for you, so most of the time you do not need to think about them
+directly.
 
 If you already use `jj` and GitHub pull requests, and you often want a series of small PRs
 instead of one large one, this tool is likely a good fit.
@@ -122,9 +124,9 @@ Submit that stack to GitHub:
 jj-review submit
 ```
 
-When you first submit a stack, this will create one `review/...` bookmark per change (these are
-managed automatically). Those bookmarks are user-visible in `jj`, but they are managed by
-`jj-review`.
+When you first submit a stack, this will create one review bookmark per change
+(by default `review/...`; these are managed automatically). Those bookmarks
+are user-visible in `jj`, but they are managed by `jj-review`.
 
 Inspect it again:
 
@@ -144,17 +146,17 @@ Your typical author loop will be dead simple:
 2. Run `jj-review submit`.
 3. Revise those changes locally as reviews come in.
 4. Re-run `jj-review submit`.
-5. Once some PRs are approved, run `jj-review land` to push them to GitHub and forget the local
-   `review/...` bookmarks for the landed changes.
+5. Once some PRs are approved, run `jj-review land` to push them to GitHub and
+   forget the local review bookmarks for the landed changes.
 6. Run `jj-review cleanup --restack` if later changes remain above the landed prefix.
 
 The key point is that you get to keep thinking in terms of local logical changes. `jj-review`
 manages those changes on GitHub, does some housekeeping for you locally, and that's it.
 
-One piece of that housekeeping is the `review/...` bookmark set. Those
-bookmarks are the review branches pushed to GitHub for each change. You may see
-them in `jj log` or `jj bookmark list`, but you generally should not move or
-rename them by hand unless you are doing explicit repair work.
+One piece of that housekeeping is the review bookmark set. Those bookmarks are
+the review branches pushed to GitHub for each change. You may see them in
+`jj log` or `jj bookmark list`, but you generally should not move or rename
+them by hand unless you are doing explicit repair work.
 
 ## Learn More
 
@@ -189,9 +191,13 @@ Repo-level config can be helpful for defaults such as reviewers and labels:
 
 ```toml
 [jj-review.repo]
+bookmark_prefix = "bosullivan"
 reviewers = ["octocat"]
 labels = ["needs-review"]
 ```
+
+If you leave `bookmark_prefix` unset, `jj-review` keeps the default
+`review/...` prefix.
 
 `jj-review submit` can override those defaults with `--reviewers`,
 `--team-reviewers`, and `--label`.

@@ -31,26 +31,30 @@ branch-history shapes that do not map cleanly back into one active local stack.
 Recommended settings:
 
 - `main` should require linear history
-- `review/*` should require linear history
+- the configured review branch prefix should require linear history (by
+  default `review/*`)
 - the repository should allow squash merges and/or rebase merges so linear
   history remains mergeable
-- PRs whose base branch matches `review/*` should be blocked from merging by a
-  required check or required workflow
+- PRs whose base branch matches the configured review branch prefix (by
+  default `review/*`) should be blocked from merging by a required check or
+  required workflow
 
-That last rule is important. Linear-history protection by itself is not enough:
-GitHub can still merge PRs targeting `review/*` with squash or rebase, which
-creates accepted branch-local history that is awkward to map back into the
-intended local `jj` stack model.
+That last rule is important. Linear-history protection by itself is not
+enough: GitHub can still merge PRs targeting the configured review branch
+prefix (by default `review/*`) with squash or rebase, which creates accepted
+branch-local history that is awkward to map back into the intended local `jj`
+stack model.
 
 The intended policy is:
 
 - PRs targeting `main` may be merged
-- PRs targeting `review/*` are review-only and should not be merged directly
+- PRs targeting the review branch prefix are review-only and should not be
+  merged directly
 
 The tool should diagnose that policy explicitly when it sees a merged PR whose
-base branch matches `review/*`. That is not a mysterious stack failure. It is a
-repository-policy problem, and the user should be told that the repo should
-block those merges on GitHub.
+base branch matches the review branch prefix. That is not a mysterious stack
+failure. It is a repository-policy problem, and the user should be told that
+the repo should block those merges on GitHub.
 
 ## Design Goals
 
@@ -140,11 +144,13 @@ That bookmark name should be readable to humans and stable for tooling.
 
 By default, it should be derived from:
 
+- the configured bookmark prefix, from `[jj-review.repo] bookmark_prefix`
+  (default `review`)
 - a normalized slug from the first line of the commit description
 - a short fixed-length `change_id` suffix to give stable, near-certain
   uniqueness
 
-Example shape:
+Example shape with the default prefix:
 
 ```text
 review/<slug-from-subject>-<change_id.short(8)>

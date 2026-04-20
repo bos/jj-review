@@ -92,6 +92,11 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- repo config now supports a configurable bookmark prefix for generated review
+  branches; submit, status, import, land, close, and cleanup all honor that
+  prefix for default naming, rediscovery, policy warnings, and review bookmark
+  cleanup, while existing saved bookmark names remain pinned and are not
+  renamed automatically when the config changes
 - `land` now skips stack-summary comment lookups during its readiness/status
   inspection, because the command does not use that data to plan or dry-run a
   landing; that trims one GitHub issue-comment request per open PR from

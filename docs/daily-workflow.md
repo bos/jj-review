@@ -29,8 +29,9 @@ jj-review status
 
 This is the safest first command whenever you are unsure what might be submitted.
 
-You may also notice `review/...` bookmarks in `jj`. Those are the local review
-branches `jj-review` uses for GitHub PR heads.
+You may also notice review bookmarks in `jj`. By default they look like
+`review/...`, but a repo can configure a different prefix. Those are the local
+review branches `jj-review` uses for GitHub PR heads.
 
 ## 3. Submit the stack
 
@@ -47,9 +48,9 @@ jj-review submit --dry-run
 ```
 
 If a change does not already have its review branch and PR set up,
-`jj-review submit` creates the matching `review/...` bookmark for it. After
-that, it reuses that bookmark as the stable GitHub PR head branch while you
-keep rewriting the local change.
+`jj-review submit` creates the matching review bookmark for it. After that, it
+reuses that bookmark as the stable GitHub PR head branch while you keep
+rewriting the local change.
 
 ## 4. Revise locally as reviews come in
 
@@ -116,8 +117,8 @@ If you want to land only the ready prefix up through one specific pull request:
 jj-review land --pull-request 7
 ```
 
-By default, a successful `land` also forgets the local `review/...` bookmarks
-for the changes that actually landed. Use `--skip-cleanup` if you want to keep
+By default, a successful `land` also forgets the local review bookmarks for
+the changes that actually landed. Use `--skip-cleanup` if you want to keep
 those local review bookmarks.
 
 `land` works on the consecutive ready prefix of the selected stack, not on arbitrary changes in

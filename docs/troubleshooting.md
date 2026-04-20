@@ -109,7 +109,7 @@ Cause:
 - the land or close succeeded, but the follow-up cleanup hasn't run yet
 - you ran `land --skip-cleanup` to keep the review branches on purpose
 - something prevented `jj-review` from cleaning up automatically
-- an older `jj-review` version left local `review/*` bookmarks behind on
+- an older `jj-review` version left local review bookmarks behind on
   already-landed or otherwise inactive history
 
 What to do:

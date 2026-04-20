@@ -2,9 +2,10 @@
 
 These pages are the user-facing guide set for `jj-review`.
 
-One recurring term in the docs is the `review/...` bookmark. That is the
-user-visible local `jj` bookmark `jj-review` uses as the GitHub head branch for
-one review change.
+One recurring term in the docs is the review bookmark. By default that
+bookmark looks like `review/...`, but a repo can configure a different
+prefix. It is the user-visible local `jj` bookmark `jj-review` uses as the
+GitHub head branch for one review change.
 
 - [Mental Model](mental-model.md)
   Understand what stays in `jj` and what `jj-review` owns on GitHub.

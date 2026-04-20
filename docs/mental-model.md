@@ -22,10 +22,12 @@ agent to review:
 - refreshing those PRs after local rewrites
 - inspecting review state and landing ready changes
 
-To create a review branch, `jj-review` creates a bookmark with a `review/` prefix. You don't
-need to manage these bookmarks yourself; `jj-review` creates them for review, forgets the local
-ones for landed changes during `jj-review land`, and can also remove them later during
-`jj-review close --cleanup` or `jj-review cleanup`.
+To create a review branch, `jj-review` creates a bookmark with its configured
+bookmark prefix. By default that prefix is `review/`, but a repo can choose a
+different prefix such as `bosullivan/`. You don't need to manage these
+bookmarks yourself; `jj-review` creates them for review, forgets the local
+ones for landed changes during `jj-review land`, and can also remove them
+later during `jj-review close --cleanup` or `jj-review cleanup`.
 
 ## Source of truth
 
