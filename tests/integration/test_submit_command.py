@@ -97,6 +97,36 @@ def test_submit_projects_review_bookmarks_to_selected_remote(
     assert fake_repo.pull_requests[2].base_ref == first_bookmark
 
 
+def test_submit_uses_configured_bookmark_prefix(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(
+        monkeypatch,
+        tmp_path,
+        fake_repo,
+        extra_config_lines=['bookmark_prefix = "bosullivan"'],
+    )
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    state = ReviewStateStore.for_repo(repo).load()
+
+    bookmarks = [
+        cached_change.bookmark
+        for cached_change in state.changes.values()
+        if cached_change.bookmark is not None
+    ]
+    assert len(bookmarks) == 2
+    assert all(bookmark.startswith("bosullivan/") for bookmark in bookmarks)
+    assert all(
+        f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
+        for bookmark in bookmarks
+    )
+
+
 def test_submit_draft_creates_draft_pull_requests_and_persists_draft_state(
     tmp_path: Path,
     monkeypatch,

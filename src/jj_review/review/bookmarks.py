@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from jj_review import ui
-from jj_review.config import ChangeConfig
+from jj_review.config import DEFAULT_BOOKMARK_PREFIX, ChangeConfig
 from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
 from jj_review.models.bookmarks import BookmarkState
@@ -17,7 +17,6 @@ from jj_review.models.stack import LocalRevision
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 _DEFAULT_SLUG = "change"
-_REVIEW_NAMESPACE = "review"
 
 BookmarkSource = Literal["saved", "discovered", "generated", "override"]
 
@@ -55,10 +54,12 @@ class BookmarkResolver:
         state: ReviewState,
         overrides: Mapping[str, ChangeConfig] | None = None,
         *,
+        prefix: str = DEFAULT_BOOKMARK_PREFIX,
         discovered_bookmarks: Mapping[str, str] | None = None,
     ) -> None:
         self._state = state
         self._overrides = overrides or {}
+        self._prefix = prefix
         self._discovered_bookmarks = discovered_bookmarks or {}
 
     def pin_revisions(
@@ -106,7 +107,10 @@ class BookmarkResolver:
                 changed = True
                 continue
 
-            bookmark = generate_bookmark_name(revision)
+            bookmark = generate_bookmark_name(
+                revision,
+                prefix=self._prefix,
+            )
             changes[revision.change_id] = _updated_cached_change(cached_change, bookmark)
             resolutions.append(
                 ResolvedBookmark(
@@ -124,17 +128,34 @@ class BookmarkResolver:
         )
 
 
-def generate_bookmark_name(revision: LocalRevision) -> str:
+def bookmark_glob(prefix: str) -> str:
+    """Return the wildcard pattern for managed review branches."""
+
+    return f"{prefix}/*"
+
+
+def is_review_bookmark(bookmark: str, *, prefix: str) -> bool:
+    """Whether `bookmark` uses the configured managed review prefix."""
+
+    return bookmark.startswith(f"{prefix}/")
+
+
+def generate_bookmark_name(
+    revision: LocalRevision,
+    *,
+    prefix: str = DEFAULT_BOOKMARK_PREFIX,
+) -> str:
     """Generate the default bookmark for a change."""
 
     first_line = revision.description.splitlines()[0] if revision.description else ""
     slug = _NON_ALNUM_RE.sub("-", first_line.lower()).strip("-") or _DEFAULT_SLUG
-    return f"{_REVIEW_NAMESPACE}/{slug}-{short_change_id(revision.change_id)}"
+    return f"{prefix}/{slug}-{short_change_id(revision.change_id)}"
 
 
 def discover_bookmarks_for_revisions(
     *,
     bookmark_states: dict[str, BookmarkState],
+    prefix: str = DEFAULT_BOOKMARK_PREFIX,
     remote_name: str,
     revisions: tuple[RevisionWithChangeId, ...],
 ) -> dict[str, str]:
@@ -143,7 +164,11 @@ def discover_bookmarks_for_revisions(
         candidates = [
             bookmark
             for bookmark, bookmark_state in bookmark_states.items()
-            if bookmark_matches_generated_change_id(bookmark, revision.change_id)
+            if bookmark_matches_generated_change_id(
+                bookmark,
+                revision.change_id,
+                prefix=prefix,
+            )
             and _bookmark_state_is_discoverable(bookmark_state, remote_name)
         ]
         if not candidates:
@@ -183,8 +208,16 @@ def ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
     )
 
 
-def bookmark_matches_generated_change_id(bookmark: str, change_id: str) -> bool:
-    return bookmark.startswith("review/") and bookmark.endswith(f"-{short_change_id(change_id)}")
+def bookmark_matches_generated_change_id(
+    bookmark: str,
+    change_id: str,
+    *,
+    prefix: str = DEFAULT_BOOKMARK_PREFIX,
+) -> bool:
+    return is_review_bookmark(
+        bookmark,
+        prefix=prefix,
+    ) and bookmark.endswith(f"-{short_change_id(change_id)}")
 
 
 def _bookmark_state_is_discoverable(bookmark_state: BookmarkState, remote_name: str) -> bool:

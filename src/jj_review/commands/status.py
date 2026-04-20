@@ -13,6 +13,7 @@ from pathlib import Path
 
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
+from jj_review.config import RepoConfig
 from jj_review.errors import ErrorMessage
 from jj_review.formatting import (
     format_change_marker,
@@ -32,6 +33,7 @@ from jj_review.models.intent import (
     RelinkIntent,
     SubmitIntent,
 )
+from jj_review.review.bookmarks import bookmark_glob, is_review_bookmark
 from jj_review.review.intents import (
     match_cleanup_restack_intent,
     match_close_intent,
@@ -138,7 +140,7 @@ def status(
             prerendered_blocks=prerendered_blocks,
         )
     )
-    _emit_lines(render_status_advisory_lines(result=result))
+    _emit_lines(render_status_advisory_lines(config=context.config.repo, result=result))
     _emit_lines(render_status_intent_lines(prepared_status=prepared_status))
 
     exit_code = 1 if result.incomplete else 0
@@ -357,7 +359,7 @@ def _render_submitted_section_title(revisions: tuple) -> str:
     return f"Submitted stack ({top_pull_request_url})"
 
 
-def render_status_advisory_lines(*, result) -> tuple[object, ...]:
+def render_status_advisory_lines(*, config: RepoConfig, result) -> tuple[object, ...]:
     """Render any advisories that follow the status stack output."""
 
     if not hasattr(result, "revisions") or not hasattr(result, "selected_revset"):
@@ -380,7 +382,10 @@ def render_status_advisory_lines(*, result) -> tuple[object, ...]:
         if (
             revision.pull_request_lookup is not None
             and revision.pull_request_lookup.pull_request is not None
-            and revision.pull_request_lookup.pull_request.base.ref.startswith("review/")
+            and is_review_bookmark(
+                revision.pull_request_lookup.pull_request.base.ref,
+                prefix=config.bookmark_prefix,
+            )
         )
     ]
     if (
@@ -451,7 +456,7 @@ def render_status_advisory_lines(*, result) -> tuple[object, ...]:
             _wrap_advisory(
                 t"Repository policy warning: PR #{pull_request_number} merged into "
                 t"{ui.bookmark(base_ref)}; configure GitHub to block merges of PRs "
-                t"targeting {ui.bookmark('review/*')}"
+                t"targeting {ui.bookmark(bookmark_glob(config.bookmark_prefix))}"
             )
         )
 

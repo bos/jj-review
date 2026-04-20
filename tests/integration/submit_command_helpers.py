@@ -22,6 +22,8 @@ def configure_submit_environment(
     monkeypatch,
     tmp_path: Path,
     fake_repo: FakeGithubRepository,
+    *,
+    extra_config_lines: list[str] | None = None,
 ) -> Path:
     return configure_fake_github_environment(
         command_modules=(
@@ -34,6 +36,7 @@ def configure_submit_environment(
             "jj_review.review.status",
         ),
         fake_repo=fake_repo,
+        extra_config_lines=extra_config_lines,
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
     )

@@ -15,6 +15,7 @@ from jj_review.commands.cleanup import (
     _run_cleanup_async,
     _stream_restack,
 )
+from jj_review.config import RepoConfig
 from jj_review.github.resolution import ParsedGithubRepo
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
@@ -48,6 +49,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
         ),
     )
     prepared_cleanup = PreparedCleanup(
+        config=RepoConfig(),
         dry_run=False,
         bookmark_states={},
         github_repository=ParsedGithubRepo(
@@ -160,6 +162,7 @@ def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
         subject="survivor feature",
     )
     prepared_restack = PreparedRestack(
+        config=RepoConfig(),
         dry_run=True,
         prepared_status=cast(
             PreparedStatus,
@@ -257,6 +260,7 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
         subject="survivor feature",
     )
     prepared_restack = PreparedRestack(
+        config=RepoConfig(),
         dry_run=False,
         prepared_status=cast(
             PreparedStatus,
@@ -317,11 +321,12 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
 def test_plan_remote_branch_cleanup_allows_delete_when_local_forget_is_planned() -> None:
     plan = _plan_remote_branch_cleanup(
         bookmark_state=BookmarkState(
-            name="review/feature-aaaaaaaa",
+            name="bosullivan/feature-aaaaaaaa",
             local_targets=("commit-1",),
             remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
         ),
-        cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
+        prefix="bosullivan",
+        cached_change=CachedChange(bookmark="bosullivan/feature-aaaaaaaa"),
         local_bookmark_forget_planned=True,
         remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
     )
@@ -334,11 +339,12 @@ def test_plan_remote_branch_cleanup_allows_delete_when_local_forget_is_planned()
 def test_plan_local_bookmark_cleanup_forgets_safe_review_bookmark() -> None:
     plan = cleanup_module._plan_local_bookmark_cleanup(
         bookmark_state=BookmarkState(
-            name="review/feature-aaaaaaaa",
+            name="bosullivan/feature-aaaaaaaa",
             local_targets=("commit-1",),
         ),
+        prefix="bosullivan",
         cached_change=CachedChange(
-            bookmark="review/feature-aaaaaaaa",
+            bookmark="bosullivan/feature-aaaaaaaa",
             last_submitted_commit_id="commit-1",
         ),
         stale_reason="local change is no longer reviewable",
@@ -349,7 +355,6 @@ def test_plan_local_bookmark_cleanup_forgets_safe_review_bookmark() -> None:
     assert plan.status == "planned"
     assert (
         plan.message
-        == "forget review/feature-aaaaaaaa (local change is no longer reviewable)"
+        == "forget bosullivan/feature-aaaaaaaa (local change is no longer reviewable)"
     )
-
 

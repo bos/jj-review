@@ -433,9 +433,10 @@ def test_restore_local_trunk_bookmark_forgets_bookmark_when_original_target_miss
 
 def test_plan_review_bookmark_cleanup_forgets_owned_landed_bookmark() -> None:
     plan = _plan_review_bookmark_cleanup(
-        bookmark="review/feature-aaaaaaaa",
+        bookmark="bosullivan/feature-aaaaaaaa",
+        prefix="bosullivan",
         bookmark_state=BookmarkState(
-            name="review/feature-aaaaaaaa",
+            name="bosullivan/feature-aaaaaaaa",
             local_targets=("commit-1",),
         ),
         change_id="change-1",
@@ -444,13 +445,14 @@ def test_plan_review_bookmark_cleanup_forgets_owned_landed_bookmark() -> None:
 
     assert plan is not None
     assert plan.can_forget is True
-    assert plan.action.message == "forget review/feature-aaaaaaaa"
+    assert plan.action.message == "forget bosullivan/feature-aaaaaaaa"
     assert plan.action.status == "planned"
 
 
 def test_plan_review_bookmark_cleanup_blocks_conflicted_bookmark() -> None:
     plan = _plan_review_bookmark_cleanup(
         bookmark="review/feature-aaaaaaaa",
+        prefix="review",
         bookmark_state=BookmarkState(
             name="review/feature-aaaaaaaa",
             local_targets=("commit-1", "commit-2"),
@@ -468,6 +470,7 @@ def test_plan_review_bookmark_cleanup_blocks_conflicted_bookmark() -> None:
 def test_plan_review_bookmark_cleanup_blocks_moved_bookmark() -> None:
     plan = _plan_review_bookmark_cleanup(
         bookmark="review/feature-aaaaaaaa",
+        prefix="review",
         bookmark_state=BookmarkState(
             name="review/feature-aaaaaaaa",
             local_targets=("commit-2",),

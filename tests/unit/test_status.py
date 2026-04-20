@@ -8,6 +8,7 @@ import pytest
 
 from jj_review import console as console_module
 from jj_review.commands import status as status_module
+from jj_review.config import RepoConfig
 
 
 def _render_lines(*lines: object) -> tuple[str, ...]:
@@ -26,7 +27,7 @@ def test_status_advises_cleanup_and_restack_when_merged_pr_remains_in_stack() ->
         local_divergent=False,
         pull_request_lookup=SimpleNamespace(
             pull_request=SimpleNamespace(
-                base=SimpleNamespace(ref="review/feature-base"),
+                base=SimpleNamespace(ref="team/feature-base"),
                 number=5,
                 state="merged",
             ),
@@ -40,14 +41,15 @@ def test_status_advises_cleanup_and_restack_when_merged_pr_remains_in_stack() ->
             result=SimpleNamespace(
                 revisions=(merged_revision,),
                 selected_revset="@",
-            )
+            ),
+            config=RepoConfig(bookmark_prefix="team"),
         )
     )
 
     assert "Advisories:" in lines
     assert any("jj-review cleanup --restack @" in line for line in lines)
     assert any("PR #5 is merged" in line for line in lines)
-    assert any("merged into review/feature-base" in line for line in lines)
+    assert any("merged into team/feature-base" in line for line in lines)
 
 
 def test_render_status_intent_lines_reports_stale_and_interrupted_operations(

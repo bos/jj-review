@@ -128,6 +128,7 @@ async def _run_cleanup_revision(*, bookmark_state: BookmarkState) -> _CleanupRes
         cached_change=CachedChange(bookmark="review/feature-aaaaaaaa"),
         commit_id="commit-1",
         context=_CloseCleanupContext(
+            bookmark_prefix="review",
             dry_run=False,
             github_client=cast(GithubClient, SimpleNamespace()),
             github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),

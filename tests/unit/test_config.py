@@ -22,6 +22,7 @@ def test_load_config_returns_defaults_when_jj_config_is_missing(
     config = load_config(repo_root=tmp_path)
 
     assert config.logging.level == "WARNING"
+    assert config.repo.bookmark_prefix == "review"
     assert config.repo.labels == []
 
 
@@ -52,6 +53,7 @@ def test_load_config_merges_jj_config_layers(
         repo_path,
         [
             "[jj-review.repo]",
+            'bookmark_prefix = "bosullivan"',
             'reviewers = ["octocat"]',
             'team_reviewers = ["platform"]',
         ],
@@ -67,6 +69,7 @@ def test_load_config_merges_jj_config_layers(
     config = load_config(repo_root=tmp_path)
 
     assert config.logging.level == "INFO"
+    assert config.repo.bookmark_prefix == "bosullivan"
     assert config.repo.reviewers == ["octocat"]
     assert config.repo.team_reviewers == ["platform"]
     assert config.repo.labels == ["needs-review"]
@@ -146,6 +149,22 @@ def test_load_config_rejects_invalid_logging_level_in_jj_review_section(
     )
 
     with pytest.raises(CliError, match="Invalid logging level"):
+        load_config(repo_root=None, config_path=config_path)
+
+
+def test_load_config_rejects_bookmark_prefix_with_slash(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "invalid-prefix.toml"
+    _write_config(
+        config_path,
+        [
+            "[jj-review.repo]",
+            'bookmark_prefix = "bosullivan/review"',
+        ],
+    )
+
+    with pytest.raises(CliError, match="bookmark_prefix"):
         load_config(repo_root=None, config_path=config_path)
 
 

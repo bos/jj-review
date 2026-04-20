@@ -14,6 +14,7 @@ from jj_review import ui
 from jj_review.errors import CliError
 
 CONFIG_SECTION = "jj-review"
+DEFAULT_BOOKMARK_PREFIX = "review"
 
 
 class RepoConfig(BaseModel):
@@ -21,9 +22,20 @@ class RepoConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    bookmark_prefix: str = DEFAULT_BOOKMARK_PREFIX
     labels: list[str] = Field(default_factory=list)
     reviewers: list[str] = Field(default_factory=list)
     team_reviewers: list[str] = Field(default_factory=list)
+
+    @field_validator("bookmark_prefix")
+    @classmethod
+    def _validate_bookmark_prefix(cls, value: str) -> str:
+        prefix = value.strip()
+        if not prefix:
+            raise ValueError("bookmark_prefix must not be empty")
+        if "/" in prefix:
+            raise ValueError("bookmark_prefix must not contain '/'")
+        return prefix
 
 
 class ChangeConfig(BaseModel):

@@ -60,6 +60,55 @@ def test_import_bootstraps_local_review_state_from_pull_request(
     )
 
 
+def test_import_bootstraps_local_review_state_with_configured_bookmark_prefix(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = _configure_import_environment(
+        monkeypatch,
+        tmp_path,
+        fake_repo,
+        extra_config_lines=['bookmark_prefix = "bosullivan"'],
+    )
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert _main(repo, config_path, "submit") == 0
+    state_before = ReviewStateStore.for_repo(repo).load()
+    review_bookmarks = sorted(
+        {
+            change.bookmark
+            for change in state_before.changes.values()
+            if change.bookmark is not None and change.bookmark.startswith("bosullivan/")
+        }
+    )
+    for bookmark in review_bookmarks:
+        run_command(["jj", "bookmark", "forget", bookmark], repo)
+    resolve_state_path(repo).unlink()
+    capsys.readouterr()
+
+    exit_code = _main(repo, config_path, "import", "--fetch", "--pull-request", "2")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Fetched tip commit:" in captured.out
+    state_after = ReviewStateStore.for_repo(repo).load()
+    bookmarks_after = sorted(
+        {
+            change.bookmark
+            for change in state_after.changes.values()
+            if change.bookmark is not None
+        }
+    )
+    assert bookmarks_after == review_bookmarks
+    bookmark_states = JjClient(repo).list_bookmark_states(review_bookmarks)
+    assert all(
+        bookmark_states[bookmark].local_target is not None for bookmark in review_bookmarks
+    )
+
+
 def test_import_current_rejects_remote_branches_without_pull_requests(
     tmp_path: Path,
     monkeypatch,
@@ -468,6 +517,8 @@ def _configure_import_environment(
     monkeypatch,
     tmp_path: Path,
     fake_repo: FakeGithubRepository,
+    *,
+    extra_config_lines: list[str] | None = None,
 ) -> Path:
     return configure_fake_github_environment(
         command_modules=(
@@ -475,6 +526,7 @@ def _configure_import_environment(
             "jj_review.review.status",
             "jj_review.commands.import_",
         ),
+        extra_config_lines=extra_config_lines,
         fake_repo=fake_repo,
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,

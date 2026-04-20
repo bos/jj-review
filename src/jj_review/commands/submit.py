@@ -539,12 +539,14 @@ def _prepare_submit_inputs(
     bookmark_states = client.list_bookmark_states()
     discovered_bookmarks = discover_bookmarks_for_revisions(
         bookmark_states=bookmark_states,
+        prefix=config.bookmark_prefix,
         remote_name=remote.name,
         revisions=stack.revisions,
     )
     bookmark_result = BookmarkResolver(
         state,
         change_overrides,
+        prefix=config.bookmark_prefix,
         discovered_bookmarks=discovered_bookmarks,
     ).pin_revisions(stack.revisions)
     ensure_unique_bookmarks(bookmark_result.resolutions)

@@ -31,6 +31,7 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.github import GithubIssueComment
 from jj_review.models.intent import CloseIntent, LoadedIntent, SubmitIntent
 from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.review.bookmarks import is_review_bookmark
 from jj_review.review.intents import (
     close_intent_mode_relation,
     describe_intent,
@@ -101,6 +102,7 @@ class CloseResult:
 class PreparedClose:
     """Locally prepared close inputs before any GitHub mutation."""
 
+    config: RepoConfig
     dry_run: bool
     cleanup: bool
     prepared_status: PreparedStatus
@@ -148,6 +150,7 @@ class _CloseIntentState:
 class _CloseCleanupContext:
     """Shared dependencies for bookmark and stack-comment cleanup."""
 
+    bookmark_prefix: str
     dry_run: bool
     github_client: GithubClient
     github_repository: Any
@@ -266,11 +269,13 @@ def prepare_close(
     fast_path = _prepare_untracked_close_fast_path(repo_root=repo_root, revset=revset)
     if fast_path is not None:
         return PreparedClose(
+            config=config,
             dry_run=dry_run,
             cleanup=cleanup,
             prepared_status=fast_path,
         )
     return PreparedClose(
+        config=config,
         dry_run=dry_run,
         cleanup=cleanup,
         prepared_status=prepare_status(
@@ -1072,6 +1077,7 @@ async def _cleanup_if_requested(
     prepared = prepared_close.prepared_status.prepared
     remote = prepared.remote
     cleanup_context = _CloseCleanupContext(
+        bookmark_prefix=prepared_close.config.bookmark_prefix,
         dry_run=prepared_close.dry_run,
         github_client=github_client,
         github_repository=github_repository,
@@ -1156,7 +1162,10 @@ def _plan_review_bookmark_cleanup(
 ) -> _BookmarkCleanupPlan:
     """Validate bookmark ownership and decide which bookmark mutations are safe."""
 
-    if bookmark is None or not bookmark.startswith("review/"):
+    if bookmark is None or not is_review_bookmark(
+        bookmark,
+        prefix=context.bookmark_prefix,
+    ):
         return _BookmarkCleanupPlan(local_forget=False, remote_delete=False)
 
     local_forget = False

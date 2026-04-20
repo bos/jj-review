@@ -11,9 +11,10 @@ landing plan without mutating jj or GitHub state.
 Use `--pull-request` to select the linked local change by pull request number
 or URL and land the consecutive ready prefix through that change.
 
-After a successful land, `jj-review` forgets the local `review/...` bookmarks
-for the changes that actually landed when those bookmarks still point at the
-landed commits. Use `--skip-cleanup` to keep those local review bookmarks.
+After a successful land, `jj-review` forgets the local managed review
+bookmarks for the changes that actually landed when those bookmarks still
+point at the landed commits. Use `--skip-cleanup` to keep those local review
+bookmarks.
 
 If later changes remain above that point, run `cleanup --restack` and then
 `submit` to keep those remaining changes under review.
@@ -44,6 +45,7 @@ from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.github import GithubPullRequest
 from jj_review.models.intent import LandIntent, LoadedIntent
 from jj_review.models.review_state import CachedChange
+from jj_review.review.bookmarks import is_review_bookmark
 from jj_review.review.intents import (
     describe_intent,
     match_ordered_change_ids,
@@ -423,6 +425,7 @@ async def _stream_land_async(
         )
         bookmark_cleanup_plans = _plan_review_bookmark_cleanup_for_revisions(
             client=prepared.client,
+            prefix=prepared_land.config.bookmark_prefix,
             cleanup_bookmarks=prepared_land.cleanup_bookmarks,
             landed_revisions=plan.landed_revisions,
         )
@@ -1225,13 +1228,14 @@ def _restore_local_trunk_bookmark(
 def _plan_review_bookmark_cleanup(
     *,
     bookmark: str,
+    prefix: str,
     bookmark_state: BookmarkState,
     change_id: str,
     commit_id: str,
 ) -> _ReviewBookmarkCleanupPlan | None:
     """Validate whether `land` can forget one landed local review bookmark."""
 
-    if not bookmark.startswith("review/"):
+    if not is_review_bookmark(bookmark, prefix=prefix):
         return None
     if not bookmark_state.local_targets:
         return None
@@ -1278,6 +1282,7 @@ def _plan_review_bookmark_cleanup(
 def _plan_review_bookmark_cleanup_for_revisions(
     *,
     client: _BookmarkStateReader,
+    prefix: str,
     cleanup_bookmarks: bool,
     landed_revisions: tuple[_LandRevision, ...],
 ) -> tuple[_ReviewBookmarkCleanupPlan, ...]:
@@ -1289,6 +1294,7 @@ def _plan_review_bookmark_cleanup_for_revisions(
     for landed_revision in landed_revisions:
         cleanup_plan = _plan_review_bookmark_cleanup(
             bookmark=landed_revision.bookmark,
+            prefix=prefix,
             bookmark_state=client.get_bookmark_state(landed_revision.bookmark),
             change_id=landed_revision.change_id,
             commit_id=landed_revision.commit_id,

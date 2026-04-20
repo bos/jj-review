@@ -488,6 +488,7 @@ def _prepare_stack(
     if remote is not None and pinned_bookmarks is None:
         discovered_bookmarks = discover_bookmarks_for_revisions(
             bookmark_states=bookmark_states,
+            prefix=config.bookmark_prefix,
             remote_name=remote.name,
             revisions=stack.revisions,
         )
@@ -495,6 +496,7 @@ def _prepare_stack(
     bookmark_result = BookmarkResolver(
         state,
         change_overrides,
+        prefix=config.bookmark_prefix,
         discovered_bookmarks=discovered_bookmarks,
     ).pin_revisions(stack.revisions)
     ensure_unique_bookmarks(bookmark_result.resolutions)

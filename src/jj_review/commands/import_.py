@@ -239,6 +239,7 @@ async def _run_import_async(
     authoritative_remote_targets: dict[str, str] = {}
     if fetch and selection.head_bookmark is not None and prepared.remote is not None:
         authoritative_remote_targets = _fetch_selected_stack_bookmarks(
+            prefix=config.bookmark_prefix,
             client=prepared.client,
             explicit_head_bookmark=selection.head_bookmark,
             remote=prepared.remote,
@@ -257,6 +258,7 @@ async def _run_import_async(
         bookmark_by_change_id.update(
             discover_bookmarks_for_revisions(
                 bookmark_states=bookmark_states,
+                prefix=config.bookmark_prefix,
                 remote_name=prepared.remote.name,
                 revisions=prepared.stack.revisions,
             )
@@ -405,6 +407,7 @@ async def _resolve_pull_request_selection(
 
 def _fetch_selected_stack_bookmarks(
     *,
+    prefix: str,
     client: JjClient,
     explicit_head_bookmark: str,
     remote: GitRemote,
@@ -416,7 +419,8 @@ def _fetch_selected_stack_bookmarks(
             {
                 f"refs/heads/{explicit_head_bookmark}",
                 *(
-                    f"refs/heads/review/*-{revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]}"
+                    f"refs/heads/{prefix}/*-"
+                    f"{revision.change_id[:_DISPLAY_CHANGE_ID_LENGTH]}"
                     for revision in revisions
                 ),
             }
@@ -439,7 +443,11 @@ def _fetch_selected_stack_bookmarks(
         candidates = sorted(
             name
             for name in remote_branches
-            if bookmark_matches_generated_change_id(name, change_id)
+            if bookmark_matches_generated_change_id(
+                name,
+                change_id,
+                prefix=prefix,
+            )
         )
         if len(candidates) > 1:
             raise CliError(
