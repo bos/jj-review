@@ -30,7 +30,7 @@ from jj_review.github.resolution import (
     require_github_repo,
     select_submit_remote,
 )
-from jj_review.jj import JjClient
+from jj_review.jj import JjCliArgs, JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.github import GithubPullRequest
 from jj_review.models.review_state import CachedChange
@@ -109,7 +109,7 @@ class _RevisionWithChangeId(Protocol):
 
 def import_(
     *,
-    config_path: Path | None,
+    cli_args: JjCliArgs,
     debug: bool,
     fetch: bool,
     pull_request: str | None,
@@ -120,15 +120,15 @@ def import_(
 
     context = bootstrap_context(
         repository=repository,
-        config_path=config_path,
+        cli_args=cli_args,
         debug=debug,
     )
     result = asyncio.run(
         _run_import_async(
             config=context.config,
             fetch=fetch,
+            jj_client=context.jj_client,
             pull_request_reference=pull_request,
-            repo_root=context.repo_root,
             revset=revset,
         )
     )
@@ -175,11 +175,11 @@ async def _run_import_async(
     *,
     config: RepoConfig,
     fetch: bool,
+    jj_client: JjClient,
     pull_request_reference: str | None,
-    repo_root: Path,
     revset: str | None,
 ) -> ImportResult:
-    client = JjClient(repo_root)
+    client = jj_client
     selection = await _resolve_selection(
         client=client,
         fetch=fetch,
@@ -201,8 +201,8 @@ async def _run_import_async(
     prepared_status = prepare_status(
         config=config,
         fetch_remote_state=fetch and selection.head_bookmark is None,
+        jj_client=jj_client,
         persist_bookmarks=False,
-        repo_root=repo_root,
         revset=selection.selected_revset,
     )
     if (

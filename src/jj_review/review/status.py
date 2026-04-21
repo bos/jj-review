@@ -7,7 +7,6 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Literal
 
 from jj_review import ui
@@ -172,20 +171,20 @@ def prepare_status(
     config: RepoConfig,
     fetch_remote_state: bool = False,
     fetch_only_when_tracked: bool = False,
+    jj_client: JjClient,
     persist_bookmarks: bool = False,
     re_resolve_after_remote_refresh: bool = False,
-    repo_root: Path,
     revset: str | None,
 ) -> PreparedStatus:
     """Resolve local status inputs before any GitHub network inspection."""
 
     prepared = _prepare_stack(
         config=config,
+        jj_client=jj_client,
         persist_bookmarks=persist_bookmarks,
         re_resolve_after_remote_refresh=re_resolve_after_remote_refresh,
         refresh_remote_state=fetch_remote_state,
         refresh_requires_tracked=fetch_only_when_tracked,
-        repo_root=repo_root,
         require_remote=False,
         revset=revset,
     )
@@ -415,16 +414,16 @@ async def stream_status_async(
 def _prepare_stack(
     *,
     config: RepoConfig,
+    jj_client: JjClient,
     persist_bookmarks: bool,
     re_resolve_after_remote_refresh: bool,
     refresh_remote_state: bool,
     refresh_requires_tracked: bool = False,
-    repo_root: Path,
     require_remote: bool,
     revset: str | None,
 ) -> PreparedStack:
-    client = JjClient(repo_root)
-    state_store = ReviewStateStore.for_repo(repo_root)
+    client = jj_client
+    state_store = ReviewStateStore.for_repo(jj_client.repo_root)
     state = state_store.load()
     remotes = client.list_git_remotes()
     remote: GitRemote | None = None

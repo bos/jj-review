@@ -4,15 +4,13 @@ from __future__ import annotations
 
 import difflib
 import logging
-import subprocess
 import tomllib
 from collections.abc import Mapping
-from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from jj_review import ui
 from jj_review.errors import CliError
+from jj_review.jj import JjClient, JjCommandError
 
 CONFIG_SECTION = "jj-review"
 DEFAULT_BOOKMARK_PREFIX = "review"
@@ -84,97 +82,58 @@ class AppConfig(RepoConfig):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 
-def load_config(*, repo_root: Path | None, config_path: Path | None = None) -> AppConfig:
-    """Load `jj-review` config from jj config scopes or an explicit config file."""
+def load_config(*, jj_client: JjClient) -> AppConfig:
+    """Load `jj-review` config by delegating resolution to `jj` itself.
 
-    if config_path is not None:
-        return _load_explicit_config(config_path)
+    `jj config list 'jj-review'` respects user/repo/workspace scopes plus any
+    `--config` / `--config-file` overrides already attached to `jj_client`, so
+    jj-review and every downstream `jj` invocation see the same resolved view.
+    """
 
-    merged_config: dict[str, object] = {}
-    for path in _default_config_paths(repo_root):
-        layer = _load_config_layer(path)
-        merged_config = _merge_config_data(merged_config, layer)
-    return _validate_config(merged_config, source="jj config")
-
-
-def _load_explicit_config(config_path: Path) -> AppConfig:
-    if not config_path.exists():
-        raise CliError(f"Config file does not exist: {config_path}")
-    if not config_path.is_file():
-        raise CliError(f"Config path is not a file: {config_path}")
-    return _validate_config(_load_config_layer(config_path), source=str(config_path))
-
-
-def _default_config_paths(repo_root: Path | None) -> tuple[Path, ...]:
-    paths = [_jj_config_path(scope="user")]
-    if repo_root is not None:
-        paths.append(_jj_config_path(scope="repo", repo_root=repo_root))
-        paths.append(_jj_config_path(scope="workspace", repo_root=repo_root))
-    return tuple(paths)
-
-
-def _jj_config_path(*, scope: str, repo_root: Path | None = None) -> Path:
-    command = ["jj", "config", "path", f"--{scope}"]
-    if scope in {"repo", "workspace"}:
-        if repo_root is None:
-            raise ValueError(f"`repo_root` is required for the {scope} config scope.")
-        command.extend(["-R", str(repo_root)])
     try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            check=False,
-            text=True,
-        )
-    except FileNotFoundError as error:
-        raise CliError(t"{ui.cmd('jj')} is not installed or is not on PATH.") from error
-    if completed.returncode != 0:
-        message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
-        raise CliError(f"Could not determine the jj {scope} config path: {message}")
-    path_text = completed.stdout.strip()
-    if not path_text:
-        raise CliError(t"{ui.cmd(f'jj config path --{scope}')} returned an empty path.")
-    return Path(path_text)
-
-
-def _load_config_layer(config_path: Path) -> dict[str, object]:
-    if not config_path.exists():
-        return {}
-    if not config_path.is_file():
-        raise CliError(f"Config path is not a file: {config_path}")
-    try:
-        with config_path.open("rb") as file:
-            raw_config = tomllib.load(file)
-    except tomllib.TOMLDecodeError as error:
-        raise CliError(f"Invalid jj-review config in {config_path}: {error}") from error
-    except OSError as error:
-        raise CliError(f"Could not read config file {config_path}: {error}") from error
-
-    config_section = raw_config.get(CONFIG_SECTION)
-    if config_section is None:
-        return {}
-    if not isinstance(config_section, Mapping):
+        stdout = jj_client.read_jj_review_config_list_output()
+    except JjCommandError as error:
         raise CliError(
-            f"Invalid jj-review config in {config_path}: [{CONFIG_SECTION}] must be a table."
+            f"Could not load jj-review config: {_jj_error_detail(error)}"
+        ) from error
+    raw = parse_jj_review_config_toml(stdout)
+    _raise_on_likely_config_typos(config_data=raw, source="jj config")
+    return _validate_config(raw, source="jj config")
+
+
+def _jj_error_detail(error: JjCommandError) -> str:
+    """Strip the inner command trace from a JjCommandError when surfacing it."""
+
+    message = str(error)
+    marker = " failed: "
+    index = message.find(marker)
+    if index == -1:
+        return message
+    return message[index + len(marker) :]
+
+
+def parse_jj_review_config_toml(text: str) -> dict[str, object]:
+    """Parse the TOML-formatted output of `jj config list 'jj-review'`.
+
+    Returns the contents of the ``[jj-review]`` table as a mapping, or an empty
+    mapping when jj has no matching keys set.
+    """
+
+    stripped = text.strip()
+    if not stripped:
+        return {}
+    try:
+        parsed = tomllib.loads(stripped)
+    except tomllib.TOMLDecodeError as error:
+        raise CliError(
+            f"Could not parse jj-review config from jj: {error}"
+        ) from error
+    section = parsed.get(CONFIG_SECTION, {})
+    if not isinstance(section, Mapping):
+        raise CliError(
+            f"Invalid jj-review config from jj: [{CONFIG_SECTION}] must be a table."
         )
-
-    config_data = dict(config_section)
-    _raise_on_likely_config_typos(config_data=config_data, source=str(config_path))
-    return _validate_config(config_data, source=str(config_path)).model_dump(exclude_unset=True)
-
-
-def _merge_config_data(
-    base: dict[str, object],
-    override: dict[str, object],
-) -> dict[str, object]:
-    merged = dict(base)
-    for key, value in override.items():
-        existing = merged.get(key)
-        if isinstance(existing, Mapping) and isinstance(value, Mapping):
-            merged[key] = _merge_config_data(dict(existing), dict(value))
-            continue
-        merged[key] = value
-    return merged
+    return dict(section)
 
 
 def _raise_on_likely_config_typos(*, config_data: Mapping[str, object], source: str) -> None:
@@ -215,7 +174,7 @@ def _raise_on_likely_unknown_keys(
         )
 
 
-def _validate_config(config_data: dict[str, object], *, source: str) -> AppConfig:
+def _validate_config(config_data: Mapping[str, object], *, source: str) -> AppConfig:
     try:
         return AppConfig.model_validate(config_data)
     except ValidationError as error:

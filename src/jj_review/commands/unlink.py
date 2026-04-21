@@ -14,6 +14,7 @@ from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
+from jj_review.jj import JjCliArgs, JjClient
 from jj_review.models.review_state import CachedChange
 from jj_review.review.bookmarks import bookmark_ownership_for_source
 from jj_review.review.selection import resolve_selected_revset
@@ -39,7 +40,7 @@ class UnlinkResult:
 
 def unlink(
     *,
-    config_path: Path | None,
+    cli_args: JjCliArgs,
     debug: bool,
     repository: Path | None,
     revset: str | None,
@@ -48,13 +49,13 @@ def unlink(
 
     context = bootstrap_context(
         repository=repository,
-        config_path=config_path,
+        cli_args=cli_args,
         debug=debug,
     )
     result = asyncio.run(
         _run_unlink_async(
             config=context.config,
-            repo_root=context.repo_root,
+            jj_client=context.jj_client,
             revset=resolve_selected_revset(
                 command_label="unlink",
                 require_explicit=True,
@@ -79,14 +80,14 @@ def unlink(
 async def _run_unlink_async(
     *,
     config: RepoConfig,
-    repo_root: Path,
+    jj_client: JjClient,
     revset: str | None,
 ) -> UnlinkResult:
     prepared_status = prepare_status(
         config=config,
         fetch_remote_state=True,
+        jj_client=jj_client,
         persist_bookmarks=False,
-        repo_root=repo_root,
         revset=revset,
     )
     prepared = prepared_status.prepared

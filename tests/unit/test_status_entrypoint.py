@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from jj_review.commands import status as status_module
+from jj_review.jj import JjCliArgs
 from jj_review.models.review_state import CachedChange
 
 from .entrypoint_test_helpers import patch_bootstrap
@@ -88,7 +89,7 @@ def test_status_updates_tty_progress_bar_while_streaming(
     monkeypatch.setattr(status_module.console, "progress", fake_progress)
 
     exit_code = status_module.status(
-        config_path=None,
+        cli_args=JjCliArgs(),
         debug=False,
         fetch=False,
         repository=tmp_path,
@@ -160,7 +161,7 @@ def test_status_passes_cli_color_override_to_native_jj_rendering(
     )
 
     exit_code = status_module.status(
-        config_path=None,
+        cli_args=JjCliArgs(),
         debug=False,
         fetch=False,
         repository=tmp_path,

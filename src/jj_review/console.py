@@ -40,6 +40,9 @@ from rich.table import Table
 from rich.text import Text
 
 from jj_review import ui
+from jj_review.jj import JjCliArgs
+
+_NO_CLI_ARGS = JjCliArgs()
 
 SIMPLE = rich_box.SIMPLE
 
@@ -315,6 +318,7 @@ def _build_console(
 
 def _build_consoles(
     *,
+    cli_args: JjCliArgs,
     color_mode: ColorMode = "auto",
     repository: Path | None = None,
     stderr: IO[str] | None = None,
@@ -324,7 +328,7 @@ def _build_consoles(
     start = time.perf_counter() if time_output else None
     stdout_stream = sys.stdout if stdout is None else stdout
     stderr_stream = sys.stderr if stderr is None else stderr
-    semantic_styles = _load_semantic_styles(repository=repository)
+    semantic_styles = _load_semantic_styles(repository=repository, cli_args=cli_args)
     return (
         _build_console(
             stdout_stream,
@@ -365,6 +369,7 @@ def rich_color_mode(color_mode: RequestedColorMode | None) -> ColorMode:
 @contextmanager
 def configured_console(
     *,
+    cli_args: JjCliArgs = _NO_CLI_ARGS,
     color_mode: ColorMode = "auto",
     repository: Path | None = None,
     requested_color_mode: RequestedColorMode | None = None,
@@ -387,6 +392,7 @@ def configured_console(
     previous_active_color_mode = _ACTIVE_COLOR_MODE
     previous_stderr_stream = _STDERR_STREAM
     _STDOUT_CONSOLE, _STDERR_CONSOLE, _SEMANTIC_STYLES = _build_consoles(
+        cli_args=cli_args,
         color_mode=color_mode,
         repository=repository,
         stderr=stderr,
@@ -541,7 +547,11 @@ def progress(*, description: str, total: int) -> Generator[ProgressLike]:
         yield _RichProgressHandle(progress=progress_render, task_id=task_id)
 
 
-def _load_semantic_styles(*, repository: Path | None) -> _SemanticStyles | None:
+def _load_semantic_styles(
+    *,
+    repository: Path | None,
+    cli_args: JjCliArgs,
+) -> _SemanticStyles | None:
     """Load effective jj semantic color styles for Rich-authored output."""
 
     cwd = (
@@ -553,6 +563,7 @@ def _load_semantic_styles(*, repository: Path | None) -> _SemanticStyles | None:
         completed = subprocess.run(
             [
                 "jj",
+                *cli_args.to_argv(),
                 "config",
                 "list",
                 "--include-defaults",
@@ -788,4 +799,4 @@ def _render_data_table(table_data: ui.DataTable) -> Table:
     return table
 
 
-_STDOUT_CONSOLE, _STDERR_CONSOLE, _SEMANTIC_STYLES = _build_consoles()
+_STDOUT_CONSOLE, _STDERR_CONSOLE, _SEMANTIC_STYLES = _build_consoles(cli_args=_NO_CLI_ARGS)

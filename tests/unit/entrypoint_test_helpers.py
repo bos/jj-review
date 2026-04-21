@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from jj_review.jj import JjClient
+
 
 def app_context(
     tmp_path: Path,
@@ -11,6 +13,7 @@ def app_context(
 ) -> SimpleNamespace:
     return SimpleNamespace(
         repo_root=tmp_path,
+        jj_client=JjClient(tmp_path),
         config=SimpleNamespace(
             change={},
             logging=SimpleNamespace(level="WARNING"),

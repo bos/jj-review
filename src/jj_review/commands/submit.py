@@ -39,7 +39,7 @@ from jj_review.github.resolution import (
     select_submit_remote,
 )
 from jj_review.github.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
-from jj_review.jj import JjClient
+from jj_review.jj import JjCliArgs, JjClient, JjCommandError
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.github import (
     GithubIssueComment,
@@ -258,7 +258,7 @@ class InterruptedRemoteBookmarkRepairer(Protocol):
 
 def submit(
     *,
-    config_path: Path | None,
+    cli_args: JjCliArgs,
     debug: bool,
     describe_with: str | None,
     draft: bool,
@@ -277,7 +277,7 @@ def submit(
 
     context = bootstrap_context(
         repository=repository,
-        config_path=config_path,
+        cli_args=cli_args,
         debug=debug,
     )
     selected_revset = resolve_selected_revset(
@@ -317,10 +317,10 @@ def submit(
                 else "draft" if draft else "publish" if publish else "default"
             ),
             dry_run=dry_run,
+            jj_client=context.jj_client,
             labels=label_list,
             on_prepared=emit_prepared,
             re_request=re_request,
-            repo_root=context.repo_root,
             revset=selected_revset,
             reviewers=reviewer_list,
             state_store=state_store,
@@ -517,15 +517,15 @@ def _prepare_submit_inputs(
     config: RepoConfig,
     describe_with: str | None,
     dry_run: bool,
+    jj_client: JjClient,
     on_prepared: Callable[[str, str], None] | None,
-    repo_root: Path,
     revset: str | None,
     state_store: ReviewStateStore,
     use_bookmarks: tuple[str, ...],
 ) -> _PreparedSubmitInputs:
     """Load local submit state before any GitHub mutation begins."""
 
-    client = JjClient(repo_root)
+    client = jj_client
     remote = select_submit_remote(client.list_git_remotes())
     if not dry_run:
         _repair_interrupted_untracked_remote_bookmarks(
@@ -566,7 +566,7 @@ def _prepare_submit_inputs(
         generated_stack_description,
     ) = _resolve_generated_descriptions(
         describe_with=describe_with,
-        repo_root=repo_root,
+        jj_client=client,
         selected_revset=stack.selected_revset,
         revisions=stack.revisions,
     )
@@ -843,10 +843,10 @@ async def _run_submit_async(
     describe_with: str | None,
     draft_mode: SubmitDraftMode,
     dry_run: bool,
+    jj_client: JjClient,
     labels: list[str] | None,
     on_prepared: Callable[[str, str], None] | None,
     re_request: bool,
-    repo_root: Path,
     revset: str | None,
     reviewers: list[str] | None,
     state_store: ReviewStateStore,
@@ -858,8 +858,8 @@ async def _run_submit_async(
         config=config,
         describe_with=describe_with,
         dry_run=dry_run,
+        jj_client=jj_client,
         on_prepared=on_prepared,
-        repo_root=repo_root,
         revset=revset,
         state_store=state_store,
         use_bookmarks=tuple(resolved_use_bookmarks),
@@ -1267,7 +1267,7 @@ def _save_submit_state_checkpoint(
 def _resolve_generated_descriptions(
     *,
     describe_with: str | None,
-    repo_root: Path,
+    jj_client: JjClient,
     revisions: tuple[LocalRevision, ...],
     selected_revset: str,
 ) -> tuple[dict[str, GeneratedDescription], GeneratedDescription | None]:
@@ -1287,7 +1287,7 @@ def _resolve_generated_descriptions(
         revision.change_id: _run_description_command(
             command=describe_with,
             kind="pr",
-            repo_root=repo_root,
+            repo_root=jj_client.repo_root,
             revset=revision.change_id,
         )
         for revision in revisions
@@ -1296,7 +1296,7 @@ def _resolve_generated_descriptions(
     if len(revisions) > 1:
         stack_input = _build_stack_description_input(
             generated_descriptions=generated_descriptions,
-            repo_root=repo_root,
+            jj_client=jj_client,
             revisions=revisions,
         )
         with tempfile.TemporaryDirectory(prefix="jj-review-describe-with-") as tempdir:
@@ -1308,7 +1308,7 @@ def _resolve_generated_descriptions(
                     _DESCRIBE_WITH_STACK_INPUT_ENV: str(stack_input_path),
                 },
                 kind="stack",
-                repo_root=repo_root,
+                repo_root=jj_client.repo_root,
                 revset=selected_revset,
             )
     return generated_descriptions, generated_stack_description
@@ -1317,7 +1317,7 @@ def _resolve_generated_descriptions(
 def _build_stack_description_input(
     *,
     generated_descriptions: dict[str, GeneratedDescription],
-    repo_root: Path,
+    jj_client: JjClient,
     revisions: tuple[LocalRevision, ...],
 ) -> dict[str, object]:
     return {
@@ -1326,7 +1326,7 @@ def _build_stack_description_input(
                 "body": generated_descriptions[revision.change_id].body,
                 "change_id": revision.change_id,
                 "diffstat": _describe_with_diffstat(
-                    repo_root=repo_root,
+                    jj_client=jj_client,
                     revset=revision.change_id,
                 ),
                 "title": generated_descriptions[revision.change_id].title,
@@ -1336,24 +1336,15 @@ def _build_stack_description_input(
     }
 
 
-def _describe_with_diffstat(*, repo_root: Path, revset: str) -> str:
+def _describe_with_diffstat(*, jj_client: JjClient, revset: str) -> str:
     try:
-        completed = subprocess.run(
-            ["jj", "show", "--stat", "-r", revset],
-            capture_output=True,
-            check=False,
-            cwd=repo_root,
-            text=True,
-        )
-    except OSError as error:
+        stdout = jj_client.show_with_stat(revset)
+    except JjCommandError as error:
         raise CliError(
             t"Could not collect diffstat for --stack {ui.revset(revset)}: {error}"
         ) from error
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout).strip() or "unknown jj failure"
-        raise CliError(t"Could not collect diffstat for --stack {ui.revset(revset)}: {detail}")
 
-    lines = completed.stdout.rstrip().splitlines()
+    lines = stdout.rstrip().splitlines()
     diffstat_lines: list[str] = []
     for line in reversed(lines):
         if not line.strip():

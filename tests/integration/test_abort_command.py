@@ -456,7 +456,6 @@ def test_abort_preserves_state_and_intent_when_step_is_blocked(
     # - still close the PR (PR close runs before local steps)
     # - preserve the state cache entry so the user retains PR tracking data
     # - keep the intent file so the user can re-run abort once the block clears
-    import jj_review.commands.abort as abort_module
     from jj_review.jj import JjCommandError
 
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
@@ -486,13 +485,15 @@ def test_abort_preserves_state_and_intent_when_step_is_blocked(
     write_new_intent(state_store.state_dir, intent)
 
     # Make remote branch deletion fail to exercise the partial-retraction path.
-    RealJjClient = abort_module.JjClient
+    from jj_review import bootstrap as bootstrap_module
+
+    RealJjClient = bootstrap_module.JjClient
 
     class FailingDeleteJjClient(RealJjClient):  # type: ignore[misc]
         def delete_remote_bookmarks(self, *args, **kwargs):
             raise JjCommandError("simulated network failure")
 
-    monkeypatch.setattr(abort_module, "JjClient", FailingDeleteJjClient)
+    monkeypatch.setattr(bootstrap_module, "JjClient", FailingDeleteJjClient)
 
     exit_code = run_main(repo, config_path, "abort")
     capsys.readouterr()

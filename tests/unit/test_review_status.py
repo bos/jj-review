@@ -343,7 +343,8 @@ def test_prepare_status_narrows_bookmark_listing_when_all_revisions_are_pinned(
     remote = GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git")
 
     class FakeClient:
-        def __init__(self) -> None:
+        def __init__(self, repo_root) -> None:
+            self.repo_root = repo_root
             self.list_calls: list[tuple[str, ...] | None] = []
 
         def discover_review_stack(self, revset, *, allow_divergent=False, allow_immutable=False):
@@ -373,8 +374,7 @@ def test_prepare_status_narrows_bookmark_listing_when_all_revisions_are_pinned(
             return []
 
     def build_client(saved_state: ReviewState) -> FakeClient:
-        client = FakeClient()
-        monkeypatch.setattr("jj_review.review.status.JjClient", lambda _: client)
+        client = FakeClient(tmp_path)
         monkeypatch.setattr(
             "jj_review.review.status.ReviewStateStore.for_repo",
             lambda _: FakeStateStore(saved_state),
@@ -388,7 +388,7 @@ def test_prepare_status_narrows_bookmark_listing_when_all_revisions_are_pinned(
         }
     )
     client = build_client(pinned_state)
-    _prepare_status_for_test(config=RepoConfig(), fetch_remote_state=False, repo_root=tmp_path)
+    _prepare_status_for_test(config=RepoConfig(), fetch_remote_state=False, jj_client=client)
     assert client.list_calls == [
         ("review/feature-1-aaaaaaaa", "review/feature-2-bbbbbbbb"),
     ]
@@ -398,7 +398,7 @@ def test_prepare_status_narrows_bookmark_listing_when_all_revisions_are_pinned(
             changes={"aaaaaaaa1234": CachedChange(bookmark="review/feature-1-aaaaaaaa")}
         )
     )
-    _prepare_status_for_test(config=RepoConfig(), fetch_remote_state=False, repo_root=tmp_path)
+    _prepare_status_for_test(config=RepoConfig(), fetch_remote_state=False, jj_client=client)
     assert client.list_calls == [None]
 
 
@@ -406,13 +406,14 @@ def _prepare_status_for_test(
     *,
     config: RepoConfig,
     fetch_remote_state: bool,
-    repo_root,
+    jj_client,
 ) -> PreparedStatus:
+    from jj_review.jj import JjClient
     from jj_review.review.status import prepare_status
 
     return prepare_status(
         config=config,
         fetch_remote_state=fetch_remote_state,
-        repo_root=repo_root,
+        jj_client=cast(JjClient, jj_client),
         revset=None,
     )

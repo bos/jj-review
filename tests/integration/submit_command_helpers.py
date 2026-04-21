@@ -85,7 +85,7 @@ def remote_refs(remote: Path) -> dict[str, str]:
 
 
 def run_main(repo: Path, config_path: Path, command: str, *command_args: str) -> int:
-    argv = ["--config", str(config_path), "--repository", str(repo), command]
+    argv = ["--config-file", str(config_path), "--repository", str(repo), command]
     argv.extend(command_args)
     return main(argv)
 

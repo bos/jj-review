@@ -14,12 +14,16 @@ def no_configured_color(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_main_reports_invalid_config_without_traceback(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config_path = tmp_path / "bad.toml"
-    config_path.write_text("[jj-review]\nbookmark_prefix = [\n", encoding="utf-8")
+    repo = _patch_fake_jj_workspace(
+        monkeypatch,
+        tmp_path,
+        jj_review_config_stdout='jj-review.bookmark_prefix = ""\n',
+    )
 
-    exit_code = main(["--config", str(config_path), "submit"])
+    exit_code = main(["--repository", str(repo), "submit"])
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -45,12 +49,16 @@ def test_main_reports_missing_repository_without_traceback(
 
 def test_main_reports_invalid_logging_level_without_traceback(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    config_path = tmp_path / "bad-logging.toml"
-    config_path.write_text('[jj-review.logging]\nlevel = "DEBIG"\n', encoding="utf-8")
+    repo = _patch_fake_jj_workspace(
+        monkeypatch,
+        tmp_path,
+        jj_review_config_stdout='jj-review.logging.level = "DEBIG"\n',
+    )
 
-    exit_code = main(["--config", str(config_path), "submit"])
+    exit_code = main(["--repository", str(repo), "submit"])
     captured = capsys.readouterr()
 
     assert exit_code == 1
@@ -120,3 +128,24 @@ def test_main_help_smoke_renders_without_error(
     assert exit_code == 0
     assert "jj-review" in captured.out
     assert "Traceback" not in captured.err
+
+
+def _patch_fake_jj_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    jj_review_config_stdout: str,
+) -> Path:
+    """Create a minimal .jj-marked directory and stub out the jj config read.
+
+    Lets unit tests reach the jj-review config validation path without
+    requiring a real jj workspace or subprocess call.
+    """
+
+    repo = tmp_path / "repo"
+    (repo / ".jj").mkdir(parents=True)
+    monkeypatch.setattr(
+        "jj_review.jj.client.JjClient.read_jj_review_config_list_output",
+        lambda self: jj_review_config_stdout,
+    )
+    return repo

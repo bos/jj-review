@@ -36,7 +36,7 @@ from jj_review.github.resolution import (
     parse_github_repo,
     select_submit_remote,
 )
-from jj_review.jj import JjClient
+from jj_review.jj import JjCliArgs, JjClient
 from jj_review.models.bookmarks import GitRemote
 from jj_review.models.github import GithubRepository
 from jj_review.models.intent import (
@@ -66,26 +66,26 @@ class CheckResult:
 
 def doctor(
     *,
-    config_path: Path | None,
+    cli_args: JjCliArgs,
     debug: bool,
     repository: Path | None,
 ) -> int:
     """CLI entrypoint for `doctor`."""
     context = bootstrap_context(
         repository=repository,
-        config_path=config_path,
+        cli_args=cli_args,
         debug=debug,
     )
-    results = asyncio.run(_run_checks(repo_root=context.repo_root))
+    results = asyncio.run(_run_checks(jj_client=context.jj_client))
     console.output(_results_table(results))
     return 1 if any(r.status == "fail" for r in results) else 0
 
 
-async def _run_checks(*, repo_root: Path) -> list[CheckResult]:
+async def _run_checks(*, jj_client: JjClient) -> list[CheckResult]:
     results: list[CheckResult] = []
+    repo_root = jj_client.repo_root
 
     # Check 1: Git remote selection
-    jj_client = JjClient(repo_root)
     remote_result, selected_remote = _check_git_remote(jj_client)
     results.append(remote_result)
 

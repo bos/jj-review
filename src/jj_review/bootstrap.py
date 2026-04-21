@@ -11,6 +11,7 @@ from pathlib import Path
 from jj_review import ui
 from jj_review.config import AppConfig, load_config
 from jj_review.errors import CliError
+from jj_review.jj import JjCliArgs, JjClient
 
 _MINIMUM_JJ_VERSION = (0, 39, 0)
 _MINIMUM_JJ_VERSION_STRING = "0.39.0"
@@ -37,7 +38,7 @@ class _ElapsedFormatter(logging.Formatter):
 class RuntimeOptions:
     """Command-line options that influence bootstrap behavior."""
 
-    config_path: Path | None
+    cli_args: JjCliArgs
     debug: bool
     repository: Path | None
 
@@ -47,6 +48,7 @@ class AppContext:
     """Typed runtime state shared by command handlers."""
 
     config: AppConfig
+    jj_client: JjClient
     options: RuntimeOptions
     repo_root: Path
 
@@ -54,23 +56,24 @@ class AppContext:
 def bootstrap_context(
     *,
     repository: Path | None,
-    config_path: Path | None,
+    cli_args: JjCliArgs,
     debug: bool,
 ) -> AppContext:
     """Resolve the repository, load config, and initialize logging."""
 
     repository = _resolve_optional_path(repository)
     _validate_repository_path(repository)
-    config_path = _resolve_optional_path(config_path)
     check_jj_version()
     repo_root = resolve_repo_root(repository or Path.cwd())
-    config = load_config(repo_root=repo_root, config_path=config_path)
+    jj_client = JjClient(repo_root, cli_args=cli_args)
+    config = load_config(jj_client=jj_client)
     configure_logging(debug=debug, configured_level=config.logging.level)
 
     return AppContext(
         config=config,
+        jj_client=jj_client,
         options=RuntimeOptions(
-            config_path=config_path,
+            cli_args=cli_args,
             debug=debug,
             repository=repository,
         ),
@@ -111,31 +114,25 @@ def _resolve_logging_level(level_name: str, *, original_value: str) -> int:
 
 
 def resolve_repo_root(start_dir: Path) -> Path:
-    """Resolve the jj workspace root from `start_dir`.
+    """Resolve the jj workspace root by walking up from `start_dir`.
 
-    Raises `CliError` if the directory is not inside a jj workspace,
-    so callers get a clear diagnostic rather than confusing downstream
-    errors from later `jj` commands.
+    Mirrors what `jj root` does internally (searches for the nearest ancestor
+    containing a `.jj` directory) without forking a subprocess. Couples to
+    jj's on-disk layout: every workspace root is assumed to hold `.jj` as a
+    directory, as jj does today. If jj ever grows a `.jj`-as-file pointer
+    (analogous to git's submodule/worktree `.git` files), this needs to
+    learn about that form.
     """
 
     try:
-        completed = subprocess.run(
-            ["jj", "root"],
-            capture_output=True,
-            check=False,
-            cwd=start_dir,
-            text=True,
-        )
-    except FileNotFoundError as error:
-        raise CliError(t"{ui.cmd('jj')} is not installed or is not on PATH.") from error
-    if completed.returncode != 0:
-        message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
-        raise CliError(f"Not inside a jj workspace (from {start_dir}): {message}")
+        resolved = start_dir.resolve(strict=False)
+    except OSError as error:
+        raise CliError(f"Could not resolve path {start_dir}: {error}") from error
 
-    root = completed.stdout.strip()
-    if not root:
-        raise CliError(t"{ui.cmd('jj root')} returned an empty path (from {start_dir}).")
-    return Path(root)
+    for candidate in (resolved, *resolved.parents):
+        if (candidate / ".jj").is_dir():
+            return candidate
+    raise CliError(f"Not inside a jj workspace (from {start_dir}).")
 
 
 def check_jj_version() -> None:

@@ -181,7 +181,7 @@ def _build_submitted_feature_template(template_root: Path) -> None:
             contextlib.redirect_stderr(io.StringIO()),
         ):
             exit_code = main(
-                ["--config", str(config_path), "--repository", str(repo), "submit"]
+                ["--config-file", str(config_path), "--repository", str(repo), "submit"]
             )
         if exit_code != 0:
             raise RuntimeError(f"submitted-feature template build failed: exit {exit_code}")

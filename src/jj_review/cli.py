@@ -10,7 +10,13 @@ import subprocess
 import sys
 import textwrap
 import time
-from argparse import SUPPRESS, ArgumentParser, HelpFormatter, Namespace, _SubParsersAction
+from argparse import (
+    SUPPRESS,
+    ArgumentParser,
+    HelpFormatter,
+    Namespace,
+    _SubParsersAction,
+)
 from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -22,6 +28,7 @@ from jj_review.bootstrap import APP_START
 from jj_review.completion import emit_shell_completion
 from jj_review.console import ColorMode, RequestedColorMode, configured_console, rich_color_mode
 from jj_review.errors import CliError, error_hint, error_message
+from jj_review.jj import JjCliArgs
 
 logger = logging.getLogger(__name__)
 SubparserT = TypeVar("SubparserT", bound=ArgumentParser)
@@ -34,10 +41,10 @@ Use it to submit changes for review, inspect pull request status, land
 ready changes, and clean up stale jj-review data.
 """
 _TOP_LEVEL_HIDDEN_OPTION_STRINGS = frozenset(
-    {"--repository", "--config", "--debug", "--time-output"}
+    {"--repository", "--config", "--config-file", "--debug", "--time-output"}
 )
 _REORDERABLE_GLOBAL_FLAGS = frozenset({"--debug", "--time-output"})
-_REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES = frozenset({"--repository", "--config", "--color"})
+_REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES = frozenset({"--repository", "--color"})
 _HELP_FLAGS = frozenset({"-h", "--help"})
 _COMPLETION_HELP = "Print shell completion setup for bash, zsh, or fish"
 _HELP_HELP = "Show help for this command or another command"
@@ -149,7 +156,7 @@ def build_parser() -> ArgumentParser:
         help_text=_normalized_help_text(commands.submit.HELP),
         description_text=commands.submit.__doc__ or "",
         handler=lambda args: commands.submit.submit(
-            config_path=args.config,
+            cli_args=_global_cli_args(args),
             debug=args.debug,
             describe_with=args.describe_with,
             draft=args.draft,
@@ -262,7 +269,7 @@ def build_parser() -> ArgumentParser:
         help_text=_normalized_help_text(commands.status.HELP),
         description_text=commands.status.__doc__ or "",
         handler=lambda args: commands.status.status(
-            config_path=args.config,
+            cli_args=_global_cli_args(args),
             debug=args.debug,
             fetch=args.fetch,
             repository=args.repository,
@@ -289,7 +296,7 @@ def build_parser() -> ArgumentParser:
         help_text=_normalized_help_text(commands.relink.HELP),
         description_text=commands.relink.__doc__ or "",
         handler=lambda args: commands.relink.relink(
-            config_path=args.config,
+            cli_args=_global_cli_args(args),
             debug=args.debug,
             pull_request=args.pull_request,
             repository=args.repository,
@@ -302,7 +309,7 @@ def build_parser() -> ArgumentParser:
         help_text=_normalized_help_text(commands.unlink.HELP),
         description_text=commands.unlink.__doc__ or "",
         handler=lambda args: commands.unlink.unlink(
-            config_path=args.config,
+            cli_args=_global_cli_args(args),
             debug=args.debug,
             repository=args.repository,
             revset=args.revset,
@@ -318,7 +325,7 @@ def build_parser() -> ArgumentParser:
         handler=lambda args: commands.land.land(
             dry_run=args.dry_run,
             bypass_readiness=args.bypass_readiness,
-            config_path=args.config,
+            cli_args=_global_cli_args(args),
             debug=args.debug,
             pull_request=args.pull_request,
             repository=args.repository,
@@ -358,7 +365,7 @@ def build_parser() -> ArgumentParser:
         handler=lambda args: commands.close.close(
             dry_run=args.dry_run,
             cleanup=args.cleanup,
-            config_path=args.config,
+            cli_args=_global_cli_args(args),
             debug=args.debug,
             pull_request=args.pull_request,
             repository=args.repository,
@@ -393,7 +400,7 @@ def build_parser() -> ArgumentParser:
         help_text=_normalized_help_text(commands.import_.HELP),
         description_text=commands.import_.__doc__ or "",
         handler=lambda args: commands.import_.import_(
-            config_path=args.config,
+            cli_args=_global_cli_args(args),
             debug=args.debug,
             fetch=args.fetch,
             pull_request=args.pull_request,
@@ -433,7 +440,7 @@ def build_parser() -> ArgumentParser:
     cleanup_parser.set_defaults(
         handler=lambda args: commands.cleanup.cleanup(
             dry_run=args.dry_run,
-            config_path=args.config,
+            cli_args=_global_cli_args(args),
             debug=args.debug,
             repository=args.repository,
             restack=args.restack,
@@ -455,7 +462,7 @@ def build_parser() -> ArgumentParser:
     )
     abort_parser.set_defaults(
         handler=lambda args: commands.abort.abort(
-            config_path=args.config,
+            cli_args=_global_cli_args(args),
             debug=args.debug,
             dry_run=args.dry_run,
             repository=args.repository,
@@ -471,7 +478,7 @@ def build_parser() -> ArgumentParser:
     _normalize_help_action_text(doctor_parser)
     doctor_parser.set_defaults(
         handler=lambda args: commands.doctor.doctor(
-            config_path=args.config,
+            cli_args=_global_cli_args(args),
             debug=args.debug,
             repository=args.repository,
         )
@@ -584,7 +591,8 @@ def _top_level_usage_message(*, include_hidden: bool) -> ui.Message:
         return (
             t"{ui.cmd('jj-review')} [{ui.cmd('--help')}] "
             t"[{ui.cmd('--repository REPOSITORY')}] "
-            t"[{ui.cmd('--config CONFIG')}] [{ui.cmd('--debug')}] [{ui.cmd('--color WHEN')}] "
+            t"[{ui.cmd('--config NAME=VALUE')}] [{ui.cmd('--config-file PATH')}] "
+            t"[{ui.cmd('--debug')}] [{ui.cmd('--color WHEN')}] "
             t"[{ui.cmd('--time-output')}] [{ui.cmd('--version')}] "
             t"{ui.cmd('<command>')} ..."
         )
@@ -775,7 +783,11 @@ def _print_cli_error(error: CliError) -> None:
         )
 
 
-def _load_configured_jj_color(*, repository: Path | None) -> RequestedColorMode | None:
+def _load_configured_jj_color(
+    *,
+    repository: Path | None,
+    cli_args: JjCliArgs,
+) -> RequestedColorMode | None:
     """Read `ui.color` from `jj` config without requiring repository bootstrap."""
 
     cwd = (
@@ -785,7 +797,7 @@ def _load_configured_jj_color(*, repository: Path | None) -> RequestedColorMode 
     )
     try:
         completed = subprocess.run(
-            ["jj", "config", "get", "ui.color"],
+            ["jj", *cli_args.to_argv(), "config", "get", "ui.color"],
             capture_output=True,
             check=False,
             cwd=cwd,
@@ -806,11 +818,12 @@ def _load_configured_jj_color(*, repository: Path | None) -> RequestedColorMode 
 def _resolve_rich_color_mode(
     *,
     cli_color: RequestedColorMode | None,
+    cli_args: JjCliArgs,
     repository: Path | None,
 ) -> tuple[RequestedColorMode | None, ColorMode]:
     raw_color = cli_color
     if raw_color is None:
-        raw_color = _load_configured_jj_color(repository=repository)
+        raw_color = _load_configured_jj_color(repository=repository, cli_args=cli_args)
     return raw_color, rich_color_mode(raw_color)
 
 
@@ -819,16 +832,22 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     parser = build_parser()
     try:
-        normalized_argv = _normalize_cli_args(sys.argv[1:] if argv is None else argv)
+        cli_args, stripped_argv = _extract_config_overrides(
+            sys.argv[1:] if argv is None else argv
+        )
+        normalized_argv = _normalize_cli_args(stripped_argv)
     except CliError as error:
         _print_cli_error(error)
         return error.exit_code
     args = parser.parse_args(normalized_argv)
+    args.cli_args = cli_args
     _, effective_rich_color_mode = _resolve_rich_color_mode(
         cli_color=args.color,
+        cli_args=cli_args,
         repository=args.repository,
     )
     with configured_console(
+        cli_args=cli_args,
         color_mode=effective_rich_color_mode,
         repository=args.repository,
         requested_color_mode=args.color,
@@ -942,11 +961,34 @@ def _add_common_options(
         default=SUPPRESS if suppress_defaults else None,
         help="Workspace path to operate on; defaults to the current directory",
     )
+    # --config and --config-file are extracted from argv by
+    # `_extract_config_overrides` before argparse runs, because argparse
+    # subparsers create fresh namespaces and would otherwise clobber any
+    # overrides passed before the subcommand. These registrations exist only
+    # so the flags appear in --help output.
     parser.add_argument(
         "--config",
-        type=Path,
-        default=SUPPRESS if suppress_defaults else None,
-        help="Use this jj config file instead of the default jj config scopes",
+        action="store",
+        default=SUPPRESS,
+        dest=SUPPRESS,
+        metavar="NAME=VALUE",
+        help=(
+            "Additional jj config option as a TOML dotted-key assignment "
+            "(e.g. ui.color=always); may be repeated and interleaves with "
+            "--config-file in argv order"
+        ),
+    )
+    parser.add_argument(
+        "--config-file",
+        action="store",
+        default=SUPPRESS,
+        dest=SUPPRESS,
+        metavar="PATH",
+        help=(
+            "Additional jj config file layered on top of normal config scopes; "
+            "may be repeated and interleaves with --config in argv order; "
+            "relative paths resolve against the current directory"
+        ),
     )
     parser.add_argument(
         "--debug",
@@ -974,6 +1016,73 @@ def _normalize_help_action_text(parser: ArgumentParser) -> None:
         if action.option_strings == ["-h", "--help"]:
             action.help = "Show help"
             return
+
+
+_CONFIG_OVERRIDE_FLAGS = frozenset({"--config", "--config-file"})
+
+
+def _extract_config_overrides(argv: Sequence[str]) -> tuple[JjCliArgs, list[str]]:
+    """Pull ``--config`` / ``--config-file`` out of argv, preserving argv order.
+
+    Runs before argparse because argparse dispatches subcommands into a fresh
+    namespace and copies it back over the top-level namespace, which drops any
+    overrides passed before the subcommand. Scanning argv ourselves keeps the
+    full interleaved order regardless of where each flag appears relative to
+    the subcommand. ``--config-file`` paths are resolved against the caller's
+    cwd so they survive jj's subprocess cwd of ``repo_root``.
+
+    The extractor mirrors argparse/jj semantics for malformed uses: a bare
+    ``--config`` (no value), or one whose next token is another option, is left
+    in argv so argparse raises its usual "expected one argument" error; and
+    everything after the ``--`` end-of-options marker is treated as positional
+    and passed through untouched.
+    """
+
+    parts: list[str] = []
+    remaining: list[str] = []
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--":
+            remaining.extend(argv[index:])
+            break
+        flag: str | None = None
+        value: str | None = None
+        if arg in _CONFIG_OVERRIDE_FLAGS:
+            next_arg = argv[index + 1] if index + 1 < len(argv) else None
+            if next_arg is None or next_arg.startswith("-"):
+                remaining.append(arg)
+                index += 1
+            else:
+                flag = arg
+                value = next_arg
+                index += 2
+        elif "=" in arg:
+            head, _, tail = arg.partition("=")
+            if head in _CONFIG_OVERRIDE_FLAGS:
+                flag = head
+                value = tail
+                index += 1
+            else:
+                remaining.append(arg)
+                index += 1
+                continue
+        else:
+            remaining.append(arg)
+            index += 1
+            continue
+
+        if flag is None or value is None:
+            continue
+        if flag == "--config-file":
+            value = str(Path(value).resolve())
+        parts.extend((flag, value))
+
+    return JjCliArgs(argv=tuple(parts)), remaining
+
+
+def _global_cli_args(args: Namespace) -> JjCliArgs:
+    return getattr(args, "cli_args", None) or JjCliArgs()
 
 
 def _completion_handler(args: Namespace) -> int:
@@ -1090,7 +1199,8 @@ def _rewrite_help_args(argv: list[str]) -> list[str]:
     if not argv:
         return argv
     starts_with_help = argv[0] == "help"
-    if not starts_with_help and not any(arg in _HELP_FLAGS for arg in argv):
+    scan_limit = argv.index("--") if "--" in argv else len(argv)
+    if not starts_with_help and not any(arg in _HELP_FLAGS for arg in argv[:scan_limit]):
         return argv
 
     source = argv[1:] if starts_with_help else argv

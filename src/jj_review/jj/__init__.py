@@ -1,6 +1,7 @@
 """Typed access to local `jj` repository state."""
 
 from jj_review.jj.client import (
+    JjCliArgs,
     JjClient,
     JjCommandError,
     StaleWorkspaceError,
@@ -8,6 +9,7 @@ from jj_review.jj.client import (
 )
 
 __all__ = [
+    "JjCliArgs",
     "JjClient",
     "JjCommandError",
     "StaleWorkspaceError",

@@ -1,25 +1,26 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
 
-import jj_review.config as config_module
-from jj_review.config import load_config
+from jj_review.config import load_config, parse_jj_review_config_toml
 from jj_review.errors import CliError
+from jj_review.jj import JjCliArgs, JjClient
 
 
-def test_load_config_returns_defaults_when_jj_config_is_missing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        config_module,
-        "_default_config_paths",
-        lambda repo_root: (tmp_path / "user.toml", tmp_path / "repo.toml"),
-    )
+def _make_client(tmp_path: Path, stdout: str) -> JjClient:
+    def runner(command, cwd):
+        assert command[0] == "jj"
+        assert tuple(command[-3:]) == ("config", "list", "jj-review")
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
-    config = load_config(repo_root=tmp_path)
+    return JjClient(tmp_path, runner=runner)
+
+
+def test_load_config_returns_defaults_when_no_keys_set(tmp_path: Path) -> None:
+    config = load_config(jj_client=_make_client(tmp_path, ""))
 
     assert config.logging.level == "WARNING"
     assert config.bookmark_prefix == "review"
@@ -27,45 +28,20 @@ def test_load_config_returns_defaults_when_jj_config_is_missing(
     assert config.labels == []
 
 
-def test_load_config_merges_jj_config_layers(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    user_path = tmp_path / "user.toml"
-    repo_path = tmp_path / "repo.toml"
-    workspace_path = tmp_path / "workspace.toml"
-    monkeypatch.setattr(
-        config_module,
-        "_default_config_paths",
-        lambda repo_root: (user_path, repo_path, workspace_path),
-    )
-    _write_config(
-        user_path,
+def test_load_config_parses_resolved_jj_review_section(tmp_path: Path) -> None:
+    stdout = "\n".join(
         [
-            "[jj-review.logging]",
-            'level = "info"',
-        ],
+            'jj-review.bookmark_prefix = "bosullivan"',
+            "jj-review.cleanup_user_bookmarks = true",
+            'jj-review.reviewers = ["octocat"]',
+            'jj-review.team_reviewers = ["platform"]',
+            'jj-review.use_bookmarks = ["potato/*", "", "spam/eggs", "potato/*"]',
+            'jj-review.labels = ["needs-review"]',
+            'jj-review.logging.level = "info"',
+            "",
+        ]
     )
-    _write_config(
-        repo_path,
-        [
-            "[jj-review]",
-            'bookmark_prefix = "bosullivan"',
-            "cleanup_user_bookmarks = true",
-            'reviewers = ["octocat"]',
-            'team_reviewers = ["platform"]',
-            'use_bookmarks = ["potato/*", "", "spam/eggs", "potato/*"]',
-        ],
-    )
-    _write_config(
-        workspace_path,
-        [
-            "[jj-review]",
-            'labels = ["needs-review"]',
-        ],
-    )
-
-    config = load_config(repo_root=tmp_path)
+    config = load_config(jj_client=_make_client(tmp_path, stdout))
 
     assert config.logging.level == "INFO"
     assert config.bookmark_prefix == "bosullivan"
@@ -76,115 +52,96 @@ def test_load_config_merges_jj_config_layers(
     assert config.use_bookmarks == ["potato/*", "spam/eggs"]
 
 
-def test_load_config_reads_explicit_jj_review_config_file(tmp_path: Path) -> None:
-    config_path = tmp_path / "explicit.toml"
-    _write_config(
-        config_path,
-        [
-            "[jj-review]",
-            'labels = ["needs-review"]',
-            "",
-            "[jj-review.logging]",
-            'level = "DEBUG"',
-        ],
-    )
+def test_load_config_ignores_unknown_keys_inside_jj_review_section(tmp_path: Path) -> None:
+    stdout = 'jj-review.potato = "round"\n'
 
-    config = load_config(repo_root=None, config_path=config_path)
-
-    assert config.labels == ["needs-review"]
-    assert config.logging.level == "DEBUG"
-
-
-def test_load_config_rejects_missing_explicit_config_path(tmp_path: Path) -> None:
-    with pytest.raises(CliError, match="Config file does not exist"):
-        load_config(repo_root=None, config_path=tmp_path / "missing.toml")
-
-
-def test_load_config_ignores_unrelated_jj_config_keys(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    config_path = tmp_path / "user.toml"
-    monkeypatch.setattr(config_module, "_default_config_paths", lambda repo_root: (config_path,))
-    _write_config(
-        config_path,
-        [
-            "[git]",
-            "push-new-bookmarks = true",
-        ],
-    )
-
-    config = load_config(repo_root=tmp_path)
-
-    assert config.logging.level == "WARNING"
-    assert config.labels == []
-
-
-def test_load_config_ignores_unknown_keys_inside_jj_review_section(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "ignored.toml"
-    _write_config(
-        config_path,
-        [
-            "[jj-review]",
-            'potato = "round"',
-        ],
-    )
-
-    config = load_config(repo_root=None, config_path=config_path)
+    config = load_config(jj_client=_make_client(tmp_path, stdout))
 
     assert config.bookmark_prefix == "review"
     assert config.labels == []
 
 
-def test_load_config_rejects_likely_top_level_typo(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "typo.toml"
-    _write_config(
-        config_path,
-        [
-            "[jj-review]",
-            'bookmark_prefx = "bos"',
-        ],
-    )
+def test_load_config_rejects_likely_top_level_typo(tmp_path: Path) -> None:
+    stdout = 'jj-review.bookmark_prefx = "bos"\n'
 
     with pytest.raises(CliError, match=r"Did you mean \[jj-review\]\.bookmark_prefix\?"):
-        load_config(repo_root=None, config_path=config_path)
+        load_config(jj_client=_make_client(tmp_path, stdout))
 
-def test_load_config_rejects_invalid_logging_level_in_jj_review_section(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "invalid-logging.toml"
-    _write_config(
-        config_path,
-        [
-            "[jj-review.logging]",
-            'level = "DEBIG"',
-        ],
-    )
+
+def test_load_config_rejects_invalid_logging_level(tmp_path: Path) -> None:
+    stdout = 'jj-review.logging.level = "DEBIG"\n'
 
     with pytest.raises(CliError, match="Invalid logging level"):
-        load_config(repo_root=None, config_path=config_path)
+        load_config(jj_client=_make_client(tmp_path, stdout))
 
 
-def test_load_config_rejects_bookmark_prefix_with_slash(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "invalid-prefix.toml"
-    _write_config(
-        config_path,
-        [
-            "[jj-review]",
-            'bookmark_prefix = "bosullivan/review"',
-        ],
-    )
+def test_load_config_rejects_bookmark_prefix_with_slash(tmp_path: Path) -> None:
+    stdout = 'jj-review.bookmark_prefix = "bosullivan/review"\n'
 
     with pytest.raises(CliError, match="bookmark_prefix"):
-        load_config(repo_root=None, config_path=config_path)
+        load_config(jj_client=_make_client(tmp_path, stdout))
 
 
-def _write_config(config_path: Path, lines: list[str]) -> None:
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+def test_parse_jj_review_config_toml_extracts_nested_tables() -> None:
+    stdout = "\n".join(
+        [
+            'jj-review.bookmark_prefix = "bos"',
+            'jj-review.logging.level = "INFO"',
+            "",
+        ]
+    )
+    parsed = parse_jj_review_config_toml(stdout)
+    assert parsed == {"bookmark_prefix": "bos", "logging": {"level": "INFO"}}
+
+
+def test_load_config_wraps_jj_command_failure_with_user_facing_message(
+    tmp_path: Path,
+) -> None:
+    def failing_runner(command, cwd):
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr="Config error: Invalid config-file path 'missing.toml'\n",
+        )
+
+    client = JjClient(tmp_path, runner=failing_runner)
+
+    with pytest.raises(CliError) as exc_info:
+        load_config(jj_client=client)
+
+    message = str(exc_info.value)
+    assert message.startswith("Could not load jj-review config:")
+    assert "Invalid config-file path" in message
+
+
+def test_load_config_surfaces_cli_args_through_to_jj(tmp_path: Path) -> None:
+    observed_commands: list[tuple[str, ...]] = []
+
+    def runner(command, cwd):
+        observed_commands.append(tuple(command))
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout='jj-review.bookmark_prefix = "bos"\n',
+            stderr="",
+        )
+
+    client = JjClient(
+        tmp_path,
+        cli_args=JjCliArgs(argv=("--config", "jj-review.bookmark_prefix=bos")),
+        runner=runner,
+    )
+    config = load_config(jj_client=client)
+
+    assert config.bookmark_prefix == "bos"
+    assert observed_commands == [
+        (
+            "jj",
+            "--config",
+            "jj-review.bookmark_prefix=bos",
+            "config",
+            "list",
+            "jj-review",
+        )
+    ]

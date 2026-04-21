@@ -30,7 +30,7 @@ from jj_review.github.resolution import (
     select_submit_remote,
 )
 from jj_review.github.stack_comments import is_stack_summary_comment
-from jj_review.jj import JjClient
+from jj_review.jj import JjCliArgs, JjClient
 from jj_review.jj.client import UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.github import GithubIssueComment
@@ -232,7 +232,7 @@ def _render_restack_postamble(*, result: RestackResult) -> tuple[str, ...]:
 
 def cleanup(
     *,
-    config_path: Path | None,
+    cli_args: JjCliArgs,
     debug: bool,
     dry_run: bool,
     repository: Path | None,
@@ -243,21 +243,21 @@ def cleanup(
 
     context = bootstrap_context(
         repository=repository,
-        config_path=config_path,
+        cli_args=cli_args,
         debug=debug,
     )
     if restack:
         return _run_cleanup_restack_command(
             dry_run=dry_run,
             config=context.config,
-            repo_root=context.repo_root,
+            jj_client=context.jj_client,
             revset=revset,
         )
 
     return _run_cleanup_command(
         config=context.config,
         dry_run=dry_run,
-        repo_root=context.repo_root,
+        jj_client=context.jj_client,
     )
 
 
@@ -265,7 +265,7 @@ def _run_cleanup_restack_command(
     *,
     dry_run: bool,
     config: RepoConfig,
-    repo_root: Path,
+    jj_client: JjClient,
     revset: str | None,
 ) -> int:
     """Render and run the `cleanup --restack` command path."""
@@ -284,7 +284,7 @@ def _run_cleanup_restack_command(
                 config=config,
                 fetch_remote_state=True,
                 fetch_only_when_tracked=True,
-                repo_root=repo_root,
+                jj_client=jj_client,
                 revset=selected_revset,
             ),
         )
@@ -315,14 +315,14 @@ def _run_cleanup_command(
     *,
     config: RepoConfig,
     dry_run: bool,
-    repo_root: Path,
+    jj_client: JjClient,
 ) -> int:
     """Render and run the stale cleanup command path."""
 
     prepared_cleanup = _prepare_cleanup(
         config=config,
         dry_run=dry_run,
-        repo_root=repo_root,
+        jj_client=jj_client,
     )
     stale_reasons = _stale_change_reasons(
         change_ids=tuple(prepared_cleanup.state.changes),
@@ -454,12 +454,11 @@ def _prepare_cleanup(
     *,
     config: RepoConfig,
     dry_run: bool,
-    repo_root: Path,
+    jj_client: JjClient,
 ) -> PreparedCleanup:
     """Resolve local cleanup inputs before any GitHub network inspection."""
 
-    jj_client = JjClient(repo_root)
-    state_store = ReviewStateStore.for_repo(repo_root)
+    state_store = ReviewStateStore.for_repo(jj_client.repo_root)
     state = state_store.load()
     if not dry_run:
         state_store.require_writable()

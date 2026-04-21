@@ -1,8 +1,10 @@
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from jj_review.errors import CliError
+from jj_review.jj import JjClient
 from jj_review.models.bookmarks import GitRemote
 from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.review.selection import (
@@ -39,13 +41,13 @@ def test_resolve_linked_change_for_pull_request_uses_action_specific_guidance(
         monkeypatch,
         ReviewState(changes={"change-1": CachedChange(pr_number=17)}),
     )
-    _patch_jj_client(monkeypatch, revisions_by_change_id={"change-1": ()})
+    jj_client = _JjClientStub(_REPO_ROOT, revisions_by_change_id={"change-1": ()})
 
     with pytest.raises(CliError, match="Close by revision once it is visible again."):
         resolve_linked_change_for_pull_request(
             action_name="close",
+            jj_client=cast(JjClient, jj_client),
             pull_request_reference="17",
-            repo_root=_REPO_ROOT,
             revset=None,
         )
 
@@ -62,18 +64,23 @@ class _StateStoreStub:
 
 
 class _JjClientStub:
-    remotes: tuple[GitRemote, ...] = ()
-    revisions_by_change_id: dict[str, tuple[object, ...]] = {}
-
-    def __init__(self, repo_root) -> None:
+    def __init__(
+        self,
+        repo_root,
+        *,
+        remotes: tuple[GitRemote, ...] = (),
+        revisions_by_change_id: dict[str, tuple[object, ...]] | None = None,
+    ) -> None:
         self.repo_root = repo_root
+        self._remotes = remotes
+        self._revisions_by_change_id = revisions_by_change_id or {}
 
     def list_git_remotes(self) -> tuple[GitRemote, ...]:
-        return type(self).remotes
+        return self._remotes
 
     def query_revisions_by_change_ids(self, change_ids):
         return {
-            change_id: type(self).revisions_by_change_id.get(change_id, ())
+            change_id: self._revisions_by_change_id.get(change_id, ())
             for change_id in change_ids
         }
 
@@ -83,14 +90,3 @@ def _patch_review_state(monkeypatch, state: ReviewState) -> None:
         "jj_review.review.selection.ReviewStateStore.for_repo",
         lambda repo_root: _StateStoreStub(state),
     )
-
-
-def _patch_jj_client(
-    monkeypatch,
-    *,
-    remotes: tuple[GitRemote, ...] = (),
-    revisions_by_change_id: dict[str, tuple[object, ...]],
-) -> None:
-    _JjClientStub.remotes = remotes
-    _JjClientStub.revisions_by_change_id = revisions_by_change_id
-    monkeypatch.setattr("jj_review.review.selection.JjClient", _JjClientStub)

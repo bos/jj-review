@@ -127,7 +127,7 @@ site URL if we publish one, or `less`-ing the bundled markdown. Lowers friction 
 ### 3f. Visibility of hidden commands
 
 Currently hidden: `relink`, `unlink`, `completion`, and the globals `--repository`,
-`--config`, `--debug`, `--time-output`. Keep most hidden but:
+`--config`, `--config-file`, `--debug`, `--time-output`. Keep most hidden but:
 
 - Promote `unlink` to visible — users genuinely need the soft detach.
 - Mention `relink` in `abort`'s See-also line — it's the escape hatch from a bad

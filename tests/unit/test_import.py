@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
@@ -10,17 +11,13 @@ from jj_review.commands.import_ import (
 )
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
+from jj_review.jj import JjClient
 
 
 def test_run_import_current_rejects_before_github_inspection(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    monkeypatch.setattr(
-        "jj_review.commands.import_.JjClient",
-        lambda repo_root: object(),
-    )
-
     async def fake_resolve_selection(**kwargs):
         return SimpleNamespace(
             default_current_stack=True,
@@ -54,13 +51,15 @@ def test_run_import_current_rejects_before_github_inspection(
         fail_stream_status_async,
     )
 
+    jj_client = SimpleNamespace(repo_root=tmp_path, query_revisions=lambda *args, **kwargs: ())
+
     with pytest.raises(CliError) as exc_info:
         asyncio.run(
             _run_import_async(
                 config=RepoConfig(),
                 fetch=False,
+                jj_client=cast(JjClient, jj_client),
                 pull_request_reference=None,
-                repo_root=tmp_path,
                 revset=None,
             )
         )

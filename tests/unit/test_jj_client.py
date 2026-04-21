@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from jj_review.jj import JjClient, JjCommandError, StaleWorkspaceError, UnsupportedStackError
+from jj_review.jj import (
+    JjClient,
+    JjCommandError,
+    StaleWorkspaceError,
+    UnsupportedStackError,
+)
 from jj_review.models.stack import LocalRevision
 from tests.support.revision_helpers import make_revision
 

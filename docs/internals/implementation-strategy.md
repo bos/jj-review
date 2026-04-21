@@ -322,7 +322,8 @@ Top-level help should be curated rather than a flat dump of every subcommand.
 Default `jj-review --help` and `jj-review help` output should group commands by
 theme and keep advanced repair or shell-integration commands out of the default
 view. The default top-level help should also hide advanced global options such
-as `--repository`, `--config`, `--debug`, and `--time-output`. An explicit
+as `--repository`, `--config`, `--config-file`, `--debug`, and
+`--time-output`. An explicit
 `jj-review help --all` mode can expose the full command surface without
 changing how the actual parser accepts commands. Command summaries and option
 descriptions in help output should read as concise fragments rather than full
@@ -500,6 +501,10 @@ For now:
   namespace
 - repo-specific defaults should use jj's built-in user/repo/workspace
   precedence instead of path-based conditional matching
+- jj-review should not duplicate jj's config resolution in Python: reads go
+  through `jj config list 'jj-review'`, which inherits user/repo/workspace
+  precedence plus the effective `--config` / `--config-file` overrides
+  carried on every jj invocation
 - machine-written jj-review data should live in
   `~/.local/state/jj-review/repos/<repo-id>/state.json`
 - `<repo-id>` should come from hashing the canonical `.jj/repo` storage path so

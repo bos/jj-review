@@ -40,7 +40,7 @@ from jj_review.github.resolution import (
     ParsedGithubRepo,
     resolve_trunk_branch,
 )
-from jj_review.jj import JjClient
+from jj_review.jj import JjCliArgs, JjClient
 from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.github import GithubPullRequest
 from jj_review.models.intent import LandIntent, LoadedIntent
@@ -203,7 +203,7 @@ class _BookmarkRestorer(Protocol):
 def land(
     *,
     bypass_readiness: bool,
-    config_path: Path | None,
+    cli_args: JjCliArgs,
     debug: bool,
     dry_run: bool,
     pull_request: str | None,
@@ -215,14 +215,14 @@ def land(
 
     context = bootstrap_context(
         repository=repository,
-        config_path=config_path,
+        cli_args=cli_args,
         debug=debug,
     )
     if pull_request is not None:
         pull_request_number, resolved_revset = resolve_linked_change_for_pull_request(
             action_name="land",
+            jj_client=context.jj_client,
             pull_request_reference=pull_request,
-            repo_root=context.repo_root,
             revset=revset,
         )
         console.note(
@@ -241,7 +241,7 @@ def land(
         dry_run=dry_run,
         bypass_readiness=bypass_readiness,
         config=context.config,
-        repo_root=context.repo_root,
+        jj_client=context.jj_client,
         revset=resolved_revset,
         selected_pr_number=pull_request_number,
     )
@@ -310,7 +310,7 @@ def prepare_land(
     dry_run: bool,
     bypass_readiness: bool,
     config: RepoConfig,
-    repo_root: Path,
+    jj_client: JjClient,
     revset: str | None,
     selected_pr_number: int | None,
 ) -> PreparedLand:
@@ -319,8 +319,8 @@ def prepare_land(
     prepared_status = prepare_status(
         config=config,
         fetch_remote_state=True,
+        jj_client=jj_client,
         re_resolve_after_remote_refresh=True,
-        repo_root=repo_root,
         revset=revset,
     )
     prepared = prepared_status.prepared

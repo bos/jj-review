@@ -27,7 +27,7 @@ from jj_review.github.client import GithubClient, GithubClientError, build_githu
 from jj_review.github.error_messages import summarize_github_error_reason
 from jj_review.github.resolution import parse_github_repo, select_submit_remote
 from jj_review.github.stack_comments import is_stack_summary_comment
-from jj_review.jj import JjClient
+from jj_review.jj import JjCliArgs, JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.github import GithubIssueComment
 from jj_review.models.intent import CloseIntent, LoadedIntent, SubmitIntent
@@ -175,7 +175,7 @@ class _BookmarkCleanupPlan:
 def close(
     *,
     cleanup: bool,
-    config_path: Path | None,
+    cli_args: JjCliArgs,
     debug: bool,
     dry_run: bool,
     pull_request: str | None,
@@ -186,7 +186,7 @@ def close(
 
     context = bootstrap_context(
         repository=repository,
-        config_path=config_path,
+        cli_args=cli_args,
         debug=debug,
     )
     command_label = (
@@ -197,8 +197,8 @@ def close(
     if pull_request is not None:
         pull_request_number, resolved_revset = resolve_linked_change_for_pull_request(
             action_name="close",
+            jj_client=context.jj_client,
             pull_request_reference=pull_request,
-            repo_root=context.repo_root,
             revset=revset,
         )
         console.note(
@@ -216,7 +216,7 @@ def close(
         dry_run=dry_run,
         cleanup=cleanup,
         config=context.config,
-        repo_root=context.repo_root,
+        jj_client=context.jj_client,
         revset=resolved_revset,
     )
     result = stream_close(prepared_close=prepared_close)
@@ -258,15 +258,15 @@ def prepare_close(
     dry_run: bool,
     cleanup: bool,
     config: RepoConfig,
-    repo_root: Path,
+    jj_client: JjClient,
     revset: str | None,
 ) -> PreparedClose:
     """Resolve local close inputs before any GitHub inspection."""
 
-    state_store = ReviewStateStore.for_repo(repo_root)
+    state_store = ReviewStateStore.for_repo(jj_client.repo_root)
     if not dry_run:
         state_store.require_writable()
-    fast_path = _prepare_untracked_close_fast_path(repo_root=repo_root, revset=revset)
+    fast_path = _prepare_untracked_close_fast_path(jj_client=jj_client, revset=revset)
     if fast_path is not None:
         return PreparedClose(
             config=config,
@@ -282,8 +282,8 @@ def prepare_close(
             config=config,
             fetch_remote_state=cleanup,
             fetch_only_when_tracked=True,
+            jj_client=jj_client,
             persist_bookmarks=False,
-            repo_root=repo_root,
             revset=revset,
         ),
     )
@@ -291,7 +291,7 @@ def prepare_close(
 
 def _prepare_untracked_close_fast_path(
     *,
-    repo_root: Path,
+    jj_client: JjClient,
     revset: str | None,
 ) -> PreparedStatus | None:
     """Build the no-op close path without bookmark discovery.
@@ -302,13 +302,13 @@ def _prepare_untracked_close_fast_path(
     normal remote diagnostics and stale-intent retirement behavior.
     """
 
-    client = JjClient(repo_root)
+    client = jj_client
     stack = client.discover_review_stack(
         revset,
         allow_divergent=True,
         allow_immutable=True,
     )
-    state_store = ReviewStateStore.for_repo(repo_root)
+    state_store = ReviewStateStore.for_repo(jj_client.repo_root)
     state = state_store.load()
 
     status_revisions: list[PreparedRevision] = []

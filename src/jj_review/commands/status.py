@@ -23,7 +23,7 @@ from jj_review.formatting import (
     render_revision_lines,
     render_revision_with_suffix_lines,
 )
-from jj_review.jj import UnsupportedStackError
+from jj_review.jj import JjCliArgs, UnsupportedStackError
 from jj_review.models.intent import (
     AbortIntent,
     CleanupIntent,
@@ -61,7 +61,7 @@ HELP = "Check the review status of a jj stack"
 
 def status(
     *,
-    config_path: Path | None,
+    cli_args: JjCliArgs,
     debug: bool,
     fetch: bool,
     repository: Path | None,
@@ -72,15 +72,15 @@ def status(
 
     context = bootstrap_context(
         repository=repository,
-        config_path=config_path,
+        cli_args=cli_args,
         debug=debug,
     )
     try:
         prepared_status = prepare_status(
             config=context.config,
             fetch_remote_state=fetch,
+            jj_client=context.jj_client,
             persist_bookmarks=False,
-            repo_root=context.repo_root,
             revset=revset,
         )
     except UnsupportedStackError as error:

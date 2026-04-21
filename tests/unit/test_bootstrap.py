@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from jj_review.bootstrap import (
     _parse_jj_version,
     check_jj_version,
+    resolve_repo_root,
 )
 from jj_review.errors import CliError
 
@@ -83,3 +85,29 @@ def test_check_jj_version_raises_when_version_command_fails() -> None:
     with patch("subprocess.run", return_value=failed):
         with pytest.raises(CliError, match="failed"):
             check_jj_version()
+
+
+# --- resolve_repo_root ---
+
+
+def test_resolve_repo_root_returns_ancestor_with_jj_dir(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".jj").mkdir(parents=True)
+    nested = repo / "src" / "package"
+    nested.mkdir(parents=True)
+
+    assert resolve_repo_root(nested) == repo
+
+
+def test_resolve_repo_root_returns_start_dir_when_it_is_repo_root(tmp_path: Path) -> None:
+    (tmp_path / ".jj").mkdir()
+
+    assert resolve_repo_root(tmp_path) == tmp_path
+
+
+def test_resolve_repo_root_raises_outside_workspace(tmp_path: Path) -> None:
+    outside = tmp_path / "not-a-repo"
+    outside.mkdir()
+
+    with pytest.raises(CliError, match="Not inside a jj workspace"):
+        resolve_repo_root(outside)

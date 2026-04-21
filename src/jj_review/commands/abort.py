@@ -24,7 +24,7 @@ from jj_review.errors import error_message
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.resolution import ParsedGithubRepo, parse_github_repo
-from jj_review.jj import JjClient, JjCommandError
+from jj_review.jj import JjCliArgs, JjClient, JjCommandError
 from jj_review.models.intent import (
     AbortIntent,
     CleanupRestackIntent,
@@ -82,7 +82,7 @@ class AbortResult:
 
 def abort(
     *,
-    config_path: Path | None,
+    cli_args: JjCliArgs,
     debug: bool,
     dry_run: bool,
     repository: Path | None,
@@ -91,12 +91,12 @@ def abort(
 
     context = bootstrap_context(
         repository=repository,
-        config_path=config_path,
+        cli_args=cli_args,
         debug=debug,
     )
 
     state_store = ReviewStateStore.for_repo(context.repo_root)
-    jj_client = JjClient(context.repo_root)
+    jj_client = context.jj_client
     loaded_intents = state_store.list_intents()
 
     # Separate any AbortIntent lock files from the real operation intents.

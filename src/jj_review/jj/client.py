@@ -81,6 +81,27 @@ CliColorMode = Literal["always", "auto", "debug", "never"]
 JjColorWhen = Literal["always", "debug", "never"]
 
 
+@dataclass(slots=True, frozen=True)
+class JjCliArgs:
+    """Global `jj` CLI overrides that flow to every jj invocation.
+
+    Mirrors jj's own `--config NAME=VALUE` and `--config-file PATH` options so
+    that a single value object carries the user's intent from the CLI down to
+    every subprocess call. The argv is stored as one ordered tuple so the
+    interleaving between `--config` and `--config-file` is preserved — jj
+    applies later overrides on top of earlier ones, and a file listed after
+    an inline value wins over it.
+    """
+
+    argv: tuple[str, ...] = ()
+
+    def to_argv(self) -> tuple[str, ...]:
+        return self.argv
+
+
+_NO_CLI_ARGS = JjCliArgs()
+
+
 @dataclass(slots=True)
 class _RawBookmarkState:
     local_targets: tuple[str, ...] = ()
@@ -90,9 +111,24 @@ class _RawBookmarkState:
 class JjClient:
     """Thin wrapper around `jj` commands used by the review tool."""
 
-    def __init__(self, repo_root: Path, *, runner: JjRunner | None = None) -> None:
+    def __init__(
+        self,
+        repo_root: Path,
+        *,
+        cli_args: JjCliArgs = _NO_CLI_ARGS,
+        runner: JjRunner | None = None,
+    ) -> None:
         self._repo_root = repo_root
+        self._cli_args = cli_args
         self._runner = runner or _default_runner
+
+    @property
+    def repo_root(self) -> Path:
+        return self._repo_root
+
+    @property
+    def cli_args(self) -> JjCliArgs:
+        return self._cli_args
 
     def discover_review_stack(
         self,
@@ -481,6 +517,27 @@ class JjClient:
         stripped = value.strip()
         return stripped if stripped else None
 
+    def read_jj_review_config_list_output(self) -> str:
+        """Return raw stdout from ``jj config list 'jj-review'``.
+
+        Delegates scope merging and override handling to jj itself, so the
+        same ``--config`` / ``--config-file`` overrides that flow to every jj
+        invocation also shape jj-review's own configuration. The caller is
+        responsible for parsing the TOML-dotted-key output.
+        """
+
+        return self._run_jj(("config", "list", "jj-review"))
+
+    def show_with_stat(self, revset: str) -> str:
+        """Return raw stdout from ``jj show --stat -r <revset>``.
+
+        Raises `JjCommandError` if jj fails. The caller is responsible for
+        parsing the diffstat out of the output and framing any user-facing
+        error message.
+        """
+
+        return self._run_jj(("show", "--stat", "-r", revset))
+
     def resolve_color_when(
         self,
         *,
@@ -842,7 +899,7 @@ class JjClient:
 
     def _run_jj(self, args: Sequence[str]) -> str:
         return self._run_command(
-            ["jj", *args],
+            ["jj", *self._cli_args.to_argv(), *args],
             missing_tool_message=t"{ui.cmd('jj')} is not installed or is not on PATH.",
             detect_stale_workspace=True,
         )

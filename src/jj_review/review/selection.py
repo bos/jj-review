@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 
 from jj_review import ui
 from jj_review.errors import CliError
@@ -57,8 +56,8 @@ def parse_comma_separated_flag_values(
 def resolve_linked_change_for_pull_request(
     *,
     action_name: str,
+    jj_client: JjClient,
     pull_request_reference: str,
-    repo_root: Path,
     revset: str | None,
 ) -> tuple[int, str]:
     """Resolve `--pull-request` to one linked visible local change ID."""
@@ -71,10 +70,10 @@ def resolve_linked_change_for_pull_request(
         )
 
     pull_request_number = _parse_repo_pull_request_number(
+        jj_client=jj_client,
         pull_request_reference=pull_request_reference,
-        repo_root=repo_root,
     )
-    state = ReviewStateStore.for_repo(repo_root).load()
+    state = ReviewStateStore.for_repo(jj_client.repo_root).load()
     matching_change_ids = [
         change_id
         for change_id, cached_change in state.changes.items()
@@ -95,13 +94,9 @@ def resolve_linked_change_for_pull_request(
         )
 
     change_id = matching_change_ids[0]
-    visible_revisions = (
-        JjClient(repo_root)
-        .query_revisions_by_change_ids((change_id,))
-        .get(
-            change_id,
-            (),
-        )
+    visible_revisions = jj_client.query_revisions_by_change_ids((change_id,)).get(
+        change_id,
+        (),
     )
     if not visible_revisions:
         raise CliError(
@@ -120,8 +115,8 @@ def resolve_linked_change_for_pull_request(
 
 def _parse_repo_pull_request_number(
     *,
+    jj_client: JjClient,
     pull_request_reference: str,
-    repo_root: Path,
 ) -> int:
     """Resolve a pull-request selector as a pull request number for this repo."""
 
@@ -129,7 +124,7 @@ def _parse_repo_pull_request_number(
     if pull_request_number is not None:
         return pull_request_number
 
-    remotes = JjClient(repo_root).list_git_remotes()
+    remotes = jj_client.list_git_remotes()
     try:
         remote = select_submit_remote(remotes)
     except CliError as error:

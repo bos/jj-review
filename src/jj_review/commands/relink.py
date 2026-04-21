@@ -22,7 +22,7 @@ from jj_review.github.resolution import (
     require_github_repo,
     select_submit_remote,
 )
-from jj_review.jj import JjClient
+from jj_review.jj import JjCliArgs, JjClient
 from jj_review.models.intent import RelinkIntent
 from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.review.selection import resolve_selected_revset
@@ -47,7 +47,7 @@ class RelinkResult:
 
 def relink(
     *,
-    config_path: Path | None,
+    cli_args: JjCliArgs,
     debug: bool,
     pull_request: str,
     repository: Path | None,
@@ -57,13 +57,13 @@ def relink(
 
     context = bootstrap_context(
         repository=repository,
-        config_path=config_path,
+        cli_args=cli_args,
         debug=debug,
     )
     result = asyncio.run(
         _run_relink_async(
+            jj_client=context.jj_client,
             pull_request_reference=pull_request,
-            repo_root=context.repo_root,
             revset=resolve_selected_revset(
                 command_label="relink",
                 require_explicit=True,
@@ -80,12 +80,12 @@ def relink(
 
 async def _run_relink_async(
     *,
+    jj_client: JjClient,
     pull_request_reference: str,
-    repo_root: Path,
     revset: str | None,
 ) -> RelinkResult:
-    client = JjClient(repo_root)
-    state_store = ReviewStateStore.for_repo(repo_root)
+    client = jj_client
+    state_store = ReviewStateStore.for_repo(jj_client.repo_root)
     state_dir = state_store.require_writable()
 
     stack = client.discover_review_stack(revset)

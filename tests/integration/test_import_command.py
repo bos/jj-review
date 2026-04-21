@@ -534,6 +534,6 @@ def _configure_import_environment(
 
 
 def _main(repo: Path, config_path: Path, command: str, *command_args: str) -> int:
-    argv = ["--config", str(config_path), "--repository", str(repo), command]
+    argv = ["--config-file", str(config_path), "--repository", str(repo), command]
     argv.extend(command_args)
     return main(argv)
