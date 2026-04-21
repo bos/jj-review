@@ -5,7 +5,7 @@ from pathlib import Path
 
 from jj_review.github.resolution import ParsedGithubRepo
 from jj_review.jj import JjClient
-from jj_review.models.intent import AbortIntent, CleanupRestackIntent, SubmitIntent
+from jj_review.models.intent import AbortIntent, CleanupRebaseIntent, SubmitIntent
 from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.state.intents import write_new_intent
 from jj_review.state.store import ReviewStateStore
@@ -292,10 +292,10 @@ def test_abort_removes_cleanup_restack_intent_with_note(
 
     state_store = ReviewStateStore.for_repo(repo)
     state_store.require_writable()
-    intent = CleanupRestackIntent(
-        kind="cleanup-restack",
+    intent = CleanupRebaseIntent(
+        kind="cleanup-rebase",
         pid=99999999,  # dead PID — simulates an interrupted operation
-        label="cleanup --restack on @-",
+        label="cleanup --rebase on @-",
         display_revset="@-",
         ordered_change_ids=(change_id,),
         started_at="2026-01-01T00:00:00+00:00",
@@ -308,7 +308,7 @@ def test_abort_removes_cleanup_restack_intent_with_note(
     assert exit_code == 0
     assert "Applied abort actions" in captured.out
     assert "cleared incomplete operation record" in captured.out
-    assert "restack" in captured.out  # note about manual inspection
+    assert "rebase" in captured.out  # note about manual inspection
     assert not state_store.list_intents()
 
 

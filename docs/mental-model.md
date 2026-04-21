@@ -7,7 +7,7 @@
 You (or your agent) use `jj` to manage mutable local history in the ways you'd expect:
 
 - splitting work into several changes
-- reordering or restacking those changes
+- reordering or rebasing those changes
 - rewriting commit descriptions and diffs
 - keeping the local DAG coherent
 

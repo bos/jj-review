@@ -118,9 +118,12 @@ Recent refactor slices:
   for pre-existing remote review state
 - `land` now preflights the selected stack's `base_parent` against the resolved
   `trunk()` and refuses stacks that fork from an older trunk ancestor (or a
-  merged-side-branch boundary), pointing the operator at `cleanup --restack`
+  merged-side-branch boundary), pointing the operator at `cleanup --rebase`
   or plain `jj rebase` instead of failing deep inside a non-fast-forward local
   trunk bookmark move
+- `cleanup` repair mode is now spelled `--rebase [<revset>]` instead of
+  `--restack`, so help and status can describe the actual operation in jj
+  terms and the selector lives on the mode that uses it
 - default stack discovery now resolves `trunk()`, `@`, `@-`, and any merged
   side-branch parents in one `jj` query instead of separate trunk and
   default-head probes, trimming the subprocess cost of common implicit-stack
@@ -177,8 +180,9 @@ Recent refactor slices:
 - `close` now keeps its execution state, resumable-intent setup, and per-revision
   cleanup context in explicit helpers instead of threading that orchestration
   through one long async path.
-- `cleanup` now routes its CLI modes through separate helpers and keeps restack
-  intent setup, policy warnings, and survivor-rebase planning in named phases.
+- `cleanup` now routes its CLI modes through separate helpers and keeps cleanup
+  rebase intent setup, policy warnings, and survivor-rebase planning in named
+  phases.
 - plain `cleanup` now defers remote and GitHub target resolution until stale
   remote-branch or stack-comment work is actually possible, so local-only and
   no-op runs avoid repo-wide remote discovery overhead.
@@ -266,7 +270,7 @@ Recent refactor slices:
   `close --cleanup` as for plain `close`, skipping bookmark discovery when the
   selected stack has no saved review identity at all while still forcing the
   full cleanup path for stacks that retain any recorded review artifacts
-- interrupted `cleanup --restack` state now records ordered commit IDs, reports
+- interrupted `cleanup --rebase` state now records ordered commit IDs, reports
   the recorded stack by head change ID, and treats reruns as current-stack
   restacks rather than selector replay
 - `doctor` now routes its output through the shared Rich-backed `ui` helpers and
@@ -351,7 +355,7 @@ also returns existing published PRs on the selected stack to draft, and
 
 Command target selection should stay conservative at the CLI boundary:
 
-- `submit`, `close`, `land`, and `cleanup --restack` may omit `<revset>` and
+- `submit`, `close`, `land`, and `cleanup --rebase` may omit `<revset>` and
   default to the stack headed by `@-`
 - omitted selectors should never silently target the working-copy commit; `@`
   remains explicit user intent
@@ -1215,12 +1219,12 @@ Deliver:
   fetched GitHub merge state as a broken stack
 - make `status` explain why cleanup is needed, warn that descendant submit
   operations still follow the old local ancestry, and print the exact
-  `cleanup --restack` next step
+  `cleanup --rebase` next step
 - diagnose merged PRs whose base branch matches `review/*` as a GitHub policy
   problem instead of presenting them as a mysterious stack failure
-- add `cleanup --restack` as the explicit opt-in local rewrite path for merged
+- add `cleanup --rebase` as the explicit opt-in local rewrite path for merged
   ancestors
-- let default `cleanup --restack` perform only rebases of remaining changes
+- let default `cleanup --rebase` perform only rebases of remaining changes
   whose destination is `trunk()`
 - require `--allow-nontrunk-rebase` or manual `jj rebase` before restacking
   surviving descendants onto another surviving local review base
@@ -1236,7 +1240,7 @@ Done when:
   failing on fetched branch artifacts
 - the default status output tells the operator what `cleanup needed` means and
   what command to run next instead of making them infer the repair flow
-- `cleanup --restack` restores one linear local stack by removing merged
+- `cleanup --rebase` restores one linear local stack by removing merged
   changes from active local ancestry, while blocking non-trunk rebases of
   remaining changes unless the operator opts in explicitly
 - fetched branch-tip commits for merged non-trunk PRs are treated as fetched
@@ -1289,7 +1293,7 @@ Error handling should stay specific instead of collapsing everything into one
 generic recovery path:
 
 - link problems should point to `status --fetch` / `relink`
-- local ancestry repair should point to `cleanup --restack`
+- local ancestry repair should point to `cleanup --rebase`
 - land now performs the local "stack must be based on trunk()" check before
   status preparation refreshes remote state, so obviously unlandable stacks
   fail fast instead of paying the normal remote refresh cost first
@@ -1322,7 +1326,7 @@ This slice is now in place with the current implementation:
   "stack is no longer based on current trunk" condition instead of surfacing a
   bogus local bookmark mismatch against pre-fetch state
 - `land` now picks the repair command for that trunk-drift case: it points at
-  `cleanup --restack` when the selected stack already contains merged review
+  `cleanup --rebase` when the selected stack already contains merged review
   changes, and otherwise gives a concrete `jj rebase -s <bottom> -d 'trunk()'`
   command for whole-stack drift
 - after a pre-land refresh push succeeds, `land` re-queries the affected PR
@@ -1351,7 +1355,7 @@ This slice is now in place with the current implementation:
   landed prefix by default, while `--skip-cleanup` retains those local
   bookmarks for exceptional cases
 - surviving descendants above the landed changes are left for follow-up
-  `cleanup --restack` and `submit`, rather than being silently retargeted or
+  `cleanup --rebase` and `submit`, rather than being silently retargeted or
   restacked during `land`
 - post-land PR finalization for the landed changes happens bottom-to-top, even
   if surrounding GitHub lookups or other independent work use batching or
@@ -1385,7 +1389,7 @@ The product-level split is:
 - `status --fetch` refreshes remote observations and GitHub PR state without
   mutating local bookmarks or the workspace
 - `import` sets up saved local jj-review data for one exact stack
-- `cleanup --restack` remains the local-history repair path after merges or
+- `cleanup --rebase` remains the local-history repair path after merges or
   other ancestry damage
 
 The implementation uses explicit rules for what `import` may mutate:
@@ -1663,7 +1667,7 @@ Recommended defaults:
 - close cleanup retirement also treats a surviving local `review/*` bookmark as
   live cleanup state, so an interrupted submit record now stays visible until
   both local and remote review artifacts for that recorded submit are gone
-- cleanup and cleanup --restack now use the same structured Rich row pattern
+- cleanup and cleanup --rebase now use the same structured Rich row pattern
   for streamed action output, including semantic highlighting for bookmarks and
   short change IDs in the action text
 - CLI-authored status markers now avoid square-bracket tags in favor of

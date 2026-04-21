@@ -9,11 +9,11 @@ from jj_review.commands import cleanup as cleanup_module
 from jj_review.commands.cleanup import (
     CleanupAction,
     PreparedCleanup,
-    PreparedRestack,
+    PreparedRebase,
     StackCommentCleanupPlan,
     _plan_remote_branch_cleanup,
     _run_cleanup_async,
-    _stream_restack,
+    _stream_rebase,
 )
 from jj_review.config import RepoConfig
 from jj_review.github.resolution import ParsedGithubRepo
@@ -132,7 +132,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     ] == [None, None]
 
 
-def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
+def test_stream_rebase_plans_rebase_for_survivor_above_merged_path_revision(
     monkeypatch,
 ) -> None:
     merged_revision = SimpleNamespace(
@@ -162,7 +162,7 @@ def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
         ),
         subject="survivor feature",
     )
-    prepared_restack = PreparedRestack(
+    prepared_rebase = PreparedRebase(
         config=RepoConfig(),
         dry_run=True,
         prepared_status=cast(
@@ -211,15 +211,15 @@ def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
         ),
     )
 
-    result = _stream_restack(prepared_restack=prepared_restack)
+    result = _stream_rebase(prepared_rebase=prepared_rebase)
 
     assert len(result.actions) == 1
-    assert result.actions[0].kind == "restack"
+    assert result.actions[0].kind == "rebase"
     assert result.actions[0].message == "rebase survivor onto trunk()"
     assert result.actions[0].status == "planned"
 
 
-def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
+def test_stream_rebase_applies_rebase_for_survivor_above_merged_path_revision(
     monkeypatch,
 ) -> None:
     rebase_calls: list[tuple[str, str]] = []
@@ -260,7 +260,7 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
         ),
         subject="survivor feature",
     )
-    prepared_restack = PreparedRestack(
+    prepared_rebase = PreparedRebase(
         config=RepoConfig(),
         dry_run=False,
         prepared_status=cast(
@@ -310,11 +310,11 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
         ),
     )
 
-    result = _stream_restack(prepared_restack=prepared_restack)
+    result = _stream_rebase(prepared_rebase=prepared_rebase)
 
     assert rebase_calls == [("survivor-change", "trunk-commit")]
     assert len(result.actions) == 1
-    assert result.actions[0].kind == "restack"
+    assert result.actions[0].kind == "rebase"
     assert result.actions[0].message == "rebase survivor onto trunk()"
     assert result.actions[0].status == "applied"
 

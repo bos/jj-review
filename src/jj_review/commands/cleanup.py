@@ -1,10 +1,11 @@
-"""Find and remove stale review branches and tracking data left behind by
+"""Find and remove stale tracking data and review branches left behind by
 earlier review work.
 
-By default, this removes safe stale data repo-wide, and with `--restack` it
-can also rebase local descendants above changes that have already been merged.
-Use `--dry-run` to preview those actions without mutating local or remote
-state.
+By default, this runs a repo-wide cleanup of tracking data and review branches
+that no longer match an active review. With `--rebase [REVSET]`, it instead
+rebases the remaining local changes in one stack above ancestors that have
+already been merged on GitHub. Use `--dry-run` to preview those actions
+without mutating local or remote state.
 """
 
 from __future__ import annotations
@@ -39,12 +40,12 @@ from jj_review.jj import JjCliArgs, JjClient
 from jj_review.jj.client import UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.github import GithubIssueComment
-from jj_review.models.intent import CleanupIntent, CleanupRestackIntent, LoadedIntent
+from jj_review.models.intent import CleanupIntent, CleanupRebaseIntent, LoadedIntent
 from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.review.bookmarks import bookmark_glob, is_review_bookmark
 from jj_review.review.intents import (
     describe_intent,
-    match_cleanup_restack_intent,
+    match_cleanup_rebase_intent,
     retire_superseded_intents,
 )
 from jj_review.review.selection import resolve_selected_revset
@@ -62,7 +63,7 @@ from jj_review.state.intents import check_same_kind_intent, write_new_intent
 from jj_review.state.store import ReviewStateStore
 from jj_review.ui import Message, plain_text
 
-HELP = "Clean up stale jj-review data for a jj stack"
+HELP = "Remove stale tracking data and review branches; optionally rebase one stack"
 
 CleanupActionStatus = Literal["applied", "blocked", "planned"]
 type StackCommentCleanupEligibility = Literal["inspect", "needs-remote-check", "skip"]
@@ -154,16 +155,16 @@ class _StaleCleanupMutationPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class RestackResult:
-    """Rendered restack result for one selected local stack."""
+class RebaseResult:
+    """Rendered rebase result for one selected local stack."""
 
     actions: tuple[CleanupAction, ...]
     blocked: bool
 
 
 @dataclass(frozen=True, slots=True)
-class PreparedRestack:
-    """Locally prepared restack inputs before any rewrite."""
+class PreparedRebase:
+    """Locally prepared rebase inputs before any rewrite."""
 
     config: RepoConfig
     dry_run: bool
@@ -171,8 +172,8 @@ class PreparedRestack:
 
 
 @dataclass(frozen=True, slots=True)
-class _RestackOperationPlan:
-    """Derived restack planning data before preview/live rendering."""
+class _RebaseOperationPlan:
+    """Derived rebase planning data before preview/live rendering."""
 
     blocked: bool
     closed_unmerged_revisions: tuple[ReviewStatusRevision, ...]
@@ -182,10 +183,10 @@ class _RestackOperationPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class _RestackIntentState:
-    """Prepared restack intent bookkeeping for resumable live runs."""
+class _RebaseIntentState:
+    """Prepared rebase intent bookkeeping for resumable live runs."""
 
-    intent: CleanupRestackIntent | None
+    intent: CleanupRebaseIntent | None
     intent_path: Path | None
     stale_intents: list[LoadedIntent]
 
@@ -204,10 +205,10 @@ def _render_cleanup_postamble(*, result: CleanupResult) -> tuple[str, ...]:
     return ()
 
 
-def _render_restack_preamble(*, prepared_restack: PreparedRestack) -> tuple[tuple[str, str], ...]:
-    """Render the non-streaming restack context lines for the CLI."""
+def _render_rebase_preamble(*, prepared_rebase: PreparedRebase) -> tuple[tuple[str, str], ...]:
+    """Render the non-streaming rebase context lines for the CLI."""
 
-    prepared_status = prepared_restack.prepared_status
+    prepared_status = prepared_rebase.prepared_status
     prepared = prepared_status.prepared
     return _render_remote_and_github_lines(
         remote=prepared.remote,
@@ -221,17 +222,17 @@ def _render_restack_preamble(*, prepared_restack: PreparedRestack) -> tuple[tupl
     )
 
 
-def _render_restack_action_header(*, dry_run: bool) -> str:
-    """Render the restack action section header."""
+def _render_rebase_action_header(*, dry_run: bool) -> str:
+    """Render the rebase action section header."""
 
-    return "Planned restack actions:" if dry_run else "Applied restack actions:"
+    return "Planned rebase actions:" if dry_run else "Applied rebase actions:"
 
 
-def _render_restack_postamble(*, result: RestackResult) -> tuple[str, ...]:
-    """Render restack lines that only depend on the completed result."""
+def _render_rebase_postamble(*, result: RebaseResult) -> tuple[str, ...]:
+    """Render rebase lines that only depend on the completed result."""
 
     if not result.actions:
-        return ("No merged changes on the selected stack need restacking.",)
+        return ("No merged changes on the selected stack need rebasing.",)
     return ()
 
 
@@ -241,8 +242,7 @@ def cleanup(
     debug: bool,
     dry_run: bool,
     repository: Path | None,
-    restack: bool,
-    revset: str | None,
+    rebase_revset: str | None,
 ) -> int:
     """CLI entrypoint for `cleanup`."""
 
@@ -251,12 +251,12 @@ def cleanup(
         cli_args=cli_args,
         debug=debug,
     )
-    if restack:
-        return _run_cleanup_restack_command(
+    if rebase_revset is not None:
+        return _run_cleanup_rebase_command(
             dry_run=dry_run,
             config=context.config,
             jj_client=context.jj_client,
-            revset=revset,
+            revset=rebase_revset,
         )
 
     return _run_cleanup_command(
@@ -266,23 +266,23 @@ def cleanup(
     )
 
 
-def _run_cleanup_restack_command(
+def _run_cleanup_rebase_command(
     *,
     dry_run: bool,
     config: RepoConfig,
     jj_client: JjClient,
     revset: str | None,
 ) -> int:
-    """Render and run the `cleanup --restack` command path."""
+    """Render and run the `cleanup --rebase` command path."""
 
     selected_revset = resolve_selected_revset(
-        command_label="cleanup --restack --dry-run" if dry_run else "cleanup --restack",
+        command_label="cleanup --rebase --dry-run" if dry_run else "cleanup --rebase",
         default_revset="@-",
         require_explicit=False,
         revset=revset,
     )
     try:
-        prepared_restack = PreparedRestack(
+        prepared_rebase = PreparedRebase(
             config=config,
             dry_run=dry_run,
             prepared_status=prepare_status(
@@ -295,23 +295,23 @@ def _run_cleanup_restack_command(
         )
     except UnsupportedStackError as error:
         raise status_preparation_cli_error(error) from error
-    for severity, line in _render_restack_preamble(prepared_restack=prepared_restack):
+    for severity, line in _render_rebase_preamble(prepared_rebase=prepared_rebase):
         if severity == "warning":
             console.warning(line)
         else:
             console.output(line)
 
     try:
-        result = _stream_restack(
+        result = _stream_rebase(
             on_action=_build_action_streamer(
-                dry_run=prepared_restack.dry_run,
-                render_header=_render_restack_action_header,
+                dry_run=prepared_rebase.dry_run,
+                render_header=_render_rebase_action_header,
             ),
-            prepared_restack=prepared_restack,
+            prepared_rebase=prepared_rebase,
         )
     except UnsupportedStackError as error:
         raise status_preparation_cli_error(error) from error
-    for line in _render_restack_postamble(result=result):
+    for line in _render_rebase_postamble(result=result):
         console.output(line)
     return 1 if result.blocked else 0
 
@@ -449,7 +449,7 @@ def _revision_label_template(revision: ReviewStatusRevision):
     return t"{revision.subject} ({ui.change_id(revision.change_id)})"
 
 
-def _restack_destination_template(destination_change_id: str | None):
+def _rebase_destination_template(destination_change_id: str | None):
     if destination_change_id is None:
         return ui.revset("trunk()")
     return ui.change_id(destination_change_id)
@@ -489,14 +489,14 @@ def _prepare_cleanup(
     )
 
 
-def _prepared_restack_has_potential_work(*, prepared_status: PreparedStatus) -> bool:
-    """Whether any selected revision could possibly need restacking.
+def _prepared_rebase_has_potential_work(*, prepared_status: PreparedStatus) -> bool:
+    """Whether any selected revision could possibly need rebasing.
 
-    Restack rebases surviving descendants past merged ancestors, so a stack
-    where no revision carries review identity cannot have any known merged PRs
-    and has nothing for restack to plan. Skipping the GitHub inspection here
-    also avoids misreporting GitHub outages as restack-blocking when there
-    would have been nothing to restack regardless.
+    Cleanup rebase moves surviving descendants past merged ancestors, so a
+    stack where no revision carries review identity cannot have any known
+    merged PRs and has nothing for cleanup rebase to plan. Skipping the GitHub
+    inspection here also avoids misreporting GitHub outages as rebase-blocking
+    when there would have been nothing to rebase regardless.
     """
 
     for prepared_revision in prepared_status.prepared.status_revisions:
@@ -506,16 +506,16 @@ def _prepared_restack_has_potential_work(*, prepared_status: PreparedStatus) -> 
     return False
 
 
-def _stream_restack(
+def _stream_rebase(
     *,
     on_action: Callable[[CleanupAction], None] | None = None,
-    prepared_restack: PreparedRestack,
-) -> RestackResult:
-    """Inspect and optionally execute a local restack plan after merged changes."""
+    prepared_rebase: PreparedRebase,
+) -> RebaseResult:
+    """Inspect and optionally execute a local rebase plan after merged changes."""
 
-    prepared_status = prepared_restack.prepared_status
-    if not _prepared_restack_has_potential_work(prepared_status=prepared_status):
-        return RestackResult(actions=(), blocked=False)
+    prepared_status = prepared_rebase.prepared_status
+    if not _prepared_rebase_has_potential_work(prepared_status=prepared_status):
+        return RebaseResult(actions=(), blocked=False)
     progress_total = prepared_status_github_inspection_count(
         prepared_status=prepared_status,
     )
@@ -524,9 +524,9 @@ def _stream_restack(
             on_revision=lambda _revision, _github_available: progress.advance(),
             prepared_status=prepared_status,
         )
-    prepared_status = prepared_restack.prepared_status
+    prepared_status = prepared_rebase.prepared_status
     prepared = prepared_status.prepared
-    path_revisions = _resolve_restack_path_revisions(
+    path_revisions = _resolve_rebase_path_revisions(
         prepared_status=prepared_status,
         status_result=status_result,
     )
@@ -541,27 +541,27 @@ def _stream_restack(
     if status_result.github_error is not None or status_result.github_repository is None:
         record_action(
             CleanupAction(
-                kind="restack",
+                kind="rebase",
                 status="blocked",
                 body=(
-                    "cannot compute a restack plan without live GitHub pull request "
+                    "cannot compute a rebase plan without live GitHub pull request "
                     "state; fix GitHub access and retry"
                 ),
             )
         )
-        return RestackResult(
+        return RebaseResult(
             actions=tuple(actions),
             blocked=True,
         )
 
-    operation_plan = _plan_restack_operations(
+    operation_plan = _plan_rebase_operations(
         path_revisions=path_revisions,
         prepared_status=prepared_status,
     )
     blocked = operation_plan.blocked
     merged_revisions = operation_plan.merged_revisions
     if not merged_revisions:
-        return RestackResult(
+        return RebaseResult(
             actions=(),
             blocked=False,
         )
@@ -571,28 +571,28 @@ def _stream_restack(
         record_action(action)
     rebase_plans = list(operation_plan.rebase_plans)
 
-    restack_intent_state = _start_restack_intent(
+    rebase_intent_state = _start_rebase_intent(
         blocked=blocked,
         prepared=prepared,
-        prepared_restack=prepared_restack,
+        prepared_rebase=prepared_rebase,
         selected_revset=status_result.selected_revset,
     )
 
     client = prepared.client
-    _restack_succeeded = False
+    _rebase_succeeded = False
     try:
-        _run_restack_rebase_pass(
+        _run_rebase_pass(
             blocked=blocked,
             client=client,
             closed_unmerged_revisions=closed_unmerged_revisions,
-            prepared_restack=prepared_restack,
+            prepared_rebase=prepared_rebase,
             rebase_plans=tuple(rebase_plans),
             record_action=record_action,
             trunk_commit_id=prepared.stack.trunk.commit_id,
         )
 
-        _record_restack_policy_actions(
-            prefix=prepared_restack.config.bookmark_prefix,
+        _record_rebase_policy_actions(
+            prefix=prepared_rebase.config.bookmark_prefix,
             merged_revisions=merged_revisions,
             record_action=record_action,
         )
@@ -600,43 +600,43 @@ def _stream_restack(
         if not actions and merged_revisions:
             record_action(
                 CleanupAction(
-                    kind="restack",
-                    status="planned" if prepared_restack.dry_run else "applied",
+                    kind="rebase",
+                    status="planned" if prepared_rebase.dry_run else "applied",
                     body=t"merged changes remain on the selected stack "
                     t"({ui.join(_revision_label_template, merged_revisions)}), but no "
                     t"surviving descendants need to move",
                 )
             )
 
-        _restack_succeeded = True
-        return RestackResult(
+        _rebase_succeeded = True
+        return RebaseResult(
             actions=tuple(actions),
             blocked=blocked,
         )
     finally:
         if (
-            _restack_succeeded
-            and restack_intent_state.intent_path is not None
-            and restack_intent_state.intent is not None
+            _rebase_succeeded
+            and rebase_intent_state.intent_path is not None
+            and rebase_intent_state.intent is not None
         ):
             retire_superseded_intents(
-                restack_intent_state.stale_intents,
-                restack_intent_state.intent,
+                rebase_intent_state.stale_intents,
+                rebase_intent_state.intent,
             )
-            restack_intent_state.intent_path.unlink(missing_ok=True)
+            rebase_intent_state.intent_path.unlink(missing_ok=True)
 
 
-def _start_restack_intent(
+def _start_rebase_intent(
     *,
     blocked: bool,
     prepared,
-    prepared_restack: PreparedRestack,
+    prepared_rebase: PreparedRebase,
     selected_revset: str,
-) -> _RestackIntentState:
-    """Write a restack intent before live rebases begin."""
+) -> _RebaseIntentState:
+    """Write a rebase intent before live rebases begin."""
 
-    if blocked or prepared_restack.dry_run:
-        return _RestackIntentState(intent=None, intent_path=None, stale_intents=[])
+    if blocked or prepared_rebase.dry_run:
+        return _RebaseIntentState(intent=None, intent_path=None, stale_intents=[])
 
     ordered_change_ids = tuple(
         prepared_revision.revision.change_id for prepared_revision in prepared.status_revisions
@@ -644,11 +644,11 @@ def _start_restack_intent(
     ordered_commit_ids = tuple(
         prepared_revision.revision.commit_id for prepared_revision in prepared.status_revisions
     )
-    intent = CleanupRestackIntent(
-        kind="cleanup-restack",
+    intent = CleanupRebaseIntent(
+        kind="cleanup-rebase",
         pid=os.getpid(),
         label=(
-            f"cleanup --restack for {short_change_id(ordered_change_ids[-1])} "
+            f"cleanup --rebase for {short_change_id(ordered_change_ids[-1])} "
             f"(from {selected_revset})"
         ),
         display_revset=selected_revset,
@@ -659,9 +659,9 @@ def _start_restack_intent(
     state_dir = prepared.state_store.require_writable()
     stale_intents = check_same_kind_intent(state_dir, intent)
     for loaded in stale_intents:
-        if not isinstance(loaded.intent, CleanupRestackIntent):
+        if not isinstance(loaded.intent, CleanupRebaseIntent):
             continue
-        match = match_cleanup_restack_intent(
+        match = match_cleanup_rebase_intent(
             intent=loaded.intent,
             current_change_ids=ordered_change_ids,
             current_commit_ids=ordered_commit_ids,
@@ -672,34 +672,34 @@ def _start_restack_intent(
         elif match == "same-logical":
             console.note(
                 t"Note: interrupted {description} targeted the same logical stack, "
-                t"but it has been rewritten. This {ui.cmd('cleanup --restack')} run "
+                t"but it has been rewritten. This {ui.cmd('cleanup --rebase')} run "
                 t"will use the current stack."
             )
         elif match == "covered":
             console.note(
                 t"Note: interrupted {description} targeted changes that are all "
-                t"included in the current stack. This {ui.cmd('cleanup --restack')} "
+                t"included in the current stack. This {ui.cmd('cleanup --rebase')} "
                 t"run will use the current stack."
             )
         elif match == "trimmed":
             console.note(
                 t"Note: interrupted {description} still includes changes that are no "
-                t"longer on the current stack. This {ui.cmd('cleanup --restack')} run "
+                t"longer on the current stack. This {ui.cmd('cleanup --rebase')} run "
                 t"will use the current stack."
             )
         elif match == "overlap":
-            console.warning(t"Warning: this restack overlaps an incomplete earlier "
+            console.warning(t"Warning: this rebase overlaps an incomplete earlier "
                             t"operation ({description})")
         else:
             console.note(t"Note: incomplete operation outstanding: {description}")
-    return _RestackIntentState(
+    return _RebaseIntentState(
         intent=intent,
         intent_path=write_new_intent(state_dir, intent),
         stale_intents=stale_intents,
     )
 
 
-def _record_restack_policy_actions(
+def _record_rebase_policy_actions(
     *,
     prefix: str,
     merged_revisions: tuple[ReviewStatusRevision, ...],
@@ -726,7 +726,7 @@ def _record_restack_policy_actions(
             )
         )
 
-def _resolve_restack_path_revisions(
+def _resolve_rebase_path_revisions(
     *,
     prepared_status: PreparedStatus,
     status_result,
@@ -741,20 +741,20 @@ def _resolve_restack_path_revisions(
     )
 
 
-def _run_restack_rebase_pass(
+def _run_rebase_pass(
     *,
     blocked: bool,
     client: JjClient,
     closed_unmerged_revisions: tuple[ReviewStatusRevision, ...],
-    prepared_restack: PreparedRestack,
+    prepared_rebase: PreparedRebase,
     rebase_plans: tuple[tuple[str, str | None], ...],
     record_action: Callable[[CleanupAction], None],
     trunk_commit_id: str,
 ) -> None:
-    if not prepared_restack.dry_run and not blocked:
+    if not prepared_rebase.dry_run and not blocked:
         for source_change_id, destination_change_id in rebase_plans:
             source_revision = client.resolve_revision(source_change_id)
-            destination_commit_id = _restack_destination_commit_id(
+            destination_commit_id = _rebase_destination_commit_id(
                 client=client,
                 destination_change_id=destination_change_id,
                 trunk_commit_id=trunk_commit_id,
@@ -767,11 +767,11 @@ def _run_restack_rebase_pass(
             )
             record_action(
                 CleanupAction(
-                    kind="restack",
+                    kind="rebase",
                     status="applied",
                     body=(
                         t"rebase {ui.change_id(source_change_id)} onto "
-                        t"{_restack_destination_template(destination_change_id)}"
+                        t"{_rebase_destination_template(destination_change_id)}"
                     ),
                 )
             )
@@ -781,20 +781,20 @@ def _run_restack_rebase_pass(
         status = "blocked" if blocked else "planned"
         body = (
             t"rebase {ui.change_id(source_change_id)} onto "
-            t"{_restack_destination_template(destination_change_id)}"
+            t"{_rebase_destination_template(destination_change_id)}"
         )
         if blocked and closed_unmerged_revisions:
             body = t"{body} once blocked changes on the stack are resolved"
         record_action(
             CleanupAction(
-                kind="restack",
+                kind="rebase",
                 status=status,
                 body=body,
             )
         )
 
 
-def _restack_destination_commit_id(
+def _rebase_destination_commit_id(
     *,
     client: JjClient,
     destination_change_id: str | None,
@@ -805,11 +805,11 @@ def _restack_destination_commit_id(
     return client.resolve_revision(destination_change_id).commit_id
 
 
-def _plan_restack_operations(
+def _plan_rebase_operations(
     *,
     path_revisions: tuple[ReviewStatusRevision, ...],
     prepared_status: PreparedStatus,
-) -> _RestackOperationPlan:
+) -> _RebaseOperationPlan:
     merged_revisions = tuple(
         revision for revision in path_revisions if revision_has_merged_pull_request(revision)
     )
@@ -822,19 +822,19 @@ def _plan_restack_operations(
         for prepared_revision in prepared_status.prepared.status_revisions
     }
 
-    blocked, actions = _collect_restack_pre_actions(
+    blocked, actions = _collect_rebase_pre_actions(
         closed_unmerged_revisions=closed_unmerged_revisions,
         current_commit_id_by_change_id=current_commit_id_by_change_id,
         merged_revisions=merged_revisions,
     )
-    blocked, rebase_plans = _plan_restack_rebases(
+    blocked, rebase_plans = _plan_rebase_rebases(
         actions=actions,
         blocked=blocked,
         prepared_status=prepared_status,
         revisions_by_change_id=revisions_by_change_id,
     )
 
-    return _RestackOperationPlan(
+    return _RebaseOperationPlan(
         blocked=blocked,
         closed_unmerged_revisions=closed_unmerged_revisions,
         merged_revisions=merged_revisions,
@@ -843,13 +843,13 @@ def _plan_restack_operations(
     )
 
 
-def _collect_restack_pre_actions(
+def _collect_rebase_pre_actions(
     *,
     closed_unmerged_revisions: tuple[ReviewStatusRevision, ...],
     current_commit_id_by_change_id: dict[str, str],
     merged_revisions: tuple[ReviewStatusRevision, ...],
 ) -> tuple[bool, list[CleanupAction]]:
-    """Record blocking restack conditions before survivor planning begins."""
+    """Record blocking rebase conditions before survivor planning begins."""
 
     blocked = False
     actions: list[CleanupAction] = []
@@ -857,10 +857,10 @@ def _collect_restack_pre_actions(
         blocked = True
         actions.append(
             CleanupAction(
-                kind="restack",
+                kind="rebase",
                 status="blocked",
                 body=(
-                    t"cannot restack past {_revision_label_template(revision)} because "
+                    t"cannot rebase past {_revision_label_template(revision)} because "
                     t"PR #{revision_pull_request_number(revision)} is closed without "
                     t"merge; decide whether to keep or drop that change first"
                 ),
@@ -877,10 +877,10 @@ def _collect_restack_pre_actions(
         blocked = True
         actions.append(
             CleanupAction(
-                kind="restack",
+                kind="rebase",
                 status="blocked",
                 body=(
-                    t"cannot restack past {_revision_label_template(revision)} because it "
+                    t"cannot rebase past {_revision_label_template(revision)} because it "
                     t"has local edits since last submit; push a new version first or "
                     t"rebase manually"
                 ),
@@ -890,7 +890,7 @@ def _collect_restack_pre_actions(
     return blocked, actions
 
 
-def _plan_restack_rebases(
+def _plan_rebase_rebases(
     *,
     actions: list[CleanupAction],
     blocked: bool,
@@ -913,10 +913,10 @@ def _plan_restack_rebases(
             blocked = True
             actions.append(
                 CleanupAction(
-                    kind="restack",
+                    kind="rebase",
                     status="blocked",
                     body=(
-                        t"cannot restack {_revision_label_template(revision)} while "
+                        t"cannot rebase {_revision_label_template(revision)} while "
                         t"multiple visible revisions still share that change ID"
                     ),
                 )
@@ -925,7 +925,7 @@ def _plan_restack_rebases(
             continue
 
         desired_parent_change_id = survivor_change_ids[-1] if survivor_change_ids else None
-        if _restack_parent_is_merged(
+        if _rebase_parent_is_merged(
             parent_commit_id=prepared_revision.revision.only_parent_commit_id(),
             prepared_status=prepared_status,
             revisions_by_change_id=revisions_by_change_id,
@@ -935,7 +935,7 @@ def _plan_restack_rebases(
     return blocked, rebase_plans
 
 
-def _restack_parent_is_merged(
+def _rebase_parent_is_merged(
     *,
     parent_commit_id: str | None,
     prepared_status: PreparedStatus,

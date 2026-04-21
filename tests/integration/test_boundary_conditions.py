@@ -45,7 +45,7 @@ def test_commands_do_not_crash_in_empty_repo(
     [
         ("status", ()),
         ("submit", ()),
-        ("cleanup", ("--restack",)),
+        ("cleanup", ("--rebase",)),
         ("unlink", ("@-",)),
     ],
 )
@@ -97,7 +97,7 @@ def test_commands_report_non_github_remote_without_traceback(
     [
         ("status", ()),
         ("submit", ()),
-        ("cleanup", ("--restack",)),
+        ("cleanup", ("--rebase",)),
         ("unlink", ("@-",)),
     ],
 )

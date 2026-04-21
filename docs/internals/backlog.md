@@ -24,7 +24,7 @@ _Benefit: small — remaining edge cases are narrow and infrequent._
 
 The design doc and future `land` design now cover the main recovery shape for
 merged ancestors and the division of labor between `land` and
-`cleanup --restack`.
+`cleanup --rebase`.
 
 The remaining follow-up here is narrower:
 
@@ -49,7 +49,7 @@ repo-scoped `sync` command that:
 
 - refreshes remote review observations across more than one selected stack
 - decides when local bookmark materialization should happen automatically
-- coordinates with `cleanup --restack` without turning refresh into implicit
+- coordinates with `cleanup --rebase` without turning refresh into implicit
   history repair
 
 ## Landing Transports and Merge Queues
@@ -92,7 +92,7 @@ depends heavily on knowing what to run next after a non-trivial state change.
 Useful follow-up work here includes:
 
 - richer "next command" guidance after `submit`, `land`, `close`, and
-  `cleanup --restack`
+  `cleanup --rebase`
 - clearer distinction between "inspect only", "safe retry", and "history
   rewrite" recovery paths when something is stale or ambiguous
 - an explicit guided-recovery flow for common cases such as "ancestor already

@@ -125,17 +125,17 @@ those local review bookmarks.
 the middle of your stack. To land mid-stack changes, use e.g. `jj arrange` or `jj rebase` to
 reorder your stack and move them to the bottom first.
 
-## 7. Restack remaining work
+## 7. Rebase remaining work
 
-`jj-review cleanup --restack` is specifically about removing merged ancestors from your local
+`jj-review cleanup --rebase` is specifically about removing merged ancestors from your local
 stack and rebasing surviving descendants onto `trunk()`. If later changes remain outstanding
 above work that just landed, you can quickly fix up your local stack:
 
 ```bash
-jj-review cleanup --restack
+jj-review cleanup --rebase
 ```
 
-`cleanup --restack` does not otherwise rewrite history. If your stack simply drifted because
+`cleanup --rebase` does not otherwise rewrite history. If your stack simply drifted because
 `trunk()` advanced without anything in your stack landing, rebase with plain `jj`:
 
 ```bash
@@ -180,7 +180,7 @@ jj-review submit
 # edit in jj
 jj-review submit
 jj-review land
-jj-review cleanup --restack
+jj-review cleanup --rebase
 jj-review submit
 ```
 

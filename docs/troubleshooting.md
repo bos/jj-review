@@ -56,11 +56,11 @@ Cause:
 What to do:
 
 ```bash
-jj-review cleanup --restack
+jj-review cleanup --rebase
 jj-review submit
 ```
 
-`cleanup --restack` rebases your remaining changes above the newly landed
+`cleanup --rebase` rebases your remaining changes above the newly landed
 commits. After that, `submit` refreshes the open PRs to reflect the new base.
 
 ## `land` says the local change differs from what reviewers approved
@@ -178,13 +178,13 @@ Otherwise, follow the command that `status` tells you to rerun:
 - re-run `submit <revset>` to finish or refresh the stack you explicitly
   select on GitHub
 - re-run `close` or `close --cleanup` if `status` names one of those
-- re-run `cleanup --restack` to finish restacking the current stack
+- re-run `cleanup --rebase` to finish rebasing the current stack
 - re-run `land` to finish landing; `abort` cannot un-merge changes that already
   reached trunk
 
 For interrupted commands other than `submit`, `abort` clears the
 interrupted-operation record. It does not automatically reverse a completed
-land, restore the old local history after a restack, or reopen pull requests.
+land, restore the old local history after a cleanup rebase, or reopen pull requests.
 
 ### `abort` refuses because the stack has changed
 

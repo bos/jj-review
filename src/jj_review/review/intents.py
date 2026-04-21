@@ -10,7 +10,7 @@ from typing import Literal
 from jj_review import ui
 from jj_review.models.intent import (
     CleanupIntent,
-    CleanupRestackIntent,
+    CleanupRebaseIntent,
     CloseIntent,
     IntentFile,
     LandIntent,
@@ -59,10 +59,10 @@ def describe_intent(intent: IntentFile) -> Message:
             t"{ui.cmd('submit')} for {ui.change_id(intent.head_change_id)} "
             t"(from {ui.revset(intent.display_revset)})"
         )
-    if isinstance(intent, CleanupRestackIntent):
+    if isinstance(intent, CleanupRebaseIntent):
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
         return (
-            t"{ui.cmd('cleanup --restack')} for "
+            t"{ui.cmd('cleanup --rebase')} for "
             t"{ui.change_id(head_change_id) if head_change_id != 'stack' else head_change_id} "
             t"(from {ui.revset(intent.display_revset)})"
         )
@@ -84,13 +84,13 @@ def describe_intent(intent: IntentFile) -> Message:
     return intent.label
 
 
-def match_cleanup_restack_intent(
+def match_cleanup_rebase_intent(
     *,
-    intent: CleanupRestackIntent,
+    intent: CleanupRebaseIntent,
     current_change_ids: tuple[str, ...],
     current_commit_ids: tuple[str, ...],
 ) -> SubmitIntentMatch:
-    """Classify how a recorded restack intent relates to the current stack."""
+    """Classify how a recorded cleanup rebase intent relates to the current stack."""
 
     if intent.ordered_change_ids == current_change_ids:
         if intent.ordered_commit_ids and intent.ordered_commit_ids == current_commit_ids:
@@ -181,7 +181,7 @@ def retire_superseded_intents(
 ) -> None:
     """Auto-retire stale intents that a later successful run has superseded."""
 
-    if not isinstance(new_intent, SubmitIntent | CleanupRestackIntent | CloseIntent | LandIntent):
+    if not isinstance(new_intent, SubmitIntent | CleanupRebaseIntent | CloseIntent | LandIntent):
         return
 
     new_ids = new_intent.ordered_change_ids
@@ -202,8 +202,8 @@ def retire_superseded_intents(
                 ) != "incompatible" and set(old.ordered_change_ids).issubset(new_ids)
             else:
                 continue
-        elif isinstance(new_intent, CleanupRestackIntent):
-            if not isinstance(old, CleanupRestackIntent):
+        elif isinstance(new_intent, CleanupRebaseIntent):
+            if not isinstance(old, CleanupRebaseIntent):
                 continue
             should_retire = bool(set(old.ordered_change_ids) & set(new_ids))
         else:

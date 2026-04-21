@@ -435,18 +435,13 @@ def build_parser() -> ArgumentParser:
     )
     _add_help_argument(
         cleanup_parser,
-        "--restack",
-        action="store_true",
-        help="Preview or apply a local restack for merged changes on the selected stack",
-    )
-    _add_help_argument(
-        cleanup_parser,
-        "revset",
+        "--rebase",
         nargs="?",
+        const="@-",
+        metavar="REVSET",
         help=(
-            t"Revision whose stack should be restacked; ignored unless "
-            t"{ui.cmd('--restack')} is passed, and defaults to {ui.revset('@-')} "
-            t"for restack"
+            t"Rebase the selected stack above changes already merged on GitHub; "
+            t"defaults to {ui.revset('@-')} when passed without an explicit revset"
         ),
     )
     cleanup_parser.set_defaults(
@@ -455,8 +450,7 @@ def build_parser() -> ArgumentParser:
             cli_args=_global_cli_args(args),
             debug=args.debug,
             repository=args.repository,
-            restack=args.restack,
-            revset=args.revset,
+            rebase_revset=args.rebase,
         )
     )
 

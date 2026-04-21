@@ -7,7 +7,7 @@ import pytest
 
 from jj_review.commands import cleanup as cleanup_module
 from jj_review.jj import JjClient
-from jj_review.models.intent import CleanupIntent, CleanupRestackIntent
+from jj_review.models.intent import CleanupIntent, CleanupRebaseIntent
 from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.state.intents import write_new_intent
 from jj_review.state.store import ReviewStateStore, resolve_state_path
@@ -173,28 +173,28 @@ def test_cleanup_restack_previews_and_rebases_survivor_above_merged_ancestor(
         repo,
         config_path,
         "cleanup",
-        "--restack",
         "--dry-run",
+        "--rebase",
         top_change_id,
     )
     preview = capsys.readouterr()
 
     assert preview_exit_code == 0
-    assert "Planned restack actions:" in preview.out
+    assert "Planned rebase actions:" in preview.out
     assert f"rebase {top_change_id[:8]} onto trunk()" in preview.out
 
     apply_exit_code = run_main(
         repo,
         config_path,
         "cleanup",
-        "--restack",
+        "--rebase",
         top_change_id,
     )
     applied = capsys.readouterr()
     rewritten_top = JjClient(repo).resolve_revision(top_change_id)
 
     assert apply_exit_code == 0
-    assert "Applied restack actions:" in applied.out
+    assert "Applied rebase actions:" in applied.out
     assert rewritten_top.only_parent_commit_id() == trunk_commit_id
     assert JjClient(repo).resolve_revision(bottom_change_id).commit_id != rewritten_top.commit_id
 
@@ -220,13 +220,13 @@ def test_cleanup_restack_skips_inspection_on_fully_untracked_stack(
         tracking_fetch_remote,
     )
 
-    exit_code = run_main(repo, config_path, "cleanup", "--restack")
+    exit_code = run_main(repo, config_path, "cleanup", "--rebase")
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "No merged changes on the selected stack need restacking." in captured.out
-    assert "Planned restack actions:" not in captured.out
-    assert "Applied restack actions:" not in captured.out
+    assert "No merged changes on the selected stack need rebasing." in captured.out
+    assert "Planned rebase actions:" not in captured.out
+    assert "Applied rebase actions:" not in captured.out
     assert fetch_calls == []
 
 
@@ -252,10 +252,10 @@ def test_cleanup_restack_continues_exact_interrupted_restack(
     state_dir = resolve_state_path(repo).parent
     old_intent_path = write_new_intent(
         state_dir,
-        CleanupRestackIntent(
-            kind="cleanup-restack",
+        CleanupRebaseIntent(
+            kind="cleanup-rebase",
             pid=99999999,
-            label=f"cleanup --restack on {top.change_id}",
+            label=f"cleanup --rebase on {top.change_id}",
             display_revset=top.change_id,
             ordered_change_ids=(bottom.change_id, top.change_id),
             ordered_commit_ids=(bottom.commit_id, top.commit_id),
@@ -263,11 +263,11 @@ def test_cleanup_restack_continues_exact_interrupted_restack(
         ),
     )
 
-    exit_code = run_main(repo, config_path, "cleanup", "--restack", top.change_id)
+    exit_code = run_main(repo, config_path, "cleanup", "--rebase", top.change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Continuing interrupted cleanup --restack" in captured.out
+    assert "Continuing interrupted cleanup --rebase" in captured.out
     assert not old_intent_path.exists()
 
 
@@ -293,10 +293,10 @@ def test_cleanup_restack_uses_current_stack_after_rewrite(
     state_dir = resolve_state_path(repo).parent
     old_intent_path = write_new_intent(
         state_dir,
-        CleanupRestackIntent(
-            kind="cleanup-restack",
+        CleanupRebaseIntent(
+            kind="cleanup-rebase",
             pid=99999999,
-            label="cleanup --restack on @",
+            label="cleanup --rebase on @",
             display_revset="@",
             ordered_change_ids=(bottom.change_id, top.change_id),
             ordered_commit_ids=(bottom.commit_id, top.commit_id),
@@ -306,12 +306,12 @@ def test_cleanup_restack_uses_current_stack_after_rewrite(
 
     run_command(["jj", "describe", "-r", top.change_id, "-m", "feature 2 rewritten"], repo)
 
-    exit_code = run_main(repo, config_path, "cleanup", "--restack")
+    exit_code = run_main(repo, config_path, "cleanup", "--rebase")
     captured = capsys.readouterr()
     normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 0
-    assert "Continuing interrupted cleanup --restack" not in captured.out
+    assert "Continuing interrupted cleanup --rebase" not in captured.out
     assert "same logical stack, but it has been rewritten" in normalized_output
     assert not old_intent_path.exists()
 

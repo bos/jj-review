@@ -16,7 +16,7 @@ created for the changes that actually landed when those bookmarks still point
 at the landed commits. Reused user bookmarks stay by default. Use
 `--skip-cleanup` to keep even `jj-review`'s own local review bookmarks.
 
-If later changes remain above that point, run `cleanup --restack` and then
+If later changes remain above that point, run `cleanup --rebase` and then
 `submit` to keep those remaining changes under review.
 """
 
@@ -672,8 +672,8 @@ def _stack_not_on_trunk_error(
             message,
             hint=(
                 t"Some lower changes from this stack already landed. Run "
-                t"{ui.cmd('cleanup --restack')} {ui.revset(status_result.selected_revset)} "
-                t"to restack the remaining local changes before retrying."
+                t"{ui.cmd('cleanup --rebase')} {ui.revset(status_result.selected_revset)} "
+                t"to rebase the remaining local changes before retrying."
             ),
         )
 
@@ -1058,7 +1058,7 @@ def _land_boundary_message(
         return (
             t"before {revision.subject} {ui.change_id(revision.change_id)} because "
             t"PR #{pull_request.number} is already merged; run "
-            t"{ui.cmd('cleanup --restack')} first"
+            t"{ui.cmd('cleanup --rebase')} first"
         )
     return (
         t"before {revision.subject} {ui.change_id(revision.change_id)} because "
@@ -1328,7 +1328,7 @@ def _follow_up_message(
         return None
     return (
         t"Next step: remaining descendants still sit above the changes that were landed. "
-        t"Run {ui.cmd('cleanup --restack')} {ui.revset(selected_revset)} and then "
+        t"Run {ui.cmd('cleanup --rebase')} {ui.revset(selected_revset)} and then "
         t"{ui.cmd('submit')} {ui.revset(selected_revset)}."
     )
 
@@ -1382,7 +1382,7 @@ def _ensure_trunk_branch_matches_selected_trunk(
         raise CliError(
             t"Remote trunk bookmark {ui.bookmark(f'{trunk_branch}@{remote_name}')} moved since "
             t"the selected path was resolved.",
-            hint="Fetch, restack if needed, and retry.",
+            hint="Fetch, rebase if needed, and retry.",
         )
 
 

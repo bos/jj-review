@@ -217,7 +217,7 @@ def test_land_reports_current_trunk_drift_after_fetch_instead_of_bookmark_mismat
     assert "Error: Selected stack is not based on the current trunk()." in captured.err
     assert "\nHint: No change in the selected stack has landed yet." in captured.err
     assert "jj rebase -s" in captured.err
-    assert "cleanup --restack" not in captured.err
+    assert "cleanup --rebase" not in captured.err
     assert "Local bookmark main points to a different revision" not in combined
 
 
@@ -252,7 +252,7 @@ def test_land_recommends_cleanup_when_selected_stack_already_has_merged_changes(
     assert exit_code == 1
     assert "Error: Selected stack is not based on the current trunk()." in captured.err
     assert "\nHint: Some lower changes from this stack already landed." in captured.err
-    assert "cleanup --restack" in captured.err
+    assert "cleanup --rebase" in captured.err
     assert "jj rebase -s" not in captured.err
 
 
@@ -569,15 +569,15 @@ def test_rebased_partial_land_keeps_descendant_cleanup_path_clear(
         repo,
         config_path,
         "cleanup",
-        "--restack",
         "--dry-run",
+        "--rebase",
         top_change_id,
     )
     cleanup = capsys.readouterr()
 
     assert cleanup_exit_code == 0
     assert "closed without merge" not in _squash_whitespace(cleanup.out)
-    assert "No merged changes on the selected stack need restacking." in cleanup.out
+    assert "No merged changes on the selected stack need rebasing." in cleanup.out
 
 
 @pytest.mark.parametrize(

@@ -10,7 +10,7 @@ import pytest
 
 from jj_review.models.intent import (
     CleanupIntent,
-    CleanupRestackIntent,
+    CleanupRebaseIntent,
     CloseIntent,
     LandIntent,
     LoadedIntent,
@@ -19,7 +19,7 @@ from jj_review.models.intent import (
 )
 from jj_review.review.intents import (
     intent_is_stale,
-    match_cleanup_restack_intent,
+    match_cleanup_rebase_intent,
     match_close_intent,
     match_ordered_change_ids,
     retire_superseded_intents,
@@ -71,11 +71,11 @@ def _make_cleanup_intent(
 def _make_cleanup_restack_intent(
     ordered_change_ids: tuple[str, ...] = ("aaaa", "bbbb"),
     pid: int = 12345,
-) -> CleanupRestackIntent:
-    return CleanupRestackIntent(
-        kind="cleanup-restack",
+) -> CleanupRebaseIntent:
+    return CleanupRebaseIntent(
+        kind="cleanup-rebase",
         pid=pid,
-        label="cleanup --restack on @",
+        label="cleanup --rebase on @",
         display_revset="@",
         ordered_change_ids=ordered_change_ids,
         ordered_commit_ids=("commit-aaaa", "commit-bbbb"),
@@ -163,7 +163,7 @@ def _make_land_intent(
     [
         (_make_submit_intent, "submit"),
         (_make_cleanup_intent, "cleanup"),
-        (_make_cleanup_restack_intent, "cleanup-restack"),
+        (_make_cleanup_restack_intent, "cleanup-rebase"),
         (lambda: _make_close_intent(cleanup=True), "close"),
         (_make_relink_intent, "relink"),
         (_make_land_intent, "land"),
@@ -224,9 +224,9 @@ def test_match_ordered_change_ids_requires_prefix_order_for_superset() -> None:
     assert match_ordered_change_ids(("a", "b"), ("b", "a", "c")) == "overlap"
 
 
-def test_match_cleanup_restack_intent_returns_same_logical_for_rewritten_stack() -> None:
+def test_match_cleanup_rebase_intent_returns_same_logical_for_rewritten_stack() -> None:
     assert (
-        match_cleanup_restack_intent(
+        match_cleanup_rebase_intent(
             intent=_make_cleanup_restack_intent(),
             current_change_ids=("aaaa", "bbbb"),
             current_commit_ids=("new-aaaa", "new-bbbb"),
@@ -235,9 +235,9 @@ def test_match_cleanup_restack_intent_returns_same_logical_for_rewritten_stack()
     )
 
 
-def test_match_cleanup_restack_intent_returns_same_logical_for_reordered_stack() -> None:
+def test_match_cleanup_rebase_intent_returns_same_logical_for_reordered_stack() -> None:
     assert (
-        match_cleanup_restack_intent(
+        match_cleanup_rebase_intent(
             intent=_make_cleanup_restack_intent(("aaaa", "bbbb")),
             current_change_ids=("bbbb", "aaaa"),
             current_commit_ids=("commit-bbbb", "commit-aaaa"),
@@ -246,9 +246,9 @@ def test_match_cleanup_restack_intent_returns_same_logical_for_reordered_stack()
     )
 
 
-def test_match_cleanup_restack_intent_returns_trimmed_for_shrunk_current_stack() -> None:
+def test_match_cleanup_rebase_intent_returns_trimmed_for_shrunk_current_stack() -> None:
     assert (
-        match_cleanup_restack_intent(
+        match_cleanup_rebase_intent(
             intent=_make_cleanup_restack_intent(("aaaa", "bbbb", "cccc")),
             current_change_ids=("bbbb", "cccc"),
             current_commit_ids=("commit-bbbb", "commit-cccc"),

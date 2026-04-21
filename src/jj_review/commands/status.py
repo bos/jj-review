@@ -27,7 +27,7 @@ from jj_review.jj import JjCliArgs, UnsupportedStackError
 from jj_review.models.intent import (
     AbortIntent,
     CleanupIntent,
-    CleanupRestackIntent,
+    CleanupRebaseIntent,
     CloseIntent,
     LandIntent,
     RelinkIntent,
@@ -35,7 +35,7 @@ from jj_review.models.intent import (
 )
 from jj_review.review.bookmarks import bookmark_glob, is_review_bookmark
 from jj_review.review.intents import (
-    match_cleanup_restack_intent,
+    match_cleanup_rebase_intent,
     match_close_intent,
 )
 from jj_review.review.status import (
@@ -400,15 +400,15 @@ def render_status_advisory_lines(*, config: RepoConfig, result) -> tuple[object,
         lines.append(
             _wrap_advisory(
                 "Submit note: descendant PR bases still follow the old local ancestry "
-                "until the stack is restacked"
+                "until the remaining local changes are rebased"
             )
         )
         lines.append(
             _wrap_advisory(
-                t"Next step: run {ui.cmd('jj-review cleanup --restack')} "
+                t"Next step: run {ui.cmd('jj-review cleanup --rebase')} "
                 t"{ui.revset(result.selected_revset)} to rewrite the local stack, or "
-                t"{ui.cmd('jj-review cleanup --restack --dry-run')} to preview the "
-                t"restack plan first"
+                t"{ui.cmd('jj-review cleanup --rebase --dry-run')} "
+                t"{ui.revset(result.selected_revset)} to preview the rebase plan first"
             )
         )
         for revision in cleanup_revisions:
@@ -508,11 +508,11 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
                         ),
                     )
                 )
-            elif isinstance(loaded.intent, CleanupRestackIntent):
+            elif isinstance(loaded.intent, CleanupRebaseIntent):
                 lines.append(
                     _prefixed_intent_line(
                         description,
-                        _render_interrupted_cleanup_restack_status_line(
+                        _render_interrupted_cleanup_rebase_status_line(
                             intent=loaded.intent,
                             prepared_status=prepared_status,
                         ),
@@ -606,9 +606,9 @@ def _interrupted_intent_blocks_status(*, loaded, prepared_status) -> bool:
         )
         return decision is SubmitStatusDecision.INSPECT
 
-    if isinstance(loaded.intent, CleanupRestackIntent):
+    if isinstance(loaded.intent, CleanupRebaseIntent):
         return (
-            match_cleanup_restack_intent(
+            match_cleanup_rebase_intent(
                 intent=loaded.intent,
                 current_change_ids=current_change_ids,
                 current_commit_ids=current_commit_ids,
@@ -698,13 +698,13 @@ def _render_rerun_command(*, command: str, revset: str) -> tuple[object, ...]:
     )
 
 
-def _render_interrupted_cleanup_restack_status_line(
+def _render_interrupted_cleanup_rebase_status_line(
     *,
-    intent: CleanupRestackIntent,
+    intent: CleanupRebaseIntent,
     prepared_status,
 ) -> object:
     rerun_command = _render_rerun_command(
-        command="cleanup --restack",
+        command="cleanup --rebase",
         revset=prepared_status.selected_revset,
     )
     current_change_ids = tuple(
@@ -715,7 +715,7 @@ def _render_interrupted_cleanup_restack_status_line(
         prepared_revision.revision.commit_id
         for prepared_revision in prepared_status.prepared.status_revisions
     )
-    match = match_cleanup_restack_intent(
+    match = match_cleanup_rebase_intent(
         intent=intent,
         current_change_ids=current_change_ids,
         current_commit_ids=current_commit_ids,
@@ -997,10 +997,10 @@ def _render_intent_description(intent) -> object:
             t"{ui.cmd('submit')} for {ui.change_id(intent.head_change_id)} "
             t"(from {ui.revset(intent.display_revset)})"
         )
-    if isinstance(intent, CleanupRestackIntent):
+    if isinstance(intent, CleanupRebaseIntent):
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
         return (
-            t"{ui.cmd('cleanup --restack')} for {ui.change_id(head_change_id)} "
+            t"{ui.cmd('cleanup --rebase')} for {ui.change_id(head_change_id)} "
             t"(from {ui.revset(intent.display_revset)})"
         )
     if isinstance(intent, CloseIntent):

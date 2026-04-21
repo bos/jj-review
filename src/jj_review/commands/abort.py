@@ -27,7 +27,7 @@ from jj_review.github.resolution import ParsedGithubRepo, parse_github_repo
 from jj_review.jj import JjCliArgs, JjClient, JjCommandError
 from jj_review.models.intent import (
     AbortIntent,
-    CleanupRestackIntent,
+    CleanupRebaseIntent,
     CloseIntent,
     LandIntent,
     LoadedIntent,
@@ -216,7 +216,7 @@ async def _abort_intent_async(
 
     # For all other intent types, only the intent file can be removed.  The
     # operations themselves either mutate local jj history in ways that aren't
-    # straightforwardly reversible (restack, land) or have no per-change state
+    # straightforwardly reversible (cleanup rebase, land) or have no per-change state
     # tracked in the intent (cleanup, relink, close).
     note = _non_submit_note(intent)
     actions: list[AbortAction] = []
@@ -241,8 +241,8 @@ def _non_submit_note(intent) -> Message | None:
         return t"Landing cannot be retracted; changes already merged to trunk are " \
             t"permanent. The incomplete operation record will be cleared so future " \
             t"commands can proceed. Run {ui.cmd('status')} to inspect the current state."
-    if isinstance(intent, CleanupRestackIntent):
-        return t"Restack changes to local jj history cannot be automatically reversed. " \
+    if isinstance(intent, CleanupRebaseIntent):
+        return t"Rebase changes to local jj history cannot be automatically reversed. " \
             t"The incomplete operation record will be cleared. Inspect with " \
             t"{ui.cmd('jj log')} and repair manually if needed."
     if isinstance(intent, CloseIntent):

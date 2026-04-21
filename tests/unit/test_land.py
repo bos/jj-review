@@ -243,7 +243,7 @@ def test_stack_not_on_trunk_error_recommends_rebase_when_no_changes_have_landed(
     assert error.hint is not None
     rendered_hint = plain_text(error.hint)
     assert "jj rebase -s change-1 -d 'trunk()'" in rendered_hint
-    assert "cleanup --restack" not in rendered_hint
+    assert "cleanup --rebase" not in rendered_hint
 
 
 def test_stack_not_on_trunk_error_recommends_cleanup_when_stack_has_landed_change() -> None:
@@ -282,7 +282,7 @@ def test_stack_not_on_trunk_error_recommends_cleanup_when_stack_has_landed_chang
     assert plain_text(error.message) == "Selected stack is not based on the current trunk()."
     assert error.hint is not None
     rendered_hint = plain_text(error.hint)
-    assert "cleanup --restack @-" in rendered_hint
+    assert "cleanup --rebase @-" in rendered_hint
     assert "jj rebase -s" not in rendered_hint
 
 

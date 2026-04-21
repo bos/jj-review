@@ -19,7 +19,7 @@ def _render_lines(*lines: object) -> tuple[str, ...]:
     return tuple(stdout.getvalue().splitlines())
 
 
-def test_status_advises_cleanup_and_restack_when_merged_pr_remains_in_stack() -> None:
+def test_status_advises_cleanup_and_rebase_when_merged_pr_remains_in_stack() -> None:
     merged_revision = SimpleNamespace(
         cached_change=None,
         change_id="abcdefghijkl",
@@ -47,7 +47,8 @@ def test_status_advises_cleanup_and_restack_when_merged_pr_remains_in_stack() ->
     )
 
     assert "Advisories:" in lines
-    assert any("jj-review cleanup --restack @" in line for line in lines)
+    assert any("jj-review cleanup --rebase @" in line for line in lines)
+    assert any("jj-review cleanup --rebase --dry-run @" in line for line in lines)
     assert any("PR #5 is merged" in line for line in lines)
     assert any("merged into team/feature-base" in line for line in lines)
 

@@ -46,8 +46,8 @@ class CleanupIntent(OperationIntent):
     kind: Literal["cleanup"]
 
 
-class CleanupRestackIntent(OrderedChangeIdsIntent):
-    kind: Literal["cleanup-restack"]
+class CleanupRebaseIntent(OrderedChangeIdsIntent):
+    kind: Literal["cleanup-rebase"]
     ordered_commit_ids: tuple[str, ...] = ()
 
 
@@ -90,7 +90,7 @@ class LandIntent(OrderedChangeIdsIntent):
 IntentFile: TypeAlias = Annotated[
     SubmitIntent
     | CleanupIntent
-    | CleanupRestackIntent
+    | CleanupRebaseIntent
     | CloseIntent
     | RelinkIntent
     | LandIntent

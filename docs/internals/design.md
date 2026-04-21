@@ -483,7 +483,7 @@ The recovery surface should be explicit and narrow:
 The normal user-facing commands may default to the current stack headed by
 `@-`, while repair-oriented commands should stay explicit:
 
-- `submit`, `close`, `land`, and `cleanup --restack` may omit `<revset>` and
+- `submit`, `close`, `land`, and `cleanup --rebase` may omit `<revset>` and
   default to the stack headed by `@-`
 - typing `@` should stay explicit user intent; omitted selectors should not
   silently target the working-copy commit
@@ -557,8 +557,8 @@ When status reports `cleanup needed`, it should explain why in plain language:
 - the merged PR still appears on the selected local stack
 - descendant submit operations will continue to follow that old local ancestry
   until the user repairs it
-- the next command to run is `jj review cleanup --restack [<revset>]`; add
-  `--dry-run` first if the user wants to inspect the restack plan before
+- the next command to run is `jj review cleanup --rebase [<revset>]`; add
+  `--dry-run` first if the user wants to inspect the rebase plan before
   mutating local history
 
 That guidance matters more than the raw internal distinction between "selected
@@ -625,7 +625,7 @@ Failure guidance should stay narrow and specific:
   exact discovered remote identity, fail closed instead of inventing a local
   match
 - if the fetched stack shape is unsupported locally, point the operator to
-  `jj review cleanup --restack` only when the problem is local ancestry rather
+  `jj review cleanup --rebase` only when the problem is local ancestry rather
   than remote identity
 - if import defaults to the current stack and that stack has no matching
   remote pull request, say so explicitly instead of silently doing nothing
@@ -773,7 +773,7 @@ This design behaves well under normal `jj` rewrite-heavy workflows:
   not a bug.
 - Ancestor merged on GitHub: merged ancestors stop acting as review bases.
   Descendants should target the nearest remaining open ancestor PR, or trunk if
-  none remain. `cleanup --restack` should perform that local rewrite
+  none remain. `cleanup --rebase` should perform that local rewrite
 
 Interrupted `submit` metadata is diagnostic and recoverable state, not a replay
 script for the original selector. A later `submit` should act on the current
@@ -791,8 +791,8 @@ cleanup run can supersede an older interrupted plain `close`, but a later plain
 `close` must not silently erase an older interrupted cleanup run whose branch
 or metadata cleanup may still be outstanding.
 
-Interrupted `cleanup --restack` metadata should also be diagnostic rather than
-selector-replay state. A later `cleanup --restack` should operate on the
+Interrupted `cleanup --rebase` metadata should also be diagnostic rather than
+selector-replay state. A later `cleanup --rebase` should operate on the
 current selected stack, distinguish exact continuation from a rewritten stack,
 and retire older interrupted restack records once a later successful restack
 clearly covers the same changes.
@@ -829,7 +829,7 @@ The tool can stay small. A reasonable surface would be:
 - `jj review relink <pr> <revset>`
 - `jj review unlink <revset>`
 - `jj review close [--cleanup] [--dry-run] [--pull-request <pr> | <revset>]`
-- `jj review cleanup [--restack] [--dry-run] [<revset>]`
+- `jj review cleanup [--dry-run] [--rebase [<revset>]]`
 - `jj review import [--fetch] [--pull-request <pr> | --revset <revset>]`
 - `jj review land [--dry-run] [--pull-request <pr> | <revset>]`
 - `jj review abort [--dry-run]`
@@ -858,7 +858,7 @@ one block.
 
 Target selection should stay simple:
 
-- `submit`, `close`, `land`, and `cleanup --restack` default to the stack
+- `submit`, `close`, `land`, and `cleanup --rebase` default to the stack
   headed by `@-` when `<revset>` is omitted
 - `submit --draft[=new|all]` and `submit --publish` are mutually exclusive
 - `submit --reviewers` and `submit --team-reviewers` override configured
@@ -872,7 +872,7 @@ Target selection should stay simple:
 
 Notably absent:
 
-- no `restack` command, because `jj` already handles descendant rewrites much better than Git
+- no standalone `rebase` command, because `jj` already handles descendant rewrites much better than Git
 - no `track parent` command, because the parent relation comes from the DAG
 - no generic metadata repair command, because the recovery cases should stay
   explicit and narrow
@@ -944,16 +944,16 @@ or remote review branches. Deleting open PRs or deleting pull request branches
 for ambiguous cases should still require explicit user intent rather than
 happening automatically.
 
-`jj review cleanup --restack` is the explicit local-history repair path for the
+`jj review cleanup --rebase` is the explicit local-history repair path for the
 common case where GitHub merges have been fetched and the local stack still
 contains merged changes.
 
 Its UX should be explicit:
 
-- without `--dry-run`, it performs only the restack steps whose destination is
+- without `--dry-run`, it performs only the rebase steps whose destination is
   `trunk()`
-- with `--dry-run`, it previews the local restack plan
-- if a remaining restack step would rebase onto another surviving change,
+- with `--dry-run`, it previews the local rebase plan
+- if a remaining rebase step would rebase onto another surviving change,
   it should stop and tell the user to either rebase manually with `jj rebase`
   or rerun with `--allow-nontrunk-rebase`
 - if repo policy is part of the problem, it should say so directly instead of
@@ -993,8 +993,8 @@ The algorithm should be:
    `--allow-nontrunk-rebase` override
 7. After the rebases succeed, the implementation may leave merged or fetched
    side copies in place until a later conservative cleanup pass can prove they
-   are stale and removable. Restack's primary job is to repair the active local
-   stack first.
+   are stale and removable. Cleanup rebase's primary job is to repair the
+   active local stack first.
 8. Do not rebase surviving local descendants onto fetched branch-tip commits
    for merged non-trunk PRs. Those fetched commits are fetched review-branch
    state, not the canonical continuation of the active local stack.
@@ -1008,7 +1008,7 @@ This keeps the local result as close to linear as possible:
 - fetched side copies of merged changes may remain as stale artifacts, but
   they no longer define the active stack
 
-`cleanup --restack` should fail closed only when it cannot prove what the
+`cleanup --rebase` should fail closed only when it cannot prove what the
 selected stack means. In particular, it should stop with a targeted diagnostic
 when:
 
@@ -1076,7 +1076,7 @@ That means:
 - require the selected stack's `base_parent` to equal the resolved `trunk()`
   before any mutation; if the stack forks from an older ancestor of `trunk()`
   or sits on a merged side-branch boundary, refuse the land with a targeted
-  local diagnostic pointing at `jj review cleanup --restack` or plain
+  local diagnostic pointing at `jj review cleanup --rebase` or plain
   `jj rebase` rather than force-moving the local trunk bookmark sideways
 - walk the selected local stack upward from `trunk()`
 - stop immediately if any selected local change still has unresolved conflicts
@@ -1147,7 +1147,7 @@ Recovery guidance should stay case-specific:
 - if the landing scan stops at a draft, unapproved, or changes-requested PR,
   say so directly without suggesting an override flag in the failure output
 - if the selected stack itself needs local ancestry repair after an earlier
-  merge, point the operator to `jj review cleanup --restack`
+  merge, point the operator to `jj review cleanup --rebase`
 - if the selected stack has no changes that can be landed now, say so directly
   and explain whether the user should select a different head, clean up merged
   ancestors, or repair closed PR state first
@@ -1169,8 +1169,8 @@ successful landing transition:
   but only when those bookmarks still point at the landed commits; `--skip-cleanup`
   may retain those local bookmarks for explicit repair or inspection work
 - if there are surviving descendants above the landed changes, tell the
-  operator to repair local ancestry with `jj review cleanup --restack` and
-  then rerun `submit`; `land` should not silently retarget or restack those
+  operator to repair local ancestry with `jj review cleanup --rebase` and
+  then rerun `submit`; `land` should not silently retarget or rebase those
   surviving descendants itself
 
 Broader cleanup remains the job of `cleanup`:

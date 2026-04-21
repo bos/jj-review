@@ -15,18 +15,17 @@ steps. For example:
 - then add the API on top
 - then add the UI on top of that
 
-You can model that with plain Git branches, but the bookkeeping quickly becomes
-unwieldy. `jj-review` takes a different approach:
+You can model that with plain Git branches, but the bookkeeping quickly becomes unwieldy.
+`jj-review` takes a different approach:
 
 - the local `jj` DAG is the source of truth for the stack
 - each change gets one review branch and one PR
 - mutable history stays in `jj`, not in a parallel branch-management layer
 
-Those review branches show up locally as `jj` bookmarks with a configurable
-prefix. By default they use `review/...`, but a repo can pick another prefix
-such as `bosullivan/...`. They are the GitHub PR head branches. `jj-review`
-manages them for you, so most of the time you do not need to think about them
-directly.
+Those review branches show up locally as `jj` bookmarks with a configurable prefix. By default
+they use `review/...`, but a repo can pick another prefix such as `bosullivan/...`. They are the
+GitHub PR head branches. `jj-review` manages them for you, so most of the time you do not need
+to think about them directly.
 
 If you already use `jj` and GitHub pull requests, and you often want a series of small PRs
 instead of one large one, this tool is likely a good fit.
@@ -56,7 +55,7 @@ side, the benefit of a tool like this is clear.
 
 - Smaller PRs are far easier for both humans and agents to re-read after feedback. Context
   windows are bigger in 2026, but agent attention is still limited, and human attention is under
-  more strain.
+  ever more strain.
 
 - Validation is more easily staged. It's easier to approve and land good-to-go changes while
   others are still in flux.
@@ -70,13 +69,13 @@ side, the benefit of a tool like this is clear.
 If you simply *must* clutch your pearls because of a tool written by AI, then this one offers
 you a rich vein of offense that is yours to take.
 
-- I haven't written a single line of code (the user-facing docs? different story)
-- Despite a fair bit of attention to the internals, the code is more chaotic than I enjoy
+- I haven't written a single line of code (user-facing docs? different story)
+- Despite attention to the internals, the code is more chaotic than I enjoy
 
 However:
 
-- The user experience is quite satisfying
-- The test suite is solid: around 400 tests with >85% coverage as of April 2026
+- The user experience is solid
+- The test suite is good: around 450 tests with >85% coverage as of April 2026
 - I was able to vastly improve performance without losing my mind to the depravities of GraphQL
   or async Python
 
@@ -124,17 +123,11 @@ Submit that stack to GitHub:
 jj-review submit
 ```
 
-When you first submit a stack, this will create one review bookmark per change
-(by default `review/...`; these are managed automatically). Those bookmarks
-are user-visible in `jj`, but they are managed by `jj-review`.
+When you first submit a stack, this will create one review bookmark per change (by default
+`review/...`; these are managed automatically). Those bookmarks are user-visible in `jj`, and
+managed by `jj-review`.
 
-If you instead tell `jj-review` to reuse your own existing bookmarks with
-`use_bookmarks` or `--use-bookmarks`, it can keep those bookmark names for
-matching changes instead of generating new `review/...` names when it still
-needs to choose a bookmark name for them. Later cleanup leaves those reused
-bookmarks alone by default.
-
-Inspect it again:
+Inspect your stack again:
 
 ```bash
 jj-review status
@@ -152,17 +145,18 @@ Your typical author loop will be dead simple:
 2. Run `jj-review submit`.
 3. Revise those changes locally as reviews come in.
 4. Re-run `jj-review submit`.
-5. Once some PRs are approved, run `jj-review land` to push them to GitHub and
-   forget the local review bookmarks for the landed changes.
-6. Run `jj-review cleanup --restack` if later changes remain above the landed prefix.
+5. Once some PRs are approved, rebase if needed, then run `jj-review land` to push them to
+   GitHub and forget the local review bookmarks for the landed changes.
+6. Run `jj-review cleanup --rebase` if later changes remain above the changes you just landed.
+   That will make them ready to land.
 
 The key point is that you get to keep thinking in terms of local logical changes. `jj-review`
 manages those changes on GitHub, does some housekeeping for you locally, and that's it.
 
-One piece of that housekeeping is the review bookmark set. Those bookmarks are
-the review branches pushed to GitHub for each change. You may see them in
-`jj log` or `jj bookmark list`, but you generally should not move or rename
-them by hand unless you are doing explicit repair work.
+One piece of that housekeeping is the review bookmark set. Those bookmarks are the review
+branches pushed to GitHub for each change. You may see them in `jj log` or `jj bookmark list`,
+but you generally should not move or rename them by hand unless you are doing explicit repair
+work.
 
 ## Learn More
 
@@ -209,10 +203,10 @@ If you leave `bookmark_prefix` unset, `jj-review` keeps the default
 `jj-review submit` can override those defaults with `--reviewers`,
 `--team-reviewers`, `--label`, and `--use-bookmarks`.
 
-`cleanup_user_bookmarks` defaults to `false`. Leave it unset if bookmarks
-selected through `use_bookmarks` should be preserved during later cleanup.
-Set it to `true` only if you want `cleanup`, `close --cleanup`, and `land` to
-delete those reused bookmarks too when that cleanup is otherwise safe.
+`cleanup_user_bookmarks` defaults to `false`. Leave it unset if bookmarks selected through
+`use_bookmarks` should be preserved during later cleanup. Set it to `true` only if you want
+`cleanup`, `close --cleanup`, and `land` to delete those reused bookmarks too when that cleanup
+is otherwise safe.
 
 For authentication, `jj-review` checks `GH_TOKEN`, then `GITHUB_TOKEN`, then falls back to `gh
 auth token` if `gh`, the GitHub CLI, is installed and authenticated.

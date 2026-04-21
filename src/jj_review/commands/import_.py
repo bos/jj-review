@@ -8,7 +8,7 @@ Use `--pull-request` to select a specific stack by PR number or URL, or
 branches are not available locally yet; this fetches them first and then sets
 up tracking.
 
-`import` does not rewrite commits, restack changes, or modify GitHub.
+`import` does not rewrite commits, rebase changes, or modify GitHub.
 """
 
 from __future__ import annotations

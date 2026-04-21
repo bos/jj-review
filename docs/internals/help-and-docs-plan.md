@@ -30,7 +30,7 @@ These are strengths worth preserving rather than replacing:
   `docs/internals/`
 - `troubleshooting.md` is already organized by symptom and next command
 - the product already has strong recovery-oriented commands such as `doctor`, `abort`,
-  `import`, `relink`, and `cleanup --restack`
+  `import`, `relink`, and `cleanup --rebase`
 
 The biggest remaining gap is not "missing feature parity". It is that some important user
 questions still require reading several pages or inferring behavior from command output.
@@ -72,7 +72,7 @@ Highest-value commands should grow 2-3 short examples in long help:
 - `close`
 - `import`
 - `abort`
-- `cleanup --restack`
+- `cleanup --rebase`
 
 Examples should come from real workflows already documented in `docs/`, not invented toy
 cases. The target is fast recognition:
@@ -132,7 +132,7 @@ The strongest missing page is a focused "respond to review" or "revise and resub
 That page should cover:
 
 - amend vs. rebase from the user's point of view
-- when `submit` is enough and when `cleanup --restack` is the right next step
+- when `submit` is enough and when `cleanup --rebase` is the right next step
 - what happens after part of a stack lands
 - what to do when review state exists on GitHub but not in the current workspace
 
@@ -185,8 +185,8 @@ cover the cases users are likely to hit in real repos:
 - a user pushed to a managed review bookmark manually and later `status` or `submit` fails
   closed
 - `trunk()` advanced, but nothing landed, so the right answer is plain `jj rebase` rather than
-  `cleanup --restack`
-- `cleanup --restack` encounters conflicts and the user needs to finish the rewrite in `jj`
+  `cleanup --rebase`
+- `cleanup --rebase` encounters conflicts and the user needs to finish the rewrite in `jj`
 - review state exists on another machine or workspace and needs `import`
 
 Each entry should stay in the existing pattern:

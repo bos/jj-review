@@ -40,7 +40,7 @@ from jj_review.jj import JjCliArgs, JjClient
 from jj_review.models.bookmarks import GitRemote
 from jj_review.models.github import GithubRepository
 from jj_review.models.intent import (
-    CleanupRestackIntent,
+    CleanupRebaseIntent,
     CloseIntent,
     IntentFile,
     LandIntent,
@@ -292,9 +292,9 @@ def _intent_description_content(intent: IntentFile) -> Message:
     if isinstance(intent, SubmitIntent):
         return t"{ui.cmd('submit')} for {ui.change_id(intent.head_change_id)} " \
             t"(from {ui.revset(intent.display_revset)})"
-    if isinstance(intent, CleanupRestackIntent):
+    if isinstance(intent, CleanupRebaseIntent):
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
-        return t"{ui.cmd('cleanup --restack')} for {ui.change_id(head_change_id)} " \
+        return t"{ui.cmd('cleanup --rebase')} for {ui.change_id(head_change_id)} " \
             t"(from {ui.revset(intent.display_revset)})"
     if isinstance(intent, CloseIntent):
         head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
