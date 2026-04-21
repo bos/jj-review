@@ -1,285 +1,232 @@
 # User-Facing Help and Docs Plan
 
-A systematic plan for bringing `jj-review`'s built-in help and `docs/` tree to parity
-with (and beyond) Graphite's `gt` CLI and GitHub's newly released `gh stack`. Audience
-assumption: mild-to-moderate jj and git knowledge, zero knowledge of this tool's
-internals.
+This file is the working plan for improving `jj-review`'s user-facing help and docs.
 
-This document is the source of truth for _what we're aiming for_ and _what's missing_.
-Once an item here is shipped, move it from this file to a one-line note in the
-appropriate doc (e.g. `implementation-strategy.md` for user-visible surface changes) and
-delete it here. This file should shrink over time.
+The goal is a docs/help surface that fits this tool's actual model, teaches the right mental
+model to jj users, and makes recovery paths easy to find. Competitor parity is not the goal.
 
-## 1. Current state vs. the field
+When this plan conflicts with another internal doc, treat them this way:
 
-| Axis                        | jj-review today                       | `gt`                         | `gh stack`                                          |
-| --------------------------- | ------------------------------------- | ---------------------------- | --------------------------------------------------- |
-| Short help style            | Outcome-focused, verb-first ✓         | Same ✓                       | Same ✓                                              |
-| Inline `--help` examples    | None                                  | None                         | Every command has an Examples block                 |
-| Per-command help template   | Inconsistent                          | Inconsistent                 | Strictly uniform                                    |
-| Exit-code vocabulary        | Binary (0/1 from CliError)            | Binary                       | Semantic table (2 Not in stack, 3 Conflict, …)      |
-| Quick start                 | In repo README, not in `docs/`        | 5 numbered steps, 1 cmd each | 6 numbered steps, no branching                      |
-| Concept intro               | Dedicated `mental-model.md`           | Inline callouts in each how-to | Dedicated Overview + ASCII diagram reused        |
-| Troubleshooting             | `troubleshooting.md` by symptom ✓     | Woven into how-tos, no index | Exit-code table only                                |
-| Diagnostic command          | `doctor` ✓ (unique)                   | —                            | —                                                   |
-| Undo / recovery             | `abort` ✓ (unique)                    | `gt undo`, `gt abort`        | `rebase --abort`, `unstack --local`                 |
-| Adopt existing PRs          | `import` ✓                            | `gt track`                   | `init --adopt`                                      |
-| Safe vs. interactive split  | Not surfaced                          | Not surfaced                 | `sync` safe/auto-abort; `rebase` is where you touch |
-| Abstraction leaks named     | Implicit                              | Implicit ("idempotently")    | Named inline at the command                         |
-| Stack diagram               | None                                  | None                         | ASCII diagram, reused on multiple pages             |
+1. `docs/AGENTS.md` sets the standard for user-facing language.
+2. `docs/internals/design.md` is the current product spec, but it is not above criticism.
+3. `docs/internals/implementation-strategy.md` records how the current surface was built.
+4. this file focuses on whether that surface makes sense to users.
 
-Unique strengths to protect: `doctor`, `abort`, `import`, symptom-keyed troubleshooting,
-vocabulary discipline enforced by `docs/AGENTS.md`.
+If a user-facing docs/help improvement reveals that the current design is confusing, too
+internal, or otherwise not user-focused enough, update the design first rather than forcing the
+docs to preserve a bad explanation.
 
-Biggest gaps: inline `--help` examples, a uniform per-command help template, semantic
-exit codes, a visual stack diagram, a 90-second quick start, and end-to-end
-jj↔GitHub round-trip coverage (change-ID evolution across amend/rebase, server-side
-"Rebase" clicks, reviewer suggestions pushed from GitHub).
+Once a slice here ships, remove it from this file and note the result in
+`implementation-strategy.md` if it changed user-visible behavior.
 
-## 2. Design principles
+## 1. What is already good
 
-1. **Two audiences, one surface.** `--help` is for the user at the terminal who needs
-   _this command now_. `docs/` is for the user with a question that isn't "what does
-   this flag do". Never duplicate — cross-link.
-2. **Outcome-first, one sentence.** Every short help starts with a verb and ends with a
-   period. If it starts with "The" or "A", it's wrong.
-3. **Assume jj/git fluency; forbid internal jargon.** Keep the existing AGENTS.md
-   vocabulary discipline. Load-bearing terms — _stack_, _trunk_, _review branch_,
-   _tracked change_, _ready prefix_ — defined once in a glossary, linked by name
-   everywhere else.
-4. **Name the abstraction leaks.** When we force-push, we say so. When ambiguity fails
-   closed, we say so. When the jj op log is the recovery mechanism, we link it. `gt`'s
-   "idempotently" doing all the work is the failure mode to avoid.
-5. **One recipe per user intent, as a literal transcript.** Not prose. Not "you could
-   also…". Copy-pasteable.
-6. **Safe-by-default commands and interactive-repair commands are different commands**,
-   not flag variants. Follow `gh stack`'s `sync`/`rebase` split.
-7. **Every help text is greppable and uniform.** Same section order, same flag-table
-   shape. Enforce with a test.
+These are strengths worth preserving rather than replacing:
 
-## 3. Plan for `--help`
+- top-level help is already curated instead of being a flat parser dump
+- hidden repair commands stay out of default help
+- command help already uses real command descriptions rather than empty boilerplate
+- docs already separate user-facing material under `docs/` from contributor notes under
+  `docs/internals/`
+- `troubleshooting.md` is already organized by symptom and next command
+- the product already has strong recovery-oriented commands such as `doctor`, `abort`,
+  `import`, `relink`, and `cleanup --restack`
 
-### 3a. Per-command help template (mandatory)
+The biggest remaining gap is not "missing feature parity". It is that some important user
+questions still require reading several pages or inferring behavior from command output.
 
-```
-<one-sentence outcome, verb-first, period>
+## 2. Principles
 
-Usage: jj-review <cmd> [flags] [<revset>]
+1. Teach `jj-review`, not competitor workflows.
+2. Assume the reader already knows `jj` and `git`.
+3. Keep user docs and `--help` free of internal design-doc jargon.
+4. Describe what the user should do next, not how the implementation feels about itself.
+5. Prefer concrete examples and recovery recipes over exhaustive taxonomy.
+6. Avoid large information-architecture churn unless it clearly improves findability.
+7. Keep advanced repair commands advanced.
+8. When the current design and a user-comprehensible explanation conflict, fix the design rather
+   than teaching a worse model.
 
-<1-4 sentence description — covers pre-conditions, side-effects, and the
- abstraction leak (force-push, GitHub auth, op-log entry) if any>
+## 3. What to improve in `--help`
 
-Options:
-  --flag VALUE    One-line outcome. Default: X.
+### 3a. Keep the current help shape
 
-Examples:
-  # Submit the stack from @ up to trunk.
-  jj-review submit @
+Do not replace the current help system with a rigid imported template.
 
-  # Re-submit only the top change after amending it.
-  jj-review submit @
+The current shape is already sensible:
 
-See also: jj-review status, jj-review land. docs: jj-review docs submit
-```
+- `Usage`
+- command description
+- `Positional Arguments` when needed
+- `Options`
 
-Same section order for every command: Synopsis / Usage / Description / Options /
-Examples / See also. Highest-leverage change in this plan: it makes `--help` scannable
-and eliminates "when do I use this vs. that" through the See-also line.
+Improve within that shape instead of forcing every command into a six-section template.
 
-### 3b. Inline examples
+### 3b. Add examples where they materially help
 
-Add 2–3 realistic examples to every command's long help. For `submit`, `land`,
-`status`, `abort`, `cleanup`, `import`, cover the normal path plus the most common
-not-the-normal-path (re-submit after amend, land with `--pull-request`, import by
-`--revset` vs `--pull-request`). Draw from `docs/daily-workflow.md` — don't invent.
+Highest-value commands should grow 2-3 short examples in long help:
 
-### 3c. Pre-condition banners
+- `submit`
+- `status`
+- `land`
+- `close`
+- `import`
+- `abort`
+- `cleanup --restack`
 
-At the top of the Description for any command that talks to GitHub (`submit`, `status`,
-`land`, `close`, `import`): one line — `Requires: GitHub auth (GITHUB_TOKEN or gh
-CLI).` One line. No apology.
+Examples should come from real workflows already documented in `docs/`, not invented toy
+cases. The target is fast recognition:
 
-### 3d. Semantic exit codes
+- normal path
+- common recovery path
+- one selector example where the command supports explicit targeting
 
-Adopt a small exit-code table. Proposed:
+### 3c. Tighten command descriptions
 
-| Code | Meaning                                                    |
-| ---- | ---------------------------------------------------------- |
-| 0    | success                                                    |
-| 1    | generic error (catch-all)                                  |
-| 2    | not a jj repo / no jj-review state                         |
-| 3    | GitHub auth / API failure                                  |
-| 4    | ambiguous linkage (fails-closed case)                      |
-| 5    | stack divergence (local/remote disagree, surfaced by status) |
-| 6    | interrupted operation detected (suggests `abort`)          |
-| 7    | user input error (bad revset, bad flag combo)              |
+Each command description should answer the questions a user has at the terminal:
 
-Publish in `docs/reference/exit-codes.md` and reference from `doctor` output. Payoff:
-scripting users can branch on these, and existing actionable error messages become
-machine-readable.
+- what state does this inspect or mutate?
+- what does it act on by default?
+- what important safety boundary should the user know?
 
-### 3e. `jj-review docs [<topic>]` command
+For commands that need GitHub, it is reasonable to say so plainly in the description. Keep it
+short and factual.
 
-Small new command (~30 LOC). Opens the shipped docs — either `xdg-open`-ing the docs
-site URL if we publish one, or `less`-ing the bundled markdown. Lowers friction between
-"I ran `--help`" and finding the right how-to. Borrowed directly from `gt docs`.
+### 3d. Small consistency checks are worthwhile
 
-### 3f. Visibility of hidden commands
+A lightweight help-text test is worth owning, but it should validate useful consistency rather
+than a brittle imported style guide.
 
-Currently hidden: `relink`, `unlink`, `completion`, and the globals `--repository`,
-`--config`, `--config-file`, `--debug`, `--time-output`. Keep most hidden but:
+Good candidates:
 
-- Promote `unlink` to visible — users genuinely need the soft detach.
-- Mention `relink` in `abort`'s See-also line — it's the escape hatch from a bad
-  `import` or partial land.
+- top-level help still hides advanced repair commands by default
+- `help --all` still exposes the full command surface
+- each command has non-empty summary/help text
+- descriptions do not regress into banned internal jargon from `docs/AGENTS.md`
 
-## 4. Plan for `docs/`
+Avoid tests that require every command to use the exact same prose structure.
 
-### 4a. Target information architecture (3 levels max)
+## 4. What to improve in `docs/`
 
-```
-docs/
-  README.md                  (index — links, one-paragraph "what this is")
-  quickstart.md              NEW — 90-second, 5 steps, one command each
-  concepts.md                RENAME from mental-model.md; add ASCII diagram
-  glossary.md                NEW — 5-8 load-bearing terms, one line each
-  workflows/                 NEW dir (replaces daily-workflow.md)
-    submit-and-iterate.md
-    land-and-cleanup.md
-    adopt-existing-prs.md    (import scenarios)
-    respond-to-review.md
-    restructure-the-stack.md (split/merge/reorder changes mid-review)
-  troubleshooting.md         KEEP — already best-in-class; extend (§5)
-  reference/
-    commands.md              NEW — one-liner per command, flags delegated to --help
-    exit-codes.md            NEW — semantic table (§3d)
-    compatibility.md         NEW — jj version matrix, gh version, auth paths
-  internals/                 UNCHANGED
-```
+### 4a. Keep the current split, but fill obvious gaps
 
-Four deliberate choices:
+The current set:
 
-1. **Workflows beats a tutorial.** Mild-to-moderate jj/git users want recipes keyed to
-   intent, not a linear story. Copy `gh stack`'s Typical Workflows shape — each
-   workflow is a transcript with `#` comments.
-2. **Glossary is one page.** `gt`'s per-term concept pages bloat the IA. One page, 5–8
-   terms, link by name everywhere.
-3. **Reference delegates to `--help`.** `gt`'s rule: CLI is source of truth for flags;
-   site only carries the one-liner. We never diff two copies.
-4. **No guides/marketing split.** One tree, one audience.
+- `docs/README.md`
+- `docs/mental-model.md`
+- `docs/daily-workflow.md`
+- `docs/troubleshooting.md`
 
-### 4b. Quick start (new)
+is already small and understandable. Keep that unless growth makes a split clearly better.
 
-Exactly five steps, one command each, no branching, no prose detours:
+The work should focus on content gaps first:
 
-1. `jj-review doctor` — verify setup.
-2. `jj-review submit @` — push the stack, open PRs.
-3. Address review. Amend with `jj describe` / `jj split` as normal.
-4. `jj-review submit @` — re-submit. Same command, idempotent.
-5. `jj-review land @` — land what's ready.
+- missing recovery scenarios
+- missing explanation of jj↔GitHub round trips
+- better examples of stack lifecycle after land / restack / import
 
-Everything else is one link away.
+### 4b. Add one focused workflow page
 
-### 4c. ASCII stack diagram (reused)
+The strongest missing page is a focused "respond to review" or "revise and resubmit" guide.
 
-One diagram in `concepts.md`, reused at the top of every `workflows/*.md`:
+That page should cover:
 
-```
-@                 feat/top      PR #3   (draft)
+- amend vs. rebase from the user's point of view
+- when `submit` is enough and when `cleanup --restack` is the right next step
+- what happens after part of a stack lands
+- what to do when review state exists on GitHub but not in the current workspace
+
+This is more valuable than a large workflow directory.
+
+### 4c. Add one reusable stack diagram
+
+An ASCII diagram is worthwhile if it teaches the right model:
+
+```text
+@
 │
-○ change_id: xyz  feat/middle   PR #2
+○ change_id: xyz   review/top-xyz      PR #3
 │
-○ change_id: abc  feat/bottom   PR #1   (ready)
+○ change_id: abc   review/middle-abc   PR #2
 │
-◉ trunk()         main
+○ change_id: qrs   review/bottom-qrs   PR #1
+│
+◉ trunk()
 ```
 
-`change_id` primary (per AGENTS.md), `commit_id` elided for brevity, `feat/*` as the
-review branches jj-review manages. Same diagram everywhere — users recognize it
-instantly.
+Rules for the diagram:
 
-### 4d. The jj round-trip page (gap neither competitor covers)
+- identify revisions by `change_id`
+- show review bookmarks as `review/...` or another explicitly configured review prefix
+- do not teach user feature branches as if they were `jj-review`'s managed transport branches
+- reuse the same diagram shape where it helps, rather than creating competing diagrams
 
-Add `workflows/respond-to-review.md` covering specifically:
+### 4d. A glossary is optional, not mandatory
 
-- What happens to change IDs on amend vs. on rebase (stable on amend — the whole point;
-  a gh-stack user wouldn't know this).
-- What happens when a reviewer pushes a suggestion from GitHub's UI into the review
-  branch (we currently do not pull this back — document it; add to `backlog.md` if we
-  intend to fix).
-- What happens if a PR gets squash-merged on GitHub (mirrors `gh stack`'s `--onto`
-  dance; we delegate to jj's rebase, but users need the full loop written out).
-- What happens if the user manually pushes to a `review/…` branch (fails closed — name
-  the error they'll see and the fix).
+Do not create a glossary just to centralize internal jargon.
 
-This is the page a jj-native tool has standing to write and a generic stacking tool
-cannot.
+If a glossary is added later, it should define only real user-facing terms that already appear
+in docs, such as:
 
-## 5. Exceptional cases — the systematic list
+- change ID
+- review bookmark
+- stack
+- trunk
 
-Best-in-class means every situation has a named, discoverable response. Audit each
-against: _named command? error names the fix? troubleshooting entry? exit code?_
+Do not use it as permission to reintroduce banned phrases like `ready prefix`.
 
-| Situation                          | Named command         | Error names fix? | Troubleshooting | Exit |
-| ---------------------------------- | --------------------- | ---------------- | --------------- | ---- |
-| GitHub auth missing/expired        | `doctor`              | Yes ✓            | Yes ✓           | 3    |
-| Trunk cannot be determined         | `doctor`              | Partial          | Add             | 3    |
-| Stack not linear / divergent       | —                     | Yes ✓            | Yes ✓           | 5    |
-| Ambiguous linkage (fails closed)   | `relink` / `unlink`   | Add              | Yes ✓           | 4    |
-| Merge-base moved (trunk advanced)  | `cleanup --restack`   | Partial          | **Gap — add**   | —    |
-| Bottom PR squash-merged on GitHub  | `cleanup --restack`   | **Gap**          | **Gap — add**   | —    |
-| Mid-stack PR closed on GitHub      | `close` / `relink`    | **Gap**          | **Gap — add**   | —    |
-| Interrupted jj-review op           | `abort`               | Yes ✓            | Yes ✓           | 6    |
-| User pushed to `review/*` manually | —                     | **Gap — fail closed with named error** | **Gap — add** | 5 |
-| PR exists, no local tracking       | `import`              | Yes ✓            | Yes ✓           | —    |
-| Conflicts during restack           | defer to `jj`'s conflict UX | Partial    | **Gap — add one page** | — |
-| Wrong PR linked                    | `relink`              | Add              | Add             | 4    |
-| Abandon a change mid-stack         | `close` / `unlink`    | Add              | Add             | —    |
+## 5. Troubleshooting gaps to fill
 
-Filling the Gap cells is the bulk of the `troubleshooting.md` expansion. Each entry is
-symptom → cause → remedy, three lines, following the existing pattern.
+`troubleshooting.md` is already the highest-value page in the tree. The next expansion should
+cover the cases users are likely to hit in real repos:
 
-## 6. What to explicitly not do
+- a bottom PR was squash-merged on GitHub and remaining changes now need local repair
+- a middle PR was closed or otherwise stopped being part of the live stack
+- a user pushed to a managed review bookmark manually and later `status` or `submit` fails
+  closed
+- `trunk()` advanced, but nothing landed, so the right answer is plain `jj rebase` rather than
+  `cleanup --restack`
+- `cleanup --restack` encounters conflicts and the user needs to finish the rewrite in `jj`
+- review state exists on another machine or workspace and needs `import`
 
-- **Don't adopt `gt`'s force-push euphemism.** Be explicit that `submit` force-pushes
-  `review/*` branches with lease; link the jj op log as the recovery path.
-- **Don't split marketing from reference.** One docs tree.
-- **Don't build a dashboard-shaped hole.** Every workflow terminates in the CLI or in
-  GitHub's web UI. No "go open jj-review.dev".
-- **Don't proliferate flags for mode changes.** If a command needs a "safe-auto" and a
-  "touch-the-conflict" mode, they should be two commands (following `gh stack`'s
-  `sync`/`rebase` split), not one command with `--interactive`.
+Each entry should stay in the existing pattern:
 
-## 7. Sequencing and enforcement
+- symptom
+- likely cause
+- next command or repair path
 
-Priority order (each step independently shippable):
+## 6. Things this plan should explicitly not do
 
-1. **Help-text template + short-help lint.** Test that (a) every command's short help
-   starts with a verb and ends with a period, (b) every long help contains the six
-   template sections in order. Prevents drift forever.
-2. **Inline examples in `--help`.** Six commands, 2–3 examples each, drawn verbatim
-   from `daily-workflow.md`.
-3. **Semantic exit codes + `exit-codes.md`.** Mechanical, widely useful, cheap.
-4. **Reshape `docs/` to the IA above.** Mostly plumbing — move, rename, split.
-5. **Fill troubleshooting gaps from §5.** Highest-user-value page in the tree.
-6. **`workflows/respond-to-review.md`** — the jj round-trip page. Unique value.
-7. **`jj-review docs <topic>`** — small feature, large discoverability payoff.
-8. **ASCII diagram + reuse across pages.**
+These ideas are out of scope unless the product direction changes:
 
-Enforcement artifacts worth owning:
+- do not use competitor parity as the success metric
+- do not promote `unlink` into the default help surface; it is an advanced repair command
+- do not add a `jj-review docs` command
+- do not introduce a semantic exit-code taxonomy just for documentation symmetry
+- do not force a major docs tree rewrite before the content gaps are fixed
+- do not add user-facing jargon that `docs/AGENTS.md` already bans
+- do not teach `feat/*` or other ordinary feature branches as the review branches
+  `jj-review` manages
 
-- `tests/unit/test_help_text.py` walking the argparse tree and asserting the template.
-- A vocabulary linter over `docs/` (extend what AGENTS.md requires informally).
-- A short rule in `docs/AGENTS.md` pinning the per-command `--help` template so future
-  contributors don't drift.
+## 7. Sequencing
 
-## 8. Sources
+Priority order:
 
-Research conducted 2026-04-16.
+1. Add `--help` examples for the main lifecycle and recovery commands.
+2. Expand `troubleshooting.md` with the missing real-world failure cases.
+3. Add one focused page for "respond to review" / revise-resubmit workflows.
+4. Add one reusable ASCII stack diagram and place it where it clarifies the model.
+5. Add small consistency tests or lint checks for help/docs vocabulary.
+6. Re-evaluate whether the docs tree still needs structural changes after the content work.
 
-- Graphite docs: https://graphite.com/docs, https://graphite.com/docs/command-reference,
-  https://graphite.com/docs/cli-quick-start, https://graphite.com/docs/restack-branches,
-  https://graphite.com/docs/track-branches.
-- `withgraphite/docs` repo (flag-level detail for `gt` commands).
-- `gh stack`: https://github.github.com/gh-stack/ (Overview, Quick Start, CLI
-  reference, Typical Workflows, FAQ).
+## 8. Done means
+
+This plan is succeeding when a user can quickly answer questions like:
+
+- "What stack will `submit` operate on if I run it right now?"
+- "Why did `land` stop, and what do I run next?"
+- "Part of my stack landed; how do I fix the rest locally?"
+- "These PRs exist on GitHub already; how do I reconnect this workspace?"
+- "What are those `review/...` bookmarks and when should I care about them?"
+
+If the docs/help changes do not make those answers easier to find, they are probably churn.
