@@ -70,7 +70,7 @@ def test_review_state_store_rejects_unknown_fields(tmp_path: Path) -> None:
             '  "version": 1,\n'
             '  "changes": {\n'
             '    "zvlywqkxtmnpqrstu": {\n'
-            '      "bookmark_override": "review/custom-name"\n'
+            '      "potato_shape": "round"\n'
             "    }\n"
             "  }\n"
             "}\n"
@@ -78,7 +78,7 @@ def test_review_state_store_rejects_unknown_fields(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ReviewStateError, match="bookmark_override"):
+    with pytest.raises(ReviewStateError, match="potato_shape"):
         ReviewStateStore(state_path).load()
 
 

@@ -23,6 +23,7 @@ def test_load_config_returns_defaults_when_jj_config_is_missing(
 
     assert config.logging.level == "WARNING"
     assert config.bookmark_prefix == "review"
+    assert config.cleanup_user_bookmarks is False
     assert config.labels == []
 
 
@@ -30,7 +31,6 @@ def test_load_config_merges_jj_config_layers(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    change_id = "zvlywqkxtmnpqrstu"
     user_path = tmp_path / "user.toml"
     repo_path = tmp_path / "repo.toml"
     workspace_path = tmp_path / "workspace.toml"
@@ -44,9 +44,6 @@ def test_load_config_merges_jj_config_layers(
         [
             "[jj-review.logging]",
             'level = "info"',
-            "",
-            f'[jj-review.change."{change_id}"]',
-            'bookmark_override = "review/from-user"',
         ],
     )
     _write_config(
@@ -54,8 +51,10 @@ def test_load_config_merges_jj_config_layers(
         [
             "[jj-review]",
             'bookmark_prefix = "bosullivan"',
+            "cleanup_user_bookmarks = true",
             'reviewers = ["octocat"]',
             'team_reviewers = ["platform"]',
+            'use_bookmarks = ["potato/*", "", "spam/eggs", "potato/*"]',
         ],
     )
     _write_config(
@@ -70,10 +69,11 @@ def test_load_config_merges_jj_config_layers(
 
     assert config.logging.level == "INFO"
     assert config.bookmark_prefix == "bosullivan"
+    assert config.cleanup_user_bookmarks is True
     assert config.reviewers == ["octocat"]
     assert config.team_reviewers == ["platform"]
     assert config.labels == ["needs-review"]
-    assert config.change[change_id].bookmark_override == "review/from-user"
+    assert config.use_bookmarks == ["potato/*", "spam/eggs"]
 
 
 def test_load_config_reads_explicit_jj_review_config_file(tmp_path: Path) -> None:
@@ -154,22 +154,19 @@ def test_load_config_rejects_likely_top_level_typo(
         load_config(repo_root=None, config_path=config_path)
 
 
-def test_load_config_rejects_likely_change_typo(
+def test_load_config_rejects_removed_change_table(
     tmp_path: Path,
 ) -> None:
-    config_path = tmp_path / "change-typo.toml"
+    config_path = tmp_path / "change.toml"
     _write_config(
         config_path,
         [
             '[jj-review.change."zvlywqkxtmnpqrstu"]',
-            'bookmark_overide = "review/from-user"',
+            'bookmark_override = "review/from-user"',
         ],
     )
 
-    with pytest.raises(
-        CliError,
-        match=r'Did you mean \[jj-review\.change\."zvlywqkxtmnpqrstu"\]\.bookmark_override\?',
-    ):
+    with pytest.raises(CliError, match="per-change bookmark overrides were removed"):
         load_config(repo_root=None, config_path=config_path)
 
 

@@ -77,7 +77,6 @@ def status(
     )
     try:
         prepared_status = prepare_status(
-            change_overrides=context.config.change,
             config=context.config,
             fetch_remote_state=fetch,
             persist_bookmarks=False,

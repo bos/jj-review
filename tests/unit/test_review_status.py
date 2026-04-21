@@ -276,30 +276,24 @@ def test_summarize_github_lookup_error_preserves_transport_detail() -> None:
     )
 
 
-def test_pinned_bookmarks_for_revisions_prefers_override_then_cached_and_dedupes() -> None:
-    from jj_review.config import ChangeConfig
-
+def test_pinned_bookmarks_for_revisions_uses_cached_bookmarks_and_dedupes() -> None:
     first = cast(LocalRevision, SimpleNamespace(change_id="aaaaaaaa1234"))
     second = cast(LocalRevision, SimpleNamespace(change_id="bbbbbbbb5678"))
     third = cast(LocalRevision, SimpleNamespace(change_id="cccccccc9abc"))
     state = ReviewState(
         changes={
             "aaaaaaaa1234": CachedChange(bookmark="review/saved-aaaaaaaa"),
-            "bbbbbbbb5678": CachedChange(bookmark="review/override-from-config"),
+            "bbbbbbbb5678": CachedChange(bookmark="review/saved-bbbbbbbb"),
             "cccccccc9abc": CachedChange(bookmark="review/saved-aaaaaaaa"),
         }
     )
-    change_overrides = {
-        "bbbbbbbb5678": ChangeConfig(bookmark_override="review/override-from-config"),
-    }
 
     result = _pinned_bookmarks_for_revisions(
-        change_overrides=change_overrides,
         revisions=(first, second, third),
         state=state,
     )
 
-    assert result == ("review/saved-aaaaaaaa", "review/override-from-config")
+    assert result == ("review/saved-aaaaaaaa", "review/saved-bbbbbbbb")
 
 
 def test_prepare_status_narrows_bookmark_listing_when_all_revisions_are_pinned(
@@ -417,7 +411,6 @@ def _prepare_status_for_test(
     from jj_review.review.status import prepare_status
 
     return prepare_status(
-        change_overrides={},
         config=config,
         fetch_remote_state=fetch_remote_state,
         repo_root=repo_root,

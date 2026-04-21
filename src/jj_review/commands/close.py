@@ -1,10 +1,11 @@
 """Close the GitHub pull requests for the selected stack.
 
 By default, this closes those pull requests, and `--cleanup` also removes
-jj-review's GitHub branches and any local bookmarks for them. Use
-`--pull-request` to select the linked local change by pull request number or
-URL, and `--dry-run` to preview the close plan without mutating jj-review or
-GitHub state.
+jj-review's own review branches, their local bookmarks, and saved tracking
+data. Bookmarks you asked `jj-review` to reuse are preserved unless
+`cleanup_user_bookmarks = true`. Use `--pull-request` to select the linked
+local change by pull request number or URL, and `--dry-run` to preview the
+close plan without mutating jj-review or GitHub state.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from typing import Any, Literal
 
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.config import ChangeConfig, RepoConfig
+from jj_review.config import RepoConfig
 from jj_review.errors import CliError, ErrorMessage, error_message
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
@@ -31,7 +32,7 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.github import GithubIssueComment
 from jj_review.models.intent import CloseIntent, LoadedIntent, SubmitIntent
 from jj_review.models.review_state import CachedChange, ReviewState
-from jj_review.review.bookmarks import is_review_bookmark
+from jj_review.review.bookmarks import bookmark_ownership_for_source, is_review_bookmark
 from jj_review.review.intents import (
     close_intent_mode_relation,
     describe_intent,
@@ -151,6 +152,7 @@ class _CloseCleanupContext:
     """Shared dependencies for bookmark and stack-comment cleanup."""
 
     bookmark_prefix: str
+    cleanup_user_bookmarks: bool
     dry_run: bool
     github_client: GithubClient
     github_repository: Any
@@ -213,7 +215,6 @@ def close(
     prepared_close = prepare_close(
         dry_run=dry_run,
         cleanup=cleanup,
-        change_overrides=context.config.change,
         config=context.config,
         repo_root=context.repo_root,
         revset=resolved_revset,
@@ -255,7 +256,6 @@ def close(
 def prepare_close(
     *,
     dry_run: bool,
-    change_overrides: dict[str, ChangeConfig],
     cleanup: bool,
     config: RepoConfig,
     repo_root: Path,
@@ -279,7 +279,6 @@ def prepare_close(
         dry_run=dry_run,
         cleanup=cleanup,
         prepared_status=prepare_status(
-            change_overrides=change_overrides,
             config=config,
             fetch_remote_state=cleanup,
             fetch_only_when_tracked=True,
@@ -844,6 +843,7 @@ async def _process_close_revision(
             return False
         cached_change = CachedChange(
             bookmark=revision.bookmark,
+            bookmark_ownership=bookmark_ownership_for_source(revision.bookmark_source),
             pr_number=lookup.pull_request.number,
             pr_state=lookup.pull_request.state,
             pr_url=lookup.pull_request.html_url,
@@ -1078,6 +1078,7 @@ async def _cleanup_if_requested(
     remote = prepared.remote
     cleanup_context = _CloseCleanupContext(
         bookmark_prefix=prepared_close.config.bookmark_prefix,
+        cleanup_user_bookmarks=prepared_close.config.cleanup_user_bookmarks,
         dry_run=prepared_close.dry_run,
         github_client=github_client,
         github_repository=github_repository,
@@ -1106,6 +1107,8 @@ async def _cleanup_revision(
     bookmark = cached_change.bookmark
     cleanup_plan = _plan_review_bookmark_cleanup(
         bookmark=bookmark,
+        cached_change=cached_change,
+        cleanup_user_bookmarks=context.cleanup_user_bookmarks,
         bookmark_state=bookmark_state,
         commit_id=commit_id,
         context=context,
@@ -1156,16 +1159,20 @@ async def _cleanup_revision(
 def _plan_review_bookmark_cleanup(
     *,
     bookmark: str | None,
+    cached_change: CachedChange,
+    cleanup_user_bookmarks: bool,
     bookmark_state: BookmarkState,
     commit_id: str | None,
     context: _CloseCleanupContext,
 ) -> _BookmarkCleanupPlan:
     """Validate bookmark ownership and decide which bookmark mutations are safe."""
 
-    if bookmark is None or not is_review_bookmark(
-        bookmark,
-        prefix=context.bookmark_prefix,
-    ):
+    if bookmark is None:
+        return _BookmarkCleanupPlan(local_forget=False, remote_delete=False)
+    if cached_change.manages_bookmark:
+        if not is_review_bookmark(bookmark, prefix=context.bookmark_prefix):
+            return _BookmarkCleanupPlan(local_forget=False, remote_delete=False)
+    elif not cleanup_user_bookmarks:
         return _BookmarkCleanupPlan(local_forget=False, remote_delete=False)
 
     local_forget = False

@@ -25,9 +25,11 @@ class RepoConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     bookmark_prefix: str = DEFAULT_BOOKMARK_PREFIX
+    cleanup_user_bookmarks: bool = False
     labels: list[str] = Field(default_factory=list)
     reviewers: list[str] = Field(default_factory=list)
     team_reviewers: list[str] = Field(default_factory=list)
+    use_bookmarks: list[str] = Field(default_factory=list)
 
     @field_validator("bookmark_prefix")
     @classmethod
@@ -39,13 +41,20 @@ class RepoConfig(BaseModel):
             raise ValueError("bookmark_prefix must not contain '/'")
         return prefix
 
-
-class ChangeConfig(BaseModel):
-    """User-authored per-change configuration."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    bookmark_override: str | None = None
+    @field_validator("use_bookmarks")
+    @classmethod
+    def _validate_use_bookmarks(cls, values: list[str]) -> list[str]:
+        patterns: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            pattern = value.strip()
+            if not pattern:
+                continue
+            if pattern in seen:
+                continue
+            seen.add(pattern)
+            patterns.append(pattern)
+        return patterns
 
 
 class LoggingConfig(BaseModel):
@@ -72,7 +81,6 @@ class AppConfig(RepoConfig):
 
     model_config = ConfigDict(extra="ignore")
 
-    change: dict[str, ChangeConfig] = Field(default_factory=dict)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
 
@@ -160,6 +168,15 @@ def _load_config_layer(config_path: Path) -> dict[str, object]:
                 f"[{CONFIG_SECTION}]."
             ),
         )
+    if "change" in config_data:
+        raise CliError(
+            f"Invalid jj-review config in {config_path}: per-change bookmark overrides were "
+            f"removed.",
+            hint=(
+                f"If you already have bookmark names you want to reuse, use "
+                f"[{CONFIG_SECTION}].use_bookmarks or {ui.cmd('submit --use-bookmarks')}."
+            ),
+        )
     _raise_on_likely_config_typos(config_data=config_data, source=str(config_path))
     return _validate_config(config_data, source=str(config_path)).model_dump(exclude_unset=True)
 
@@ -182,7 +199,7 @@ def _raise_on_likely_config_typos(*, config_data: Mapping[str, object], source: 
     _raise_on_likely_unknown_keys(
         table_path=f"[{CONFIG_SECTION}]",
         config_data=config_data,
-        allowed_keys=(*RepoConfig.model_fields, "logging", "change"),
+        allowed_keys=(*RepoConfig.model_fields, "logging"),
         source=source,
     )
 
@@ -192,19 +209,6 @@ def _raise_on_likely_config_typos(*, config_data: Mapping[str, object], source: 
             table_path=f"[{CONFIG_SECTION}.logging]",
             config_data=logging_config,
             allowed_keys=tuple(LoggingConfig.model_fields),
-            source=source,
-        )
-
-    change_config = config_data.get("change")
-    if not isinstance(change_config, Mapping):
-        return
-    for change_id, change_values in change_config.items():
-        if not isinstance(change_values, Mapping):
-            continue
-        _raise_on_likely_unknown_keys(
-            table_path=f'[{CONFIG_SECTION}.change."{change_id}"]',
-            config_data=change_values,
-            allowed_keys=tuple(ChangeConfig.model_fields),
             source=source,
         )
 
@@ -249,8 +253,6 @@ def _format_validation_issue(location: tuple[str, ...], message: str) -> str:
         return f"[{CONFIG_SECTION}].{location[0]}: {message}"
     if location[:1] == ("logging",) and len(location) == 2:
         return f"[{CONFIG_SECTION}.logging].{location[1]}: {message}"
-    if location[:1] == ("change",) and len(location) == 3:
-        return f'[{CONFIG_SECTION}.change."{location[1]}"].{location[2]}: {message}'
     if not location:
         return message
     return f"[{CONFIG_SECTION}].{'.'.join(location)}: {message}"

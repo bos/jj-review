@@ -14,8 +14,8 @@ tool-owned parent map.
 Each reviewable change should get one bookmark for its pull request, which acts
 as the GitHub PR head branch.
 
-Local metadata, if any, should be limited to the GitHub PR link, user
-overrides, and the pinned bookmark name chosen for a change when the default
+Local metadata, if any, should be limited to the GitHub PR link and the pinned
+bookmark name chosen for a change when the default
 name includes mutable text such as the commit subject.
 
 The result is a tool that behaves like a natural extension of `jj` instead of a
@@ -179,11 +179,16 @@ review.
 That means bookmark naming is "generate once, then pin", not "recompute forever
 from the current subject". The resolution order should be:
 
-1. explicit user override, if present
-2. previously chosen name discovered from local state, saved jj-review data, or
+1. previously chosen name discovered from local state, saved jj-review data, or
    an existing PR for that change
+2. otherwise, a matching existing bookmark selected through configured
+   `use_bookmarks` patterns, if present
 3. otherwise, generate the initial default from the current subject and
    `change_id`, then persist that choice
+
+Bookmarks matched through `use_bookmarks` are preserved external names rather
+than managed review bookmarks. Submit may push them, but later cleanup should
+not delete or forget them by default.
 
 If an implementation wants fully stateless names, it should drop the subject
 slug and derive names only from stable inputs such as `change_id`.
@@ -272,12 +277,12 @@ head branch matches the saved bookmark name, but that remote discovery should
 remain an explicit recovery flow rather than something plain `status` does for
 never-tracked local changes.
 
-User-authored settings and overrides are a separate category and should not be
+User-authored settings are a separate category and should not be
 mixed into machine-written jj-review data. Those include:
 
 - repo defaults such as reviewer or label preferences
-- explicit bookmark-name override for a specific change
-- per-change user preferences (future extension point; no current examples yet)
+- bookmark-selection patterns such as `use_bookmarks`
+- additional user preferences (future extension point; no current examples yet)
 
 ### Reviewer-Facing Stack Metadata
 
@@ -666,6 +671,12 @@ for review artifacts the tool can verify belong to that stack:
   selected stack
 - delete stack summary comments that belong to the closed stack
 - remove stale review tracking metadata such as a saved stack-summary comment ID
+- preserve externally selected bookmarks, such as ones reused through
+  `use_bookmarks`, unless some later explicit configuration opts into cleaning
+  them up too
+
+That explicit opt-in is `cleanup_user_bookmarks = true` under `[jj-review]`.
+It defaults to `false`.
 
 That cleanup should stay opt-in instead of implicit because closing PRs is less
 destructive than deleting branches. Preview output should make the difference
@@ -1225,9 +1236,8 @@ reviewers = ["octocat"]
 labels = ["needs-review"]
 ```
 
-User-authored per-change overrides such as `bookmark_override` belong in
-config, not in the machine-written state file. Additional per-change
-preferences are a future extension point.
+Bookmark-selection patterns such as `use_bookmarks` belong in config, not in
+the machine-written state file.
 
 ## Current Boundary
 
@@ -1244,7 +1254,7 @@ The current design intentionally rejects:
 - merge commits inside the review chain
 - divergent changes
 - stacked reviews that cross repositories or remotes
-- bookmark naming collisions caused by user overrides
+- bookmark naming collisions caused by matched or generated bookmark names
 
 ## Open Questions
 

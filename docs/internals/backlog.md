@@ -50,11 +50,12 @@ The remaining follow-up here is narrower:
 _Benefit: small — astronomically unlikely with the 8-char suffix; mostly a
 diagnostic quality improvement._
 
-The current design rejects bookmark naming collisions from user overrides, but
+The current design rejects bookmark naming collisions from matched or generated
+bookmark resolution, but
 two changes could theoretically produce the same slug+suffix. The 8-char
 `change_id` suffix makes this extremely unlikely, but the tool should detect
 it and fail with a clear diagnostic describing what went wrong and how to
-resolve it (e.g., set an explicit bookmark override for one of the changes).
+resolve it (e.g., narrow `use_bookmarks` patterns or rename a bookmark).
 
 ## Repo-Scoped Sync
 

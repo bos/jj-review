@@ -127,6 +127,61 @@ def test_submit_uses_configured_bookmark_prefix(
     )
 
 
+def test_submit_uses_configured_use_bookmarks(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(
+        monkeypatch,
+        tmp_path,
+        fake_repo,
+        extra_config_lines=['use_bookmarks = ["potato/*", "spam/eggs"]'],
+    )
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+    stack = JjClient(repo).discover_review_stack()
+    run_command(
+        ["jj", "bookmark", "create", "potato/feature-1", "-r", stack.revisions[0].commit_id], repo
+    )
+    run_command(
+        ["jj", "bookmark", "create", "spam/eggs", "-r", stack.revisions[1].commit_id], repo
+    )
+
+    assert run_main(repo, config_path, "submit") == 0
+    state = ReviewStateStore.for_repo(repo).load()
+
+    assert state.changes[stack.revisions[0].change_id].bookmark == "potato/feature-1"
+    assert state.changes[stack.revisions[0].change_id].bookmark_ownership == "external"
+    assert state.changes[stack.revisions[1].change_id].bookmark == "spam/eggs"
+    assert state.changes[stack.revisions[1].change_id].bookmark_ownership == "external"
+    assert "refs/heads/potato/feature-1" in remote_refs(fake_repo.git_dir)
+    assert "refs/heads/spam/eggs" in remote_refs(fake_repo.git_dir)
+
+
+def test_submit_cli_use_bookmarks_overrides_configured_patterns(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(
+        monkeypatch,
+        tmp_path,
+        fake_repo,
+        extra_config_lines=['use_bookmarks = ["wrong/*"]'],
+    )
+    commit_file(repo, "feature 1", "feature-1.txt")
+    stack = JjClient(repo).discover_review_stack()
+    run_command(
+        ["jj", "bookmark", "create", "potato/feature-1", "-r", stack.revisions[0].commit_id], repo
+    )
+
+    assert run_main(repo, config_path, "submit", "--use-bookmarks=potato/*") == 0
+    state = ReviewStateStore.for_repo(repo).load()
+
+    assert state.changes[stack.revisions[0].change_id].bookmark == "potato/feature-1"
+    assert state.changes[stack.revisions[0].change_id].bookmark_ownership == "external"
+
 def test_submit_draft_creates_draft_pull_requests_and_persists_draft_state(
     tmp_path: Path,
     monkeypatch,
@@ -1266,33 +1321,32 @@ def test_submit_accepts_stack_forked_from_trunk_ancestor(
     assert read_remote_ref(fake_repo.git_dir, bookmark) == stack.revisions[-1].commit_id
 
 
-def test_submit_rejects_duplicate_bookmark_overrides_before_projection(
+def test_submit_rejects_ambiguous_use_bookmarks_matches(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
-    configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    commit_file(repo, "feature 2", "feature-2.txt")
-    stack = JjClient(repo).discover_review_stack()
-    config_path = write_config(
+    config_path = configure_submit_environment(
+        monkeypatch,
         tmp_path,
         fake_repo,
-        extra_lines=[
-            f'[jj-review.change."{stack.revisions[0].change_id}"]',
-            'bookmark_override = "review/same"',
-            "",
-            f'[jj-review.change."{stack.revisions[1].change_id}"]',
-            'bookmark_override = "review/same"',
-        ],
+        extra_config_lines=['use_bookmarks = ["potato/*", "spam/*"]'],
+    )
+    commit_file(repo, "feature 1", "feature-1.txt")
+    stack = JjClient(repo).discover_review_stack()
+    run_command(
+        ["jj", "bookmark", "create", "potato/feature-1", "-r", stack.revisions[0].commit_id], repo
+    )
+    run_command(
+        ["jj", "bookmark", "create", "spam/feature-1", "-r", stack.revisions[0].commit_id], repo
     )
 
     exit_code = run_main(repo, config_path, "submit")
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "multiple changes to the same bookmark" in captured.err
+    assert "multiple existing bookmarks match the configured bookmark patterns" in captured.err
     assert ReviewStateStore.for_repo(repo).load().changes == {}
     assert set(remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
     assert fake_repo.pull_requests == {}

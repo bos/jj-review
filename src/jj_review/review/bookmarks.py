@@ -2,23 +2,24 @@
 
 from __future__ import annotations
 
+import fnmatch
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
 from jj_review import ui
-from jj_review.config import DEFAULT_BOOKMARK_PREFIX, ChangeConfig
+from jj_review.config import DEFAULT_BOOKMARK_PREFIX
 from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
 from jj_review.models.bookmarks import BookmarkState
-from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.models.review_state import BookmarkOwnership, CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 _DEFAULT_SLUG = "change"
 
-BookmarkSource = Literal["saved", "discovered", "generated", "override"]
+BookmarkSource = Literal["saved", "matched", "discovered", "generated"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +46,9 @@ class RevisionWithChangeId(Protocol):
     @property
     def change_id(self) -> str: ...
 
+    @property
+    def commit_id(self) -> str: ...
+
 
 class BookmarkResolver:
     """Resolve bookmark names using saved-data-first semantics."""
@@ -52,14 +56,14 @@ class BookmarkResolver:
     def __init__(
         self,
         state: ReviewState,
-        overrides: Mapping[str, ChangeConfig] | None = None,
         *,
         prefix: str = DEFAULT_BOOKMARK_PREFIX,
+        matched_bookmarks: Mapping[str, str] | None = None,
         discovered_bookmarks: Mapping[str, str] | None = None,
     ) -> None:
         self._state = state
-        self._overrides = overrides or {}
         self._prefix = prefix
+        self._matched_bookmarks = matched_bookmarks or {}
         self._discovered_bookmarks = discovered_bookmarks or {}
 
     def pin_revisions(
@@ -72,23 +76,30 @@ class BookmarkResolver:
         changes = dict(self._state.changes)
         resolutions: list[ResolvedBookmark] = []
         for revision in revisions:
-            configured_change = self._overrides.get(revision.change_id)
             cached_change = changes.get(revision.change_id)
-            if configured_change and configured_change.bookmark_override:
-                resolutions.append(
-                    ResolvedBookmark(
-                        bookmark=configured_change.bookmark_override,
-                        change_id=revision.change_id,
-                        source="override",
-                    )
-                )
-                continue
             if cached_change and cached_change.bookmark:
                 resolutions.append(
                     ResolvedBookmark(
                         bookmark=cached_change.bookmark,
                         change_id=revision.change_id,
                         source="saved",
+                    )
+                )
+                continue
+            if matched_bookmark := self._matched_bookmarks.get(revision.change_id):
+                updated_change = _updated_cached_change(
+                    cached_change,
+                    matched_bookmark,
+                    bookmark_ownership=bookmark_ownership_for_source("matched"),
+                )
+                if updated_change != cached_change:
+                    changes[revision.change_id] = updated_change
+                    changed = True
+                resolutions.append(
+                    ResolvedBookmark(
+                        bookmark=matched_bookmark,
+                        change_id=revision.change_id,
+                        source="matched",
                     )
                 )
                 continue
@@ -152,6 +163,43 @@ def generate_bookmark_name(
     return f"{prefix}/{slug}-{short_change_id(revision.change_id)}"
 
 
+def match_bookmarks_for_revisions(
+    *,
+    bookmark_states: dict[str, BookmarkState],
+    patterns: tuple[str, ...],
+    revisions: tuple[RevisionWithChangeId, ...],
+    remote_name: str | None,
+) -> dict[str, str]:
+    """Match existing bookmarks to revisions by bookmark glob and commit target."""
+
+    if not patterns:
+        return {}
+
+    matched: dict[str, str] = {}
+    for revision in revisions:
+        candidates = [
+            bookmark
+            for bookmark, bookmark_state in bookmark_states.items()
+            if _bookmark_matches_patterns(bookmark, patterns)
+            and _bookmark_state_matches_revision(
+                bookmark_state=bookmark_state,
+                commit_id=revision.commit_id,
+                remote_name=remote_name,
+            )
+        ]
+        unique_candidates = sorted(set(candidates))
+        if len(unique_candidates) > 1:
+            raise CliError(
+                t"Could not safely select a bookmark for change "
+                t"{ui.change_id(revision.change_id)}: multiple existing bookmarks match "
+                t"the configured bookmark patterns: "
+                t"{ui.join(ui.bookmark, unique_candidates)}."
+            )
+        if unique_candidates:
+            matched[revision.change_id] = unique_candidates[0]
+    return matched
+
+
 def discover_bookmarks_for_revisions(
     *,
     bookmark_states: dict[str, BookmarkState],
@@ -204,7 +252,7 @@ def ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
     raise CliError(
         t"Selected stack resolves multiple changes to the same bookmark: "
         t"{collisions}.",
-        hint="Configure distinct bookmark names before submitting.",
+        hint="Use distinct bookmarks or narrower --use-bookmarks patterns before submitting.",
     )
 
 
@@ -220,6 +268,12 @@ def bookmark_matches_generated_change_id(
     ) and bookmark.endswith(f"-{short_change_id(change_id)}")
 
 
+def bookmark_ownership_for_source(source: BookmarkSource) -> BookmarkOwnership:
+    """Return whether jj-review should clean up a bookmark from this source."""
+
+    return "external" if source == "matched" else "managed"
+
+
 def _bookmark_state_is_discoverable(bookmark_state: BookmarkState, remote_name: str) -> bool:
     if bookmark_state.local_targets:
         return True
@@ -227,10 +281,38 @@ def _bookmark_state_is_discoverable(bookmark_state: BookmarkState, remote_name: 
     return remote_state is not None and bool(remote_state.targets)
 
 
+def _bookmark_matches_patterns(bookmark: str, patterns: tuple[str, ...]) -> bool:
+    return any(fnmatch.fnmatchcase(bookmark, pattern) for pattern in patterns)
+
+
+def _bookmark_state_matches_revision(
+    *,
+    bookmark_state: BookmarkState,
+    commit_id: str,
+    remote_name: str | None,
+) -> bool:
+    if bookmark_state.local_target == commit_id:
+        return True
+    if remote_name is None:
+        return False
+    remote_state = bookmark_state.remote_target(remote_name)
+    return remote_state is not None and remote_state.target == commit_id
+
+
 def _updated_cached_change(
     cached_change: CachedChange | None,
     bookmark: str,
+    *,
+    bookmark_ownership: BookmarkOwnership = "managed",
 ) -> CachedChange:
     if cached_change is None:
-        return CachedChange(bookmark=bookmark)
-    return cached_change.model_copy(update={"bookmark": bookmark})
+        return CachedChange(
+            bookmark=bookmark,
+            bookmark_ownership=bookmark_ownership,
+        )
+    return cached_change.model_copy(
+        update={
+            "bookmark": bookmark,
+            "bookmark_ownership": bookmark_ownership,
+        }
+    )

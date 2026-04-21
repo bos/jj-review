@@ -20,7 +20,7 @@ from typing import Literal, Protocol
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
-from jj_review.config import ChangeConfig, RepoConfig
+from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.formatting import (
     format_pull_request_label,
@@ -53,8 +53,10 @@ from jj_review.review.bookmarks import (
     BookmarkResolutionResult,
     BookmarkResolver,
     BookmarkSource,
+    bookmark_ownership_for_source,
     discover_bookmarks_for_revisions,
     ensure_unique_bookmarks,
+    match_bookmarks_for_revisions,
 )
 from jj_review.review.intents import retire_superseded_intents
 from jj_review.review.selection import (
@@ -269,6 +271,7 @@ def submit(
     reviewers: Sequence[str] | None,
     revset: str | None,
     team_reviewers: Sequence[str] | None,
+    use_bookmarks: Sequence[str] | None,
 ) -> int:
     """CLI entrypoint for `submit`."""
 
@@ -286,6 +289,7 @@ def submit(
     label_list = parse_comma_separated_flag_values(labels)
     reviewer_list = parse_comma_separated_flag_values(reviewers)
     team_reviewer_list = parse_comma_separated_flag_values(team_reviewers)
+    use_bookmark_list = parse_comma_separated_flag_values(use_bookmarks)
     emitted_prepared = False
 
     def emit_prepared(
@@ -305,7 +309,6 @@ def submit(
     state_store = ReviewStateStore.for_repo(context.repo_root)
     result = asyncio.run(
         _run_submit_async(
-            change_overrides=context.config.change,
             config=context.config,
             describe_with=describe_with,
             draft_mode=(
@@ -322,6 +325,7 @@ def submit(
             reviewers=reviewer_list,
             state_store=state_store,
             team_reviewers=team_reviewer_list,
+            use_bookmarks=use_bookmark_list,
         )
     )
     if not emitted_prepared:
@@ -510,7 +514,6 @@ def _build_submit_result(
 
 def _prepare_submit_inputs(
     *,
-    change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     describe_with: str | None,
     dry_run: bool,
@@ -518,6 +521,7 @@ def _prepare_submit_inputs(
     repo_root: Path,
     revset: str | None,
     state_store: ReviewStateStore,
+    use_bookmarks: tuple[str, ...],
 ) -> _PreparedSubmitInputs:
     """Load local submit state before any GitHub mutation begins."""
 
@@ -537,6 +541,12 @@ def _prepare_submit_inputs(
         )
     state = state_store.load()
     bookmark_states = client.list_bookmark_states()
+    matched_bookmarks = match_bookmarks_for_revisions(
+        bookmark_states=bookmark_states,
+        patterns=use_bookmarks,
+        revisions=stack.revisions,
+        remote_name=remote.name,
+    )
     discovered_bookmarks = discover_bookmarks_for_revisions(
         bookmark_states=bookmark_states,
         prefix=config.bookmark_prefix,
@@ -545,8 +555,8 @@ def _prepare_submit_inputs(
     )
     bookmark_result = BookmarkResolver(
         state,
-        change_overrides,
         prefix=config.bookmark_prefix,
+        matched_bookmarks=matched_bookmarks,
         discovered_bookmarks=discovered_bookmarks,
     ).pin_revisions(stack.revisions)
     ensure_unique_bookmarks(bookmark_result.resolutions)
@@ -829,7 +839,6 @@ def _build_local_only_dry_run_result(
 
 async def _run_submit_async(
     *,
-    change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     describe_with: str | None,
     draft_mode: SubmitDraftMode,
@@ -842,9 +851,10 @@ async def _run_submit_async(
     reviewers: list[str] | None,
     state_store: ReviewStateStore,
     team_reviewers: list[str] | None,
+    use_bookmarks: list[str] | None,
 ) -> SubmitResult:
+    resolved_use_bookmarks = config.use_bookmarks if use_bookmarks is None else use_bookmarks
     prepared_inputs = _prepare_submit_inputs(
-        change_overrides=change_overrides,
         config=config,
         describe_with=describe_with,
         dry_run=dry_run,
@@ -852,6 +862,7 @@ async def _run_submit_async(
         repo_root=repo_root,
         revset=revset,
         state_store=state_store,
+        use_bookmarks=tuple(resolved_use_bookmarks),
     )
     client = prepared_inputs.client
     remote = prepared_inputs.remote
@@ -1523,6 +1534,7 @@ async def _sync_pull_request_task(
     pull_request_result = await _sync_pull_request(
         base_branch=pending_sync.base_branch,
         bookmark=prepared_revision.bookmark,
+        bookmark_source=prepared_revision.bookmark_source,
         change_id=prepared_revision.change_id,
         discovered_pull_request=pending_sync.discovered_pull_request,
         draft_mode=draft_mode,
@@ -1577,6 +1589,7 @@ async def _sync_pull_request(
     *,
     base_branch: str,
     bookmark: str,
+    bookmark_source: BookmarkSource,
     change_id: str,
     discovered_pull_request: GithubPullRequest | None,
     draft_mode: SubmitDraftMode,
@@ -1694,6 +1707,7 @@ async def _sync_pull_request(
     if pull_request is not None:
         next_cached_change = _updated_cached_change(
             bookmark=bookmark,
+            bookmark_source=bookmark_source,
             cached_change=cached_change,
             commit_id=revision.commit_id,
             pull_request=pull_request,
@@ -2389,6 +2403,7 @@ def _pull_request_body(description: str) -> str:
 def _updated_cached_change(
     *,
     bookmark: str,
+    bookmark_source: BookmarkSource,
     cached_change: CachedChange | None,
     commit_id: str,
     pull_request: GithubPullRequest,
@@ -2396,6 +2411,7 @@ def _updated_cached_change(
     if cached_change is None:
         return CachedChange(
             bookmark=bookmark,
+            bookmark_ownership=bookmark_ownership_for_source(bookmark_source),
             last_submitted_commit_id=commit_id,
             pr_is_draft=pull_request.is_draft,
             pr_number=pull_request.number,
@@ -2405,6 +2421,7 @@ def _updated_cached_change(
     return cached_change.model_copy(
         update={
             "bookmark": bookmark,
+            "bookmark_ownership": bookmark_ownership_for_source(bookmark_source),
             "last_submitted_commit_id": commit_id,
             "pr_is_draft": pull_request.is_draft,
             "pr_number": pull_request.number,

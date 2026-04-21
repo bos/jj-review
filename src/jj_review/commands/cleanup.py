@@ -20,7 +20,7 @@ from typing import Literal
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
-from jj_review.config import ChangeConfig, RepoConfig
+from jj_review.config import RepoConfig
 from jj_review.errors import CliError, ErrorMessage, error_message
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
@@ -249,7 +249,6 @@ def cleanup(
     if restack:
         return _run_cleanup_restack_command(
             dry_run=dry_run,
-            change_overrides=context.config.change,
             config=context.config,
             repo_root=context.repo_root,
             revset=revset,
@@ -265,7 +264,6 @@ def cleanup(
 def _run_cleanup_restack_command(
     *,
     dry_run: bool,
-    change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     repo_root: Path,
     revset: str | None,
@@ -283,7 +281,6 @@ def _run_cleanup_restack_command(
             config=config,
             dry_run=dry_run,
             prepared_status=prepare_status(
-                change_overrides=change_overrides,
                 config=config,
                 fetch_remote_state=True,
                 fetch_only_when_tracked=True,
@@ -1166,12 +1163,14 @@ def _process_stale_cleanup_change(
         next_changes.pop(prepared_change.change_id, None)
 
     local_bookmark_plan = _plan_local_bookmark_cleanup(
+        cleanup_user_bookmarks=prepared_cleanup.config.cleanup_user_bookmarks,
         bookmark_state=prepared_change.bookmark_state,
         prefix=prepared_cleanup.config.bookmark_prefix,
         cached_change=prepared_change.cached_change,
         stale_reason=stale_reason,
     )
     remote_plan = _plan_remote_branch_cleanup(
+        cleanup_user_bookmarks=prepared_cleanup.config.cleanup_user_bookmarks,
         bookmark_state=prepared_change.bookmark_state,
         prefix=prepared_cleanup.config.bookmark_prefix,
         cached_change=prepared_change.cached_change,
@@ -1529,6 +1528,7 @@ def _stale_change_reasons(
 
 def _plan_remote_branch_cleanup(
     *,
+    cleanup_user_bookmarks: bool,
     bookmark_state: BookmarkState,
     prefix: str,
     cached_change: CachedChange,
@@ -1536,10 +1536,14 @@ def _plan_remote_branch_cleanup(
     remote: GitRemote | None,
 ) -> RemoteBranchCleanupPlan | None:
     bookmark = cached_change.bookmark
-    if remote is None or bookmark is None or not is_review_bookmark(
-        bookmark,
-        prefix=prefix,
-    ):
+    if bookmark is None:
+        return None
+    if cached_change.manages_bookmark:
+        if not is_review_bookmark(bookmark, prefix=prefix):
+            return None
+    elif not cleanup_user_bookmarks:
+        return None
+    if remote is None:
         return None
 
     remote_state = bookmark_state.remote_target(remote.name)
@@ -1582,16 +1586,19 @@ def _plan_remote_branch_cleanup(
 
 def _plan_local_bookmark_cleanup(
     *,
+    cleanup_user_bookmarks: bool,
     bookmark_state: BookmarkState,
     prefix: str,
     cached_change: CachedChange,
     stale_reason: str,
 ) -> CleanupAction | None:
     bookmark = cached_change.bookmark
-    if bookmark is None or not is_review_bookmark(
-        bookmark,
-        prefix=prefix,
-    ):
+    if bookmark is None:
+        return None
+    if cached_change.manages_bookmark:
+        if not is_review_bookmark(bookmark, prefix=prefix):
+            return None
+    elif not cleanup_user_bookmarks:
         return None
     if not bookmark_state.local_targets:
         return None

@@ -289,6 +289,7 @@ def test_stack_not_on_trunk_error_recommends_cleanup_when_stack_has_landed_chang
 def test_updated_landed_change_marks_pr_merged_and_clears_stack_comment() -> None:
     updated = _updated_landed_change(
         bookmark="review/feature-1-aaaaaaaa",
+        bookmark_managed=True,
         cached_change=CachedChange(
             bookmark="review/feature-1-aaaaaaaa",
             last_submitted_commit_id="old-commit",
@@ -389,7 +390,6 @@ def test_resume_land_plan_skips_completed_change_ids() -> None:
     assert [revision.change_id for revision in plan.landed_revisions] == ["change-2"]
     assert [revision.pull_request_number for revision in plan.landed_revisions] == [2]
 
-
 def test_resume_land_plan_rejects_incomplete_intent_data() -> None:
     intent = cast(
         LandIntent,
@@ -434,6 +434,8 @@ def test_restore_local_trunk_bookmark_forgets_bookmark_when_original_target_miss
 def test_plan_review_bookmark_cleanup_forgets_owned_landed_bookmark() -> None:
     plan = _plan_review_bookmark_cleanup(
         bookmark="bosullivan/feature-aaaaaaaa",
+        bookmark_managed=True,
+        cleanup_user_bookmarks=False,
         prefix="bosullivan",
         bookmark_state=BookmarkState(
             name="bosullivan/feature-aaaaaaaa",
@@ -449,9 +451,47 @@ def test_plan_review_bookmark_cleanup_forgets_owned_landed_bookmark() -> None:
     assert plan.action.status == "planned"
 
 
+def test_plan_review_bookmark_cleanup_skips_external_bookmark() -> None:
+    plan = _plan_review_bookmark_cleanup(
+        bookmark="review/feature-aaaaaaaa",
+        bookmark_managed=False,
+        cleanup_user_bookmarks=False,
+        prefix="review",
+        bookmark_state=BookmarkState(
+            name="review/feature-aaaaaaaa",
+            local_targets=("commit-1",),
+        ),
+        change_id="change-1",
+        commit_id="commit-1",
+    )
+
+    assert plan is None
+
+
+def test_plan_review_bookmark_cleanup_forgets_external_bookmark_when_configured() -> None:
+    plan = _plan_review_bookmark_cleanup(
+        bookmark="potato/feature-aaaaaaaa",
+        bookmark_managed=False,
+        cleanup_user_bookmarks=True,
+        prefix="review",
+        bookmark_state=BookmarkState(
+            name="potato/feature-aaaaaaaa",
+            local_targets=("commit-1",),
+        ),
+        change_id="change-1",
+        commit_id="commit-1",
+    )
+
+    assert plan is not None
+    assert plan.can_forget is True
+    assert plan.action.status == "planned"
+
+
 def test_plan_review_bookmark_cleanup_blocks_conflicted_bookmark() -> None:
     plan = _plan_review_bookmark_cleanup(
         bookmark="review/feature-aaaaaaaa",
+        bookmark_managed=True,
+        cleanup_user_bookmarks=False,
         prefix="review",
         bookmark_state=BookmarkState(
             name="review/feature-aaaaaaaa",
@@ -470,6 +510,8 @@ def test_plan_review_bookmark_cleanup_blocks_conflicted_bookmark() -> None:
 def test_plan_review_bookmark_cleanup_blocks_moved_bookmark() -> None:
     plan = _plan_review_bookmark_cleanup(
         bookmark="review/feature-aaaaaaaa",
+        bookmark_managed=True,
+        cleanup_user_bookmarks=False,
         prefix="review",
         bookmark_state=BookmarkState(
             name="review/feature-aaaaaaaa",
@@ -672,6 +714,9 @@ def _loaded_land_intent(
             landed_change_ids=landed_change_ids,
             landed_bookmarks={
                 change_id: f"review/{change_id}" for change_id in ordered_change_ids
+            },
+            landed_bookmark_managed={
+                change_id: True for change_id in ordered_change_ids
             },
             landed_commit_ids={
                 change_id: commit_id

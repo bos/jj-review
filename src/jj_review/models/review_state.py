@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 LinkState = Literal["active", "unlinked"]
+BookmarkOwnership = Literal["managed", "external"]
 
 
 class CachedChange(BaseModel):
@@ -15,6 +16,7 @@ class CachedChange(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     bookmark: str | None = None
+    bookmark_ownership: BookmarkOwnership = "managed"
     last_submitted_commit_id: str | None = None
     link_state: LinkState = "active"
     pr_is_draft: bool | None = None
@@ -52,9 +54,15 @@ class CachedChange(BaseModel):
 
         return self.link_state == "unlinked"
 
+    @property
+    def manages_bookmark(self) -> bool:
+        """Whether jj-review should clean up this bookmark automatically."""
+
+        return self.bookmark_ownership == "managed"
+
 
 class ReviewState(BaseModel):
-    """Saved local jj-review data and user overrides."""
+    """Saved local jj-review data."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

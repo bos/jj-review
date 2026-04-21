@@ -162,6 +162,7 @@ def build_parser() -> ArgumentParser:
             reviewers=args.reviewers,
             revset=args.revset,
             team_reviewers=args.team_reviewers,
+            use_bookmarks=args.use_bookmarks,
         ),
         revset_help=(
             t"Revision to submit; defaults to {ui.revset('@-')} "
@@ -232,6 +233,18 @@ def build_parser() -> ArgumentParser:
         help=(
             "Comma-separated GitHub team slugs to request on submitted pull requests; "
             "repeat to add more; overrides configured team reviewers"
+        ),
+    )
+    _add_help_argument(
+        submit_parser,
+        "--use-bookmarks",
+        dest="use_bookmarks",
+        action="append",
+        help=(
+            "Comma-separated existing bookmark names or glob patterns to try first "
+            "for selected changes; repeat to add more; overrides configured "
+            "use_bookmarks. Reused bookmarks stay during later cleanup unless "
+            "cleanup_user_bookmarks is true"
         ),
     )
     _add_help_argument(
@@ -364,7 +377,10 @@ def build_parser() -> ArgumentParser:
     close_parser.add_argument(
         "--cleanup",
         action="store_true",
-        help="Also delete the review branches and tracking data for the stack",
+        help=(
+            "Also delete jj-review-managed review branches and tracking data for the "
+            "stack; reused user bookmarks stay unless cleanup_user_bookmarks is true"
+        ),
     )
     _add_help_argument(
         close_parser,

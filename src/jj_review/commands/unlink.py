@@ -12,9 +12,10 @@ from pathlib import Path
 
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.config import ChangeConfig, RepoConfig
+from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.models.review_state import CachedChange
+from jj_review.review.bookmarks import bookmark_ownership_for_source
 from jj_review.review.selection import resolve_selected_revset
 from jj_review.review.status import (
     prepare_status,
@@ -52,7 +53,6 @@ def unlink(
     )
     result = asyncio.run(
         _run_unlink_async(
-            change_overrides=context.config.change,
             config=context.config,
             repo_root=context.repo_root,
             revset=resolve_selected_revset(
@@ -78,13 +78,11 @@ def unlink(
 
 async def _run_unlink_async(
     *,
-    change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     repo_root: Path,
     revset: str | None,
 ) -> UnlinkResult:
     prepared_status = prepare_status(
-        change_overrides=change_overrides,
         config=config,
         fetch_remote_state=True,
         persist_bookmarks=False,
@@ -145,6 +143,11 @@ async def _run_unlink_async(
     updated_change = (cached_change or CachedChange(bookmark=bookmark)).model_copy(
         update={
             "bookmark": bookmark,
+            "bookmark_ownership": (
+                cached_change.bookmark_ownership
+                if cached_change is not None
+                else bookmark_ownership_for_source(status_revision.bookmark_source)
+            ),
             "link_state": "unlinked",
             "pr_number": None,
             "pr_review_decision": None,

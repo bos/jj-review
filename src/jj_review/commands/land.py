@@ -11,10 +11,10 @@ landing plan without mutating jj or GitHub state.
 Use `--pull-request` to select the linked local change by pull request number
 or URL and land the consecutive ready prefix through that change.
 
-After a successful land, `jj-review` forgets the local managed review
-bookmarks for the changes that actually landed when those bookmarks still
-point at the landed commits. Use `--skip-cleanup` to keep those local review
-bookmarks.
+After a successful land, `jj-review` forgets the local review bookmarks it
+created for the changes that actually landed when those bookmarks still point
+at the landed commits. Reused user bookmarks stay by default. Use
+`--skip-cleanup` to keep even `jj-review`'s own local review bookmarks.
 
 If later changes remain above that point, run `cleanup --restack` and then
 `submit` to keep those remaining changes under review.
@@ -32,7 +32,7 @@ from typing import Literal, Protocol
 
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.config import ChangeConfig, RepoConfig
+from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
@@ -124,6 +124,7 @@ class _LandRevision:
     """One landed change plus its GitHub link."""
 
     bookmark: str
+    bookmark_managed: bool
     change_id: str
     commit_id: str
     needs_resubmit: bool
@@ -239,7 +240,6 @@ def land(
         cleanup_bookmarks=not skip_cleanup,
         dry_run=dry_run,
         bypass_readiness=bypass_readiness,
-        change_overrides=context.config.change,
         config=context.config,
         repo_root=context.repo_root,
         revset=resolved_revset,
@@ -309,7 +309,6 @@ def prepare_land(
     cleanup_bookmarks: bool,
     dry_run: bool,
     bypass_readiness: bool,
-    change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     repo_root: Path,
     revset: str | None,
@@ -318,7 +317,6 @@ def prepare_land(
     """Resolve local landing inputs before GitHub planning and execution."""
 
     prepared_status = prepare_status(
-        change_overrides=change_overrides,
         config=config,
         fetch_remote_state=True,
         re_resolve_after_remote_refresh=True,
@@ -427,6 +425,7 @@ async def _stream_land_async(
             client=prepared.client,
             prefix=prepared_land.config.bookmark_prefix,
             cleanup_bookmarks=prepared_land.cleanup_bookmarks,
+            cleanup_user_bookmarks=prepared_land.config.cleanup_user_bookmarks,
             landed_revisions=plan.landed_revisions,
         )
         if prepared_land.dry_run:
@@ -603,6 +602,7 @@ async def _stream_land_async(
                 )
                 state_changes[landed_revision.change_id] = _updated_landed_change(
                     bookmark=landed_revision.bookmark,
+                    bookmark_managed=landed_revision.bookmark_managed,
                     cached_change=state_changes.get(landed_revision.change_id),
                     commit_id=landed_revision.commit_id,
                     pull_request=final_pull_request,
@@ -946,6 +946,11 @@ def _collect_landable_prefix(
         landed_revisions.append(
             _LandRevision(
                 bookmark=revision.bookmark,
+                bookmark_managed=(
+                    revision.cached_change.manages_bookmark
+                    if revision.cached_change is not None
+                    else revision.bookmark_source != "matched"
+                ),
                 change_id=revision.change_id,
                 commit_id=local_commit_id,
                 needs_resubmit=divergence == "diff_equivalent",
@@ -1192,6 +1197,7 @@ def _resume_land_plan(*, intent: LandIntent, trunk_branch: str) -> _LandPlan:
             landed_revisions.append(
                 _LandRevision(
                     bookmark=intent.landed_bookmarks[change_id],
+                    bookmark_managed=intent.landed_bookmark_managed[change_id],
                     change_id=change_id,
                     commit_id=intent.landed_commit_ids[change_id],
                     needs_resubmit=False,
@@ -1228,6 +1234,8 @@ def _restore_local_trunk_bookmark(
 def _plan_review_bookmark_cleanup(
     *,
     bookmark: str,
+    bookmark_managed: bool,
+    cleanup_user_bookmarks: bool,
     prefix: str,
     bookmark_state: BookmarkState,
     change_id: str,
@@ -1235,7 +1243,10 @@ def _plan_review_bookmark_cleanup(
 ) -> _ReviewBookmarkCleanupPlan | None:
     """Validate whether `land` can forget one landed local review bookmark."""
 
-    if not is_review_bookmark(bookmark, prefix=prefix):
+    if bookmark_managed:
+        if not is_review_bookmark(bookmark, prefix=prefix):
+            return None
+    elif not cleanup_user_bookmarks:
         return None
     if not bookmark_state.local_targets:
         return None
@@ -1284,6 +1295,7 @@ def _plan_review_bookmark_cleanup_for_revisions(
     client: _BookmarkStateReader,
     prefix: str,
     cleanup_bookmarks: bool,
+    cleanup_user_bookmarks: bool,
     landed_revisions: tuple[_LandRevision, ...],
 ) -> tuple[_ReviewBookmarkCleanupPlan, ...]:
     """Plan which landed local review bookmarks `land` should forget."""
@@ -1294,6 +1306,8 @@ def _plan_review_bookmark_cleanup_for_revisions(
     for landed_revision in landed_revisions:
         cleanup_plan = _plan_review_bookmark_cleanup(
             bookmark=landed_revision.bookmark,
+            bookmark_managed=landed_revision.bookmark_managed,
+            cleanup_user_bookmarks=cleanup_user_bookmarks,
             prefix=prefix,
             bookmark_state=client.get_bookmark_state(landed_revision.bookmark),
             change_id=landed_revision.change_id,
@@ -1478,6 +1492,7 @@ async def _finalize_landed_pull_request(
 def _updated_landed_change(
     *,
     bookmark: str,
+    bookmark_managed: bool,
     cached_change: CachedChange | None,
     commit_id: str,
     pull_request: GithubPullRequest,
@@ -1488,6 +1503,7 @@ def _updated_landed_change(
     if cached_change is None:
         return CachedChange(
             bookmark=bookmark,
+            bookmark_ownership="managed" if bookmark_managed else "external",
             last_submitted_commit_id=commit_id,
             pr_number=pull_request.number,
             pr_state=pr_state,
@@ -1496,6 +1512,7 @@ def _updated_landed_change(
     return cached_change.model_copy(
         update={
             "bookmark": bookmark,
+            "bookmark_ownership": "managed" if bookmark_managed else "external",
             "last_submitted_commit_id": commit_id,
             "pr_number": pull_request.number,
             "pr_review_decision": None,
@@ -1540,6 +1557,9 @@ def _build_land_intent(
         ordered_commit_ids=ordered_commit_ids,
         landed_change_ids=landed_change_ids,
         landed_bookmarks={revision.change_id: revision.bookmark for revision in landed_revisions},
+        landed_bookmark_managed={
+            revision.change_id: revision.bookmark_managed for revision in landed_revisions
+        },
         landed_commit_ids={
             revision.change_id: revision.commit_id for revision in landed_revisions
         },

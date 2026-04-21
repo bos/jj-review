@@ -129,6 +129,10 @@ def _make_land_intent(
             "aaaa": "review/feature-1-aaaa",
             "bbbb": "review/feature-2-bbbb",
         },
+        landed_bookmark_managed={
+            "aaaa": True,
+            "bbbb": True,
+        },
         landed_commit_ids={
             "aaaa": "commit-aaaa",
             "bbbb": "commit-bbbb",
@@ -148,7 +152,6 @@ def _make_land_intent(
         selected_pr_number=2,
         started_at="2026-01-01T00:00:00+00:00",
     )
-
 
 # ---------------------------------------------------------------------------
 # Naming

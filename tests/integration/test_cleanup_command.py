@@ -448,6 +448,60 @@ def test_cleanup_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
     assert f"refs/heads/{bookmark}" not in remote_refs(fake_repo.git_dir)
 
 
+def test_cleanup_can_delete_user_bookmarks_when_configured(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(
+        monkeypatch,
+        tmp_path,
+        fake_repo,
+        extra_config_lines=[
+            'use_bookmarks = ["potato/custom-feature"]',
+            "cleanup_user_bookmarks = true",
+        ],
+    )
+    commit_file(repo, "feature 1", "feature-1.txt")
+    stack = JjClient(repo).discover_review_stack()
+    run_command(
+        [
+            "jj",
+            "bookmark",
+            "create",
+            "potato/custom-feature",
+            "-r",
+            stack.revisions[-1].commit_id,
+        ],
+        repo,
+    )
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    monkeypatch.setattr(
+        "jj_review.commands.cleanup._stale_change_reasons",
+        lambda **kwargs: {
+            change_id: "local change is no longer reviewable"
+            for change_id in kwargs["change_ids"]
+        },
+    )
+
+    exit_code = run_main(repo, config_path, "cleanup")
+    captured = capsys.readouterr()
+    normalized_output = " ".join(captured.out.split())
+
+    assert exit_code == 0
+    assert "local bookmark: forget potato/custom-feature" in normalized_output
+    assert "remote branch: delete potato/custom-feature@origin" in normalized_output
+    assert "potato/custom-feature" not in run_command(
+        ["jj", "bookmark", "list", "potato/custom-feature"],
+        repo,
+    ).stdout
+    assert "refs/heads/potato/custom-feature" not in remote_refs(fake_repo.git_dir)
+
+
 def test_cleanup_apply_batches_remote_delete_local_forget_and_fetch(
     tmp_path: Path,
     monkeypatch,

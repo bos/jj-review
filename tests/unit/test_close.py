@@ -104,20 +104,20 @@ class _CleanupResult:
 
 class _JjClientStub:
     def __init__(self) -> None:
-        self.delete_calls: list[tuple[str, str, str]] = []
+        self.delete_calls: list[tuple[str, tuple[tuple[str, str], ...]]] = []
         self.forget_calls: list[str] = []
 
-    def delete_remote_bookmark(
+    def delete_remote_bookmarks(
         self,
         *,
         remote: str,
-        bookmark: str,
-        expected_remote_target: str,
+        deletions,
+        fetch: bool = True,
     ) -> None:
-        self.delete_calls.append((remote, bookmark, expected_remote_target))
+        self.delete_calls.append((remote, tuple(deletions)))
 
-    def forget_bookmark(self, bookmark: str) -> None:
-        self.forget_calls.append(bookmark)
+    def forget_bookmarks(self, bookmarks) -> None:
+        self.forget_calls.extend(bookmarks)
 
 
 async def _run_cleanup_revision(*, bookmark_state: BookmarkState) -> _CleanupResult:
@@ -129,6 +129,7 @@ async def _run_cleanup_revision(*, bookmark_state: BookmarkState) -> _CleanupRes
         commit_id="commit-1",
         context=_CloseCleanupContext(
             bookmark_prefix="review",
+            cleanup_user_bookmarks=False,
             dry_run=False,
             github_client=cast(GithubClient, SimpleNamespace()),
             github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
@@ -141,3 +142,77 @@ async def _run_cleanup_revision(*, bookmark_state: BookmarkState) -> _CleanupRes
         ),
     )
     return _CleanupResult(actions=actions, jj_client=jj_client)
+
+
+def test_cleanup_revision_keeps_external_bookmark() -> None:
+    actions: list[CloseAction] = []
+    jj_client = _JjClientStub()
+
+    asyncio.run(
+        _cleanup_revision(
+            bookmark_state=BookmarkState(
+                name="review/feature-aaaaaaaa",
+                local_targets=("commit-1",),
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
+            ),
+            cached_change=CachedChange(
+                bookmark="review/feature-aaaaaaaa",
+                bookmark_ownership="external",
+            ),
+            commit_id="commit-1",
+            context=_CloseCleanupContext(
+                bookmark_prefix="review",
+                cleanup_user_bookmarks=False,
+                dry_run=False,
+                github_client=cast(GithubClient, SimpleNamespace()),
+                github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
+                jj_client=cast(JjClient, jj_client),
+                next_changes={},
+                record_action=actions.append,
+                remote_name="origin",
+                revision=SimpleNamespace(change_id="aaaaaaaaaaaaaaaa"),
+                revision_label="feature 1 (aaaaaaaa)",
+            ),
+        )
+    )
+
+    assert actions == []
+    assert jj_client.delete_calls == []
+    assert jj_client.forget_calls == []
+
+
+def test_cleanup_revision_deletes_external_bookmark_when_configured() -> None:
+    actions: list[CloseAction] = []
+    jj_client = _JjClientStub()
+
+    asyncio.run(
+        _cleanup_revision(
+            bookmark_state=BookmarkState(
+                name="potato/feature-aaaaaaaa",
+                local_targets=("commit-1",),
+                remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
+            ),
+            cached_change=CachedChange(
+                bookmark="potato/feature-aaaaaaaa",
+                bookmark_ownership="external",
+            ),
+            commit_id="commit-1",
+            context=_CloseCleanupContext(
+                bookmark_prefix="review",
+                cleanup_user_bookmarks=True,
+                dry_run=False,
+                github_client=cast(GithubClient, SimpleNamespace()),
+                github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
+                jj_client=cast(JjClient, jj_client),
+                next_changes={},
+                record_action=actions.append,
+                remote_name="origin",
+                revision=SimpleNamespace(change_id="aaaaaaaaaaaaaaaa"),
+                revision_label="feature 1 (aaaaaaaa)",
+            ),
+        )
+    )
+
+    assert [action.kind for action in actions] == ["remote branch", "local bookmark"]
+    assert jj_client.delete_calls == [("origin", (("potato/feature-aaaaaaaa", "commit-1"),))]
+    assert jj_client.forget_calls == ["potato/feature-aaaaaaaa"]

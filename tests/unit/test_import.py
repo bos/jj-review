@@ -57,7 +57,6 @@ def test_run_import_current_rejects_before_github_inspection(
     with pytest.raises(CliError) as exc_info:
         asyncio.run(
             _run_import_async(
-                change_overrides={},
                 config=RepoConfig(),
                 fetch=False,
                 pull_request_reference=None,

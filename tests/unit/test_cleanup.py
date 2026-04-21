@@ -320,6 +320,7 @@ def test_stream_restack_applies_rebase_for_survivor_above_merged_path_revision(
 
 def test_plan_remote_branch_cleanup_allows_delete_when_local_forget_is_planned() -> None:
     plan = _plan_remote_branch_cleanup(
+        cleanup_user_bookmarks=False,
         bookmark_state=BookmarkState(
             name="bosullivan/feature-aaaaaaaa",
             local_targets=("commit-1",),
@@ -338,6 +339,7 @@ def test_plan_remote_branch_cleanup_allows_delete_when_local_forget_is_planned()
 
 def test_plan_local_bookmark_cleanup_forgets_safe_review_bookmark() -> None:
     plan = cleanup_module._plan_local_bookmark_cleanup(
+        cleanup_user_bookmarks=False,
         bookmark_state=BookmarkState(
             name="bosullivan/feature-aaaaaaaa",
             local_targets=("commit-1",),

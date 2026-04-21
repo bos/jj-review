@@ -92,6 +92,10 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- bookmark selection no longer supports per-change bookmark overrides;
+  `use_bookmarks` now lets config or `submit --use-bookmarks` select existing
+  local or remote bookmarks by name or glob before `jj-review` falls back to
+  generated review branch names, while ambiguous pattern matches fail closed
 - repo defaults now live directly under `[jj-review]` instead of a nested
   `[jj-review.repo]` table; unknown keys in that namespace are ignored, the
   old nested table is rejected with a direct migration error, and commands now
@@ -1580,6 +1584,12 @@ Status: done.
 - local bookmark cleanup stays conservative: conflicted bookmarks remain
   blocked, and bookmarks that no longer point at the last submitted commit
   stay blocked rather than being forgotten automatically
+- bookmarks reused from `use_bookmarks` are now recorded as external, so later
+  `cleanup`, `close --cleanup`, and `land` leave those user-selected bookmarks
+  alone by default even when their names happen to match the configured review
+  prefix
+- repos can now opt into cleaning those preserved user bookmarks with
+  `cleanup_user_bookmarks = true`; the default remains `false`
 
 ## Error Handling Strategy
 

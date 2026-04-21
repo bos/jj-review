@@ -21,7 +21,7 @@ from typing import Literal, Protocol
 
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
-from jj_review.config import ChangeConfig, RepoConfig
+from jj_review.config import RepoConfig
 from jj_review.errors import CliError, ErrorMessage
 from jj_review.github.client import GithubClientError, build_github_client
 from jj_review.github.pull_request_refs import parse_repository_pull_request_reference
@@ -36,6 +36,7 @@ from jj_review.models.github import GithubPullRequest
 from jj_review.models.review_state import CachedChange
 from jj_review.review.bookmarks import (
     bookmark_matches_generated_change_id,
+    bookmark_ownership_for_source,
     discover_bookmarks_for_revisions,
 )
 from jj_review.review.status import (
@@ -124,7 +125,6 @@ def import_(
     )
     result = asyncio.run(
         _run_import_async(
-            change_overrides=context.config.change,
             config=context.config,
             fetch=fetch,
             pull_request_reference=pull_request,
@@ -173,7 +173,6 @@ def _print_import_result(result: ImportResult) -> None:
 
 async def _run_import_async(
     *,
-    change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     fetch: bool,
     pull_request_reference: str | None,
@@ -200,7 +199,6 @@ async def _run_import_async(
             hint=t"Re-run {import_fetch_cmd} to fetch that stack before importing.",
         )
     prepared_status = prepare_status(
-        change_overrides=change_overrides,
         config=config,
         fetch_remote_state=fetch and selection.head_bookmark is None,
         persist_bookmarks=False,
@@ -786,7 +784,14 @@ def _update_cached_change_from_status(
     bookmark: str,
     status_revision,
 ) -> CachedChange:
-    updated_change = cached_change.model_copy(update={"bookmark": bookmark})
+    updated_change = cached_change.model_copy(
+        update={
+            "bookmark": bookmark,
+            "bookmark_ownership": bookmark_ownership_for_source(
+                status_revision.bookmark_source
+            ),
+        }
+    )
     if cached_change.is_unlinked:
         return updated_change
     pull_request_lookup = status_revision.pull_request_lookup

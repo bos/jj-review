@@ -12,7 +12,7 @@ from typing import Literal
 
 from jj_review import ui
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY
-from jj_review.config import ChangeConfig, RepoConfig
+from jj_review.config import RepoConfig
 from jj_review.errors import CliError, ErrorMessage, error_message
 from jj_review.formatting import short_change_id
 from jj_review.github.client import (
@@ -38,8 +38,10 @@ from jj_review.models.stack import LocalRevision, LocalStack
 from jj_review.review.bookmarks import (
     BookmarkResolver,
     BookmarkSource,
+    bookmark_ownership_for_source,
     discover_bookmarks_for_revisions,
     ensure_unique_bookmarks,
+    match_bookmarks_for_revisions,
 )
 from jj_review.review.intents import intent_is_stale
 from jj_review.state.store import ReviewStateStore
@@ -167,7 +169,6 @@ def status_preparation_cli_error(error: UnsupportedStackError) -> CliError:
 
 def prepare_status(
     *,
-    change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     fetch_remote_state: bool = False,
     fetch_only_when_tracked: bool = False,
@@ -179,7 +180,6 @@ def prepare_status(
     """Resolve local status inputs before any GitHub network inspection."""
 
     prepared = _prepare_stack(
-        change_overrides=change_overrides,
         config=config,
         persist_bookmarks=persist_bookmarks,
         re_resolve_after_remote_refresh=re_resolve_after_remote_refresh,
@@ -414,7 +414,6 @@ async def stream_status_async(
 
 def _prepare_stack(
     *,
-    change_overrides: dict[str, ChangeConfig],
     config: RepoConfig,
     persist_bookmarks: bool,
     re_resolve_after_remote_refresh: bool,
@@ -475,15 +474,17 @@ def _prepare_stack(
             allow_immutable=True,
         )
 
-    pinned_bookmarks = _pinned_bookmarks_for_revisions(
-        change_overrides=change_overrides,
-        revisions=stack.revisions,
-        state=state,
-    )
+    pinned_bookmarks = _pinned_bookmarks_for_revisions(revisions=stack.revisions, state=state)
     bookmark_states: dict[str, BookmarkState] = {}
-    if remote is not None:
+    if remote is not None or config.use_bookmarks:
         bookmark_states = client.list_bookmark_states(pinned_bookmarks)
 
+    matched_bookmarks = match_bookmarks_for_revisions(
+        bookmark_states=bookmark_states,
+        patterns=tuple(config.use_bookmarks),
+        revisions=stack.revisions,
+        remote_name=remote.name if remote is not None else None,
+    )
     discovered_bookmarks: dict[str, str] = {}
     if remote is not None and pinned_bookmarks is None:
         discovered_bookmarks = discover_bookmarks_for_revisions(
@@ -495,8 +496,8 @@ def _prepare_stack(
 
     bookmark_result = BookmarkResolver(
         state,
-        change_overrides,
         prefix=config.bookmark_prefix,
+        matched_bookmarks=matched_bookmarks,
         discovered_bookmarks=discovered_bookmarks,
     ).pin_revisions(stack.revisions)
     ensure_unique_bookmarks(bookmark_result.resolutions)
@@ -535,23 +536,18 @@ def _prepare_stack(
 
 def _pinned_bookmarks_for_revisions(
     *,
-    change_overrides: dict[str, ChangeConfig],
     revisions: tuple[LocalRevision, ...],
     state: ReviewState,
 ) -> tuple[str, ...] | None:
     """Return pinned bookmark names if every revision is already pinned, else None.
 
     Used to avoid listing every repo bookmark when rediscovery is impossible: if
-    every revision has an override or saved bookmark, the rediscovery search has
-    nothing to look for.
+    every revision already has a saved bookmark, bookmark matching has nothing
+    to look for.
     """
 
     pinned: list[str] = []
     for revision in revisions:
-        override = change_overrides.get(revision.change_id)
-        if override is not None and override.bookmark_override:
-            pinned.append(override.bookmark_override)
-            continue
         cached = state.changes.get(revision.change_id)
         if cached is not None and cached.bookmark:
             pinned.append(cached.bookmark)
@@ -697,11 +693,19 @@ def _persist_status_cache_updates(
         pull_request_lookup = revision.pull_request_lookup
         if pull_request_lookup is not None:
             if updated_change is None:
-                updated_change = CachedChange(bookmark=revision.bookmark)
+                updated_change = CachedChange(
+                    bookmark=revision.bookmark,
+                    bookmark_ownership=bookmark_ownership_for_source(
+                        revision.bookmark_source
+                    ),
+                )
             if pull_request_lookup.state == "missing":
                 updated_change = updated_change.model_copy(
                     update={
                         "bookmark": revision.bookmark,
+                        "bookmark_ownership": bookmark_ownership_for_source(
+                            revision.bookmark_source
+                        ),
                         "pr_is_draft": None,
                         "pr_number": None,
                         "pr_review_decision": None,
@@ -715,6 +719,9 @@ def _persist_status_cache_updates(
                 updated_change = updated_change.model_copy(
                     update={
                         "bookmark": revision.bookmark,
+                        "bookmark_ownership": bookmark_ownership_for_source(
+                            revision.bookmark_source
+                        ),
                         "pr_is_draft": pull_request.is_draft,
                         "pr_number": pull_request.number,
                         "pr_review_decision": _resolved_review_decision(
@@ -730,7 +737,12 @@ def _persist_status_cache_updates(
         stack_comment_lookup = revision.stack_comment_lookup
         if stack_comment_lookup is not None:
             if updated_change is None:
-                updated_change = CachedChange(bookmark=revision.bookmark)
+                updated_change = CachedChange(
+                    bookmark=revision.bookmark,
+                    bookmark_ownership=bookmark_ownership_for_source(
+                        revision.bookmark_source
+                    ),
+                )
             if stack_comment_lookup.state == "present":
                 if stack_comment_lookup.comment is None:
                     raise AssertionError(
