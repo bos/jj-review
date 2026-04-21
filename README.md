@@ -128,6 +128,12 @@ When you first submit a stack, this will create one review bookmark per change
 (by default `review/...`; these are managed automatically). Those bookmarks
 are user-visible in `jj`, but they are managed by `jj-review`.
 
+If you instead tell `jj-review` to reuse your own existing bookmarks with
+`use_bookmarks` or `--use-bookmarks`, it can keep those bookmark names for
+matching changes instead of generating new `review/...` names when it still
+needs to choose a bookmark name for them. Later cleanup leaves those reused
+bookmarks alone by default.
+
 Inspect it again:
 
 ```bash
@@ -194,13 +200,19 @@ Repo-level config can be helpful for defaults such as reviewers and labels:
 bookmark_prefix = "bosullivan"
 reviewers = ["octocat"]
 labels = ["needs-review"]
+use_bookmarks = ["potato/*", "spam/eggs"]
 ```
 
 If you leave `bookmark_prefix` unset, `jj-review` keeps the default
 `review/...` prefix.
 
 `jj-review submit` can override those defaults with `--reviewers`,
-`--team-reviewers`, and `--label`.
+`--team-reviewers`, `--label`, and `--use-bookmarks`.
+
+`cleanup_user_bookmarks` defaults to `false`. Leave it unset if bookmarks
+selected through `use_bookmarks` should be preserved during later cleanup.
+Set it to `true` only if you want `cleanup`, `close --cleanup`, and `land` to
+delete those reused bookmarks too when that cleanup is otherwise safe.
 
 For authentication, `jj-review` checks `GH_TOKEN`, then `GITHUB_TOKEN`, then falls back to `gh
 auth token` if `gh`, the GitHub CLI, is installed and authenticated.

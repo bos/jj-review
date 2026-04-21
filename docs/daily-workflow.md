@@ -165,8 +165,10 @@ change directly:
 jj-review close --pull-request 7
 ```
 
-Use `--cleanup` only when you also want it to delete review branches and prune
-saved state after the PRs are closed.
+Use `--cleanup` only when you also want it to remove the stack's old review
+branches and `jj-review`'s saved tracking data after the PRs are closed. If
+`jj-review` created local review bookmarks for those branches, it forgets those
+too. Reused user bookmarks stay unless `cleanup_user_bookmarks = true`.
 
 ## Short version
 
