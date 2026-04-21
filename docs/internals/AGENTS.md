@@ -16,7 +16,6 @@ agents working on the codebase. Most users will never open this directory.
   "Recent refactor slices" section when you land a meaningful implementation
   change.
 - `testing-philosophy.md` — what kinds of tests to write and why.
-- `unit-test-review-checklist.md` — checklist for evaluating unit test quality.
 - `backlog.md` — non-blocking follow-up items: design debt, deferred features,
   open architecture questions. Add to it rather than leaving TODOs in code.
 
