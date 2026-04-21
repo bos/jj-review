@@ -138,6 +138,41 @@ def test_load_config_ignores_unknown_keys_inside_jj_review_section(
     assert config.labels == []
 
 
+def test_load_config_rejects_likely_top_level_typo(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "typo.toml"
+    _write_config(
+        config_path,
+        [
+            "[jj-review]",
+            'bookmark_prefx = "bos"',
+        ],
+    )
+
+    with pytest.raises(CliError, match=r"Did you mean \[jj-review\]\.bookmark_prefix\?"):
+        load_config(repo_root=None, config_path=config_path)
+
+
+def test_load_config_rejects_likely_change_typo(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "change-typo.toml"
+    _write_config(
+        config_path,
+        [
+            '[jj-review.change."zvlywqkxtmnpqrstu"]',
+            'bookmark_overide = "review/from-user"',
+        ],
+    )
+
+    with pytest.raises(
+        CliError,
+        match=r'Did you mean \[jj-review\.change\."zvlywqkxtmnpqrstu"\]\.bookmark_override\?',
+    ):
+        load_config(repo_root=None, config_path=config_path)
+
+
 def test_load_config_rejects_repo_subtable(
     tmp_path: Path,
 ) -> None:

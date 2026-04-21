@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import logging
 import subprocess
 import tomllib
@@ -15,6 +16,7 @@ from jj_review.errors import CliError
 
 CONFIG_SECTION = "jj-review"
 DEFAULT_BOOKMARK_PREFIX = "review"
+_TYPO_CUTOFF = 0.75
 
 
 class RepoConfig(BaseModel):
@@ -158,6 +160,7 @@ def _load_config_layer(config_path: Path) -> dict[str, object]:
                 f"[{CONFIG_SECTION}]."
             ),
         )
+    _raise_on_likely_config_typos(config_data=config_data, source=str(config_path))
     return _validate_config(config_data, source=str(config_path)).model_dump(exclude_unset=True)
 
 
@@ -173,6 +176,57 @@ def _merge_config_data(
             continue
         merged[key] = value
     return merged
+
+
+def _raise_on_likely_config_typos(*, config_data: Mapping[str, object], source: str) -> None:
+    _raise_on_likely_unknown_keys(
+        table_path=f"[{CONFIG_SECTION}]",
+        config_data=config_data,
+        allowed_keys=(*RepoConfig.model_fields, "logging", "change"),
+        source=source,
+    )
+
+    logging_config = config_data.get("logging")
+    if isinstance(logging_config, Mapping):
+        _raise_on_likely_unknown_keys(
+            table_path=f"[{CONFIG_SECTION}.logging]",
+            config_data=logging_config,
+            allowed_keys=tuple(LoggingConfig.model_fields),
+            source=source,
+        )
+
+    change_config = config_data.get("change")
+    if not isinstance(change_config, Mapping):
+        return
+    for change_id, change_values in change_config.items():
+        if not isinstance(change_values, Mapping):
+            continue
+        _raise_on_likely_unknown_keys(
+            table_path=f'[{CONFIG_SECTION}.change."{change_id}"]',
+            config_data=change_values,
+            allowed_keys=tuple(ChangeConfig.model_fields),
+            source=source,
+        )
+
+
+def _raise_on_likely_unknown_keys(
+    *,
+    table_path: str,
+    config_data: Mapping[str, object],
+    allowed_keys: tuple[str, ...],
+    source: str,
+) -> None:
+    allowed_key_set = set(allowed_keys)
+    for key in config_data:
+        if key in allowed_key_set:
+            continue
+        suggestion = difflib.get_close_matches(key, allowed_keys, n=1, cutoff=_TYPO_CUTOFF)
+        if not suggestion:
+            continue
+        raise CliError(
+            f"Invalid jj-review config in {source}: unknown key {table_path}.{key}. "
+            f"Did you mean {table_path}.{suggestion[0]}?"
+        )
 
 
 def _validate_config(config_data: dict[str, object], *, source: str) -> AppConfig:
