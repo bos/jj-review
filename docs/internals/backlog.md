@@ -18,16 +18,6 @@ The remaining follow-up in this area is extending abort to cover partial land
 retraction and `close` reversal (reopening closed PRs), both of which require
 GitHub access and careful ordering of retraction steps.
 
-## Progress UX for Concurrent Submit
-
-_Benefit: small — polish; the tool is functional without it._
-
-`submit` and `status` now use bounded concurrent execution for per-change
-GitHub API calls. The CLI progress model has not been updated to match: a
-TTY-only spinner or live per-change progress view would fit the batched
-execution model better than the current line-open incremental renderer. Design
-that as an explicit UX follow-up.
-
 ## Ancestor Merged on GitHub
 
 _Benefit: small — remaining edge cases are narrow and infrequent._
@@ -44,18 +34,6 @@ The remaining follow-up here is narrower:
   are rediscovered and resubmitted
 - any residual diagnostics that are still too subtle once the concrete `land`
   flow exists
-
-## Bookmark Naming Collisions
-
-_Benefit: small — astronomically unlikely with the 8-char suffix; mostly a
-diagnostic quality improvement._
-
-The current design rejects bookmark naming collisions from matched or generated
-bookmark resolution, but
-two changes could theoretically produce the same slug+suffix. The 8-char
-`change_id` suffix makes this extremely unlikely, but the tool should detect
-it and fail with a clear diagnostic describing what went wrong and how to
-resolve it (e.g., narrow `use_bookmarks` patterns or rename a bookmark).
 
 ## Repo-Scoped Sync
 
@@ -102,30 +80,6 @@ Concrete follow-up questions:
 
 This should be designed explicitly rather than bolted onto the current `land`
 flow piecemeal.
-
-## Setup Diagnostics and Repository Readiness
-
-_Benefit: large — directly unblocks new users; repository policy
-misconfiguration is the most common early failure mode._
-
-The tool currently derives a lot of state automatically and fails closed when
-that derivation is ambiguous. That is the right steady-state behavior, but the
-onboarding and support experience still needs a more explicit diagnostic path.
-
-A future `doctor` or `setup-check` style command could answer:
-
-- whether GitHub authentication is available and has the scopes the selected
-  operations need
-- which remote and trunk branch jj-review resolved, and why
-- whether the selected repository policy matches the intended review model
-  (linear history, non-mergeable review branches, etc.)
-- whether local jj config, repo config, and saved jj-review state disagree in
-  ways that will cause future submit or land failures
-- whether stale workspaces, conflicted bookmarks, or ambiguous remote bookmark
-  mappings need local repair before review operations proceed
-
-The key requirement is that this stays diagnostic and explanatory. It should
-not silently mutate repo state just to make warnings disappear.
 
 ## Guided Recovery and Next-Step UX
 
