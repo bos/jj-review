@@ -130,6 +130,24 @@ def test_main_help_smoke_renders_without_error(
     assert "Traceback" not in captured.err
 
 
+def test_main_help_submit_separates_command_and_global_options(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["help", "submit"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    command_options_index = captured.out.index("Command Options:")
+    global_options_index = captured.out.index("Global Options:")
+    command_options_body = captured.out[command_options_index:global_options_index]
+    global_options_body = captured.out[global_options_index:]
+
+    assert "--dry-run" in command_options_body
+    assert "--repository REPOSITORY" not in command_options_body
+    assert "--repository REPOSITORY" in global_options_body
+    assert "--dry-run" not in global_options_body
+
+
 def _patch_fake_jj_workspace(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -43,6 +43,18 @@ ready changes, and clean up stale jj-review data.
 _TOP_LEVEL_HIDDEN_OPTION_STRINGS = frozenset(
     {"--repository", "--config", "--config-file", "--debug", "--time-output"}
 )
+_COMMON_OPTION_STRINGS = frozenset(
+    {
+        "-h",
+        "--help",
+        "--repository",
+        "--config",
+        "--config-file",
+        "--debug",
+        "--color",
+        "--time-output",
+    }
+)
 _REORDERABLE_GLOBAL_FLAGS = frozenset({"--debug", "--time-output"})
 _REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES = frozenset({"--repository", "--color"})
 _HELP_FLAGS = frozenset({"-h", "--help"})
@@ -654,6 +666,12 @@ def _emit_help_table_section(title: str, rows: Sequence[tuple[Any, Any]]) -> Non
     console.output(_help_table(rows))
 
 
+def _is_common_option_action(action: Any) -> bool:
+    return bool(action.option_strings) and all(
+        option in _COMMON_OPTION_STRINGS for option in action.option_strings
+    )
+
+
 def _action_rows(actions: Sequence[Any]) -> tuple[tuple[Any, Any], ...] | None:
     visible_actions = [action for action in actions if action.help is not SUPPRESS]
     if not visible_actions:
@@ -749,10 +767,24 @@ def _help_handler(args: Namespace) -> int:
             positional_rows,
         )
 
-    option_rows = _action_rows(command_parser._optionals._group_actions)
-    if option_rows is not None:
+    option_actions = [
+        action
+        for action in command_parser._optionals._group_actions
+        if action.help is not SUPPRESS
+    ]
+    command_option_rows = _action_rows(
+        [action for action in option_actions if not _is_common_option_action(action)]
+    )
+    global_option_rows = _action_rows(
+        [action for action in option_actions if _is_common_option_action(action)]
+    )
+    if command_option_rows is not None:
         console.output()
-        _emit_help_table_section(command_parser._optionals.title or "Options", option_rows)
+        title = "Command Options" if global_option_rows is not None else "Options"
+        _emit_help_table_section(title, command_option_rows)
+    if global_option_rows is not None:
+        console.output()
+        _emit_help_table_section("Global Options", global_option_rows)
     return 0
 
 

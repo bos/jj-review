@@ -144,6 +144,9 @@ Recent refactor slices:
   list and prefixed-line primitives, so section headings, command labels, and
   option labels render through the Rich-backed console path instead of
   hand-wrapped `print()` output in `cli.py`
+- subcommand `help` output now separates command-specific options from shared
+  global flags, so command help keeps workflow flags distinct from repo,
+  config, color, and debug controls
 - shared console output now decodes ANSI-bearing native `jj` strings before
   printing them, so commands like `submit --dry-run` no longer leak raw escape
   sequences when repo color config forces native `jj` rendering
