@@ -1,3 +1,8 @@
+# Work in progress
+
+This project is under heavy development. Do not make any attempt to write backwards
+compatibility code, migration code, or the like.
+
 # Workflow
 
 - This is a `jj` repo. Do not use `git` to work on the repo itself.
