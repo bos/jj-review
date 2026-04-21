@@ -377,8 +377,8 @@ Given a selected head revision:
    - `submit --describe-with <helper>` may replace that default mapping by
      invoking the helper once per change as `helper --pr <change_id>`
    - the same helper may also be invoked once per selected stack as
-     `helper --stack <selected-revset>`; that output may be prepended to the
-     reviewer-facing navigation comment on the selected head pull request when
+     `helper --stack <selected-revset>`; that output becomes an optional
+     reviewer-facing overview comment on the selected head pull request when
      the selected stack contains more than one change, and does not become a
      separate source of truth for topology
    - for selected stacks with more than one change, every PR in the stack
@@ -386,6 +386,9 @@ Given a selected head revision:
      stack in top-to-bottom order, with a plain trunk line shown beneath the
      bottom-most PR; the current PR title is bold and marked as "this PR",
      and the other PR titles link to their pull requests
+   - when `helper --stack` returns non-empty content, the selected head pull
+     request should also get one managed overview comment whose body is the
+     helper-generated stack-level prose
    - for stack helpers, submit may also provide a temporary helper-owned input
      file describing the generated per-PR title/body pairs and compact diffstat
      context for the selected stack, so helpers can summarize the stack from
@@ -445,10 +448,10 @@ For a selected stack with exactly one change, submit should behave like a
 plain PR submit flow:
 
 - no stack-specific helper invocation
-- no reviewer-facing navigation comments
-- if the selected change still has an older managed navigation comment from
-  when it participated in a longer submitted stack, delete that managed
-  comment
+- no reviewer-facing navigation or overview comments
+- if the selected change still has older managed navigation or overview
+  comments from when it participated in a longer submitted stack, delete those
+  managed comments
 - after a successful live submit, print the URL of the top of the stack so the
   operator can open it in a browser
 

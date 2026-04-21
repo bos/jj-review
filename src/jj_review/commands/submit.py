@@ -2018,6 +2018,11 @@ async def _sync_stack_comments(
 
     head_change_id = revisions[-1].change_id
     has_navigation_comments = len(revisions) > 1
+    has_overview_comment = bool(
+        has_navigation_comments
+        and generated_stack_description is not None
+        and _render_generated_stack_description(generated_stack_description)
+    )
     pending: list[PendingStackCommentSync] = []
     for revision in revisions:
         if revision.pull_request_number is None:
@@ -2034,19 +2039,19 @@ async def _sync_stack_comments(
             navigation_comment_body = _render_navigation_comment(
                 current=revision,
                 revisions=revisions,
-                stack_description=(
-                    generated_stack_description
-                    if revision.change_id == head_change_id
-                    else None
-                ),
                 trunk_branch=trunk_branch,
+            )
+        overview_comment_body = None
+        if has_overview_comment and revision.change_id == head_change_id:
+            overview_comment_body = _render_overview_comment(
+                stack_description=generated_stack_description
             )
         pending.append(
             PendingStackCommentSync(
                 cached_change=cached_change,
                 change_id=revision.change_id,
                 navigation_comment_body=navigation_comment_body,
-                overview_comment_body=None,
+                overview_comment_body=overview_comment_body,
                 pull_request_number=revision.pull_request_number,
             )
         )
@@ -2338,14 +2343,9 @@ def _render_navigation_comment(
     *,
     current: SubmittedRevision,
     revisions: tuple[SubmittedRevision, ...],
-    stack_description: GeneratedDescription | None,
     trunk_branch: str,
 ) -> str:
     lines = [stack_comment_marker("navigation")]
-    description_lines = _render_generated_stack_description(stack_description)
-    if description_lines:
-        lines.extend(description_lines)
-        lines.extend(("", "---"))
     lines.extend(
         [
             "This pull request is part of a stack tracked by `jj-review`.",

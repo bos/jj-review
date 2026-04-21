@@ -984,19 +984,23 @@ Deliver:
 - regeneration on every submit
 - caching of comment identifiers if needed
 
-Implemented with one navigation comment on every PR in selected stacks with
-more than one change. Each comment is regenerated on every submit and cached
-per change as `navigation_comment_id`.
+Implemented with two managed comment types for selected stacks containing more
+than one change:
+
+- one navigation comment on every PR in the selected stack, regenerated on
+  every submit and cached per change as `navigation_comment_id`
+- one optional overview comment only on the selected head PR when
+  `--describe-with` returns non-empty stack prose, cached as
+  `overview_comment_id`
 
 The navigation comment is the stable reviewer affordance. It renders the full
 stack from top to bottom, bolds the current PR title with an explicit
 "this PR" marker, links the other PR titles, and shows the plain trunk line
-beneath the bottom-most PR. When `--describe-with` returns non-empty stack
-prose, the selected head PR prepends that prose ahead of the standard
-navigation block.
+beneath the bottom-most PR. The overview comment is purely stack-level prose
+and is not created unless helper output exists.
 
 Single-review-unit submits are treated as plain PRs rather than stacks: they
-skip the managed navigation comment entirely, and `--describe-with` does not
+skip both managed comment types entirely, and `--describe-with` does not
 invoke the stack helper for that case.
 
 Default PR descriptions now also fall back to the commit subject when the
@@ -1005,9 +1009,9 @@ blank opening comment for one-line commit descriptions while preserving the
 existing "title from subject, body from remaining description" mapping when a
 real body is present.
 
-Submit, status, import, close, cleanup, and land now treat the navigation
-comment as a managed artifact so rediscovery, retirement, and cleanup stay
-exact when the stack grows, shrinks, or changes head.
+Submit, status, import, close, cleanup, and land all now treat navigation and
+overview comments as separate managed artifacts so rediscovery, retirement, and
+cleanup stay exact when the stack grows, shrinks, or changes head.
 
 The CLI-facing submit summary lines now use shared Rich row helpers for the
 selected change, fallback trunk row, and top-of-stack URL so hanging-indent

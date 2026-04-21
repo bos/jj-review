@@ -11,7 +11,9 @@ from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github.stack_comments import (
     STACK_NAVIGATION_COMMENT_MARKER,
+    STACK_OVERVIEW_COMMENT_MARKER,
     is_navigation_comment,
+    is_overview_comment,
 )
 from jj_review.jj import JjClient
 from jj_review.models.github import GithubPullRequest
@@ -58,6 +60,14 @@ def _navigation_comments(fake_repo, issue_number: int):
         comment
         for comment in issue_comments(fake_repo, issue_number)
         if is_navigation_comment(comment.body)
+    ]
+
+
+def _overview_comments(fake_repo, issue_number: int):
+    return [
+        comment
+        for comment in issue_comments(fake_repo, issue_number)
+        if is_overview_comment(comment.body)
     ]
 
 def test_submit_projects_review_bookmarks_to_selected_remote(
@@ -306,6 +316,8 @@ def test_submit_creates_navigation_comment_for_each_pull_request_in_multi_pr_sta
     top_change_id = stack.revisions[-1].change_id
     state = ReviewStateStore.for_repo(repo).load()
 
+    assert _overview_comments(fake_repo, 1) == []
+    assert _overview_comments(fake_repo, 2) == []
     assert len(_navigation_comments(fake_repo, 1)) == 1
     assert len(_navigation_comments(fake_repo, 2)) == 1
     assert STACK_NAVIGATION_COMMENT_MARKER in _navigation_comments(fake_repo, 1)[0].body
@@ -412,11 +424,13 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
     )
     assert len(_navigation_comments(fake_repo, 1)) == 1
     assert len(_navigation_comments(fake_repo, 2)) == 1
-    assert "## Generated stack summary" in _navigation_comments(fake_repo, 2)[0].body
+    assert len(_overview_comments(fake_repo, 2)) == 1
+    assert STACK_OVERVIEW_COMMENT_MARKER in _overview_comments(fake_repo, 2)[0].body
+    assert "## Generated stack summary" in _overview_comments(fake_repo, 2)[0].body
     assert (
         f"Generated stack body for {stack.selected_revset}: "
         f"AI {stack.revisions[0].change_id[:8]} -> AI {stack.revisions[1].change_id[:8]} | "
-        "feature-1.txt" in _navigation_comments(fake_repo, 2)[0].body
+        "feature-1.txt" in _overview_comments(fake_repo, 2)[0].body
     )
     assert "This pull request is part of a stack tracked by `jj-review`." in (
         _navigation_comments(fake_repo, 2)[0].body
