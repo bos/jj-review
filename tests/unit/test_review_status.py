@@ -66,7 +66,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
             local_divergent=False,
             pull_request_lookup=None,
             remote_state=None,
-            stack_comment_lookup=None,
+            managed_comments_lookup=None,
             subject="feature 1",
         ),
         ReviewStatusRevision(
@@ -79,7 +79,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
             local_divergent=False,
             pull_request_lookup=None,
             remote_state=None,
-            stack_comment_lookup=None,
+            managed_comments_lookup=None,
             subject="feature 2",
         ),
     )
@@ -186,7 +186,7 @@ def test_stream_status_skips_github_discovery_for_untracked_stack(monkeypatch) -
             local_divergent=False,
             pull_request_lookup=None,
             remote_state=None,
-            stack_comment_lookup=None,
+            managed_comments_lookup=None,
             subject="feature 1",
         ),
     )

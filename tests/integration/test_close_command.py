@@ -4,6 +4,7 @@ from pathlib import Path
 
 from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github.resolution import ParsedGithubRepo
+from jj_review.github.stack_comments import STACK_NAVIGATION_COMMENT_MARKER
 from jj_review.jj import JjClient
 from jj_review.models.intent import CloseIntent, SubmitIntent
 from jj_review.models.review_state import CachedChange, ReviewState
@@ -56,7 +57,8 @@ def test_close_apply_closes_pull_request_and_retires_active_state(
     assert fake_repo.pull_requests[1].state == "closed"
     assert refreshed_state.changes[change_id].pr_state == "closed"
     assert refreshed_state.changes[change_id].pr_review_decision is None
-    assert refreshed_state.changes[change_id].stack_comment_id is None
+    assert refreshed_state.changes[change_id].navigation_comment_id is None
+    assert refreshed_state.changes[change_id].overview_comment_id is None
     assert issue_comments(fake_repo, 1) == []
 
 
@@ -421,7 +423,8 @@ def test_close_apply_cleanup_deletes_owned_bookmarks_and_comments(
     assert "stop review tracking for feature 1" in normalized_output
     assert fake_repo.pull_requests[1].state == "closed"
     assert refreshed_state.changes[change_id].pr_state == "closed"
-    assert refreshed_state.changes[change_id].stack_comment_id is None
+    assert refreshed_state.changes[change_id].navigation_comment_id is None
+    assert refreshed_state.changes[change_id].overview_comment_id is None
     assert issue_comments(fake_repo, 1) == []
     assert bookmark not in remote_refs(fake_repo.git_dir)
     assert JjClient(repo).get_bookmark_state(bookmark).local_target is None
@@ -482,7 +485,8 @@ def test_close_apply_cleanup_rerun_completes_after_prior_close_when_pr_is_missin
     assert exit_code == 0
     assert "Applied close actions:" in captured.out
     assert refreshed_state.changes[change_id].pr_state == "closed"
-    assert refreshed_state.changes[change_id].stack_comment_id is None
+    assert refreshed_state.changes[change_id].navigation_comment_id is None
+    assert refreshed_state.changes[change_id].overview_comment_id is None
     assert issue_comments(fake_repo, 1) == []
     assert bookmark not in remote_refs(fake_repo.git_dir)
     assert JjClient(repo).get_bookmark_state(bookmark).local_target is None
@@ -585,7 +589,7 @@ def test_close_apply_cleanup_rechecks_cached_comment_ownership_when_pr_is_missin
                 "changes": {
                     **state.changes,
                     change_id: cached_change.model_copy(
-                        update={"stack_comment_id": manual_comment.id}
+                        update={"navigation_comment_id": manual_comment.id}
                     ),
                 }
             }
@@ -597,7 +601,7 @@ def test_close_apply_cleanup_rechecks_cached_comment_ownership_when_pr_is_missin
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "cannot delete saved stack summary comment" in captured.out
+    assert "cannot delete saved stack navigation comment" in captured.out
     assert "does not belong to jj-review" in captured.out
     assert manual_comment in issue_comments(fake_repo, 1)
 
@@ -676,19 +680,22 @@ def test_close_apply_cleanup_exits_nonzero_when_cleanup_is_blocked(
             update={
                 "changes": {
                     **state_store.load().changes,
-                    change_id: cached_change.model_copy(update={"stack_comment_id": None}),
+                    change_id: cached_change.model_copy(update={"navigation_comment_id": None}),
                 }
             }
         )
     )
-    fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=2)
+    fake_repo.create_issue_comment(
+        body=f"{STACK_NAVIGATION_COMMENT_MARKER}\nextra",
+        issue_number=2,
+    )
 
     exit_code = run_main(repo, config_path, "close", "--cleanup", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 1
     assert "Close blocked:" in captured.out
-    assert "stack summary comment:" in captured.out
+    assert "stack navigation comment:" in captured.out
     assert fake_repo.pull_requests[2].state == "closed"
 
 

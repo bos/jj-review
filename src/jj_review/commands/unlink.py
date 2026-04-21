@@ -154,7 +154,8 @@ async def _run_unlink_async(
             "pr_review_decision": None,
             "pr_state": None,
             "pr_url": None,
-            "stack_comment_id": None,
+            "navigation_comment_id": None,
+            "overview_comment_id": None,
         }
     )
     next_state = state.model_copy(
@@ -202,7 +203,8 @@ def _revision_has_active_review_link(
             or cached_change.pr_number is not None
             or cached_change.pr_url is not None
             or cached_change.pr_state is not None
-            or cached_change.stack_comment_id is not None
+            or cached_change.navigation_comment_id is not None
+            or cached_change.overview_comment_id is not None
         )
     ):
         return True

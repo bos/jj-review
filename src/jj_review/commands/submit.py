@@ -38,7 +38,13 @@ from jj_review.github.resolution import (
     resolve_trunk_branch,
     select_submit_remote,
 )
-from jj_review.github.stack_comments import STACK_COMMENT_MARKER, is_stack_summary_comment
+from jj_review.github.stack_comments import (
+    StackCommentKind,
+    is_navigation_comment,
+    is_overview_comment,
+    stack_comment_label,
+    stack_comment_marker,
+)
 from jj_review.jj import JjCliArgs, JjClient, JjCommandError
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.github import (
@@ -179,7 +185,8 @@ class PendingStackCommentSync:
 
     cached_change: CachedChange
     change_id: str
-    comment_body: str | None
+    navigation_comment_body: str | None
+    overview_comment_body: str | None
     pull_request_number: int
 
 
@@ -2010,6 +2017,7 @@ async def _sync_stack_comments(
         return
 
     head_change_id = revisions[-1].change_id
+    has_navigation_comments = len(revisions) > 1
     pending: list[PendingStackCommentSync] = []
     for revision in revisions:
         if revision.pull_request_number is None:
@@ -2021,19 +2029,24 @@ async def _sync_stack_comments(
             if dry_run:
                 continue
             raise AssertionError("Stack summary comments require a saved pull request link.")
-        comment_body = None
-        if len(revisions) > 1 and revision.change_id == head_change_id:
-            comment_body = _render_stack_comment(
+        navigation_comment_body = None
+        if has_navigation_comments:
+            navigation_comment_body = _render_navigation_comment(
                 current=revision,
                 revisions=revisions,
-                stack_description=generated_stack_description,
+                stack_description=(
+                    generated_stack_description
+                    if revision.change_id == head_change_id
+                    else None
+                ),
                 trunk_branch=trunk_branch,
             )
         pending.append(
             PendingStackCommentSync(
                 cached_change=cached_change,
                 change_id=revision.change_id,
-                comment_body=comment_body,
+                navigation_comment_body=navigation_comment_body,
+                overview_comment_body=None,
                 pull_request_number=revision.pull_request_number,
             )
         )
@@ -2090,172 +2103,172 @@ async def _sync_stack_comment_task(
     github_repository: ParsedGithubRepo,
     pending_sync: PendingStackCommentSync,
 ) -> tuple[str, CachedChange]:
-    if pending_sync.comment_body is None:
-        updated_change = await _clear_stack_comment(
-            cached_change=pending_sync.cached_change,
-            dry_run=dry_run,
-            github_client=github_client,
-            github_repository=github_repository,
-            pull_request_number=pending_sync.pull_request_number,
-        )
-    else:
-        comment = await _upsert_stack_comment(
-            cached_change=pending_sync.cached_change,
-            comment_body=pending_sync.comment_body,
-            dry_run=dry_run,
-            github_client=github_client,
-            github_repository=github_repository,
-            pull_request_number=pending_sync.pull_request_number,
-        )
-        updated_change = pending_sync.cached_change.model_copy(
-            update={"stack_comment_id": None if comment is None else comment.id}
-        )
+    comments = await _list_pull_request_comments(
+        github_client=github_client,
+        github_repository=github_repository,
+        pull_request_number=pending_sync.pull_request_number,
+        label="stack comments",
+    )
+    navigation_comment = await _sync_managed_comment(
+        cached_comment_id=pending_sync.cached_change.navigation_comment_id,
+        comment_body=pending_sync.navigation_comment_body,
+        comments=comments,
+        dry_run=dry_run,
+        github_client=github_client,
+        github_repository=github_repository,
+        kind="navigation",
+        pull_request_number=pending_sync.pull_request_number,
+    )
+    overview_comment = await _sync_managed_comment(
+        cached_comment_id=pending_sync.cached_change.overview_comment_id,
+        comment_body=pending_sync.overview_comment_body,
+        comments=comments,
+        dry_run=dry_run,
+        github_client=github_client,
+        github_repository=github_repository,
+        kind="overview",
+        pull_request_number=pending_sync.pull_request_number,
+    )
+    updated_change = pending_sync.cached_change.model_copy(
+        update={
+            "navigation_comment_id": (
+                None if navigation_comment is None else navigation_comment.id
+            ),
+            "overview_comment_id": None if overview_comment is None else overview_comment.id,
+        }
+    )
     return pending_sync.change_id, updated_change
 
 
-async def _clear_stack_comment(
+async def _list_pull_request_comments(
     *,
-    cached_change: CachedChange,
-    dry_run: bool,
     github_client: GithubClient,
     github_repository: ParsedGithubRepo,
+    label: str,
     pull_request_number: int,
-) -> CachedChange:
+) -> tuple[GithubIssueComment, ...]:
     try:
-        comments = await github_client.list_issue_comments(
+        return await github_client.list_issue_comments(
             github_repository.owner,
             github_repository.repo,
             issue_number=pull_request_number,
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not list stack summary comments for pull request #{pull_request_number}"
+            f"Could not list {label} for pull request #{pull_request_number}"
         ) from error
-    if cached_change.stack_comment_id is not None:
-        cached_comment = next(
-            (comment for comment in comments if comment.id == cached_change.stack_comment_id),
-            None,
-        )
-        if cached_comment is not None:
-            if not is_stack_summary_comment(cached_comment.body):
-                raise CliError(
-                    t"Saved stack summary comment #{cached_change.stack_comment_id} for "
-                    t"pull request #{pull_request_number} does not belong to "
-                    t"jj-review.",
-                    hint=(
-                        t"Inspect the PR link with {ui.cmd('status --fetch')} or "
-                        t"delete the saved comment ID before submitting again."
-                    ),
-                )
-            if not dry_run:
-                await _delete_stack_comment(
-                    comment_id=cached_comment.id,
-                    github_client=github_client,
-                    github_repository=github_repository,
-                )
-            return cached_change.model_copy(update={"stack_comment_id": None})
-
-    discovered_comment = await _discover_stack_comment(comments=comments)
-    if discovered_comment is None:
-        if cached_change.stack_comment_id is None:
-            return cached_change
-        return cached_change.model_copy(update={"stack_comment_id": None})
-    if not dry_run:
-        await _delete_stack_comment(
-            comment_id=discovered_comment.id,
-            github_client=github_client,
-            github_repository=github_repository,
-        )
-    return cached_change.model_copy(update={"stack_comment_id": None})
 
 
-async def _upsert_stack_comment(
+def _managed_comment_matches_kind(
     *,
-    cached_change: CachedChange,
-    comment_body: str,
+    body: str,
+    kind: StackCommentKind,
+) -> bool:
+    if kind == "navigation":
+        return is_navigation_comment(body)
+    return is_overview_comment(body)
+
+
+async def _sync_managed_comment(
+    *,
+    cached_comment_id: int | None,
+    comment_body: str | None,
+    comments: tuple[GithubIssueComment, ...],
     dry_run: bool,
     github_client: GithubClient,
     github_repository: ParsedGithubRepo,
+    kind: StackCommentKind,
     pull_request_number: int,
 ) -> GithubIssueComment | None:
-    try:
-        comments = await github_client.list_issue_comments(
-            github_repository.owner,
-            github_repository.repo,
-            issue_number=pull_request_number,
-        )
-    except GithubClientError as error:
-        raise CliError(
-            f"Could not list stack summary comments for pull request #{pull_request_number}"
-        ) from error
-    if cached_change.stack_comment_id is not None:
-        cached_comment = next(
-            (comment for comment in comments if comment.id == cached_change.stack_comment_id),
-            None,
-        )
-        if cached_comment is not None:
-            if not is_stack_summary_comment(cached_comment.body):
-                raise CliError(
-                    t"Saved stack summary comment #{cached_change.stack_comment_id} for "
-                    t"pull request #{pull_request_number} does not belong to "
-                    t"jj-review.",
-                    hint=(
-                        t"Inspect the PR link with {ui.cmd('status --fetch')} or "
-                        t"delete the saved comment ID before submitting again."
-                    ),
-                )
-            if cached_comment.body == comment_body:
-                return cached_comment
-            if dry_run:
-                return cached_comment
-            return await _update_stack_comment(
-                comment_body=comment_body,
-                comment_id=cached_change.stack_comment_id,
+    existing_comment = _resolve_saved_managed_comment(
+        cached_comment_id=cached_comment_id,
+        comments=comments,
+        kind=kind,
+        pull_request_number=pull_request_number,
+    )
+    if comment_body is None:
+        if existing_comment is None:
+            return None
+        if not dry_run:
+            await _delete_stack_comment(
+                comment_id=existing_comment.id,
                 github_client=github_client,
                 github_repository=github_repository,
+                kind=kind,
             )
-
-    discovered_comment = await _discover_stack_comment(
-        comments=comments,
-    )
-    if discovered_comment is None:
+        return None
+    if existing_comment is not None:
+        if existing_comment.body == comment_body:
+            return existing_comment
         if dry_run:
-            return None
-        return await _create_stack_comment(
+            return existing_comment
+        return await _update_stack_comment(
             comment_body=comment_body,
+            comment_id=existing_comment.id,
             github_client=github_client,
             github_repository=github_repository,
-            pull_request_number=pull_request_number,
+            kind=kind,
         )
-    if discovered_comment.body == comment_body:
-        return discovered_comment
     if dry_run:
-        return discovered_comment
-    return await _update_stack_comment(
+        return None
+    return await _create_stack_comment(
         comment_body=comment_body,
-        comment_id=discovered_comment.id,
         github_client=github_client,
         github_repository=github_repository,
+        kind=kind,
+        pull_request_number=pull_request_number,
     )
 
 
-async def _discover_stack_comment(
+def _resolve_saved_managed_comment(
+    *,
+    cached_comment_id: int | None,
+    comments: tuple[GithubIssueComment, ...],
+    kind: StackCommentKind,
+    pull_request_number: int,
+) -> GithubIssueComment | None:
+    if cached_comment_id is not None:
+        cached_comment = next(
+            (comment for comment in comments if comment.id == cached_comment_id),
+            None,
+        )
+        if cached_comment is not None:
+            if not _managed_comment_matches_kind(body=cached_comment.body, kind=kind):
+                raise CliError(
+                    t"Saved {stack_comment_label(kind)} #{cached_comment_id} for pull request "
+                    t"#{pull_request_number} does not belong to jj-review.",
+                    hint=(
+                        t"Inspect the PR link with {ui.cmd('status --fetch')} or "
+                        t"delete the saved comment ID before submitting again."
+                    ),
+                )
+            return cached_comment
+    return _discover_managed_comment(
+        comments=comments,
+        kind=kind,
+    )
+
+
+def _discover_managed_comment(
     *,
     comments: tuple[GithubIssueComment, ...],
+    kind: StackCommentKind,
 ) -> GithubIssueComment | None:
     matching_comments = [
-        comment for comment in comments if is_stack_summary_comment(comment.body)
+        comment
+        for comment in comments
+        if _managed_comment_matches_kind(body=comment.body, kind=kind)
     ]
     if not matching_comments:
         return None
     if len(matching_comments) > 1:
         comment_ids = ", ".join(str(comment.id) for comment in matching_comments)
         raise CliError(
-            t"GitHub reports multiple jj-review stack "
-            t"summary comments for the same pull request: {comment_ids}.",
+            t"GitHub reports multiple jj-review {stack_comment_label(kind)}s for the same "
+            t"pull request: {comment_ids}.",
             hint=(
                 t"Inspect the PR link with {ui.cmd('status --fetch')} or delete the "
-                t"extra stack summary comments before submitting again."
+                t"extra {stack_comment_label(kind)}s before submitting again."
             ),
         )
     return matching_comments[0]
@@ -2266,6 +2279,7 @@ async def _create_stack_comment(
     comment_body: str,
     github_client: GithubClient,
     github_repository: ParsedGithubRepo,
+    kind: StackCommentKind,
     pull_request_number: int,
 ) -> GithubIssueComment:
     try:
@@ -2277,7 +2291,8 @@ async def _create_stack_comment(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not create a stack summary comment for pull request #{pull_request_number}"
+            f"Could not create a {stack_comment_label(kind)} for pull request "
+            f"#{pull_request_number}"
         ) from error
 
 
@@ -2287,6 +2302,7 @@ async def _update_stack_comment(
     comment_id: int,
     github_client: GithubClient,
     github_repository: ParsedGithubRepo,
+    kind: StackCommentKind,
 ) -> GithubIssueComment:
     try:
         return await github_client.update_issue_comment(
@@ -2296,7 +2312,7 @@ async def _update_stack_comment(
             body=comment_body,
         )
     except GithubClientError as error:
-        raise CliError(f"Could not update stack summary comment #{comment_id}") from error
+        raise CliError(f"Could not update {stack_comment_label(kind)} #{comment_id}") from error
 
 
 async def _delete_stack_comment(
@@ -2304,6 +2320,7 @@ async def _delete_stack_comment(
     comment_id: int,
     github_client: GithubClient,
     github_repository: ParsedGithubRepo,
+    kind: StackCommentKind,
 ) -> None:
     try:
         await github_client.delete_issue_comment(
@@ -2314,17 +2331,17 @@ async def _delete_stack_comment(
     except GithubClientError as error:
         if error.status_code == 404:
             return
-        raise CliError(f"Could not delete stack summary comment #{comment_id}") from error
+        raise CliError(f"Could not delete {stack_comment_label(kind)} #{comment_id}") from error
 
 
-def _render_stack_comment(
+def _render_navigation_comment(
     *,
     current: SubmittedRevision,
     revisions: tuple[SubmittedRevision, ...],
     stack_description: GeneratedDescription | None,
     trunk_branch: str,
 ) -> str:
-    lines = [STACK_COMMENT_MARKER]
+    lines = [stack_comment_marker("navigation")]
     description_lines = _render_generated_stack_description(stack_description)
     if description_lines:
         lines.extend(description_lines)
@@ -2336,9 +2353,19 @@ def _render_stack_comment(
             "Stack:",
         ]
     )
-    lines.extend(_render_stack_comment_entries(current=current, revisions=revisions))
+    lines.extend(_render_navigation_comment_entries(current=current, revisions=revisions))
     lines.append(f"trunk `{trunk_branch}`")
     return "\n".join(lines)
+
+
+def _render_overview_comment(
+    *,
+    stack_description: GeneratedDescription | None,
+) -> str | None:
+    description_lines = _render_generated_stack_description(stack_description)
+    if not description_lines:
+        return None
+    return "\n".join([stack_comment_marker("overview"), *description_lines])
 
 
 def _render_generated_stack_description(
@@ -2357,25 +2384,25 @@ def _render_generated_stack_description(
     return lines
 
 
-def _render_stack_comment_entries(
+def _render_navigation_comment_entries(
     *,
     current: SubmittedRevision,
     revisions: tuple[SubmittedRevision, ...],
 ) -> list[str]:
     return [
-        _render_stack_comment_entry(current=current, revision=revision)
+        _render_navigation_comment_entry(current=current, revision=revision)
         for revision in reversed(revisions)
     ]
 
 
-def _render_stack_comment_entry(
+def _render_navigation_comment_entry(
     *,
     current: SubmittedRevision,
     revision: SubmittedRevision,
 ) -> str:
     title = revision.pull_request_title or revision.subject
     if revision.change_id == current.change_id:
-        return f"**{title}**"
+        return f"**{title} (this PR)**"
     if revision.pull_request_url is None:
         return title
     return f"[{title}]({revision.pull_request_url})"

@@ -24,7 +24,8 @@ class CachedChange(BaseModel):
     pr_review_decision: str | None = None
     pr_state: str | None = None
     pr_url: str | None = None
-    stack_comment_id: int | None = None
+    navigation_comment_id: int | None = None
+    overview_comment_id: int | None = None
 
     @property
     def has_review_identity(self) -> bool:
@@ -38,7 +39,8 @@ class CachedChange(BaseModel):
                 self.pr_review_decision,
                 self.pr_state,
                 self.pr_url,
-                self.stack_comment_id,
+                self.navigation_comment_id,
+                self.overview_comment_id,
             )
         )
 

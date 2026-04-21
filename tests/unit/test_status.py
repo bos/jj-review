@@ -33,7 +33,7 @@ def test_status_advises_cleanup_and_restack_when_merged_pr_remains_in_stack() ->
             ),
             state="closed",
         ),
-        stack_comment_lookup=None,
+        managed_comments_lookup=None,
     )
 
     lines = _render_lines(
@@ -93,7 +93,7 @@ def test_status_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
             link_state="active",
             local_divergent=False,
             pull_request_lookup=None,
-            stack_comment_lookup=None,
+            managed_comments_lookup=None,
             subject=f"feature {index}",
         )
         for index in range(8, 0, -1)
@@ -180,7 +180,7 @@ def test_render_status_summary_lines_links_submitted_header_to_top_pr() -> None:
                         review_decision_error=None,
                         state="open",
                     ),
-                    stack_comment_lookup=None,
+                    managed_comments_lookup=None,
                     subject="feature 8",
                 ),
                 SimpleNamespace(
@@ -199,7 +199,7 @@ def test_render_status_summary_lines_links_submitted_header_to_top_pr() -> None:
                         review_decision_error=None,
                         state="open",
                     ),
-                    stack_comment_lookup=None,
+                    managed_comments_lookup=None,
                     subject="feature 7",
                 ),
             ),
@@ -223,7 +223,7 @@ def test_status_summary_hides_managed_review_bookmark_but_keeps_other_bookmarks(
         link_state="active",
         local_divergent=False,
         pull_request_lookup=None,
-        stack_comment_lookup=None,
+        managed_comments_lookup=None,
         subject="feature 8",
     )
 

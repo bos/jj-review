@@ -29,7 +29,12 @@ from jj_review.github.resolution import (
     parse_github_repo,
     select_submit_remote,
 )
-from jj_review.github.stack_comments import is_stack_summary_comment
+from jj_review.github.stack_comments import (
+    StackCommentKind,
+    is_navigation_comment,
+    is_overview_comment,
+    stack_comment_label,
+)
 from jj_review.jj import JjCliArgs, JjClient
 from jj_review.jj.client import UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState, GitRemote
@@ -108,8 +113,8 @@ class PreparedCleanup:
 class StackCommentCleanupPlan:
     """Planned or blocked stack-comment cleanup details."""
 
-    action: CleanupAction
-    comment_id: int | None = None
+    actions: tuple[CleanupAction, ...]
+    comments: tuple[tuple[int, StackCommentKind], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1332,28 +1337,36 @@ async def _apply_stack_comment_cleanup_action(
     prepared_cleanup: PreparedCleanup,
     record_action: Callable[[CleanupAction], None],
 ) -> None:
-    comment_action = comment_plan.action
-    if (
-        not prepared_cleanup.dry_run
-        and comment_action.status == "planned"
-        and comment_plan.comment_id is not None
+    applied_comments = False
+    for action, (comment_id, kind) in zip(
+        comment_plan.actions,
+        comment_plan.comments,
+        strict=True,
     ):
-        try:
-            await github_client.delete_issue_comment(
-                github_repository.owner,
-                github_repository.repo,
-                comment_id=comment_plan.comment_id,
-            )
-        except GithubClientError as error:
-            raise CliError(
-                f"Could not delete stack summary comment #{comment_plan.comment_id}"
-            ) from error
-        if change_id in next_changes:
-            next_changes[change_id] = next_changes[change_id].model_copy(
-                update={"stack_comment_id": None}
-            )
-        comment_action = replace(comment_plan.action, status="applied")
-    record_action(comment_action)
+        comment_action = action
+        if not prepared_cleanup.dry_run and comment_action.status == "planned":
+            try:
+                await github_client.delete_issue_comment(
+                    github_repository.owner,
+                    github_repository.repo,
+                    comment_id=comment_id,
+                )
+            except GithubClientError as error:
+                raise CliError(
+                    f"Could not delete {stack_comment_label(kind)} #{comment_id}"
+                ) from error
+            applied_comments = True
+            comment_action = replace(action, status="applied")
+        record_action(comment_action)
+    for action in comment_plan.actions[len(comment_plan.comments) :]:
+        record_action(action)
+    if applied_comments and change_id in next_changes:
+        next_changes[change_id] = next_changes[change_id].model_copy(
+            update={
+                "navigation_comment_id": None,
+                "overview_comment_id": None,
+            }
+        )
     if not prepared_cleanup.dry_run:
         prepared_cleanup.state_store.save(
             prepared_cleanup.state.model_copy(update={"changes": dict(next_changes)})
@@ -1439,13 +1452,20 @@ def _stack_comment_cleanup_eligibility(
         return "skip"
     if cached_change.is_unlinked:
         return "inspect"
-    if cached_change.bookmark is None and cached_change.stack_comment_id is None:
+    if (
+        cached_change.bookmark is None
+        and cached_change.navigation_comment_id is None
+        and cached_change.overview_comment_id is None
+    ):
         return "skip"
     if stale_reason is None:
         return "inspect"
     if cached_change.pr_state in {"closed", "merged"}:
         return "skip"
-    if cached_change.stack_comment_id is not None:
+    if (
+        cached_change.navigation_comment_id is not None
+        or cached_change.overview_comment_id is not None
+    ):
         return "inspect"
     if cached_change.bookmark is None:
         return "skip"
@@ -1712,7 +1732,7 @@ async def _plan_stack_comment_cleanup(
             github_repository=github_repository,
         )
         if isinstance(pull_request_number, CleanupAction):
-            return StackCommentCleanupPlan(action=pull_request_number)
+            return StackCommentCleanupPlan(actions=(pull_request_number,))
 
     if pull_request_number is None:
         return None
@@ -1736,35 +1756,46 @@ async def _plan_stack_comment_cleanup(
         if pull_request.head.ref == bookmark and pull_request.head.label == expected_label:
             return None
 
-    stack_summary_comment = await _resolve_stack_summary_comment(
+    managed_comments = await _resolve_managed_comments(
         cached_change=cached_change,
         github_client=github_client,
         github_repository=github_repository,
         pull_request_number=pull_request_number,
     )
-    if isinstance(stack_summary_comment, CleanupAction):
-        return StackCommentCleanupPlan(action=stack_summary_comment)
-    if stack_summary_comment is None:
+    if isinstance(managed_comments, CleanupAction):
+        return StackCommentCleanupPlan(actions=(managed_comments,))
+    if not managed_comments:
         return None
 
     return StackCommentCleanupPlan(
-        action=CleanupAction(
-            kind="stack summary comment",
-            status="planned",
-            body=(
-                "delete stack summary comment "
-                f"#{stack_summary_comment.id} from PR #{pull_request_number}"
-            ),
+        actions=tuple(
+            CleanupAction(
+                kind=stack_comment_label(kind),
+                status="planned",
+                body=(
+                    f"delete {stack_comment_label(kind)} #{comment.id} from PR "
+                    f"#{pull_request_number}"
+                ),
+            )
+            for kind, comment in managed_comments
         ),
-        comment_id=stack_summary_comment.id,
+        comments=tuple((comment.id, kind) for kind, comment in managed_comments),
     )
-async def _resolve_stack_summary_comment(
+
+
+def _comment_matches_kind(*, body: str, kind: StackCommentKind) -> bool:
+    if kind == "navigation":
+        return is_navigation_comment(body)
+    return is_overview_comment(body)
+
+
+async def _resolve_managed_comments(
     *,
     cached_change: CachedChange,
     github_client: GithubClient,
     github_repository,
     pull_request_number: int,
-) -> GithubIssueComment | CleanupAction | None:
+) -> tuple[tuple[StackCommentKind, GithubIssueComment], ...] | CleanupAction:
     try:
         comments = await github_client.list_issue_comments(
             github_repository.owner,
@@ -1773,38 +1804,52 @@ async def _resolve_stack_summary_comment(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not list stack summary comments for pull request #{pull_request_number}"
+            f"Could not list managed comments for pull request #{pull_request_number}"
         ) from error
-    if cached_change.stack_comment_id is not None:
-        cached_comment = next(
-            (comment for comment in comments if comment.id == cached_change.stack_comment_id),
-            None,
-        )
-        if cached_comment is not None:
-            if not is_stack_summary_comment(cached_comment.body):
+
+    resolved: list[tuple[StackCommentKind, GithubIssueComment]] = []
+    for kind, cached_comment_id in (
+        ("navigation", cached_change.navigation_comment_id),
+        ("overview", cached_change.overview_comment_id),
+    ):
+        cached_comment = None
+        if cached_comment_id is not None:
+            cached_comment = next(
+                (comment for comment in comments if comment.id == cached_comment_id),
+                None,
+            )
+            if cached_comment is not None and not _comment_matches_kind(
+                body=cached_comment.body,
+                kind=kind,
+            ):
                 return CleanupAction(
-                    kind="stack summary comment",
+                    kind=stack_comment_label(kind),
                     status="blocked",
                     body=(
-                        "cannot delete saved stack summary comment "
+                        f"cannot delete saved {stack_comment_label(kind)} "
                         f"#{cached_comment.id} because it does not belong to us"
                     ),
                 )
-            return cached_comment
+        if cached_comment is not None:
+            resolved.append((kind, cached_comment))
+            continue
 
-    stack_summary_comments = [c for c in comments if is_stack_summary_comment(c.body)]
-    if len(stack_summary_comments) > 1:
-        return CleanupAction(
-            kind="stack summary comment",
-            status="blocked",
-            body=(
-                "cannot delete stack summary comments because GitHub reports "
-                f"multiple candidates on PR #{pull_request_number}"
-            ),
-        )
-    if not stack_summary_comments:
-        return None
-    return stack_summary_comments[0]
+        matching_comments = [
+            comment for comment in comments if _comment_matches_kind(body=comment.body, kind=kind)
+        ]
+        if len(matching_comments) > 1:
+            return CleanupAction(
+                kind=stack_comment_label(kind),
+                status="blocked",
+                body=(
+                    f"cannot delete {stack_comment_label(kind)}s because GitHub reports "
+                    f"multiple candidates on PR #{pull_request_number}"
+                ),
+            )
+        if matching_comments:
+            resolved.append((kind, matching_comments[0]))
+
+    return tuple(resolved)
 
 
 async def _resolve_unlinked_pull_request_number(
@@ -1833,10 +1878,10 @@ async def _resolve_unlinked_pull_request_number(
         return None
     if len(pull_requests) > 1:
         return CleanupAction(
-            kind="stack summary comment",
+            kind="stack navigation comment",
             status="blocked",
             body=(
-                t"cannot delete stack summary comment because GitHub reports multiple "
+                t"cannot delete stack navigation comments because GitHub reports multiple "
                 t"pull requests for unlinked bookmark {ui.bookmark(bookmark_state.name)}"
             ),
         )

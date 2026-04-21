@@ -26,7 +26,12 @@ from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.error_messages import summarize_github_error_reason
 from jj_review.github.resolution import parse_github_repo, select_submit_remote
-from jj_review.github.stack_comments import is_stack_summary_comment
+from jj_review.github.stack_comments import (
+    StackCommentKind,
+    is_navigation_comment,
+    is_overview_comment,
+    stack_comment_label,
+)
 from jj_review.jj import JjCliArgs, JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.github import GithubIssueComment
@@ -847,11 +852,18 @@ async def _process_close_revision(
             pr_number=lookup.pull_request.number,
             pr_state=lookup.pull_request.state,
             pr_url=lookup.pull_request.html_url,
-            stack_comment_id=(
-                revision.stack_comment_lookup.comment.id
-                if revision.stack_comment_lookup is not None
-                and revision.stack_comment_lookup.state == "present"
-                and revision.stack_comment_lookup.comment is not None
+            navigation_comment_id=(
+                revision.managed_comments_lookup.navigation_comment.id
+                if revision.managed_comments_lookup is not None
+                and revision.managed_comments_lookup.state == "resolved"
+                and revision.managed_comments_lookup.navigation_comment is not None
+                else None
+            ),
+            overview_comment_id=(
+                revision.managed_comments_lookup.overview_comment.id
+                if revision.managed_comments_lookup is not None
+                and revision.managed_comments_lookup.state == "resolved"
+                and revision.managed_comments_lookup.overview_comment is not None
                 else None
             ),
         )
@@ -1123,21 +1135,29 @@ async def _cleanup_revision(
     if cached_change.pr_number is None:
         return
 
-    comment, comment_error = await _find_stack_summary_comment(
-        github_client=context.github_client,
-        github_repository=context.github_repository,
-        pull_request_number=cached_change.pr_number,
-        cached_stack_comment_id=cached_change.stack_comment_id,
-    )
-    if comment_error is not None:
-        context.record_action(comment_error)
-        return
-    if comment is not None:
+    cleared_comment = False
+    for kind, cached_comment_id in (
+        ("navigation", cached_change.navigation_comment_id),
+        ("overview", cached_change.overview_comment_id),
+    ):
+        comment, comment_error = await _find_managed_comment(
+            cached_comment_id=cached_comment_id,
+            github_client=context.github_client,
+            github_repository=context.github_repository,
+            kind=kind,
+            pull_request_number=cached_change.pr_number,
+        )
+        if comment_error is not None:
+            context.record_action(comment_error)
+            return
+        if comment is None:
+            continue
+        cleared_comment = True
         context.record_action(
             CloseAction(
-                kind="stack summary comment",
+                kind=stack_comment_label(kind),
                 body=(
-                    f"delete stack summary comment #{comment.id} from PR "
+                    f"delete {stack_comment_label(kind)} #{comment.id} from PR "
                     f"#{cached_change.pr_number}"
                 ),
                 status="planned" if context.dry_run else "applied",
@@ -1150,9 +1170,16 @@ async def _cleanup_revision(
                 comment_id=comment.id,
             )
 
-    if cached_change.stack_comment_id is not None or comment is not None:
+    if (
+        cached_change.navigation_comment_id is not None
+        or cached_change.overview_comment_id is not None
+        or cleared_comment
+    ):
         context.next_changes[context.revision.change_id] = cached_change.model_copy(
-            update={"stack_comment_id": None}
+            update={
+                "navigation_comment_id": None,
+                "overview_comment_id": None,
+            }
         )
 
 
@@ -1288,11 +1315,18 @@ def _apply_review_bookmark_cleanup(
             context.jj_client.forget_bookmarks((bookmark,))
 
 
-async def _find_stack_summary_comment(
+def _comment_matches_kind(*, body: str, kind: StackCommentKind) -> bool:
+    if kind == "navigation":
+        return is_navigation_comment(body)
+    return is_overview_comment(body)
+
+
+async def _find_managed_comment(
     *,
-    cached_stack_comment_id: int | None,
+    cached_comment_id: int | None,
     github_client: GithubClient,
     github_repository,
+    kind: StackCommentKind,
     pull_request_number: int,
 ) -> tuple[GithubIssueComment | None, CloseAction | None]:
     try:
@@ -1303,13 +1337,13 @@ async def _find_stack_summary_comment(
         )
     except GithubClientError as error:
         if error.status_code == 404:
-            if cached_stack_comment_id is None:
+            if cached_comment_id is None:
                 return None, None
             try:
                 cached_comment = await github_client.get_issue_comment(
                     github_repository.owner,
                     github_repository.repo,
-                    comment_id=cached_stack_comment_id,
+                    comment_id=cached_comment_id,
                 )
             except GithubClientError as cached_comment_error:
                 if cached_comment_error.status_code == 404:
@@ -1317,24 +1351,23 @@ async def _find_stack_summary_comment(
                 return (
                     None,
                     CloseAction(
-                        kind="stack summary comment",
+                        kind=stack_comment_label(kind),
                         body=(
-                            "cannot inspect saved stack summary comment "
-                            "#"
-                            f"{cached_stack_comment_id}: "
+                            f"cannot inspect saved {stack_comment_label(kind)} "
+                            f"#{cached_comment_id}: "
                             f"{summarize_github_error_reason(cached_comment_error)}"
                         ),
                         status="blocked",
                     ),
                 )
-            if not is_stack_summary_comment(cached_comment.body):
+            if not _comment_matches_kind(body=cached_comment.body, kind=kind):
                 return (
                     None,
                     CloseAction(
-                        kind="stack summary comment",
+                        kind=stack_comment_label(kind),
                         body=(
-                            f"cannot delete saved stack summary comment "
-                            f"#{cached_stack_comment_id} because it does not belong to "
+                            f"cannot delete saved {stack_comment_label(kind)} "
+                            f"#{cached_comment_id} because it does not belong to "
                             "jj-review"
                         ),
                         status="blocked",
@@ -1344,29 +1377,30 @@ async def _find_stack_summary_comment(
         return (
             None,
             CloseAction(
-                kind="stack summary comment",
+                kind=stack_comment_label(kind),
                 body=(
-                    f"cannot inspect stack summary comments for PR #{pull_request_number}: "
+                    f"cannot inspect {stack_comment_label(kind)}s for PR "
+                    f"#{pull_request_number}: "
                     f"{summarize_github_error_reason(error)}"
                 ),
                 status="blocked",
             ),
         )
 
-    if cached_stack_comment_id is not None:
+    if cached_comment_id is not None:
         cached_comment = next(
-            (comment for comment in comments if comment.id == cached_stack_comment_id),
+            (comment for comment in comments if comment.id == cached_comment_id),
             None,
         )
         if cached_comment is not None:
-            if not is_stack_summary_comment(cached_comment.body):
+            if not _comment_matches_kind(body=cached_comment.body, kind=kind):
                 return (
                     None,
                     CloseAction(
-                        kind="stack summary comment",
+                        kind=stack_comment_label(kind),
                         body=(
-                            f"cannot delete saved stack summary comment "
-                            f"#{cached_stack_comment_id} because it does not belong to "
+                            f"cannot delete saved {stack_comment_label(kind)} "
+                            f"#{cached_comment_id} because it does not belong to "
                             "jj-review"
                         ),
                         status="blocked",
@@ -1374,24 +1408,26 @@ async def _find_stack_summary_comment(
                 )
             return cached_comment, None
 
-    stack_summary_comments = [
-        comment for comment in comments if is_stack_summary_comment(comment.body)
+    matching_comments = [
+        comment
+        for comment in comments
+        if _comment_matches_kind(body=comment.body, kind=kind)
     ]
-    if len(stack_summary_comments) > 1:
+    if len(matching_comments) > 1:
         return (
             None,
             CloseAction(
-                kind="stack summary comment",
+                kind=stack_comment_label(kind),
                 body=(
-                    "cannot delete stack summary comments because GitHub reports "
+                    f"cannot delete {stack_comment_label(kind)}s because GitHub reports "
                     f"multiple candidates on PR #{pull_request_number}"
                 ),
                 status="blocked",
             ),
         )
-    if not stack_summary_comments:
+    if not matching_comments:
         return None, None
-    return stack_summary_comments[0], None
+    return matching_comments[0], None
 
 
 def _retire_cached_change(
@@ -1419,7 +1455,8 @@ def _has_retirable_cached_review_identity(cached_change: CachedChange) -> bool:
             cached_change.pr_number,
             cached_change.pr_state,
             cached_change.pr_url,
-            cached_change.stack_comment_id,
+            cached_change.navigation_comment_id,
+            cached_change.overview_comment_id,
         )
     )
 

@@ -9,6 +9,10 @@ import pytest
 
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.github.stack_comments import (
+    STACK_NAVIGATION_COMMENT_MARKER,
+    is_navigation_comment,
+)
 from jj_review.jj import JjClient
 from jj_review.models.github import GithubPullRequest
 from jj_review.models.intent import SubmitIntent
@@ -48,6 +52,13 @@ def _predicted_bookmarks(_repo: Path, stack) -> dict[str, str]:
         for revision, resolution in zip(stack.revisions, result.resolutions, strict=True)
     }
 
+
+def _navigation_comments(fake_repo, issue_number: int):
+    return [
+        comment
+        for comment in issue_comments(fake_repo, issue_number)
+        if is_navigation_comment(comment.body)
+    ]
 
 def test_submit_projects_review_bookmarks_to_selected_remote(
     tmp_path: Path,
@@ -278,7 +289,7 @@ def test_submit_invalid_revset_reports_clean_error_without_mutation(
     assert fake_repo.pull_requests == {}
 
 
-def test_submit_creates_stack_comment_only_for_selected_head_pull_request(
+def test_submit_creates_navigation_comment_for_each_pull_request_in_multi_pr_stack(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -295,18 +306,22 @@ def test_submit_creates_stack_comment_only_for_selected_head_pull_request(
     top_change_id = stack.revisions[-1].change_id
     state = ReviewStateStore.for_repo(repo).load()
 
-    assert issue_comments(fake_repo, 1) == []
-    assert len(issue_comments(fake_repo, 2)) == 1
-    assert "<!-- jj-review-stack -->" in issue_comments(fake_repo, 2)[0].body
-    assert "Stack:" in issue_comments(fake_repo, 2)[0].body
-    assert "**feature 1**" not in issue_comments(fake_repo, 2)[0].body
-    assert "trunk `main`" in issue_comments(fake_repo, 2)[0].body
-    assert "**feature 2**" in issue_comments(fake_repo, 2)[0].body
-    assert "[feature 1](https://github.test/octo-org/stacked-review/pull/1)" in (
-        issue_comments(fake_repo, 2)[0].body
+    assert len(_navigation_comments(fake_repo, 1)) == 1
+    assert len(_navigation_comments(fake_repo, 2)) == 1
+    assert STACK_NAVIGATION_COMMENT_MARKER in _navigation_comments(fake_repo, 1)[0].body
+    assert "**feature 1 (this PR)**" in _navigation_comments(fake_repo, 1)[0].body
+    assert "[feature 2](https://github.test/octo-org/stacked-review/pull/2)" in (
+        _navigation_comments(fake_repo, 1)[0].body
     )
-    assert state.changes[bottom_change_id].stack_comment_id is None
-    assert state.changes[top_change_id].stack_comment_id == 1
+    assert "trunk `main`" in _navigation_comments(fake_repo, 1)[0].body
+    assert "**feature 2 (this PR)**" in _navigation_comments(fake_repo, 2)[0].body
+    assert "[feature 1](https://github.test/octo-org/stacked-review/pull/1)" in (
+        _navigation_comments(fake_repo, 2)[0].body
+    )
+    assert state.changes[bottom_change_id].navigation_comment_id is not None
+    assert state.changes[bottom_change_id].overview_comment_id is None
+    assert state.changes[top_change_id].navigation_comment_id is not None
+    assert state.changes[top_change_id].overview_comment_id is None
 
 
 def test_submit_skips_stack_comment_for_single_commit_stack(
@@ -322,7 +337,8 @@ def test_submit_skips_stack_comment_for_single_commit_stack(
 
     assert issue_comments(fake_repo, 1) == []
     assert fake_repo.pull_requests[1].body == "feature 1"
-    assert state.changes[change_id].stack_comment_id is None
+    assert state.changes[change_id].navigation_comment_id is None
+    assert state.changes[change_id].overview_comment_id is None
 
 
 def test_submit_describe_with_generates_pull_request_and_stack_metadata(
@@ -394,15 +410,16 @@ def test_submit_describe_with_generates_pull_request_and_stack_metadata(
     assert fake_repo.pull_requests[2].body == (
         f"Generated body for {stack.revisions[1].change_id}"
     )
-    assert issue_comments(fake_repo, 1) == []
-    assert "## Generated stack summary" in issue_comments(fake_repo, 2)[0].body
+    assert len(_navigation_comments(fake_repo, 1)) == 1
+    assert len(_navigation_comments(fake_repo, 2)) == 1
+    assert "## Generated stack summary" in _navigation_comments(fake_repo, 2)[0].body
     assert (
         f"Generated stack body for {stack.selected_revset}: "
         f"AI {stack.revisions[0].change_id[:8]} -> AI {stack.revisions[1].change_id[:8]} | "
-        "feature-1.txt" in issue_comments(fake_repo, 2)[0].body
+        "feature-1.txt" in _navigation_comments(fake_repo, 2)[0].body
     )
     assert "This pull request is part of a stack tracked by `jj-review`." in (
-        issue_comments(fake_repo, 2)[0].body
+        _navigation_comments(fake_repo, 2)[0].body
     )
 
 
@@ -458,7 +475,8 @@ def test_submit_describe_with_skips_stack_helper_for_single_commit_stack(
     assert fake_repo.pull_requests[1].title == f"AI {change_id[:8]}"
     assert log_path.read_text(encoding="utf-8").splitlines() == [f"--pr {change_id}"]
     assert issue_comments(fake_repo, 1) == []
-    assert state.changes[change_id].stack_comment_id is None
+    assert state.changes[change_id].navigation_comment_id is None
+    assert state.changes[change_id].overview_comment_id is None
 
 
 def test_submit_describe_with_failure_aborts_before_mutation(
@@ -666,17 +684,19 @@ def test_submit_rediscovers_and_regenerates_stack_comments_when_cache_is_missing
     bottom_change_id = stack.revisions[0].change_id
     state_store = ReviewStateStore.for_repo(repo)
     initial_state = state_store.load()
-    initial_comment_id = initial_state.changes[top_change_id].stack_comment_id
+    initial_comment_id = initial_state.changes[top_change_id].navigation_comment_id
     assert initial_comment_id is not None
 
-    fake_repo.issue_comments[2][0].body = "<!-- jj-review-stack -->\nmanually edited"
+    _navigation_comments(fake_repo, 2)[0].body = (
+        f"{STACK_NAVIGATION_COMMENT_MARKER}\nmanually edited"
+    )
     state_store.save(
         initial_state.model_copy(
             update={
                 "changes": {
                     **initial_state.changes,
                     top_change_id: initial_state.changes[top_change_id].model_copy(
-                        update={"stack_comment_id": None}
+                        update={"navigation_comment_id": None}
                     ),
                 }
             }
@@ -689,15 +709,15 @@ def test_submit_rediscovers_and_regenerates_stack_comments_when_cache_is_missing
     capsys.readouterr()
     refreshed_state = state_store.load()
 
-    assert len(issue_comments(fake_repo, 2)) == 1
-    assert issue_comments(fake_repo, 2)[0].id == initial_comment_id
-    assert "**feature 2 renamed**" in issue_comments(fake_repo, 2)[0].body
+    assert len(_navigation_comments(fake_repo, 2)) == 1
+    assert _navigation_comments(fake_repo, 2)[0].id == initial_comment_id
+    assert "**feature 2 renamed (this PR)**" in _navigation_comments(fake_repo, 2)[0].body
     assert "[feature 1](https://github.test/octo-org/stacked-review/pull/1)" in (
-        issue_comments(fake_repo, 2)[0].body
+        _navigation_comments(fake_repo, 2)[0].body
     )
-    assert issue_comments(fake_repo, 1) == []
-    assert refreshed_state.changes[top_change_id].stack_comment_id == initial_comment_id
-    assert refreshed_state.changes[bottom_change_id].stack_comment_id is None
+    assert len(_navigation_comments(fake_repo, 1)) == 1
+    assert refreshed_state.changes[top_change_id].navigation_comment_id == initial_comment_id
+    assert refreshed_state.changes[bottom_change_id].navigation_comment_id is not None
 
 
 def test_submit_moves_managed_stack_comment_to_new_selected_head(
@@ -716,11 +736,11 @@ def test_submit_moves_managed_stack_comment_to_new_selected_head(
     old_top_change_id = initial_stack.revisions[-1].change_id
     old_bottom_change_id = initial_stack.revisions[0].change_id
     initial_state = ReviewStateStore.for_repo(repo).load()
-    initial_comment_id = initial_state.changes[old_top_change_id].stack_comment_id
+    initial_comment_id = initial_state.changes[old_top_change_id].navigation_comment_id
 
     assert initial_comment_id is not None
-    assert issue_comments(fake_repo, 1) == []
-    assert len(issue_comments(fake_repo, 2)) == 1
+    assert len(_navigation_comments(fake_repo, 1)) == 1
+    assert len(_navigation_comments(fake_repo, 2)) == 1
 
     commit_file(repo, "feature 3", "feature-3.txt")
 
@@ -730,13 +750,13 @@ def test_submit_moves_managed_stack_comment_to_new_selected_head(
     refreshed_state = ReviewStateStore.for_repo(repo).load()
     new_top_change_id = refreshed_stack.revisions[-1].change_id
 
-    assert issue_comments(fake_repo, 1) == []
-    assert issue_comments(fake_repo, 2) == []
-    assert len(issue_comments(fake_repo, 3)) == 1
-    assert refreshed_state.changes[old_bottom_change_id].stack_comment_id is None
-    assert refreshed_state.changes[old_top_change_id].stack_comment_id is None
-    assert refreshed_state.changes[new_top_change_id].stack_comment_id is not None
-    assert refreshed_state.changes[new_top_change_id].stack_comment_id != initial_comment_id
+    assert len(_navigation_comments(fake_repo, 1)) == 1
+    assert len(_navigation_comments(fake_repo, 2)) == 1
+    assert len(_navigation_comments(fake_repo, 3)) == 1
+    assert refreshed_state.changes[old_bottom_change_id].navigation_comment_id is not None
+    assert refreshed_state.changes[old_top_change_id].navigation_comment_id is not None
+    assert refreshed_state.changes[new_top_change_id].navigation_comment_id is not None
+    assert refreshed_state.changes[new_top_change_id].navigation_comment_id != initial_comment_id
 
 
 def test_submit_single_change_clears_stale_managed_stack_comment(
@@ -751,7 +771,7 @@ def test_submit_single_change_clears_stale_managed_stack_comment(
     state_store = ReviewStateStore.for_repo(repo)
     initial_state = state_store.load()
     manual_comment = fake_repo.create_issue_comment(
-        body="<!-- jj-review-stack -->\nstale stack summary",
+        body=f"{STACK_NAVIGATION_COMMENT_MARKER}\nstale stack navigation",
         issue_number=1,
     )
     state_store.save(
@@ -760,7 +780,7 @@ def test_submit_single_change_clears_stale_managed_stack_comment(
                 "changes": {
                     **initial_state.changes,
                     change_id: initial_state.changes[change_id].model_copy(
-                        update={"stack_comment_id": manual_comment.id}
+                        update={"navigation_comment_id": manual_comment.id}
                     ),
                 }
             }
@@ -772,7 +792,7 @@ def test_submit_single_change_clears_stale_managed_stack_comment(
     refreshed_state = state_store.load()
 
     assert issue_comments(fake_repo, 1) == []
-    assert refreshed_state.changes[change_id].stack_comment_id is None
+    assert refreshed_state.changes[change_id].navigation_comment_id is None
 
 
 def test_submit_rejects_cached_stack_comment_id_for_non_stack_comment(
@@ -799,7 +819,7 @@ def test_submit_rejects_cached_stack_comment_id_for_non_stack_comment(
                 "changes": {
                     **initial_state.changes,
                     change_id: initial_state.changes[change_id].model_copy(
-                        update={"stack_comment_id": manual_comment.id}
+                        update={"navigation_comment_id": manual_comment.id}
                     ),
                 }
             }
@@ -831,14 +851,17 @@ def test_submit_rejects_ambiguous_discovered_stack_comments(
     change_id = stack.revisions[-1].change_id
     state_store = ReviewStateStore.for_repo(repo)
     initial_state = state_store.load()
-    fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=2)
+    fake_repo.create_issue_comment(
+        body=f"{STACK_NAVIGATION_COMMENT_MARKER}\nextra",
+        issue_number=2,
+    )
     state_store.save(
         initial_state.model_copy(
             update={
                 "changes": {
                     **initial_state.changes,
                     change_id: initial_state.changes[change_id].model_copy(
-                        update={"stack_comment_id": None}
+                        update={"navigation_comment_id": None}
                     ),
                 }
             }
@@ -849,7 +872,7 @@ def test_submit_rejects_ambiguous_discovered_stack_comments(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "multiple jj-review stack summary comments" in captured.err
+    assert "multiple jj-review stack navigation comments" in captured.err
 
 
 def test_submit_reports_stack_comment_update_failures_without_traceback(
@@ -894,7 +917,7 @@ def test_submit_reports_stack_comment_update_failures_without_traceback(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "Could not update stack summary comment" in captured.err
+    assert "Could not update stack navigation comment" in captured.err
     assert "Traceback" not in captured.err
 
 
@@ -1804,29 +1827,10 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
     if issue_number_1 is None or issue_number_2 is None or issue_number_3 is None:
         raise AssertionError("Expected pull request numbers after initial submit.")
 
-    stale_comment_1 = fake_repo.create_issue_comment(
-        body="<!-- jj-review-stack -->\nstale bottom summary",
-        issue_number=issue_number_1,
-    )
-    stale_comment_2 = fake_repo.create_issue_comment(
-        body="<!-- jj-review-stack -->\nstale middle summary",
-        issue_number=issue_number_2,
-    )
-    state_store.save(
-        initial_state.model_copy(
-            update={
-                "changes": {
-                    **initial_state.changes,
-                    change_id_1: initial_state.changes[change_id_1].model_copy(
-                        update={"stack_comment_id": stale_comment_1.id}
-                    ),
-                    change_id_2: initial_state.changes[change_id_2].model_copy(
-                        update={"stack_comment_id": stale_comment_2.id}
-                    ),
-                }
-            }
-        )
-    )
+    stale_comment_1 = _navigation_comments(fake_repo, issue_number_1)[0]
+    stale_comment_2 = _navigation_comments(fake_repo, issue_number_2)[0]
+    stale_comment_1.body = f"{STACK_NAVIGATION_COMMENT_MARKER}\nstale bottom navigation"
+    stale_comment_2.body = f"{STACK_NAVIGATION_COMMENT_MARKER}\nstale middle navigation"
 
     app = create_app(FakeGithubState.single_repository(fake_repo))
     started_issue_numbers: list[int] = []
@@ -1837,7 +1841,7 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
             if issue_number == issue_number_2:
                 await asyncio.sleep(0.01)
                 raise GithubClientError(
-                    "Simulated stack summary comment failure",
+                    "Simulated stack navigation comment failure",
                     status_code=500,
                 )
             if issue_number == issue_number_1:
@@ -1862,15 +1866,15 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
 
     refreshed_state = state_store.load()
 
-    assert refreshed_state.changes[change_id_1].stack_comment_id is None
-    assert refreshed_state.changes[change_id_2].stack_comment_id == stale_comment_2.id
-    assert refreshed_state.changes[change_id_3].stack_comment_id == (
-        initial_state.changes[change_id_3].stack_comment_id
+    assert refreshed_state.changes[change_id_1].navigation_comment_id == stale_comment_1.id
+    assert refreshed_state.changes[change_id_2].navigation_comment_id == stale_comment_2.id
+    assert refreshed_state.changes[change_id_3].navigation_comment_id == (
+        initial_state.changes[change_id_3].navigation_comment_id
     )
     assert issue_number_1 in started_issue_numbers
     assert issue_number_2 in started_issue_numbers
     assert issue_number_3 not in started_issue_numbers
-    assert issue_comments(fake_repo, issue_number_1) == []
+    assert len(_navigation_comments(fake_repo, issue_number_1)) == 1
     assert len(issue_comments(fake_repo, issue_number_2)) == 1
     assert len(issue_comments(fake_repo, issue_number_3)) == 1
 

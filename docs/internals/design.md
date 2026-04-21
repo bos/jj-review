@@ -377,14 +377,15 @@ Given a selected head revision:
    - `submit --describe-with <helper>` may replace that default mapping by
      invoking the helper once per change as `helper --pr <change_id>`
    - the same helper may also be invoked once per selected stack as
-     `helper --stack <selected-revset>`; that output is prepended to the
-     reviewer-facing stack summary comment on the selected head pull request
-     when the selected stack contains more than one change, and does not
-     become a separate source of truth for topology
-   - that reviewer-facing stack summary comment should render the entire PR
+     `helper --stack <selected-revset>`; that output may be prepended to the
+     reviewer-facing navigation comment on the selected head pull request when
+     the selected stack contains more than one change, and does not become a
+     separate source of truth for topology
+   - for selected stacks with more than one change, every PR in the stack
+     should get one managed navigation comment that renders the entire PR
      stack in top-to-bottom order, with a plain trunk line shown beneath the
-     bottom-most PR; the selected head PR title is bold, and the other PR
-     titles link to their pull requests
+     bottom-most PR; the current PR title is bold and marked as "this PR",
+     and the other PR titles link to their pull requests
    - for stack helpers, submit may also provide a temporary helper-owned input
      file describing the generated per-PR title/body pairs and compact diffstat
      context for the selected stack, so helpers can summarize the stack from
@@ -444,9 +445,10 @@ For a selected stack with exactly one change, submit should behave like a
 plain PR submit flow:
 
 - no stack-specific helper invocation
-- no reviewer-facing stack summary comment
-- if the selected change still has an older `jj-review` stack summary comment
-  from when it headed a longer submitted stack, delete that managed comment
+- no reviewer-facing navigation comments
+- if the selected change still has an older managed navigation comment from
+  when it participated in a longer submitted stack, delete that managed
+  comment
 - after a successful live submit, print the URL of the top of the stack so the
   operator can open it in a browser
 
@@ -707,7 +709,8 @@ identified from the local DAG.
 - `pr_url`
 - `pr_state`
 - `pr_review_decision`
-- `stack_comment_id`
+- `navigation_comment_id`
+- `overview_comment_id`
 
 It should then write a durable unlinked marker for that change. That
 record matters because simply deleting saved data would otherwise be undone
@@ -1191,7 +1194,8 @@ If a machine-written jj-review data file exists, keep it minimal:
       "pr_review_decision": "approved",
       "pr_state": "open",
       "pr_url": "https://github.com/org/repo/pull/123",
-      "stack_comment_id": 456789,
+      "navigation_comment_id": 456789,
+      "overview_comment_id": 456790,
       "last_submitted_commit_id": "0123456789abcdef"
     }
   }

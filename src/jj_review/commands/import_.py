@@ -803,7 +803,8 @@ def _update_cached_change_from_status(
                     "pr_review_decision": None,
                     "pr_state": None,
                     "pr_url": None,
-                    "stack_comment_id": None,
+                    "navigation_comment_id": None,
+                    "overview_comment_id": None,
                 }
             )
         elif pull_request_lookup.pull_request is not None:
@@ -820,18 +821,29 @@ def _update_cached_change_from_status(
                     update={"pr_review_decision": pull_request_lookup.review_decision}
                 )
             if pull_request_lookup.state != "open":
-                updated_change = updated_change.model_copy(update={"stack_comment_id": None})
-
-    stack_comment_lookup = status_revision.stack_comment_lookup
-    if stack_comment_lookup is not None:
-        if stack_comment_lookup.state == "present":
-            comment = stack_comment_lookup.comment
-            if comment is not None:
                 updated_change = updated_change.model_copy(
-                    update={"stack_comment_id": comment.id}
+                    update={
+                        "navigation_comment_id": None,
+                        "overview_comment_id": None,
+                    }
                 )
-        elif stack_comment_lookup.state == "missing":
-            updated_change = updated_change.model_copy(update={"stack_comment_id": None})
+
+    managed_comments_lookup = status_revision.managed_comments_lookup
+    if managed_comments_lookup is not None and managed_comments_lookup.state == "resolved":
+        updated_change = updated_change.model_copy(
+            update={
+                "navigation_comment_id": (
+                    None
+                    if managed_comments_lookup.navigation_comment is None
+                    else managed_comments_lookup.navigation_comment.id
+                ),
+                "overview_comment_id": (
+                    None
+                    if managed_comments_lookup.overview_comment is None
+                    else managed_comments_lookup.overview_comment.id
+                ),
+            }
+        )
     return updated_change
 
 

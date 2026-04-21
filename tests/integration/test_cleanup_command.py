@@ -685,9 +685,9 @@ def test_cleanup_apply_preserves_managed_stack_comment_for_closed_pull_request(
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert "stack summary comment" not in captured.out
+    assert "stack navigation comment" not in captured.out
     assert refreshed_state.changes[change_id].pr_number == 2
-    assert refreshed_state.changes[change_id].stack_comment_id == 1
+    assert refreshed_state.changes[change_id].navigation_comment_id == 2
     assert len(issue_comments(fake_repo, 2)) == 1
 
 
@@ -715,7 +715,7 @@ def test_cleanup_apply_preserves_discovered_stack_comment_when_cache_id_is_missi
                 "changes": {
                     **initial_state.changes,
                     change_id: initial_state.changes[change_id].model_copy(
-                        update={"stack_comment_id": None}
+                        update={"navigation_comment_id": None}
                     ),
                 }
             }
@@ -727,8 +727,8 @@ def test_cleanup_apply_preserves_discovered_stack_comment_when_cache_id_is_missi
     refreshed_state = state_store.load()
 
     assert exit_code == 0
-    assert "stack summary comment" not in captured.out
-    assert refreshed_state.changes[change_id].stack_comment_id is None
+    assert "stack navigation comment" not in captured.out
+    assert refreshed_state.changes[change_id].navigation_comment_id is None
     assert len(issue_comments(fake_repo, 2)) == 1
 
 

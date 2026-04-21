@@ -27,7 +27,10 @@ from jj_review.github.resolution import (
     parse_github_repo,
     select_submit_remote,
 )
-from jj_review.github.stack_comments import is_stack_summary_comment
+from jj_review.github.stack_comments import (
+    is_navigation_comment,
+    is_overview_comment,
+)
 from jj_review.jj import JjClient, UnsupportedStackError
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.github import GithubIssueComment, GithubPullRequest
@@ -52,7 +55,7 @@ _GITHUB_INSPECTION_CONCURRENCY = DEFAULT_BOUNDED_CONCURRENCY
 HELP = "Check the review status of a jj stack"
 
 PullRequestLookupState = Literal["ambiguous", "closed", "error", "missing", "open"]
-StackCommentLookupState = Literal["ambiguous", "error", "missing", "present"]
+ManagedCommentsLookupState = Literal["ambiguous", "error", "resolved"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,12 +71,13 @@ class PullRequestLookup:
 
 
 @dataclass(frozen=True, slots=True)
-class StackCommentLookup:
-    """Best-effort GitHub stack summary comment lookup for one pull request."""
+class ManagedCommentsLookup:
+    """Best-effort GitHub managed-comment lookup for one pull request."""
 
-    comment: GithubIssueComment | None
     message: ErrorMessage | None
-    state: StackCommentLookupState
+    navigation_comment: GithubIssueComment | None
+    overview_comment: GithubIssueComment | None
+    state: ManagedCommentsLookupState
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +93,7 @@ class ReviewStatusRevision:
     local_divergent: bool
     pull_request_lookup: PullRequestLookup | None
     remote_state: RemoteBookmarkState | None
-    stack_comment_lookup: StackCommentLookup | None
+    managed_comments_lookup: ManagedCommentsLookup | None
     subject: str
 
 
@@ -580,7 +584,7 @@ def _build_status_revisions_without_github(
                 if prepared.remote is not None
                 else None
             ),
-            stack_comment_lookup=None,
+            managed_comments_lookup=None,
             subject=revision.revision.subject,
         )
         for revision in prepared.status_revisions
@@ -636,8 +640,8 @@ def _status_is_incomplete(revisions: tuple[ReviewStatusRevision, ...]) -> bool:
             or pull_request_lookup.review_decision_error is not None
         ):
             return True
-        stack_comment_lookup = revision.stack_comment_lookup
-        if stack_comment_lookup is not None and stack_comment_lookup.state in {
+        managed_comments_lookup = revision.managed_comments_lookup
+        if managed_comments_lookup is not None and managed_comments_lookup.state in {
             "ambiguous",
             "error",
         }:
@@ -710,7 +714,8 @@ def _persist_status_cache_updates(
                         "pr_review_decision": None,
                         "pr_state": None,
                         "pr_url": None,
-                        "stack_comment_id": None,
+                        "navigation_comment_id": None,
+                        "overview_comment_id": None,
                     }
                 )
             elif pull_request_lookup.pull_request is not None:
@@ -732,9 +737,14 @@ def _persist_status_cache_updates(
                     }
                 )
                 if pull_request_lookup.state != "open":
-                    updated_change = updated_change.model_copy(update={"stack_comment_id": None})
-        stack_comment_lookup = revision.stack_comment_lookup
-        if stack_comment_lookup is not None:
+                    updated_change = updated_change.model_copy(
+                        update={
+                            "navigation_comment_id": None,
+                            "overview_comment_id": None,
+                        }
+                    )
+        managed_comments_lookup = revision.managed_comments_lookup
+        if managed_comments_lookup is not None:
             if updated_change is None:
                 updated_change = CachedChange(
                     bookmark=revision.bookmark,
@@ -742,16 +752,21 @@ def _persist_status_cache_updates(
                         revision.bookmark_source
                     ),
                 )
-            if stack_comment_lookup.state == "present":
-                if stack_comment_lookup.comment is None:
-                    raise AssertionError(
-                        "Present stack summary comment lookup must include a comment."
-                    )
+            if managed_comments_lookup.state == "resolved":
                 updated_change = updated_change.model_copy(
-                    update={"stack_comment_id": stack_comment_lookup.comment.id}
+                    update={
+                        "navigation_comment_id": (
+                            None
+                            if managed_comments_lookup.navigation_comment is None
+                            else managed_comments_lookup.navigation_comment.id
+                        ),
+                        "overview_comment_id": (
+                            None
+                            if managed_comments_lookup.overview_comment is None
+                            else managed_comments_lookup.overview_comment.id
+                        ),
+                    }
                 )
-            elif stack_comment_lookup.state == "missing":
-                updated_change = updated_change.model_copy(update={"stack_comment_id": None})
         if updated_change is not None and updated_change != cached_change:
             state_changes[revision.change_id] = updated_change
 
@@ -827,12 +842,12 @@ async def _inspect_revision_with_github(
         remote_state = (
             bookmark_state.remote_target(prepared.remote.name) if prepared.remote else None
         )
-        stack_comment_lookup: StackCommentLookup | None = None
+        managed_comments_lookup: ManagedCommentsLookup | None = None
         if inspect_stack_comments and pull_request_lookup.state == "open":
             pull_request = pull_request_lookup.pull_request
             if pull_request is None:
                 raise AssertionError("Open pull request lookup must include a pull request.")
-            stack_comment_lookup = await _inspect_stack_comment(
+            managed_comments_lookup = await _inspect_managed_comments(
                 github_client=github_client,
                 github_repository=github_repository,
                 pull_request_number=pull_request.number,
@@ -857,7 +872,7 @@ async def _inspect_revision_with_github(
             local_divergent=prepared_revision.revision.divergent,
             pull_request_lookup=pull_request_lookup,
             remote_state=remote_state,
-            stack_comment_lookup=stack_comment_lookup,
+            managed_comments_lookup=managed_comments_lookup,
             subject=prepared_revision.revision.subject,
         )
 
@@ -1004,12 +1019,12 @@ def _normalize_pull_request_state(pull_request: GithubPullRequest) -> GithubPull
     return pull_request.model_copy(update={"state": "merged"})
 
 
-async def _inspect_stack_comment(
+async def _inspect_managed_comments(
     *,
     github_client: GithubClient,
     github_repository,
     pull_request_number: int,
-) -> StackCommentLookup:
+) -> ManagedCommentsLookup:
     try:
         comments = await github_client.list_issue_comments(
             github_repository.owner,
@@ -1017,31 +1032,44 @@ async def _inspect_stack_comment(
             issue_number=pull_request_number,
         )
     except GithubClientError as error:
-        return StackCommentLookup(
-            comment=None,
+        return ManagedCommentsLookup(
             message=summarize_github_lookup_error(
-                action=f"stack summary comment lookup for pull request #{pull_request_number}",
+                action=f"managed comment lookup for pull request #{pull_request_number}",
                 error=error,
             ),
+            navigation_comment=None,
+            overview_comment=None,
             state="error",
         )
 
-    matching_comments = [
-        comment for comment in comments if is_stack_summary_comment(comment.body)
-    ]
-    if not matching_comments:
-        return StackCommentLookup(comment=None, message=None, state="missing")
-    if len(matching_comments) > 1:
-        comment_ids = ", ".join(str(comment.id) for comment in matching_comments)
-        return StackCommentLookup(
-            comment=None,
-            message=(
-                "GitHub reports multiple jj-review stack summary comments for the same "
-                f"request: {comment_ids}."
-            ),
+    navigation_comments = [comment for comment in comments if is_navigation_comment(comment.body)]
+    overview_comments = [comment for comment in comments if is_overview_comment(comment.body)]
+    messages: list[str] = []
+    if len(navigation_comments) > 1:
+        comment_ids = ", ".join(str(comment.id) for comment in navigation_comments)
+        messages.append(
+            "GitHub reports multiple jj-review stack navigation comments for the same "
+            f"request: {comment_ids}."
+        )
+    if len(overview_comments) > 1:
+        comment_ids = ", ".join(str(comment.id) for comment in overview_comments)
+        messages.append(
+            "GitHub reports multiple jj-review stack overview comments for the same "
+            f"request: {comment_ids}."
+        )
+    if messages:
+        return ManagedCommentsLookup(
+            message=" ".join(messages),
+            navigation_comment=None,
+            overview_comment=None,
             state="ambiguous",
         )
-    return StackCommentLookup(comment=matching_comments[0], message=None, state="present")
+    return ManagedCommentsLookup(
+        message=None,
+        navigation_comment=navigation_comments[0] if navigation_comments else None,
+        overview_comment=overview_comments[0] if overview_comments else None,
+        state="resolved",
+    )
 
 
 def _is_repository_level_github_lookup_error(error: GithubClientError) -> bool:

@@ -935,12 +935,12 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
     if revision.local_divergent and not revision_has_merged_pull_request(revision):
         summary = f"{summary}, multiple visible revisions"
 
-    stack_comment_lookup = revision.stack_comment_lookup
-    if stack_comment_lookup is not None and stack_comment_lookup.state in {
+    managed_comments_lookup = revision.managed_comments_lookup
+    if managed_comments_lookup is not None and managed_comments_lookup.state in {
         "ambiguous",
         "error",
     }:
-        message = stack_comment_lookup.message or "stack summary comment lookup failed"
+        message = managed_comments_lookup.message or "managed comment lookup failed"
         return f"{summary}, {message}"
     return summary
 

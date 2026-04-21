@@ -984,17 +984,20 @@ Deliver:
 - regeneration on every submit
 - caching of comment identifiers if needed
 
-Implemented with one dedicated PR comment only on the selected head change
-when the selected stack contains more than one change, marked so `submit` can
-rediscover it when saved comment IDs are missing. The comment body is
-regenerated from the current submitted stack on every run and is never used as
-the source of truth for topology. Re-submitting a taller selected stack moves
-that managed comment to the new selected head, and single-review-unit submits
-remove any older managed stack comment that no longer applies.
+Implemented with one navigation comment on every PR in selected stacks with
+more than one change. Each comment is regenerated on every submit and cached
+per change as `navigation_comment_id`.
+
+The navigation comment is the stable reviewer affordance. It renders the full
+stack from top to bottom, bolds the current PR title with an explicit
+"this PR" marker, links the other PR titles, and shows the plain trunk line
+beneath the bottom-most PR. When `--describe-with` returns non-empty stack
+prose, the selected head PR prepends that prose ahead of the standard
+navigation block.
 
 Single-review-unit submits are treated as plain PRs rather than stacks: they
-skip the stack summary comment entirely, and `--describe-with` does not invoke
-the stack helper for that case.
+skip the managed navigation comment entirely, and `--describe-with` does not
+invoke the stack helper for that case.
 
 Default PR descriptions now also fall back to the commit subject when the
 commit message has no body. That keeps GitHub PR pages from starting with a
@@ -1002,13 +1005,9 @@ blank opening comment for one-line commit descriptions while preserving the
 existing "title from subject, body from remaining description" mapping when a
 real body is present.
 
-The same stack summary comment now also accepts optional generated
-introductory text from `submit --describe-with`; that prose is rendered ahead
-of the standard full-stack navigation block so the product still owns only one
-reviewer-facing stack summary comment for the selected head PR. That block
-renders the full stack from top to bottom, bolds the selected head PR title,
-links the other PR titles, and shows a plain resolved trunk line beneath the
-bottom-most PR.
+Submit, status, import, close, cleanup, and land now treat the navigation
+comment as a managed artifact so rediscovery, retirement, and cleanup stay
+exact when the stack grows, shrinks, or changes head.
 
 The CLI-facing submit summary lines now use shared Rich row helpers for the
 selected change, fallback trunk row, and top-of-stack URL so hanging-indent

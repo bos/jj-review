@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from jj_review.github.client import GithubClient, GithubClientError
+from jj_review.github.stack_comments import STACK_NAVIGATION_COMMENT_MARKER
 from jj_review.jj import JjClient
 from jj_review.models.intent import SubmitIntent
 from jj_review.state.intents import write_new_intent
@@ -295,13 +296,16 @@ def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
     assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
-    fake_repo.create_issue_comment(body="<!-- jj-review-stack -->\nextra", issue_number=2)
+    fake_repo.create_issue_comment(
+        body=f"{STACK_NAVIGATION_COMMENT_MARKER}\nextra",
+        issue_number=2,
+    )
 
     exit_code = run_main(repo, config_path, "status")
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "multiple jj-review stack summary comments" in captured.out
+    assert "multiple jj-review stack navigation comments" in captured.out
 
 
 def test_status_fetch_surfaces_unlinked_state_without_repopulating_link(
@@ -326,7 +330,8 @@ def test_status_fetch_surfaces_unlinked_state_without_repopulating_link(
     assert unlinked_change.pr_number is None
     assert unlinked_change.pr_state is None
     assert unlinked_change.pr_url is None
-    assert unlinked_change.stack_comment_id is None
+    assert unlinked_change.navigation_comment_id is None
+    assert unlinked_change.overview_comment_id is None
 
 
 def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
@@ -355,9 +360,9 @@ def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
                         update={
                             "pr_number": None,
                             "pr_url": None,
-                            "stack_comment_id": None,
-                        }
-                    ),
+                                "navigation_comment_id": None,
+                            }
+                        ),
                 }
             }
         )
@@ -370,7 +375,7 @@ def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
     assert exit_code == 0
     assert "PR #2" in captured.out
     assert refreshed_state.changes[change_id].pr_number == 2
-    assert refreshed_state.changes[change_id].stack_comment_id == 1
+    assert refreshed_state.changes[change_id].navigation_comment_id == 2
 
 
 def test_status_reports_unsubmitted_after_state_loss(
@@ -447,7 +452,8 @@ def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
     state_store = ReviewStateStore.for_repo(repo)
     initial_state = state_store.load()
     assert initial_state.changes[change_id].pr_number == 1
-    assert initial_state.changes[change_id].stack_comment_id is None
+    assert initial_state.changes[change_id].navigation_comment_id is None
+    assert initial_state.changes[change_id].overview_comment_id is None
 
     del fake_repo.pull_requests[1]
 
@@ -463,7 +469,8 @@ def test_status_clears_cached_pull_request_metadata_when_github_reports_missing(
     assert refreshed_state.changes[change_id].pr_number is None
     assert refreshed_state.changes[change_id].pr_state is None
     assert refreshed_state.changes[change_id].pr_url is None
-    assert refreshed_state.changes[change_id].stack_comment_id is None
+    assert refreshed_state.changes[change_id].navigation_comment_id is None
+    assert refreshed_state.changes[change_id].overview_comment_id is None
 
 
 def test_status_refreshes_closed_pull_request_state_in_cache(
@@ -492,7 +499,8 @@ def test_status_refreshes_closed_pull_request_state_in_cache(
         refreshed_state.changes[change_id].pr_url
         == "https://github.test/octo-org/stacked-review/pull/1"
     )
-    assert refreshed_state.changes[change_id].stack_comment_id is None
+    assert refreshed_state.changes[change_id].navigation_comment_id is None
+    assert refreshed_state.changes[change_id].overview_comment_id is None
 
 
 def test_status_reports_draft_pull_request_state(

@@ -115,9 +115,11 @@ def test_land_previews_and_finalizes_maximal_ready_prefix(
 
     landed_state = state_store.load()
     assert landed_state.changes[change_id_1].pr_state == "merged"
-    assert landed_state.changes[change_id_1].stack_comment_id is None
+    assert landed_state.changes[change_id_1].navigation_comment_id is None
+    assert landed_state.changes[change_id_1].overview_comment_id is None
     assert landed_state.changes[change_id_2].pr_state == "merged"
-    assert landed_state.changes[change_id_2].stack_comment_id is None
+    assert landed_state.changes[change_id_2].navigation_comment_id is None
+    assert landed_state.changes[change_id_2].overview_comment_id is None
     assert landed_state.changes[change_id_3].pr_state == "closed"
 
 

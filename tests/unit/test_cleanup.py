@@ -34,7 +34,7 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
                     bookmark="review/feature-1",
                     pr_number=1,
                     pr_state="closed",
-                    stack_comment_id=12,
+                    navigation_comment_id=12,
                 ).model_dump(exclude_none=True),
             }
         }
@@ -86,12 +86,14 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     )
     async def fake_plan_stack_comment_cleanup(**kwargs):
         return StackCommentCleanupPlan(
-            action=CleanupAction(
-                kind="stack summary comment",
-                body="delete stack summary comment #12 from PR #1",
-                status="planned",
+            actions=(
+                CleanupAction(
+                    kind="stack navigation comment",
+                    body="delete stack navigation comment #12 from PR #1",
+                    status="planned",
+                ),
             ),
-            comment_id=12,
+            comments=((12, "navigation"),),
         )
     monkeypatch.setattr(
         "jj_review.commands.cleanup._stale_change_reasons",
@@ -120,15 +122,14 @@ def test_stream_cleanup_apply_clears_cached_stack_comment_after_deletion(
     assert deleted_comment_ids == [12]
     assert result.actions == (
         CleanupAction(
-            kind="stack summary comment",
-            body="delete stack summary comment #12 from PR #1",
+            kind="stack navigation comment",
+            body="delete stack navigation comment #12 from PR #1",
             status="applied",
         ),
     )
-    assert [saved_state.changes["change-1"].stack_comment_id for saved_state in saved_states] == [
-        None,
-        None,
-    ]
+    assert [
+        saved_state.changes["change-1"].navigation_comment_id for saved_state in saved_states
+    ] == [None, None]
 
 
 def test_stream_restack_plans_rebase_for_survivor_above_merged_path_revision(
@@ -359,4 +360,3 @@ def test_plan_local_bookmark_cleanup_forgets_safe_review_bookmark() -> None:
         plan.message
         == "forget bosullivan/feature-aaaaaaaa (local change is no longer reviewable)"
     )
-

@@ -1474,18 +1474,22 @@ async def _finalize_landed_pull_request(
         except GithubClientError as error:
             raise CliError(t"Could not close PR #{pull_request.number} after landing") from error
         pull_request = _normalize_pull_request_state(pull_request)
-    if cached_change is not None and cached_change.stack_comment_id is not None:
-        try:
-            await github_client.delete_issue_comment(
-                github_repository.owner,
-                github_repository.repo,
-                comment_id=cached_change.stack_comment_id,
-            )
-        except GithubClientError as error:
-            if error.status_code != 404:
-                raise CliError(
-                    t"Could not delete stack summary comment #{cached_change.stack_comment_id}"
-                ) from error
+    if cached_change is not None:
+        for comment_id, label in (
+            (cached_change.navigation_comment_id, "stack navigation comment"),
+            (cached_change.overview_comment_id, "stack overview comment"),
+        ):
+            if comment_id is None:
+                continue
+            try:
+                await github_client.delete_issue_comment(
+                    github_repository.owner,
+                    github_repository.repo,
+                    comment_id=comment_id,
+                )
+            except GithubClientError as error:
+                if error.status_code != 404:
+                    raise CliError(t"Could not delete {label} #{comment_id}") from error
     return pull_request
 
 
@@ -1518,7 +1522,8 @@ def _updated_landed_change(
             "pr_review_decision": None,
             "pr_state": pr_state,
             "pr_url": pull_request.html_url,
-            "stack_comment_id": None,
+            "navigation_comment_id": None,
+            "overview_comment_id": None,
         }
     )
 

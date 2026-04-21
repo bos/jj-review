@@ -231,7 +231,10 @@ def should_retire_submit_after_cleanup(
 def _cached_change_has_live_review_artifacts(cached_change: CachedChange) -> bool:
     """Return whether saved state still points at actionable review artifacts."""
 
-    if cached_change.stack_comment_id is not None:
+    if (
+        cached_change.navigation_comment_id is not None
+        or cached_change.overview_comment_id is not None
+    ):
         return True
     if cached_change.pr_state in {"closed", "merged"}:
         return False

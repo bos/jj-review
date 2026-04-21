@@ -297,7 +297,8 @@ def test_updated_landed_change_marks_pr_merged_and_clears_stack_comment() -> Non
             pr_review_decision="approved",
             pr_state="open",
             pr_url="https://github.test/octo-org/stacked-review/pull/1",
-            stack_comment_id=99,
+            navigation_comment_id=99,
+            overview_comment_id=100,
         ),
         commit_id="new-commit",
         pull_request=GithubPullRequest(
@@ -314,7 +315,8 @@ def test_updated_landed_change_marks_pr_merged_and_clears_stack_comment() -> Non
     assert updated.last_submitted_commit_id == "new-commit"
     assert updated.pr_review_decision is None
     assert updated.pr_state == "merged"
-    assert updated.stack_comment_id is None
+    assert updated.navigation_comment_id is None
+    assert updated.overview_comment_id is None
 
 
 def test_report_stale_land_intents_does_not_claim_resume_without_resume_match() -> None:
