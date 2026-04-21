@@ -36,8 +36,10 @@ compatibility code, migration code, or the like.
 
 # Testing
 
+- Run `./check.py` before finishing a code change. Docs-only edits under `docs/` do not require
+  a test run.
 - Run `./check.py` for the default local Ruff, type-check, and test pass before finishing a
-  change.
+  code change.
 - For focused test runs, do not use plain `uv run pytest ...`; it can miss the repo's package
   path in this project layout. First run `uv sync --locked`, then invoke pytest through the repo
   virtualenv, for example `.venv/bin/python -m pytest tests/unit/test_jj_client.py`.
