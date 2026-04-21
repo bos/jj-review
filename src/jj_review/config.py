@@ -159,24 +159,6 @@ def _load_config_layer(config_path: Path) -> dict[str, object]:
         )
 
     config_data = dict(config_section)
-    if "repo" in config_data:
-        raise CliError(
-            f"Invalid jj-review config in {config_path}: repo defaults live directly under "
-            f"[{CONFIG_SECTION}], not [{CONFIG_SECTION}.repo].",
-            hint=(
-                f"Move bookmark_prefix, reviewers, team_reviewers, and labels into "
-                f"[{CONFIG_SECTION}]."
-            ),
-        )
-    if "change" in config_data:
-        raise CliError(
-            f"Invalid jj-review config in {config_path}: per-change bookmark overrides were "
-            f"removed.",
-            hint=(
-                f"If you already have bookmark names you want to reuse, use "
-                f"[{CONFIG_SECTION}].use_bookmarks or {ui.cmd('submit --use-bookmarks')}."
-            ),
-        )
     _raise_on_likely_config_typos(config_data=config_data, source=str(config_path))
     return _validate_config(config_data, source=str(config_path)).model_dump(exclude_unset=True)
 

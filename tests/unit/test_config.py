@@ -153,39 +153,6 @@ def test_load_config_rejects_likely_top_level_typo(
     with pytest.raises(CliError, match=r"Did you mean \[jj-review\]\.bookmark_prefix\?"):
         load_config(repo_root=None, config_path=config_path)
 
-
-def test_load_config_rejects_removed_change_table(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "change.toml"
-    _write_config(
-        config_path,
-        [
-            '[jj-review.change."zvlywqkxtmnpqrstu"]',
-            'bookmark_override = "review/from-user"',
-        ],
-    )
-
-    with pytest.raises(CliError, match="per-change bookmark overrides were removed"):
-        load_config(repo_root=None, config_path=config_path)
-
-
-def test_load_config_rejects_repo_subtable(
-    tmp_path: Path,
-) -> None:
-    config_path = tmp_path / "invalid.toml"
-    _write_config(
-        config_path,
-        [
-            "[jj-review.repo]",
-            'bookmark_prefix = "bosullivan"',
-        ],
-    )
-
-    with pytest.raises(CliError, match=r"live directly under \[jj-review\]"):
-        load_config(repo_root=None, config_path=config_path)
-
-
 def test_load_config_rejects_invalid_logging_level_in_jj_review_section(
     tmp_path: Path,
 ) -> None:

@@ -96,11 +96,9 @@ Recent refactor slices:
   `use_bookmarks` now lets config or `submit --use-bookmarks` select existing
   local or remote bookmarks by name or glob before `jj-review` falls back to
   generated review branch names, while ambiguous pattern matches fail closed
-- repo defaults now live directly under `[jj-review]` instead of a nested
-  `[jj-review.repo]` table; unknown keys in that namespace are ignored, the
-  old nested table is rejected with a direct migration error, and commands now
-  read bookmark-prefix, reviewer, team-reviewer, and label defaults from the
-  flattened config shape
+- repo defaults now live directly under `[jj-review]`; unknown keys in that
+  namespace are ignored, and commands now read bookmark-prefix, reviewer,
+  team-reviewer, and label defaults from the flattened config shape
 - repo config now supports a configurable bookmark prefix for generated review
   branches; submit, status, import, land, close, and cleanup all honor that
   prefix for default naming, rediscovery, policy warnings, and review bookmark
