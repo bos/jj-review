@@ -361,6 +361,7 @@ def build_parser() -> ArgumentParser:
     _add_help_argument(
         land_parser,
         "--pull-request",
+        metavar="PR",
         help="Select the local change linked to this pull request number or URL",
     )
     land_parser.add_argument(
@@ -408,6 +409,7 @@ def build_parser() -> ArgumentParser:
     _add_help_argument(
         close_parser,
         "--pull-request",
+        metavar="PR",
         help="Select the local change linked to this pull request number or URL",
     )
     _add_import_parser(
@@ -1028,7 +1030,12 @@ def _add_import_parser(
     _add_common_options(parser)
     _normalize_help_action_text(parser)
     selector = parser.add_mutually_exclusive_group(required=False)
-    _add_help_argument(selector, "--pull-request", help="Pull request number or URL")
+    _add_help_argument(
+        selector,
+        "--pull-request",
+        metavar="PR",
+        help="Pull request number or URL",
+    )
     _add_help_argument(
         selector,
         "--revset",
