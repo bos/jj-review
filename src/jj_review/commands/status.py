@@ -1,7 +1,8 @@
-"""Show how the selected jj stack currently appears on GitHub.
+"""Show how the selected jj stack currently appears locally and on GitHub.
 
-This reports the pull requests jj-review is using for each change. By default it shows a summary
-of submitted and unsubmitted changes above the trunk row; `--verbose` expands those summaries.
+This reports the pull request jj-review is using for each change. By default it shows a summary
+of submitted and unsubmitted changes above the trunk row; `--verbose` expands those summaries
+and also shows the bookmark/branch used to track each PR.
 
 """
 

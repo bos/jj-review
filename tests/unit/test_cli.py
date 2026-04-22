@@ -159,8 +159,8 @@ def test_main_help_submit_separates_command_and_global_options(
     global_options_body = captured.out[global_options_index:]
 
     assert "--dry-run" in command_options_body
-    assert "--repository REPOSITORY" not in command_options_body
-    assert "--repository REPOSITORY" in global_options_body
+    assert "--repository REPO" not in command_options_body
+    assert "--repository REPO" in global_options_body
     assert "--dry-run" not in global_options_body
 
 

@@ -296,7 +296,7 @@ def build_parser() -> ArgumentParser:
         "-v",
         "--verbose",
         action="store_true",
-        help="Expand submitted and unsubmitted summary sections",
+        help="Expand submitted and unsubmitted summary sections; show bookmarks",
     )
     _add_relink_parser(
         subparsers,
@@ -1037,6 +1037,7 @@ def _add_common_options(
     parser.add_argument(
         "--repository",
         type=Path,
+        metavar="REPO",
         default=SUPPRESS if suppress_defaults else None,
         help="Workspace path to operate on; defaults to the current directory",
     )
