@@ -35,11 +35,10 @@ SubparserT = TypeVar("SubparserT", bound=ArgumentParser)
 _COLOR_CHOICES: tuple[RequestedColorMode, ...] = ("always", "never", "debug", "auto")
 _TOP_LEVEL_HELP_USAGE = "jj-review [--help] [--color WHEN] [--version] [<command> ...]"
 _TOP_LEVEL_HELP_DESCRIPTION = """
-jj-review lets you review a local jj stack on GitHub as stacked pull requests.
+`jj-review` lets you review a series of `jj` changes on GitHub as stacked pull requests.
 
-Use it to submit changes for review, inspect pull request status, land
-ready changes, and clean up stale jj-review data. With no command, it behaves
-like `status` for the current stack.
+Use it to submit and refresh changes for review, inspect pull request status, land ready
+changes, and clean up after a review.
 """
 _TOP_LEVEL_HIDDEN_OPTION_STRINGS = frozenset(
     {"--repository", "--config", "--config-file", "--debug", "--time-output"}
@@ -401,16 +400,13 @@ def build_parser() -> ArgumentParser:
     close_parser.add_argument(
         "--cleanup",
         action="store_true",
-        help=(
-            "Also delete jj-review-managed review branches and tracking data for the "
-            "stack; reused user bookmarks stay unless cleanup_user_bookmarks is true"
-        ),
+        help="Delete jj-review-managed branches, bookmarks, and tracking data",
     )
     _add_help_argument(
         close_parser,
         "--pull-request",
         metavar="PR",
-        help="Select the local change linked to this pull request number or URL",
+        help="Select the local change linked to this PR number or URL",
     )
     _add_import_parser(
         subparsers,

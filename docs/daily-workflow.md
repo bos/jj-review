@@ -131,11 +131,16 @@ those local review bookmarks.
 the middle of your stack. To land mid-stack changes, use e.g. `jj arrange` or `jj rebase` to
 reorder your stack and move them to the bottom first.
 
+A normal successful `land` pushes those exact local commit IDs directly to
+`trunk()`. If later local changes remain above the landed prefix, they usually
+do not need rebasing just because lower changes landed.
+
 ## 7. Rebase remaining work
 
 `jj-review cleanup --rebase` is specifically about removing merged ancestors from your local
-stack and rebasing surviving descendants onto `trunk()`. If later changes remain outstanding
-above work that just landed, you can quickly fix up your local stack:
+stack and rebasing surviving descendants onto `trunk()`. Use it when some lower changes were
+merged on GitHub through different commit IDs and your local stack still contains those
+now-merged ancestors:
 
 ```bash
 jj-review cleanup --rebase
@@ -148,9 +153,9 @@ jj-review cleanup --rebase
 jj rebase -s <bottom-of-stack> -d 'trunk()'
 ```
 
-There might be open PRs for your remaining not-yet-landed changes on GitHub, which could now
-point at old branch targets, old parent PRs, or old diffs. You can easily refresh GitHub's
-state:
+After `cleanup --rebase`, there might be open PRs for your remaining not-yet-landed changes on
+GitHub that still point at old branch targets, old parent PRs, or old diffs. You can refresh
+GitHub's state with:
 
 ```bash
 jj-review submit

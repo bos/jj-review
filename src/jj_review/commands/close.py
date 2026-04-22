@@ -1,11 +1,13 @@
 """Close the GitHub pull requests for the selected stack.
 
-By default, this closes those pull requests, and `--cleanup` also removes
-jj-review's own review branches, their local bookmarks, and saved tracking
-data. Bookmarks you asked `jj-review` to reuse are preserved unless
-`cleanup_user_bookmarks = true`. Use `--pull-request` to select the linked
-local change by pull request number or URL, and `--dry-run` to preview the
-close plan without mutating jj-review or GitHub state.
+Passing `--cleanup` also removes `jj-review`'s own review branches, forgets any local bookmarks
+that still point at those branches, and clears saved tracking data for the selected stack.
+
+If you asked `jj-review` to use your own bookmarks with `submit --use-bookmarks`, those are
+preserved unless `cleanup_user_bookmarks = true`. Use `--pull-request` to close by PR number or
+URL.
+
+To preview the close plan without changing anything, use `--dry-run`.
 """
 
 from __future__ import annotations

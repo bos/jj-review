@@ -148,10 +148,11 @@ Your typical author loop will be dead simple:
 2. Run `jj-review submit`.
 3. Revise those changes locally as reviews come in.
 4. Re-run `jj-review submit`.
-5. Once some PRs are approved, rebase if needed, then run `jj-review land` to push them to
-   GitHub and forget the local review bookmarks for the landed changes.
-6. Run `jj-review cleanup --rebase` if later changes remain above the changes you just landed.
-   That will make them ready to land.
+5. Once some PRs are approved, rebase if needed, then run `jj-review land` to push those exact
+   local commits to GitHub trunk and forget the local review bookmarks for the landed changes.
+6. Run `jj-review cleanup --rebase` only if lower changes were merged through different commit
+   IDs and your local stack still contains those merged ancestors. After that local rewrite, run
+   `jj-review submit` to refresh the surviving PRs on GitHub.
 
 The key point is that you get to keep thinking in terms of local logical changes. `jj-review`
 manages those changes on GitHub, does some housekeeping for you locally, and that's it.

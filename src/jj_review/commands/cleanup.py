@@ -1,11 +1,15 @@
-"""Find and remove stale tracking data and review branches left behind by
-earlier review work.
+"""Find and remove stale tracking data and review branches left behind by earlier review work.
 
-By default, this runs a repo-wide cleanup of tracking data and review branches
-that no longer match an active review. With `--rebase [REVSET]`, it instead
-rebases the remaining local changes in one stack above ancestors that have
-already been merged on GitHub. Use `--dry-run` to preview those actions
-without mutating local or remote state.
+By default, this runs a repo-wide cleanup of tracking data and review branches that no longer
+match an active review. With `--rebase [REVSET]`, it works on one local stack instead.
+
+Use `cleanup --rebase` when some changes from your stack have been merged on GitHub as rewritten
+commits (e.g. via a squash merge in the GitHub UI). In this case, your local stack still
+contains the old pre-merge commits, and `cleanup --rebase` will drop those merged ancestors from
+the local stack and rebase the remaining local changes onto the current `trunk()`.
+
+Use `--dry-run` to preview cleanup actions without making any changes.
+
 """
 
 from __future__ import annotations

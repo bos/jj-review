@@ -44,14 +44,14 @@ jj-review status --fetch
 it is the safer read-only refresh when a PR link, branch state, or merged-base
 relationship may have changed elsewhere.
 
-## Part of your stack landed and the rest needs to be rebased
+## Lower changes merged elsewhere and the rest of your stack needs rebasing
 
 Cause:
 
-- some changes at the bottom of your stack landed
-- the remaining changes are still based on the old history
-- `trunk()` advanced elsewhere and `jj-review` noticed that when it refreshed
-  remote state
+- some lower changes in your stack merged on GitHub through different commit
+  IDs, such as squash merge or another landing path
+- your local stack still contains those old ancestors
+- the remaining changes are still based on that old local history
 
 What to do:
 
@@ -60,8 +60,9 @@ jj-review cleanup --rebase
 jj-review submit
 ```
 
-`cleanup --rebase` rebases your remaining changes above the newly landed
-commits. After that, `submit` refreshes the open PRs to reflect the new base.
+`cleanup --rebase` drops those merged ancestors from the active local stack
+and rebases the remaining changes above the current `trunk()`. After that,
+`submit` refreshes the open PRs to reflect the new base.
 
 ## `land` says the local change differs from what reviewers approved
 
