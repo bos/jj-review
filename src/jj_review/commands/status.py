@@ -1,10 +1,8 @@
 """Show how the selected jj stack currently appears on GitHub.
 
-This reports the pull requests and review branches jj-review is using for each
-change without changing anything. By default it shows a summary of submitted
-and unsubmitted changes above the trunk row; `--verbose` expands those
-summaries. In interactive terminals a progress bar appears while GitHub is
-being queried.
+This reports the pull requests jj-review is using for each change. By default it shows a summary
+of submitted and unsubmitted changes above the trunk row; `--verbose` expands those summaries.
+
 """
 
 from __future__ import annotations
@@ -229,6 +227,7 @@ def render_status_summary_lines(
             revision=revision,
             github_available=github_available,
             show_status=False,
+            verbose=verbose,
             prerendered_blocks=prerendered_blocks,
         ),
     )
@@ -245,6 +244,7 @@ def render_status_summary_lines(
             revision=revision,
             github_available=github_available,
             show_status=True,
+            verbose=verbose,
             prerendered_blocks=prerendered_blocks,
         ),
     )
@@ -816,6 +816,7 @@ def _render_summary_revision_lines(
     revision,
     github_available: bool,
     show_status: bool,
+    verbose: bool,
     prerendered_blocks: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[str, ...]:
     """Render one revision inside a submitted or unsubmitted summary section."""
@@ -826,7 +827,7 @@ def _render_summary_revision_lines(
     return render_revision_with_suffix_lines(
         client=client,
         revision=revision,
-        bookmark=revision.bookmark,
+        bookmark=None if verbose else revision.bookmark,
         suffix=summary,
         prerendered_lines=(
             prerendered_blocks.get(revision.commit_id) if prerendered_blocks else None

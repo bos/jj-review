@@ -88,6 +88,9 @@ For more detail:
 jj-review status --verbose
 ```
 
+Verbose mode keeps the native `jj log` line for each change, including any
+bookmark names shown there.
+
 ## 6. Land the changes that are ready
 
 When the bottom part of the stack is ready to go:

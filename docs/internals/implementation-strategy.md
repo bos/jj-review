@@ -92,6 +92,10 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- `status --verbose` now preserves the native `jj log` bookmark tokens in each
+  rendered revision block instead of stripping the managed review bookmark, so
+  verbose output matches what plain `jj log` shows while compact `status`
+  still drops the redundant review-branch name
 - bookmark selection no longer supports per-change bookmark overrides;
   `use_bookmarks` now lets config or `submit --use-bookmarks` select existing
   local or remote bookmarks by name or glob before `jj-review` falls back to

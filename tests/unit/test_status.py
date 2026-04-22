@@ -251,3 +251,44 @@ def test_status_summary_hides_managed_review_bookmark_but_keeps_other_bookmarks(
         "│  feature 8",
         "",
     )
+
+
+def test_status_verbose_keeps_managed_review_bookmark_in_native_log_output() -> None:
+    revision = SimpleNamespace(
+        bookmark="review/feature-8-abcdefgh",
+        cached_change=None,
+        change_id="abcdefgh1234",
+        commit_id="1234567890abcdef",
+        link_state="active",
+        local_divergent=False,
+        pull_request_lookup=None,
+        managed_comments_lookup=None,
+        subject="feature 8",
+    )
+
+    lines = status_module.render_status_summary_lines(
+        client=SimpleNamespace(
+            resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
+            render_revision_log_lines=lambda current_revision, *, color_when: (
+                (
+                    "○  abcdefgh bos 2026-01-01 keep/one "
+                    f"{current_revision.bookmark} keep/two 12345678"
+                ),
+                f"│  {current_revision.subject}",
+            ),
+        ),
+        github_available=True,
+        leading_separator=False,
+        result=SimpleNamespace(revisions=(revision,)),
+        verbose=True,
+    )
+
+    assert lines == (
+        "Unsubmitted stack:",
+        "○  abcdefgh bos 2026-01-01 keep/one review/feature-8-abcdefgh keep/two 12345678",
+        "│  feature 8",
+        "",
+        "Submitted stack:",
+        "  (none)",
+        "",
+    )
