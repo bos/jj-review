@@ -123,6 +123,9 @@ class _TopLevelArgumentParser(ArgumentParser):
     def format_usage(self) -> str:
         return f"usage: {_TOP_LEVEL_HELP_USAGE}\n"
 
+    def error(self, message: str) -> None:
+        raise _cli_parse_error(message)
+
 
 class _TitleCaseHelpFormatter(HelpFormatter):
     """Help formatter that title-cases the usage heading."""
@@ -139,6 +142,9 @@ class _CommandArgumentParser(ArgumentParser):
         super().__init__(*args, **kwargs)
         self._positionals.title = "Positional Arguments"
         self._optionals.title = "Options"
+
+    def error(self, message: str) -> None:
+        raise _cli_parse_error(message)
 
 
 def build_parser() -> ArgumentParser:
@@ -730,7 +736,7 @@ def _help_handler(args: Namespace) -> int:
 
     command_parser = _find_subcommand_parser(parser, args.command)
     if command_parser is None:
-        raise CliError(t"Unknown command {ui.cmd(args.command)}.")
+        raise _unknown_command_error(args.command)
 
     console.output(
         ui.prefixed_line(
@@ -799,6 +805,59 @@ def _print_cli_error(error: CliError) -> None:
         )
 
 
+def _print_early_cli_error(
+    error: CliError,
+    *,
+    cli_args: JjCliArgs,
+    normalized_argv: Sequence[str],
+) -> None:
+    requested_color_mode = _color_arg_from_argv(normalized_argv)
+    with configured_console(
+        cli_args=cli_args,
+        color_mode=rich_color_mode(requested_color_mode),
+        repository=None,
+        requested_color_mode=requested_color_mode,
+        time_output=False,
+    ):
+        _print_cli_error(error)
+
+
+def _cli_parse_error(message: str) -> CliError:
+    message = message.strip()
+    invalid_choice = re.match(
+        r"argument (?P<argument>[^:]+): invalid choice: '(?P<value>[^']+)'(?: .*)?$",
+        message,
+    )
+    if invalid_choice is not None and invalid_choice.group("argument") == "command":
+        return _unknown_command_error(invalid_choice.group("value"))
+    if message and not message.endswith("."):
+        message = f"{message}."
+    if message:
+        message = f"{message[0].upper()}{message[1:]}"
+    return CliError(message)
+
+
+def _unknown_command_error(command_name: str) -> CliError:
+    return CliError(
+        t"Unknown command {ui.cmd(command_name)}.",
+        hint=t"Run {ui.cmd('jj-review help')} to list commands.",
+    )
+
+
+def _color_arg_from_argv(argv: Sequence[str]) -> RequestedColorMode | None:
+    for index, arg in enumerate(argv):
+        if arg.startswith("--color="):
+            value = arg.partition("=")[2]
+        elif arg == "--color" and index + 1 < len(argv):
+            value = argv[index + 1]
+        else:
+            continue
+        if value in _COLOR_CHOICES:
+            return cast(RequestedColorMode, value)
+        return None
+    return None
+
+
 def _load_configured_jj_color(
     *,
     repository: Path | None,
@@ -847,15 +906,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and return a process exit code."""
 
     parser = build_parser()
+    cli_args = JjCliArgs()
+    normalized_argv = list(sys.argv[1:] if argv is None else argv)
     try:
-        cli_args, stripped_argv = _extract_config_overrides(
-            sys.argv[1:] if argv is None else argv
-        )
+        cli_args, stripped_argv = _extract_config_overrides(normalized_argv)
         normalized_argv = _normalize_cli_args(stripped_argv)
+        args = parser.parse_args(normalized_argv)
     except CliError as error:
-        _print_cli_error(error)
+        _print_early_cli_error(
+            error,
+            cli_args=cli_args,
+            normalized_argv=normalized_argv,
+        )
         return error.exit_code
-    args = parser.parse_args(normalized_argv)
     args.cli_args = cli_args
     _, effective_rich_color_mode = _resolve_rich_color_mode(
         cli_color=args.color,
@@ -1228,7 +1291,7 @@ def _rewrite_help_args(argv: list[str]) -> list[str]:
             continue
         if arg in subcommands:
             return [*globals_, "help", arg]
-        return [*globals_, "help"]
+        return argv
 
     tail = ["--all"] if "--all" in argv else []
     return [*globals_, "help", *tail]

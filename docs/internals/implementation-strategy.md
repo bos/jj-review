@@ -92,6 +92,9 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- unknown-command CLI parse failures now route through the shared colored
+  `CliError` path with a short `jj-review help` hint, and `unknown -h` no
+  longer rewrites to generic top-level help
 - `status --verbose` now preserves the native `jj log` bookmark tokens in each
   rendered revision block instead of stripping the managed review bookmark, so
   verbose output matches what plain `jj log` shows while compact `status`

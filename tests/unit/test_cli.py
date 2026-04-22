@@ -117,6 +117,22 @@ def test_main_renders_cli_error_hint_on_separate_line(
     ]
 
 
+@pytest.mark.parametrize("argv", [["pants"], ["pants", "-h"], ["help", "pants"]])
+def test_main_reports_unknown_command_with_short_recovery_hint(
+    argv: list[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(argv)
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert captured.out == ""
+    assert captured.err.splitlines() == [
+        "Error: Unknown command pants.",
+        "Hint: Run jj-review help to list commands.",
+    ]
+
+
 @pytest.mark.parametrize("argv", [["help"], ["help", "--all"], ["help", "submit"]])
 def test_main_help_smoke_renders_without_error(
     argv: list[str],
