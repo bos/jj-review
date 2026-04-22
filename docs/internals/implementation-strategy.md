@@ -147,6 +147,16 @@ Recent refactor slices:
   list and prefixed-line primitives, so section headings, command labels, and
   option labels render through the Rich-backed console path instead of
   hand-wrapped `print()` output in `cli.py`
+- help option labels now show a shared metavar once across aliases, and
+  `submit` uses shorter metavars such as `HELPER`, `USERS`, and `TEAMS` so
+  wide flags do not push their descriptions into an awkward far-right column
+- `submit` command help now keeps the full `--describe-with` helper contract in
+  the command description and leaves the option row with a short summary, so
+  the detailed helper invocation shape does not dominate the options table
+- `submit` help now also centralizes the shared repeatable/comma-separated
+  override semantics for `--label`, `--reviewers`, `--team-reviewers`, and
+  `--use-bookmarks` in the command description so those option rows can stay
+  short and non-repetitive
 - subcommand `help` output now separates command-specific options from shared
   global flags, so command help keeps workflow flags distinct from repo,
   config, color, and debug controls

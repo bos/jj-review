@@ -1,7 +1,17 @@
-"""Create or update the GitHub pull requests for the selected stack of changes.
+"""Create or update GitHub pull requests for the selected stack of changes.
 
 This pushes or updates the GitHub branches for that stack, then opens or
 refreshes one pull request per change from bottom to top.
+
+Use `--describe-with HELPER` to delegate pull request titles and bodies plus
+stack-comment prose. `jj-review` invokes the helper as
+`helper --pr <change_id>` for each pull request and `helper --stack <revset>`
+for the selected stack; the helper must print JSON with string `title` and
+`body` fields.
+
+The `--label`, `--reviewers`, `--team-reviewers`, and `--use-bookmarks` flags
+accept comma-separated values and may be repeated. When passed, they override
+the corresponding configured defaults for this run.
 """
 
 from __future__ import annotations

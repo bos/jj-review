@@ -192,17 +192,14 @@ def build_parser() -> ArgumentParser:
         submit_parser,
         "--dry-run",
         action="store_true",
-        help="Print the submit plan without mutating local, remote, or GitHub state",
+        help="Print the submit plan without making any changes",
     )
     _add_help_argument(
         submit_parser,
         "-d",
         "--describe-with",
-        help=(
-            t"Executable to invoke as {ui.cmd('helper --pr <change_id>')} for each PR and "
-            t"{ui.cmd('helper --stack <revset>')} for stack-comment prose; the helper must "
-            t"print JSON with string {ui.cmd('title')} and {ui.cmd('body')} fields"
-        ),
+        metavar="HELPER",
+        help="Delegate pull request and stack-comment text generation to HELPER",
     )
     submit_draft_mode = submit_parser.add_mutually_exclusive_group()
     _add_help_argument(
@@ -210,8 +207,8 @@ def build_parser() -> ArgumentParser:
         "--draft",
         action="store_true",
         help=(
-            t"Create newly opened pull requests as drafts; use {ui.cmd('--draft=all')} to also "
-            t"return existing published pull requests on the selected stack to draft"
+            t"Create pull requests as drafts; use {ui.cmd('--draft=all')} to "
+            t"return existing pull requests to draft"
         ),
     )
     submit_draft_mode.add_argument(
@@ -229,41 +226,34 @@ def build_parser() -> ArgumentParser:
         "--label",
         dest="labels",
         action="append",
-        help=(
-            "Comma-separated GitHub labels to apply to submitted pull requests; "
-            "repeat to add more; overrides configured labels"
-        ),
+        help="Apply GitHub labels to submitted pull requests",
     )
     _add_help_argument(
         submit_parser,
         "--reviewers",
         dest="reviewers",
         action="append",
-        help=(
-            "Comma-separated GitHub usernames to request on submitted pull requests; "
-            "repeat to add more; overrides configured reviewers"
-        ),
+        metavar="USERS",
+        help="Request reviews from GitHub users on submitted pull requests",
     )
     _add_help_argument(
         submit_parser,
         "--team-reviewers",
         dest="team_reviewers",
         action="append",
-        help=(
-            "Comma-separated GitHub team slugs to request on submitted pull requests; "
-            "repeat to add more; overrides configured team reviewers"
-        ),
+        metavar="TEAMS",
+        help="Ask for reviews from GitHub teams on submitted pull requests",
     )
     _add_help_argument(
         submit_parser,
         "--use-bookmarks",
         dest="use_bookmarks",
+        metavar="BOOKMARKS",
         action="append",
         help=(
-            "Comma-separated existing bookmark names or glob patterns to try first "
-            "for selected changes; repeat to add more; overrides configured "
-            "use_bookmarks. Reused bookmarks stay during later cleanup unless "
-            "cleanup_user_bookmarks is true"
+            "Prefer existing bookmark names or globs for selected changes. "
+            "Reused bookmarks stay during cleanup unless cleanup_user_bookmarks "
+            "is true"
         ),
     )
     _add_help_argument(
@@ -352,7 +342,7 @@ def build_parser() -> ArgumentParser:
     land_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the landing plan without mutating jj or GitHub state",
+        help="Print the landing plan without making any changes",
     )
     _add_help_argument(
         land_parser,
@@ -391,7 +381,7 @@ def build_parser() -> ArgumentParser:
     close_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print the close plan without mutating jj-review or GitHub state",
+        help="Print the close plan without making any changes",
     )
     close_parser.add_argument(
         "--cleanup",
@@ -431,7 +421,7 @@ def build_parser() -> ArgumentParser:
     cleanup_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Print cleanup actions without mutating jj-review or GitHub state",
+        help="Print cleanup actions without making any changes",
     )
     _add_help_argument(
         cleanup_parser,
@@ -527,7 +517,7 @@ def _format_option_label(action) -> str:
     if action.nargs == 0:
         return ", ".join(action.option_strings)
     metavar = action.metavar or action.dest.upper()
-    return ", ".join(f"{option} {metavar}" for option in action.option_strings)
+    return f"{', '.join(action.option_strings)} {metavar}"
 
 
 def _normalized_help_text(content: ui.Message | str) -> str:
@@ -596,7 +586,7 @@ def _top_level_usage_message(*, include_hidden: bool) -> ui.Message:
     if include_hidden:
         return (
             t"{ui.cmd('jj-review')} [{ui.cmd('--help')}] "
-            t"[{ui.cmd('--repository REPOSITORY')}] "
+            t"[{ui.cmd('--repository REPO')}] "
             t"[{ui.cmd('--config NAME=VALUE')}] [{ui.cmd('--config-file PATH')}] "
             t"[{ui.cmd('--debug')}] [{ui.cmd('--color WHEN')}] "
             t"[{ui.cmd('--time-output')}] [{ui.cmd('--version')}] "
@@ -1000,8 +990,7 @@ def _add_common_options(
         metavar="NAME=VALUE",
         help=(
             "Additional jj config option as a TOML dotted-key assignment "
-            "(e.g. ui.color=always); may be repeated and interleaves with "
-            "--config-file in argv order"
+            "(e.g. ui.color=always)"
         ),
     )
     parser.add_argument(
@@ -1010,11 +999,7 @@ def _add_common_options(
         default=SUPPRESS,
         dest=SUPPRESS,
         metavar="PATH",
-        help=(
-            "Additional jj config file layered on top of normal config scopes; "
-            "may be repeated and interleaves with --config in argv order; "
-            "relative paths resolve against the current directory"
-        ),
+        help="Additional config files",
     )
     parser.add_argument(
         "--debug",

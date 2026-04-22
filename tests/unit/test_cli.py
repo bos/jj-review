@@ -148,6 +148,18 @@ def test_main_help_submit_separates_command_and_global_options(
     assert "--dry-run" not in global_options_body
 
 
+def test_main_help_submit_uses_single_metavar_and_shorter_labels(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["help", "submit"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "-d, --describe-with HELPER" in captured.out
+    assert "--team-reviewers TEAMS" in captured.out
+    assert "DESCRIBE_WITH, --describe-with DESCRIBE_WITH" not in captured.out
+
+
 def _patch_fake_jj_workspace(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
