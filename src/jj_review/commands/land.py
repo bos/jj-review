@@ -1,9 +1,9 @@
 """Land the consecutive changes above `trunk()` that are ready to land now.
 
-By default, `land` requires each selected change to be free of unresolved local
-conflicts and each pull request to be open, not draft, approved, and free of
-outstanding changes requested. Use `--bypass-readiness` to skip those
-readiness checks while still enforcing the normal safety checks.
+By default, `land` requires each selected change to be free of unresolved merge/rebase
+conflicts. Also, each PR must be open, not draft, approved, and have no outstanding changes
+requested. Use `--bypass-readiness` to skip those readiness checks while still enforcing the
+normal safety checks.
 
 By default, this command performs the landing. Use `--dry-run` to inspect the
 landing plan without mutating jj or GitHub state.
@@ -18,6 +18,7 @@ at the landed commits. Reused user bookmarks stay by default. Use
 
 If later changes remain above that point, run `cleanup --rebase` and then
 `submit` to keep those remaining changes under review.
+
 """
 
 from __future__ import annotations
