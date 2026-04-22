@@ -117,6 +117,23 @@ def test_main_renders_cli_error_hint_on_separate_line(
     ]
 
 
+def test_main_runs_status_when_subcommand_is_omitted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+
+    def fake_status(**kwargs) -> int:
+        seen.append("called")
+        return 23
+
+    monkeypatch.setattr("jj_review.cli.commands.status.status", fake_status)
+
+    exit_code = main([])
+
+    assert exit_code == 23
+    assert seen == ["called"]
+
+
 @pytest.mark.parametrize("argv", [["pants"], ["pants", "-h"], ["help", "pants"]])
 def test_main_reports_unknown_command_with_short_recovery_hint(
     argv: list[str],

@@ -839,6 +839,9 @@ The standalone executable may also expose `completion` as auxiliary CLI glue
 that prints shell completion scripts. It is not a review-state command and
 does not inspect the repository, saved local data, or GitHub.
 
+When run without a subcommand, the standalone executable should behave the same
+as `jj review status` on the current stack.
+
 Top-level help should group commands by intent so the common workflow remains
 easy to scan. `jj review --help` and `jj review help` should foreground the core
 review lifecycle (`submit`, `status`, `land`, `close`) plus adjacent support

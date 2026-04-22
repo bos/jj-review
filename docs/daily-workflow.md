@@ -24,8 +24,10 @@ beneath the stack, so you can see exactly what the stack is based on.
 You can easily check what the tool thinks that stack is:
 
 ```bash
-jj-review status
+jj-review
 ```
+
+This defaults to `jj-review status`.
 
 This is the safest first command whenever you are unsure what might be submitted.
 

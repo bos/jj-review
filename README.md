@@ -114,8 +114,10 @@ commits stacked on top of `main`. Getting started is super easy.
 Inspect your current stack:
 
 ```bash
-jj-review status
+jj-review
 ```
+
+This defaults to `jj-review status`.
 
 Submit that stack to GitHub:
 
@@ -130,7 +132,7 @@ managed by `jj-review`.
 Inspect your stack again:
 
 ```bash
-jj-review status
+jj-review
 ```
 
 At that point you should have one PR per local change, in a stack (each one based on its

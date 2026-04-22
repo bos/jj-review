@@ -92,6 +92,9 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- bare `jj-review` now defaults to `status` for the current stack instead of
+  printing top-level help, while `--help` and `help` keep the curated top-level
+  help surface
 - unknown-command CLI parse failures now route through the shared colored
   `CliError` path with a short `jj-review help` hint, and `unknown -h` no
   longer rewrites to generic top-level help

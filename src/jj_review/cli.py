@@ -33,12 +33,13 @@ from jj_review.jj import JjCliArgs
 logger = logging.getLogger(__name__)
 SubparserT = TypeVar("SubparserT", bound=ArgumentParser)
 _COLOR_CHOICES: tuple[RequestedColorMode, ...] = ("always", "never", "debug", "auto")
-_TOP_LEVEL_HELP_USAGE = "jj-review [--help] [--color WHEN] [--version] <command> ..."
+_TOP_LEVEL_HELP_USAGE = "jj-review [--help] [--color WHEN] [--version] [<command> ...]"
 _TOP_LEVEL_HELP_DESCRIPTION = """
 jj-review lets you review a local jj stack on GitHub as stacked pull requests.
 
 Use it to submit changes for review, inspect pull request status, land
-ready changes, and clean up stale jj-review data.
+ready changes, and clean up stale jj-review data. With no command, it behaves
+like `status` for the current stack.
 """
 _TOP_LEVEL_HIDDEN_OPTION_STRINGS = frozenset(
     {"--repository", "--config", "--config-file", "--debug", "--time-output"}
@@ -155,7 +156,7 @@ def build_parser() -> ArgumentParser:
         description=_normalized_help_text(_TOP_LEVEL_HELP_DESCRIPTION),
     )
     _add_common_options(parser, suppress_defaults=False)
-    parser.set_defaults(handler=None)
+    parser.set_defaults(command="status", handler=_default_status_handler)
     _normalize_help_action_text(parser)
     parser.add_argument(
         "--version",
@@ -596,11 +597,11 @@ def _top_level_usage_message(*, include_hidden: bool) -> ui.Message:
             t"[{ui.cmd('--config NAME=VALUE')}] [{ui.cmd('--config-file PATH')}] "
             t"[{ui.cmd('--debug')}] [{ui.cmd('--color WHEN')}] "
             t"[{ui.cmd('--time-output')}] [{ui.cmd('--version')}] "
-            t"{ui.cmd('<command>')} ..."
+            t"[{ui.cmd('<command>')} ...]"
         )
     return (
         t"{ui.cmd('jj-review')} [{ui.cmd('--help')}] [{ui.cmd('--color WHEN')}] "
-        t"[{ui.cmd('--version')}] {ui.cmd('<command>')} ..."
+        t"[{ui.cmd('--version')}] [{ui.cmd('<command>')} ...]"
     )
 
 
@@ -934,10 +935,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     ):
         with _time_output(enabled=args.time_output):
             handler = args.handler
-            if handler is None:
-                _emit_top_level_help(parser, include_hidden=False)
-                return 0
-
             try:
                 return handler(args)
             except CliError as error:
@@ -946,6 +943,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             except KeyboardInterrupt:
                 console.stderr_output("Interrupted.")
                 return 130
+
+
+def _default_status_handler(args: Namespace) -> int:
+    """Run bare `jj-review` as the default `status` command."""
+
+    return commands.status.status(
+        cli_args=_global_cli_args(args),
+        debug=args.debug,
+        fetch=False,
+        repository=args.repository,
+        revset=None,
+        verbose=False,
+    )
 
 
 def _add_revision_command(
