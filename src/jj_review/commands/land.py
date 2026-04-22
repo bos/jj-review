@@ -1,24 +1,30 @@
 """Land the consecutive changes above `trunk()` that are ready to land now.
 
-By default, `land` requires each selected change to be free of unresolved merge/rebase
-conflicts. Also, each PR must be open, not draft, approved, and have no outstanding changes
-requested. Use `--bypass-readiness` to skip those readiness checks while still enforcing the
-normal safety checks.
+If your stack isn't based off `trunk()`, you'll need to `rebase` before landing.
 
-By default, this command performs the landing. Use `--dry-run` to inspect the
-landing plan without mutating jj or GitHub state.
+To determine what to land, `land` walks up the stack until it reaches the top or a change that
+it cannot land.
 
-Use `--pull-request` to select the linked local change by pull request number
-or URL and land the consecutive ready prefix through that change.
+For a change to be landed, it must have no unresolved merge/rebase conflicts. Also, each pull
+request must be open, not draft, approved, and have no outstanding changes requested. Use
+`--bypass-readiness` to skip the draft / approval / changes-requested readiness checks.
 
-After a successful land, `jj-review` forgets the local review bookmarks it
-created for the changes that actually landed when those bookmarks still point
-at the landed commits. Reused user bookmarks stay by default. Use
-`--skip-cleanup` to keep even `jj-review`'s own local review bookmarks.
+Use `--dry-run` to inspect the landing plan without changing jj or GitHub state.
 
-If later changes remain above that point, run `cleanup --rebase` and then
-`submit` to keep those remaining changes under review.
+Use `--pull-request` to select the top of the stack to land by PR number or URL.
 
+After a successful land, `jj-review` forgets the bookmarks it was managing for the changes that
+landed, unless they've been moved or become conflicted. If you used your own bookmarks with
+`submit --use-bookmarks`, they will not be cleaned up by default (override with `--config
+jj-review.cleanup_user_bookmarks=true`). Use `--skip-cleanup` to keep even `jj-review`'s own
+review bookmarks.
+
+`land` does not touch changes above the first that could not be landed. In the usual direct-push
+path, those remaining local changes keep the same base they already had, so no local rebase is
+needed just because lower changes landed. Run `cleanup --rebase` only when some lower changes
+were merged through different commit IDs and the local stack still contains those merged
+ancestors; after that local rewrite, run `submit` to refresh the surviving review branches and
+pull requests on GitHub.
 """
 
 from __future__ import annotations
@@ -105,7 +111,6 @@ class LandResult:
     selected_revset: str
     trunk_branch: str
     trunk_subject: str
-    follow_up: LandActionBody | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,7 +177,6 @@ class _LandExecutionState:
     """Resolved live-run land state after resume checks."""
 
     execution_plan: _LandPlan
-    follow_up: LandActionBody | None
     resume_intent: _ResumeLandIntent | None
     stale_intents: list[LoadedIntent]
     state_dir: Path
@@ -271,8 +275,6 @@ def _print_land_result(result: LandResult) -> None:
                     message_labels=body_style,
                 )
             )
-    if result.follow_up is not None:
-        console.output(result.follow_up)
 
 
 def _land_action_presentation(
@@ -417,11 +419,6 @@ async def _stream_land_async(
             status_result=status_result,
             trunk_branch=trunk_branch,
         )
-        follow_up = _follow_up_message(
-            landed_change_count=len(plan.landed_revisions),
-            selected_revset=status_result.selected_revset,
-            total_change_count=len(prepared_status.prepared.status_revisions),
-        )
         bookmark_cleanup_plans = _plan_review_bookmark_cleanup_for_revisions(
             client=prepared.client,
             prefix=prepared_land.config.bookmark_prefix,
@@ -438,7 +435,6 @@ async def _stream_land_async(
                 applied=False,
                 bypass_readiness=prepared_land.bypass_readiness,
                 blocked=plan.blocked,
-                follow_up=None if plan.blocked else follow_up,
                 github_repository=github_repository.full_name,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
@@ -448,7 +444,6 @@ async def _stream_land_async(
 
         try:
             execution_state = _prepare_land_execution_state(
-                follow_up=follow_up,
                 github_repository=github_repository,
                 plan=plan,
                 prepared_land=prepared_land,
@@ -461,14 +456,12 @@ async def _stream_land_async(
         except _CompletedLandResume as resume:
             return resume.result
         execution_plan = execution_state.execution_plan
-        follow_up = execution_state.follow_up
         if execution_plan.blocked:
             return LandResult(
                 actions=_planned_land_actions(plan=execution_plan),
                 applied=False,
                 bypass_readiness=prepared_land.bypass_readiness,
                 blocked=True,
-                follow_up=None,
                 github_repository=github_repository.full_name,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
@@ -547,7 +540,6 @@ async def _stream_land_async(
                             applied=True,
                             bypass_readiness=prepared_land.bypass_readiness,
                             blocked=True,
-                            follow_up=None,
                             github_repository=github_repository.full_name,
                             remote_name=remote.name,
                             selected_revset=status_result.selected_revset,
@@ -637,11 +629,10 @@ async def _stream_land_async(
                 save_intent(intent_path, land_intent)
             succeeded = True
             return LandResult(
-                actions=tuple(actions),
+                actions=_completed_land_actions(actions=tuple(actions), plan=execution_plan),
                 applied=True,
                 bypass_readiness=prepared_land.bypass_readiness,
                 blocked=False,
-                follow_up=follow_up,
                 github_repository=github_repository.full_name,
                 remote_name=remote.name,
                 selected_revset=status_result.selected_revset,
@@ -691,7 +682,6 @@ def _stack_not_on_trunk_error(
 
 def _prepare_land_execution_state(
     *,
-    follow_up: LandActionBody | None,
     github_repository: ParsedGithubRepo,
     plan: _LandPlan,
     prepared_land: PreparedLand,
@@ -748,11 +738,6 @@ def _prepare_land_execution_state(
             intent=resume_intent.intent,
             trunk_branch=trunk_branch,
         )
-        follow_up = _follow_up_message(
-            landed_change_count=len(resume_intent.intent.landed_change_ids),
-            selected_revset=selected_revset,
-            total_change_count=len(resume_intent.intent.ordered_change_ids),
-        )
 
     if not execution_plan.landed_revisions and not execution_plan.push_trunk:
         if resume_intent is not None:
@@ -770,7 +755,6 @@ def _prepare_land_execution_state(
                 applied=True,
                 bypass_readiness=prepared_land.bypass_readiness,
                 blocked=False,
-                follow_up=follow_up,
                 github_repository=github_repository.full_name,
                 remote_name=remote_name,
                 selected_revset=selected_revset,
@@ -783,7 +767,6 @@ def _prepare_land_execution_state(
         raise AssertionError("Resume execution without remaining work must be handled above.")
     return _LandExecutionState(
         execution_plan=execution_plan,
-        follow_up=follow_up,
         resume_intent=resume_intent,
         stale_intents=stale_intents,
         state_dir=state_dir,
@@ -1117,6 +1100,16 @@ def _planned_land_actions(
     return tuple(actions)
 
 
+def _completed_land_actions(
+    *,
+    actions: tuple[LandAction, ...],
+    plan: _LandPlan,
+) -> tuple[LandAction, ...]:
+    if plan.boundary_action is None:
+        return actions
+    return (*actions, plan.boundary_action)
+
+
 def _find_resume_land_intent(
     *,
     bypass_readiness: bool,
@@ -1317,21 +1310,6 @@ def _plan_review_bookmark_cleanup_for_revisions(
         if cleanup_plan is not None:
             cleanup_plans.append(cleanup_plan)
     return tuple(cleanup_plans)
-
-
-def _follow_up_message(
-    *,
-    landed_change_count: int,
-    selected_revset: str,
-    total_change_count: int,
-) -> LandActionBody | None:
-    if landed_change_count == 0 or landed_change_count >= total_change_count:
-        return None
-    return (
-        t"Next step: remaining descendants still sit above the changes that were landed. "
-        t"Run {ui.cmd('cleanup --rebase')} {ui.revset(selected_revset)} and then "
-        t"{ui.cmd('submit')} {ui.revset(selected_revset)}."
-    )
 
 
 def _ensure_trunk_branch_matches_selected_trunk(

@@ -11,10 +11,13 @@ import pytest
 from jj_review import console
 from jj_review.commands.land import (
     DivergenceKind,
+    LandAction,
     LandResult,
     PreparedLand,
+    _completed_land_actions,
     _ensure_trunk_branch_matches_selected_trunk,
     _land_boundary_message,
+    _LandPlan,
     _plan_review_bookmark_cleanup,
     _remote_trunk_matches_commit,
     _report_stale_land_intents,
@@ -61,7 +64,6 @@ def test_stream_land_skips_stack_comment_inspection(monkeypatch) -> None:
         applied=False,
         bypass_readiness=False,
         blocked=False,
-        follow_up=None,
         github_repository="octo-org/stacked-review",
         remote_name="origin",
         selected_revset="@-",
@@ -88,6 +90,26 @@ def test_stream_land_skips_stack_comment_inspection(monkeypatch) -> None:
     result = stream_land(prepared_land=prepared_land)
 
     assert result == expected_result
+
+
+def test_completed_land_actions_include_boundary_reason_for_partial_land() -> None:
+    applied_action = LandAction(kind="trunk", body="push trunk", status="applied")
+    boundary_action = LandAction(
+        kind="boundary",
+        body="before top because PR is draft",
+        status="planned",
+    )
+    plan = _LandPlan(
+        blocked=False,
+        boundary_action=boundary_action,
+        landed_revisions=(),
+        push_trunk=True,
+        trunk_branch="main",
+    )
+
+    actions = _completed_land_actions(actions=(applied_action,), plan=plan)
+
+    assert actions == (applied_action, boundary_action)
 
 
 def test_land_boundary_message_allows_rebased_revision_when_pr_link_is_ready() -> None:
