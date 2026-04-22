@@ -118,6 +118,7 @@ jj-review
 ```
 
 This defaults to `jj-review status`.
+`status` also accepts the short alias `st`.
 
 Submit that stack to GitHub:
 

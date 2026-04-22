@@ -134,6 +134,23 @@ def test_main_runs_status_when_subcommand_is_omitted(
     assert seen == ["called"]
 
 
+def test_main_dispatches_status_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+
+    def fake_status(**kwargs) -> int:
+        seen.append("called")
+        return 29
+
+    monkeypatch.setattr("jj_review.cli.commands.status.status", fake_status)
+
+    exit_code = main(["st"])
+
+    assert exit_code == 29
+    assert seen == ["called"]
+
+
 @pytest.mark.parametrize("argv", [["pants"], ["pants", "-h"], ["help", "pants"]])
 def test_main_reports_unknown_command_with_short_recovery_hint(
     argv: list[str],
@@ -148,6 +165,19 @@ def test_main_reports_unknown_command_with_short_recovery_hint(
         "Error: Unknown command pants.",
         "Hint: Run jj-review help to list commands.",
     ]
+
+
+def test_main_help_for_status_alias_renders_status_help(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["st", "--help"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Show how the selected jj stack currently appears locally and on GitHub." in (
+        captured.out
+    )
+    assert "Traceback" not in captured.err
 
 
 @pytest.mark.parametrize("argv", [["help"], ["help", "--all"], ["help", "submit"]])

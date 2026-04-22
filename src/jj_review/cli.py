@@ -113,8 +113,14 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
         (_HelpCommand("help", _HELP_HELP, hidden=True),),
     ),
 )
+_COMMAND_ALIASES: dict[str, tuple[str, ...]] = {
+    "status": ("st",),
+}
 _KNOWN_COMMANDS = frozenset(
-    entry.name for _, entries in _TOP_LEVEL_HELP_GROUPS for entry in entries
+    name
+    for _, entries in _TOP_LEVEL_HELP_GROUPS
+    for entry in entries
+    for name in (entry.name, *_COMMAND_ALIASES.get(entry.name, ()))
 )
 
 
@@ -275,6 +281,7 @@ def build_parser() -> ArgumentParser:
     status_parser = _add_revision_command(
         subparsers,
         command="status",
+        aliases=_COMMAND_ALIASES["status"],
         help_text=_normalized_help_text(commands.status.HELP),
         description_text=commands.status.__doc__ or "",
         handler=lambda args: commands.status.status(
@@ -962,6 +969,7 @@ def _add_revision_command(
     subparsers: _SubParsersAction[SubparserT],
     *,
     command: str,
+    aliases: Sequence[str] = (),
     help_text: str,
     description_text: str,
     handler,
@@ -970,6 +978,7 @@ def _add_revision_command(
 ) -> SubparserT:
     parser = subparsers.add_parser(
         command,
+        aliases=list(aliases),
         help=help_text,
         description=_normalized_help_text(description_text),
     )

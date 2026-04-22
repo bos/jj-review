@@ -826,6 +826,7 @@ The tool can stay small. A reasonable surface would be:
   [--re-request]
   [<revset>]`
 - `jj review status [--fetch] [<revset>]`
+- `jj review st [--fetch] [<revset>]`
 - `jj review relink <pr> <revset>`
 - `jj review unlink <revset>`
 - `jj review close [--cleanup] [--dry-run] [--pull-request <pr> | <revset>]`

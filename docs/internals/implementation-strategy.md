@@ -92,12 +92,15 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
-- bare `jj-review` now defaults to `status` for the current stack instead of
-  printing top-level help, while `--help` and `help` keep the curated top-level
-  help surface
 - unknown-command CLI parse failures now route through the shared colored
   `CliError` path with a short `jj-review help` hint, and `unknown -h` no
   longer rewrites to generic top-level help
+- `status` now accepts `st` as a CLI alias, and help/`--help` rewriting plus
+  shell completion recognize that shorthand without changing the curated
+  top-level command list
+- bare `jj-review` now defaults to `status` for the current stack instead of
+  printing top-level help, while `--help` and `help` keep the curated top-level
+  help surface
 - `status --verbose` now preserves the native `jj log` bookmark tokens in each
   rendered revision block instead of stripping the managed review bookmark, so
   verbose output matches what plain `jj log` shows while compact `status`

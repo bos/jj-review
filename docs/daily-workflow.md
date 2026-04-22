@@ -28,6 +28,7 @@ jj-review
 ```
 
 This defaults to `jj-review status`.
+`status` also accepts the short alias `st`.
 
 This is the safest first command whenever you are unsure what might be submitted.
 
