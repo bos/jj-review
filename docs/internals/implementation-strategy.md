@@ -95,6 +95,10 @@ Recent refactor slices:
 - unknown-command CLI parse failures now route through the shared colored
   `CliError` path with a short `jj-review help` hint, and `unknown -h` no
   longer rewrites to generic top-level help
+- `status` now accepts `--pull-request` as an alternate selector for the
+  linked local change; it reuses the same stack-first local resolution as
+  `close` and `land`, prints the resolved change ID, and still fails closed
+  with import/relink guidance when that PR is not linked locally
 - `status` now accepts `st` as a CLI alias, and help/`--help` rewriting plus
   shell completion recognize that shorthand without changing the curated
   top-level command list

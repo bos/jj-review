@@ -43,6 +43,62 @@ def test_status_reports_pull_request_link_without_showing_managed_bookmark(
     assert "review/feature-1-" not in captured.out
 
 
+def test_status_can_select_a_stack_by_pull_request_number(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    first_change_id = stack.revisions[0].change_id
+    second_change_id = stack.revisions[1].change_id
+    state = ReviewStateStore.for_repo(repo).load()
+    first_pr_number = state.changes[first_change_id].pr_number
+    second_pr_number = state.changes[second_change_id].pr_number
+    assert first_pr_number is not None
+    assert second_pr_number is not None
+
+    exit_code = run_main(
+        repo,
+        config_path,
+        "status",
+        "--pull-request",
+        str(first_pr_number),
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert f"Using PR #{first_pr_number} -> {first_change_id}" in captured.out
+    assert "feature 1" in captured.out
+    assert "PR #1" in captured.out
+    assert "feature 2" not in captured.out
+    assert f"PR #{second_pr_number}" not in captured.out
+
+
+def test_status_pull_request_selector_requires_a_linked_local_change(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    resolve_state_path(repo).unlink()
+
+    exit_code = run_main(repo, config_path, "status", "--pull-request", "1")
+    captured = capsys.readouterr()
+    combined_output = " ".join((captured.out + " " + captured.err).split())
+
+    assert exit_code == 1
+    assert "PR #1 is not linked to any local change." in combined_output
+
+
 def test_status_reports_missing_trunk_bookmark_in_empty_repo(
     tmp_path: Path,
     capsys,

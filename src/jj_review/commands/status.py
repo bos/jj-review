@@ -5,6 +5,7 @@ of submitted and unsubmitted changes above the trunk row; `--verbose` expands th
 and also shows the bookmark/branch used to track each PR.
 
 `--fetch` runs a fetch first so the report uses the current remote branch locations.
+Use `--pull-request` to inspect the stack for a PR number or URL.
 
 """
 
@@ -44,6 +45,10 @@ from jj_review.review.intents import (
     match_cleanup_rebase_intent,
     match_close_intent,
 )
+from jj_review.review.selection import (
+    resolve_linked_change_for_pull_request,
+    resolve_selected_revset,
+)
 from jj_review.review.status import (
     prepare_status,
     prepared_status_github_inspection_count,
@@ -70,6 +75,7 @@ def status(
     cli_args: JjCliArgs,
     debug: bool,
     fetch: bool,
+    pull_request: str | None,
     repository: Path | None,
     revset: str | None,
     verbose: bool,
@@ -81,13 +87,30 @@ def status(
         cli_args=cli_args,
         debug=debug,
     )
+    if pull_request is not None:
+        pull_request_number, resolved_revset = resolve_linked_change_for_pull_request(
+            action_name="status",
+            jj_client=context.jj_client,
+            pull_request_reference=pull_request,
+            revset=revset,
+        )
+        console.note(
+            t"Using PR #{pull_request_number} -> {ui.revset(resolved_revset)}"
+        )
+    else:
+        resolved_revset = resolve_selected_revset(
+            command_label="status",
+            default_revset=None,
+            require_explicit=False,
+            revset=revset,
+        )
     try:
         prepared_status = prepare_status(
             config=context.config,
             fetch_remote_state=fetch,
             jj_client=context.jj_client,
             persist_bookmarks=False,
-            revset=revset,
+            revset=resolved_revset,
         )
     except UnsupportedStackError as error:
         raise status_preparation_cli_error(error) from error

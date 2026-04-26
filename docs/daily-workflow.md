@@ -85,6 +85,12 @@ Use `status` when you need to answer:
 If review state already exists on another machine or only on GitHub, run
 `jj-review import` first to attach that stack locally.
 
+If you want to inspect the stack for one linked PR directly:
+
+```bash
+jj-review status --pull-request 7
+```
+
 For more detail:
 
 ```bash

@@ -287,11 +287,21 @@ def build_parser() -> ArgumentParser:
             cli_args=_global_cli_args(args),
             debug=args.debug,
             fetch=args.fetch,
+            pull_request=args.pull_request,
             repository=args.repository,
             revset=args.revset,
             verbose=args.verbose,
         ),
-        revset_help="Revision to inspect; defaults to the current stack",
+        revset_help=(
+            t"Revision to inspect; defaults to the current stack; cannot be combined "
+            t"with {ui.cmd('--pull-request')}"
+        ),
+    )
+    _add_help_argument(
+        status_parser,
+        "--pull-request",
+        metavar="PR",
+        help="Inspect the stack for this PR number or URL",
     )
     status_parser.add_argument(
         "-f",
@@ -957,6 +967,7 @@ def _default_status_handler(args: Namespace) -> int:
         cli_args=_global_cli_args(args),
         debug=args.debug,
         fetch=False,
+        pull_request=None,
         repository=args.repository,
         revset=None,
         verbose=False,

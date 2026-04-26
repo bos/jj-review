@@ -496,6 +496,8 @@ The normal user-facing commands may default to the current stack headed by
 Read-only inspection may remain ergonomic:
 
 - `status` may omit `<revset>` and inspect the current stack by default
+- `status --pull-request <pr>` may use one linked local change as an alternate
+  selector for that stack
 - `import` may omit its explicit selector flags and default to the current
   stack headed by `@-`
 
@@ -828,8 +830,8 @@ The tool can stay small. A reasonable surface would be:
   [--reviewers <login[,login...]>] [--team-reviewers <slug[,slug...]>]
   [--re-request]
   [<revset>]`
-- `jj review status [--fetch] [<revset>]`
-- `jj review st [--fetch] [<revset>]`
+- `jj review status [--fetch] [--pull-request <pr> | <revset>]`
+- `jj review st [--fetch] [--pull-request <pr> | <revset>]`
 - `jj review relink <pr> <revset>`
 - `jj review unlink <revset>`
 - `jj review close [--cleanup] [--dry-run] [--pull-request <pr> | <revset>]`
