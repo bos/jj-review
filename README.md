@@ -134,6 +134,8 @@ Submit that stack to GitHub:
 jj-review submit
 ```
 
+`submit` also accepts the short alias `sub`.
+
 When you first submit a stack, this will create one review bookmark per change (by default
 `review/...`; these are managed automatically). Those bookmarks are user-visible in `jj`, and
 managed by `jj-review`.

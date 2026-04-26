@@ -173,6 +173,50 @@ def test_main_preserves_status_selector_order(
     )
 
 
+def test_main_preserves_status_selector_order_with_short_pull_request_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_status(**kwargs) -> int:
+        observed.update(kwargs)
+        return 0
+
+    monkeypatch.setattr("jj_review.cli.commands.status.status", fake_status)
+
+    exit_code = main(["status", "foo", "-p", "17", "bar"])
+
+    assert exit_code == 0
+    assert observed["pull_request"] == ["17"]
+    assert observed["selectors"] == (
+        StatusSelector(kind="revset", value="foo"),
+        StatusSelector(kind="pull_request", value="17"),
+        StatusSelector(kind="revset", value="bar"),
+    )
+
+
+def test_main_preserves_status_selector_order_with_attached_short_pull_request_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_status(**kwargs) -> int:
+        observed.update(kwargs)
+        return 0
+
+    monkeypatch.setattr("jj_review.cli.commands.status.status", fake_status)
+
+    exit_code = main(["status", "foo", "-p17", "bar"])
+
+    assert exit_code == 0
+    assert observed["pull_request"] == ["17"]
+    assert observed["selectors"] == (
+        StatusSelector(kind="revset", value="foo"),
+        StatusSelector(kind="pull_request", value="17"),
+        StatusSelector(kind="revset", value="bar"),
+    )
+
+
 @pytest.mark.parametrize(
     ("argv", "expected_revsets"),
     [
@@ -229,7 +273,6 @@ def test_main_help_smoke_renders_without_error(
     assert exit_code == 0
     assert "jj-review" in captured.out
     assert "Traceback" not in captured.err
-
 
 def _patch_fake_jj_workspace(
     monkeypatch: pytest.MonkeyPatch,

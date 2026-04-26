@@ -113,7 +113,9 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
         (_HelpCommand("help", _HELP_HELP, hidden=True),),
     ),
 )
+_PULL_REQUEST_OPTION_STRINGS = ("-p", "--pull-request")
 _COMMAND_ALIASES: dict[str, tuple[str, ...]] = {
+    "submit": ("sub",),
     "list": ("ls",),
     "status": ("st",),
 }
@@ -179,6 +181,7 @@ def build_parser() -> ArgumentParser:
     submit_parser = _add_revision_command(
         subparsers,
         command="submit",
+        aliases=_COMMAND_ALIASES["submit"],
         help_text=_normalized_help_text(commands.submit.HELP),
         description_text=commands.submit.__doc__ or "",
         handler=lambda args: commands.submit.submit(
@@ -302,7 +305,7 @@ def build_parser() -> ArgumentParser:
     )
     _add_help_argument(
         status_parser,
-        "--pull-request",
+        *_PULL_REQUEST_OPTION_STRINGS,
         metavar="PR",
         action="append",
         help="Inspect the stack for this PR number or URL; repeat to inspect several stacks",
@@ -395,7 +398,7 @@ def build_parser() -> ArgumentParser:
     )
     _add_help_argument(
         land_parser,
-        "--pull-request",
+        *_PULL_REQUEST_OPTION_STRINGS,
         metavar="PR",
         help="Select the local change linked to this pull request number or URL",
     )
@@ -440,7 +443,7 @@ def build_parser() -> ArgumentParser:
     )
     _add_help_argument(
         close_parser,
-        "--pull-request",
+        *_PULL_REQUEST_OPTION_STRINGS,
         metavar="PR",
         help="Select the local change linked to this PR number or URL",
     )
@@ -739,7 +742,7 @@ def _emit_top_level_help(parser: ArgumentParser, *, include_hidden: bool) -> Non
             title,
             tuple(
                 (
-                    ui.cmd(entry.name),
+                    ui.cmd(_top_level_command_label(entry, include_aliases=include_hidden)),
                     _normalized_help_text(entry.summary),
                 )
                 for entry in visible_entries
@@ -768,6 +771,13 @@ def _emit_top_level_help(parser: ArgumentParser, *, include_hidden: bool) -> Non
     if option_rows is not None:
         console.output()
         _emit_help_table_section("Options", option_rows)
+
+
+def _top_level_command_label(entry: _HelpCommand, *, include_aliases: bool) -> str:
+    aliases = _COMMAND_ALIASES.get(entry.name, ())
+    if not include_aliases or not aliases:
+        return entry.name
+    return ", ".join((entry.name, *aliases))
 
 
 def _help_handler(args: Namespace) -> int:
@@ -1037,13 +1047,13 @@ def _parse_status_command_args(argv: Sequence[str]) -> _ParsedStatusCommandArgs 
                 for value in trailing_revsets
             )
             break
-        if arg in {"--pull-request", "--repository", "--color"}:
+        if arg in {*_PULL_REQUEST_OPTION_STRINGS, "--repository", "--color"}:
             if index + 1 >= len(command_argv):
                 options.extend(command_argv[index:])
                 break
             value = command_argv[index + 1]
             options.extend((arg, value))
-            if arg == "--pull-request":
+            if arg in _PULL_REQUEST_OPTION_STRINGS:
                 selectors.append(
                     commands.status.StatusSelector(
                         kind="pull_request",
@@ -1054,15 +1064,22 @@ def _parse_status_command_args(argv: Sequence[str]) -> _ParsedStatusCommandArgs 
             continue
         if (
             arg.startswith("--pull-request=")
+            or (arg.startswith("-p") and len(arg) > 2)
             or arg.startswith("--repository=")
             or arg.startswith("--color=")
         ):
             options.append(arg)
             if arg.startswith("--pull-request="):
+                value = arg.partition("=")[2]
+            elif arg.startswith("-p") and len(arg) > 2:
+                value = arg[2:].removeprefix("=")
+            else:
+                value = None
+            if value is not None:
                 selectors.append(
                     commands.status.StatusSelector(
                         kind="pull_request",
-                        value=arg.partition("=")[2],
+                        value=value,
                     )
                 )
             index += 1
@@ -1180,7 +1197,7 @@ def _add_import_parser(
     selector = parser.add_mutually_exclusive_group(required=False)
     _add_help_argument(
         selector,
-        "--pull-request",
+        *_PULL_REQUEST_OPTION_STRINGS,
         metavar="PR",
         help="Pull request number or URL",
     )
