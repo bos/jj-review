@@ -6,9 +6,7 @@ from typing import cast
 
 import pytest
 
-from jj_review.commands.import_ import (
-    _run_import_async,
-)
+from jj_review.commands.import_ import _run_import_async
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
 from jj_review.jj import JjClient

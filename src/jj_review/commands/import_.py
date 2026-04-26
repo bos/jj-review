@@ -24,6 +24,7 @@ from jj_review.bootstrap import bootstrap_context
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError, ErrorMessage
 from jj_review.github.client import GithubClientError, build_github_client
+from jj_review.github.error_messages import github_unavailable_message
 from jj_review.github.pull_request_refs import parse_repository_pull_request_reference
 from jj_review.github.resolution import (
     ParsedGithubRepo,
@@ -146,13 +147,12 @@ def _print_import_result(result: ImportResult) -> None:
             console.warning(
                 t"Selected remote: unavailable ({result.remote_error})"
             )
-    if result.github_repository is None:
-        if result.github_error is None:
-            console.warning("GitHub target: unavailable")
-        else:
-            console.warning(
-                t"GitHub target: unavailable ({result.github_error})"
-            )
+    github_message = github_unavailable_message(
+        github_error=result.github_error,
+        github_repository=result.github_repository,
+    )
+    if github_message is not None:
+        console.warning(github_message)
     if result.actions:
         console.output("Updated local jj-review tracking:")
         for action in result.actions:

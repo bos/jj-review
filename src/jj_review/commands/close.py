@@ -26,7 +26,10 @@ from jj_review.config import RepoConfig
 from jj_review.errors import CliError, ErrorMessage, error_message
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
-from jj_review.github.error_messages import summarize_github_error_reason
+from jj_review.github.error_messages import (
+    github_unavailable_message,
+    summarize_github_error_reason,
+)
 from jj_review.github.resolution import parse_github_repo, select_submit_remote
 from jj_review.github.stack_comments import (
     StackCommentKind,
@@ -232,8 +235,12 @@ def close(
             console.warning("Selected remote: unavailable")
         else:
             console.warning(f"Selected remote: unavailable ({result.remote_error})")
-    if result.github_repository is None and result.github_error is not None:
-        console.warning(f"GitHub target: unavailable ({result.github_error})")
+    github_message = github_unavailable_message(
+        github_error=result.github_error,
+        github_repository=result.github_repository,
+    )
+    if github_message is not None:
+        console.warning(github_message)
     if result.actions:
         if result.blocked:
             header = "Close blocked:"

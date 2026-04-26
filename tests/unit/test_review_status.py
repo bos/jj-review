@@ -130,7 +130,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
     )
 
 
-def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> None:
+def test_stream_status_reports_github_target_without_error_for_empty_stack() -> None:
     remote = GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git")
     prepared_status = PreparedStatus(
         github_repository=ParsedGithubRepo(
@@ -164,9 +164,7 @@ def test_stream_status_reports_uninspected_github_target_for_empty_stack() -> No
         )
     )
 
-    assert github_status_calls == [
-        ("octo-org/stacked-review", "not inspected; no reviewable commits")
-    ]
+    assert github_status_calls == [("octo-org/stacked-review", None)]
     assert result.github_error is None
     assert result.github_repository == "octo-org/stacked-review"
     assert result.incomplete is False

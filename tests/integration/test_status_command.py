@@ -94,6 +94,22 @@ def test_status_skips_github_when_stack_has_no_local_review_tracking(
     assert "status should stay local-only" not in captured.err
 
 
+def test_status_omits_github_target_placeholder_for_empty_stack(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    exit_code = run_main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GitHub target:" not in captured.out
+    assert "The selected stack has no changes to review." in captured.out
+
+
 def test_status_renders_base_parent_for_stack_forked_from_trunk_ancestor(
     tmp_path: Path,
     monkeypatch,
@@ -183,7 +199,7 @@ def test_status_preserves_remote_observations_when_github_lookup_fails(
     normalized_err = " ".join(captured.err.split())
 
     assert exit_code == 1
-    assert "GitHub target: octo-org/stacked-review (error:" in normalized_err
+    assert "GitHub unavailable for octo-org/stacked-review:" in normalized_err
     assert "repo not found or inaccessible - check GITHUB_TOKEN or gh auth" in normalized_err
     assert "documentation_url" not in captured.out
     assert "saved PR #1 (open)" in captured.out

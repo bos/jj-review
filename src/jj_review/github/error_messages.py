@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from jj_review.github.client import GithubClientError, github_token_from_env
+from jj_review.ui import Message, code
 
 
 def summarize_github_error_reason(error: GithubClientError) -> str:
@@ -33,6 +34,20 @@ def summarize_github_repository_error(error: GithubClientError) -> str:
     """Render a concise repository-level GitHub availability failure."""
 
     return summarize_github_error_reason(error)
+
+
+def github_unavailable_message(
+    *,
+    github_error: Message | None,
+    github_repository: str | None,
+) -> Message | None:
+    """Render a concise warning when GitHub-backed work could not proceed."""
+
+    if github_error is None:
+        return None
+    if github_repository is None:
+        return ("GitHub unavailable: ", github_error)
+    return ("GitHub unavailable for ", code(github_repository), ": ", github_error)
 
 
 def github_error_detail(error: GithubClientError) -> str:

@@ -22,6 +22,7 @@ from jj_review.formatting import (
     render_revision_lines,
     render_revision_with_suffix_lines,
 )
+from jj_review.github.error_messages import github_unavailable_message
 from jj_review.jj import JjCliArgs, UnsupportedStackError
 from jj_review.models.intent import (
     AbortIntent,
@@ -101,7 +102,6 @@ def status(
     github_lines = render_status_github_lines(
         github_error=result.github_error,
         github_repository=result.github_repository,
-        has_revisions=bool(result.revisions),
     )
     if result.github_error is not None:
         _emit_lines(github_lines, emitter=console.warning, soft_wrap=False)
@@ -173,23 +173,16 @@ def render_status_github_lines(
     *,
     github_error: ErrorMessage | None,
     github_repository: str | None,
-    has_revisions: bool,
 ) -> tuple[object, ...]:
     """Render GitHub availability lines as status streaming begins."""
 
     lines: list[object] = []
-    if github_error is not None:
-        if github_repository is None:
-            lines.append(t"GitHub target error: {github_error}")
-        else:
-            lines.append(t"GitHub target: {github_repository} (error: {github_error})")
-    elif github_repository is not None and not has_revisions:
-        lines.append(
-            _prefixed_status_line(
-                "GitHub target",
-                f"{github_repository} (not inspected; no reviewable commits)",
-            )
-        )
+    github_message = github_unavailable_message(
+        github_error=github_error,
+        github_repository=github_repository,
+    )
+    if github_message is not None:
+        lines.append(github_message)
     return tuple(lines)
 
 

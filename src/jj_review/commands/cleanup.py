@@ -29,6 +29,7 @@ from jj_review.config import RepoConfig
 from jj_review.errors import CliError, ErrorMessage, error_message
 from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
+from jj_review.github.error_messages import github_unavailable_message
 from jj_review.github.resolution import (
     ParsedGithubRepo,
     parse_github_repo,
@@ -420,8 +421,12 @@ def _render_remote_and_github_lines(
                     ui.plain_text(("Selected remote: unavailable (", remote_error, ")")),
                 )
             )
-    if github_repository is None and github_error is not None:
-        lines.append(("warning", f"GitHub target: unavailable ({github_error})"))
+    github_message = github_unavailable_message(
+        github_error=github_error,
+        github_repository=github_repository,
+    )
+    if github_message is not None:
+        lines.append(("warning", plain_text(github_message)))
     return tuple(lines)
 
 

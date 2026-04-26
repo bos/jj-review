@@ -153,6 +153,13 @@ Recent refactor slices:
   explicit `error:` wording instead of the hanging-indent status helper, so
   lookup failures and non-GitHub remotes no longer split awkwardly across
   lines
+- empty-stack `status` output no longer prints a separate `GitHub target:
+  <repo> (not inspected; no reviewable commits)` line before the real empty
+  stack message, so the no-op case does not duplicate itself with a confusing
+  placeholder
+- command warnings now describe concrete GitHub failures as `GitHub
+  unavailable ...` and suppress bare `GitHub target: unavailable` banners,
+  so warning lines say what went wrong instead of repeating an internal label
 - CLI failures can now separate the diagnosis from the next-step guidance,
   rendering `Error:` on its own line and any actionable `Hint:` on the next
   line instead of tinting both as one long failure sentence
