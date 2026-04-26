@@ -12,6 +12,17 @@ compatibility code, migration code, or the like.
   path directly.
 - Hard-wrap code and markdown files at 98 columns unless a file uses a different convention.
 
+# Commit messages
+
+- Format the first line as a concise scoped subject, usually `scope: summary`.
+- Match the repo's existing subject style: use a lowercase scope such as `status`, `docs`, or
+  `cli`, followed by a short lowercase phrase, with no trailing period.
+- Use a body for any change whose purpose is not obvious from the subject and diff.
+- The body should explain the motivation for the change, the intended behavior or design outcome,
+  and any important scope or design constraints.
+- Do not use the body to narrate the code or to record routine validation such as `./check.py`.
+- Prefer explaining why the commit exists and what rule or user-visible behavior it is enforcing.
+
 # Documentation
 
 - User-facing docs live in `docs/`. See [docs/AGENTS.md](docs/AGENTS.md) for the vocabulary
