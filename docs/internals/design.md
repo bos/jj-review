@@ -205,6 +205,11 @@ If anything is saved locally, it is a small record per change:
 - PR number and URL
 - the navigation/overview comment IDs, if used
 - the last known PR state and review decision, used as a fallback when GitHub is offline
+- the last submitted `commit_id`
+- topology pointers `last_submitted_parent_change_id` (or null for trunk) and
+  `last_submitted_stack_head_change_id`. These are compared per change against the
+  current DAG to detect when a tracked chain has moved since the last successful
+  `submit` — never aggregated into a stack-level comparison
 - a durable "unlinked" marker for a change the user explicitly detached, because that is
   user intent the tool must not silently undo
 
@@ -294,6 +299,10 @@ Given a chosen head revision:
      PR. The current PR's title is bold and marked "this PR"; the other titles link.
    - when `helper --stack` returns non-empty content, the head PR also gets a single
      overview comment containing the helper-generated stack prose.
+   - if a PR on the selected stack previously held an overview comment but is no
+     longer the stack's head (because the head moved or the stack shrank), that
+     overview comment is deleted as part of regeneration. The single-change case
+     below is a specialization of the same rule.
    - for stack helpers, `submit` writes a temporary input file with the per-PR title/body
      pairs and a compact diffstat for each PR, and points the helper at it via
      `JJ_REVIEW_STACK_INPUT_FILE`. Helpers can summarize from PR-level metadata rather
@@ -399,6 +408,11 @@ configured well enough to resolve a remote or GitHub target. Default output stay
 concise — one effective summary per change rather than dumping saved-data and transport
 diagnostics inline.
 
+`status` may add a repo-level `needs submit` advisory for other tracked stacks when
+the saved topology pointers (`last_submitted_parent_change_id`,
+`last_submitted_stack_head_change_id`) disagree with the current DAG. Stale comments
+alone do not trigger the advisory.
+
 The stack revisions and the footer row beneath them both render through the user's
 native `jj log` formatting; status-specific suffixes (PR state, etc.) are appended to
 the first rendered line. The footer row shows the stack's `base_parent` (the immediate
@@ -447,6 +461,16 @@ PR range, and highlights unusual local states such as divergence, conflicts, or 
 PRs needing cleanup. If GitHub is unavailable or a saved PR link has gone stale, the
 row surfaces that and `list` exits non-zero rather than reporting a healthy tracked
 stack from incomplete data.
+
+Like `status`, `list` may mark a tracked stack as `needs submit` using the same
+topology-pointer rule.
+
+`list` also surfaces orphaned PRs — saved tracking records whose change is no longer
+present in any current stack — as their own rows, separate from the live stacks. Each
+row names the PR and points at `close --cleanup --pull-request <pr>` as the explicit
+closure path. Without this surfacing, common workflows (squashing two reviewed
+changes by emptying one and abandoning it) would leave PRs open without the user
+noticing.
 
 These commands are not sources of truth either. They are user-driven ways to reattach
 GitHub state to a `jj`-derived stack after damage, cross-machine work, or manual edits
@@ -515,9 +539,15 @@ for one stack.
 `close` is stack-first. It looks at the local stack, finds the open PRs the tool is
 already tracking there, and either runs or previews the actions needed to end review.
 
-`--pull-request <pr>` is an alternate selector for the local stack — it must resolve to
-one linked local change. It is a convenience handle for picking the stack, not a
-GitHub-first mode that changes what `close` operates on.
+`--pull-request <pr>` is usually an alternate selector for the local stack — it must
+resolve to one linked local change. The one exception is `close --cleanup
+--pull-request <pr>` for an orphaned PR (one whose local change has been abandoned
+or otherwise dropped from every current stack): saved tracking is the only available
+identity, so `close` acts from the exact saved PR and branch fields and still fails
+closed if either is missing or ambiguous. "Ambiguous" includes the case where the
+saved branch is now claimed by another tracked change (e.g. via `use_bookmarks`) —
+branch deletion in that mode would silently take a branch out from under a live
+review.
 
 Without `--cleanup`, `close`:
 
@@ -614,17 +644,53 @@ This design behaves well under normal `jj` rewrite-heavy workflows:
 
 - **Rebase**: the commit ID changes, the `change_id` stays stable, and the bookmark
   follows the rewrite. Re-running `submit` updates the existing PR.
-- **Squash or amend**: same as rebase. No separate metadata repair step.
+- **Squash or amend**: same as rebase. If the workflow then abandons a now-empty
+  change (the usual way to collapse two reviewed changes into one), Abandon rules
+  apply to that change.
 - **Reorder or reparent**: the stack is rediscovered from the DAG; PR base branches
   are recalculated.
-- **Abandon**: `jj` removes bookmarks attached to abandoned commits. The tool can
-  close the PR, leave it open with a warning, or mark it stale.
+- **Insert**: a new mutable change appears on the chain. `submit` opens a PR for it
+  and any descendants' PR bases recalculate against the new parent.
+- **Abandon**: the change leaves every current local stack and descendants reattach
+  to its parent. Its PR becomes *orphaned* — surviving stacks never close, reuse, or
+  retarget it, and `cleanup` keeps the saved PR and branch identity until the PR is
+  closed, merged, or absent. Explicit closure goes through `close --cleanup
+  --pull-request <pr>`.
 - **Split**: new logical review changes get new change IDs and usually become new
-  PRs. The original change still exists with the same `change_id` but a smaller
-  diff, and is updated normally on next `submit`. This is a feature, not a bug.
+  PRs. The original keeps its `change_id` and PR and is updated normally on next
+  `submit`. This is a feature, not a bug.
+- **Duplicate**: the duplicate has a new `change_id` and is treated as a new
+  reviewable change on whatever stack it lands on; the original keeps its PR
+  untouched.
 - **Ancestor merged on GitHub**: merged ancestors stop acting as review bases.
   Descendants target the nearest still-open ancestor PR, or trunk if none remain.
   `cleanup --rebase` performs that local rewrite.
+
+### Cross-stack rewrites
+
+When a rewrite changes which stack a change belongs to, the established rules still
+hold: identity is by `change_id`, each command operates on one selected stack
+(defaulting to `@-`), and ambiguous linkage fails closed. Other affected stacks wait
+for their own explicit command.
+
+- **Move changes between stacks**: submitting the user's selected resulting stack
+  updates that chain's PRs from the current DAG. Moved changes keep their existing
+  PRs and recalculate their bases from the new parent chain.
+- **Split one stack into two or more**: submitting one resulting stack updates only
+  that chain's PRs. Every other resulting stack waits for its own command.
+- **Merge two or more stacks into one**: submitting the merged stack updates every
+  change on the chain bottom-up, reusing existing PRs by `change_id` and
+  recalculating bases. The merged chain ends up with one overview comment on its new
+  head and no internal trace of the old stack boundary.
+
+The same applies when one rewrite affects more than two stacks.
+
+Stacks the user has not yet resubmitted may still display old navigation or overview
+comments. That is expected — `submit` does not chase comments on stacks it isn't
+operating on, and `land` does not block on stale state outside the selected stack.
+`status` and `list` flag those stacks as `needs submit` via the topology-pointer
+rule. Orphaned PRs left behind by a cross-stack rewrite need an explicit `close
+--cleanup --pull-request <pr>`.
 
 Records left behind by an interrupted command (`submit`, `close`, `cleanup --rebase`)
 are diagnostic state, not a replay script for the original selector. A later run of the
@@ -764,13 +830,14 @@ remember that `GIT_DIR` may need to point at `.jj/repo/store/git`.
 
 `jj review cleanup` has a concrete, conservative job:
 
-- prune saved entries for changes that no longer exist or no longer participate in any
-  review stack
-- remove stale stack-summary comments only when they no longer represent a live linked
-  review stack (e.g. the PR is unlinked, or its head no longer matches the expected
-  bookmark)
-- optionally delete remote PR branches only when they are clearly stale, e.g. after the
-  corresponding PR is closed or the change is abandoned
+- prune saved entries for changes that no longer exist or no longer participate in
+  any review stack, except keep the saved PR and branch identity for an open
+  orphaned PR until it is explicitly closed or unlinked
+- remove stale stack-summary comments only when they no longer represent a live
+  linked review stack (e.g. the PR is unlinked, or its head no longer matches the
+  expected bookmark)
+- optionally delete remote PR branches only once the corresponding PR is closed,
+  merged, or absent — not while it is still open but orphaned
 
 `cleanup` mutates by default; `cleanup --dry-run` shows the planned actions. Deleting
 open PRs or deleting branches in ambiguous cases still requires explicit user intent.
@@ -792,7 +859,8 @@ Its job is to restore one active local linear stack from three inputs:
 
 - the local commit-parent path
 - GitHub PR state for bookmarks
-- saved tracking, including the last-submitted local `commit_id` for each change
+- saved tracking, including the last-submitted local `commit_id` and submitted
+  topology hints for each change
 
 It does not treat every fetched remote branch tip as local ancestry that must be
 preserved. GitHub is authoritative about PR outcomes and remote branch tips, but the
@@ -1003,7 +1071,9 @@ Shape:
       "pr_url": "https://github.com/org/repo/pull/123",
       "navigation_comment_id": 456789,
       "overview_comment_id": 456790,
-      "last_submitted_commit_id": "0123456789abcdef"
+      "last_submitted_commit_id": "0123456789abcdef",
+      "last_submitted_parent_change_id": "zzzzzzzzzzzzzzzz",
+      "last_submitted_stack_head_change_id": "yyyyyyyyyyyyyyyy"
     }
   }
 }
