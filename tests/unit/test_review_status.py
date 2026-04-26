@@ -6,7 +6,7 @@ from typing import cast
 
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError, ErrorMessage
-from jj_review.github.client import GithubClientError
+from jj_review.github.client import GithubClient, GithubClientError
 from jj_review.github.error_messages import (
     summarize_github_lookup_error,
     summarize_github_repository_error,
@@ -15,13 +15,16 @@ from jj_review.github.resolution import (
     ParsedGithubRepo,
 )
 from jj_review.models.bookmarks import GitRemote
+from jj_review.models.github import GithubPullRequest
 from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision, LocalStack
+from jj_review.review import status as status_module
 from jj_review.review.status import (
     PreparedStack,
     PreparedStatus,
+    PullRequestLookup,
     ReviewStatusRevision,
-    _pinned_bookmarks_for_revisions,
+    pinned_bookmarks_for_revisions,
     stream_status_async,
 )
 
@@ -96,7 +99,7 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
         fake_iter_status_revisions_with_github,
     )
     monkeypatch.setattr(
-        "jj_review.review.status._build_status_revisions_without_github",
+        "jj_review.review.status.build_status_revisions_for_prepared_stack",
         lambda prepared: local_only_revisions,
     )
 
@@ -220,7 +223,7 @@ def test_stream_status_skips_github_discovery_for_untracked_stack(monkeypatch) -
         base_parent_subject="base",
     )
     monkeypatch.setattr(
-        "jj_review.review.status._build_status_revisions_without_github",
+        "jj_review.review.status.build_status_revisions_for_prepared_stack",
         lambda prepared: local_only_revisions,
     )
 
@@ -286,7 +289,7 @@ def test_pinned_bookmarks_for_revisions_uses_cached_bookmarks_and_dedupes() -> N
         }
     )
 
-    result = _pinned_bookmarks_for_revisions(
+    result = pinned_bookmarks_for_revisions(
         revisions=(first, second, third),
         state=state,
     )
@@ -398,6 +401,71 @@ def test_prepare_status_narrows_bookmark_listing_when_all_revisions_are_pinned(
     )
     _prepare_status_for_test(config=RepoConfig(), fetch_remote_state=False, jj_client=client)
     assert client.list_calls == [None]
+
+
+def test_attach_review_decisions_reports_progress_for_completed_lookup_batches() -> None:
+    progress_updates: list[int] = []
+    pull_request_lookups = {
+        "review/closed": PullRequestLookup(
+            message=None,
+            pull_request=GithubPullRequest(
+                base={"ref": "main"},
+                head={"ref": "review/closed"},
+                html_url="https://github.test/octo-org/stacked-review/pull/1",
+                number=1,
+                state="closed",
+                title="closed",
+            ),
+            repository_error=None,
+            state="closed",
+        ),
+        "review/open": PullRequestLookup(
+            message=None,
+            pull_request=GithubPullRequest(
+                base={"ref": "main"},
+                head={"ref": "review/open"},
+                html_url="https://github.test/octo-org/stacked-review/pull/2",
+                number=2,
+                state="open",
+                title="open",
+            ),
+            repository_error=None,
+            review_decision=None,
+            review_decision_error=None,
+            state="open",
+        ),
+        "review/missing": PullRequestLookup(
+            message=None,
+            pull_request=None,
+            repository_error=None,
+            state="missing",
+        ),
+    }
+
+    class FakeGithubClient:
+        async def get_review_decisions_by_pull_request_numbers(
+            self,
+            owner,
+            repo,
+            *,
+            pull_numbers,
+        ):
+            assert owner == "octo-org"
+            assert repo == "stacked-review"
+            assert pull_numbers == (2,)
+            return {2: "approved"}
+
+    result = asyncio.run(
+        status_module._attach_review_decisions_to_pull_request_lookups(
+            github_client=cast(GithubClient, FakeGithubClient()),
+            github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
+            on_progress=progress_updates.append,
+            pull_request_lookups=pull_request_lookups,
+        )
+    )
+
+    assert progress_updates == [2, 1]
+    assert result["review/open"].review_decision == "approved"
 
 
 def _prepare_status_for_test(

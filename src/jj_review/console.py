@@ -790,6 +790,9 @@ def _render_data_table(table_data: ui.DataTable) -> Table:
         box=box,
         expand=table_data.expand,
         header_style=table_data.header_style,
+        pad_edge=table_data.pad_edge,
+        padding=table_data.padding,
+        show_edge=table_data.show_edge,
         show_header=table_data.show_header,
     )
     for column in table_data.columns:

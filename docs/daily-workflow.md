@@ -32,6 +32,15 @@ This defaults to `jj-review status`.
 
 This is the safest first command whenever you are unsure what might be submitted.
 
+If you want a repo-wide inventory of the stacks `jj-review` already knows
+about, run:
+
+```bash
+jj-review list
+```
+
+`list` also accepts the short alias `ls`.
+
 You may also notice review bookmarks in `jj`. By default they look like
 `review/...`, but a repo can configure a different prefix. Those are the local
 review branches `jj-review` uses for GitHub PR heads.

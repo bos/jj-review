@@ -120,6 +120,14 @@ jj-review
 This defaults to `jj-review status`.
 `status` also accepts the short alias `st`.
 
+Inspect every locally tracked stack in the repo:
+
+```bash
+jj-review list
+```
+
+`list` also accepts the short alias `ls`.
+
 Submit that stack to GitHub:
 
 ```bash
@@ -156,6 +164,10 @@ Your typical author loop will be dead simple:
 
 The key point is that you get to keep thinking in terms of local logical changes. `jj-review`
 manages those changes on GitHub, does some housekeeping for you locally, and that's it.
+
+When you are juggling more than one local review stack in the same repo, run
+`jj-review list` to see the locally tracked stacks at a glance before drilling
+into one of them with `jj-review status`.
 
 One piece of that housekeeping is the review bookmark set. Those bookmarks are the review
 branches pushed to GitHub for each change. You may see them in `jj log` or `jj bookmark list`,

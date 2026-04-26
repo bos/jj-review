@@ -92,6 +92,15 @@ can be tested without network or subprocess side effects.
 
 Recent refactor slices:
 
+- `list` now gives a repo-scoped inventory of review stacks,
+  with `ls` as a shorthand alias; it derives stacks from saved local tracking
+  plus visible local descendants, renders head change IDs through native `jj`
+  shortest-ID formatting in one bulk query, batches GitHub PR and review
+  decision lookups once per repo inventory run, shows the shared interactive
+  GitHub progress bar while those batched lookups run, keeps sparse saved
+  tracking from splitting one visible stack into duplicate rows, exits
+  non-zero for incomplete GitHub inspection, and highlights divergent,
+  conflicted, cleanup-needed, and stale-link stacks in the summary table
 - unknown-command CLI parse failures now route through the shared colored
   `CliError` path with a short `jj-review help` hint, and `unknown -h` no
   longer rewrites to generic top-level help

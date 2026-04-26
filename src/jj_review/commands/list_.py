@@ -1,0 +1,752 @@
+"""List review stacks in this repository.
+
+Shows one row per review stack in this repo, including the head change ID,
+stack size, review state, and head subject.
+
+`--fetch` runs one fetch first so the report uses current remote branch
+locations before it inspects GitHub pull request state for tracked stacks.
+"""
+
+from __future__ import annotations
+
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+from jj_review import console, ui
+from jj_review.bootstrap import bootstrap_context
+from jj_review.console import requested_color_mode
+from jj_review.errors import CliError, ErrorMessage, error_message
+from jj_review.github.resolution import ParsedGithubRepo, parse_github_repo, select_submit_remote
+from jj_review.jj import JjCliArgs, JjClient
+from jj_review.models.bookmarks import BookmarkState, GitRemote
+from jj_review.models.review_state import ReviewState
+from jj_review.models.stack import LocalRevision, LocalStack
+from jj_review.review.status import (
+    PreparedRevision,
+    PreparedStack,
+    PullRequestLookup,
+    ReviewStatusRevision,
+    build_status_revisions_for_prepared_stack,
+    lookup_pull_request_lookups,
+    pinned_bookmarks_for_revisions,
+    prepare_stack_for_status,
+    refresh_remote_state_for_status,
+    revision_has_merged_pull_request,
+)
+from jj_review.state.store import ReviewStateStore
+
+HELP = "List review stacks in this repo"
+
+
+@dataclass(frozen=True, slots=True)
+class StackRow:
+    current: bool
+    head_change_id: str
+    incomplete: bool
+    review: str
+    size: int
+    state: ui.Message
+    subject: str
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedDiscoveredStack:
+    current: bool
+    prepared: PreparedStack
+
+
+@dataclass(frozen=True, slots=True)
+class _RepoInspectionContext:
+    bookmark_states: dict[str, BookmarkState]
+    github_error: ErrorMessage | None
+    github_repository: ParsedGithubRepo | None
+    remote: GitRemote | None
+    remote_error: ErrorMessage | None
+
+
+@dataclass(frozen=True, slots=True)
+class _DiscoveredStacks:
+    current_commit_id: str | None
+    stacks: tuple[LocalStack, ...]
+
+
+def list_(
+    *,
+    cli_args: JjCliArgs,
+    debug: bool,
+    fetch: bool,
+    repository: Path | None,
+) -> int:
+    """CLI entrypoint for `list`."""
+
+    context = bootstrap_context(
+        repository=repository,
+        cli_args=cli_args,
+        debug=debug,
+    )
+    if fetch:
+        refresh_remote_state_for_status(jj_client=context.jj_client)
+
+    state_store = ReviewStateStore.for_repo(context.repo_root)
+    state = state_store.load()
+    discovered = _discover_stacks(jj_client=context.jj_client, state=state)
+    if not discovered.stacks:
+        console.output("No review stacks.")
+        return 0
+
+    ordered = _order_discovered_stacks(
+        discovered.stacks,
+        current_commit_id=discovered.current_commit_id,
+        jj_client=context.jj_client,
+    )
+    repo_inspection = _prepare_repo_inspection_context(
+        config=context.config,
+        discovered=ordered,
+        jj_client=context.jj_client,
+        state=state,
+    )
+    prepared_discovered = tuple(
+        _PreparedDiscoveredStack(
+            current=_stack_contains_commit_id(
+                stack,
+                commit_id=discovered.current_commit_id,
+            ),
+            prepared=prepare_stack_for_status(
+                bookmark_states=repo_inspection.bookmark_states,
+                config=context.config,
+                jj_client=context.jj_client,
+                persist_bookmarks=False,
+                remote=repo_inspection.remote,
+                remote_error=repo_inspection.remote_error,
+                stack=stack,
+                state=state,
+                state_store=state_store,
+            ),
+        )
+        for stack in ordered
+    )
+    _ensure_unique_repo_bookmarks(prepared_discovered)
+    pull_request_lookups, github_error = _load_pull_request_lookups(
+        github_repository=repo_inspection.github_repository,
+        prepared_discovered=prepared_discovered,
+    )
+    rows = tuple(
+        _build_row(
+            github_error=repo_inspection.github_error or github_error,
+            is_current=item.current,
+            prepared_stack=item.prepared,
+            pull_request_lookups=pull_request_lookups,
+        )
+        for item in prepared_discovered
+    )
+    color_when = context.jj_client.resolve_color_when(
+        cli_color=requested_color_mode(),
+        stdout_is_tty=sys.stdout.isatty(),
+    )
+    rendered_change_ids = context.jj_client.render_short_change_ids(
+        tuple(row.head_change_id for row in rows),
+        color_when=color_when,
+    )
+    console.output(_stack_table(rows=rows, rendered_change_ids=rendered_change_ids))
+    return 1 if any(row.incomplete for row in rows) else 0
+
+
+def _prepare_repo_inspection_context(
+    *,
+    config,
+    discovered: tuple[LocalStack, ...],
+    jj_client: JjClient,
+    state: ReviewState,
+) -> _RepoInspectionContext:
+    remotes = jj_client.list_git_remotes()
+    remote: GitRemote | None = None
+    remote_error: ErrorMessage | None = None
+    if remotes:
+        try:
+            remote = select_submit_remote(remotes)
+        except CliError as error:
+            remote_error = error_message(error)
+
+    all_revisions = tuple(revision for stack in discovered for revision in stack.revisions)
+    bookmark_states: dict[str, BookmarkState] = {}
+    if remote is not None or config.use_bookmarks:
+        pinned_bookmarks = _tracked_pinned_bookmarks_for_repo_inspection(
+            revisions=all_revisions,
+            state=state,
+        )
+        bookmark_states = jj_client.list_bookmark_states(pinned_bookmarks)
+
+    github_repository = parse_github_repo(remote) if remote is not None else None
+    github_error: ErrorMessage | None = None
+    if remote is not None and github_repository is None:
+        github_error = f"Could not determine the GitHub repository for remote {remote.name}."
+
+    return _RepoInspectionContext(
+        bookmark_states=bookmark_states,
+        github_error=github_error,
+        github_repository=github_repository,
+        remote=remote,
+        remote_error=remote_error,
+    )
+
+
+def _discover_stacks(
+    *,
+    jj_client: JjClient,
+    state: ReviewState,
+) -> _DiscoveredStacks:
+    tracked_change_ids = tuple(
+        change_id
+        for change_id, cached_change in state.changes.items()
+        if cached_change.has_review_identity or cached_change.is_unlinked
+    )
+    revisions_by_change_id = jj_client.query_revisions_by_change_ids(tracked_change_ids)
+    tracked_revisions = tuple(
+        revision
+        for change_id in tracked_change_ids
+        for revision in revisions_by_change_id.get(change_id, ())
+        if revision.is_reviewable(
+            allow_divergent=True,
+            allow_immutable=True,
+        )
+    )
+    if not tracked_revisions:
+        return _DiscoveredStacks(current_commit_id=None, stacks=())
+
+    descendants = jj_client.query_descendant_revisions(
+        tuple(revision.commit_id for revision in tracked_revisions)
+    )
+    current_commit_id = _current_review_commit_id(descendants)
+    all_revisions_by_commit_id = {
+        revision.commit_id: revision
+        for revision in descendants
+        if not revision.current_working_copy
+        and revision.is_reviewable(
+            allow_divergent=True,
+            allow_immutable=True,
+        )
+    }
+    for revision in tracked_revisions:
+        all_revisions_by_commit_id[revision.commit_id] = revision
+
+    all_revisions = tuple(all_revisions_by_commit_id.values())
+    all_commit_ids = {revision.commit_id for revision in all_revisions}
+    reviewable_parent_commit_ids = {
+        revision.only_parent_commit_id() for revision in all_revisions
+    }
+    stack_roots = tuple(
+        revision
+        for revision in all_revisions
+        if revision.only_parent_commit_id() not in all_commit_ids
+    )
+    if not stack_roots:
+        return _DiscoveredStacks(current_commit_id=current_commit_id, stacks=())
+
+    reviewable_children = _children_by_parent(tuple(all_revisions_by_commit_id.values()))
+    base_parent_commit_ids = tuple(
+        dict.fromkeys(
+            root.only_parent_commit_id()
+            for root in stack_roots
+            if root.only_parent_commit_id() not in all_revisions_by_commit_id
+        )
+    )
+    base_parents = {
+        revision.commit_id: revision
+        for revision in jj_client.query_revisions_by_commit_ids(base_parent_commit_ids)
+    }
+
+    discovered: list[LocalStack] = []
+    seen_keys: set[tuple[str, ...]] = set()
+    for root in stack_roots:
+        for head in _walk_heads(root, children_by_parent=reviewable_children):
+            if head.commit_id in reviewable_parent_commit_ids:
+                continue
+            stack_revisions = _stack_revisions_from_root_to_head(
+                root=root,
+                head=head,
+                revisions_by_commit_id=all_revisions_by_commit_id,
+            )
+            key = tuple(revision.change_id for revision in stack_revisions)
+            if not key or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            base_parent = base_parents.get(root.only_parent_commit_id(), root)
+            discovered.append(
+                LocalStack(
+                    base_parent=base_parent,
+                    head=head,
+                    revisions=stack_revisions,
+                    selected_revset=head.commit_id,
+                    trunk=base_parent,
+                )
+            )
+    return _DiscoveredStacks(
+        current_commit_id=current_commit_id,
+        stacks=tuple(discovered),
+    )
+
+
+def _children_by_parent(
+    revisions: tuple[LocalRevision, ...],
+) -> dict[str, tuple[LocalRevision, ...]]:
+    grouped: dict[str, list[LocalRevision]] = {}
+    for revision in revisions:
+        for parent_commit_id in revision.parents:
+            grouped.setdefault(parent_commit_id, []).append(revision)
+    return {parent_commit_id: tuple(children) for parent_commit_id, children in grouped.items()}
+
+
+def _walk_heads(
+    revision: LocalRevision,
+    *,
+    children_by_parent: dict[str, tuple[LocalRevision, ...]],
+) -> tuple[LocalRevision, ...]:
+    heads: list[LocalRevision] = []
+    pending: list[LocalRevision] = [revision]
+    while pending:
+        current = pending.pop()
+        children = children_by_parent.get(current.commit_id, ())
+        if not children:
+            heads.append(current)
+            continue
+        pending.extend(reversed(children))
+    return tuple(heads)
+
+
+def _current_review_commit_id(revisions: tuple[LocalRevision, ...]) -> str | None:
+    for revision in revisions:
+        if not revision.current_working_copy:
+            continue
+        return revision.parents[0] if revision.parents else None
+    return None
+
+
+def _order_discovered_stacks(
+    discovered: tuple[LocalStack, ...],
+    *,
+    current_commit_id: str | None,
+    jj_client: JjClient,
+) -> tuple[LocalStack, ...]:
+    head_commit_ids = tuple(stack.head.commit_id for stack in discovered)
+    if not head_commit_ids:
+        return ()
+    ordered_heads = jj_client.query_revisions_by_commit_ids(head_commit_ids)
+    order_index = {revision.commit_id: index for index, revision in enumerate(ordered_heads)}
+    return tuple(
+        sorted(
+            discovered,
+            key=lambda stack: (
+                0 if _stack_contains_commit_id(stack, commit_id=current_commit_id) else 1,
+                order_index.get(stack.head.commit_id, len(order_index)),
+                stack.head.change_id,
+            ),
+        )
+    )
+
+
+def _stack_contains_commit_id(
+    stack: LocalStack,
+    *,
+    commit_id: str | None,
+) -> bool:
+    if commit_id is None:
+        return False
+    return any(revision.commit_id == commit_id for revision in stack.revisions)
+
+
+def _stack_revisions_from_root_to_head(
+    *,
+    root: LocalRevision,
+    head: LocalRevision,
+    revisions_by_commit_id: dict[str, LocalRevision],
+) -> tuple[LocalRevision, ...]:
+    revisions_head_first: list[LocalRevision] = []
+    current = head
+    while True:
+        revisions_head_first.append(current)
+        if current.commit_id == root.commit_id:
+            break
+        parent_commit_id = current.only_parent_commit_id()
+        parent = revisions_by_commit_id.get(parent_commit_id)
+        if parent is None:
+            raise CliError(
+                t"Could not safely inspect review stacks: missing ancestor "
+                t"{ui.commit_id(parent_commit_id)} for {ui.change_id(head.change_id)}."
+            )
+        current = parent
+    return tuple(reversed(revisions_head_first))
+
+
+def _build_row(
+    *,
+    github_error: ErrorMessage | None,
+    is_current: bool,
+    prepared_stack: PreparedStack,
+    pull_request_lookups: dict[str, PullRequestLookup],
+) -> StackRow:
+    stack = prepared_stack.stack
+    revisions = build_status_revisions_for_prepared_stack(
+        prepared_stack,
+        pull_request_lookups=pull_request_lookups,
+    )
+    review = _pull_request_range_from_revisions(revisions)
+    local_fragments: list[ui.Message] = []
+    if any(revision.divergent for revision in stack.revisions):
+        local_fragments.append(ui.semantic_text("divergent", "error", "heading"))
+    if any(revision.conflict for revision in stack.revisions):
+        local_fragments.append(ui.semantic_text("conflicted", "error", "heading"))
+    state = _state_from_status(
+        github_error=github_error,
+        local_fragments=tuple(local_fragments),
+        remote_error=prepared_stack.remote_error,
+        revisions=revisions,
+    )
+    return StackRow(
+        current=is_current,
+        head_change_id=stack.head.change_id,
+        incomplete=_status_is_incomplete(
+            github_error=github_error,
+            remote_error=prepared_stack.remote_error,
+            revisions=revisions,
+        ),
+        review=review,
+        size=len(stack.revisions),
+        state=state,
+        subject=stack.head.subject,
+    )
+
+
+def _state_from_status(
+    *,
+    github_error: ErrorMessage | None,
+    local_fragments: tuple[ui.Message, ...],
+    remote_error: ErrorMessage | None,
+    revisions: tuple[ReviewStatusRevision, ...],
+) -> ui.Message:
+    fragments = [
+        *local_fragments,
+        *_status_fragments(
+            github_error=github_error,
+            remote_error=remote_error,
+            revisions=revisions,
+        ),
+    ]
+    if fragments:
+        joined: list[ui.Message] = []
+        for index, fragment in enumerate(fragments):
+            if index:
+                joined.append(", ")
+            joined.append(fragment)
+        return tuple(joined)
+    if any(
+        revision.cached_change is not None and revision.cached_change.has_review_identity
+        for revision in revisions
+    ):
+        return "tracked"
+    return "not submitted"
+
+
+def _status_fragments(
+    *,
+    github_error: ErrorMessage | None,
+    remote_error: ErrorMessage | None,
+    revisions: tuple[ReviewStatusRevision, ...],
+) -> tuple[ui.Message, ...]:
+    fragments: list[ui.Message] = []
+    if github_error is not None or remote_error is not None:
+        fragments.append(ui.semantic_text("GitHub unavailable", "warning", "heading"))
+
+    merged_ancestors = sum(
+        1 for revision in revisions if revision_has_merged_pull_request(revision)
+    )
+    if merged_ancestors:
+        label = (
+            "cleanup needed"
+            if merged_ancestors == 1
+            else f"{merged_ancestors} merged, cleanup needed"
+        )
+        fragments.append(ui.semantic_text(label, "warning", "heading"))
+
+    unlinked = sum(1 for revision in revisions if revision.link_state == "unlinked")
+    if unlinked:
+        label = "unlinked" if unlinked == 1 else f"{unlinked} unlinked"
+        fragments.append(ui.semantic_text(label, "warning", "heading"))
+
+    closed = sum(
+        1
+        for revision in revisions
+        if revision.pull_request_lookup is not None
+        and revision.pull_request_lookup.state == "closed"
+        and revision.pull_request_lookup.pull_request is not None
+        and revision.pull_request_lookup.pull_request.state != "merged"
+    )
+    if closed:
+        label = "closed" if closed == 1 else f"{closed} closed"
+        fragments.append(ui.semantic_text(label, "warning", "heading"))
+
+    stale_links = sum(1 for revision in revisions if _has_stale_link(revision))
+    if stale_links:
+        label = "stale link" if stale_links == 1 else f"{stale_links} stale links"
+        fragments.append(ui.semantic_text(label, "warning", "heading"))
+
+    ambiguous = sum(
+        1
+        for revision in revisions
+        if revision.pull_request_lookup is not None
+        and revision.pull_request_lookup.state == "ambiguous"
+    )
+    if ambiguous:
+        label = "ambiguous PR" if ambiguous == 1 else f"{ambiguous} ambiguous PRs"
+        fragments.append(ui.semantic_text(label, "warning", "heading"))
+
+    lookup_failures = sum(1 for revision in revisions if _has_lookup_failure(revision))
+    if lookup_failures:
+        label = (
+            "GitHub lookup failed"
+            if lookup_failures == 1
+            else f"{lookup_failures} GitHub lookups failed"
+        )
+        fragments.append(ui.semantic_text(label, "warning", "heading"))
+
+    drafts = sum(1 for revision in revisions if _is_open_draft(revision))
+    if drafts:
+        label = "draft" if drafts == 1 else f"{drafts} drafts"
+        fragments.append(ui.semantic_text(label, "hint", "heading"))
+
+    open_non_draft_decisions = tuple(
+        lookup.review_decision
+        for revision in revisions
+        if (lookup := _open_non_draft_lookup(revision)) is not None
+    )
+    changes_requested = sum(
+        1 for decision in open_non_draft_decisions if decision == "changes_requested"
+    )
+    if changes_requested:
+        label = (
+            "changes requested"
+            if changes_requested == 1
+            else f"{changes_requested} changes requested"
+        )
+        fragments.append(ui.semantic_text(label, "warning", "heading"))
+
+    approved = sum(1 for decision in open_non_draft_decisions if decision == "approved")
+    open_neutral = sum(
+        1
+        for decision in open_non_draft_decisions
+        if decision not in {"approved", "changes_requested"}
+    )
+    total_open = approved + changes_requested + drafts + open_neutral
+    if approved:
+        label = "approved" if approved == total_open else f"{approved} approved"
+        fragments.append(ui.semantic_text(label, "hint", "heading"))
+    if open_neutral:
+        label = "open" if open_neutral == 1 else f"{open_neutral} open"
+        fragments.append(label)
+    return tuple(fragments)
+
+
+def _status_is_incomplete(
+    *,
+    github_error: ErrorMessage | None,
+    remote_error: ErrorMessage | None,
+    revisions: tuple[ReviewStatusRevision, ...],
+) -> bool:
+    if github_error is not None or remote_error is not None:
+        return True
+    return any(
+        _has_stale_link(revision)
+        or _has_lookup_failure(revision)
+        or (
+            revision.pull_request_lookup is not None
+            and revision.pull_request_lookup.state == "ambiguous"
+        )
+        for revision in revisions
+    )
+
+
+def _has_stale_link(revision: ReviewStatusRevision) -> bool:
+    lookup = revision.pull_request_lookup
+    cached_change = revision.cached_change
+    return (
+        lookup is not None
+        and lookup.state == "missing"
+        and cached_change is not None
+        and cached_change.has_review_identity
+        and (cached_change.pr_number is not None or cached_change.pr_url is not None)
+    )
+
+
+def _has_lookup_failure(revision: ReviewStatusRevision) -> bool:
+    lookup = revision.pull_request_lookup
+    return lookup is not None and (
+        lookup.state == "error" or getattr(lookup, "review_decision_error", None) is not None
+    )
+
+
+def _is_open_draft(revision: ReviewStatusRevision) -> bool:
+    lookup = revision.pull_request_lookup
+    return (
+        lookup is not None
+        and lookup.state == "open"
+        and lookup.pull_request is not None
+        and lookup.pull_request.is_draft
+    )
+
+
+def _open_non_draft_lookup(revision: ReviewStatusRevision) -> PullRequestLookup | None:
+    lookup = revision.pull_request_lookup
+    if lookup is None or lookup.state != "open":
+        return None
+    if lookup.pull_request is not None and lookup.pull_request.is_draft:
+        return None
+    return lookup
+
+
+def _pull_request_range_from_revisions(revisions: tuple[ReviewStatusRevision, ...]) -> str:
+    numbers: list[int] = []
+    for revision in revisions:
+        lookup = revision.pull_request_lookup
+        if lookup is not None and lookup.pull_request is not None:
+            numbers.append(lookup.pull_request.number)
+            continue
+        cached_change = revision.cached_change
+        if cached_change is not None and cached_change.pr_number is not None:
+            numbers.append(cached_change.pr_number)
+    return _format_pull_request_range(tuple(numbers))
+
+
+def _load_pull_request_lookups(
+    *,
+    github_repository: ParsedGithubRepo | None,
+    prepared_discovered: tuple[_PreparedDiscoveredStack, ...],
+) -> tuple[dict[str, PullRequestLookup], ErrorMessage | None]:
+    if github_repository is None:
+        return {}, None
+
+    prepared_revisions_by_bookmark = _tracked_prepared_revisions_by_bookmark(
+        prepared_discovered=prepared_discovered
+    )
+    if not prepared_revisions_by_bookmark:
+        return {}, None
+
+    try:
+        with console.progress(
+            description="Inspecting GitHub",
+            total=len(prepared_revisions_by_bookmark),
+        ) as progress:
+            return (
+                lookup_pull_request_lookups(
+                    github_repository=github_repository,
+                    on_progress=progress.advance,
+                    prepared_revisions=tuple(prepared_revisions_by_bookmark.values()),
+                ),
+                None,
+            )
+    except CliError as error:
+        return {}, error_message(error)
+
+
+def _tracked_prepared_revisions_by_bookmark(
+    *,
+    prepared_discovered: tuple[_PreparedDiscoveredStack, ...],
+) -> dict[str, PreparedRevision]:
+    prepared_revisions_by_bookmark: dict[str, PreparedRevision] = {}
+    for item in prepared_discovered:
+        for prepared_revision in item.prepared.status_revisions:
+            cached_change = prepared_revision.cached_change
+            if cached_change is None or not cached_change.has_review_identity:
+                continue
+            prepared_revisions_by_bookmark[prepared_revision.bookmark] = prepared_revision
+    return prepared_revisions_by_bookmark
+
+
+def _format_pull_request_range(numbers: tuple[int, ...]) -> str:
+    unique = tuple(sorted(dict.fromkeys(numbers)))
+    if not unique:
+        return ""
+    if len(unique) == 1:
+        return f"PR {unique[0]}"
+    if unique == tuple(range(unique[0], unique[-1] + 1)):
+        return f"PRs {unique[0]}-{unique[-1]}"
+    return "PRs " + ", ".join(f"{number}" for number in unique)
+
+
+def _tracked_pinned_bookmarks_for_repo_inspection(
+    *,
+    revisions: tuple[LocalRevision, ...],
+    state: ReviewState,
+) -> tuple[str, ...] | None:
+    tracked_revisions = tuple(
+        revision
+        for revision in revisions
+        if (cached := state.changes.get(revision.change_id)) is not None
+        and (cached.has_review_identity or cached.is_unlinked)
+    )
+    return pinned_bookmarks_for_revisions(
+        revisions=tracked_revisions,
+        state=state,
+    )
+
+
+def _ensure_unique_repo_bookmarks(
+    prepared_discovered: tuple[_PreparedDiscoveredStack, ...],
+) -> None:
+    bookmarks_to_changes: dict[str, list[str]] = {}
+    for item in prepared_discovered:
+        for prepared_revision in item.prepared.status_revisions:
+            bookmarks_to_changes.setdefault(
+                prepared_revision.bookmark,
+                [],
+            ).append(prepared_revision.revision.change_id)
+
+    duplicates = {
+        bookmark: sorted(set(change_ids))
+        for bookmark, change_ids in bookmarks_to_changes.items()
+        if len(set(change_ids)) > 1
+    }
+    if not duplicates:
+        return
+
+    collisions = ui.join(
+        lambda item: t"{ui.bookmark(item[0])} for changes {ui.join(ui.change_id, item[1])}",
+        sorted(duplicates.items()),
+    )
+    raise CliError(
+        t"Could not safely inspect review stacks: multiple changes resolve to the same "
+        t"bookmark: {collisions}.",
+        hint="Repair the saved bookmark linkage before retrying.",
+    )
+
+
+def _stack_table(
+    *,
+    rows: tuple[StackRow, ...],
+    rendered_change_ids: dict[str, str],
+) -> ui.DataTable:
+    return ui.DataTable(
+        columns=(
+            ui.TableColumn("head", no_wrap=True),
+            ui.TableColumn("size", no_wrap=True),
+            ui.TableColumn("review", no_wrap=True),
+            ui.TableColumn("state"),
+            ui.TableColumn("description"),
+        ),
+        pad_edge=False,
+        padding=(0, 0),
+        show_edge=False,
+        rows=tuple(
+            (
+                (
+                    f"@ {rendered_change_ids.get(row.head_change_id, row.head_change_id[:8])}"
+                    if row.current
+                    else rendered_change_ids.get(row.head_change_id, row.head_change_id[:8])
+                ),
+                f"{row.size} {'change' if row.size == 1 else 'changes'}",
+                row.review,
+                row.state,
+                row.subject,
+            )
+            for row in rows
+        ),
+    )

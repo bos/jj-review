@@ -61,6 +61,9 @@ class DataTable:
     box: str = "simple"
     expand: bool = False
     header_style: str | None = "bold"
+    pad_edge: bool = True
+    padding: int | tuple[int, int] | tuple[int, int, int, int] = (0, 1)
+    show_edge: bool = True
     show_header: bool = True
 
 

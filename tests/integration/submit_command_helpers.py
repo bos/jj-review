@@ -33,6 +33,7 @@ def configure_submit_environment(
             "jj_review.commands.close",
             "jj_review.commands.cleanup",
             "jj_review.commands.land",
+            "jj_review.commands.list_",
             "jj_review.review.status",
         ),
         fake_repo=fake_repo,
@@ -107,7 +108,12 @@ def patch_github_client_builders(
 
     for module in modules:
         module_object = importlib.import_module(module)
-        monkeypatch.setattr(module_object, "build_github_client", build_github_client)
+        monkeypatch.setattr(
+            module_object,
+            "build_github_client",
+            build_github_client,
+            raising=False,
+        )
         monkeypatch.setattr(module_object, "parse_github_repo", parse_github_repo, raising=False)
         monkeypatch.setattr(
             module_object, "require_github_repo", parse_github_repo, raising=False

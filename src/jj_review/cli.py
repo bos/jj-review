@@ -38,7 +38,7 @@ _TOP_LEVEL_HELP_DESCRIPTION = """
 `jj-review` lets you review a series of `jj` changes on GitHub as stacked pull requests.
 
 Use it to submit and refresh changes for review, inspect pull request status, land ready
-changes, and clean up after a review.
+changes, list locally known stacks, and clean up after a review.
 """
 _TOP_LEVEL_HIDDEN_OPTION_STRINGS = frozenset(
     {"--repository", "--config", "--config-file", "--debug", "--time-output"}
@@ -83,6 +83,7 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
         (
             _HelpCommand("submit", commands.submit.HELP),
             _HelpCommand("status", commands.status.HELP),
+            _HelpCommand("list", commands.list_.HELP),
             _HelpCommand("land", commands.land.HELP),
             _HelpCommand("close", commands.close.HELP),
         ),
@@ -113,6 +114,7 @@ _TOP_LEVEL_HELP_GROUPS: tuple[tuple[str, tuple[_HelpCommand, ...]], ...] = (
     ),
 )
 _COMMAND_ALIASES: dict[str, tuple[str, ...]] = {
+    "list": ("ls",),
     "status": ("st",),
 }
 _KNOWN_COMMANDS = frozenset(
@@ -196,8 +198,7 @@ def build_parser() -> ArgumentParser:
             use_bookmarks=args.use_bookmarks,
         ),
         revset_help=(
-            t"Revision to submit; defaults to {ui.revset('@-')} "
-            t"(the current stack head)"
+            t"Revision to submit; defaults to {ui.revset('@-')} (the current stack head)"
         ),
     )
     _add_help_argument(
@@ -293,9 +294,7 @@ def build_parser() -> ArgumentParser:
             selectors=getattr(args, "status_selectors", None),
             verbose=args.verbose,
         ),
-        revset_help=(
-            "Revisions to inspect; defaults to the current stack"
-        ),
+        revset_help=("Revisions to inspect; defaults to the current stack"),
         revset_nargs="*",
     )
     _add_help_argument(
@@ -316,6 +315,28 @@ def build_parser() -> ArgumentParser:
         "--verbose",
         action="store_true",
         help="Expand submitted and unsubmitted summary sections; show bookmarks",
+    )
+    list_parser = subparsers.add_parser(
+        "list",
+        aliases=list(_COMMAND_ALIASES["list"]),
+        help=_normalized_help_text(commands.list_.HELP),
+        description=_normalized_help_text(commands.list_.__doc__ or ""),
+    )
+    _add_common_options(list_parser)
+    _normalize_help_action_text(list_parser)
+    list_parser.add_argument(
+        "-f",
+        "--fetch",
+        action="store_true",
+        help="Fetch first so list uses current remote branch locations",
+    )
+    list_parser.set_defaults(
+        handler=lambda args: commands.list_.list_(
+            cli_args=_global_cli_args(args),
+            debug=args.debug,
+            fetch=args.fetch,
+            repository=args.repository,
+        )
     )
     _add_relink_parser(
         subparsers,
@@ -1133,9 +1154,7 @@ def _add_relink_parser(
     _add_common_options(parser)
     _normalize_help_action_text(parser)
     _add_help_argument(parser, "pull_request", help="Pull request number or URL")
-    _add_help_argument(
-        parser, "revset", help="Revision to reassociate with the pull request"
-    )
+    _add_help_argument(parser, "revset", help="Revision to reassociate with the pull request")
     parser.set_defaults(handler=handler)
     return parser
 
@@ -1205,8 +1224,7 @@ def _add_common_options(
         dest=SUPPRESS,
         metavar="NAME=VALUE",
         help=(
-            "Additional jj config option as a TOML dotted-key assignment "
-            "(e.g. ui.color=always)"
+            "Additional jj config option as a TOML dotted-key assignment (e.g. ui.color=always)"
         ),
     )
     parser.add_argument(

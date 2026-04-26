@@ -499,6 +499,8 @@ Read-only inspection may remain ergonomic:
 - `status` may also accept more than one revset selector in one invocation
 - `status --pull-request <pr>` may use one linked local change as an alternate
   selector for that stack, and may be repeated alongside revset selectors
+- `list` may summarize the locally known stacks in one repo-scoped view without
+  requiring explicit selectors
 - `import` may omit its explicit selector flags and default to the current
   stack headed by `@-`
 
@@ -577,6 +579,18 @@ That guidance matters more than the raw internal distinction between "selected
 path", fetched branch-tip artifacts, and off-path immutable copies. The tool
 still needs those concepts internally, but the user should see an actionable
 explanation rather than having to infer the repair flow from one terse label.
+
+`jj review list [--fetch]` should give one repo-scoped summary row per locally
+known stack. It is also local-first: discover stacks from locally saved
+jj-review tracking plus any visible local descendants above those tracked
+changes, do not create tracking for remote-only state, and do not speculate
+about GitHub-only stacks that have not been attached locally. The summary row
+should identify the stack by the head `change_id`, show the stack size, carry
+any known PR range, and highlight unusual local states such as divergence,
+conflicts, or cleanup-needed merged PRs.
+If live GitHub inspection is unavailable or a saved PR link has gone stale,
+list should surface that in the summary row and exit non-zero rather than
+quietly reporting a healthy tracked stack from incomplete data.
 
 These commands are not sources of truth either. They are operator-driven ways
 to reattach GitHub state to a `jj`-derived stack after damage, cross-machine
@@ -839,6 +853,8 @@ The tool can stay small. A reasonable surface would be:
   [<revset>]`
 - `jj review status [--fetch] [{--pull-request <pr>} | {<revset>}] ...`
 - `jj review st [--fetch] [--pull-request <pr> | <revset>]`
+- `jj review list [--fetch]`
+- `jj review ls [--fetch]`
 - `jj review relink <pr> <revset>`
 - `jj review unlink <revset>`
 - `jj review close [--cleanup] [--dry-run] [--pull-request <pr> | <revset>]`

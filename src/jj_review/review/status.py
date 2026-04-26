@@ -292,7 +292,7 @@ async def stream_status_async(
     github_repository_error = prepared_status.github_repository_error
 
     if prepared.remote is None:
-        display_revisions = tuple(reversed(_build_status_revisions_without_github(prepared)))
+        display_revisions = tuple(reversed(build_status_revisions_for_prepared_stack(prepared)))
         if on_github_status is not None:
             on_github_status(None, None)
         for revision in display_revisions:
@@ -311,7 +311,7 @@ async def stream_status_async(
 
     if github_repository is None:
         logger.debug("status github target unavailable: %s", github_repository_error)
-        display_revisions = tuple(reversed(_build_status_revisions_without_github(prepared)))
+        display_revisions = tuple(reversed(build_status_revisions_for_prepared_stack(prepared)))
         if on_github_status is not None:
             on_github_status(None, github_repository_error)
         for revision in display_revisions:
@@ -352,7 +352,7 @@ async def stream_status_async(
             base_parent_subject=base_parent_subject,
         )
 
-    fallback_revisions = tuple(reversed(_build_status_revisions_without_github(prepared)))
+    fallback_revisions = tuple(reversed(build_status_revisions_for_prepared_stack(prepared)))
     prepared_revisions_for_github = tuple(
         prepared_revision
         for prepared_revision in prepared.status_revisions
@@ -488,10 +488,37 @@ def _prepare_stack(
             allow_immutable=True,
         )
 
-    pinned_bookmarks = _pinned_bookmarks_for_revisions(revisions=stack.revisions, state=state)
-    bookmark_states: dict[str, BookmarkState] = {}
-    if remote is not None or config.use_bookmarks:
-        bookmark_states = client.list_bookmark_states(pinned_bookmarks)
+    return prepare_stack_for_status(
+        config=config,
+        jj_client=client,
+        persist_bookmarks=persist_bookmarks,
+        remote=remote,
+        remote_error=remote_error,
+        stack=stack,
+        state=state,
+        state_store=state_store,
+    )
+
+
+def prepare_stack_for_status(
+    *,
+    config: RepoConfig,
+    jj_client: JjClient,
+    persist_bookmarks: bool,
+    remote: GitRemote | None,
+    remote_error: ErrorMessage | None,
+    stack: LocalStack,
+    state: ReviewState,
+    state_store: ReviewStateStore,
+    bookmark_states: dict[str, BookmarkState] | None = None,
+) -> PreparedStack:
+    """Build prepared status inputs for one already-resolved local stack."""
+
+    pinned_bookmarks = pinned_bookmarks_for_revisions(revisions=stack.revisions, state=state)
+    if bookmark_states is None:
+        bookmark_states = {}
+        if remote is not None or config.use_bookmarks:
+            bookmark_states = jj_client.list_bookmark_states(pinned_bookmarks)
 
     matched_bookmarks = match_bookmarks_for_revisions(
         bookmark_states=bookmark_states,
@@ -537,7 +564,7 @@ def _prepare_stack(
     return PreparedStack(
         bookmark_states=bookmark_states,
         bookmark_result_changed=persist_bookmarks and bookmark_result.changed,
-        client=client,
+        client=jj_client,
         remote=remote,
         remote_error=remote_error,
         stack=stack,
@@ -548,7 +575,7 @@ def _prepare_stack(
     )
 
 
-def _pinned_bookmarks_for_revisions(
+def pinned_bookmarks_for_revisions(
     *,
     revisions: tuple[LocalRevision, ...],
     state: ReviewState,
@@ -570,8 +597,10 @@ def _pinned_bookmarks_for_revisions(
     return tuple(dict.fromkeys(pinned))
 
 
-def _build_status_revisions_without_github(
+def build_status_revisions_for_prepared_stack(
     prepared: PreparedStack,
+    *,
+    pull_request_lookups: dict[str, PullRequestLookup] | None = None,
 ) -> tuple[ReviewStatusRevision, ...]:
     return tuple(
         ReviewStatusRevision(
@@ -586,7 +615,11 @@ def _build_status_revisions_without_github(
                 else "active"
             ),
             local_divergent=getattr(revision.revision, "divergent", False),
-            pull_request_lookup=None,
+            pull_request_lookup=(
+                pull_request_lookups.get(revision.bookmark)
+                if pull_request_lookups is not None
+                else None
+            ),
             remote_state=(
                 prepared.bookmark_states.get(
                     revision.bookmark,
@@ -796,15 +829,11 @@ async def _iter_status_revisions_with_github(
 ) -> AsyncIterator[ReviewStatusRevision]:
     ordered_prepared_revisions = tuple(reversed(prepared_revisions))
     async with build_github_client(base_url=github_repository.api_base_url) as github_client:
-        pull_request_lookups = await _discover_pull_request_lookups(
+        pull_request_lookups = await _resolve_pull_request_lookups(
             github_client=github_client,
             github_repository=github_repository,
+            on_progress=None,
             prepared_revisions=ordered_prepared_revisions,
-        )
-        pull_request_lookups = await _attach_review_decisions_to_pull_request_lookups(
-            github_client=github_client,
-            github_repository=github_repository,
-            pull_request_lookups=pull_request_lookups,
         )
         if on_github_status is not None:
             on_github_status(None)
@@ -832,6 +861,40 @@ async def _iter_status_revisions_with_github(
                 if not task.done():
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def lookup_pull_request_lookups(
+    *,
+    github_repository: ParsedGithubRepo,
+    on_progress: Callable[[int], None] | None = None,
+    prepared_revisions: tuple[PreparedRevision, ...],
+) -> dict[str, PullRequestLookup]:
+    """Return batched pull-request lookups keyed by bookmark."""
+
+    return asyncio.run(
+        lookup_pull_request_lookups_async(
+            github_repository=github_repository,
+            on_progress=on_progress,
+            prepared_revisions=prepared_revisions,
+        )
+    )
+
+
+async def lookup_pull_request_lookups_async(
+    *,
+    github_repository: ParsedGithubRepo,
+    on_progress: Callable[[int], None] | None = None,
+    prepared_revisions: tuple[PreparedRevision, ...],
+) -> dict[str, PullRequestLookup]:
+    """Return batched pull-request lookups keyed by bookmark."""
+
+    async with build_github_client(base_url=github_repository.api_base_url) as github_client:
+        return await _resolve_pull_request_lookups(
+            github_client=github_client,
+            github_repository=github_repository,
+            on_progress=on_progress,
+            prepared_revisions=prepared_revisions,
+        )
 
 
 async def _inspect_revision_with_github(
@@ -888,6 +951,26 @@ async def _inspect_revision_with_github(
         )
 
 
+async def _resolve_pull_request_lookups(
+    *,
+    github_client: GithubClient,
+    github_repository,
+    on_progress: Callable[[int], None] | None,
+    prepared_revisions: tuple[PreparedRevision, ...],
+) -> dict[str, PullRequestLookup]:
+    pull_request_lookups = await _discover_pull_request_lookups(
+        github_client=github_client,
+        github_repository=github_repository,
+        prepared_revisions=prepared_revisions,
+    )
+    return await _attach_review_decisions_to_pull_request_lookups(
+        github_client=github_client,
+        github_repository=github_repository,
+        on_progress=on_progress,
+        pull_request_lookups=pull_request_lookups,
+    )
+
+
 async def _discover_pull_request_lookups(
     *,
     github_client: GithubClient,
@@ -934,6 +1017,7 @@ async def _attach_review_decisions_to_pull_request_lookups(
     *,
     github_client: GithubClient,
     github_repository,
+    on_progress: Callable[[int], None] | None,
     pull_request_lookups: dict[str, PullRequestLookup],
 ) -> dict[str, PullRequestLookup]:
     open_pull_requests = {
@@ -941,6 +1025,10 @@ async def _attach_review_decisions_to_pull_request_lookups(
         for bookmark, lookup in pull_request_lookups.items()
         if lookup.state == "open" and lookup.pull_request is not None
     }
+    if on_progress is not None:
+        completed = len(pull_request_lookups) - len(open_pull_requests)
+        if completed:
+            on_progress(completed)
     if not open_pull_requests:
         return pull_request_lookups
 
@@ -961,6 +1049,9 @@ async def _attach_review_decisions_to_pull_request_lookups(
             )
             for bookmark, lookup in pull_request_lookups.items()
         }
+    finally:
+        if on_progress is not None:
+            on_progress(len(open_pull_requests))
 
     return {
         bookmark: (

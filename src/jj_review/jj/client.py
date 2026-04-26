@@ -322,6 +322,22 @@ class JjClient:
                 grouped.setdefault(revision.change_id, []).append(revision)
         return {change_id: tuple(grouped.get(change_id, ())) for change_id in ordered_change_ids}
 
+    def query_revisions_by_commit_ids(
+        self,
+        commit_ids: Sequence[str],
+    ) -> tuple[LocalRevision, ...]:
+        """Return visible revisions for the supplied commit IDs in evaluation order."""
+
+        ordered_commit_ids = tuple(dict.fromkeys(commit_ids))
+        if not ordered_commit_ids:
+            return ()
+
+        revisions_by_commit_id: dict[str, LocalRevision] = {}
+        for chunk in _chunked(ordered_commit_ids):
+            for revision in self._query_revisions(_union_revset_symbols(chunk)):
+                revisions_by_commit_id.setdefault(revision.commit_id, revision)
+        return tuple(revisions_by_commit_id.values())
+
     def query_ancestor_revisions(
         self,
         commit_ids: Sequence[str],
@@ -335,6 +351,23 @@ class JjClient:
         revisions_by_commit_id: dict[str, LocalRevision] = {}
         for chunk in _chunked(ordered_commit_ids):
             revisions = self._query_revisions(f"::{_union_revset_symbols(chunk)}")
+            for revision in revisions:
+                revisions_by_commit_id.setdefault(revision.commit_id, revision)
+        return tuple(revisions_by_commit_id.values())
+
+    def query_descendant_revisions(
+        self,
+        commit_ids: Sequence[str],
+    ) -> tuple[LocalRevision, ...]:
+        """Return descendants for the supplied commits, including the commits themselves."""
+
+        ordered_commit_ids = tuple(dict.fromkeys(commit_ids))
+        if not ordered_commit_ids:
+            return ()
+
+        revisions_by_commit_id: dict[str, LocalRevision] = {}
+        for chunk in _chunked(ordered_commit_ids):
+            revisions = self._query_revisions(f"{_union_revset_symbols(chunk)}::")
             for revision in revisions:
                 revisions_by_commit_id.setdefault(revision.commit_id, revision)
         return tuple(revisions_by_commit_id.values())
@@ -394,9 +427,7 @@ class JjClient:
         """Reject missing-trunk and implicit-root-fallback resolutions."""
 
         if trunk is None:
-            raise JjCommandError(
-                t"{ui.cmd('jj log')} did not resolve {ui.revset('trunk()')}."
-            )
+            raise JjCommandError(t"{ui.cmd('jj log')} did not resolve {ui.revset('trunk()')}.")
         if len(trunk.parents) == 0:
             raise UnsupportedStackError(
                 t"No trunk bookmark is configured for this repo.",
@@ -613,6 +644,49 @@ class JjClient:
                 )
             )
         return dict(rendered)
+
+    def render_short_change_ids(
+        self,
+        change_ids: Sequence[str],
+        *,
+        color_when: JjColorWhen,
+        min_len: int = 8,
+    ) -> dict[str, str]:
+        """Render shortest visible change IDs for the supplied logical change IDs."""
+
+        ordered_change_ids = tuple(dict.fromkeys(change_ids))
+        if not ordered_change_ids:
+            return {}
+
+        rendered: dict[str, str] = {}
+        template = _short_change_id_render_template(min_len=min_len)
+        for chunk in _chunked(ordered_change_ids):
+            revset = _union_revset_symbols(
+                tuple(f"present({_quote_revset_symbol(change_id)})" for change_id in chunk),
+                quote=False,
+            )
+            stdout = self._run_jj(
+                (
+                    "--ignore-working-copy",
+                    "--no-pager",
+                    "--color",
+                    color_when,
+                    "log",
+                    "--no-graph",
+                    "-r",
+                    revset,
+                    "-T",
+                    template,
+                )
+            )
+            for line in stdout.splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                raw_change_id, rendered_change_id = stripped.split("\t", maxsplit=1)
+                change_id = json.loads(raw_change_id)
+                rendered.setdefault(change_id, rendered_change_id)
+        return rendered
 
     def find_private_commits(
         self,
@@ -1118,9 +1192,20 @@ def _selection_scan_template(selection_revset: str) -> str:
     return (
         _SCAN_TEMPLATE_PREFIX
         + r'json(self.contained_in("trunk()")) ++ "\t" ++ '
-        + r'json(self.contained_in('
+        + r"json(self.contained_in("
         + json.dumps(selection_revset)
         + r')) ++ "\n"'
+    )
+
+
+def _short_change_id_render_template(*, min_len: int) -> str:
+    shortest = f"change_id.shortest({min_len})"
+    return (
+        r'json(change_id) ++ "\t" ++ '
+        + shortest
+        + r".prefix() ++ "
+        + shortest
+        + r'.rest() ++ "\n"'
     )
 
 
