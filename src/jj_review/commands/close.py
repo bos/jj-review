@@ -223,13 +223,14 @@ def close(
             revset=revset,
         )
 
-    prepared_close = prepare_close(
-        dry_run=dry_run,
-        cleanup=cleanup,
-        config=context.config,
-        jj_client=context.jj_client,
-        revset=resolved_revset,
-    )
+    with console.spinner(description="Inspecting jj stack"):
+        prepared_close = prepare_close(
+            dry_run=dry_run,
+            cleanup=cleanup,
+            config=context.config,
+            jj_client=context.jj_client,
+            revset=resolved_revset,
+        )
     result = stream_close(prepared_close=prepared_close)
     if result.remote is None:
         console.warning(remote_unavailable_message(remote_error=result.remote_error))

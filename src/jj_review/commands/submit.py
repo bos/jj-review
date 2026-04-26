@@ -360,11 +360,12 @@ def submit(
     if client is not None:
         # Overlap the native `jj log` subprocess startup cost before we print
         # the final summary for large stacks.
-        prerendered_blocks = render_revision_blocks(
-            client=client,
-            revisions=tuple(revision.native_revision for revision in result.revisions)
-            + (result.trunk,),
-        )
+        with console.spinner(description="Rendering jj log"):
+            prerendered_blocks = render_revision_blocks(
+                client=client,
+                revisions=tuple(revision.native_revision for revision in result.revisions)
+                + (result.trunk,),
+            )
     if not result.revisions:
         for line in _render_submit_trunk_lines(
             client=client,
@@ -870,16 +871,17 @@ async def _run_submit_async(
     use_bookmarks: list[str] | None,
 ) -> SubmitResult:
     resolved_use_bookmarks = config.use_bookmarks if use_bookmarks is None else use_bookmarks
-    prepared_inputs = _prepare_submit_inputs(
-        config=config,
-        describe_with=describe_with,
-        dry_run=dry_run,
-        jj_client=jj_client,
-        on_prepared=on_prepared,
-        revset=revset,
-        state_store=state_store,
-        use_bookmarks=tuple(resolved_use_bookmarks),
-    )
+    with console.spinner(description="Preparing submit"):
+        prepared_inputs = _prepare_submit_inputs(
+            config=config,
+            describe_with=describe_with,
+            dry_run=dry_run,
+            jj_client=jj_client,
+            on_prepared=on_prepared,
+            revset=revset,
+            state_store=state_store,
+            use_bookmarks=tuple(resolved_use_bookmarks),
+        )
     client = prepared_inputs.client
     remote = prepared_inputs.remote
     stack = prepared_inputs.stack

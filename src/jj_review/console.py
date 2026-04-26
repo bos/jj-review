@@ -33,8 +33,16 @@ from typing import IO, Any, Literal, Protocol, cast
 
 from rich import box as rich_box
 from rich.console import Console, Group, NewLine
-from rich.progress import BarColumn, Progress, TaskID, TaskProgressColumn, TextColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TaskProgressColumn,
+    TextColumn,
+)
 from rich.segment import Segment
+from rich.status import Status
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
@@ -68,6 +76,12 @@ class ProgressLike(Protocol):
     """Minimal progress-handle protocol used by command helpers."""
 
     def advance(self, amount: int = 1) -> None: ...
+
+
+class SpinnerLike(Protocol):
+    """Minimal spinner-handle protocol used by command helpers."""
+
+    def update(self, description: str) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +295,13 @@ class _NullProgress:
         del amount
 
 
+class _NullSpinner:
+    """No-op spinner handle returned when live progress is disabled."""
+
+    def update(self, description: str) -> None:
+        del description
+
+
 @dataclass(slots=True)
 class _RichProgressHandle:
     """Advance one Rich progress task."""
@@ -290,6 +311,16 @@ class _RichProgressHandle:
 
     def advance(self, amount: int = 1) -> None:
         self.progress.advance(self.task_id, amount)
+
+
+@dataclass(slots=True)
+class _RichSpinnerHandle:
+    """Update one Rich status spinner."""
+
+    status: Status
+
+    def update(self, description: str) -> None:
+        self.status.update(description)
 
 
 def _build_console(
@@ -528,6 +559,19 @@ def note(*objects, **kwargs) -> None:
 
 
 @contextmanager
+def spinner(*, description: str) -> Generator[SpinnerLike]:
+    """Render a TTY-only transient spinner on stderr."""
+
+    if not _stream_supports_live_progress(_STDERR_STREAM):
+        yield _NullSpinner()
+        return
+
+    progress_console = _progress_console(stream=_STDERR_STREAM, color_mode=_ACTIVE_COLOR_MODE)
+    with progress_console.status(description) as status:
+        yield _RichSpinnerHandle(status=status)
+
+
+@contextmanager
 def progress(*, description: str, total: int) -> Generator[ProgressLike]:
     """Render a TTY-only transient progress bar on stderr."""
 
@@ -537,6 +581,7 @@ def progress(*, description: str, total: int) -> Generator[ProgressLike]:
 
     progress_console = _progress_console(stream=_STDERR_STREAM, color_mode=_ACTIVE_COLOR_MODE)
     with Progress(
+        SpinnerColumn(),
         TextColumn("{task.description}"),
         BarColumn(),
         TaskProgressColumn(),

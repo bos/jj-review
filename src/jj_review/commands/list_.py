@@ -90,7 +90,8 @@ def list_(
 
     state_store = ReviewStateStore.for_repo(context.repo_root)
     state = state_store.load()
-    discovered = _discover_stacks(jj_client=context.jj_client, state=state)
+    with console.spinner(description="Inspecting local stacks"):
+        discovered = _discover_stacks(jj_client=context.jj_client, state=state)
     if not discovered.stacks:
         console.output("No review stacks.")
         return 0
@@ -100,12 +101,13 @@ def list_(
         current_commit_id=discovered.current_commit_id,
         jj_client=context.jj_client,
     )
-    repo_inspection = _prepare_repo_inspection_context(
-        config=context.config,
-        discovered=ordered,
-        jj_client=context.jj_client,
-        state=state,
-    )
+    with console.spinner(description="Loading bookmark state"):
+        repo_inspection = _prepare_repo_inspection_context(
+            config=context.config,
+            discovered=ordered,
+            jj_client=context.jj_client,
+            state=state,
+        )
     prepared_discovered = tuple(
         _PreparedDiscoveredStack(
             current=_stack_contains_commit_id(
@@ -144,10 +146,11 @@ def list_(
         cli_color=requested_color_mode(),
         stdout_is_tty=sys.stdout.isatty(),
     )
-    rendered_change_ids = context.jj_client.render_short_change_ids(
-        tuple(row.head_change_id for row in rows),
-        color_when=color_when,
-    )
+    with console.spinner(description="Rendering jj change IDs"):
+        rendered_change_ids = context.jj_client.render_short_change_ids(
+            tuple(row.head_change_id for row in rows),
+            color_when=color_when,
+        )
     console.output(_stack_table(rows=rows, rendered_change_ids=rendered_change_ids))
     return 1 if any(row.incomplete for row in rows) else 0
 

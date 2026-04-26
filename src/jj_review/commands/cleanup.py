@@ -290,17 +290,18 @@ def _run_cleanup_rebase_command(
         revset=revset,
     )
     try:
-        prepared_rebase = PreparedRebase(
-            config=config,
-            dry_run=dry_run,
-            prepared_status=prepare_status(
+        with console.spinner(description="Inspecting jj stack"):
+            prepared_rebase = PreparedRebase(
                 config=config,
-                fetch_remote_state=True,
-                fetch_only_when_tracked=True,
-                jj_client=jj_client,
-                revset=selected_revset,
-            ),
-        )
+                dry_run=dry_run,
+                prepared_status=prepare_status(
+                    config=config,
+                    fetch_remote_state=True,
+                    fetch_only_when_tracked=True,
+                    jj_client=jj_client,
+                    revset=selected_revset,
+                ),
+            )
     except UnsupportedStackError as error:
         raise status_preparation_cli_error(error) from error
     for severity, line in _render_rebase_preamble(prepared_rebase=prepared_rebase):
@@ -332,11 +333,12 @@ def _run_cleanup_command(
 ) -> int:
     """Render and run the stale cleanup command path."""
 
-    prepared_cleanup = _prepare_cleanup(
-        config=config,
-        dry_run=dry_run,
-        jj_client=jj_client,
-    )
+    with console.spinner(description="Loading bookmark state"):
+        prepared_cleanup = _prepare_cleanup(
+            config=config,
+            dry_run=dry_run,
+            jj_client=jj_client,
+        )
     stale_reasons = _stale_change_reasons(
         change_ids=tuple(prepared_cleanup.state.changes),
         jj_client=prepared_cleanup.jj_client,

@@ -83,13 +83,14 @@ async def _run_unlink_async(
     jj_client: JjClient,
     revset: str | None,
 ) -> UnlinkResult:
-    prepared_status = prepare_status(
-        config=config,
-        fetch_remote_state=True,
-        jj_client=jj_client,
-        persist_bookmarks=False,
-        revset=revset,
-    )
+    with console.spinner(description="Inspecting jj stack"):
+        prepared_status = prepare_status(
+            config=config,
+            fetch_remote_state=True,
+            jj_client=jj_client,
+            persist_bookmarks=False,
+            revset=revset,
+        )
     prepared = prepared_status.prepared
     if not prepared.status_revisions:
         raise CliError("The selected stack has no changes to review.")

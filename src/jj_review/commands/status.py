@@ -117,7 +117,7 @@ def status(
         refresh_remote_state_for_status(jj_client=context.jj_client)
 
     if not ordered_selectors:
-        prepared_status = _prepare_status_for_revset(
+        prepared_status = _prepare_status_with_spinner(
             config=context.config,
             jj_client=context.jj_client,
             revset=None,
@@ -138,7 +138,7 @@ def status(
                 jj_client=context.jj_client,
                 selector=selector,
             )
-            prepared_status = _prepare_status_for_revset(
+            prepared_status = _prepare_status_with_spinner(
                 config=context.config,
                 jj_client=context.jj_client,
                 revset=resolved_selector.revset,
@@ -249,6 +249,20 @@ def _prepare_status_for_revset(
         raise status_preparation_cli_error(error) from error
 
 
+def _prepare_status_with_spinner(
+    *,
+    config: RepoConfig,
+    jj_client: JjClient,
+    revset: str | None,
+):
+    with console.spinner(description="Inspecting jj stack"):
+        return _prepare_status_for_revset(
+            config=config,
+            jj_client=jj_client,
+            revset=revset,
+        )
+
+
 def _prepared_status_identity(prepared_status) -> tuple[object, ...]:
     change_ids = tuple(
         revision.revision.change_id for revision in prepared_status.prepared.status_revisions
@@ -302,11 +316,12 @@ def _render_prepared_status(
         return 0
 
     github_available = result.github_repository is not None and result.github_error is None
-    prerendered_blocks = _prefetch_revision_log_blocks(
-        client=prepared_status.prepared.client,
-        revisions=result.revisions,
-        trunk=prepared_status.prepared.stack.base_parent,
-    )
+    with console.spinner(description="Rendering jj log"):
+        prerendered_blocks = _prefetch_revision_log_blocks(
+            client=prepared_status.prepared.client,
+            revisions=result.revisions,
+            trunk=prepared_status.prepared.stack.base_parent,
+        )
     _emit_lines(
         render_status_summary_lines(
             client=prepared_status.prepared.client,

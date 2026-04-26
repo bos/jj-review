@@ -69,7 +69,8 @@ def doctor(
         cli_args=cli_args,
         debug=debug,
     )
-    results = asyncio.run(_run_checks(jj_client=context.jj_client))
+    with console.spinner(description="Running checks"):
+        results = asyncio.run(_run_checks(jj_client=context.jj_client))
     console.output(_results_table(results))
     return 1 if any(r.status == "fail" for r in results) else 0
 

@@ -241,15 +241,16 @@ def land(
             require_explicit=False,
             revset=revset,
         )
-    prepared_land = prepare_land(
-        cleanup_bookmarks=not skip_cleanup,
-        dry_run=dry_run,
-        bypass_readiness=bypass_readiness,
-        config=context.config,
-        jj_client=context.jj_client,
-        revset=resolved_revset,
-        selected_pr_number=pull_request_number,
-    )
+    with console.spinner(description="Inspecting jj stack"):
+        prepared_land = prepare_land(
+            cleanup_bookmarks=not skip_cleanup,
+            dry_run=dry_run,
+            bypass_readiness=bypass_readiness,
+            config=context.config,
+            jj_client=context.jj_client,
+            revset=resolved_revset,
+            selected_pr_number=pull_request_number,
+        )
     result = stream_land(prepared_land=prepared_land)
     _print_land_result(result)
     return 1 if result.blocked else 0
@@ -400,12 +401,13 @@ async def _stream_land_async(
             raise CliError(
                 t"Could not load GitHub repository {github_repository.full_name}"
             ) from error
-        trunk_branch = resolve_trunk_branch(
-            bookmark_states=prepared.client.list_bookmark_states(),
-            github_repository_state=github_repository_state,
-            remote_name=remote.name,
-            trunk_commit_id=prepared.stack.trunk.commit_id,
-        )
+        with console.spinner(description="Loading bookmark state"):
+            trunk_branch = resolve_trunk_branch(
+                bookmark_states=prepared.client.list_bookmark_states(),
+                github_repository_state=github_repository_state,
+                remote_name=remote.name,
+                trunk_commit_id=prepared.stack.trunk.commit_id,
+            )
         _ensure_trunk_branch_matches_selected_trunk(
             client=prepared.client,
             remote_name=remote.name,

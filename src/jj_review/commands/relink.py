@@ -88,15 +88,18 @@ async def _run_relink_async(
     state_store = ReviewStateStore.for_repo(jj_client.repo_root)
     state_dir = state_store.require_writable()
 
-    stack = client.discover_review_stack(revset)
-    if not stack.revisions:
-        raise CliError("The selected stack has no changes to review.")
-    revision = stack.head
-    selected_revset = stack.selected_revset
+    with console.spinner(description="Inspecting jj stack"):
+        stack = client.discover_review_stack(revset)
+        if not stack.revisions:
+            raise CliError("The selected stack has no changes to review.")
+        revision = stack.head
+        selected_revset = stack.selected_revset
 
-    remotes = client.list_git_remotes()
-    remote = select_submit_remote(remotes)
-    client.fetch_remote(remote=remote.name)
+        remotes = client.list_git_remotes()
+        remote = select_submit_remote(remotes)
+
+    with console.spinner(description="Fetching jj remote"):
+        client.fetch_remote(remote=remote.name)
     github_repository = require_github_repo(remote)
     pull_request_number = parse_repository_pull_request_reference(
         reference=pull_request_reference,
@@ -114,17 +117,18 @@ async def _run_relink_async(
         ),
     )
 
-    async with build_github_client(base_url=github_repository.api_base_url) as github_client:
-        try:
-            pull_request = await github_client.get_pull_request(
-                github_repository.owner,
-                github_repository.repo,
-                pull_number=pull_request_number,
-            )
-        except GithubClientError as error:
-            raise CliError(
-                f"Could not load pull request #{pull_request_number}"
-            ) from error
+    with console.spinner(description="Loading pull request"):
+        async with build_github_client(base_url=github_repository.api_base_url) as github_client:
+            try:
+                pull_request = await github_client.get_pull_request(
+                    github_repository.owner,
+                    github_repository.repo,
+                    pull_number=pull_request_number,
+                )
+            except GithubClientError as error:
+                raise CliError(
+                    f"Could not load pull request #{pull_request_number}"
+                ) from error
 
     if pull_request.state != "open":
         raise CliError(

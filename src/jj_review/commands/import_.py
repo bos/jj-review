@@ -178,12 +178,13 @@ async def _run_import_async(
     revset: str | None,
 ) -> ImportResult:
     client = jj_client
-    selection = await _resolve_selection(
-        client=client,
-        fetch=fetch,
-        pull_request_reference=pull_request_reference,
-        revset=revset,
-    )
+    with console.spinner(description="Resolving import selection"):
+        selection = await _resolve_selection(
+            client=client,
+            fetch=fetch,
+            pull_request_reference=pull_request_reference,
+            revset=revset,
+        )
     if (
         not fetch
         and selection.head_bookmark is not None
@@ -196,13 +197,14 @@ async def _run_import_async(
             t"Branch {bookmark_token} is not present locally.",
             hint=t"Re-run {import_fetch_cmd} to fetch that stack before importing.",
         )
-    prepared_status = prepare_status(
-        config=config,
-        fetch_remote_state=fetch and selection.head_bookmark is None,
-        jj_client=jj_client,
-        persist_bookmarks=False,
-        revset=selection.selected_revset,
-    )
+    with console.spinner(description="Inspecting jj stack"):
+        prepared_status = prepare_status(
+            config=config,
+            fetch_remote_state=fetch and selection.head_bookmark is None,
+            jj_client=jj_client,
+            persist_bookmarks=False,
+            revset=selection.selected_revset,
+        )
     if (
         selection.default_current_stack
         and selection.head_bookmark is None
@@ -231,24 +233,26 @@ async def _run_import_async(
     )
 
     prepared = prepared_status.prepared
-    bookmark_states = prepared.client.list_bookmark_states()
+    with console.spinner(description="Loading bookmark state"):
+        bookmark_states = prepared.client.list_bookmark_states()
     authoritative_remote_targets: dict[str, str] = {}
     if fetch and selection.head_bookmark is not None and prepared.remote is not None:
-        authoritative_remote_targets = _fetch_selected_stack_bookmarks(
-            prefix=config.bookmark_prefix,
-            client=prepared.client,
-            explicit_head_bookmark=selection.head_bookmark,
-            remote=prepared.remote,
-            revisions=prepared.stack.revisions,
-        )
-        bookmark_states = _apply_authoritative_remote_targets(
-            bookmark_states=prepared.client.list_bookmark_states(),
-            authoritative_remote_targets=authoritative_remote_targets,
-            remote_name=prepared.remote.name,
-            relevant_bookmarks={
-                prepared_revision.bookmark for prepared_revision in prepared.status_revisions
-            },
-        )
+        with console.spinner(description="Fetching jj remote"):
+            authoritative_remote_targets = _fetch_selected_stack_bookmarks(
+                prefix=config.bookmark_prefix,
+                client=prepared.client,
+                explicit_head_bookmark=selection.head_bookmark,
+                remote=prepared.remote,
+                revisions=prepared.stack.revisions,
+            )
+            bookmark_states = _apply_authoritative_remote_targets(
+                bookmark_states=prepared.client.list_bookmark_states(),
+                authoritative_remote_targets=authoritative_remote_targets,
+                remote_name=prepared.remote.name,
+                relevant_bookmarks={
+                    prepared_revision.bookmark for prepared_revision in prepared.status_revisions
+                },
+            )
     bookmark_by_change_id: dict[str, str] = {}
     if prepared.remote is not None:
         bookmark_by_change_id.update(

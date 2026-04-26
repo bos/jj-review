@@ -210,6 +210,14 @@ Recent refactor slices:
   reused by `status`, `submit`, `close`, `cleanup`, `import`, `unlink`, and
   `abort` only for otherwise-silent per-change GitHub work in interactive
   terminals
+- `status`, `submit`, `list`, `close`, `cleanup`, `import`, `land`, `relink`,
+  `unlink`, and `doctor` now also show shared transient Rich spinners for
+  silent local `jj` phases that have noticeable startup cost but no honest
+  step count, including stack inspection, remote fetches, bookmark-state
+  loading, and native `jj` rendering
+- shared interactive progress bars now also include a spinner column, so
+  countable GitHub work still shows percentage progress while keeping visible
+  animation between discrete completion updates
 - `status` now uses Rich's native progress bar for GitHub inspection instead
   of `tqdm`, so interactive progress rendering stays within the shared Rich
   output stack and no longer needs a separate dependency.
