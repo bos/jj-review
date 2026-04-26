@@ -4,19 +4,22 @@ This reports the pull request jj-review is using for each change. By default it 
 of submitted and unsubmitted changes above the trunk row; `--verbose` expands those summaries
 and also shows the bookmark/branch used to track each PR.
 
-`--fetch` runs a fetch first so the report uses the current remote branch locations.
-Use `--pull-request` to inspect the stack for a PR number or URL.
+`--fetch` runs one fetch first so the report uses the current remote branch locations.
+Use one or more revsets and `--pull-request` selectors to inspect several stacks in one run.
 
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.config import RepoConfig
-from jj_review.errors import ErrorMessage
+from jj_review.errors import CliError, ErrorMessage, error_message
 from jj_review.formatting import (
     format_change_marker,
     format_pull_request_label,
@@ -29,7 +32,7 @@ from jj_review.github.error_messages import (
     github_unavailable_message,
     remote_unavailable_message,
 )
-from jj_review.jj import JjCliArgs, UnsupportedStackError
+from jj_review.jj import JjCliArgs, JjClient, UnsupportedStackError
 from jj_review.models.intent import (
     AbortIntent,
     CleanupIntent,
@@ -52,6 +55,7 @@ from jj_review.review.selection import (
 from jj_review.review.status import (
     prepare_status,
     prepared_status_github_inspection_count,
+    refresh_remote_state_for_status,
     revision_has_merged_pull_request,
     revision_pull_request_number,
     status_preparation_cli_error,
@@ -69,15 +73,32 @@ _SUMMARY_SECTION_TAIL_COUNT = 3
 
 HELP = "Check the review status of a jj stack"
 
+StatusSelectorKind = Literal["pull_request", "revset"]
+
+
+@dataclass(frozen=True, slots=True)
+class StatusSelector:
+    """One explicit selector from the `status` command line."""
+
+    kind: StatusSelectorKind
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedStatusSelector:
+    note: object | None
+    revset: str | None
+
 
 def status(
     *,
     cli_args: JjCliArgs,
     debug: bool,
     fetch: bool,
-    pull_request: str | None,
+    pull_request: str | Sequence[str] | None,
     repository: Path | None,
-    revset: str | None,
+    revset: str | Sequence[str] | None,
+    selectors: Sequence[StatusSelector] | None = None,
     verbose: bool,
 ) -> int:
     """CLI entrypoint for `status`."""
@@ -87,34 +108,169 @@ def status(
         cli_args=cli_args,
         debug=debug,
     )
+    ordered_selectors = _normalize_status_selectors(
+        pull_request=pull_request,
+        revset=revset,
+        selectors=selectors,
+    )
+    if fetch:
+        refresh_remote_state_for_status(jj_client=context.jj_client)
+
+    if not ordered_selectors:
+        prepared_status = _prepare_status_for_revset(
+            config=context.config,
+            jj_client=context.jj_client,
+            revset=None,
+        )
+        return _render_prepared_status(
+            config=context.config,
+            prepared_status=prepared_status,
+            verbose=verbose,
+        )
+
+    exit_code = 0
+    multi_selector = len(ordered_selectors) > 1
+    rendered_stack_keys: set[tuple[object, ...]] = set()
+    printed_blocks = 0
+    for selector in ordered_selectors:
+        try:
+            resolved_selector = _resolve_status_selector(
+                jj_client=context.jj_client,
+                selector=selector,
+            )
+            prepared_status = _prepare_status_for_revset(
+                config=context.config,
+                jj_client=context.jj_client,
+                revset=resolved_selector.revset,
+            )
+        except CliError as error:
+            if printed_blocks:
+                console.output("")
+            if multi_selector:
+                console.output(_status_heading(selector))
+            console.warning(t"Error: {error_message(error)}")
+            hint = error.hint
+            if hint is not None:
+                console.warning(t"Hint: {hint}")
+            exit_code = 1
+            printed_blocks += 1
+            continue
+
+        stack_key = _prepared_status_identity(prepared_status)
+        if stack_key in rendered_stack_keys:
+            continue
+        rendered_stack_keys.add(stack_key)
+
+        if printed_blocks:
+            console.output("")
+        if multi_selector:
+            console.output(_status_heading(selector))
+        if resolved_selector.note is not None:
+            console.note(resolved_selector.note)
+        exit_code = max(
+            exit_code,
+            _render_prepared_status(
+                config=context.config,
+                prepared_status=prepared_status,
+                verbose=verbose,
+            ),
+        )
+        printed_blocks += 1
+    return exit_code
+
+
+def _normalize_status_selectors(
+    *,
+    pull_request: str | Sequence[str] | None,
+    revset: str | Sequence[str] | None,
+    selectors: Sequence[StatusSelector] | None,
+) -> tuple[StatusSelector, ...]:
+    if selectors is not None:
+        return tuple(selectors)
+
+    ordered: list[StatusSelector] = []
     if pull_request is not None:
+        if isinstance(pull_request, str):
+            ordered.append(StatusSelector(kind="pull_request", value=pull_request))
+        else:
+            ordered.extend(
+                StatusSelector(kind="pull_request", value=value) for value in pull_request
+            )
+    if revset is not None:
+        if isinstance(revset, str):
+            ordered.append(StatusSelector(kind="revset", value=revset))
+        else:
+            ordered.extend(StatusSelector(kind="revset", value=value) for value in revset)
+    return tuple(ordered)
+
+
+def _resolve_status_selector(
+    *,
+    jj_client: JjClient,
+    selector: StatusSelector,
+) -> _ResolvedStatusSelector:
+    if selector.kind == "pull_request":
         pull_request_number, resolved_revset = resolve_linked_change_for_pull_request(
             action_name="status",
-            jj_client=context.jj_client,
-            pull_request_reference=pull_request,
-            revset=revset,
+            jj_client=jj_client,
+            pull_request_reference=selector.value,
+            revset=None,
         )
-        console.note(
-            t"Using PR #{pull_request_number} -> {ui.revset(resolved_revset)}"
+        return _ResolvedStatusSelector(
+            note=t"Using PR #{pull_request_number} -> {ui.revset(resolved_revset)}",
+            revset=resolved_revset,
         )
-    else:
-        resolved_revset = resolve_selected_revset(
+    return _ResolvedStatusSelector(
+        note=None,
+        revset=resolve_selected_revset(
             command_label="status",
             default_revset=None,
             require_explicit=False,
-            revset=revset,
-        )
+            revset=selector.value,
+        ),
+    )
+
+
+def _prepare_status_for_revset(
+    *,
+    config: RepoConfig,
+    jj_client: JjClient,
+    revset: str | None,
+):
     try:
-        prepared_status = prepare_status(
-            config=context.config,
-            fetch_remote_state=fetch,
-            jj_client=context.jj_client,
+        return prepare_status(
+            config=config,
+            fetch_remote_state=False,
+            jj_client=jj_client,
             persist_bookmarks=False,
-            revset=resolved_revset,
+            revset=revset,
         )
     except UnsupportedStackError as error:
         raise status_preparation_cli_error(error) from error
 
+
+def _prepared_status_identity(prepared_status) -> tuple[object, ...]:
+    change_ids = tuple(
+        revision.revision.change_id for revision in prepared_status.prepared.status_revisions
+    )
+    return (
+        prepared_status.prepared.stack.base_parent.commit_id,
+        *change_ids,
+    )
+
+
+def _status_heading(selector: StatusSelector) -> object:
+    if selector.kind == "pull_request":
+        return f"Status for PR {selector.value}:"
+    return t"Status for {ui.revset(selector.value)}:"
+
+
+def _render_prepared_status(
+    *,
+    config: RepoConfig,
+    prepared_status,
+    verbose: bool,
+) -> int:
     selection_lines = render_status_selection_lines(prepared_status=prepared_status)
     if selection_lines:
         _emit_lines(selection_lines, emitter=console.warning)
@@ -167,7 +323,7 @@ def status(
             prerendered_blocks=prerendered_blocks,
         )
     )
-    _emit_lines(render_status_advisory_lines(config=context.config, result=result))
+    _emit_lines(render_status_advisory_lines(config=config, result=result))
     _emit_lines(render_status_intent_lines(prepared_status=prepared_status))
 
     exit_code = 1 if result.incomplete else 0

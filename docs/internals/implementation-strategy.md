@@ -1116,6 +1116,11 @@ Implemented in the first vertical cut:
 - `status` now also supports `--fetch` / `-f` to refresh remote bookmark
   observations first when the user wants a freshly fetched view before live
   GitHub inspection
+- `status` now accepts several revset and `--pull-request` selectors in one
+  invocation, inspects them in command-line order, suppresses exact duplicate
+  stack reports, continues past selector-local resolution failures, and runs a
+  shared `--fetch` once before stack resolution so multi-stack inspection does
+  not need a shell loop
 - `status` advisory and interrupted-operation notices now use the shared `ui`
   rendering path, so selected revsets, change IDs, and command examples wrap
   through Rich instead of manual 80-column fills

@@ -290,17 +290,19 @@ def build_parser() -> ArgumentParser:
             pull_request=args.pull_request,
             repository=args.repository,
             revset=args.revset,
+            selectors=getattr(args, "status_selectors", None),
             verbose=args.verbose,
         ),
         revset_help=(
-            t"Revision to inspect; defaults to the current stack; cannot be combined "
-            t"with {ui.cmd('--pull-request')}"
+            "Revisions to inspect; defaults to the current stack"
         ),
+        revset_nargs="*",
     )
     _add_help_argument(
         status_parser,
         "--pull-request",
         metavar="PR",
+        action="append",
         help="Inspect the stack for this PR number or URL",
     )
     status_parser.add_argument(
@@ -924,9 +926,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     cli_args = JjCliArgs()
     normalized_argv = list(sys.argv[1:] if argv is None else argv)
+    status_args: _ParsedStatusCommandArgs | None = None
     try:
         cli_args, stripped_argv = _extract_config_overrides(normalized_argv)
         normalized_argv = _normalize_cli_args(stripped_argv)
+        status_args = _parse_status_command_args(normalized_argv)
+        if status_args is not None:
+            normalized_argv = list(status_args.argv)
         args = parser.parse_args(normalized_argv)
     except CliError as error:
         _print_early_cli_error(
@@ -936,6 +942,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return error.exit_code
     args.cli_args = cli_args
+    args.normalized_argv = tuple(normalized_argv)
+    if args.command in {"status", "st"}:
+        args.status_selectors = () if status_args is None else status_args.selectors
     _, effective_rich_color_mode = _resolve_rich_color_mode(
         cli_color=args.color,
         cli_args=cli_args,
@@ -970,8 +979,118 @@ def _default_status_handler(args: Namespace) -> int:
         pull_request=None,
         repository=args.repository,
         revset=None,
+        selectors=(),
         verbose=False,
     )
+
+
+@dataclass(frozen=True)
+class _ParsedStatusCommandArgs:
+    argv: tuple[str, ...]
+    selectors: tuple[commands.status.StatusSelector, ...]
+
+
+def _parse_status_command_args(argv: Sequence[str]) -> _ParsedStatusCommandArgs | None:
+    """Rewrite `status` argv and preserve explicit selector order."""
+
+    command_index = _find_subcommand_index(argv)
+    if command_index is None or argv[command_index] not in {"status", "st"}:
+        return None
+
+    prefix = list(argv[: command_index + 1])
+    command_argv = argv[command_index + 1 :]
+    options: list[str] = []
+    revsets: list[str] = []
+    selectors: list[commands.status.StatusSelector] = []
+    index = 0
+    while index < len(command_argv):
+        arg = command_argv[index]
+        if arg == "--":
+            trailing_revsets = command_argv[index + 1 :]
+            revsets.extend(trailing_revsets)
+            selectors.extend(
+                commands.status.StatusSelector(kind="revset", value=value)
+                for value in trailing_revsets
+            )
+            break
+        if arg in {"--pull-request", "--repository", "--color"}:
+            if index + 1 >= len(command_argv):
+                options.extend(command_argv[index:])
+                break
+            value = command_argv[index + 1]
+            options.extend((arg, value))
+            if arg == "--pull-request":
+                selectors.append(
+                    commands.status.StatusSelector(
+                        kind="pull_request",
+                        value=value,
+                    )
+                )
+            index += 2
+            continue
+        if (
+            arg.startswith("--pull-request=")
+            or arg.startswith("--repository=")
+            or arg.startswith("--color=")
+        ):
+            options.append(arg)
+            if arg.startswith("--pull-request="):
+                selectors.append(
+                    commands.status.StatusSelector(
+                        kind="pull_request",
+                        value=arg.partition("=")[2],
+                    )
+                )
+            index += 1
+            continue
+        if arg in _STATUS_SELECTOR_FLAGS or _is_grouped_status_flag(arg):
+            options.append(arg)
+            index += 1
+            continue
+        if arg.startswith("-"):
+            options.append(arg)
+            index += 1
+            continue
+        revsets.append(arg)
+        selectors.append(commands.status.StatusSelector(kind="revset", value=arg))
+        index += 1
+    normalized = [*prefix, *options]
+    if revsets:
+        normalized.extend(["--", *revsets])
+    return _ParsedStatusCommandArgs(argv=tuple(normalized), selectors=tuple(selectors))
+
+
+_STATUS_SELECTOR_FLAGS = frozenset(
+    {"-f", "--fetch", "-v", "--verbose", "-h", "--help", "--debug", "--time-output"}
+)
+
+
+def _find_subcommand_index(argv: Sequence[str]) -> int | None:
+    """Return the index of the top-level subcommand, if present."""
+
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--":
+            return None
+        if arg in {"--version", *_HELP_FLAGS, *_REORDERABLE_GLOBAL_FLAGS}:
+            index += 1
+            continue
+        if arg in _REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES:
+            index += 2
+            continue
+        if any(arg.startswith(f"{opt}=") for opt in _REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES):
+            index += 1
+            continue
+        if arg.startswith("-"):
+            index += 1
+            continue
+        return index
+    return None
+
+
+def _is_grouped_status_flag(arg: str) -> bool:
+    return arg.startswith("-") and not arg.startswith("--") and set(arg[1:]) <= {"f", "v", "h"}
 
 
 def _add_revision_command(

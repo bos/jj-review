@@ -1,9 +1,11 @@
 from contextlib import contextmanager
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from jj_review import console as console_module
 from jj_review.commands import status as status_module
 from jj_review.jj import JjCliArgs
 from jj_review.models.review_state import CachedChange
@@ -173,3 +175,129 @@ def test_status_passes_cli_color_override_to_native_jj_rendering(
 
     assert exit_code == 0
     assert observed["cli_color"] == "debug"
+
+
+def test_status_fetches_once_and_skips_duplicate_stack(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_bootstrap(monkeypatch, status_module, tmp_path)
+    fetched: list[str] = []
+    rendered: list[str] = []
+
+    monkeypatch.setattr(
+        status_module,
+        "refresh_remote_state_for_status",
+        lambda **kwargs: fetched.append("fetched"),
+    )
+
+    def fake_prepare_status_for_revset(**kwargs):
+        revset = kwargs["revset"]
+        change_ids = ("change-1", "change-2") if revset in {"foo", "bar"} else ("change-3",)
+        return SimpleNamespace(
+            selected_revset=revset,
+            prepared=SimpleNamespace(
+                stack=SimpleNamespace(
+                    base_parent=SimpleNamespace(
+                        commit_id="shared-base" if revset in {"foo", "bar"} else f"base-{revset}"
+                    )
+                ),
+                status_revisions=tuple(
+                    SimpleNamespace(revision=SimpleNamespace(change_id=change_id))
+                    for change_id in change_ids
+                ),
+            ),
+        )
+
+    def fake_render_prepared_status(**kwargs) -> int:
+        prepared_status = kwargs["prepared_status"]
+        rendered.append(prepared_status.selected_revset)
+        return 0
+
+    monkeypatch.setattr(
+        status_module,
+        "_prepare_status_for_revset",
+        fake_prepare_status_for_revset,
+    )
+    monkeypatch.setattr(status_module, "_render_prepared_status", fake_render_prepared_status)
+
+    exit_code = status_module.status(
+        cli_args=JjCliArgs(),
+        debug=False,
+        fetch=True,
+        pull_request=None,
+        repository=tmp_path,
+        revset=None,
+        selectors=(
+            status_module.StatusSelector(kind="revset", value="foo"),
+            status_module.StatusSelector(kind="revset", value="bar"),
+            status_module.StatusSelector(kind="revset", value="baz"),
+        ),
+        verbose=False,
+    )
+
+    assert exit_code == 0
+    assert fetched == ["fetched"]
+    assert rendered == ["foo", "baz"]
+
+
+def test_status_continues_after_selector_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_bootstrap(monkeypatch, status_module, tmp_path)
+
+    def fake_prepare_status_for_revset(**kwargs):
+        revset = kwargs["revset"]
+        if revset == "bad":
+            raise status_module.CliError("bad selector")
+        return SimpleNamespace(
+            selected_revset=revset,
+            prepared=SimpleNamespace(
+                stack=SimpleNamespace(base_parent=SimpleNamespace(commit_id=f"base-{revset}")),
+                status_revisions=(
+                    SimpleNamespace(revision=SimpleNamespace(change_id=f"{revset}-change")),
+                ),
+            ),
+        )
+
+    def fake_render_prepared_status(**kwargs) -> int:
+        console_module.output(f"rendered {kwargs['prepared_status'].selected_revset}")
+        return 0
+
+    monkeypatch.setattr(
+        status_module,
+        "_prepare_status_for_revset",
+        fake_prepare_status_for_revset,
+    )
+    monkeypatch.setattr(status_module, "_render_prepared_status", fake_render_prepared_status)
+
+    stdout = StringIO()
+    stderr = StringIO()
+    with console_module.configured_console(stdout=stdout, stderr=stderr, color_mode="never"):
+        exit_code = status_module.status(
+            cli_args=JjCliArgs(),
+            debug=False,
+            fetch=False,
+            pull_request=None,
+            repository=tmp_path,
+            revset=None,
+            selectors=(
+                status_module.StatusSelector(kind="revset", value="good"),
+                status_module.StatusSelector(kind="revset", value="bad"),
+                status_module.StatusSelector(kind="revset", value="later"),
+            ),
+            verbose=False,
+        )
+
+    assert exit_code == 1
+    assert stdout.getvalue().splitlines() == [
+        "Status for good:",
+        "rendered good",
+        "",
+        "Status for bad:",
+        "",
+        "Status for later:",
+        "rendered later",
+    ]
+    assert stderr.getvalue().splitlines() == ["Error: bad selector"]

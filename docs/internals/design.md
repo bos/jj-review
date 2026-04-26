@@ -496,20 +496,27 @@ The normal user-facing commands may default to the current stack headed by
 Read-only inspection may remain ergonomic:
 
 - `status` may omit `<revset>` and inspect the current stack by default
+- `status` may also accept more than one revset selector in one invocation
 - `status --pull-request <pr>` may use one linked local change as an alternate
-  selector for that stack
+  selector for that stack, and may be repeated alongside revset selectors
 - `import` may omit its explicit selector flags and default to the current
   stack headed by `@-`
 
-`jj review status [<revset>]` should show the selected local stack and any
+`jj review status [<revset> ...] [--pull-request <pr> ...]` should show the
+selected local stack or stacks and any
 locally known review identity for it. It is local-first: if a change has never
 been locally attached to review, status should report it as not submitted and
 must not query GitHub for speculative PR matches derived only from predicted
 bookmark names or fetched remote observations. Plain status must not create
 local tracking for a never-tracked change, including bookmark-only saved state.
-`jj review status --fetch [<revset>]` is the same inspection command, but it
+`jj review status --fetch [<revset> ...] [--pull-request <pr> ...]` is the same
+inspection command, but it
 refreshes remote bookmark observations first so the report reflects the latest
 remote state before it inspects already-known GitHub PR state.
+When more than one selector is supplied, status should inspect them in
+command-line order, suppress exact duplicate stack reports, continue after a
+selector-local resolution failure, and exit non-zero if any selected stack
+would individually have exited non-zero.
 Because fetched GitHub state often produces extra visible revisions for merged
 changes, status should not insist that every visible revision in the repo still
 forms one supported review stack. Instead, it should discover the selected
@@ -830,7 +837,7 @@ The tool can stay small. A reasonable surface would be:
   [--reviewers <login[,login...]>] [--team-reviewers <slug[,slug...]>]
   [--re-request]
   [<revset>]`
-- `jj review status [--fetch] [--pull-request <pr> | <revset>]`
+- `jj review status [--fetch] [{--pull-request <pr>} | {<revset>}] ...`
 - `jj review st [--fetch] [--pull-request <pr> | <revset>]`
 - `jj review relink <pr> <revset>`
 - `jj review unlink <revset>`

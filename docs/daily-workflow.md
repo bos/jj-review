@@ -91,6 +91,13 @@ If you want to inspect the stack for one linked PR directly:
 jj-review status --pull-request 7
 ```
 
+If you want to inspect several stacks in one run, pass several selectors in
+the order you want them shown:
+
+```bash
+jj-review status foo --pull-request 7 bar
+```
+
 For more detail:
 
 ```bash

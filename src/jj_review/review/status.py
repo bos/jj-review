@@ -221,6 +221,19 @@ def prepare_status(
     )
 
 
+def refresh_remote_state_for_status(*, jj_client: JjClient) -> None:
+    """Refresh remembered remote state once for `status --fetch` when possible."""
+
+    remotes = jj_client.list_git_remotes()
+    if not remotes:
+        return
+    try:
+        remote = select_submit_remote(remotes)
+    except CliError:
+        return
+    jj_client.fetch_remote(remote=remote.name)
+
+
 def _classify_status_intents(
     prepared: PreparedStack,
 ) -> tuple[tuple[LoadedIntent, ...], tuple[LoadedIntent, ...]]:

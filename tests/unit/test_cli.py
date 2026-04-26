@@ -4,6 +4,7 @@ import pytest
 
 from jj_review import ui
 from jj_review.cli import main
+from jj_review.commands.status import StatusSelector
 from jj_review.errors import CliError
 
 
@@ -149,6 +150,56 @@ def test_main_dispatches_status_alias(
 
     assert exit_code == 29
     assert seen == ["called"]
+
+
+def test_main_preserves_status_selector_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_status(**kwargs) -> int:
+        observed.update(kwargs)
+        return 0
+
+    monkeypatch.setattr("jj_review.cli.commands.status.status", fake_status)
+
+    exit_code = main(["status", "foo", "--pull-request", "17", "bar"])
+
+    assert exit_code == 0
+    assert observed["selectors"] == (
+        StatusSelector(kind="revset", value="foo"),
+        StatusSelector(kind="pull_request", value="17"),
+        StatusSelector(kind="revset", value="bar"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected_revsets"),
+    [
+        (["status", "--", "--pull-request", "7"], ["--pull-request", "7"]),
+        (["status", "foo", "--", "-f"], ["foo", "-f"]),
+    ],
+)
+def test_main_preserves_status_positional_escape_for_dash_prefixed_revsets(
+    monkeypatch: pytest.MonkeyPatch,
+    argv: list[str],
+    expected_revsets: list[str],
+) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_status(**kwargs) -> int:
+        observed.update(kwargs)
+        return 0
+
+    monkeypatch.setattr("jj_review.cli.commands.status.status", fake_status)
+
+    exit_code = main(argv)
+
+    assert exit_code == 0
+    assert observed["revset"] == expected_revsets
+    assert observed["selectors"] == tuple(
+        StatusSelector(kind="revset", value=value) for value in expected_revsets
+    )
 
 
 @pytest.mark.parametrize("argv", [["pants"], ["pants", "-h"], ["help", "pants"]])
