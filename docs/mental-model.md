@@ -22,17 +22,17 @@ agent to review:
 - refreshing those PRs after local rewrites
 - inspecting review state and landing ready changes
 
-To create a review branch, `jj-review` creates a bookmark with its configured
-bookmark prefix. By default that prefix is `review/`, but a repo can choose a
-different prefix such as `bosullivan/`. You don't need to manage these
-bookmarks yourself; `jj-review` creates them for review, forgets the local
-ones for landed changes during `jj-review land`, and can also remove them
-later during `jj-review close --cleanup` or `jj-review cleanup`.
+To create a review branch, `jj-review` creates a bookmark with a well-defined prefix. By default
+that prefix is `review/`, but you can choose a different prefix such as `my-review-stack/`.
+These bookmarks are managed automatically, so you don't need to manage them yourself.
+`jj-review` creates them for review, forgets the local ones after `jj-review land` lands
+changes, and can also remove them later during `jj-review close --cleanup` or `jj-review
+cleanup`.
 
 ## Source of truth
 
-We use the local `jj` DAG as the source of truth for the stack itself: which changes exist, what
-order they are in, and how they relate to each other.
+We use the local `jj` DAG as the source of truth for the stack: which changes exist, what order
+they are in, and how they relate to each other.
 
 To stay in sync with GitHub, `jj-review` uses a small amount of supporting local metadata. That
 metadata helps it:
@@ -42,7 +42,7 @@ metadata helps it:
 
 This has a few consequences:
 
-- Local rewrites are the common case.
+- Local rewrites are easy and flexible.
 - `jj-review` keeps only a small amount of supporting metadata. Your local `jj` history is still
   the source of truth for the stack.
 - If `jj-review` cannot tell which GitHub PR or branch belongs to a local change, it stops and
@@ -51,7 +51,7 @@ This has a few consequences:
 ## What gets reviewed on GitHub
 
 The "unit to review" is one visible mutable `jj` change. We issue one pull request per change,
-from the bottom of the selected stack to the selected head. Often that bottom change sits directly
+from the bottom of the stack to its head. Often that bottom change sits directly
 on `trunk()`, but it may also fork from a recent ancestor of `trunk()`. Each successive PR is
 based on the preceding PR in the stack.
 

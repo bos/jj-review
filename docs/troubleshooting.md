@@ -1,10 +1,10 @@
 # Troubleshooting
 
-This page is organized by symptom and next command.
+This page is organized by symptom and what you should do.
 
 ## `status` or `submit` says the stack selection is ambiguous
 
-Cause:
+Possible causes:
 
 - the current repo state doesn't resolve to one clear stack
 - the remote or trunk branch is configured in an unusual way
@@ -23,19 +23,22 @@ jj-review status <revset>
 jj-review submit <revset>
 ```
 
-The tool stops and reports what is ambiguous rather than guessing.
+For safety, `jj-review` always stops and reports what is ambiguous rather than guessing what you
+might have meant.
 
 ## `status` says it cannot find a trunk bookmark
 
-Cause:
+Possible causes:
 
 - the repo is brand new and does not have a trunk bookmark
 - your main bookmark exists, but `trunk()` does not point to it
+- you don't have a remote trunk branch set up
 
 What to do:
 
-- In a new repo, make an initial commit and create a trunk bookmark, usually
-  `main`, then rerun the command.
+- If you are working in a new repo, make some initial commits, create a `main` bookmark, and
+  push your changes to GitHub. Once you've done all of this, you should have a working `trunk()`
+  bookmark, and can rerun the `status` command.
 - In an existing repo, configure `trunk()` to point to your trunk bookmark,
   such as `main`. For example:
 
@@ -45,9 +48,9 @@ jj config set --repo 'revset-aliases."trunk()"' main
 
 ## GitHub shows different PR state than `status` reports
 
-Cause:
+Possible causes:
 
-- remembered remote bookmark state is stale
+- the local bookmark tracking the remote branch is out of date
 - a PR link or review branch changed on another machine or workspace
 - you want to refresh both live GitHub state and local remote-bookmark observations
 
@@ -64,11 +67,11 @@ relationship may have changed elsewhere.
 
 ## Lower changes merged elsewhere and the rest of your stack needs rebasing
 
-Cause:
+Possible causes:
 
-- some lower changes in your stack merged on GitHub through different commit
-  IDs, such as squash merge or another landing path
-- your local stack still contains those old ancestors
+- some lower changes in your stack were merged on GitHub with different commit
+  IDs, which can happen through e.g. a squash merge
+- your local stack still contains those old commit IDs
 - the remaining changes are still based on that old local history
 
 What to do:
@@ -84,9 +87,10 @@ and rebases the remaining changes above the current `trunk()`. After that,
 
 ## `land` says the local change differs from what reviewers approved
 
-Cause:
+Possible causes:
 
-- you rewrote a reviewed change in a way that changed its diff
+- you submitted a change, it got reviewed and approved, and meanwhile you rewrote it in a way
+  that changed its diff
 - the PR branch on GitHub still shows the older reviewed content
 
 What to do:
@@ -101,12 +105,12 @@ If you want to notify prior reviewers again after updating the PR, follow with:
 jj-review submit --re-request
 ```
 
-A pure rebase with the same diff does not need this. In that case `land`
-refreshes the review branch automatically before pushing `trunk()`.
+A pure rebase with the same diff does not need this. In that case, `land` will refresh the review
+branch automatically before pushing `trunk()`.
 
 ## PRs for this stack exist on GitHub but `jj-review` doesn't know about them
 
-Cause:
+Possible causes:
 
 - the stack was submitted from a different machine or workspace
 - you cloned the repo and want to pick up review work that is already in progress
@@ -117,19 +121,17 @@ What to do:
 jj-review import --pull-request <number-or-url> --fetch
 ```
 
-Use `import` when the problem is "these PRs exist on GitHub but I can't manage
-them locally yet." It is not for rewriting history or changing what is in the
-stack — only for telling `jj-review` which local changes go with which PRs.
+Use `import` when the problem is "these PRs exist on GitHub but I can't manage them locally
+yet." This command is *not* for rewriting history or changing what is in the stack, only for
+telling `jj-review` which local changes go with which PRs.
 
 ## Old review branches are still around after landing or closing
 
-Cause:
+Possible causes:
 
-- the land or close succeeded, but the follow-up cleanup hasn't run yet
+- your `land` or `close` succeeded, but the follow-up cleanup hasn't run yet
 - you ran `land --skip-cleanup` to keep the review branches on purpose
 - something prevented `jj-review` from cleaning up automatically
-- an older `jj-review` version left local review bookmarks behind on
-  already-landed or otherwise inactive history
 
 What to do:
 
@@ -139,14 +141,14 @@ jj-review cleanup
 ```
 
 Use `--dry-run` if you want first, to preview what it plans to remove. Then run plain `cleanup`
-to delete the old review branches, local review bookmarks, and saved review
-tracking data it described.
+to delete the old review branches, local review bookmarks, and saved review tracking data it
+described.
 
 ## You want to stop reviewing a stack on GitHub
 
 Cause:
 
-- the work was abandoned, replaced, or is no longer meant for review
+- your work was abandoned, replaced, or is no longer meant for review
 
 What to do:
 
@@ -160,65 +162,76 @@ If you already know the pull request number, you can use:
 jj-review close --pull-request 7
 ```
 
-This closes the selected stack's pull requests. Add `--cleanup` if you also
-want to delete the review branches and clean up local tracking data for that
-stack. When GitHub reports that the selected stack has no tracked pull
-requests, `close` and `close --dry-run` now report the same no-op result.
+This closes the stack's pull requests. Add `--cleanup` if you also want to delete the review
+branches and clean up local tracking data for that stack. As usual, `--dry-run` will preview
+what the command will do without actually taking action.
 
 ## A command was interrupted before it finished
 
-Cause:
+Possible causes:
 
-- `submit` or another mutating command was cut short (Ctrl-C, crash, network
-  failure) after it had already done some work but before it finished
+- `submit` or another mutating command was cut short (Ctrl-C, crash, power or network failure)
+  after it had already done some work but before it finished
 - `status` reports an interrupted operation
 
-What to do:
+First, see what was interrupted:
 
 ```bash
 jj-review status
 ```
 
-Check what `status` says is incomplete. Then preview what `abort` would undo:
+`status` names the command that was cut short and the stack it was working on. From there you
+have two options: **finish what was started**, or **back out**.
+
+### Finish what was started
+
+Re-run the same command, passing the revset `status` named so you don't accidentally operate on
+a different stack. `jj-review` reads the interrupted-operation record, picks up where it left
+off, and skips the work that already completed.
+
+| If `status` says was interrupted | Re-run                                   |
+| -------------------------------- | ---------------------------------------- |
+| `submit`                         | `jj-review submit <revset>`              |
+| `close` / `close --cleanup`      | `jj-review close [--cleanup] <revset>`   |
+| `cleanup --rebase`               | `jj-review cleanup --rebase <revset>`    |
+| `land`                           | `jj-review land <revset>`                |
+
+For an interrupted `land` specifically: if the trunk push already succeeded before the
+interruption, the landed commits are already on `trunk()`. A rerun here just finishes the
+post-land bookkeeping (closing PRs, forgetting local review bookmarks).
+
+### Back out with `abort`
 
 ```bash
-jj-review abort --dry-run
+jj-review abort --dry-run   # preview
+jj-review abort             # apply
 ```
 
-If the plan looks right, apply it:
+What `abort` actually does depends on which command was interrupted:
 
-```bash
-jj-review abort
-```
+- **`submit`**: closes any PRs it created, deletes the corresponding remote branches, forgets
+  the local bookmarks, and clears the tracking entries. This is the only case where `abort`
+  performs a real undo.
+- **`close`**: clears the interrupted-operation record. It does **not** reopen PRs that were
+  already closed.
+- **`cleanup --rebase`**: clears the interrupted-operation record. It does **not** restore the
+  old local history. Use `jj op restore` if you want to undo the rebase itself.
+- **`land`**: clears the interrupted-operation record. It **cannot** un-merge changes that
+  already reached `trunk()`.
 
-Use `abort` when you want to retract an interrupted `submit`.
-
-Otherwise, follow the command that `status` tells you to rerun:
-
-- re-run `submit <revset>` to finish or refresh the stack you explicitly
-  select on GitHub
-- re-run `close` or `close --cleanup` if `status` names one of those
-- re-run `cleanup --rebase` to finish rebasing the current stack
-- re-run `land` to finish landing; `abort` cannot un-merge changes that already
-  reached trunk
-
-For interrupted commands other than `submit`, `abort` clears the
-interrupted-operation record. It does not automatically reverse a completed
-land, restore the old local history after a cleanup rebase, or reopen pull requests.
+If you want to fully back out one of the latter three, you have to do it by hand; `abort` is
+only a true reverse for `submit`.
 
 ### `abort` refuses because the stack has changed
 
-If you rewrite or reorder the stack after a `submit` was interrupted, `abort`
-will not try to guess which PRs or review branches came from that interrupted
-submit.
-In that case you have two options:
+If you rewrite or reorder the stack after a `submit` was interrupted, `abort` will not try to
+guess which PRs or review branches came from that interrupted submit. In that case you have two
+options:
 
-- **Finish the submit**: re-run `submit <change-id-from-status>` or another
-  explicit revset for the stack you want. It detects any review branches or PRs
-  that already exist, and completes whatever is still outstanding for that
-  selected stack.
-- **Retract the partial work**: run
-  `jj-review close --cleanup <change-id-from-status>` or another explicit
-  revset for that stack. A successful `close --cleanup` closes the open PRs,
-  deletes the review branches, and clears the interrupted `submit` record once
-  the recorded review artifacts for that stack are gone.
+- **Finish the submit**: re-run `submit <change-id-from-status>` or another explicit revset for
+  the stack you want. It detects any review branches or PRs that already exist, and completes
+  whatever is still outstanding for that stack.
+- **Undo the partial work**: run `jj-review close --cleanup <change-id-from-status>` or another
+  explicit revset for that stack. A successful `close --cleanup` closes the open PRs, deletes
+  the review branches, and clears the interrupted `submit` record once the recorded review
+  artifacts for that stack are gone.
