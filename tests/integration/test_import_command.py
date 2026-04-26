@@ -182,9 +182,7 @@ def test_import_reports_up_to_date_when_selected_stack_is_already_imported(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Local jj-review tracking is already up to date for the selected stack." in (
-        captured.out
-    )
+    assert "Local tracking is already up to date for this stack." in captured.out
     assert "no changes to review" not in captured.out
 
 

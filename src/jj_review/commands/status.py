@@ -1125,7 +1125,7 @@ def _format_status_summary(revision, *, github_available: bool) -> str:
         "ambiguous",
         "error",
     }:
-        message = managed_comments_lookup.message or "managed comment lookup failed"
+        message = managed_comments_lookup.message or "stack comment lookup failed"
         return f"{summary}, {message}"
     return summary
 

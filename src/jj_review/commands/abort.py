@@ -358,7 +358,7 @@ async def _abort_submit(
         actions.append(
             AbortAction(
                 kind="saved state",
-                body=f"{verb} saved jj-review data for aborted changes",
+                body=f"{verb} tracking data for aborted changes",
                 status="planned" if dry_run else "applied",
             )
         )

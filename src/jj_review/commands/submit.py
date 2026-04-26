@@ -1164,8 +1164,8 @@ def _ensure_remote_can_be_updated(
     raise CliError(
         t"Remote bookmark {ui.bookmark(f'{bookmark}@{remote}')} already exists and "
         t"points elsewhere. Submit will not take over an existing remote branch "
-        t"unless its link is already proven by local state, saved jj-review data, "
-        t"or explicit relinking."
+        t"unless its link is already proven by local state, tracking data, or "
+        t"explicit relinking."
     )
 
 

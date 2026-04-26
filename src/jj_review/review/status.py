@@ -1136,7 +1136,7 @@ async def _inspect_managed_comments(
     except GithubClientError as error:
         return ManagedCommentsLookup(
             message=summarize_github_lookup_error(
-                action=f"managed comment lookup for pull request #{pull_request_number}",
+                action=f"stack comment lookup for pull request #{pull_request_number}",
                 error=error,
             ),
             navigation_comment=None,

@@ -1812,7 +1812,7 @@ async def _resolve_managed_comments(
         )
     except GithubClientError as error:
         raise CliError(
-            f"Could not list managed comments for pull request #{pull_request_number}"
+            f"Could not list stack comments for pull request #{pull_request_number}"
         ) from error
 
     resolved: list[tuple[StackCommentKind, GithubIssueComment]] = []

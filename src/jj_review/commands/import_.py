@@ -152,7 +152,7 @@ def _print_import_result(result: ImportResult) -> None:
     if github_message is not None:
         console.warning(github_message)
     if result.actions:
-        console.output("Updated local jj-review tracking:")
+        console.output("Updated local tracking:")
         for action in result.actions:
             console.output(
                 ui.prefixed_line(
@@ -163,7 +163,7 @@ def _print_import_result(result: ImportResult) -> None:
     else:
         if result.reviewable_revision_count:
             console.output(
-                "Local jj-review tracking is already up to date for the selected stack."
+                "Local tracking is already up to date for this stack."
             )
         else:
             console.output("The selected stack has no changes to review.")
@@ -720,7 +720,7 @@ def _import_local_state(
         actions.append(
             ImportAction(
                 kind="tracking",
-                body="update saved jj-review data for the selected stack",
+                body="update local tracking for this stack",
                 status="applied",
             )
         )
