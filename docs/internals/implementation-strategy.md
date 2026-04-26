@@ -1405,6 +1405,9 @@ This slice is now in place with the current implementation:
   checkpoints, so reruns can finish post-push bookkeeping without
   rediscovering the original landing set, while stale pre-push intents are
   ignored when the current landable prefix has changed
+- intent files now drop fields that were either derivable from the recorded
+  stack order or never consulted during resume, keeping persisted local
+  metadata closer to the design goal of "minimal local state"
 - interrupted `land` messaging now identifies the recorded landing stack by
   head change ID plus selector origin, instead of presenting resume notices as
   bare `land on <revset>` replay

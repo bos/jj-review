@@ -105,7 +105,6 @@ def test_doctor_warns_for_interrupted_operation(
         pid=99999999,  # No process has this PID; pid_is_alive returns False
         label=f"submit on {change_id[:8]}",
         display_revset=change_id[:8],
-        head_change_id=change_id,
         remote_name="origin",
         github_host="github.test",
         github_owner="octo-org",

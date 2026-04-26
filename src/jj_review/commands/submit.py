@@ -76,7 +76,7 @@ from jj_review.review.bookmarks import (
     ensure_unique_bookmarks,
     match_bookmarks_for_revisions,
 )
-from jj_review.review.intents import retire_superseded_intents
+from jj_review.review.intents import describe_intent, retire_superseded_intents
 from jj_review.review.selection import (
     parse_comma_separated_flag_values,
     resolve_selected_revset,
@@ -623,9 +623,6 @@ def _start_submit_intent(
         ),
         display_revset=stack.selected_revset,
         ordered_commit_ids=ordered_commit_ids,
-        head_change_id=(
-            stack.revisions[-1].change_id if stack.revisions else stack.trunk.change_id
-        ),
         remote_name=remote_name,
         github_host=github_repository.host,
         github_owner=github_repository.owner,
@@ -711,8 +708,7 @@ def _report_stale_submit_intents(
 
 
 def _render_submit_intent_description(intent: SubmitIntent) -> ui.Message:
-    return t"{ui.cmd('submit')} for {ui.change_id(intent.head_change_id)} " \
-        t"(from {ui.revset(intent.display_revset)})"
+    return describe_intent(intent)
 
 
 def _prepare_submit_revisions(

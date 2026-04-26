@@ -1553,7 +1553,6 @@ def _build_land_intent(
         landed_subjects={revision.change_id: revision.subject for revision in landed_revisions},
         completed_change_ids=(),
         trunk_branch=trunk_branch,
-        trunk_commit_id=prepared_status.prepared.stack.trunk.commit_id,
         landed_commit_id=landed_commit_id,
         selected_pr_number=selected_pr_number,
         started_at=datetime.now(UTC).isoformat(),

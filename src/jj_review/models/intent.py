@@ -34,7 +34,6 @@ class OrderedChangeIdsIntent(OperationIntent):
 class SubmitIntent(OrderedChangeIdsIntent):
     kind: Literal["submit"]
     ordered_commit_ids: tuple[str, ...] = ()
-    head_change_id: str
     remote_name: str
     github_host: str
     github_owner: str
@@ -82,7 +81,6 @@ class LandIntent(OrderedChangeIdsIntent):
     landed_subjects: dict[str, str]
     completed_change_ids: tuple[str, ...]
     trunk_branch: str
-    trunk_commit_id: str
     landed_commit_id: str
     selected_pr_number: int | None = None
 

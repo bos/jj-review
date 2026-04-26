@@ -704,7 +704,6 @@ def test_status_shows_outstanding_submit_intent(
         label="submit on @",
         display_revset="@",
         ordered_commit_ids=(stack.revisions[0].commit_id,),
-        head_change_id=change_id,
         remote_name="origin",
         github_host="github.test",
         github_owner="octo-org",

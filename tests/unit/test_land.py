@@ -759,7 +759,6 @@ def _loaded_land_intent(
             },
             completed_change_ids=completed_change_ids,
             trunk_branch=trunk_branch,
-            trunk_commit_id="trunk-commit",
             landed_commit_id=ordered_commit_ids[len(landed_change_ids) - 1]
             if landed_change_ids
             else "trunk-commit",

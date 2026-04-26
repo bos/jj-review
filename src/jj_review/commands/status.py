@@ -38,6 +38,7 @@ from jj_review.models.intent import (
 )
 from jj_review.review.bookmarks import bookmark_glob, is_review_bookmark
 from jj_review.review.intents import (
+    describe_intent,
     match_cleanup_rebase_intent,
     match_close_intent,
 )
@@ -982,35 +983,11 @@ def _prefixed_intent_line(description: object, status: object) -> object:
 
 
 def _render_intent_description(intent) -> object:
-    if isinstance(intent, SubmitIntent):
-        return (
-            t"{ui.cmd('submit')} for {ui.change_id(intent.head_change_id)} "
-            t"(from {ui.revset(intent.display_revset)})"
-        )
-    if isinstance(intent, CleanupRebaseIntent):
-        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
-        return (
-            t"{ui.cmd('cleanup --rebase')} for {ui.change_id(head_change_id)} "
-            t"(from {ui.revset(intent.display_revset)})"
-        )
-    if isinstance(intent, CloseIntent):
-        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
-        return (
-            t"{ui.cmd('close --cleanup' if intent.cleanup else 'close')} "
-            t"for {ui.change_id(head_change_id)} "
-            t"(from {ui.revset(intent.display_revset)})"
-        )
-    if isinstance(intent, LandIntent):
-        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
-        return t"{ui.cmd('land')} for {ui.change_id(head_change_id)} " \
-            t"(from {ui.revset(intent.display_revset)})"
-    if isinstance(intent, RelinkIntent):
-        return t"{ui.cmd('relink')} for {ui.change_id(intent.change_id)}"
     if isinstance(intent, CleanupIntent):
         return ui.cmd("cleanup")
     if isinstance(intent, AbortIntent):
         return ui.cmd("abort")
-    return intent.label
+    return describe_intent(intent)
 
 
 def _status_revision_label(revision) -> str:

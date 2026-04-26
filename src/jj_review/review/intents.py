@@ -16,6 +16,7 @@ from jj_review.models.intent import (
     LandIntent,
     LoadedIntent,
     MatchResult,
+    OrderedChangeIdsIntent,
     RelinkIntent,
     SubmitIntent,
 )
@@ -56,32 +57,34 @@ def describe_intent(intent: IntentFile) -> Message:
 
     if isinstance(intent, SubmitIntent):
         return (
-            t"{ui.cmd('submit')} for {ui.change_id(intent.head_change_id)} "
+            t"{ui.cmd('submit')} for {_render_recorded_stack_head(intent)} "
             t"(from {ui.revset(intent.display_revset)})"
         )
     if isinstance(intent, CleanupRebaseIntent):
-        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
         return (
-            t"{ui.cmd('cleanup --rebase')} for "
-            t"{ui.change_id(head_change_id) if head_change_id != 'stack' else head_change_id} "
+            t"{ui.cmd('cleanup --rebase')} for {_render_recorded_stack_head(intent)} "
             t"(from {ui.revset(intent.display_revset)})"
         )
     if isinstance(intent, CloseIntent):
         verb = ui.cmd("close --cleanup" if intent.cleanup else "close")
-        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
         return (
-            t"{verb} for "
-            t"{ui.change_id(head_change_id) if head_change_id != 'stack' else head_change_id} "
+            t"{verb} for {_render_recorded_stack_head(intent)} "
             t"(from {ui.revset(intent.display_revset)})"
         )
     if isinstance(intent, LandIntent):
-        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
         return (
-            t"{ui.cmd('land')} for "
-            t"{ui.change_id(head_change_id) if head_change_id != 'stack' else head_change_id} "
+            t"{ui.cmd('land')} for {_render_recorded_stack_head(intent)} "
             t"(from {ui.revset(intent.display_revset)})"
         )
+    if isinstance(intent, RelinkIntent):
+        return t"{ui.cmd('relink')} for {ui.change_id(intent.change_id)}"
     return intent.label
+
+
+def _render_recorded_stack_head(intent: OrderedChangeIdsIntent) -> Message:
+    if not intent.ordered_change_ids:
+        return "stack"
+    return ui.change_id(intent.ordered_change_ids[-1])
 
 
 def match_cleanup_rebase_intent(

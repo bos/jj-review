@@ -288,9 +288,9 @@ async def _abort_submit(
             AbortAction(
                 kind="record",
                 body=t"operation record kept — to continue, run "
-                t"{ui.cmd(f'submit {short_change_id(intent.head_change_id)}')}; "
+                t"{ui.cmd(f'submit {_submit_intent_selector(intent)}')}; "
                 t"to retract the partial work, run "
-                t"{ui.cmd(f'close --cleanup {short_change_id(intent.head_change_id)}')}",
+                t"{ui.cmd(f'close --cleanup {_submit_intent_selector(intent)}')}",
                 status="skipped",
             )
         )
@@ -410,6 +410,12 @@ def _submit_intent_matches_recorded_stack(
         intent=intent,
         commit_ids_by_change_id=commit_ids_by_change_id,
     )
+
+
+def _submit_intent_selector(intent: SubmitIntent) -> str:
+    if intent.ordered_change_ids:
+        return short_change_id(intent.ordered_change_ids[-1])
+    return intent.display_revset
 
 
 async def _retract_one_change(

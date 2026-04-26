@@ -39,14 +39,7 @@ from jj_review.github.resolution import (
 from jj_review.jj import JjCliArgs, JjClient
 from jj_review.models.bookmarks import GitRemote
 from jj_review.models.github import GithubRepository
-from jj_review.models.intent import (
-    CleanupRebaseIntent,
-    CloseIntent,
-    IntentFile,
-    LandIntent,
-    RelinkIntent,
-    SubmitIntent,
-)
+from jj_review.models.intent import IntentFile
 from jj_review.review.intents import describe_intent
 from jj_review.state.store import ReviewStateStore
 from jj_review.system import pid_is_alive
@@ -289,26 +282,4 @@ def _results_table(results: list[CheckResult]) -> ui.DataTable:
     )
 
 def _intent_description_content(intent: IntentFile) -> Message:
-    if isinstance(intent, SubmitIntent):
-        return t"{ui.cmd('submit')} for {ui.change_id(intent.head_change_id)} " \
-            t"(from {ui.revset(intent.display_revset)})"
-    if isinstance(intent, CleanupRebaseIntent):
-        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
-        return t"{ui.cmd('cleanup --rebase')} for {ui.change_id(head_change_id)} " \
-            t"(from {ui.revset(intent.display_revset)})"
-    if isinstance(intent, CloseIntent):
-        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
-        command = ui.cmd("close --cleanup" if intent.cleanup else "close")
-        return (
-            t"{command} for {ui.change_id(head_change_id)} (from "
-            t"{ui.revset(intent.display_revset)})"
-        )
-    if isinstance(intent, LandIntent):
-        head_change_id = intent.ordered_change_ids[-1] if intent.ordered_change_ids else "stack"
-        return (
-            t"{ui.cmd('land')} for {ui.change_id(head_change_id)} (from "
-            t"{ui.revset(intent.display_revset)})"
-        )
-    if isinstance(intent, RelinkIntent):
-        return t"{ui.cmd('relink')} for {ui.change_id(intent.change_id)}"
     return describe_intent(intent)

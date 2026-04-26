@@ -30,7 +30,6 @@ def _make_submit_intent(
         display_revset="@",
         ordered_change_ids=ordered_change_ids,
         ordered_commit_ids=ordered_commit_ids,
-        head_change_id=ordered_change_ids[-1],
         remote_name=remote_name,
         github_host="github.test",
         github_owner="octo-org",
