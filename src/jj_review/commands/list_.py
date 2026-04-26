@@ -1,10 +1,9 @@
 """List review stacks in this repository.
 
-Shows one row per review stack in this repo, including the head change ID,
-stack size, review state, and head subject.
+Shows one row per review stack in this repo, including the head change ID, stack size, review
+state, and description of the head commit.
 
-`--fetch` runs one fetch first so the report uses current remote branch
-locations before it inspects GitHub pull request state for tracked stacks.
+`--fetch` runs a fetch first so the report uses current remote branch locations.
 """
 
 from __future__ import annotations

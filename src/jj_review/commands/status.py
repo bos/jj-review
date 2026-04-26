@@ -1,12 +1,10 @@
-"""Show how the selected jj stack currently appears locally and on GitHub.
+"""Show how the selected jj stack(s) currently appear locally and on GitHub.
 
-This reports the pull request jj-review is using for each change. By default it shows a summary
-of submitted and unsubmitted changes above the trunk row; `--verbose` expands those summaries
-and also shows the bookmark/branch used to track each PR.
+By default it summarizes the submitted and unsubmitted changes in each selected stack;
+`--verbose` expands those summaries and includes any bookmark names.
 
-`--fetch` runs one fetch first so the report uses the current remote branch locations.
-Use one or more revsets and `--pull-request` selectors to inspect several stacks in one run.
-
+`--fetch` runs a fetch first so the report uses current remote branch locations. Use one or more
+revsets and `--pull-request` selectors to inspect several stacks in one run.
 """
 
 from __future__ import annotations
@@ -71,7 +69,7 @@ from jj_review.system import pid_is_alive
 _SUMMARY_SECTION_HEAD_COUNT = 3
 _SUMMARY_SECTION_TAIL_COUNT = 3
 
-HELP = "Check the review status of a jj stack"
+HELP = "Check the review status of one or more jj stacks"
 
 StatusSelectorKind = Literal["pull_request", "revset"]
 

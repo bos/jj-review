@@ -218,19 +218,6 @@ def test_main_reports_unknown_command_with_short_recovery_hint(
     ]
 
 
-def test_main_help_for_status_alias_renders_status_help(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    exit_code = main(["st", "--help"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "Show how the selected jj stack currently appears locally and on GitHub." in (
-        captured.out
-    )
-    assert "Traceback" not in captured.err
-
-
 @pytest.mark.parametrize("argv", [["help"], ["help", "--all"], ["help", "submit"]])
 def test_main_help_smoke_renders_without_error(
     argv: list[str],

@@ -52,7 +52,7 @@ from jj_review.ui import Message
 logger = logging.getLogger(__name__)
 _GITHUB_INSPECTION_CONCURRENCY = DEFAULT_BOUNDED_CONCURRENCY
 
-HELP = "Check the review status of a jj stack"
+HELP = "Check the review status of one or more jj stacks"
 
 PullRequestLookupState = Literal["ambiguous", "closed", "error", "missing", "open"]
 ManagedCommentsLookupState = Literal["ambiguous", "error", "resolved"]

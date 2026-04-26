@@ -294,7 +294,10 @@ def build_parser() -> ArgumentParser:
             selectors=getattr(args, "status_selectors", None),
             verbose=args.verbose,
         ),
-        revset_help=("Revisions to inspect; defaults to the current stack"),
+        revset_help=(
+            "Revsets to inspect; can be mixed with repeated --pull-request selectors; "
+            "defaults to the current stack"
+        ),
         revset_nargs="*",
     )
     _add_help_argument(
@@ -302,7 +305,7 @@ def build_parser() -> ArgumentParser:
         "--pull-request",
         metavar="PR",
         action="append",
-        help="Inspect the stack for this PR number or URL",
+        help="Inspect the stack for this PR number or URL; repeat to inspect several stacks",
     )
     status_parser.add_argument(
         "-f",
@@ -314,7 +317,7 @@ def build_parser() -> ArgumentParser:
         "-v",
         "--verbose",
         action="store_true",
-        help="Expand submitted and unsubmitted summary sections; show bookmarks",
+        help="Expand submitted and unsubmitted summary sections; keep native jj log lines",
     )
     list_parser = subparsers.add_parser(
         "list",
