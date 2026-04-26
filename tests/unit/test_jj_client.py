@@ -292,8 +292,11 @@ def test_discover_review_stack_rejects_root_fallback_trunk() -> None:
     }
 
     client = JjClient(Path("/repo"), runner=_runner(responses))
-    with pytest.raises(UnsupportedStackError, match=r"trunk\(\) resolved to the root commit"):
+    with pytest.raises(UnsupportedStackError) as exc:
         client.discover_review_stack("head")
+
+    assert exc.value.reason == "trunk_resolved_to_root"
+    assert exc.value.hint is not None
 
 
 def test_discover_review_stack_rejects_merge_commits() -> None:

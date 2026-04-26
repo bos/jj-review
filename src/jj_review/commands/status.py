@@ -22,7 +22,10 @@ from jj_review.formatting import (
     render_revision_lines,
     render_revision_with_suffix_lines,
 )
-from jj_review.github.error_messages import github_unavailable_message
+from jj_review.github.error_messages import (
+    github_unavailable_message,
+    remote_unavailable_message,
+)
 from jj_review.jj import JjCliArgs, UnsupportedStackError
 from jj_review.models.intent import (
     AbortIntent,
@@ -157,15 +160,7 @@ def render_status_selection_lines(*, prepared_status) -> tuple[object, ...]:
     prepared = prepared_status.prepared
     lines: list[object] = []
     if prepared.remote is None:
-        if prepared.remote_error is None:
-            lines.append(_prefixed_status_line("Selected remote", "unavailable"))
-        else:
-            lines.append(
-                _prefixed_status_line(
-                    "Selected remote",
-                    ("unavailable (", prepared.remote_error, ")"),
-                )
-            )
+        lines.append(remote_unavailable_message(remote_error=prepared.remote_error))
     return tuple(lines)
 
 

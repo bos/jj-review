@@ -25,6 +25,24 @@ jj-review submit <revset>
 
 The tool stops and reports what is ambiguous rather than guessing.
 
+## `status` says it cannot find a trunk bookmark
+
+Cause:
+
+- the repo is brand new and does not have a trunk bookmark
+- your main bookmark exists, but `trunk()` does not point to it
+
+What to do:
+
+- In a new repo, make an initial commit and create a trunk bookmark, usually
+  `main`, then rerun the command.
+- In an existing repo, configure `trunk()` to point to your trunk bookmark,
+  such as `main`. For example:
+
+```bash
+jj config set --repo 'revset-aliases."trunk()"' main
+```
+
 ## GitHub shows different PR state than `status` reports
 
 Cause:

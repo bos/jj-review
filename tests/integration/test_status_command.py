@@ -43,6 +43,45 @@ def test_status_reports_pull_request_link_without_showing_managed_bookmark(
     assert "review/feature-1-" not in captured.out
 
 
+def test_status_reports_missing_trunk_bookmark_in_empty_repo(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    repo = tmp_path / "repo"
+    run_command(["jj", "git", "init", str(repo)], tmp_path)
+    run_command(["jj", "config", "set", "--repo", "user.name", "Test User"], repo)
+    run_command(["jj", "config", "set", "--repo", "user.email", "test@example.com"], repo)
+    config_path = tmp_path / "jj-review-config.toml"
+    config_path.write_text("[jj-review]\n", encoding="utf-8")
+
+    exit_code = run_main(repo, config_path, "status")
+    captured = capsys.readouterr()
+    combined = " ".join((captured.out + captured.err).split())
+
+    assert exit_code == 1
+    assert "create a trunk bookmark" in combined.lower()
+
+
+def test_status_reports_missing_git_remote_for_local_only_repo(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path, with_remote=False)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    run_command(["jj", "config", "set", "--repo", 'revset-aliases."trunk()"', "main"], repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    exit_code = run_main(repo, config_path, "status")
+    captured = capsys.readouterr()
+    combined_err = " ".join(captured.err.split())
+
+    assert exit_code == 1
+    assert "no git remote" in combined_err.lower()
+    assert "Unsubmitted stack:" in captured.out
+    assert "GitHub status unknown" in captured.out
+
+
 def test_status_truncates_long_unsubmitted_stack_summary(
     tmp_path: Path,
     monkeypatch,

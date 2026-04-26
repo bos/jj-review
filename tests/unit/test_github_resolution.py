@@ -42,7 +42,7 @@ def test_select_submit_remote_uses_only_remote_when_unambiguous() -> None:
 def test_select_submit_remote_rejects_ambiguous_remote_set_without_origin() -> None:
     with pytest.raises(
         CliError,
-        match="Could not determine which Git remote to use for submit",
+        match="Could not determine which Git remote to use",
     ):
         select_submit_remote(
             (
@@ -55,7 +55,7 @@ def test_select_submit_remote_rejects_ambiguous_remote_set_without_origin() -> N
 def test_select_submit_remote_rejects_empty_remote_list() -> None:
     with pytest.raises(
         CliError,
-        match="Could not determine which Git remote to use for submit",
+        match="Could not determine which Git remote to use",
     ):
         select_submit_remote(())
 

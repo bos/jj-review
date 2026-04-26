@@ -50,6 +50,17 @@ def github_unavailable_message(
     return ("GitHub unavailable for ", code(github_repository), ": ", github_error)
 
 
+def remote_unavailable_message(
+    *,
+    remote_error: Message | None,
+) -> Message:
+    """Render a concise warning when Git remote selection could not proceed."""
+
+    if remote_error is None:
+        return "No Git remote is configured."
+    return remote_error
+
+
 def github_error_detail(error: GithubClientError) -> str:
     """Return a concise detail string from a GitHub client error."""
 

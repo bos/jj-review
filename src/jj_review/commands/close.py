@@ -28,6 +28,7 @@ from jj_review.formatting import short_change_id
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
 from jj_review.github.error_messages import (
     github_unavailable_message,
+    remote_unavailable_message,
     summarize_github_error_reason,
 )
 from jj_review.github.resolution import parse_github_repo, select_submit_remote
@@ -231,10 +232,7 @@ def close(
     )
     result = stream_close(prepared_close=prepared_close)
     if result.remote is None:
-        if result.remote_error is None:
-            console.warning("Selected remote: unavailable")
-        else:
-            console.warning(f"Selected remote: unavailable ({result.remote_error})")
+        console.warning(remote_unavailable_message(remote_error=result.remote_error))
     github_message = github_unavailable_message(
         github_error=result.github_error,
         github_repository=result.github_repository,

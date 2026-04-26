@@ -149,6 +149,9 @@ Recent refactor slices:
 - integration coverage now smoke-tests empty repos, disconnected-root stack
   shapes, non-GitHub remotes, and merge-commit selections so core commands
   fail cleanly without tracebacks on realistic boundary cases
+- empty-repo stack discovery and status errors now report a missing trunk
+  bookmark with a concrete new-repo/config hint instead of a misleading
+  "history no longer forms" message that blamed the root-commit fallback
 - `status` now renders GitHub target failures as ordinary warning lines with
   explicit `error:` wording instead of the hanging-indent status helper, so
   lookup failures and non-GitHub remotes no longer split awkwardly across
@@ -160,6 +163,9 @@ Recent refactor slices:
 - command warnings now describe concrete GitHub failures as `GitHub
   unavailable ...` and suppress bare `GitHub target: unavailable` banners,
   so warning lines say what went wrong instead of repeating an internal label
+- commands now report missing or ambiguous Git remote selection directly
+  instead of rendering a generic `Selected remote: unavailable` label, so
+  local-only repos and remote-selection failures say what is wrong in one line
 - CLI failures can now separate the diagnosis from the next-step guidance,
   rendering `Error:` on its own line and any actionable `Hint:` on the next
   line instead of tinting both as one long failure sentence

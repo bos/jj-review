@@ -24,7 +24,10 @@ from jj_review.bootstrap import bootstrap_context
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError, ErrorMessage
 from jj_review.github.client import GithubClientError, build_github_client
-from jj_review.github.error_messages import github_unavailable_message
+from jj_review.github.error_messages import (
+    github_unavailable_message,
+    remote_unavailable_message,
+)
 from jj_review.github.pull_request_refs import parse_repository_pull_request_reference
 from jj_review.github.resolution import (
     ParsedGithubRepo,
@@ -141,12 +144,7 @@ def _print_import_result(result: ImportResult) -> None:
     if result.fetched_tip_commit is not None:
         console.output(ui.prefixed_line("Fetched tip commit: ", result.fetched_tip_commit))
     if result.remote is None:
-        if result.remote_error is None:
-            console.warning("Selected remote: unavailable")
-        else:
-            console.warning(
-                t"Selected remote: unavailable ({result.remote_error})"
-            )
+        console.warning(remote_unavailable_message(remote_error=result.remote_error))
     github_message = github_unavailable_message(
         github_error=result.github_error,
         github_repository=result.github_repository,

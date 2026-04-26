@@ -153,10 +153,14 @@ class PreparedRevision:
 def status_preparation_cli_error(error: UnsupportedStackError) -> CliError:
     """Translate stack-shape preparation failures into a user-facing CLI error."""
 
+    if error.reason == "trunk_resolved_to_root":
+        return CliError(
+            "No trunk bookmark is configured for this repo.",
+            hint=error.hint,
+        )
     if error.reason == "divergent_change" and error.change_id is not None:
         return CliError(
-            t"Could not inspect review status because local history no longer forms a "
-            t"supported linear stack. {error}",
+            t"Local history does not form a linear stack. {error}",
             hint=(
                 t"Inspect the divergent revisions with {ui.cmd('jj log -r')} "
                 t"{ui.revset(f'change_id({error.change_id})')} and reconcile them "
@@ -164,10 +168,7 @@ def status_preparation_cli_error(error: UnsupportedStackError) -> CliError:
                 t"or another fetch imports remote bookmark updates for landed PRs."
             ),
         )
-    return CliError(
-        t"Could not inspect review status because local history no longer forms a "
-        t"supported linear stack. {error}"
-    )
+    return CliError(t"Local history does not form a linear stack. {error}")
 
 
 def prepare_status(

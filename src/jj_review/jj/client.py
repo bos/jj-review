@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from jj_review import ui
-from jj_review.errors import CliError, ErrorMessage
+from jj_review.errors import CliError, ErrorHint, ErrorMessage
 from jj_review.models.bookmarks import BookmarkState, GitRemote, RemoteBookmarkState
 from jj_review.models.stack import LocalRevision, LocalStack
 
@@ -51,9 +51,10 @@ class UnsupportedStackError(CliError):
         message: ErrorMessage,
         *,
         change_id: str | None = None,
+        hint: ErrorHint | None = None,
         reason: UnsupportedStackReason | None = None,
     ) -> None:
-        super().__init__(message)
+        super().__init__(message, hint=hint)
         self.change_id = change_id
         self.reason = reason
 
@@ -398,8 +399,8 @@ class JjClient:
             )
         if len(trunk.parents) == 0:
             raise UnsupportedStackError(
-                t"{ui.revset('trunk()')} resolved to the root commit. Configure a concrete trunk "
-                t"bookmark before discovering a review stack.",
+                t"No trunk bookmark is configured for this repo.",
+                hint=t"Create a trunk bookmark such as {ui.bookmark('main')}, then retry.",
                 reason="trunk_resolved_to_root",
             )
         return trunk

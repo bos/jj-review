@@ -42,7 +42,7 @@ def select_submit_remote(remotes: tuple[GitRemote, ...]) -> GitRemote:
     if len(remotes) == 1:
         return remotes[0]
     raise CliError(
-        "Could not determine which Git remote to use for submit.",
+        "Could not determine which Git remote to use.",
         hint=t"Add an {ui.bookmark('origin')} remote or leave exactly one remote.",
     )
 

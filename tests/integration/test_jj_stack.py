@@ -28,11 +28,11 @@ def test_discover_review_stack_rejects_root_fallback_trunk(tmp_path: Path) -> No
     repo = init_repo(tmp_path, configure_trunk=False)
     commit_file(repo, "feature 1", "feature-1.txt")
 
-    with pytest.raises(
-        UnsupportedStackError,
-        match=r"trunk\(\) resolved to the root commit",
-    ):
+    with pytest.raises(UnsupportedStackError) as exc:
         JjClient(repo).discover_review_stack()
+
+    assert exc.value.reason == "trunk_resolved_to_root"
+    assert exc.value.hint is not None
 
 
 def test_discover_review_stack_ignores_off_path_reviewable_child(tmp_path: Path) -> None:
