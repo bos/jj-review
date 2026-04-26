@@ -297,7 +297,7 @@ def build_parser() -> ArgumentParser:
         "-f",
         "--fetch",
         action="store_true",
-        help="Fetch remote bookmark state before inspecting review status",
+        help="Fetch first so status uses current remote branch locations",
     )
     status_parser.add_argument(
         "-v",

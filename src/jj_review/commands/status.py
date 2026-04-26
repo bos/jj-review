@@ -4,6 +4,8 @@ This reports the pull request jj-review is using for each change. By default it 
 of submitted and unsubmitted changes above the trunk row; `--verbose` expands those summaries
 and also shows the bookmark/branch used to track each PR.
 
+`--fetch` runs a fetch first so the report uses the current remote branch locations.
+
 """
 
 from __future__ import annotations
