@@ -1,156 +1,123 @@
-# JJ-Native Stacked GitHub Review Design
+# jj-native stacked GitHub review: design
 
 ## Summary
 
-This document describes a `jj`-native way to turn a linear chain of changes into
-stacked GitHub pull requests without making side metadata the source of truth.
+`jj-review` turns a linear chain of `jj` changes into a stack of GitHub pull requests
+without making side metadata the source of truth.
 
-A reviewable unit should be one visible mutable change, identified by full
-`change_id`.
+The model is small:
 
-A review stack should be derived from the `jj` DAG, not reconstructed from a
-tool-owned parent map.
+- one reviewable unit is one visible mutable `jj` change, identified by its full `change_id`
+- one review stack is a linear chain of those changes from a chosen head back to `trunk()`
+- each change gets one bookmark, used as that change's PR head branch
+- the local stack is rediscovered from the `jj` DAG on every run, not from a saved parent map
 
-Each reviewable change should get one bookmark for its pull request, which acts
-as the GitHub PR head branch.
+The only thing `jj-review` saves locally is a small per-change record holding the bookmark
+name, the PR number/URL, and a couple of flags. Everything else is derived. That keeps the
+tool feeling like an extension of `jj` rather than a parallel stack manager.
 
-Local metadata, if any, should be limited to the GitHub PR link and the pinned
-bookmark name chosen for a change when the default
-name includes mutable text such as the commit subject.
+## Recommended GitHub policy
 
-The result is a tool that behaves like a natural extension of `jj` instead of a
-parallel stack manager.
+The workflow assumes a few GitHub settings, because some branch-history shapes do not map
+cleanly back to a single local stack:
 
-For a first implementation, the tool can be almost stateless.
+- `main` requires linear history
+- the configured review-branch prefix (default `review/*`) requires linear history
+- the repo allows squash and/or rebase merges so linear history stays mergeable
+- a required check or workflow blocks PRs whose base branch matches the review-branch
+  prefix from being merged on GitHub
 
-## Recommended GitHub Policy
-
-This workflow works best when the GitHub repository is configured to reduce
-branch-history shapes that do not map cleanly back into one active local stack.
-
-Recommended settings:
-
-- `main` should require linear history
-- the configured review branch prefix should require linear history (by
-  default `review/*`)
-- the repository should allow squash merges and/or rebase merges so linear
-  history remains mergeable
-- PRs whose base branch matches the configured review branch prefix (by
-  default `review/*`) should be blocked from merging by a required check or
-  required workflow
-
-That last rule is important. Linear-history protection by itself is not
-enough: GitHub can still merge PRs targeting the configured review branch
-prefix (by default `review/*`) with squash or rebase, which creates accepted
-branch-local history that is awkward to map back into the intended local `jj`
-stack model.
+The last rule is important. Linear-history protection alone is not enough: GitHub will
+still happily squash- or rebase-merge a PR whose base is `review/*`, and the resulting
+branch state is hard to map back to the local `jj` stack.
 
 The intended policy is:
 
 - PRs targeting `main` may be merged
-- PRs targeting the review branch prefix are review-only and should not be
-  merged directly
+- PRs targeting `review/*` are review-only and must not be merged directly on GitHub
 
-The tool should diagnose that policy explicitly when it sees a merged PR whose
-base branch matches the review branch prefix. That is not a mysterious stack
-failure. It is a repository-policy problem, and the user should be told that
-the repo should block those merges on GitHub.
+When `jj-review` sees a merged PR whose base matches the review-branch prefix, it diagnoses
+that as a repo policy problem and tells the user to fix the GitHub setting. It is not a
+mysterious stack failure.
 
-## Design Goals
+## Design goals
 
-1. Make stacked GitHub PRs feel natural in a `jj` workflow.
+1. Make stacked GitHub PRs feel native in a `jj` workflow.
 2. Be easy to use.
 3. Avoid out-of-band metadata as a source of truth.
 4. Keep branch names stable across rewrite-heavy review.
 5. Recompute as much as possible from `jj` state on every run.
 6. Keep any persisted state optional, minimal, and tool-owned.
 
-## Relevant JJ Constraints
+## Relevant `jj` constraints
 
-A few properties of `jj` drive this design:
+A few `jj` properties drive this design:
 
-- There is no "current bookmark". Bookmarks do not move when you create a new
-  commit. They must be moved explicitly, but they do follow rewrites once
-  attached to a commit.
-- Bookmarks are the remote branch boundary. A local bookmark is what gets pushed
-  as a remote Git branch.
-- GitHub review is still branch-based. Even in a `jj` workflow, the review
-  system ultimately wants a head branch and a base branch for each PR.
-- `jj git push --change` can generate stable bookmark names, and `jj` already
-  encourages using `change_id` as the stable ingredient in that name.
-- `jj` already tracks remote bookmark positions and performs the safety checks
-  needed for force-push-heavy workflows.
-- `change_id` is the durable logical identity of a change across rewrites. The
-  commit ID is not.
-- Both `jj-lib` and the CLI are moving integration surfaces. A tool should keep
-  its assumptions narrow and explicit.
-- `jj`'s internal storage is not an extension API. A tool should not write into
-  `.jj` internals just because they are available.
+- There is no "current bookmark". Bookmarks do not move when you create a new commit, but
+  they do follow rewrites of the commit they are attached to.
+- A bookmark is the remote-branch boundary: a local bookmark is what gets pushed as a Git
+  branch.
+- GitHub review is still branch-based. Even in a `jj` workflow, GitHub wants a head branch
+  and a base branch per PR.
+- `jj git push --change` can generate stable bookmark names from `change_id`.
+- `jj` already tracks remote bookmark positions and does the safety checks needed for
+  force-push-heavy workflows.
+- `change_id` is the durable logical identity of a change across rewrites. The commit ID
+  is not.
+- Both `jj-lib` and the CLI are moving integration surfaces; this tool keeps its
+  assumptions narrow.
+- `jj`'s internal storage is not an extension API; the tool does not write into `.jj/`
+  internals.
 
-## Proposed Mental Model
+## Mental model
 
-### Review Change
+### Review change
 
-A review change is one visible mutable `jj` change, identified by full
-`change_id`.
+A review change is one visible mutable `jj` change, identified by full `change_id`. That
+is the durable identity — not the commit ID, not the bookmark name, not the current diff
+base.
 
-That is the durable identity. Not the commit ID, not the bookmark name, and not
-the current diff base.
+"Visible mutable" follows `jj`'s own revsets:
 
-For the purposes of this tool, "visible mutable" should follow `jj`'s own
-revset semantics rather than a tool-specific definition:
+- visible: the commit is in `visible()` (not a hidden predecessor)
+- mutable: the commit is in `mutable()`, with immutability defined by the repo's
+  `immutable_heads()`
 
-- "visible" means a commit in `visible()`, not a hidden predecessor reached by
-  commit ID or change offset
-- "mutable" means a commit in `mutable()`, with immutability determined by the
-  repo's configured `immutable_heads()` and its ancestors
+By default that means `trunk()`, tags, and untracked remote bookmarks define immutable
+history. If the repo customizes `immutable_heads()`, `jj-review` honors that rather than
+maintaining its own competing notion of what is safe to review or rewrite.
 
-By default, that means the tool inherits `jj`'s notion that `trunk()`, tags,
-and untracked remote bookmarks define immutable history. If a repo customizes
-`immutable_heads()`, the tool should honor that customization rather than
-trying to maintain its own competing definition of what is safe to review or
-rewrite.
+### Review stack
 
-### Review Stack
+A review stack is a linear chain of review changes from a chosen head back to `trunk()`.
 
-A review stack is a linear chain of review changes from a selected head back to
-`trunk()`.
+Commands that operate on a stack validate only that one parent chain. Other visible
+children elsewhere in the DAG are separate stacks, not an automatic error.
 
-Commands that operate on a selected stack should validate only that selected
-parent chain. Other visible children elsewhere in the DAG are separate stacks,
-not automatically an error for the selected one.
+`jj-review` only supports linear stacks. It rejects (or asks for manual help with):
 
-For now, the tool should support only linear stacks. Reject or require manual
-intervention for:
-
-- merge commits
+- merge commits inside the chain
 - divergent changes
 - multiple reviewable parents
-- a selected path that reaches a review tree instead of staying a simple chain
+- a path that branches into a tree instead of staying a simple chain
 
-If an ancestor on the selected path has other reviewable children, those
-children should be treated as separate PR chains outside the current command's
-scope unless that command explicitly asks to reason about more than one stack.
+If an ancestor on the chain has other reviewable children, those are separate PR chains
+and out of scope for the current command unless the command explicitly asks about more
+than one stack.
 
-`jj` can model all of those, but GitHub stacked PR UX gets much harder once the
-unit is not a simple parent-child chain.
+`jj` can model all those shapes; GitHub's stacked-PR UX gets much harder once the unit
+is no longer a simple parent-child chain.
 
-### Pull Request Branch
+### Pull request branch
 
-Each review change gets exactly one bookmark or branch for its pull request,
-which becomes the GitHub PR head branch.
+Each review change gets exactly one bookmark, used as the GitHub PR head branch. The
+bookmark name is readable to humans and stable for tooling.
 
-That bookmark name should be readable to humans and stable for tooling.
+By default it is built from:
 
-By default, it should be derived from:
-
-- the configured bookmark prefix, from `[jj-review] bookmark_prefix`
-  (default `review`)
-- a normalized slug from the first line of the commit description
-- a short fixed-length `change_id` suffix to give stable, near-certain
-  uniqueness
-
-Example shape with the default prefix:
+- the configured prefix from `[jj-review] bookmark_prefix` (default `review`)
+- a slug from the first line of the commit description
+- a short fixed-length `change_id` suffix (8 chars by default)
 
 ```text
 review/<slug-from-subject>-<change_id.short(8)>
@@ -162,577 +129,440 @@ Example:
 review/fix-bookmark-resolution-ypvmkkuo
 ```
 
-The slug is there for reviewers using GitHub or plain Git. The short
-`change_id` suffix is there so the name stays tied to the logical change
-without becoming noisy.
+The slug helps reviewers using the GitHub UI or plain Git. The `change_id` suffix keeps
+the name tied to the logical change without becoming noisy. Eight characters is stable,
+readable, and effectively unique once combined with the slug. If a collision is ever
+detected, the tool can extend the suffix or fall back to the saved name.
 
-Eight characters is a good default. It is stable, readable, and should be
-effectively unique in practice once combined with the title slug. If a
-collision is ever detected, the tool can extend the suffix or fall back to the
-full stored bookmark name.
+The slug is only an input to the *initial* default name. Once a bookmark is created it is
+not automatically renamed when the commit subject changes — title churn must not cause
+branch churn during review.
 
-The subject slug is only an input to the initial default name. Once a bookmark
-has been created, the tool should not automatically rename it just because the
-commit title changes later. Title churn should not cause branch churn during
-review.
+In other words: generate once, then pin. The resolution order is:
 
-That means bookmark naming is "generate once, then pin", not "recompute forever
-from the current subject". The resolution order should be:
+1. an explicit override, if present
+2. a name already known from local state, the tracking state file, or an existing PR for
+   this change
+3. otherwise, a matching existing bookmark selected through the configured `use_bookmarks`
+   patterns
+4. otherwise, generate the default from the current subject and `change_id`, then save
+   that choice
 
-1. previously chosen name discovered from local state, saved jj-review data, or
-   an existing PR for that change
-2. otherwise, a matching existing bookmark selected through configured
-   `use_bookmarks` patterns, if present
-3. otherwise, generate the initial default from the current subject and
-   `change_id`, then persist that choice
+If two changes resolve to the same bookmark, `submit` stops before mutating anything.
 
-Bookmarks matched through `use_bookmarks` are preserved external names rather
-than managed review bookmarks. Submit may push them, but later cleanup should
-not delete or forget them by default.
+Bookmarks matched through `use_bookmarks` are external names rather than tool-managed
+review bookmarks. `submit` may push them, but later cleanup does not delete or forget
+them by default.
 
-If an implementation wants fully stateless names, it should drop the subject
-slug and derive names only from stable inputs such as `change_id`.
-
-### Review Base
+### Review base
 
 The GitHub base branch for a review change is:
 
 - the parent review change's bookmark, if the parent is also being reviewed
-- otherwise the repo trunk branch
+- otherwise the trunk branch
 
-This is the key place where GitHub still imposes a branch model on top of `jj`.
+This is where GitHub still imposes a branch model on top of `jj`. `trunk()` defines the
+stack boundary in commit space, but it does not by itself give GitHub a base-branch name.
+For GitHub operations the tool has to resolve trunk to one concrete remote bookmark on
+the chosen remote, e.g. `main@origin`.
 
-`trunk()` still defines the stack boundary in commit space, but by itself it
-does not give GitHub a base branch name. For GitHub operations, the tool must
-resolve the trunk base to one concrete remote bookmark on the selected remote,
-such as `main@origin`.
+The trunk base must be one of:
 
-For now, require one of:
+- the chosen remote's default branch as reported by GitHub
+- or an unambiguous remote bookmark on that remote whose target is `trunk()`
 
-- the selected remote's default branch as reported by GitHub
-- or an unambiguous remote bookmark on the selected remote whose target is
-  `trunk()`
-
-If `trunk()` falls back to `root()` or resolves to a commit that cannot be
-mapped to exactly one remote bookmark on the target remote, submit should fail
-with a configuration error instead of guessing.
+If `trunk()` falls back to `root()` or cannot be mapped to exactly one remote bookmark on
+the target remote, `submit` errors out rather than guessing.
 
 ### Workspaces
 
-Saved jj-review data is repo-scoped, not workspace-scoped.
+Tracking state is shared across workspaces for the same repo (see Storage strategy).
+Stale working copies are a local workspace concern, not a separate review concept: if
+`jj` reports a stale workspace, the tool stops and points the user at
+`jj workspace update-stale`. Divergence caused by concurrent rewrites from multiple
+workspaces is unsupported and errors out.
 
-That matches `jj`'s model: one repository can have multiple workspaces, each
-with its own working copy, while sharing the same commit graph, bookmark view,
-and operation history.
+## What is derived vs. stored
 
-For now:
+### Derived from `jj` every time
 
-- machine-written jj-review data should be shared across workspaces for the same
-  repo
-- stale working copies are a local workspace problem, not a distinct review
-  concept for this tool
-- if `jj` reports a stale workspace, the tool should stop and point the user to
-  `jj workspace update-stale`
-- divergence caused by concurrent rewrites from multiple workspaces remains an
-  unsupported fail-closed case
-
-## What Should Be Derived vs Stored
-
-### Derive from JJ Every Time
-
-These do not need tool-owned durable metadata:
+These need no tool-owned state:
 
 - stack topology
 - parent-child relationships
-- effective diff base inside the stack
+- diff base inside the stack
 - current head commit for a change
 - whether a bookmark needs to move after a rewrite
 - whether a bookmark is ahead of its tracked remote
 
-All of that already lives in the commit DAG, the change ID model, and the bookmark view.
+All of that already lives in the commit DAG, the change-ID model, and the bookmark view.
 
-### Store Only Optional jj-review Data
+### Stored in the tracking-state file
 
-If the tool stores any machine-written local state, it should be limited to:
+If anything is saved locally, it is a small record per change:
 
-- pinned generated bookmark name for a specific change once jj-review is
-  already attached to live or historical review identity for that change
-- saved PR number and URL
-- saved stack-summary comment identifier, if the tool uses a dedicated PR comment
-- last known PR state, only as saved fallback data
-- a durable unlinked marker for a change the operator explicitly
-  unlinked, because that is user intent the tool must not silently undo
+- the pinned bookmark name (once chosen)
+- PR number and URL
+- the navigation/overview comment IDs, if used
+- the last known PR state and review decision, used as a fallback when GitHub is offline
+- a durable "unlinked" marker for a change the user explicitly detached, because that is
+  user intent the tool must not silently undo
 
-Machine-written state should distinguish three cases cleanly:
+A change can be in one of three link states:
 
-- untracked: no saved review identity yet; predicted bookmark names and remote
-  observations alone do not mean the change is under review
-- tracked: saved local review identity exists and jj-review should inspect or
-  mutate that review state normally
-- unlinked: saved local review identity exists, but the operator explicitly
-  detached it and jj-review must not silently reattach it
+- **untracked**: no record yet. Predicted bookmark names and remote observations alone do
+  not count as tracking.
+- **tracked (active)**: a record exists; the tool inspects and updates it normally.
+- **unlinked**: a record exists, but the user explicitly detached it. The tool must not
+  silently reattach.
 
-Even the PR link can often be rediscovered by asking GitHub for the PR whose
-head branch matches the saved bookmark name, but that remote discovery should
-remain an explicit recovery flow rather than something plain `status` does for
-never-tracked local changes.
+Even the PR link can usually be rediscovered by asking GitHub for the PR whose head
+branch matches the saved bookmark, but that rediscovery is an explicit recovery flow —
+plain `status` does not do it for never-tracked changes.
 
-User-authored settings are a separate category and should not be
-mixed into machine-written jj-review data. Those include:
+User-authored settings (e.g. reviewer or label preferences, `use_bookmarks` patterns)
+live in `jj` config, not in the tracking-state file.
 
-- repo defaults such as reviewer or label preferences
-- bookmark-selection patterns such as `use_bookmarks`
-- additional user preferences (future extension point; no current examples yet)
+The tool also writes a stack-summary comment onto each PR (the navigation/overview
+comments described in the submission algorithm). That summary is not a source of truth —
+it is regenerated on every `submit` from the current `jj` stack, and the tool does not
+parse it back from GitHub except to re-find the ID of a comment it previously wrote.
 
-### Reviewer-Facing Stack Metadata
+## Storage strategy
 
-The tool should also maintain a reviewer-facing description of the stack on
-GitHub, but that description must not be the source of truth.
+Do not write into `jj` internals (`.jj/repo/store/extra/`, the view/op store, private
+ref namespaces). Those are tempting but tie the tool to storage details `jj` keeps
+flexible.
 
-For now, that can be either:
+Do not store config or tracking state in the working tree. Tracked workspace files are
+the wrong default for both:
 
-- a small stack section in each PR body
-- or a dedicated bot comment on each PR
+- config in the working tree looks like project-shared policy and is too easy to commit
+- tracking state in the working tree dirties the `jj` working copy and perturbs the
+  history the tool is supposed to map to GitHub
 
-It should be regenerated on each submit from the current `jj` stack and should
-list the nearest ancestor and descendant PRs in a simple human-readable order.
+So storage splits in two:
 
-This serves the same UX purpose as similar stack navigation used by tools such
-as `ghstack` and Graphite, but it is only presentation. The tool should not
-reconstruct stack topology by reading that text back from GitHub, except
-optionally to rediscover the identity of a previously created bot comment.
+- human-authored config in `jj`'s normal config scopes under the `jj-review` namespace
+- tracking state in `~/.local/state/jj-review/repos/<repo-id>/state.json`
 
-## Recommended Storage Strategy
+Repo defaults follow `jj`'s own precedence:
 
-Do not write into `jj` internals such as:
+- user config (`jj config edit --user`)
+- repo config (`jj config edit --repo`)
+- workspace config (`jj config edit --workspace`)
 
-- `.jj/repo/store/extra/`
-- the view/op store
-- private Git ref namespaces inside the backing store
+That keeps `jj-review` aligned with `jj`'s config model rather than inventing a parallel
+conditional-matching system.
 
-Those are tempting, but they tie the tool to storage details that `jj`
-explicitly keeps flexible.
+`<repo-id>` is derived from the canonical `.jj/repo` storage path. That keeps state
+repo-scoped across workspaces without a separate bootstrap step and without writing any
+tool-specific file into the workspace.
 
-Do not store `jj-review` config or machine-written state in the working tree.
-Tracked workspace files are the wrong default for both:
+Reads treat a missing state file as empty state. Writes create the parent directory on
+demand and only fail if the filesystem refuses.
 
-- config in the working tree looks like project-shared policy and is too easy to
-  commit accidentally
-- machine-written state in the working tree dirties the `jj` working copy and
-  perturbs the history the tool is supposed to map to GitHub
+## Submission algorithm
 
-Instead, split storage into two locations:
+Given a chosen head revision:
 
-- human-authored config in jj's normal config scopes under the `jj-review`
-  namespace
-- machine-written jj-review data in
-  `~/.local/state/jj-review/repos/<repo-id>/state.json`
-
-Repo defaults should follow jj's own precedence rules:
-
-- user config from `jj config edit --user`
-- repo config from `jj config edit --repo`
-- workspace config from `jj config edit --workspace`
-
-That keeps `jj-review` aligned with jj's existing repo/workspace config model
-without inventing a second conditional-matching system on top.
-
-For machine-written jj-review data, derive `<repo-id>` from the canonical
-`.jj/repo` storage path for the repository.
-
-That keeps the state repo-scoped across workspaces without depending on
-`config-id` creation as a separate step and without writing any tool-specific
-file into the workspace.
-
-Reads should treat missing state files as empty state. Writes should create the
-parent directory on demand and fail only if the filesystem refuses that write.
-
-## Submission Algorithm
-
-Given a selected head revision:
-
-1. Resolve the selected head revision. When the operator explicitly asks to
-   submit the current stack by omitting `<revset>`, select `@-`. The
-   working-copy commit `@` remains explicit user intent.
-2. Walk the selected-parent chain downward, building a linear chain of visible
-   mutable changes until reaching the stack boundary. In the common case that
-   boundary is `trunk()`, but it may also be a recent shared ancestor of the
-   selected head and `trunk()`, or an allowed merged-side boundary discovered
-   during status-style stack inspection.
-3. Reject ambiguous shapes instead of inventing metadata to patch around them.
-   Also fail closed if any selected local change still has unresolved
-   conflicts; submit must not push or open review state for a conflicted local
-   stack snapshot.
-4. Resolve each change's bookmark by reuse-first, generation-second:
-   - explicit override, if present
-   - otherwise previously chosen local or saved name, or the head branch of an
-     existing PR for that change
-   - otherwise generate the initial default name from subject plus `change_id`
-     and persist that choice
-   - if two selected changes resolve to the same bookmark name, fail closed
-     before mutating local or remote state
-5. Query GitHub for the PR state of those bookmarks.
-   - if the saved link and GitHub-discovered link disagree, stop and require
-     an explicit recovery flow instead of silently creating a replacement PR
-   - by default, derive the PR title from the commit subject and the PR body
-     from the remaining commit description; if the commit has no body, fall
-     back to the subject so GitHub does not render an empty opening PR comment
-   - `submit --describe-with <helper>` may replace that default mapping by
-     invoking the helper once per change as `helper --pr <change_id>`
-   - the same helper may also be invoked once per selected stack as
-     `helper --stack <selected-revset>`; that output becomes an optional
-     reviewer-facing overview comment on the selected head pull request when
-     the selected stack contains more than one change, and does not become a
-     separate source of truth for topology
-   - for selected stacks with more than one change, every PR in the stack
-     should get one managed navigation comment that renders the entire PR
-     stack in top-to-bottom order, with a plain trunk line shown beneath the
-     bottom-most PR; the current PR title is bold and marked as "this PR",
-     and the other PR titles link to their pull requests
-   - when `helper --stack` returns non-empty content, the selected head pull
-     request should also get one managed overview comment whose body is the
-     helper-generated stack-level prose
-   - for stack helpers, submit may also provide a temporary helper-owned input
-     file describing the generated per-PR title/body pairs and compact diffstat
-     context for the selected stack, so helpers can summarize the stack from
-     reviewer-facing PR metadata instead of raw full-patch history
-   - helper output must be structured and fail closed; invalid helper output
-     should abort submit before remote or GitHub mutation
-6. Treat merged ancestors as no longer reviewable. For each remaining change
-   from bottom to top:
-   - ensure the local bookmark points at the current visible commit for that change
-   - treat topology changes as meaningful updates even when the patch tree is
-     unchanged; if the parent review change, bookmark target, or PR base changed,
-     this is not a no-op
-   - if the selected remote bookmark already points at the desired commit, treat
-     it as up to date even when the local repo has not tracked that remote
-     bookmark yet
-   - if the local bookmark or selected remote bookmark is conflicted, stop and
-     require the user to resolve the bookmark state first
-   - if the selected remote bookmark exists but points somewhere else, proceed
-     only if the match for that branch is already proven by local state, saved
-     data, or GitHub discovery; otherwise fail closed instead of
-     silently taking over that branch
-   - when updating an existing untracked remote bookmark, do not import its
-     old target into the local bookmark before the remote update completes
+1. Resolve the head. When the user runs `submit` with no `<revset>`, the head is `@-`.
+   `@` stays explicit user intent and is never selected by an omitted argument.
+2. Walk the parent chain down to the stack boundary, building a linear chain of visible
+   mutable changes. The boundary is usually `trunk()`, but may also be a recent shared
+   ancestor of the head and `trunk()`, or an allowed merged-side boundary discovered
+   during status-style inspection.
+3. Reject ambiguous shapes rather than papering over them with metadata. Also stop if any
+   change in the stack still has unresolved conflicts: `submit` must not push a
+   conflicted snapshot.
+4. Resolve each change's bookmark using the reuse-first order from "Pull request
+   branch" above.
+5. Look up GitHub PR state for those bookmarks.
+   - if the saved PR link disagrees with what GitHub reports, stop and require an
+     explicit recovery flow rather than silently creating a replacement PR
+   - by default, the PR title comes from the commit subject and the PR body from the
+     remaining commit description; if there is no body, fall back to the subject so the
+     opening comment is not blank
+   - `submit --describe-with <helper>` replaces that default by invoking the helper once
+     per change (`helper --pr <change_id>`), and once per stack
+     (`helper --stack <revset>`) for stack-level prose
+   - the per-stack invocation only fires when the stack contains more than one change;
+     its output becomes a stack overview comment on the head PR. It is not used as a
+     topology source.
+   - for stacks with more than one change, every PR also gets a single navigation
+     comment listing every PR top-to-bottom with a trunk line beneath the bottom-most
+     PR. The current PR's title is bold and marked "this PR"; the other titles link.
+   - when `helper --stack` returns non-empty content, the head PR also gets a single
+     overview comment containing the helper-generated stack prose.
+   - for stack helpers, `submit` writes a temporary input file with the per-PR title/body
+     pairs and a compact diffstat for each PR, and points the helper at it via
+     `JJ_REVIEW_STACK_INPUT_FILE`. Helpers can summarize from PR-level metadata rather
+     than replaying the full patch history.
+   - helper output must be structured. Invalid output aborts `submit` before any local,
+     remote, or GitHub mutation.
+6. Treat merged ancestors as no longer reviewable. Bottom-up for each remaining change:
+   - point the local bookmark at the current visible commit for the change
+   - treat topology changes as meaningful even when the diff is unchanged: if the parent
+     review change, bookmark target, or PR base changed, this is not a no-op
+   - if the chosen remote bookmark already points at the desired commit, treat it as up
+     to date even when the local repo has not yet tracked that remote
+   - if the local bookmark or remote bookmark is conflicted, stop and ask the user to
+     resolve the bookmark state first
+   - if the remote bookmark exists but points elsewhere, only proceed when the match is
+     already proven by local state, the saved record, or GitHub discovery; otherwise
+     stop rather than silently taking over the branch
+   - when updating an existing untracked remote bookmark, do not import its old target
+     into the local bookmark before the remote update completes
    - otherwise push the bookmark
-   - compute the GitHub base branch name:
-     - nearest ancestor in the chain whose PR is still open, if any
+   - compute the GitHub base branch:
+     - the nearest still-open ancestor PR in the chain, if any
      - otherwise the resolved trunk branch
-   - if an ancestor PR has merged and the local `jj` parentage still reflects
-     the old review stack, require a local `jj rebase` before changing the PR
-     base
-   - create or update the PR for `head bookmark -> base bookmark`
-   - once submit completes, render the selected stack in top-to-bottom order
-     through the same native `jj log` row formatting used by `status`,
-     appending concise submit-result text to the first rendered line for each
-     change and showing the resolved trunk row beneath the stack
-   - draft-state handling should stay conservative:
-     - `submit --draft` or `submit --draft=new` creates newly opened PRs as
-       drafts
-     - `submit --draft=all` also returns already-published PRs on the selected
-       path to draft
-     - `submit --publish` marks existing draft PRs on the selected stack ready
-       for review and creates new PRs as published
+   - if an ancestor PR has merged but the local parentage still reflects the old review
+     stack, require a local `jj rebase` before changing the PR base
+   - create or update the PR for `head bookmark → base bookmark`
+   - once `submit` finishes, render the stack top-to-bottom through the same native
+     `jj log` row formatting that `status` uses, with concise submit-result text
+     appended to the first line of each row, and the resolved trunk row beneath
+   - draft handling stays conservative:
+     - `submit --draft` / `submit --draft=new` opens new PRs as drafts
+     - `submit --draft=all` also returns existing published PRs to draft
+     - `submit --publish` marks existing draft PRs ready for review and creates new PRs
+       as published
      - plain `submit` preserves the draft state of already-open PRs
-     - plain `submit --draft` must not convert an already-published PR back to
-       draft
+     - plain `submit --draft` does not turn a published PR back into a draft
+   - `submit --re-request` asks GitHub to request review again from users whose latest
+     review on the PR is `APPROVED` or `CHANGES_REQUESTED`. It does not disturb
+     still-pending review requests.
 
-   - `submit --re-request` asks GitHub to request review again from users
-     whose latest review on that pull request is `APPROVED` or
-     `CHANGES_REQUESTED`
-   - `submit --re-request` must not disturb still-pending review requests
+The bottom-up ordering matches stack dependency order, and the parent relation is read
+from the DAG, not from saved metadata.
 
-This bottom-up ordering matches the dependency order in the stack, and the
-parent relationship is derived from the DAG rather than loaded from side
-metadata.
+For a stack with exactly one change, `submit` behaves like a plain PR-submit flow: no
+stack helper invocation, no navigation or overview comments, and any older nav/overview
+comments left from a previous larger stack are deleted. After a successful live submit,
+the URL of the top of the stack is printed so the user can open it in a browser.
 
-For a selected stack with exactly one change, submit should behave like a
-plain PR submit flow:
+There is no meaningful stack metadata to add when the stack has only one PR.
 
-- no stack-specific helper invocation
-- no reviewer-facing navigation or overview comments
-- if the selected change still has older managed navigation or overview
-  comments from when it participated in a longer submitted stack, delete those
-  managed comments
-- after a successful live submit, print the URL of the top of the stack so the
-  operator can open it in a browser
+## Recovery and repair
 
-There is no meaningful stack metadata to add when the selected stack
-contains only one PR.
+When review identity is unclear, `jj-review` is conservative.
 
-## Recovery and Repair
+If `submit` cannot prove that a change still corresponds to the same review branch and
+PR, it stops with a targeted diagnostic rather than guessing. It does not silently open
+a new PR just because a saved link, bookmark, or GitHub state is missing or damaged.
 
-The tool should be conservative when review identity is unclear.
+The recovery surface is explicit and narrow:
 
-If submit cannot prove that a change still corresponds to the same review
-branch and PR, it should fail with a targeted diagnostic instead of guessing.
-In particular, it should not automatically open a new PR just because a saved PR
-link, bookmark state, or GitHub state is missing or damaged.
+- `jj review status --fetch [<revset>]` refreshes remembered remote-branch observations
+  before inspecting GitHub PR state, then reports the stack and any saved or discovered
+  PR state without mutating GitHub or local bookmarks
+- `jj review relink <pr> <revset>` is a repair command. It explicitly reattaches an
+  existing PR (and its same-repo head branch) to a specific `jj` change. It pins the
+  branch locally and saves the PR identity so a later `submit` updates the relinked
+  review rather than opening a replacement.
 
-The recovery surface should be explicit and narrow:
+Selector defaults are listed once under "CLI shape" below. The principle: lifecycle
+commands default to the stack headed by `@-`; repair commands (`relink`, `unlink`)
+require an explicit `<revset>`; `@` is always explicit user intent and is never selected
+by an omitted argument.
 
-- `jj review status --fetch [<revset>]` refreshes remembered remote-branch
-  observations before inspecting GitHub PR state, then reports the selected
-  stack and any saved or discovered PR state without mutating GitHub or local
-  bookmarks
-- `jj review relink <pr> <revset>` is an advanced repair-only
-  command that explicitly reassociates an existing PR and its same-repository
-  head branch with a specific `jj` change when the operator intends that
-  link; it should pin that branch locally and persist the PR identity so a
-  later submit can update the relinked review instead of opening a replacement
-  PR
+### `status`
 
-The normal user-facing commands may default to the current stack headed by
-`@-`, while repair-oriented commands should stay explicit:
+`jj review status [<revset> ...] [--pull-request <pr> ...]` shows the local stack(s) and
+any locally known review identity for them.
 
-- `submit`, `close`, `land`, and `cleanup --rebase` may omit `<revset>` and
-  default to the stack headed by `@-`
-- typing `@` should stay explicit user intent; omitted selectors should not
-  silently target the working-copy commit
-- `relink` and `unlink` require an explicit `<revset>` because they are
-  repair-only commands that operate on one exact change
+It is local-first. If a change has never been locally attached to review, `status`
+reports it as not submitted and does not query GitHub for speculative PR matches based
+only on predicted bookmark names or fetched remote observations. It does not create
+local tracking for a never-tracked change, including bookmark-only saved entries.
 
-Read-only inspection may remain ergonomic:
+`jj review status --fetch [<revset> ...] [--pull-request <pr> ...]` is the same command,
+but it refreshes remote bookmark observations first so the report reflects the latest
+remote state before checking already-known GitHub PR state.
 
-- `status` may omit `<revset>` and inspect the current stack by default
-- `status` may also accept more than one revset selector in one invocation
-- `status --pull-request <pr>` may use one linked local change as an alternate
-  selector for that stack, and may be repeated alongside revset selectors
-- `list` may summarize the locally known stacks in one repo-scoped view without
-  requiring explicit selectors
-- `import` may omit its explicit selector flags and default to the current
-  stack headed by `@-`
+When more than one selector is given, `status` inspects them in command-line order,
+suppresses exact duplicate stack reports, continues past selector-local resolution
+failures, and exits non-zero if any individual stack would have done so.
 
-`jj review status [<revset> ...] [--pull-request <pr> ...]` should show the
-selected local stack or stacks and any
-locally known review identity for it. It is local-first: if a change has never
-been locally attached to review, status should report it as not submitted and
-must not query GitHub for speculative PR matches derived only from predicted
-bookmark names or fetched remote observations. Plain status must not create
-local tracking for a never-tracked change, including bookmark-only saved state.
-`jj review status --fetch [<revset> ...] [--pull-request <pr> ...]` is the same
-inspection command, but it
-refreshes remote bookmark observations first so the report reflects the latest
-remote state before it inspects already-known GitHub PR state.
-When more than one selector is supplied, status should inspect them in
-command-line order, suppress exact duplicate stack reports, continue after a
-selector-local resolution failure, and exit non-zero if any selected stack
-would individually have exited non-zero.
-Because fetched GitHub state often produces extra visible revisions for merged
-changes, status should not insist that every visible revision in the repo still
-forms one supported review stack. Instead, it should discover the selected
-commit-parent chain, tolerate immutable or divergent side copies created by
-fetching merged PR branches, and report the selected-stack revision for each logical
-change.
-If a merged pull request still appears on the selected local stack, status
-should continue and surface that row as cleanup needed rather than treating the
-stack as broken. If refresh reveals that the selected history itself no longer
-has any supported linear walk, status should fail closed with a targeted local
-diagnostic rather than a traceback or an unadorned subprocess error.
-Unlike `submit`, it may fall back to local-only reporting when the
-repo is not configured well enough to resolve a remote or GitHub target.
-Its default output should stay concise and summarize the effective status for
-each change rather than dumping saved-data and transport diagnostics inline.
-The selected stack revisions and the footer row beneath them should both
-respect the user's native `jj log` formatting rather than rebuilding commit
-rows inside `jj-review`; status-specific suffixes such as PR state may be
-appended to the first rendered line. That footer row should render the
-selected stack's `base_parent` (the immediate parent of the bottom selected
-change), which may or may not be the actual resolved `trunk()`.
-When GitHub data is available, that summary should distinguish merged pull
-requests from merely closed ones, and may surface a concise review-decision
-summary such as approval or changes requested for still-open pull requests.
-Open draft pull requests should render distinctly from published open pull
-requests.
-If GitHub is unreachable or misconfigured, status should report that once at the
-repo level and then fall back to conservative per-change summaries derived from
-saved local data rather than claiming a PR is absent. Because that output is
-incomplete, the command should exit non-zero instead of reporting success.
-Likewise, if live inspection finds an ambiguous PR match or multiple
-`jj-review` stack summary comments for the same PR, status should surface that
-inline and exit
-non-zero rather than silently treating the stack as healthy.
-If a saved PR link existed but GitHub now reports no PR for that branch,
-status should likewise surface that stale link inline and exit
-non-zero before it clears the stale saved identity.
-When that inspection finds stale or ambiguous PR link, status may also
-print a short repair advisory that points the operator to `status --fetch`
-for refresh and `relink` for intentional reattachment.
-When a saved GitHub PR link includes a last-known PR state, status may surface
-that state in the fallback output as saved information rather than implying it
-is live.
-When live GitHub inspection succeeds, status should refresh that saved link in
-both directions, including clearing stale saved PR identity when GitHub now
-reports that no PR exists for the branch.
+Fetched GitHub state often produces extra visible revisions for merged changes, so
+`status` does not insist that every visible revision still forms one supported review
+stack. It walks the parent chain, tolerates immutable or divergent side copies created
+by fetching merged PR branches, and reports the stack revision for each logical change.
+If a merged PR still appears on the stack, `status` continues and surfaces that row as
+"cleanup needed" rather than calling the stack broken. If the local history no longer
+has any supported linear walk after refresh, `status` stops with a targeted diagnostic
+rather than a traceback or an unadorned subprocess error.
 
-When status reports `cleanup needed`, it should explain why in plain language:
+Unlike `submit`, `status` may fall back to local-only output when the repo is not
+configured well enough to resolve a remote or GitHub target. Default output stays
+concise — one effective summary per change rather than dumping saved-data and transport
+diagnostics inline.
 
-- the merged PR still appears on the selected local stack
-- descendant submit operations will continue to follow that old local ancestry
-  until the user repairs it
-- the next command to run is `jj review cleanup --rebase [<revset>]`; add
-  `--dry-run` first if the user wants to inspect the rebase plan before
-  mutating local history
+The stack revisions and the footer row beneath them both render through the user's
+native `jj log` formatting; status-specific suffixes (PR state, etc.) are appended to
+the first rendered line. The footer row shows the stack's `base_parent` (the immediate
+parent of the bottom change), which may or may not be the resolved `trunk()`.
 
-That guidance matters more than the raw internal distinction between "selected
-path", fetched branch-tip artifacts, and off-path immutable copies. The tool
-still needs those concepts internally, but the user should see an actionable
-explanation rather than having to infer the repair flow from one terse label.
+When GitHub data is available, `status`:
 
-`jj review list [--fetch]` should give one repo-scoped summary row per locally
-known stack. It is also local-first: discover stacks from locally saved
-jj-review tracking plus any visible local descendants above those tracked
-changes, do not create tracking for remote-only state, and do not speculate
-about GitHub-only stacks that have not been attached locally. The summary row
-should identify the stack by the head `change_id`, show the stack size, carry
-any known PR range, and highlight unusual local states such as divergence,
-conflicts, or cleanup-needed merged PRs.
-If live GitHub inspection is unavailable or a saved PR link has gone stale,
-list should surface that in the summary row and exit non-zero rather than
-quietly reporting a healthy tracked stack from incomplete data.
+- distinguishes merged PRs from merely closed ones
+- surfaces a concise review-decision summary (approval, changes requested) for open PRs
+- renders open draft PRs differently from open published PRs
+- if GitHub is unreachable or misconfigured, reports that once at the repo level and
+  falls back to conservative per-change summaries from saved data rather than claiming a
+  PR is absent. Because the output is incomplete, `status` exits non-zero
+- if it finds an ambiguous PR match or multiple stack-summary comments for the same PR,
+  surfaces that inline and exits non-zero rather than silently calling the stack healthy
+- if a saved PR link existed but GitHub reports no PR for that branch, surfaces that
+  stale link inline and exits non-zero before clearing it
+- when the link is stale or ambiguous, prints a short repair advisory pointing at
+  `status --fetch` and `relink`
+- when a saved PR link includes a last-known PR state, surfaces that as saved data
+  rather than implying it is live
+- on a successful live run, refreshes the saved link bidirectionally — including
+  clearing it when GitHub reports the branch has no PR
 
-These commands are not sources of truth either. They are operator-driven ways
-to reattach GitHub state to a `jj`-derived stack after damage, cross-machine
-work, or manual edits on GitHub.
+When `status` reports `cleanup needed`, it explains why in plain language:
 
-The explicit stack import command is:
+- a merged PR still appears on the local stack
+- descendant `submit` operations will keep following that old ancestry until the user
+  repairs it
+- the next command is `jj review cleanup --rebase [<revset>]`; add `--dry-run` first to
+  inspect the rebase plan before mutating local history
 
-- `jj review import [--fetch] [--pull-request <pr> | --revset <revset>]`
-  resolves one exact review stack and
-  sets up saved local jj-review data for that stack without mutating
-  GitHub
+That guidance matters more than the internal distinction between "selected path",
+fetched branch-tip artifacts, and off-path immutable copies. The tool still needs those
+concepts internally, but the user sees actionable wording, not a terse label.
 
-`import` is the explicit recovery and bootstrap path for review state that
-already exists remotely. If a stack already has PRs on GitHub but local
-jj-review tracking is missing on this machine or workspace, `import` is the
-command that should discover and attach that state. Plain `status` should not
-try to do that implicitly.
+### `list`
 
-Selector handling should stay collision-free. In particular, the command
-should not overload a bare positional argument to mean either a revset or a PR
-number, and omitting selector flags should default to the current stack headed
-by `@-`.
+`jj review list [--fetch]` gives one repo-scoped summary row per locally known stack. It
+is local-first too: discover stacks from saved tracking plus any visible local
+descendants above those tracked changes; do not create tracking for remote-only state;
+do not speculate about GitHub-only stacks that have never been attached locally.
 
-Its job is setting up local jj-review tracking, not workspace motion:
+The summary row identifies the stack by head `change_id`, shows stack size, the known
+PR range, and highlights unusual local states such as divergence, conflicts, or merged
+PRs needing cleanup. If GitHub is unavailable or a saved PR link has gone stale, the
+row surfaces that and `list` exits non-zero rather than reporting a healthy tracked
+stack from incomplete data.
 
-- without `--fetch`, use only commits and matching PR-backed review state that
-  are already available locally
-- resolve the selected stack from an explicit pull request or an explicitly
-  selected local stack
-- with `--fetch`, refresh remote bookmark observations and, for an explicit PR
-  selector, fetch only the branches needed for the selected stack so a
-  reviewed stack that exists only on the remote can still be set up in local
-  jj-review tracking
-- refresh saved local jj-review data only for that exact stack
-- create or refresh local bookmarks only when the target is
-  exact, same-repository, and unambiguous
-- when `--fetch` pulls in a remote-selected stack, report the fetched tip
-  commit instead of changing the user's workspace automatically
+These commands are not sources of truth either. They are user-driven ways to reattach
+GitHub state to a `jj`-derived stack after damage, cross-machine work, or manual edits
+on GitHub.
 
-Its default job is not:
+### `import`
 
-- rewriting commits
-- restacking descendants
-- checking out the fetched stack into the current workspace
-- opening, closing, or mutating PRs
-- deleting local history
+`jj review import [--fetch] [--pull-request <pr> | --revset <revset>]` resolves one
+exact stack and sets up tracking for it. It does not mutate GitHub.
 
-Failure guidance should stay narrow and specific:
+`import` is the explicit recovery and bootstrap path for review state that already
+exists remotely. If a stack already has PRs on GitHub but local tracking is missing on
+this machine, `import` is what you run. Plain `status` does not do this implicitly.
 
-- if the PR head branch is missing from remembered local remote state, point
-  the operator to `import --fetch` instead of silently refreshing it
-- if the PR head branch is missing on the remote, cross-repository, or
-  ambiguous, fail closed and explain that the selected stack cannot be
-  imported safely
-- if multiple PRs match the same head branch, point the operator to
-  `jj review status --fetch` and `jj review relink`
-- if any imported revision would need a freshly generated bookmark instead of
-  exact discovered remote identity, fail closed instead of inventing a local
-  match
-- if the fetched stack shape is unsupported locally, point the operator to
-  `jj review cleanup --rebase` only when the problem is local ancestry rather
-  than remote identity
-- if import defaults to the current stack and that stack has no matching
-  remote pull request, say so explicitly instead of silently doing nothing
-- if a local bookmark already points somewhere else, stop and explain the exact
-  bookmark conflict and the safe repair steps instead of taking it over
-  silently
-- if stale saved local jj-review data disagrees with freshly fetched link for the
-  selected stack, fetched link wins only when it is exact and unambiguous;
-  otherwise import should fail closed and surface the conflicting local and
-  remote identities instead of partially overwriting state
+Selector handling stays unambiguous: a bare positional argument does not double as both
+revset and PR number, and omitting selector flags defaults to the stack headed by `@-`.
 
-`jj review status --fetch` should remain the read-only refresh path, while
-`jj review import` is the explicit materialization path. A repo-scoped `sync`
-command remains a separate future question rather than being folded into
-either command prematurely.
+`import` sets up tracking, not workspace motion:
 
-The user-facing "stop reviewing this stack" command is `close`:
+- without `--fetch`, use only commits and PR-backed state already available locally
+- resolve from an explicit PR or an explicit local stack
+- with `--fetch`, refresh remote bookmark observations and (for an explicit PR) fetch
+  only the branches needed for the stack, so a remote-only reviewed stack can still be
+  attached locally
+- refresh the tracking entry only for that exact stack
+- create or refresh local bookmarks only when the target is exact, same-repo, and
+  unambiguous
+- when `--fetch` pulls in a remote-selected stack, print the fetched tip rather than
+  changing the workspace
 
-- `jj review close [--cleanup] [--dry-run] [--pull-request <pr> | <revset>]`
-  ends active
-  review for the selected local stack
+`import` does not:
 
-That command should stay stack-first rather than PR-number-first. Its job is to
-look at the selected local stack, find the open PRs `jj-review` is already
-tracking there, and then either perform or dry-run the actions needed to end
-review for that stack.
+- rewrite commits
+- restack descendants
+- check out the fetched stack into the current workspace
+- open, close, or mutate PRs
+- delete local history
 
-`--pull-request <pr>` may be an alternate selector for that local stack, but it
-must resolve to one linked visible local change first. It is a convenience
-handle for selecting the stack, not a GitHub-first mode that changes what
-`close` operates on.
+Failure guidance stays specific:
 
-Without `--cleanup`, `close` should:
+- if the PR head branch is missing locally, point the user at `import --fetch`
+- if the PR head branch is missing on the remote, cross-repo, or ambiguous, stop and
+  explain that the stack cannot be imported safely
+- if multiple PRs match the same head branch, point at `status --fetch` and `relink`
+- if any imported revision would need a freshly generated bookmark instead of an exact
+  discovered name, stop rather than inventing a local match
+- if the fetched stack shape is unsupported locally, point at `cleanup --rebase` only
+  when the issue is local ancestry rather than remote identity
+- if `import` defaulted to the current stack and that stack has no matching PR, say so
+  rather than silently doing nothing
+- if a local bookmark already points elsewhere, stop and explain the conflict rather
+  than silently taking it over
+- if a stale saved entry disagrees with a freshly fetched link, the fetched link wins
+  only when it is exact and unambiguous; otherwise stop and surface the conflicting
+  identities rather than partially overwriting
 
-- close the open PRs `jj-review` is already tracking for the selected stack
-- update saved local jj-review data so those changes are no longer treated as
-  actively tracked
-- skip already-merged or already-closed PRs on that stack instead of treating
-  them as new close targets
-- leave local bookmarks and remote pull request branches in place
+`status --fetch` stays the read-only refresh path; `import` is the explicit
+materialization path. A repo-scoped `sync` command remains a separate future question
+rather than being folded into either.
 
-With `--cleanup`, `close` should also perform conservative post-close cleanup
-for review artifacts the tool can verify belong to that stack:
+### `close`
 
-- delete remote pull request branches on the configured target remote only when
-  the tool can verify they belong to the selected stack
-- forget local bookmarks only when the tool can verify they belong to the
-  selected stack
-- delete stack summary comments that belong to the closed stack
-- remove stale review tracking metadata such as a saved stack-summary comment ID
-- preserve externally selected bookmarks, such as ones reused through
-  `use_bookmarks`, unless some later explicit configuration opts into cleaning
-  them up too
+`jj review close [--cleanup] [--dry-run] [--pull-request <pr> | <revset>]` ends review
+for one stack.
 
-That explicit opt-in is `cleanup_user_bookmarks = true` under `[jj-review]`.
-It defaults to `false`.
+`close` is stack-first. It looks at the local stack, finds the open PRs the tool is
+already tracking there, and either runs or previews the actions needed to end review.
 
-That cleanup should stay opt-in instead of implicit because closing PRs is less
-destructive than deleting branches. Preview output should make the difference
-clear so the operator can choose between "close only" and "close and clean up."
-If the tool cannot verify exact local and remote review identity,
-`--cleanup` should refuse the deletion rather than falling back to branch-name
-heuristics.
+`--pull-request <pr>` is an alternate selector for the local stack — it must resolve to
+one linked local change. It is a convenience handle for picking the stack, not a
+GitHub-first mode that changes what `close` operates on.
 
-`close` should also be idempotent:
+Without `--cleanup`, `close`:
 
-- rerunning `close` on an already-closed path should succeed as a no-op or
-  with a concise "nothing to close" summary
-- rerunning `close --cleanup` after an earlier `close` should only perform any
-  remaining safe cleanup instead of trying to close the PRs again
+- closes the open PRs the tool is already tracking for the stack
+- updates tracking so those changes are no longer treated as actively tracked
+- skips already-merged or already-closed PRs rather than treating them as new close
+  targets
+- leaves local bookmarks and remote PR branches in place
 
-The repair-oriented inverse of `relink` is `unlink`:
+With `--cleanup`, `close` also performs conservative post-close cleanup for review
+artifacts the tool can verify belong to the stack:
 
-- `jj review unlink <revset>` intentionally detaches one selected
-  change from active PR tracking without mutating GitHub
+- delete remote PR branches on the configured remote, only when verified to belong to
+  the stack
+- forget local bookmarks, only when verified to belong to the stack
+- delete stack-summary comments belonging to the stack
+- prune any leftover review tracking, e.g. a saved stack-summary comment ID
+- preserve external bookmarks (e.g. ones reused via `use_bookmarks`) unless the user
+  opts in to cleaning them up too
 
-`unlink` should remain an advanced repair command, not the normal way to end a
-review. Its unit of intent should mirror `relink`: one selected change,
-identified from the local DAG.
+That opt-in is `cleanup_user_bookmarks = true` under `[jj-review]`. The default is
+`false`.
 
-`unlink` should clear active link fields such as:
+The opt-in stays explicit because closing PRs is less destructive than deleting
+branches. Preview output makes the difference clear so the user can choose between
+"close only" and "close and clean up". If the tool cannot verify exact local and remote
+review identity, `--cleanup` refuses the deletion rather than falling back to
+branch-name heuristics.
+
+`close` is idempotent:
+
+- rerunning `close` on an already-closed path succeeds as a no-op (or with a brief
+  "nothing to close")
+- rerunning `close --cleanup` after an earlier `close` performs only the remaining safe
+  cleanup, not another close
+
+### `unlink`
+
+`jj review unlink <revset>` is the repair-oriented inverse of `relink`: it intentionally
+detaches one change from active PR tracking without touching GitHub.
+
+`unlink` is an advanced repair command, not the normal way to end a review. Its unit of
+intent mirrors `relink`: one change, identified from the local DAG.
+
+`unlink` clears the active link fields:
 
 - `pr_number`
 - `pr_url`
@@ -741,116 +571,94 @@ identified from the local DAG.
 - `navigation_comment_id`
 - `overview_comment_id`
 
-It should then write a durable unlinked marker for that change. That
-record matters because simply deleting saved data would otherwise be undone
-immediately by later rediscovery.
+It then writes a durable unlinked marker for the change. That marker matters because
+simply deleting the saved record would otherwise be reversed by later rediscovery.
 
-Unlinked state should mean:
+Unlinked state means:
 
-- `status --fetch` may still report discovered remote bookmarks or GitHub PRs
-  for the same branch, but it must label that state as unlinked instead of
-  repopulating active tracking
-- `import` may restore local bookmark state for the selected change, but it
-  must preserve the unlinked state instead of restoring active PR tracking
-- when a preserved local bookmark still exists, status should surface it as an
-  unlinked bookmark rather than as actively tracked
-- `submit` must refuse to reuse unlinked state automatically, even if a local
-  bookmark or a discovered GitHub PR would normally count as proof
-- `land` must reject unlinked changes as not safely mergeable through the
-  `jj-review`
-- `relink` is the explicit way back in; it clears the unlinked marker and
-  reestablishes active link intentionally
+- `status --fetch` may still report a discovered remote bookmark or PR for the same
+  branch, but it labels them as unlinked rather than reactivating tracking
+- `import` may restore local bookmark state for the change, but keeps the unlinked
+  marker; it does not restore active PR tracking
+- a preserved local bookmark surfaces as an unlinked bookmark rather than as actively
+  tracked
+- `submit` refuses to reuse unlinked state automatically, even if a local bookmark or
+  a discovered PR would normally count as proof
+- `land` rejects unlinked changes as not safely landable
+- `relink` is the explicit way back in; it clears the unlinked marker and reestablishes
+  active tracking
 
-By default, `unlink` should be local-only:
+By default `unlink` is local-only:
 
-- no closing PRs
-- no deleting pull request branches
-- no deleting stack summary comments on GitHub
+- it does not close PRs
+- it does not delete PR branches
+- it does not delete stack-summary comments
 
-It may preserve the local bookmark, but once the unlinked marker exists that
-bookmark must no longer count as proof that the change is still being tracked.
-That precedence
-rule is part of the product contract, not an implementation detail.
+It may preserve the local bookmark, but once the unlinked marker exists that bookmark
+no longer counts as proof that the change is still being tracked. That precedence rule
+is part of the product contract, not an implementation detail.
 
-`unlink` should also be idempotent:
+`unlink` is idempotent:
 
-- unlinking an already-unlinked change should succeed as a no-op
-- unlinking a change with no active tracking should fail with a targeted
-  diagnostic instead of creating a new unlinked marker for a never-linked
-  change
+- unlinking an already-unlinked change is a no-op
+- unlinking a change that was never linked errors out rather than creating an unlinked
+  marker for a never-linked change
 
-Broader cleanup remains with `cleanup`. Unlinked records should not expire just
-because a remote PR disappeared, but cleanup should prune unlinked markers
-whose `change_id` no longer resolves anywhere in visible history.
+Broader cleanup remains with `cleanup`. Unlinked records do not expire just because the
+remote PR disappeared, but `cleanup` prunes unlinked markers whose `change_id` no longer
+resolves anywhere in visible history.
 
-## Rewrite Behavior
+## Rewrite behavior
 
 This design behaves well under normal `jj` rewrite-heavy workflows:
 
-- Rebase: the commit ID changes, the `change_id` stays stable, and the attached
-  bookmark follows the rewrite. Re-running submit updates the existing PR.
-- Squash or amend: same as rebase. No separate metadata repair step is needed.
-- Reorder or reparent: the stack is rediscovered from the DAG; PR base branches are recalculated.
-- Abandon: `jj` deletes bookmarks attached to abandoned commits. The tool can then close the PR,
-  leave it open with a warning, or mark it stale.
-- Split: new logical review changes get new change IDs, which should usually
-  become new PRs. The original change still exists with the same `change_id`
-  but a smaller diff; it is updated normally on next submit. This is a feature,
-  not a bug.
-- Ancestor merged on GitHub: merged ancestors stop acting as review bases.
-  Descendants should target the nearest remaining open ancestor PR, or trunk if
-  none remain. `cleanup --rebase` should perform that local rewrite
+- **Rebase**: the commit ID changes, the `change_id` stays stable, and the bookmark
+  follows the rewrite. Re-running `submit` updates the existing PR.
+- **Squash or amend**: same as rebase. No separate metadata repair step.
+- **Reorder or reparent**: the stack is rediscovered from the DAG; PR base branches
+  are recalculated.
+- **Abandon**: `jj` removes bookmarks attached to abandoned commits. The tool can
+  close the PR, leave it open with a warning, or mark it stale.
+- **Split**: new logical review changes get new change IDs and usually become new
+  PRs. The original change still exists with the same `change_id` but a smaller
+  diff, and is updated normally on next `submit`. This is a feature, not a bug.
+- **Ancestor merged on GitHub**: merged ancestors stop acting as review bases.
+  Descendants target the nearest still-open ancestor PR, or trunk if none remain.
+  `cleanup --rebase` performs that local rewrite.
 
-Interrupted `submit` metadata is diagnostic and recoverable state, not a replay
-script for the original selector. A later `submit` should act on the current
-selected stack, while still retaining enough immutable stack identity to
-distinguish exact continuation from a rewritten or otherwise changed stack.
-`abort` should only retract an interrupted submit when that recorded stack
-snapshot still exists exactly; once the stack has been rewritten, it should
-refuse to guess.
+Records left behind by an interrupted command (`submit`, `close`, `cleanup --rebase`)
+are diagnostic state, not a replay script for the original selector. A later run of the
+same command acts on the *current* stack, while keeping enough of the recorded stack
+identity to distinguish "exact continuation" from "stack has been rewritten since".
+Older records are retired once a later successful run clearly covers the same changes.
+One asymmetric case: `close --cleanup` is stronger than plain `close`, so a successful
+`close --cleanup` can retire an older interrupted `close`, but a later plain `close`
+does not silently retire an older interrupted `close --cleanup` whose branch or
+metadata cleanup may still be outstanding.
 
-Interrupted `close` metadata should follow the same current-stack-first rule.
-A later `close` acts on the current selected stack, and older interrupted close
-records are superseded once a later successful close clearly covers those
-changes. `close --cleanup` is a stronger variant of `close`: a successful
-cleanup run can supersede an older interrupted plain `close`, but a later plain
-`close` must not silently erase an older interrupted cleanup run whose branch
-or metadata cleanup may still be outstanding.
+This is exactly the kind of rewrite-heavy flow `jj` is good at.
 
-Interrupted `cleanup --rebase` metadata should also be diagnostic rather than
-selector-replay state. A later `cleanup --rebase` should operate on the
-current selected stack, distinguish exact continuation from a rewritten stack,
-and retire older interrupted restack records once a later successful restack
-clearly covers the same changes.
-  explicitly, using the selected local stack as the source of truth for which
-  logical changes survive.
+## Why no parent metadata
 
-This is exactly the kind of rewrite-heavy flow the `jj` model is good at.
+A branch-first review tool often has to remember both a named parent and an exact
+parent revision because the review boundary is otherwise ambiguous after rewrites.
 
-## Why Not Store Parent Metadata
-
-A branch-first review tool often needs to remember both a named parent and an
-exact parent revision because the review boundary is otherwise ambiguous after
-history rewrites.
-
-In `jj`, the boundary is already represented by the commit's parent relation. The only place where
-branch identity still matters is at the GitHub boundary, because GitHub wants:
+In `jj`, the boundary is already the commit's parent relation. The only place branch
+identity still matters is at the GitHub boundary, because GitHub wants:
 
 - one head branch per PR
 - one base branch per PR
 
-That means the `jj` tool still needs bookmark-backed pull request branches, but
-it does
-not need a saved parent graph.
+So the tool needs bookmark-backed PR branches, but it does not need a saved parent
+graph.
 
-## CLI Shape
+## CLI shape
 
-The tool can stay small. A reasonable surface would be:
+The full command surface:
 
 - `jj review submit [--draft[=new|all] | --publish]
   [--reviewers <login[,login...]>] [--team-reviewers <slug[,slug...]>]
-  [--re-request]
-  [<revset>]`
+  [--re-request] [<revset>]`
 - `jj review status [--fetch] [{--pull-request <pr>} | {<revset>}] ...`
 - `jj review st [--fetch] [--pull-request <pr> | <revset>]`
 - `jj review list [--fetch]`
@@ -864,60 +672,56 @@ The tool can stay small. A reasonable surface would be:
 - `jj review abort [--dry-run]`
 - `jj review completion <bash|zsh|fish>`
 
-The standalone executable may also expose `completion` as auxiliary CLI glue
-that prints shell completion scripts. It is not a review-state command and
-does not inspect the repository, saved local data, or GitHub.
+`completion` is auxiliary CLI glue. It prints shell completion scripts. It is not a
+review-state command and does not inspect the repo, the tracking-state file, or
+GitHub.
 
-When run without a subcommand, the standalone executable should behave the same
-as `jj review status` on the current stack.
+Run with no subcommand, the executable behaves the same as `jj review status` on the
+current stack.
 
-Top-level help should group commands by intent so the common workflow remains
-easy to scan. `jj review --help` and `jj review help` should foreground the core
-review lifecycle (`submit`, `status`, `land`, `close`) plus adjacent support
-commands such as `cleanup` and `import`. Advanced repair commands such as
-`relink` and `unlink`, along with shell-integration glue such as `completion`,
-may stay hidden from default top-level help and appear only in an explicit
-extended view such as `jj review help --all`. The `help` command itself may be
-implemented as hidden parser glue as long as `jj review help` still behaves the
-same as `jj review --help`, and `jj review help <command>` behaves the same as
-`jj review <command> --help`. The default top-level help should
-also keep advanced global options such as `--repository`, `--config`,
-`--config-file`, `--debug`, and `--time-output` out of view until that
-explicit extended mode.
-Longer command help should preserve paragraph breaks in descriptions and wrapped
-help text so multi-paragraph guidance stays readable instead of collapsing into
-one block.
+Top-level help groups commands by intent. `--help` and `help` foreground the core
+review lifecycle (`submit`, `status`, `land`, `close`) plus support commands
+(`cleanup`, `import`). Repair commands (`relink`, `unlink`) and shell-integration glue
+(`completion`) stay hidden by default and only appear in `jj review help --all`. The
+`help` command itself is hidden parser glue: `jj review help` is the same as
+`jj review --help`, and `jj review help <command>` is the same as
+`jj review <command> --help`. The default top-level help also keeps advanced global
+options (`--repository`, `--config`, `--config-file`, `--debug`, `--time-output`) out
+of view until `--all`.
 
-Target selection should stay simple:
+Long command help preserves paragraph breaks so multi-paragraph guidance stays
+readable.
 
-- `submit`, `close`, `land`, and `cleanup --rebase` default to the stack
-  headed by `@-` when `<revset>` is omitted
+Target selection is conservative:
+
+- `submit`, `close`, `land`, and `cleanup --rebase` default to the stack headed by
+  `@-` when `<revset>` is omitted
 - `submit --draft[=new|all]` and `submit --publish` are mutually exclusive
-- `submit --reviewers` and `submit --team-reviewers` override configured
-  reviewer defaults for that invocation only
-- `submit --re-request` re-requests users whose latest review is `APPROVED`
-  or `CHANGES_REQUESTED`; pending review requests stay in place
+- `submit --reviewers` and `submit --team-reviewers` override configured reviewer
+  defaults for the current invocation only
+- `submit --re-request` re-requests users whose latest review is `APPROVED` or
+  `CHANGES_REQUESTED`; pending review requests stay in place
 - `relink` and `unlink` require one explicit `<revset>`
-- `import` accepts at most one explicit selector flag and otherwise defaults to
-  the current stack headed by `@-`
-- `status` may omit `<revset>` and inspect the current stack
+- `import` accepts at most one explicit selector flag and otherwise defaults to the
+  current stack headed by `@-`
+- `status` may omit `<revset>` and inspects the current stack
 
-Notably absent:
+Notable absences:
 
-- no standalone `rebase` command, because `jj` already handles descendant rewrites much better than Git
-- no `track parent` command, because the parent relation comes from the DAG
-- no generic metadata repair command, because the recovery cases should stay
-  explicit and narrow
+- no standalone `rebase` command — `jj` already handles descendant rewrites better
+  than Git
+- no `track parent` command — the parent relation comes from the DAG
+- no generic metadata-repair command — recovery cases stay explicit and narrow
 
-## Implementation Notes
+## Implementation notes
 
-### Drive JJ via the CLI
+### Drive `jj` via the CLI
 
-For a first implementation, shell out to `jj` rather than linking to `jj-lib`.
+For the first implementation, shell out to `jj` rather than linking to `jj-lib`.
 
-Use machine-readable templates instead of parsing human log output. `jj`
-templates can emit JSON, and the serialized field names and value types are
-usually stable even if strict backward compatibility is not guaranteed.
+Use machine-readable templates instead of parsing human log output. `jj` templates can
+emit JSON, and the field names and value types are usually stable even though strict
+backward compatibility is not guaranteed.
 
 That suggests commands shaped like:
 
@@ -934,288 +738,256 @@ with explicit fields for:
 - remote bookmarks
 - description / subject
 
-### Prefer Explicit Bookmark Control
+### Prefer explicit bookmark control
 
-`jj git push --change` is excellent for interactive use, but the tool should manage bookmark names
-explicitly. The tool wants to be able to say:
+`jj git push --change` is great for interactive use, but the tool manages bookmark
+names explicitly. The tool wants to be able to say:
 
 - this change must use this bookmark name
 - this bookmark must now point here
 - this PR must be based on that parent bookmark
 
-So the core primitive should be "create or move bookmark, then push bookmark", not "blindly push
-change with generated name".
+So the core primitive is "create or move bookmark, then push bookmark", not "blindly
+push change with generated name".
 
-### GitHub Integration
+### GitHub integration
 
-A GitHub adapter can use either:
+The GitHub adapter can use either:
 
 - direct GraphQL or REST calls
 - `gh api` as a thin authenticated transport
 
-If plain `gh` commands that expect a Git repo are used in a non-colocated `jj`
-repo, remember that `GIT_DIR` may need to point at `.jj/repo/store/git`.
+If plain `gh` commands that expect a Git repo are used in a non-colocated `jj` repo,
+remember that `GIT_DIR` may need to point at `.jj/repo/store/git`.
 
-### Cleanup Semantics
+### Cleanup semantics
 
-`jj review cleanup` should have a concrete, conservative job:
+`jj review cleanup` has a concrete, conservative job:
 
-- prune saved jj-review data for changes that no longer exist or no longer
-  participate
-  in any review stack
-- remove stale reviewer-facing stack summary comments only when they no longer
-  represent a live linked review stack, such as explicitly unlinked PRs or PRs
-  whose head no longer matches the expected review bookmark
-- optionally delete remote pull request branches only when they are clearly
-  stale, such as after the corresponding PR is closed or the change has been
-  abandoned
+- prune saved entries for changes that no longer exist or no longer participate in any
+  review stack
+- remove stale stack-summary comments only when they no longer represent a live linked
+  review stack (e.g. the PR is unlinked, or its head no longer matches the expected
+  bookmark)
+- optionally delete remote PR branches only when they are clearly stale, e.g. after the
+  corresponding PR is closed or the change is abandoned
 
-`cleanup` should mutate by default, while `cleanup --dry-run` reports the exact
-planned actions before mutating local state, saved local data, GitHub metadata,
-or remote review branches. Deleting open PRs or deleting pull request branches
-for ambiguous cases should still require explicit user intent rather than
-happening automatically.
+`cleanup` mutates by default; `cleanup --dry-run` shows the planned actions. Deleting
+open PRs or deleting branches in ambiguous cases still requires explicit user intent.
 
-`jj review cleanup --rebase` is the explicit local-history repair path for the
-common case where GitHub merges have been fetched and the local stack still
-contains merged changes.
+`jj review cleanup --rebase` is the explicit local-history repair path for the common
+case where GitHub merges have been fetched and the local stack still contains merged
+changes.
 
-Its UX should be explicit:
+UX is explicit:
 
-- without `--dry-run`, it performs only the rebase steps whose destination is
-  `trunk()`
+- without `--dry-run`, it performs only rebase steps whose destination is `trunk()`
 - with `--dry-run`, it previews the local rebase plan
-- if a remaining rebase step would rebase onto another surviving change,
-  it should stop and tell the user to either rebase manually with `jj rebase`
-  or rerun with `--allow-nontrunk-rebase`
-- if repo policy is part of the problem, it should say so directly instead of
-  making the user reverse-engineer it from the DAG
+- if a rebase step would land on another surviving change, it stops and tells the user
+  to either rebase manually with `jj rebase` or rerun with `--allow-nontrunk-rebase`
+- if repo policy is part of the problem, it says so directly rather than making the
+  user reverse-engineer it from the DAG
 
 Its job is to restore one active local linear stack from three inputs:
 
-- the selected local commit-parent path
+- the local commit-parent path
 - GitHub PR state for bookmarks
-- saved local jj-review data, including the last submitted local `commit_id`
-  for each change
+- saved tracking, including the last-submitted local `commit_id` for each change
 
-It should not treat every fetched remote branch tip as local ancestry that must
-be preserved. GitHub is authoritative about PR outcomes and remote branch tips,
-but the selected local stack remains authoritative about which logical changes
-are still part of the user's active stack.
+It does not treat every fetched remote branch tip as local ancestry that must be
+preserved. GitHub is authoritative about PR outcomes and remote branch tips, but the
+local stack is authoritative about which logical changes are still part of the user's
+active stack.
 
-The algorithm should be:
+The algorithm:
 
-1. Discover the selected local stack from the requested head back toward
-   `trunk()`, tolerating immutable or divergent side revisions created by
-   fetching merged PR branches.
-2. For each logical change on that path, classify its PR state as open,
-   merged, closed-unmerged, or absent.
-3. Treat only merged changes on the selected stack as removable changes. Open
-   and absent changes stay in place. Closed-unmerged changes are not rewritten
-   automatically.
+1. Discover the local stack from the requested head down toward `trunk()`, tolerating
+   immutable or divergent side revisions created by fetching merged PR branches.
+2. For each logical change on that path, classify the PR as open, merged,
+   closed-unmerged, or absent.
+3. Treat only merged changes on the stack as removable. Open and absent changes stay
+   in place. Closed-unmerged changes are not rewritten automatically.
 4. For each remaining change, compute its desired new parent in logical order:
-   - the nearest earlier remaining change on the selected stack, if any
+   - the nearest earlier remaining change on the stack, if any
    - otherwise the current `trunk()`
-5. Rebase each remaining segment whose current parent is a merged change on the
-   selected stack
-   onto that desired new parent, but allow default execution to perform only
-   the steps whose destination is `trunk()`
-6. If later remaining segments would still need to land on another remaining
-   change, stop and require either manual `jj rebase` or an explicit
-   `--allow-nontrunk-rebase` override
-7. After the rebases succeed, the implementation may leave merged or fetched
-   side copies in place until a later conservative cleanup pass can prove they
-   are stale and removable. Cleanup rebase's primary job is to repair the
-   active local stack first.
-8. Do not rebase surviving local descendants onto fetched branch-tip commits
-   for merged non-trunk PRs. Those fetched commits are fetched review-branch
-   state, not the canonical continuation of the active local stack.
+5. Rebase each remaining segment whose current parent is a merged change onto its
+   desired new parent, but in the default mode only run the steps whose destination is
+   `trunk()`.
+6. If later remaining segments would still need to land on another remaining change,
+   stop and require either manual `jj rebase` or an explicit
+   `--allow-nontrunk-rebase`.
+7. Once the rebases succeed, leftover merged or fetched side copies may stay in place
+   until a later conservative cleanup pass can prove they are removable.
+   `cleanup --rebase`'s primary job is to repair the active local stack first.
+8. Do not rebase surviving local descendants onto fetched branch-tip commits for
+   merged non-trunk PRs. Those fetched commits are review-branch state, not the
+   canonical continuation of the local stack.
 
 This keeps the local result as close to linear as possible:
 
-- merged changes disappear from the active path
+- merged changes drop off the active path
 - surviving open changes stay in order
-- unsubmitted local work above them stays attached to the nearest surviving
-  base
-- fetched side copies of merged changes may remain as stale artifacts, but
-  they no longer define the active stack
+- unsubmitted local work above them stays attached to the nearest surviving base
+- fetched side copies may remain as stale artifacts but no longer define the active
+  stack
 
-`cleanup --rebase` should fail closed only when it cannot prove what the
-selected stack means. In particular, it should stop with a targeted diagnostic
-when:
+`cleanup --rebase` only stops when it cannot prove what the stack means. In particular,
+it stops with a targeted diagnostic when:
 
-- the selected stack itself is not a supported linear walk
-- a stack change has ambiguous PR link
-- a merged stack change has local edits since its last submit and removing it
-  would discard unpublished work
-- a closed-unmerged stack change would need to be skipped or removed, because
-  that policy is user intent rather than automatic cleanup
+- the stack itself is not a supported linear walk
+- a stack change has an ambiguous PR link
+- a merged stack change has local edits since its last submit, and removing it would
+  discard unpublished work
+- a closed-unmerged stack change would need to be skipped or removed (that is user
+  intent, not automatic cleanup)
 
-It should not stop merely because fetched GitHub merges created extra visible
-revisions or moved pull request branches to merge commits.
+It does not stop merely because fetched GitHub merges created extra visible revisions
+or moved PR branches to merge commits.
 
-### Abort Semantics
+### Abort semantics
 
-`jj review abort` retracts the completed work from an interrupted jj-review
-operation. It reads the outstanding intent file to determine what was in
-progress, checks saved jj-review data to identify what completed before the
-interruption, then retracts those completed steps and removes the intent file.
+`jj review abort` undoes the completed work from an interrupted operation. It reads the
+outstanding interrupted-operation record to find what was in progress, checks the
+tracking state to see what completed before the interruption, then undoes those steps
+and removes the record.
 
-For a submit operation, retraction means: close any open PRs that were created
-or updated, delete the corresponding remote branches, forget local bookmarks,
-and clear saved jj-review state entries for the aborted changes.
+For a `submit` operation, undoing means: close any PRs that were created or updated,
+delete the corresponding remote branches, forget the local bookmarks, and clear the
+saved entries for the aborted changes.
 
-For operations that mutate local `jj` history (cleanup restack) or that cannot
-be automatically reversed (land, close), abort only removes the intent file and
-reports a diagnostic so the operator knows to inspect state manually.
+For operations that mutate local `jj` history (`cleanup --rebase`) or that cannot be
+automatically reversed (`land`, `close`), `abort` only removes the record and reports
+a diagnostic so the user knows to inspect state manually.
 
-`abort` should mutate by default, with `--dry-run` available to preview the
-planned retraction steps before any changes are made. Retraction is
-conservative: it only removes state that jj-review can prove was written during
-this operation, and fails closed rather than guessing when the evidence is
-ambiguous.
+`abort` mutates by default; `--dry-run` previews what would be undone. It is
+conservative — it only removes state the tool can prove was written during this
+operation, and stops rather than guessing when the evidence is ambiguous.
 
-`abort` operates on all outstanding intent files for the current repository.
-Outstanding means the intent is for changes that still exist locally (not stale
-by the standard change-ID resolution check). If only stale intents are found,
-`abort` reports them and suggests `cleanup` instead.
+`abort` operates on all outstanding records for the current repo. "Outstanding" means
+the record is for changes that still exist locally (not stale by the standard
+change-ID resolution check). If only stale records are found, `abort` reports them and
+suggests `cleanup`.
 
-### Landing and Merge Lifecycle
+### Landing and merge lifecycle
 
-`jj review land` is the terminal operation for a reviewed local stack, but it
-should still stay local-stack-first and `jj`-native.
+`jj review land` is the terminal operation for a reviewed local stack, but it stays
+local-stack-first and `jj`-native.
 
-The selected local `jj` stack remains the source of truth. `land` must not
-silently repair topology, invent ancestry from GitHub, or treat pull request
-branches as the canonical landed history.
+The local `jj` stack remains the source of truth. `land` does not silently repair
+topology, invent ancestry from GitHub, or treat PR branches as the canonical landed
+history.
 
-Its default UX should be mutate-by-default, with inspection still available:
+Default UX is mutate-by-default with `--dry-run` available:
 
-- without `--dry-run`, it computes the landing plan from the current local
-  stack and current GitHub state, then performs the landing and any exact
-  follow-up bookkeeping it can already prove safe
-- with `--dry-run`, it prints the landing plan, the landable change, the
-  target trunk, and any exact follow-up bookkeeping it can already prove safe
-- `--pull-request <pr>` is an alternate selector for the linked local change;
-  `land` should then consider the consecutive path from `trunk()` through that
-  selected change, not just the one PR in isolation
+- without `--dry-run`, `land` computes the landing plan from the current local stack
+  and current GitHub state, then performs the landing and any follow-up bookkeeping it
+  can already prove safe
+- with `--dry-run`, it prints the landing plan, the landable changes, the target trunk,
+  and any follow-up bookkeeping it can prove safe
+- `--pull-request <pr>` is an alternate selector for the linked local change; `land`
+  then considers the consecutive path from `trunk()` through that change, not just the
+  one PR in isolation
 
-The landing unit should be one precise thing: the consecutive changes from
-`trunk()` that can be landed now.
+The landing unit is one precise thing: the consecutive changes from `trunk()` that can
+be landed now. That means:
 
-That means:
+- the stack's `base_parent` must equal the resolved `trunk()` before any mutation; if
+  the stack forks from an older trunk ancestor or sits on a merged side-branch, refuse
+  with a targeted local diagnostic pointing at `cleanup --rebase` or plain `jj rebase`
+  rather than force-moving the local trunk bookmark sideways
+- walk the local stack upward from `trunk()`
+- stop immediately if any change still has unresolved conflicts
+- by default, include consecutive changes whose PRs are open, not draft, approved, and
+  whose link is unambiguous
+- stop at the first merged, closed-unmerged, missing, ambiguous, draft, conflicted,
+  changes-requested, or not-yet-approved change
+  - if none of those changes can be landed, say so directly
 
-- require the selected stack's `base_parent` to equal the resolved `trunk()`
-  before any mutation; if the stack forks from an older ancestor of `trunk()`
-  or sits on a merged side-branch boundary, refuse the land with a targeted
-  local diagnostic pointing at `jj review cleanup --rebase` or plain
-  `jj rebase` rather than force-moving the local trunk bookmark sideways
-- walk the selected local stack upward from `trunk()`
-- stop immediately if any selected local change still has unresolved conflicts
-- by default, include consecutive changes whose PRs are still open, not draft,
-  approved, and whose link is unambiguous
-- stop at the first merged, closed-unmerged, missing, ambiguous, draft,
-  conflicted, changes-requested, or not-yet-approved change
-  - if none of those changes can be landed, report that directly
-
-`land` may also offer an explicit readiness-bypass flag for operators who want
-to preview or apply the open prefix anyway, but that bypass must stay narrow:
+`land` may also offer an explicit readiness-bypass flag for users who want to preview or
+apply the open prefix anyway, but the bypass stays narrow:
 
 - it may bypass readiness gates such as draft or review-decision state
 - it must not bypass ambiguous or missing PR linkage
 - it must not bypass trunk push protection or other integrity checks
 
-This is intentionally not "the entire selected stack no matter what" and not
-"whatever open PR the operator typed". It keeps the command aligned with the
-local DAG and avoids partial-stack guesses.
+This is intentionally not "the entire stack no matter what" and not "whatever open PR
+the user typed". It keeps the command aligned with the local DAG and avoids
+partial-stack guesses.
 
-When the local commit for a landable change no longer matches the
-corresponding `review/*` branch tip on the remote, `land` classifies the
-drift:
+When the local commit for a landable change no longer matches the corresponding
+`review/*` branch tip on the remote, `land` classifies the drift:
 
-- if the local diff against the local parent is byte-identical to the
-  remote commit's diff against its parent, the rebase is tree-equivalent;
-  `land` refreshes each affected `review/*` branch to the rebased commit as
-  a pre-land step, announces that refresh, then performs the normal trunk
-  transition so reviewers looking at the closed PR see the commit that
-  actually landed
-- otherwise the local tree diverges from what was reviewed; `land` refuses
-  and points the operator at `submit` so the PR can be updated and
-  re-review requested before landing proceeds
-- `--dry-run` describes the planned refresh but does not push
+- if the local diff against the local parent is byte-identical to the remote commit's
+  diff against its parent, the rebase is tree-equivalent. `land` refreshes each
+  affected `review/*` branch to the rebased commit as a pre-land step, announces the
+  refresh, then performs the normal trunk transition so reviewers looking at the
+  closed PR see the commit that actually landed.
+- otherwise the local tree diverges from what was reviewed. `land` refuses and points
+  the user at `submit` so the PR can be updated and re-review requested before
+  landing.
+- `--dry-run` describes the planned refresh but does not push.
 
-The auto-refresh only covers pre-land state synchronization. `land` does not
-mutate review content, rewrite history, or bypass readiness checks in the
-process: after the refresh push, it re-verifies the PR approval state before
-touching trunk, so repository policies that dismiss approvals on push abort
-the landing before trunk moves, leaving the refreshed branch in place for
-the operator to re-request review and retry.
+The auto-refresh only covers pre-land state synchronization. `land` does not mutate
+review content, rewrite history, or bypass readiness checks in the process: after the
+refresh push, it re-verifies the PR approval state before touching trunk, so repo
+policies that dismiss approvals on push abort the landing before trunk moves, leaving
+the refreshed branch in place for the user to re-request review and retry.
 
-This design also needs to respect the recommended GitHub policy above:
+Per the recommended GitHub policy, `review/*` PRs are review-only and not merged on
+GitHub directly. `land` therefore replays the landable changes onto the trunk branch
+locally in `jj`, preserving them as a stack of commits rather than collapsing into one
+squashed trunk commit, then updates the trunk branch by pushing the new trunk tip with
+an optimistic lease that respects branch protection. Trunk protection and required
+checks gate landing; `review/*` protection only exists to block accidental direct
+merges of review branches.
 
-- PRs targeting `review/*` are review-only and should not be merged directly
-- `land` should replay the corresponding local changes onto the trunk branch
-  locally in `jj`, preserving those landed changes as a stack of commits rather
-  than collapsing it into one squashed trunk result
-- after producing that local landed result, it should update the trunk branch
-  by pushing the new trunk tip with an optimistic lease that still respects
-  repository policy and branch protection
-- `land` merges onto trunk, not into review-branch bases, and it does not
-  delegate the history shape to GitHub's PR merge UI
-- that bypass is intentional: trunk branch protection and required checks gate
-  landing, while `review/*` protection exists to block accidental direct merges
-  into pull request branches rather than to act as the landing gate
+Recovery guidance stays case-specific:
 
-That means `land` owns the merge transition for the landed changes, while
-`review/*` branches remain review-only state rather than merge targets in their
-own right.
+- if the PR link is missing or ambiguous, point at `status --fetch` and `relink`
+- if the landing scan stops at a closed-but-unmerged PR, say so directly and tell the
+  user to close or clean up that stack before retrying
+- if the scan stops at a draft, unapproved, or changes-requested PR, say so directly
+  without suggesting an override flag
+- if the stack needs local ancestry repair after an earlier merge, point at
+  `cleanup --rebase`
+- if the stack has no changes that can be landed now, say so directly and explain
+  whether the user should pick a different head, clean up merged ancestors, or repair
+  closed PR state first
+- if repo policy or branch protection blocks the trunk transition, surface that as a
+  hard error rather than trying an alternate mutation path
 
-Recovery guidance should stay case-specific:
+`land` only owns the bookkeeping that follows directly from the trunk transition:
 
-- if PR link is missing or ambiguous, point the operator to
-  `jj review status --fetch` and `jj review relink`
-- if the landing scan stops at a closed-but-unmerged PR, say so directly
-  and tell the operator to close or clean up that stack before retrying
-- if the landing scan stops at a draft, unapproved, or changes-requested PR,
-  say so directly without suggesting an override flag in the failure output
-- if the selected stack itself needs local ancestry repair after an earlier
-  merge, point the operator to `jj review cleanup --rebase`
-- if the selected stack has no changes that can be landed now, say so directly
-  and explain whether the user should select a different head, clean up merged
-  ancestors, or repair closed PR state first
-- if repository policy or branch protection blocks the transition onto trunk,
-  surface that as a hard error instead of trying an alternate mutation path
-
-`land` should own only the exact bookkeeping that follows directly from the
-successful landing transition:
-
-- record enough intent and result state to resume idempotently if the command
-  is interrupted
-- update saved local jj-review data for the landed changes
-- close or mark landed only the PRs that correspond exactly to the landed
-  changes, once the trunk transition succeeds
-- apply that PR finalization bottom-to-top through the landed changes so the
-  GitHub-side state changes follow the same stack order as submission and
-  landing
-- forget the local `review/*` bookmarks for the changes that were just landed,
-  but only when those bookmarks still point at the landed commits; `--skip-cleanup`
-  may retain those local bookmarks for explicit repair or inspection work
-- if there are surviving descendants above the landed changes, tell the
-  operator to repair local ancestry with `jj review cleanup --rebase` and
-  then rerun `submit`; `land` should not silently retarget or rebase those
-  surviving descendants itself
+- record enough state to resume idempotently if interrupted
+- update tracking for the landed changes
+- close or mark landed only the PRs that correspond exactly to the landed changes,
+  once the trunk transition succeeds
+- apply that PR finalization bottom-to-top through the landed changes so GitHub-side
+  state changes follow the same stack order as `submit` and `land`
+- forget the local `review/*` bookmarks for the landed changes, but only when those
+  bookmarks still point at the landed commits; `--skip-cleanup` retains them for
+  explicit repair or inspection
+- if there are surviving descendants above the landed changes, tell the user to repair
+  local ancestry with `cleanup --rebase` and rerun `submit`. `land` does not silently
+  retarget or rebase surviving descendants
 
 Broader cleanup remains the job of `cleanup`:
 
-- pruning stale saved jj-review data outside the landed changes
-- deleting stale pull request branches or stack summary comments not proven to
-  belong to the just-landed changes
+- pruning saved entries outside the landed changes
+- deleting stale PR branches or stack-summary comments not proven to belong to the
+  just-landed changes
 - removing fetched side copies
-- any ambiguous or indirect repair that still needs operator confirmation
+- any ambiguous or indirect repair that still needs user confirmation
 
-## Suggested jj-review Data Format
+## Tracking-state file format
 
-If a machine-written jj-review data file exists, keep it minimal:
+The file is JSON, validated through typed models. TOML is reserved for human-authored
+config. If the file is unreadable or partially written, treat it as missing for recovery
+purposes, warn once, and fall back to rediscovery where safe. Deleting the file does not
+break the review stack model, though it may force rediscovery or manual reattachment of
+bookmarks.
+
+Shape:
 
 ```json
 {
@@ -1237,38 +1009,8 @@ If a machine-written jj-review data file exists, keep it minimal:
 }
 ```
 
-Suggested path:
-
-```text
-~/.local/state/jj-review/repos/<repo-id>/state.json
-```
-
-Semantics:
-
-- missing entry means "reuse any discovered bookmark or PR state, otherwise
-  generate defaults"
-- present entry means "reuse saved generated state if still consistent"
-- if the machine-written data file is unreadable or partially written, treat
-  it as missing saved data for recovery purposes, warn once, and fall back to
-  rediscovery where the command can do so safely
-- machine-written state should use JSON and schema validation through typed
-  models; TOML is reserved for human-authored config
-- `link_state = "unlinked"` is durable operator intent and suppresses
-  automatic reattachment until the user runs `relink`
-- saved `pr_state` and `pr_review_decision` are advisory last-known GitHub
-  observations for status rendering, not a source of truth
-- deleting the file must never break the review stack model, though it may
-  force rediscovery or manual reattachment of bookmarks
-
-Suggested config scopes:
-
-```text
-jj config edit --user
-jj config edit --repo
-jj config edit --workspace
-```
-
-Store `jj-review` settings under the `jj-review` namespace, for example:
+Config goes under `[jj-review]` in the standard `jj` config scopes
+(`jj config edit --user|--repo|--workspace`), for example:
 
 ```toml
 [jj-review]
@@ -1276,12 +1018,12 @@ reviewers = ["octocat"]
 labels = ["needs-review"]
 ```
 
-Bookmark-selection patterns such as `use_bookmarks` belong in config, not in
-the machine-written state file.
+Bookmark-selection patterns such as `use_bookmarks` belong in config, not in the
+tracking-state file.
 
-## Current Boundary
+## Current scope
 
-The current design intentionally supports only:
+Supported:
 
 - one remote
 - one GitHub repo target
@@ -1289,30 +1031,27 @@ The current design intentionally supports only:
 - visible mutable changes
 - one PR per reviewable change
 
-The current design intentionally rejects:
+Rejected:
 
 - merge commits inside the review chain
 - divergent changes
-- stacked reviews that cross repositories or remotes
-- bookmark naming collisions caused by matched or generated bookmark names
+- stacked reviews that cross repos or remotes
+- bookmark naming collisions caused by matched or generated names
 
-## Open Questions
+## Open questions
 
-1. Should the tool eventually pass richer structured context to
-   `--describe-with` helpers, or should the helper interface stay limited to
-   `--pr <revset>` / `--stack <revset>` and JSON stdout?
+1. Should the tool eventually pass richer structured context to `--describe-with`
+   helpers, or stay limited to `--pr <revset>` / `--stack <revset>` and JSON stdout?
 2. Should abandoned or split PRs be auto-closed, or only surfaced as cleanup
    suggestions?
 
-## Bottom Line
+## Bottom line
 
 The central insight is simple:
 
-In a branch-first review tool, stack metadata often becomes part of the core
-model.
-
-In `jj`, the stack model is already the commit DAG. The tool's job is only to
-map that DAG to GitHub's branch-based PR API with stable bookmarks.
+In a branch-first review tool, stack metadata often becomes part of the core model. In
+`jj`, the stack model is already the commit DAG. The tool's job is just to map that DAG
+to GitHub's branch-based PR API with stable bookmarks.
 
 ## References
 
@@ -1324,5 +1063,5 @@ The design above relies on a small set of `jj` concepts and docs:
 - `docs/config.md` for generated bookmark names on `jj git push --change`
 - `docs/templates.md` for machine-readable template output
 - `docs/FAQ.md` for guidance on integrating with `jj`
-- `docs/technical/architecture.md` for why `.jj` internals should not be
-  treated as an external extension surface
+- `docs/technical/architecture.md` for why `.jj` internals should not be treated as an
+  external extension surface

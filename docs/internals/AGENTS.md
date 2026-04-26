@@ -12,9 +12,9 @@ agents working on the codebase. Most users will never open this directory.
   changing any user-visible behavior. It is the source of truth for what the
   tool is supposed to do.
 - `implementation-strategy.md` — how the tool is built: component boundaries,
-  test strategy, delivery sequencing, record of completed slices. Update the
-  "Recent refactor slices" section when you land a meaningful implementation
-  change.
+  tooling, test strategy. This file is not a changelog. Update it when the
+  *strategy* changes (new tool, new component boundary, new test layer), not
+  for every landed implementation change.
 - `testing-philosophy.md` — what kinds of tests to write and why.
 - `backlog.md` — non-blocking follow-up items: design debt, deferred features,
   open architecture questions. Add to it rather than leaving TODOs in code.
@@ -34,8 +34,8 @@ Do not carry that vocabulary into `docs/` (the user-facing guides). See
 - **design.md**: when adding a new command, changing existing command
   semantics, or adding new behavioral invariants. The design doc is not a
   changelog — update the relevant sections to reflect current behavior.
-- **implementation-strategy.md**: add a bullet to "Recent refactor slices"
-  for each completed implementation change.
+- **implementation-strategy.md**: update only when the build, test, or
+  component strategy changes. `jj log` is the changelog; this file is not.
 - **backlog.md**: add items here instead of leaving inline TODOs or comments
   about future work in the code.
 

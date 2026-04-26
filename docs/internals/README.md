@@ -11,7 +11,7 @@ If you are looking for how to use `jj-review`, see the [user guide](../README.md
 - **[design.md](design.md)** — canonical product spec: what the tool is
   supposed to do and why. Read this before changing any user-visible behavior.
 - **[implementation-strategy.md](implementation-strategy.md)** — how the tool
-  is built: component structure, test strategy, completed slice history.
+  is built: component structure, tooling, test strategy.
 - **[code-reviews.md](code-reviews.md)** — how to approach reviews for code
   and docs in this repo, including keeping review comments focused on real
   regressions, user surprise, and missing test evidence.
