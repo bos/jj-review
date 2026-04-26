@@ -32,7 +32,7 @@ from string.templatelib import Template
 from typing import IO, Any, Literal, Protocol, cast
 
 from rich import box as rich_box
-from rich.console import Console, Group, NewLine
+from rich.console import Console, ConsoleRenderable, Group, NewLine
 from rich.progress import (
     BarColumn,
     Progress,
@@ -194,6 +194,33 @@ class _HangingIndentRenderable:
                 yield indent
             yield from line
             if index < len(body_lines) - 1:
+                yield Segment.line()
+        if self.end == "\n":
+            yield Segment.line()
+        elif self.end:
+            yield from console.render(self.end, options)
+
+
+@dataclass(slots=True)
+class _TrimmedRenderable:
+    """Render content with trailing whitespace removed from each line."""
+
+    renderable: Any
+    end: str = "\n"
+
+    def __rich_console__(self, console, options):
+        lines = [
+            _rstrip_line_segments(line)
+            for line in console.render_lines(self.renderable, options, pad=False)
+        ]
+        while lines and not _line_text(lines[0]):
+            lines.pop(0)
+        while lines and not _line_text(lines[-1]):
+            lines.pop()
+
+        for index, line in enumerate(lines):
+            yield from line
+            if index < len(lines) - 1:
                 yield Segment.line()
         if self.end == "\n":
             yield Segment.line()
@@ -827,7 +854,7 @@ def _render_prefixed_line(line: ui.PrefixedLine) -> _HangingIndentRenderable:
     )
 
 
-def _render_data_table(table_data: ui.DataTable) -> Table:
+def _render_data_table(table_data: ui.DataTable) -> ConsoleRenderable:
     """Render a lightweight semantic table into a Rich table."""
 
     box = SIMPLE if table_data.box == "simple" else None
@@ -844,7 +871,29 @@ def _render_data_table(table_data: ui.DataTable) -> Table:
         table.add_column(column.header, no_wrap=column.no_wrap, width=column.width)
     for row in table_data.rows:
         table.add_row(*(cast(Any, _coerce_renderable(cell)) for cell in row))
-    return table
+    return _TrimmedRenderable(table)
+
+
+def _line_text(line: list[Segment]) -> str:
+    return "".join(segment.text for segment in line if not segment.control)
+
+
+def _rstrip_line_segments(line: list[Segment]) -> list[Segment]:
+    trimmed = list(line)
+    while trimmed and not trimmed[-1].control and not trimmed[-1].text.strip():
+        trimmed.pop()
+    if not trimmed:
+        return []
+
+    last = trimmed[-1]
+    if not last.control:
+        right_trimmed = last.text.rstrip()
+        if right_trimmed != last.text:
+            if right_trimmed:
+                trimmed[-1] = Segment(right_trimmed, last.style, last.control)
+            else:
+                trimmed.pop()
+    return trimmed
 
 
 _STDOUT_CONSOLE, _STDERR_CONSOLE, _SEMANTIC_STYLES = _build_consoles(cli_args=_NO_CLI_ARGS)

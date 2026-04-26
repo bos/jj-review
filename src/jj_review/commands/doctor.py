@@ -268,9 +268,9 @@ def _check_interruptions(state_store: ReviewStateStore) -> CheckResult:
 def _results_table(results: list[CheckResult]) -> ui.DataTable:
     return ui.DataTable(
         columns=(
-            ui.TableColumn("Check"),
-            ui.TableColumn("Status", no_wrap=True),
-            ui.TableColumn("Detail"),
+            ui.TableColumn("check"),
+            ui.TableColumn("status", no_wrap=True),
+            ui.TableColumn("detail"),
         ),
         rows=tuple(
             (

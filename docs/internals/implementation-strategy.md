@@ -182,6 +182,11 @@ Recent refactor slices:
 - CLI failures can now separate the diagnosis from the next-step guidance,
   rendering `Error:` on its own line and any actionable `Hint:` on the next
   line instead of tinting both as one long failure sentence
+- shared table rendering now trims Rich's outer padding so table lines never
+  pick up trailing spaces or blank spacer lines, while wrapped continuation
+  lines keep the left padding they need to stay visually inside the table;
+  table headers now also consistently use lowercase labels across `list`,
+  `doctor`, and help output
 - top-level and subcommand `help` output now build on shared `ui` definition-
   list and prefixed-line primitives, so section headings, command labels, and
   option labels render through the Rich-backed console path instead of
