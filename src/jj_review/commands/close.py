@@ -43,7 +43,11 @@ from jj_review.models.bookmarks import BookmarkState, GitRemote
 from jj_review.models.github import GithubIssueComment
 from jj_review.models.intent import CloseIntent, LoadedIntent, SubmitIntent
 from jj_review.models.review_state import CachedChange, ReviewState
-from jj_review.review.bookmarks import bookmark_ownership_for_source, is_review_bookmark
+from jj_review.review.bookmarks import (
+    bookmark_ownership_for_source,
+    find_changes_by_bookmark,
+    is_review_bookmark,
+)
 from jj_review.review.intents import (
     close_intent_mode_relation,
     describe_intent,
@@ -52,6 +56,7 @@ from jj_review.review.intents import (
 )
 from jj_review.review.selection import (
     resolve_linked_change_for_pull_request,
+    resolve_orphaned_pull_request,
     resolve_selected_revset,
 )
 from jj_review.review.status import (
@@ -206,6 +211,22 @@ def close(
         else ("close --cleanup" if cleanup else "close" if not dry_run else "close --dry-run")
     )
     if pull_request is not None:
+        if cleanup and revset is None:
+            orphan_target = resolve_orphaned_pull_request(
+                jj_client=context.jj_client,
+                pull_request_reference=pull_request,
+            )
+            if orphan_target is not None:
+                pull_request_number, change_id = orphan_target
+                return asyncio.run(
+                    _run_orphan_close(
+                        change_id=change_id,
+                        config=context.config,
+                        dry_run=dry_run,
+                        jj_client=context.jj_client,
+                        pull_request_number=pull_request_number,
+                    )
+                )
         pull_request_number, resolved_revset = resolve_linked_change_for_pull_request(
             action_name="close",
             jj_client=context.jj_client,
@@ -264,6 +285,196 @@ def close(
         else:
             console.output("Nothing to close on the selected stack.")
     return 1 if result.blocked else 0
+
+
+async def _run_orphan_close(
+    *,
+    change_id: str,
+    config: RepoConfig,
+    dry_run: bool,
+    jj_client: JjClient,
+    pull_request_number: int,
+) -> int:
+    """Close an orphaned PR, deleting its review artifacts via saved data.
+
+    Saved tracking is the only available identity, so this path acts from the
+    exact saved PR and bookmark fields. It fails closed if either is missing or
+    if the saved bookmark is now claimed by another tracked record.
+    """
+
+    state_store = ReviewStateStore.for_repo(jj_client.repo_root)
+    if not dry_run:
+        state_store.require_writable()
+    state = state_store.load()
+    cached_change = state.changes.get(change_id)
+    if cached_change is None:
+        raise CliError(
+            t"PR #{pull_request_number} is no longer tracked locally."
+        )
+    bookmark = cached_change.bookmark
+    if bookmark is None:
+        raise CliError(
+            t"PR #{pull_request_number} has no saved bookmark; cannot clean up orphaned branch.",
+            hint=t"Run {ui.cmd('unlink')} to detach the saved record manually.",
+        )
+    other_claimants = tuple(
+        other_change_id
+        for other_change_id in find_changes_by_bookmark(state, bookmark)
+        if other_change_id != change_id
+    )
+    if other_claimants:
+        rendered_others = ", ".join(other[:8] for other in other_claimants)
+        raise CliError(
+            t"Bookmark {ui.bookmark(bookmark)} is now claimed by another tracked change "
+            t"({rendered_others}); refusing to delete the branch from under a live review.",
+            hint=t"Run {ui.cmd('unlink')} on the orphan record instead.",
+        )
+
+    remotes = jj_client.list_git_remotes()
+    remote_error: ErrorMessage | None = None
+    remote: GitRemote | None = None
+    try:
+        remote = select_submit_remote(remotes) if remotes else None
+    except CliError as error:
+        remote_error = error_message(error)
+    github_repository = parse_github_repo(remote) if remote is not None else None
+    github_error: ErrorMessage | None = None
+    if remote is not None and github_repository is None:
+        github_error = (
+            f"Could not determine the GitHub repository for remote {remote.name}."
+        )
+    if remote is None or github_repository is None:
+        if remote is None:
+            console.warning(remote_unavailable_message(remote_error=remote_error))
+        github_message = github_unavailable_message(
+            github_error=github_error,
+            github_repository=None,
+        )
+        if github_message is not None:
+            console.warning(github_message)
+        return 1
+
+    actions: list[CloseAction] = []
+    label = ui.change_id(change_id)
+    last_target = cached_change.last_submitted_commit_id
+    bookmark_managed = cached_change.manages_bookmark or config.cleanup_user_bookmarks
+
+    async with build_github_client(base_url=github_repository.api_base_url) as github_client:
+        actions.append(
+            CloseAction(
+                kind="pull request",
+                body=t"close PR #{pull_request_number} for orphaned change {label}",
+                status="planned" if dry_run else "applied",
+            )
+        )
+        if not dry_run:
+            try:
+                await github_client.close_pull_request(
+                    github_repository.owner,
+                    github_repository.repo,
+                    pull_number=pull_request_number,
+                )
+            except GithubClientError as error:
+                raise CliError(
+                    t"Could not close PR #{pull_request_number}."
+                ) from error
+
+        for kind, comment_id in (
+            ("navigation", cached_change.navigation_comment_id),
+            ("overview", cached_change.overview_comment_id),
+        ):
+            if comment_id is None:
+                continue
+            actions.append(
+                CloseAction(
+                    kind=stack_comment_label(kind),
+                    body=(
+                        f"delete {stack_comment_label(kind)} #{comment_id} from "
+                        f"PR #{pull_request_number}"
+                    ),
+                    status="planned" if dry_run else "applied",
+                )
+            )
+            if not dry_run:
+                try:
+                    await github_client.delete_issue_comment(
+                        github_repository.owner,
+                        github_repository.repo,
+                        comment_id=comment_id,
+                    )
+                except GithubClientError as error:
+                    if error.status_code != 404:
+                        raise CliError(
+                            t"Could not delete {stack_comment_label(kind)} "
+                            t"#{comment_id}."
+                        ) from error
+
+    if bookmark_managed:
+        branch_label = f"{bookmark}@{remote.name}"
+        if last_target is None:
+            actions.append(
+                CloseAction(
+                    kind="remote branch",
+                    body=t"cannot delete {ui.bookmark(branch_label)} without a saved target",
+                    status="blocked",
+                )
+            )
+        else:
+            actions.append(
+                CloseAction(
+                    kind="remote branch",
+                    body=t"delete {ui.bookmark(branch_label)}",
+                    status="planned" if dry_run else "applied",
+                )
+            )
+            if not dry_run:
+                jj_client.delete_remote_bookmarks(
+                    remote=remote.name,
+                    deletions=((bookmark, last_target),),
+                )
+
+        local_target = jj_client.get_bookmark_state(bookmark).local_target
+        if local_target is not None:
+            actions.append(
+                CloseAction(
+                    kind="local bookmark",
+                    body=t"forget {ui.bookmark(bookmark)}",
+                    status="planned" if dry_run else "applied",
+                )
+            )
+            if not dry_run:
+                jj_client.forget_bookmarks((bookmark,))
+
+    actions.append(
+        CloseAction(
+            kind="saved data",
+            body=t"prune orphan record for {label}",
+            status="planned" if dry_run else "applied",
+        )
+    )
+    if not dry_run:
+        next_changes = dict(state.changes)
+        next_changes.pop(change_id, None)
+        state_store.save(state.model_copy(update={"changes": next_changes}))
+
+    blocked = any(action.status == "blocked" for action in actions)
+    header = (
+        "Close blocked:"
+        if blocked
+        else ("Applied close actions:" if not dry_run else "Planned close actions:")
+    )
+    console.output(header)
+    for action in actions:
+        prefix, prefix_style, body_style = _close_action_presentation(action.status)
+        console.output(
+            ui.prefixed_line(
+                f"{prefix} ",
+                _render_close_action_message(action),
+                prefix_labels=prefix_style,
+                message_labels=body_style,
+            )
+        )
+    return 1 if blocked else 0
 
 
 def prepare_close(

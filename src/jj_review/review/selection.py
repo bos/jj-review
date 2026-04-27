@@ -53,6 +53,44 @@ def parse_comma_separated_flag_values(
     return parsed_values
 
 
+def resolve_orphaned_pull_request(
+    *,
+    jj_client: JjClient,
+    pull_request_reference: str,
+) -> tuple[int, str] | None:
+    """Resolve `--pull-request` to a saved record whose change is no longer visible.
+
+    Returns `(pull_request_number, change_id)` only when:
+    - exactly one tracked record matches the pull request number, and
+    - that change has no visible local revision.
+
+    Returns `None` when the change is still visible (let the live-link path
+    handle it) or when no matching tracked record exists (let the live-link
+    path raise its targeted diagnostic).
+    """
+
+    pull_request_number = _parse_repo_pull_request_number(
+        jj_client=jj_client,
+        pull_request_reference=pull_request_reference,
+    )
+    state = ReviewStateStore.for_repo(jj_client.repo_root).load()
+    matching_change_ids = [
+        change_id
+        for change_id, cached_change in state.changes.items()
+        if cached_change.link_state == "active" and cached_change.pr_number == pull_request_number
+    ]
+    if len(matching_change_ids) != 1:
+        return None
+    change_id = matching_change_ids[0]
+    visible_revisions = jj_client.query_revisions_by_change_ids((change_id,)).get(
+        change_id,
+        (),
+    )
+    if visible_revisions:
+        return None
+    return pull_request_number, change_id
+
+
 def resolve_linked_change_for_pull_request(
     *,
     action_name: str,
