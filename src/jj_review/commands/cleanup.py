@@ -67,6 +67,7 @@ from jj_review.review.status import (
     status_preparation_cli_error,
     stream_status,
 )
+from jj_review.review.topology import is_open_orphan_record
 from jj_review.state.intents import check_same_kind_intent, write_new_intent
 from jj_review.state.store import ReviewStateStore
 from jj_review.ui import Message, plain_text
@@ -1162,6 +1163,8 @@ def _process_stale_cleanup_change(
     stale_reason = prepared_change.stale_reason
     if stale_reason is None:
         return None
+    if is_open_orphan_record(prepared_change.cached_change):
+        return None
 
     record_action(
         CleanupAction(
@@ -1432,11 +1435,14 @@ def _cleanup_needs_remote_context(
         if (
             stale_reason is not None
             and bookmark is not None
-            and is_review_bookmark(
-                bookmark,
-                prefix=prepared_cleanup.config.bookmark_prefix,
-            )
             and bookmark_state.remote_targets
+            and (
+                is_review_bookmark(
+                    bookmark,
+                    prefix=prepared_cleanup.config.bookmark_prefix,
+                )
+                or prepared_cleanup.config.cleanup_user_bookmarks
+            )
         ):
             return True
         if _stack_comment_cleanup_eligibility(

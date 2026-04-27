@@ -27,6 +27,29 @@ from .submit_command_helpers import (
 )
 
 
+def _mark_pr_state(
+    state_store: ReviewStateStore,
+    *,
+    change_id: str,
+    pr_state: str,
+) -> None:
+    """Set the saved pr_state for a single tracked change."""
+
+    state = state_store.load()
+    state_store.save(
+        state.model_copy(
+            update={
+                "changes": {
+                    **state.changes,
+                    change_id: state.changes[change_id].model_copy(
+                        update={"pr_state": pr_state}
+                    ),
+                }
+            }
+        )
+    )
+
+
 def test_cleanup_prunes_unlinked_state_for_stale_change(
     tmp_path: Path,
     monkeypatch,
@@ -331,6 +354,7 @@ def test_cleanup_dry_run_reports_stale_tracking_and_remote_branch_without_mutati
     bookmark = initial_state.changes[change_id].bookmark
     assert bookmark is not None
 
+    _mark_pr_state(state_store, change_id=change_id, pr_state="closed")
     run_command(["jj", "abandon", change_id], repo)
     run_command(["jj", "bookmark", "delete", bookmark], repo)
 
@@ -360,6 +384,18 @@ def test_cleanup_applies_stale_tracking_and_remote_branch_removal(
     initial_state = state_store.load()
     bookmark = initial_state.changes[change_id].bookmark
     assert bookmark is not None
+    state_store.save(
+        initial_state.model_copy(
+            update={
+                "changes": {
+                    **initial_state.changes,
+                    change_id: initial_state.changes[change_id].model_copy(
+                        update={"pr_state": "closed"}
+                    ),
+                }
+            }
+        )
+    )
 
     run_command(["jj", "abandon", change_id], repo)
     run_command(["jj", "bookmark", "delete", bookmark], repo)
@@ -375,6 +411,33 @@ def test_cleanup_applies_stale_tracking_and_remote_branch_removal(
     assert f"refs/heads/{bookmark}" not in remote_refs(fake_repo.git_dir)
 
 
+def test_cleanup_preserves_open_orphan_record_and_remote_branch(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    stack = JjClient(repo).discover_review_stack()
+    change_id = stack.revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    bookmark = state_store.load().changes[change_id].bookmark
+    assert bookmark is not None
+
+    run_command(["jj", "abandon", change_id], repo)
+
+    exit_code = run_main(repo, config_path, "cleanup")
+    captured = capsys.readouterr()
+    refreshed_state = state_store.load()
+
+    assert exit_code == 0
+    assert "No cleanup actions needed." in captured.out
+    assert change_id in refreshed_state.changes
+    assert refreshed_state.changes[change_id].bookmark == bookmark
+    assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
+
+
 def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
     tmp_path: Path,
     monkeypatch,
@@ -388,6 +451,7 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
     state_store = ReviewStateStore.for_repo(repo)
     bookmark = state_store.load().changes[change_id].bookmark
     assert bookmark is not None
+    _mark_pr_state(state_store, change_id=change_id, pr_state="closed")
 
     run_command(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
     monkeypatch.setattr(
@@ -426,6 +490,7 @@ def test_cleanup_forgets_local_bookmark_before_deleting_remote_branch_when_safe(
     state_store = ReviewStateStore.for_repo(repo)
     bookmark = state_store.load().changes[change_id].bookmark
     assert bookmark is not None
+    _mark_pr_state(state_store, change_id=change_id, pr_state="closed")
 
     run_command(["jj", "bookmark", "set", bookmark, "-r", change_id], repo)
     monkeypatch.setattr(
@@ -479,6 +544,9 @@ def test_cleanup_can_delete_user_bookmarks_when_configured(
 
     assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
+    state_store = ReviewStateStore.for_repo(repo)
+    [tracked_change_id] = list(state_store.load().changes.keys())
+    _mark_pr_state(state_store, change_id=tracked_change_id, pr_state="merged")
 
     monkeypatch.setattr(
         "jj_review.commands.cleanup._stale_change_reasons",
@@ -518,6 +586,8 @@ def test_cleanup_apply_batches_remote_delete_local_forget_and_fetch(
     stack = JjClient(repo).discover_review_stack()
     change_ids = tuple(revision.change_id for revision in stack.revisions)
     state_store = ReviewStateStore.for_repo(repo)
+    for change_id in change_ids:
+        _mark_pr_state(state_store, change_id=change_id, pr_state="closed")
     state = state_store.load()
     bookmarks = tuple(state.changes[change_id].bookmark for change_id in change_ids)
     assert all(bookmark is not None for bookmark in bookmarks)
@@ -615,6 +685,7 @@ def test_cleanup_apply_keeps_remote_branch_when_target_changes_mid_delete(
     bookmark = initial_state.changes[change_id].bookmark
     assert bookmark is not None
 
+    _mark_pr_state(state_store, change_id=change_id, pr_state="closed")
     run_command(["jj", "abandon", change_id], repo)
     run_command(["jj", "bookmark", "delete", bookmark], repo)
 
@@ -770,8 +841,10 @@ def test_cleanup_retains_intent_file_after_failed_apply(
 
     stack = JjClient(repo).discover_review_stack()
     change_id = stack.revisions[-1].change_id
-    bookmark = ReviewStateStore.for_repo(repo).load().changes[change_id].bookmark
+    state_store = ReviewStateStore.for_repo(repo)
+    bookmark = state_store.load().changes[change_id].bookmark
     assert bookmark is not None
+    _mark_pr_state(state_store, change_id=change_id, pr_state="closed")
 
     run_command(["jj", "abandon", change_id], repo)
     run_command(["jj", "bookmark", "delete", bookmark], repo)
