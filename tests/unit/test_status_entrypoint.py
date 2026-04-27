@@ -47,6 +47,7 @@ def test_status_updates_tty_progress_bar_while_streaming(
                         commit_id="trunk-commit",
                         subject="base",
                     ),
+                    head=SimpleNamespace(change_id="head-change-id"),
                     trunk=SimpleNamespace(
                         change_id="trunkchangeid",
                         commit_id="trunk-commit",
@@ -136,6 +137,7 @@ def test_status_passes_cli_color_override_to_native_jj_rendering(
                         commit_id="trunk-commit",
                         subject="base",
                     ),
+                    head=SimpleNamespace(change_id="head-change-id"),
                     trunk=SimpleNamespace(
                         change_id="trunkchangeid",
                         commit_id="trunk-commit",
@@ -200,7 +202,8 @@ def test_status_fetches_once_and_skips_duplicate_stack(
                 stack=SimpleNamespace(
                     base_parent=SimpleNamespace(
                         commit_id="shared-base" if revset in {"foo", "bar"} else f"base-{revset}"
-                    )
+                    ),
+                    head=SimpleNamespace(change_id=change_ids[-1]),
                 ),
                 status_revisions=tuple(
                     SimpleNamespace(revision=SimpleNamespace(change_id=change_id))
@@ -254,7 +257,10 @@ def test_status_continues_after_selector_error(
         return SimpleNamespace(
             selected_revset=revset,
             prepared=SimpleNamespace(
-                stack=SimpleNamespace(base_parent=SimpleNamespace(commit_id=f"base-{revset}")),
+                stack=SimpleNamespace(
+                    base_parent=SimpleNamespace(commit_id=f"base-{revset}"),
+                    head=SimpleNamespace(change_id=f"{revset}-head"),
+                ),
                 status_revisions=(
                     SimpleNamespace(revision=SimpleNamespace(change_id=f"{revset}-change")),
                 ),

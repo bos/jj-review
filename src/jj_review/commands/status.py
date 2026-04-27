@@ -41,6 +41,7 @@ from jj_review.models.intent import (
     SubmitIntent,
 )
 from jj_review.review.bookmarks import bookmark_glob, is_review_bookmark
+from jj_review.review.discovery import discover_tracked_stacks
 from jj_review.review.intents import (
     describe_intent,
     match_cleanup_rebase_intent,
@@ -64,6 +65,8 @@ from jj_review.review.submit_recovery import (
     SubmitStatusDecision,
     submit_status_decision,
 )
+from jj_review.review.topology import pointer_disagreement
+from jj_review.state.store import ReviewStateStore
 from jj_review.system import pid_is_alive
 
 _SUMMARY_SECTION_HEAD_COUNT = 3
@@ -114,17 +117,25 @@ def status(
     if fetch:
         refresh_remote_state_for_status(jj_client=context.jj_client)
 
+    rendered_head_change_ids: set[str] = set()
     if not ordered_selectors:
         prepared_status = _prepare_status_with_spinner(
             config=context.config,
             jj_client=context.jj_client,
             revset=None,
         )
-        return _render_prepared_status(
+        rendered_head_change_ids.add(prepared_status.prepared.stack.head.change_id)
+        exit_code = _render_prepared_status(
             config=context.config,
             prepared_status=prepared_status,
             verbose=verbose,
         )
+        _emit_other_stacks_needs_submit_advisory(
+            jj_client=context.jj_client,
+            repo_root=context.repo_root,
+            rendered_head_change_ids=rendered_head_change_ids,
+        )
+        return exit_code
 
     exit_code = 0
     multi_selector = len(ordered_selectors) > 1
@@ -158,6 +169,7 @@ def status(
         if stack_key in rendered_stack_keys:
             continue
         rendered_stack_keys.add(stack_key)
+        rendered_head_change_ids.add(prepared_status.prepared.stack.head.change_id)
 
         if printed_blocks:
             console.output("")
@@ -174,7 +186,42 @@ def status(
             ),
         )
         printed_blocks += 1
+    _emit_other_stacks_needs_submit_advisory(
+        jj_client=context.jj_client,
+        repo_root=context.repo_root,
+        rendered_head_change_ids=rendered_head_change_ids,
+    )
     return exit_code
+
+
+def _emit_other_stacks_needs_submit_advisory(
+    *,
+    jj_client: JjClient,
+    repo_root: Path,
+    rendered_head_change_ids: set[str],
+) -> None:
+    """Hint that other tracked stacks have moved since their last successful submit."""
+
+    state = ReviewStateStore.for_repo(repo_root).load()
+    if not state.changes:
+        return
+    discovered = discover_tracked_stacks(jj_client=jj_client, state=state)
+    other_stacks = tuple(
+        stack
+        for stack in discovered.stacks
+        if stack.head.change_id not in rendered_head_change_ids
+    )
+    if not other_stacks:
+        return
+    needs_submit_heads = tuple(
+        stack.head.change_id
+        for stack in other_stacks
+        if pointer_disagreement(state, (stack,))
+    )
+    if not needs_submit_heads:
+        return
+    rendered = ", ".join(head[:8] for head in needs_submit_heads)
+    console.warning(t"Other tracked stacks need submit: {rendered}")
 
 
 def _normalize_status_selectors(

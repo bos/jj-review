@@ -82,6 +82,40 @@ def test_status_can_select_a_stack_by_pull_request_number(
     assert f"PR #{second_pr_number}" not in captured.out
 
 
+def test_status_warns_when_other_tracked_stack_has_moved_since_last_submit(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    commit_file(repo, "alpha 2", "alpha-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    alpha_head_change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "beta 1", "beta-1.txt")
+    commit_file(repo, "beta 2", "beta-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    commit_file(repo, "beta 3", "beta-3.txt")
+    new_beta_head_change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+
+    run_command(["jj", "edit", alpha_head_change_id], repo)
+    exit_code = run_main(repo, config_path, "status")
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+
+    assert exit_code == 0
+    assert "Other tracked stacks need submit:" in combined
+    assert new_beta_head_change_id[:8] in combined
+    assert alpha_head_change_id[:8] not in combined.split("Other tracked stacks need submit:")[1]
+
+
 def test_status_pull_request_selector_requires_a_linked_local_change(
     tmp_path: Path,
     monkeypatch,
