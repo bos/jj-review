@@ -426,13 +426,17 @@ def test_cleanup_preserves_open_orphan_record_and_remote_branch(
     assert bookmark is not None
 
     run_command(["jj", "abandon", change_id], repo)
+    pr_number = state_store.load().changes[change_id].pr_number
+    assert pr_number is not None
 
     exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
     refreshed_state = state_store.load()
+    normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 0
-    assert "No cleanup actions needed." in captured.out
+    assert "preserve open orphan" in normalized_output
+    assert f"close --cleanup --pull-request {pr_number}" in normalized_output
     assert change_id in refreshed_state.changes
     assert refreshed_state.changes[change_id].bookmark == bookmark
     assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)

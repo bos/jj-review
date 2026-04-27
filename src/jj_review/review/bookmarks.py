@@ -260,15 +260,15 @@ def find_changes_by_bookmark(
     state: ReviewState,
     bookmark: str,
 ) -> tuple[str, ...]:
-    """Return the change_ids of saved tracked records whose bookmark matches.
+    """Return change_ids of any saved record whose bookmark matches.
 
     Used to detect cross-claim collisions before mutating remote state — for
     example, when `close --cleanup --pull-request <pr>` is asked to delete an
     orphaned PR's branch but the same bookmark is now claimed by another live
     review record (typically through a `use_bookmarks` pattern).
 
-    Unlinked records are intentionally included: they still pin a bookmark and
-    must not be silently overwritten.
+    All records that pin the bookmark are returned, including unlinked ones —
+    they still own a name and must not be silently overwritten.
     """
 
     return tuple(

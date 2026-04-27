@@ -67,7 +67,7 @@ from jj_review.review.status import (
     status_preparation_cli_error,
     stream_status,
 )
-from jj_review.review.topology import is_open_orphan_record
+from jj_review.review.topology import is_open_pr_record
 from jj_review.state.intents import check_same_kind_intent, write_new_intent
 from jj_review.state.store import ReviewStateStore
 from jj_review.ui import Message, plain_text
@@ -1163,7 +1163,28 @@ def _process_stale_cleanup_change(
     stale_reason = prepared_change.stale_reason
     if stale_reason is None:
         return None
-    if is_open_orphan_record(prepared_change.cached_change):
+    if is_open_pr_record(prepared_change.cached_change):
+        pull_request_number = prepared_change.cached_change.pr_number
+        if pull_request_number is not None:
+            close_hint = ui.cmd(
+                f"jj-review close --cleanup --pull-request {pull_request_number}"
+            )
+            body = (
+                t"preserve open orphan {ui.change_id(prepared_change.change_id)} "
+                t"(run {close_hint} to retire it)"
+            )
+        else:
+            body = (
+                t"preserve open orphan {ui.change_id(prepared_change.change_id)} "
+                t"(no saved PR number; run {ui.cmd('jj-review unlink')} to detach)"
+            )
+        record_action(
+            CleanupAction(
+                kind="tracking",
+                status="planned" if prepared_cleanup.dry_run else "applied",
+                body=body,
+            )
+        )
         return None
 
     record_action(

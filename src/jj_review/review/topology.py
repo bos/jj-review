@@ -31,13 +31,13 @@ class OrphanedRecord:
 _OPEN_PR_STATES_FOR_ORPHANS = frozenset({"open", "draft"})
 
 
-def is_open_orphan_record(cached_change: CachedChange) -> bool:
-    """Whether a saved record represents a still-open orphan PR.
+def is_open_pr_record(cached_change: CachedChange) -> bool:
+    """Whether a saved record's PR is still open from the tool's perspective.
 
-    Orphaned in the design sense: actively tracked, pr_state is open or draft
-    (or unknown — treat None as still open). Used to gate cleanup so it does
-    not silently drop the saved record or delete the remote branch while the
-    PR is live.
+    Saved-state-only predicate: actively tracked link_state, has_review_identity
+    populated, and pr_state is open or draft (None falls back to "still open").
+    Does not check whether the change is gone from live stacks — callers that
+    care about that half of the orphan predicate must filter first.
     """
 
     if not cached_change.is_tracked:
@@ -74,7 +74,7 @@ def enumerate_orphaned_records(
     for change_id, cached_change in state.changes.items():
         if change_id in live_change_ids:
             continue
-        if not is_open_orphan_record(cached_change):
+        if not is_open_pr_record(cached_change):
             continue
         orphans.append(OrphanedRecord(change_id=change_id, cached_change=cached_change))
     return tuple(orphans)
