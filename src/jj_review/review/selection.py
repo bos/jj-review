@@ -12,6 +12,7 @@ from jj_review.github.pull_request_refs import (
 )
 from jj_review.github.resolution import parse_github_repo, select_submit_remote
 from jj_review.jj import JjClient
+from jj_review.models.review_state import ReviewState
 from jj_review.state.store import ReviewStateStore
 
 
@@ -57,6 +58,7 @@ def resolve_orphaned_pull_request(
     *,
     jj_client: JjClient,
     pull_request_reference: str,
+    state: ReviewState,
 ) -> tuple[int, str] | None:
     """Resolve `--pull-request` to a saved record whose change is no longer visible.
 
@@ -73,7 +75,6 @@ def resolve_orphaned_pull_request(
         jj_client=jj_client,
         pull_request_reference=pull_request_reference,
     )
-    state = ReviewStateStore.for_repo(jj_client.repo_root).load()
     matching_change_ids = [
         change_id
         for change_id, cached_change in state.changes.items()

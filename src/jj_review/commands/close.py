@@ -212,9 +212,14 @@ def close(
     )
     if pull_request is not None:
         if cleanup and revset is None:
+            state_store = ReviewStateStore.for_repo(context.jj_client.repo_root)
+            if not dry_run:
+                state_store.require_writable()
+            state = state_store.load()
             orphan_target = resolve_orphaned_pull_request(
                 jj_client=context.jj_client,
                 pull_request_reference=pull_request,
+                state=state,
             )
             if orphan_target is not None:
                 pull_request_number, change_id = orphan_target
@@ -225,6 +230,8 @@ def close(
                         dry_run=dry_run,
                         jj_client=context.jj_client,
                         pull_request_number=pull_request_number,
+                        state=state,
+                        state_store=state_store,
                     )
                 )
         pull_request_number, resolved_revset = resolve_linked_change_for_pull_request(
@@ -287,6 +294,24 @@ def close(
     return 1 if result.blocked else 0
 
 
+def _orphan_should_cleanup_bookmark(
+    *,
+    bookmark: str,
+    cached_change: CachedChange,
+    cleanup_user_bookmarks: bool,
+    prefix: str,
+) -> bool:
+    """Mirror _plan_review_bookmark_cleanup's ownership rule for the orphan path.
+
+    A managed bookmark is only eligible when its name matches the configured
+    review prefix. External bookmarks need an explicit user opt-in.
+    """
+
+    if cached_change.manages_bookmark:
+        return is_review_bookmark(bookmark, prefix=prefix)
+    return cleanup_user_bookmarks
+
+
 async def _run_orphan_close(
     *,
     change_id: str,
@@ -294,18 +319,17 @@ async def _run_orphan_close(
     dry_run: bool,
     jj_client: JjClient,
     pull_request_number: int,
+    state: ReviewState,
+    state_store: ReviewStateStore,
 ) -> int:
     """Close an orphaned PR, deleting its review artifacts via saved data.
 
     Saved tracking is the only available identity, so this path acts from the
-    exact saved PR and bookmark fields. It fails closed if either is missing or
-    if the saved bookmark is now claimed by another tracked record.
+    exact saved PR and bookmark fields. It fails closed if either is missing,
+    if the saved bookmark is now claimed by another tracked record, or if the
+    bookmark is locally or remotely conflicted.
     """
 
-    state_store = ReviewStateStore.for_repo(jj_client.repo_root)
-    if not dry_run:
-        state_store.require_writable()
-    state = state_store.load()
     cached_change = state.changes.get(change_id)
     if cached_change is None:
         raise CliError(
@@ -357,7 +381,13 @@ async def _run_orphan_close(
     actions: list[CloseAction] = []
     label = ui.change_id(change_id)
     last_target = cached_change.last_submitted_commit_id
-    bookmark_managed = cached_change.manages_bookmark or config.cleanup_user_bookmarks
+    bookmark_state = jj_client.get_bookmark_state(bookmark)
+    cleanup_bookmark = _orphan_should_cleanup_bookmark(
+        bookmark=bookmark,
+        cached_change=cached_change,
+        cleanup_user_bookmarks=config.cleanup_user_bookmarks,
+        prefix=config.bookmark_prefix,
+    )
 
     async with build_github_client(base_url=github_repository.api_base_url) as github_client:
         actions.append(
@@ -409,13 +439,25 @@ async def _run_orphan_close(
                             t"#{comment_id}."
                         ) from error
 
-    if bookmark_managed:
+    if cleanup_bookmark:
         branch_label = f"{bookmark}@{remote.name}"
+        remote_observation = bookmark_state.remote_target(remote.name)
         if last_target is None:
             actions.append(
                 CloseAction(
                     kind="remote branch",
                     body=t"cannot delete {ui.bookmark(branch_label)} without a saved target",
+                    status="blocked",
+                )
+            )
+        elif remote_observation is not None and len(remote_observation.targets) > 1:
+            actions.append(
+                CloseAction(
+                    kind="remote branch",
+                    body=(
+                        t"cannot delete {ui.bookmark(branch_label)} because the remote "
+                        t"bookmark is conflicted"
+                    ),
                     status="blocked",
                 )
             )
@@ -433,8 +475,15 @@ async def _run_orphan_close(
                     deletions=((bookmark, last_target),),
                 )
 
-        local_target = jj_client.get_bookmark_state(bookmark).local_target
-        if local_target is not None:
+        if len(bookmark_state.local_targets) > 1:
+            actions.append(
+                CloseAction(
+                    kind="local bookmark",
+                    body=t"cannot forget {ui.bookmark(bookmark)} because it is conflicted",
+                    status="blocked",
+                )
+            )
+        elif bookmark_state.local_target is not None:
             actions.append(
                 CloseAction(
                     kind="local bookmark",
