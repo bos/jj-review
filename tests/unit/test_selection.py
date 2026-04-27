@@ -7,8 +7,10 @@ from jj_review.errors import CliError
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import GitRemote
 from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.models.stack import LocalRevision
 from jj_review.review.selection import (
     resolve_linked_change_for_pull_request,
+    resolve_orphaned_pull_request,
     resolve_selected_revset,
 )
 
@@ -52,6 +54,37 @@ def test_resolve_linked_change_for_pull_request_uses_action_specific_guidance(
         )
 
 
+def test_resolve_orphaned_pull_request_uses_supported_stack_membership() -> None:
+    state = ReviewState(
+        changes={
+            "change-1": CachedChange(
+                bookmark="review/change-1",
+                pr_number=17,
+                pr_state="open",
+                pr_url="https://example.test/pull/17",
+            )
+        }
+    )
+    jj_client = _JjClientStub(
+        _REPO_ROOT,
+        revisions_by_change_id={
+            "change-1": (
+                _revision(
+                    change_id="change-1",
+                    commit_id="commit-1",
+                    parents=("left-parent", "right-parent"),
+                ),
+            ),
+        },
+    )
+
+    assert resolve_orphaned_pull_request(
+        jj_client=cast(JjClient, jj_client),
+        pull_request_reference="17",
+        state=state,
+    ) == (17, "change-1")
+
+
 _REPO_ROOT = Path(__file__).resolve().parent
 
 
@@ -83,6 +116,25 @@ class _JjClientStub:
             change_id: self._revisions_by_change_id.get(change_id, ())
             for change_id in change_ids
         }
+
+
+def _revision(
+    *,
+    change_id: str,
+    commit_id: str,
+    parents: tuple[str, ...] = ("parent",),
+) -> LocalRevision:
+    return LocalRevision(
+        change_id=change_id,
+        commit_id=commit_id,
+        current_working_copy=False,
+        description=f"{change_id} subject",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=parents,
+    )
 
 
 def _patch_review_state(monkeypatch, state: ReviewState) -> None:

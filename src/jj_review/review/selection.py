@@ -13,6 +13,7 @@ from jj_review.github.pull_request_refs import (
 from jj_review.github.resolution import parse_github_repo, select_submit_remote
 from jj_review.jj import JjClient
 from jj_review.models.review_state import ReviewState
+from jj_review.review.discovery import discover_tracked_stacks
 from jj_review.state.store import ReviewStateStore
 
 
@@ -64,11 +65,11 @@ def resolve_orphaned_pull_request(
 
     Returns `(pull_request_number, change_id)` only when:
     - exactly one tracked record matches the pull request number, and
-    - that change has no visible local revision.
+    - that change is absent from every currently supported review stack.
 
-    Returns `None` when the change is still visible (let the live-link path
-    handle it) or when no matching tracked record exists (let the live-link
-    path raise its targeted diagnostic).
+    Returns `None` when the change still participates in a live stack (let the
+    live-link path handle it) or when no matching tracked record exists (let
+    the live-link path raise its targeted diagnostic).
     """
 
     pull_request_number = _parse_repo_pull_request_number(
@@ -83,11 +84,12 @@ def resolve_orphaned_pull_request(
     if len(matching_change_ids) != 1:
         return None
     change_id = matching_change_ids[0]
-    visible_revisions = jj_client.query_revisions_by_change_ids((change_id,)).get(
-        change_id,
-        (),
-    )
-    if visible_revisions:
+    discovered = discover_tracked_stacks(jj_client=jj_client, state=state)
+    if any(
+        revision.change_id == change_id
+        for stack in discovered.stacks
+        for revision in stack.revisions
+    ):
         return None
     return pull_request_number, change_id
 
