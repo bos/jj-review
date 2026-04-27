@@ -831,6 +831,62 @@ def test_submit_moves_managed_stack_comment_to_new_selected_head(
     assert refreshed_state.changes[new_top_change_id].navigation_comment_id != initial_comment_id
 
 
+def test_submit_moves_overview_comment_when_stack_head_advances(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+    helper = tmp_path / "describe.py"
+    helper.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env python3",
+                "import json",
+                "import sys",
+                "",
+                "kind, revset = sys.argv[1], sys.argv[2]",
+                "if kind == '--pr':",
+                "    print(json.dumps({'title': revset[:8], 'body': revset}))",
+                "elif kind == '--stack':",
+                "    print(json.dumps({'title': 'stack', 'body': 'stack body'}))",
+                "else:",
+                "    raise SystemExit(f'unexpected args: {sys.argv[1:]}')",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    helper.chmod(0o755)
+
+    assert run_main(repo, config_path, "submit", "--describe-with", str(helper)) == 0
+    capsys.readouterr()
+    initial_stack = JjClient(repo).discover_review_stack()
+    initial_top_change_id = initial_stack.revisions[-1].change_id
+    initial_top_pr_number = (
+        ReviewStateStore.for_repo(repo).load().changes[initial_top_change_id].pr_number
+    )
+    assert initial_top_pr_number is not None
+    assert len(_overview_comments(fake_repo, initial_top_pr_number)) == 1
+
+    commit_file(repo, "feature 3", "feature-3.txt")
+    assert run_main(repo, config_path, "submit", "--describe-with", str(helper)) == 0
+    capsys.readouterr()
+    refreshed_stack = JjClient(repo).discover_review_stack()
+    new_top_change_id = refreshed_stack.revisions[-1].change_id
+    refreshed_state = ReviewStateStore.for_repo(repo).load()
+    new_top_pr_number = refreshed_state.changes[new_top_change_id].pr_number
+    assert new_top_pr_number is not None
+
+    assert _overview_comments(fake_repo, initial_top_pr_number) == []
+    assert refreshed_state.changes[initial_top_change_id].overview_comment_id is None
+    assert len(_overview_comments(fake_repo, new_top_pr_number)) == 1
+    assert refreshed_state.changes[new_top_change_id].overview_comment_id is not None
+
+
 def test_submit_single_change_clears_stale_managed_stack_comment(
     tmp_path: Path,
     monkeypatch,
