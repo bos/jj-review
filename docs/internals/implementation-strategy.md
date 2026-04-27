@@ -191,6 +191,9 @@ JSON file validated through `pydantic`. Human-authored config stays in TOML.
 Repo-scoped inspection treats orphan-only tracking as first-class output. `list` can render those
 saved orphan rows directly without loading bookmark state when no live stacks remain.
 
+Orphaned `close --cleanup --pull-request` uses the same bookmark and stack-comment validation as
+regular close before it mutates GitHub state or prunes saved tracking.
+
 ## Data model
 
 Define `pydantic` models early and use them consistently across the real client and the
