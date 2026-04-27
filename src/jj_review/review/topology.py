@@ -1,21 +1,69 @@
-"""Per-change topology pointer comparisons against the live DAG.
+"""Per-change topology pointer comparisons and orphan-record discovery.
 
-The pointers are written by `submit` and `land` (see CachedChange) and describe the
-parent and head of the chain on the most recent successful submission. This module
-compares them against the current stack walk one change at a time so that callers
-can surface a `needs submit` advisory.
+`pointer_disagreement` walks each stack and reports the change_ids whose saved
+parent/head pointers no longer match the live DAG. The comparison is per change
+— aggregating into a stack-level verdict would miss insert and abandon-mid-stack
+rewrites.
 
-The comparison is intentionally per change, never aggregated into a stack-level
-verdict — aggregation would miss the insert and abandon-mid-stack rewrites that
-the design specifically targets.
+`enumerate_orphaned_records` complements that: it finds saved records that have
+fallen out of every live stack while their PR is still open. Those PRs have
+become orphans the user must close explicitly through
+`close --cleanup --pull-request <pr>`.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
-from jj_review.models.review_state import ReviewState
+from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.models.stack import LocalStack
+
+
+@dataclass(frozen=True, slots=True)
+class OrphanedRecord:
+    """A saved tracking record whose change has left every live stack."""
+
+    change_id: str
+    cached_change: CachedChange
+
+
+_OPEN_PR_STATES_FOR_ORPHANS = frozenset({"open", "draft"})
+
+
+def enumerate_orphaned_records(
+    state: ReviewState,
+    local_stacks: Sequence[LocalStack],
+) -> tuple[OrphanedRecord, ...]:
+    """Return saved records whose change is no longer in any live stack.
+
+    A record is reported when:
+
+    - it has review identity (PR fields populated) and is link_state=active, and
+    - its change_id does not appear in any of the supplied local stacks, and
+    - the saved PR state is `open`/`draft` or unknown (treat None as still open).
+
+    Records with a saved PR state of `closed` or `merged` are excluded — the PR
+    is no longer live, so the user does not need to act on it as an orphan.
+    Unlinked records are excluded too: the user already detached them.
+    """
+
+    live_change_ids: set[str] = set()
+    for stack in local_stacks:
+        for revision in stack.revisions:
+            live_change_ids.add(revision.change_id)
+
+    orphans: list[OrphanedRecord] = []
+    for change_id, cached_change in state.changes.items():
+        if change_id in live_change_ids:
+            continue
+        if not cached_change.is_tracked:
+            continue
+        pr_state = cached_change.pr_state
+        if pr_state is not None and pr_state not in _OPEN_PR_STATES_FOR_ORPHANS:
+            continue
+        orphans.append(OrphanedRecord(change_id=change_id, cached_change=cached_change))
+    return tuple(orphans)
 
 
 def pointer_disagreement(

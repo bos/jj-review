@@ -256,6 +256,28 @@ def ensure_unique_bookmarks(resolutions: tuple[ResolvedBookmark, ...]) -> None:
     )
 
 
+def find_changes_by_bookmark(
+    state: ReviewState,
+    bookmark: str,
+) -> tuple[str, ...]:
+    """Return the change_ids of saved tracked records whose bookmark matches.
+
+    Used to detect cross-claim collisions before mutating remote state — for
+    example, when `close --cleanup --pull-request <pr>` is asked to delete an
+    orphaned PR's branch but the same bookmark is now claimed by another live
+    review record (typically through a `use_bookmarks` pattern).
+
+    Unlinked records are intentionally included: they still pin a bookmark and
+    must not be silently overwritten.
+    """
+
+    return tuple(
+        change_id
+        for change_id, cached_change in state.changes.items()
+        if cached_change.bookmark == bookmark
+    )
+
+
 def bookmark_matches_generated_change_id(
     bookmark: str,
     change_id: str,

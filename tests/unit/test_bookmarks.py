@@ -11,6 +11,7 @@ from jj_review.review.bookmarks import (
     ResolvedBookmark,
     discover_bookmarks_for_revisions,
     ensure_unique_bookmarks,
+    find_changes_by_bookmark,
     generate_bookmark_name,
     match_bookmarks_for_revisions,
 )
@@ -225,6 +226,19 @@ def test_ensure_unique_bookmarks_rejects_multiple_changes_resolving_to_same_book
         match="multiple changes to the same bookmark",
     ):
         ensure_unique_bookmarks(resolutions)
+
+
+def test_find_changes_by_bookmark_includes_unlinked_records_to_block_silent_overwrite() -> None:
+    state = ReviewState(
+        changes={
+            "change-unlinked": CachedChange(
+                bookmark="review/shared",
+                link_state="unlinked",
+            ),
+        }
+    )
+
+    assert find_changes_by_bookmark(state, "review/shared") == ("change-unlinked",)
 
 
 def _revision(*, change_id: str, description: str) -> LocalRevision:

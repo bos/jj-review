@@ -1,8 +1,11 @@
 from __future__ import annotations
 
-from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.models.review_state import CachedChange, LinkState, ReviewState
 from jj_review.models.stack import LocalRevision, LocalStack
-from jj_review.review.topology import pointer_disagreement
+from jj_review.review.topology import (
+    enumerate_orphaned_records,
+    pointer_disagreement,
+)
 
 
 def _revision(change_id: str, *, parents: tuple[str, ...] = ("parent-commit",)) -> LocalRevision:
@@ -146,6 +149,67 @@ def test_pointer_disagreement_skips_revisions_without_any_saved_record() -> None
     stack = _stack(a)
 
     assert pointer_disagreement(ReviewState(), (stack,)) == ()
+
+
+def _orphan_record(
+    *,
+    pr_state: str | None,
+    link_state: LinkState = "active",
+    bookmark: str | None = "review/example",
+) -> CachedChange:
+    return CachedChange(
+        bookmark=bookmark,
+        link_state=link_state,
+        pr_number=42,
+        pr_state=pr_state,
+        pr_url="https://example.test/pull/42",
+    )
+
+
+def test_enumerate_orphans_returns_tracked_record_with_open_pr_and_no_live_change() -> None:
+    a = _revision("change-live")
+    stack = _stack(a)
+    state = ReviewState(
+        changes={
+            "change-live": _tracked(parent=None, head="change-live", pr_number=1),
+            "change-orphan": _orphan_record(pr_state="open"),
+        }
+    )
+
+    orphans = enumerate_orphaned_records(state, (stack,))
+
+    assert tuple(orphan.change_id for orphan in orphans) == ("change-orphan",)
+
+
+def test_enumerate_orphaned_records_treats_unknown_pr_state_as_still_open() -> None:
+    state = ReviewState(
+        changes={"change-orphan": _orphan_record(pr_state=None)}
+    )
+
+    orphans = enumerate_orphaned_records(state, ())
+
+    assert tuple(orphan.change_id for orphan in orphans) == ("change-orphan",)
+
+
+def test_enumerate_orphaned_records_skips_records_with_closed_or_merged_pr() -> None:
+    state = ReviewState(
+        changes={
+            "change-closed": _orphan_record(pr_state="closed"),
+            "change-merged": _orphan_record(pr_state="merged"),
+        }
+    )
+
+    assert enumerate_orphaned_records(state, ()) == ()
+
+
+def test_enumerate_orphaned_records_skips_unlinked_records() -> None:
+    state = ReviewState(
+        changes={
+            "change-detached": _orphan_record(pr_state="open", link_state="unlinked"),
+        }
+    )
+
+    assert enumerate_orphaned_records(state, ()) == ()
 
 
 def test_pointer_disagreement_inspects_each_stack_independently() -> None:
