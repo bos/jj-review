@@ -7,6 +7,8 @@ If you asked `jj-review` to use your own bookmarks with `submit --use-bookmarks`
 preserved unless `cleanup_user_bookmarks = true`. Use `--pull-request` to close by PR number or
 URL.
 
+Use `close --cleanup --pull-request <pr>` to retire an orphaned PR shown by `list`.
+
 To preview the close plan without changing anything, use `--dry-run`.
 """
 

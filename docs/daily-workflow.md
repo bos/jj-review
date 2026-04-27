@@ -205,6 +205,13 @@ Use `--cleanup` when you also want to remove the stack's old review branches and
 tracking data after the PRs are closed. If `jj-review` created local review bookmarks for those
 branches, this will forget those too.
 
+If `jj-review list` shows an `orphan` row, the PR is still open but its local change is no
+longer part of any current stack. When you are ready to retire that PR, close it explicitly:
+
+```bash
+jj-review close --cleanup --pull-request 7
+```
+
 ## Short version
 
 The steady-state loop is:

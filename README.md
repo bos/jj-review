@@ -171,6 +171,10 @@ When you are juggling more than one local review stack in the same repo, run
 `jj-review list` to see the locally tracked stacks at a glance before drilling
 into one of them with `jj-review status`.
 
+`list` may also show an `orphan` row. That means a PR is still open, but the
+local change it reviewed is no longer part of any current stack. When you are
+ready to retire that PR, run `jj-review close --cleanup --pull-request <pr>`.
+
 One piece of that housekeeping is the review bookmark set. Those bookmarks are the review
 branches pushed to GitHub for each change. You may see them in `jj log` or `jj bookmark list`,
 but you generally should not move or rename them by hand unless you are doing explicit repair

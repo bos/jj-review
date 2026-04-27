@@ -3,6 +3,9 @@
 By default, this runs a repo-wide cleanup of tracking data and review branches that no longer
 match an active review. With `--rebase [REVSET]`, it works on one local stack instead.
 
+Open orphaned PRs are preserved. Run `jj-review list` to see them, then retire one explicitly
+with `jj-review close --cleanup --pull-request <pr>`.
+
 Use `cleanup --rebase` when some changes from your stack have been merged on GitHub as rewritten
 commits (e.g. via a squash merge in the GitHub UI). In this case, your local stack still
 contains the old pre-merge commits, and `cleanup --rebase` will drop those merged ancestors from
