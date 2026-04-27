@@ -1,0 +1,163 @@
+from __future__ import annotations
+
+from jj_review.models.review_state import CachedChange, ReviewState
+from jj_review.models.stack import LocalRevision, LocalStack
+from jj_review.review.topology import pointer_disagreement
+
+
+def _revision(change_id: str, *, parents: tuple[str, ...] = ("parent-commit",)) -> LocalRevision:
+    return LocalRevision(
+        change_id=change_id,
+        commit_id=f"commit-{change_id}",
+        current_working_copy=False,
+        description=f"{change_id} subject\n\nbody",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=parents,
+    )
+
+
+def _stack(*revisions: LocalRevision) -> LocalStack:
+    trunk = _revision("trunk-change", parents=())
+    base_parent = trunk
+    return LocalStack(
+        base_parent=base_parent,
+        head=revisions[-1],
+        revisions=revisions,
+        selected_revset="@-",
+        trunk=trunk,
+    )
+
+
+def _tracked(
+    *,
+    parent: str | None,
+    head: str,
+    pr_number: int = 1,
+) -> CachedChange:
+    return CachedChange(
+        bookmark="review/example",
+        last_submitted_commit_id="abc",
+        last_submitted_parent_change_id=parent,
+        last_submitted_stack_head_change_id=head,
+        pr_number=pr_number,
+        pr_state="open",
+        pr_url="https://example.test/pull/1",
+    )
+
+
+def test_pointer_disagreement_returns_empty_when_pointers_match() -> None:
+    a = _revision("change-a")
+    b = _revision("change-b")
+    c = _revision("change-c")
+    stack = _stack(a, b, c)
+    state = ReviewState(
+        changes={
+            "change-a": _tracked(parent=None, head="change-c", pr_number=1),
+            "change-b": _tracked(parent="change-a", head="change-c", pr_number=2),
+            "change-c": _tracked(parent="change-b", head="change-c", pr_number=3),
+        }
+    )
+
+    assert pointer_disagreement(state, (stack,)) == ()
+
+
+def test_pointer_disagreement_flags_change_after_rebase_changed_parent() -> None:
+    a = _revision("change-a")
+    b = _revision("change-b")
+    stack = _stack(a, b)
+    state = ReviewState(
+        changes={
+            "change-a": _tracked(parent=None, head="change-b", pr_number=1),
+            "change-b": _tracked(parent="change-other", head="change-b", pr_number=2),
+        }
+    )
+
+    assert pointer_disagreement(state, (stack,)) == ("change-b",)
+
+
+def test_pointer_disagreement_flags_changes_when_head_moved() -> None:
+    a = _revision("change-a")
+    b = _revision("change-b")
+    stack = _stack(a, b)
+    state = ReviewState(
+        changes={
+            "change-a": _tracked(parent=None, head="change-old-head", pr_number=1),
+            "change-b": _tracked(parent="change-a", head="change-old-head", pr_number=2),
+        }
+    )
+
+    assert pointer_disagreement(state, (stack,)) == ("change-a", "change-b")
+
+
+def test_pointer_disagreement_catches_inserted_change_via_neighbors() -> None:
+    a = _revision("change-a")
+    inserted = _revision("change-inserted")
+    b = _revision("change-b")
+    stack = _stack(a, inserted, b)
+    state = ReviewState(
+        changes={
+            "change-a": _tracked(parent=None, head="change-b", pr_number=1),
+            "change-b": _tracked(parent="change-a", head="change-b", pr_number=2),
+        }
+    )
+
+    assert pointer_disagreement(state, (stack,)) == ("change-b",)
+
+
+def test_pointer_disagreement_skips_records_without_saved_pointers() -> None:
+    a = _revision("change-a")
+    stack = _stack(a)
+    state = ReviewState(
+        changes={
+            "change-a": CachedChange(
+                bookmark="review/example",
+                pr_number=1,
+                pr_state="open",
+                pr_url="https://example.test/pull/1",
+            )
+        }
+    )
+
+    assert pointer_disagreement(state, (stack,)) == ()
+
+
+def test_pointer_disagreement_skips_unlinked_records_even_when_stale() -> None:
+    a = _revision("change-a")
+    stack = _stack(a)
+    state = ReviewState(
+        changes={
+            "change-a": CachedChange(
+                bookmark="review/example",
+                last_submitted_parent_change_id="change-other",
+                last_submitted_stack_head_change_id="change-other",
+                link_state="unlinked",
+            )
+        }
+    )
+
+    assert pointer_disagreement(state, (stack,)) == ()
+
+
+def test_pointer_disagreement_skips_revisions_without_any_saved_record() -> None:
+    a = _revision("change-a")
+    stack = _stack(a)
+
+    assert pointer_disagreement(ReviewState(), (stack,)) == ()
+
+
+def test_pointer_disagreement_inspects_each_stack_independently() -> None:
+    a = _revision("change-a")
+    b = _revision("change-b")
+    stack_one = _stack(a)
+    stack_two = _stack(b)
+    state = ReviewState(
+        changes={
+            "change-a": _tracked(parent=None, head="change-a", pr_number=1),
+            "change-b": _tracked(parent=None, head="change-other", pr_number=2),
+        }
+    )
+
+    assert pointer_disagreement(state, (stack_one, stack_two)) == ("change-b",)
