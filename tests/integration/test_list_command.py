@@ -81,6 +81,27 @@ def test_list_surfaces_orphaned_pull_request_after_change_is_abandoned(
     assert f"close --cleanup --pull-request {middle_pr_number}" in captured.out
 
 
+def test_list_surfaces_orphaned_pull_request_when_no_live_stacks_remain(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    change_id = JjClient(repo).discover_review_stack().head.change_id
+    run_command(["jj", "abandon", change_id], repo)
+
+    exit_code = run_main(repo, config_path, "list")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert change_id[:8] in captured.out
+    assert "PR #1" in captured.out
+    assert "orphan" in captured.out
+    assert "No review stacks." not in captured.out
+
+
 def test_list_warns_when_tracked_stack_has_moved_since_last_submit(
     tmp_path,
     monkeypatch,

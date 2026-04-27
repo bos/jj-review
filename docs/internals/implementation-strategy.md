@@ -188,6 +188,9 @@ It does not decide stack topology or branch naming.
 Tracking state stays minimal, optional, and non-authoritative. It is a small versioned
 JSON file validated through `pydantic`. Human-authored config stays in TOML.
 
+Repo-scoped inspection treats orphan-only tracking as first-class output. `list` can render those
+saved orphan rows directly without loading bookmark state when no live stacks remain.
+
 ## Data model
 
 Define `pydantic` models early and use them consistently across the real client and the

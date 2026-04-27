@@ -97,15 +97,37 @@ def list_(
     state = state_store.load()
     with console.spinner(description="Inspecting local stacks"):
         discovered = discover_tracked_stacks(jj_client=context.jj_client, state=state)
-    if not discovered.stacks:
-        console.output("No review stacks.")
-        return 0
 
     ordered = _order_discovered_stacks(
         discovered.stacks,
         current_commit_id=discovered.current_commit_id,
         jj_client=context.jj_client,
     )
+    orphan_rows = tuple(
+        _build_orphan_row(orphan)
+        for orphan in enumerate_orphaned_records(state, ordered)
+    )
+    if not ordered:
+        if not orphan_rows:
+            console.output("No review stacks.")
+            return 0
+        color_when = context.jj_client.resolve_color_when(
+            cli_color=requested_color_mode(),
+            stdout_is_tty=sys.stdout.isatty(),
+        )
+        with console.spinner(description="Rendering jj change IDs"):
+            rendered_change_ids = context.jj_client.render_short_change_ids(
+                tuple(row.change_id for row in orphan_rows),
+                color_when=color_when,
+            )
+        console.output(
+            _stack_table(
+                orphan_rows=orphan_rows,
+                rendered_change_ids=rendered_change_ids,
+                rows=(),
+            )
+        )
+        return 0
     with console.spinner(description="Loading bookmark state"):
         repo_inspection = _prepare_repo_inspection_context(
             config=context.config,
@@ -146,10 +168,6 @@ def list_(
             pull_request_lookups=pull_request_lookups,
         )
         for item in prepared_discovered
-    )
-    orphan_rows = tuple(
-        _build_orphan_row(orphan)
-        for orphan in enumerate_orphaned_records(state, ordered)
     )
     color_when = context.jj_client.resolve_color_when(
         cli_color=requested_color_mode(),
