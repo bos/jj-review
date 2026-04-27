@@ -300,29 +300,6 @@ def _stack_contains_commit_id(
     return any(revision.commit_id == commit_id for revision in stack.revisions)
 
 
-def _stack_revisions_from_root_to_head(
-    *,
-    root: LocalRevision,
-    head: LocalRevision,
-    revisions_by_commit_id: dict[str, LocalRevision],
-) -> tuple[LocalRevision, ...]:
-    revisions_head_first: list[LocalRevision] = []
-    current = head
-    while True:
-        revisions_head_first.append(current)
-        if current.commit_id == root.commit_id:
-            break
-        parent_commit_id = current.only_parent_commit_id()
-        parent = revisions_by_commit_id.get(parent_commit_id)
-        if parent is None:
-            raise CliError(
-                t"Could not safely inspect review stacks: missing ancestor "
-                t"{ui.commit_id(parent_commit_id)} for {ui.change_id(head.change_id)}."
-            )
-        current = parent
-    return tuple(reversed(revisions_head_first))
-
-
 def _build_row(
     *,
     github_error: ErrorMessage | None,
