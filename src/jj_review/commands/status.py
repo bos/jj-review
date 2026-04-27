@@ -220,8 +220,8 @@ def _emit_other_stacks_needs_submit_advisory(
     )
     if not needs_submit_heads:
         return
-    rendered = ", ".join(head[:8] for head in needs_submit_heads)
-    console.warning(t"Other tracked stacks need submit: {rendered}")
+    heads_fragments = ui.join(ui.change_id, needs_submit_heads)
+    console.warning(("Other tracked stacks need submit: ", *heads_fragments))
 
 
 def _normalize_status_selectors(

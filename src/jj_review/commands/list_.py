@@ -56,7 +56,6 @@ class OrphanRow:
     """One orphaned PR — its local change has left every current stack."""
 
     change_id: str
-    pull_request_number: int
     review: str
     state: ui.Message
     subject: str
@@ -75,12 +74,6 @@ class _RepoInspectionContext:
     github_repository: ParsedGithubRepo | None
     remote: GitRemote | None
     remote_error: ErrorMessage | None
-
-
-@dataclass(frozen=True, slots=True)
-class _DiscoveredStacks:
-    current_commit_id: str | None
-    stacks: tuple[LocalStack, ...]
 
 
 def list_(
@@ -103,7 +96,7 @@ def list_(
     state_store = ReviewStateStore.for_repo(context.repo_root)
     state = state_store.load()
     with console.spinner(description="Inspecting local stacks"):
-        discovered = _discover_stacks(jj_client=context.jj_client, state=state)
+        discovered = discover_tracked_stacks(jj_client=context.jj_client, state=state)
     if not discovered.stacks:
         console.output("No review stacks.")
         return 0
@@ -182,18 +175,14 @@ def list_(
 
 
 def _build_orphan_row(orphan) -> OrphanRow:
+    pr_number = orphan.cached_change.pr_number
     return OrphanRow(
         change_id=orphan.change_id,
-        pull_request_number=orphan.cached_change.pr_number or 0,
-        review=(
-            f"PR #{orphan.cached_change.pr_number}"
-            if orphan.cached_change.pr_number is not None
-            else "(no PR number)"
-        ),
+        review=f"PR #{pr_number}" if pr_number is not None else "(no PR number)",
         state=ui.semantic_text("orphan", "warning", "heading"),
         subject=(
-            f"close --cleanup --pull-request {orphan.cached_change.pr_number}"
-            if orphan.cached_change.pr_number is not None
+            f"close --cleanup --pull-request {pr_number}"
+            if pr_number is not None
             else "no saved PR number; reattach with relink before closing"
         ),
     )
@@ -213,8 +202,8 @@ def _emit_needs_submit_advisory(
     )
     if not needs_submit_heads:
         return
-    rendered = ", ".join(head[:8] for head in needs_submit_heads)
-    console.warning(t"Tracked stacks need submit: {rendered}")
+    heads_fragments = ui.join(ui.change_id, needs_submit_heads)
+    console.warning(("Tracked stacks need submit: ", *heads_fragments))
 
 
 def _prepare_repo_inspection_context(
@@ -253,18 +242,6 @@ def _prepare_repo_inspection_context(
         github_repository=github_repository,
         remote=remote,
         remote_error=remote_error,
-    )
-
-
-def _discover_stacks(
-    *,
-    jj_client: JjClient,
-    state: ReviewState,
-) -> _DiscoveredStacks:
-    discovered = discover_tracked_stacks(jj_client=jj_client, state=state)
-    return _DiscoveredStacks(
-        current_commit_id=discovered.current_commit_id,
-        stacks=discovered.stacks,
     )
 
 

@@ -5,9 +5,10 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 from jj_review import console as console_module
-from jj_review.commands.list_ import _discover_stacks, _state_from_status
+from jj_review.commands.list_ import _state_from_status
 from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.models.stack import LocalRevision
+from jj_review.review.discovery import discover_tracked_stacks
 from jj_review.review.status import ReviewStatusRevision
 
 
@@ -213,7 +214,7 @@ def test_discover_stacks_extends_only_tracked_heads_for_fully_tracked_linear_sta
         }
     )
 
-    discovered = _discover_stacks(jj_client=jj_client, state=state)
+    discovered = discover_tracked_stacks(jj_client=jj_client, state=state)
 
     assert tuple(stack.head.commit_id for stack in discovered.stacks) == (head.commit_id,)
     assert queried_descendants == [(root.commit_id, middle.commit_id, head.commit_id)]
