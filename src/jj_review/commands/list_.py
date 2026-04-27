@@ -34,6 +34,7 @@ from jj_review.review.status import (
     refresh_remote_state_for_status,
     revision_has_merged_pull_request,
 )
+from jj_review.review.topology import pointer_disagreement
 from jj_review.state.store import ReviewStateStore
 
 HELP = "List review stacks in this repo"
@@ -152,7 +153,26 @@ def list_(
             color_when=color_when,
         )
     console.output(_stack_table(rows=rows, rendered_change_ids=rendered_change_ids))
+    _emit_needs_submit_advisory(discovered=ordered, state=state)
     return 1 if any(row.incomplete for row in rows) else 0
+
+
+def _emit_needs_submit_advisory(
+    *,
+    discovered: tuple[LocalStack, ...],
+    state: ReviewState,
+) -> None:
+    """Hint that tracked stacks have moved since their last successful submit."""
+
+    needs_submit_heads = tuple(
+        stack.head.change_id
+        for stack in discovered
+        if pointer_disagreement(state, (stack,))
+    )
+    if not needs_submit_heads:
+        return
+    rendered = ", ".join(head[:8] for head in needs_submit_heads)
+    console.warning(t"Tracked stacks need submit: {rendered}")
 
 
 def _prepare_repo_inspection_context(

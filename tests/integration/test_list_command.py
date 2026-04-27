@@ -51,6 +51,31 @@ def test_list_reports_multiple_locally_tracked_stacks(
     assert "1 change" in captured.out
 
 
+def test_list_warns_when_tracked_stack_has_moved_since_last_submit(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    commit_file(repo, "alpha 2", "alpha-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    commit_file(repo, "alpha 3", "alpha-3.txt")
+    new_alpha_head_change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+
+    exit_code = run_main(repo, config_path, "list")
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+
+    assert exit_code == 0
+    assert "Tracked stacks need submit:" in combined
+    assert new_alpha_head_change_id[:8] in combined
+
+
 def test_list_extends_tracked_stack_through_unsubmitted_local_descendant(
     tmp_path,
     monkeypatch,
