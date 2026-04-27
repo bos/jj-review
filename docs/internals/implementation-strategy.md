@@ -192,7 +192,9 @@ Repo-scoped inspection treats orphan-only tracking as first-class output. `list`
 saved orphan rows directly without loading bookmark state when no live stacks remain.
 
 Orphaned `close --cleanup --pull-request` uses the same bookmark and stack-comment validation as
-regular close before it mutates GitHub state or prunes saved tracking.
+regular close before it mutates GitHub state or prunes saved tracking. It verifies the saved PR
+identity by PR number before using head-branch lookup only to detect duplicate live claims, so
+merged orphan PRs can still be retired.
 
 ## Data model
 

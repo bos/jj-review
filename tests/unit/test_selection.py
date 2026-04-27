@@ -85,6 +85,27 @@ def test_resolve_orphaned_pull_request_uses_supported_stack_membership() -> None
     ) == (17, "change-1")
 
 
+def test_resolve_orphaned_pull_request_fails_closed_on_multiple_matches() -> None:
+    state = ReviewState(
+        changes={
+            "change-1": CachedChange(pr_number=17),
+            "change-2": CachedChange(pr_number=17),
+        }
+    )
+    jj_client = _JjClientStub(_REPO_ROOT)
+
+    with pytest.raises(
+        CliError,
+        match=r"PR #17 is claimed by multiple tracked records \(change-1, change-2\)\.",
+    ) as excinfo:
+        resolve_orphaned_pull_request(
+            jj_client=cast(JjClient, jj_client),
+            pull_request_reference="17",
+            state=state,
+        )
+    assert "Repair the saved state" in str(excinfo.value)
+
+
 _REPO_ROOT = Path(__file__).resolve().parent
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from jj_review.github.client import GithubClient, GithubClientError
@@ -664,7 +665,7 @@ def test_close_cleanup_pull_request_blocks_when_saved_bookmark_drifted(
 
     assert exit_code == 1
     assert "Close blocked:" in captured.out
-    assert "no longer resolves uniquely to that PR" in combined_output
+    assert "no longer has saved bookmark" in combined_output
     assert fake_repo.pull_requests[1].state == "open"
     assert (
         ReviewStateStore.for_repo(repo).load().changes[change_id].bookmark
@@ -700,6 +701,137 @@ def test_close_cleanup_pull_request_blocks_when_branch_has_multiple_pull_request
     assert "Close blocked:" in captured.out
     assert "now has multiple pull requests" in combined_output
     assert fake_repo.pull_requests[1].state == "open"
+
+
+def test_close_cleanup_pull_request_blocks_when_saved_pr_is_no_longer_on_github(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    commit_file(repo, "alpha 2", "alpha-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    state = state_store.load()
+    bottom_bookmark = state.changes[bottom_change_id].bookmark
+    bottom_pr_number = state.changes[bottom_change_id].pr_number
+    assert bottom_bookmark is not None
+    assert bottom_pr_number is not None
+
+    run_command(["jj", "abandon", bottom_change_id], repo)
+    del fake_repo.pull_requests[bottom_pr_number]
+
+    exit_code = run_main(
+        repo,
+        config_path,
+        "close",
+        "--cleanup",
+        "--pull-request",
+        str(bottom_pr_number),
+    )
+    captured = capsys.readouterr()
+    combined_output = _combined_output(captured)
+
+    assert exit_code == 1
+    assert "Close blocked:" in captured.out
+    assert f"PR #{bottom_pr_number} is no longer on GitHub" in combined_output
+    assert f"refs/heads/{bottom_bookmark}" in remote_refs(fake_repo.git_dir)
+    assert bottom_change_id in state_store.load().changes
+
+
+def test_close_cleanup_pull_request_blocks_when_saved_pr_head_has_been_retargeted(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    commit_file(repo, "alpha 2", "alpha-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    state = state_store.load()
+    bottom_bookmark = state.changes[bottom_change_id].bookmark
+    bottom_pr_number = state.changes[bottom_change_id].pr_number
+    assert bottom_bookmark is not None
+    assert bottom_pr_number is not None
+
+    run_command(["jj", "abandon", bottom_change_id], repo)
+    saved_pr = fake_repo.pull_requests[bottom_pr_number]
+    saved_pr.head_ref = "review/some-other-branch"
+    saved_pr.head_label = f"{fake_repo.owner}:review/some-other-branch"
+
+    exit_code = run_main(
+        repo,
+        config_path,
+        "close",
+        "--cleanup",
+        "--pull-request",
+        str(bottom_pr_number),
+    )
+    captured = capsys.readouterr()
+    combined_output = _combined_output(captured)
+
+    assert exit_code == 1
+    assert "Close blocked:" in captured.out
+    assert "no longer has saved bookmark" in combined_output
+    assert fake_repo.pull_requests[bottom_pr_number].state == "open"
+    assert f"refs/heads/{bottom_bookmark}" in remote_refs(fake_repo.git_dir)
+    assert bottom_change_id in state_store.load().changes
+
+
+def test_close_cleanup_pull_request_retires_merged_orphan_via_saved_pr(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    commit_file(repo, "alpha 2", "alpha-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    state = state_store.load()
+    bottom_bookmark = state.changes[bottom_change_id].bookmark
+    bottom_pr_number = state.changes[bottom_change_id].pr_number
+    assert bottom_bookmark is not None
+    assert bottom_pr_number is not None
+
+    saved_pr = fake_repo.pull_requests[bottom_pr_number]
+    saved_pr.state = "closed"
+    saved_pr.merged_at = datetime(2026, 4, 1, tzinfo=UTC).isoformat()
+    run_command(["jj", "abandon", bottom_change_id], repo)
+
+    exit_code = run_main(
+        repo,
+        config_path,
+        "close",
+        "--cleanup",
+        "--pull-request",
+        str(bottom_pr_number),
+    )
+    captured = capsys.readouterr()
+    output = captured.out
+
+    assert exit_code == 0
+    assert "Applied close actions:" in output
+    assert "prune orphan record" in output
+    assert bottom_change_id not in state_store.load().changes
+    assert bottom_bookmark not in remote_refs(fake_repo.git_dir)
 
 
 def test_close_cleanup_pull_request_reports_blocked_when_github_is_unavailable(

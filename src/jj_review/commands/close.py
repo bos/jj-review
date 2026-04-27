@@ -85,7 +85,7 @@ from jj_review.ui import Message, plain_text
 HELP = "Stop reviewing a jj stack on GitHub"
 
 CloseActionStatus = Literal["applied", "blocked", "planned"]
-OrphanedPullRequestState = Literal["closed", "missing", "open"]
+OrphanedPullRequestState = Literal["closed", "open"]
 type CloseActionBody = Message
 
 
@@ -196,7 +196,7 @@ class _BookmarkCleanupPlan:
 class _OrphanedPullRequestInspection:
     """Resolved GitHub view of one orphaned tracked pull request."""
 
-    pull_request: GithubPullRequest | None
+    pull_request: GithubPullRequest
     state: OrphanedPullRequestState
 
 
@@ -564,7 +564,7 @@ def _retire_blocked_orphan_close_tracking(
     state: ReviewState,
     state_store: ReviewStateStore,
 ) -> None:
-    if inspection is None or inspection.state != "closed" or inspection.pull_request is None:
+    if inspection is None or inspection.state != "closed":
         return
 
     updated_change = _retire_cached_change(
@@ -709,6 +709,15 @@ async def _lookup_orphaned_pull_request(
     github_repository,
     pull_request_number: int,
 ) -> tuple[_OrphanedPullRequestInspection | None, CloseAction | None]:
+    """Verify the saved PR identity and look for live duplicate branch claims.
+
+    The saved PR number is the identity being retired, so REST lookup is the
+    authority for whether that exact PR still exists and still names the saved
+    bookmark. The head-ref lookup is only used to detect another open or closed
+    PR claiming the same branch; merged PRs are intentionally ignored there
+    because they are not live reviews the branch deletion would disturb.
+    """
+
     bookmark = cached_change.bookmark
     if bookmark is None:
         return (
@@ -728,10 +737,28 @@ async def _lookup_orphaned_pull_request(
         )
     except GithubClientError as error:
         if error.status_code == 404:
-            pull_request = None
-        else:
-            return None, _blocked_orphaned_close_github_action()
+            return (
+                None,
+                CloseAction(
+                    kind="close",
+                    body=t"PR #{pull_request_number} is no longer on GitHub",
+                    status="blocked",
+                ),
+            )
+        return None, _blocked_orphaned_close_github_action()
     inspection = _inspect_orphaned_pull_request_state(pull_request)
+    if pull_request.head.ref != bookmark:
+        return (
+            inspection,
+            CloseAction(
+                kind="close",
+                body=(
+                    t"cannot close orphaned PR #{pull_request_number} because it no longer "
+                    t"has saved bookmark {ui.bookmark(bookmark)} as its head ref"
+                ),
+                status="blocked",
+            ),
+        )
 
     try:
         branch_matches = await github_client.get_pull_requests_by_head_refs(
@@ -742,8 +769,12 @@ async def _lookup_orphaned_pull_request(
     except GithubClientError:
         return None, _blocked_orphaned_close_github_action()
 
-    matching_pull_requests = branch_matches.get(bookmark, ())
-    if len(matching_pull_requests) > 1:
+    other_live_matches = tuple(
+        candidate
+        for candidate in branch_matches.get(bookmark, ())
+        if candidate.number != pull_request_number
+    )
+    if other_live_matches:
         return (
             inspection,
             CloseAction(
@@ -755,50 +786,6 @@ async def _lookup_orphaned_pull_request(
                 status="blocked",
             ),
         )
-    if not matching_pull_requests:
-        if pull_request is None:
-            return (
-                _OrphanedPullRequestInspection(
-                    pull_request=None,
-                    state="missing",
-                ),
-                None,
-            )
-        return (
-            inspection,
-            CloseAction(
-                kind="close",
-                body=(
-                    t"cannot close orphaned PR #{pull_request_number} because saved bookmark "
-                    t"{ui.bookmark(bookmark)} no longer resolves uniquely to that PR"
-                ),
-                status="blocked",
-            ),
-        )
-    if matching_pull_requests[0].number != pull_request_number:
-        return (
-            inspection,
-            CloseAction(
-                kind="close",
-                body=(
-                    t"cannot close orphaned PR #{pull_request_number} because saved bookmark "
-                    t"{ui.bookmark(bookmark)} no longer resolves uniquely to that PR"
-                ),
-                status="blocked",
-            ),
-        )
-    if pull_request is None:
-        return (
-            _OrphanedPullRequestInspection(
-                pull_request=None,
-                state="missing",
-            ),
-            None,
-        )
-    if inspection is None:
-        raise AssertionError(
-            "Missing pull request inspection for existing orphaned pull request."
-        )
     return (
         inspection,
         None,
@@ -806,10 +793,8 @@ async def _lookup_orphaned_pull_request(
 
 
 def _inspect_orphaned_pull_request_state(
-    pull_request: GithubPullRequest | None,
-) -> _OrphanedPullRequestInspection | None:
-    if pull_request is None:
-        return None
+    pull_request: GithubPullRequest,
+) -> _OrphanedPullRequestInspection:
     if pull_request.state != "closed" or pull_request.merged_at is None:
         normalized_pull_request = pull_request
     else:
