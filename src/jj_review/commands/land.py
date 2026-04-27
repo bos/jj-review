@@ -573,7 +573,12 @@ async def _stream_land_async(
                         status="applied",
                     )
                 )
-            for landed_revision in execution_plan.landed_revisions:
+            landed_head_change_id = (
+                execution_plan.landed_revisions[-1].change_id
+                if execution_plan.landed_revisions
+                else None
+            )
+            for landed_index, landed_revision in enumerate(execution_plan.landed_revisions):
                 console.output(
                     t"Finalizing PR #{landed_revision.pull_request_number} for "
                     t"{landed_revision.subject} "
@@ -595,12 +600,19 @@ async def _stream_land_async(
                         status="applied",
                     )
                 )
+                landed_parent_change_id = (
+                    execution_plan.landed_revisions[landed_index - 1].change_id
+                    if landed_index > 0
+                    else None
+                )
                 state_changes[landed_revision.change_id] = _updated_landed_change(
                     bookmark=landed_revision.bookmark,
                     bookmark_managed=landed_revision.bookmark_managed,
                     cached_change=state_changes.get(landed_revision.change_id),
                     commit_id=landed_revision.commit_id,
+                    parent_change_id=landed_parent_change_id,
                     pull_request=final_pull_request,
+                    stack_head_change_id=landed_head_change_id,
                 )
                 prepared.state_store.save(
                     state.model_copy(update={"changes": dict(state_changes)})
@@ -1480,7 +1492,9 @@ def _updated_landed_change(
     bookmark_managed: bool,
     cached_change: CachedChange | None,
     commit_id: str,
+    parent_change_id: str | None,
     pull_request: GithubPullRequest,
+    stack_head_change_id: str | None,
 ) -> CachedChange:
     pr_state = pull_request.state
     if pull_request.merged_at is not None:
@@ -1490,6 +1504,8 @@ def _updated_landed_change(
             bookmark=bookmark,
             bookmark_ownership="managed" if bookmark_managed else "external",
             last_submitted_commit_id=commit_id,
+            last_submitted_parent_change_id=parent_change_id,
+            last_submitted_stack_head_change_id=stack_head_change_id,
             pr_number=pull_request.number,
             pr_state=pr_state,
             pr_url=pull_request.html_url,
@@ -1499,6 +1515,8 @@ def _updated_landed_change(
             "bookmark": bookmark,
             "bookmark_ownership": "managed" if bookmark_managed else "external",
             "last_submitted_commit_id": commit_id,
+            "last_submitted_parent_change_id": parent_change_id,
+            "last_submitted_stack_head_change_id": stack_head_change_id,
             "pr_number": pull_request.number,
             "pr_review_decision": None,
             "pr_state": pr_state,

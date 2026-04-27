@@ -188,7 +188,9 @@ class PendingPullRequestSync:
     base_branch: str
     discovered_pull_request: GithubPullRequest | None
     generated_description: GeneratedDescription
+    parent_change_id: str | None
     prepared_revision: PreparedSubmitRevision
+    stack_head_change_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1481,12 +1483,17 @@ async def _sync_pull_requests(
     trunk_branch: str,
     on_progress: Callable[[], None] | None = None,
 ) -> tuple[SubmittedRevision, ...]:
+    stack_head_change_id = prepared_revisions[-1].change_id if prepared_revisions else None
     pending = tuple(
         PendingPullRequestSync(
             base_branch=prepared_revisions[index - 1].bookmark if index > 0 else trunk_branch,
             discovered_pull_request=discovered_pull_requests[prepared_revision.bookmark],
             generated_description=generated_descriptions[prepared_revision.change_id],
+            parent_change_id=(
+                prepared_revisions[index - 1].change_id if index > 0 else None
+            ),
             prepared_revision=prepared_revision,
+            stack_head_change_id=stack_head_change_id,
         )
         for index, prepared_revision in enumerate(prepared_revisions)
     )
@@ -1566,9 +1573,11 @@ async def _sync_pull_request_task(
         github_client=github_client,
         github_repository=github_repository,
         labels=labels,
+        parent_change_id=pending_sync.parent_change_id,
         re_request=re_request,
         reviewers=reviewers,
         revision=prepared_revision.revision,
+        stack_head_change_id=pending_sync.stack_head_change_id,
         state=state,
         team_reviewers=team_reviewers,
     )
@@ -1621,9 +1630,11 @@ async def _sync_pull_request(
     github_client: GithubClient,
     github_repository: ParsedGithubRepo,
     labels: list[str],
+    parent_change_id: str | None,
     re_request: bool,
     reviewers: list[str],
     revision: LocalRevision,
+    stack_head_change_id: str | None,
     state: ReviewState,
     team_reviewers: list[str],
 ) -> PullRequestSyncResult:
@@ -1733,7 +1744,9 @@ async def _sync_pull_request(
             bookmark_source=bookmark_source,
             cached_change=cached_change,
             commit_id=revision.commit_id,
+            parent_change_id=parent_change_id,
             pull_request=pull_request,
+            stack_head_change_id=stack_head_change_id,
         )
     return PullRequestSyncResult(
         action=action,
@@ -2449,13 +2462,17 @@ def _updated_cached_change(
     bookmark_source: BookmarkSource,
     cached_change: CachedChange | None,
     commit_id: str,
+    parent_change_id: str | None,
     pull_request: GithubPullRequest,
+    stack_head_change_id: str | None,
 ) -> CachedChange:
     if cached_change is None:
         return CachedChange(
             bookmark=bookmark,
             bookmark_ownership=bookmark_ownership_for_source(bookmark_source),
             last_submitted_commit_id=commit_id,
+            last_submitted_parent_change_id=parent_change_id,
+            last_submitted_stack_head_change_id=stack_head_change_id,
             pr_is_draft=pull_request.is_draft,
             pr_number=pull_request.number,
             pr_state=pull_request.state,
@@ -2466,6 +2483,8 @@ def _updated_cached_change(
             "bookmark": bookmark,
             "bookmark_ownership": bookmark_ownership_for_source(bookmark_source),
             "last_submitted_commit_id": commit_id,
+            "last_submitted_parent_change_id": parent_change_id,
+            "last_submitted_stack_head_change_id": stack_head_change_id,
             "pr_is_draft": pull_request.is_draft,
             "pr_number": pull_request.number,
             "pr_state": pull_request.state,

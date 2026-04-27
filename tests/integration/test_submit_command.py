@@ -385,6 +385,32 @@ def test_submit_skips_stack_comment_for_single_commit_stack(
     assert state.changes[change_id].overview_comment_id is None
 
 
+def test_submit_persists_topology_pointers_for_each_change(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+    commit_file(repo, "feature 3", "feature-3.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    middle_change_id = stack.revisions[1].change_id
+    top_change_id = stack.revisions[-1].change_id
+    state = ReviewStateStore.for_repo(repo).load()
+
+    assert state.changes[bottom_change_id].last_submitted_parent_change_id is None
+    assert state.changes[middle_change_id].last_submitted_parent_change_id == bottom_change_id
+    assert state.changes[top_change_id].last_submitted_parent_change_id == middle_change_id
+    for change_id in (bottom_change_id, middle_change_id, top_change_id):
+        assert state.changes[change_id].last_submitted_stack_head_change_id == top_change_id
+
+
 def test_submit_describe_with_generates_pull_request_and_stack_metadata(
     tmp_path: Path,
     monkeypatch,

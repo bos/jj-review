@@ -117,9 +117,19 @@ def test_land_previews_and_finalizes_maximal_ready_prefix(
     assert landed_state.changes[change_id_1].pr_state == "merged"
     assert landed_state.changes[change_id_1].navigation_comment_id is None
     assert landed_state.changes[change_id_1].overview_comment_id is None
+    assert landed_state.changes[change_id_1].last_submitted_parent_change_id is None
+    assert (
+        landed_state.changes[change_id_1].last_submitted_stack_head_change_id == change_id_2
+    )
     assert landed_state.changes[change_id_2].pr_state == "merged"
     assert landed_state.changes[change_id_2].navigation_comment_id is None
     assert landed_state.changes[change_id_2].overview_comment_id is None
+    assert (
+        landed_state.changes[change_id_2].last_submitted_parent_change_id == change_id_1
+    )
+    assert (
+        landed_state.changes[change_id_2].last_submitted_stack_head_change_id == change_id_2
+    )
     assert landed_state.changes[change_id_3].pr_state == "closed"
 
 

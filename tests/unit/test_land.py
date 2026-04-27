@@ -323,6 +323,7 @@ def test_updated_landed_change_marks_pr_merged_and_clears_stack_comment() -> Non
             overview_comment_id=100,
         ),
         commit_id="new-commit",
+        parent_change_id=None,
         pull_request=GithubPullRequest(
             base=GithubBranchRef(ref="main"),
             head=GithubBranchRef(ref="review/feature-1-aaaaaaaa"),
@@ -332,9 +333,12 @@ def test_updated_landed_change_marks_pr_merged_and_clears_stack_comment() -> Non
             state="closed",
             title="feature 1",
         ),
+        stack_head_change_id="feature1head000000",
     )
 
     assert updated.last_submitted_commit_id == "new-commit"
+    assert updated.last_submitted_parent_change_id is None
+    assert updated.last_submitted_stack_head_change_id == "feature1head000000"
     assert updated.pr_review_decision is None
     assert updated.pr_state == "merged"
     assert updated.navigation_comment_id is None
