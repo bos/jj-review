@@ -530,6 +530,148 @@ def test_close_cleanup_pull_request_refuses_when_orphan_bookmark_is_reclaimed(
     assert bottom_change_id in state_store.load().changes
 
 
+def test_close_cleanup_pull_request_dry_run_previews_orphan_close(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    commit_file(repo, "alpha 2", "alpha-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    state = state_store.load()
+    bottom_bookmark = state.changes[bottom_change_id].bookmark
+    bottom_pr_number = state.changes[bottom_change_id].pr_number
+    assert bottom_bookmark is not None
+    assert bottom_pr_number is not None
+
+    run_command(["jj", "abandon", bottom_change_id], repo)
+
+    exit_code = run_main(
+        repo,
+        config_path,
+        "close",
+        "--cleanup",
+        "--dry-run",
+        "--pull-request",
+        str(bottom_pr_number),
+    )
+    captured = capsys.readouterr()
+    output = captured.out
+
+    assert exit_code == 0
+    assert "Planned close actions:" in output
+    assert f"close PR #{bottom_pr_number}" in output
+    assert f"delete {bottom_bookmark}@origin" in output
+    assert "prune orphan record" in output
+    assert fake_repo.pull_requests[bottom_pr_number].state == "open"
+    assert f"refs/heads/{bottom_bookmark}" in remote_refs(fake_repo.git_dir)
+    assert bottom_change_id in state_store.load().changes
+
+
+def test_close_cleanup_pull_request_orphan_close_is_idempotent_after_branch_already_gone(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    commit_file(repo, "alpha 2", "alpha-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    state = state_store.load()
+    bottom_bookmark = state.changes[bottom_change_id].bookmark
+    bottom_pr_number = state.changes[bottom_change_id].pr_number
+    assert bottom_bookmark is not None
+    assert bottom_pr_number is not None
+
+    run_command(["jj", "abandon", bottom_change_id], repo)
+    last_target = state.changes[bottom_change_id].last_submitted_commit_id
+    assert last_target is not None
+    JjClient(repo).delete_remote_bookmarks(
+        remote="origin",
+        deletions=((bottom_bookmark, last_target),),
+    )
+
+    exit_code = run_main(
+        repo,
+        config_path,
+        "close",
+        "--cleanup",
+        "--pull-request",
+        str(bottom_pr_number),
+    )
+    captured = capsys.readouterr()
+    output = captured.out
+
+    assert exit_code == 0
+    assert "Applied close actions:" in output
+    assert "already absent" in output
+    assert "prune orphan record" in output
+    assert fake_repo.pull_requests[bottom_pr_number].state == "closed"
+    assert bottom_change_id not in state_store.load().changes
+
+
+def test_close_cleanup_pull_request_preserves_external_bookmark_without_user_opt_in(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(
+        monkeypatch,
+        tmp_path,
+        fake_repo,
+        extra_config_lines=['use_bookmarks = ["potato/orphan-feature"]'],
+    )
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    run_command(
+        ["jj", "bookmark", "create", "potato/orphan-feature", "-r", bottom_change_id],
+        repo,
+    )
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    state_store = ReviewStateStore.for_repo(repo)
+    pr_number = state_store.load().changes[bottom_change_id].pr_number
+    assert pr_number is not None
+
+    run_command(["jj", "abandon", bottom_change_id], repo)
+
+    exit_code = run_main(
+        repo,
+        config_path,
+        "close",
+        "--cleanup",
+        "--pull-request",
+        str(pr_number),
+    )
+    captured = capsys.readouterr()
+    output = captured.out
+
+    assert exit_code == 0
+    assert f"close PR #{pr_number}" in output
+    assert "prune orphan record" in output
+    assert "remote branch:" not in output
+    assert "local bookmark:" not in output
+    assert fake_repo.pull_requests[pr_number].state == "closed"
+    assert "refs/heads/potato/orphan-feature" in remote_refs(fake_repo.git_dir)
+    assert bottom_change_id not in state_store.load().changes
+
+
 def test_close_apply_rerun_is_idempotent(
     tmp_path: Path,
     monkeypatch,

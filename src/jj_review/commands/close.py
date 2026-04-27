@@ -442,15 +442,15 @@ async def _run_orphan_close(
     if cleanup_bookmark:
         branch_label = f"{bookmark}@{remote.name}"
         remote_observation = bookmark_state.remote_target(remote.name)
-        if last_target is None:
+        if remote_observation is None or not remote_observation.targets:
             actions.append(
                 CloseAction(
                     kind="remote branch",
-                    body=t"cannot delete {ui.bookmark(branch_label)} without a saved target",
-                    status="blocked",
+                    body=t"{ui.bookmark(branch_label)} already absent",
+                    status="planned" if dry_run else "applied",
                 )
             )
-        elif remote_observation is not None and len(remote_observation.targets) > 1:
+        elif len(remote_observation.targets) > 1:
             actions.append(
                 CloseAction(
                     kind="remote branch",
@@ -458,6 +458,14 @@ async def _run_orphan_close(
                         t"cannot delete {ui.bookmark(branch_label)} because the remote "
                         t"bookmark is conflicted"
                     ),
+                    status="blocked",
+                )
+            )
+        elif last_target is None:
+            actions.append(
+                CloseAction(
+                    kind="remote branch",
+                    body=t"cannot delete {ui.bookmark(branch_label)} without a saved target",
                     status="blocked",
                 )
             )
