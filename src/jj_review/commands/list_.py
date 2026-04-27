@@ -34,7 +34,7 @@ from jj_review.review.status import (
     refresh_remote_state_for_status,
     revision_has_merged_pull_request,
 )
-from jj_review.review.topology import pointer_disagreement
+from jj_review.review.topology import enumerate_orphaned_records, pointer_disagreement
 from jj_review.state.store import ReviewStateStore
 
 HELP = "List review stacks in this repo"
@@ -47,6 +47,17 @@ class StackRow:
     incomplete: bool
     review: str
     size: int
+    state: ui.Message
+    subject: str
+
+
+@dataclass(frozen=True, slots=True)
+class OrphanRow:
+    """One orphaned PR — its local change has left every current stack."""
+
+    change_id: str
+    pull_request_number: int
+    review: str
     state: ui.Message
     subject: str
 
@@ -143,18 +154,49 @@ def list_(
         )
         for item in prepared_discovered
     )
+    orphan_rows = tuple(
+        _build_orphan_row(orphan)
+        for orphan in enumerate_orphaned_records(state, ordered)
+    )
     color_when = context.jj_client.resolve_color_when(
         cli_color=requested_color_mode(),
         stdout_is_tty=sys.stdout.isatty(),
     )
+    head_change_ids_to_render = tuple(row.head_change_id for row in rows) + tuple(
+        row.change_id for row in orphan_rows
+    )
     with console.spinner(description="Rendering jj change IDs"):
         rendered_change_ids = context.jj_client.render_short_change_ids(
-            tuple(row.head_change_id for row in rows),
+            head_change_ids_to_render,
             color_when=color_when,
         )
-    console.output(_stack_table(rows=rows, rendered_change_ids=rendered_change_ids))
+    console.output(
+        _stack_table(
+            orphan_rows=orphan_rows,
+            rendered_change_ids=rendered_change_ids,
+            rows=rows,
+        )
+    )
     _emit_needs_submit_advisory(discovered=ordered, state=state)
     return 1 if any(row.incomplete for row in rows) else 0
+
+
+def _build_orphan_row(orphan) -> OrphanRow:
+    return OrphanRow(
+        change_id=orphan.change_id,
+        pull_request_number=orphan.cached_change.pr_number or 0,
+        review=(
+            f"PR #{orphan.cached_change.pr_number}"
+            if orphan.cached_change.pr_number is not None
+            else "(no PR number)"
+        ),
+        state=ui.semantic_text("orphan", "warning", "heading"),
+        subject=(
+            f"close --cleanup --pull-request {orphan.cached_change.pr_number}"
+            if orphan.cached_change.pr_number is not None
+            else "no saved PR number; reattach with relink before closing"
+        ),
+    )
 
 
 def _emit_needs_submit_advisory(
@@ -625,9 +667,34 @@ def _ensure_unique_repo_bookmarks(
 
 def _stack_table(
     *,
-    rows: tuple[StackRow, ...],
+    orphan_rows: tuple[OrphanRow, ...],
     rendered_change_ids: dict[str, str],
+    rows: tuple[StackRow, ...],
 ) -> ui.DataTable:
+    stack_table_rows = [
+        (
+            (
+                f"@ {rendered_change_ids.get(row.head_change_id, row.head_change_id[:8])}"
+                if row.current
+                else rendered_change_ids.get(row.head_change_id, row.head_change_id[:8])
+            ),
+            f"{row.size} {'change' if row.size == 1 else 'changes'}",
+            row.review,
+            row.state,
+            row.subject,
+        )
+        for row in rows
+    ]
+    for orphan in orphan_rows:
+        stack_table_rows.append(
+            (
+                rendered_change_ids.get(orphan.change_id, orphan.change_id[:8]),
+                "orphan",
+                orphan.review,
+                orphan.state,
+                orphan.subject,
+            )
+        )
     return ui.DataTable(
         columns=(
             ui.TableColumn("head", no_wrap=True),
@@ -639,18 +706,5 @@ def _stack_table(
         pad_edge=False,
         padding=(0, 0),
         show_edge=False,
-        rows=tuple(
-            (
-                (
-                    f"@ {rendered_change_ids.get(row.head_change_id, row.head_change_id[:8])}"
-                    if row.current
-                    else rendered_change_ids.get(row.head_change_id, row.head_change_id[:8])
-                ),
-                f"{row.size} {'change' if row.size == 1 else 'changes'}",
-                row.review,
-                row.state,
-                row.subject,
-            )
-            for row in rows
-        ),
+        rows=tuple(stack_table_rows),
     )

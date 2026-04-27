@@ -51,6 +51,36 @@ def test_list_reports_multiple_locally_tracked_stacks(
     assert "1 change" in captured.out
 
 
+def test_list_surfaces_orphaned_pull_request_after_change_is_abandoned(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    commit_file(repo, "alpha 2", "alpha-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    middle_change_id = stack.revisions[0].change_id
+    state = ReviewStateStore.for_repo(repo).load()
+    middle_pr_number = state.changes[middle_change_id].pr_number
+    assert middle_pr_number is not None
+
+    run_command(["jj", "abandon", middle_change_id], repo)
+
+    exit_code = run_main(repo, config_path, "list")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "orphan" in captured.out
+    assert f"PR #{middle_pr_number}" in captured.out
+    assert f"close --cleanup --pull-request {middle_pr_number}" in captured.out
+
+
 def test_list_warns_when_tracked_stack_has_moved_since_last_submit(
     tmp_path,
     monkeypatch,
