@@ -171,7 +171,7 @@ When you are juggling more than one local review stack in the same repo, run
 `jj-review list` to see the locally tracked stacks at a glance before drilling
 into one of them with `jj-review status`.
 
-`list` or `status` may say a tracked stack moved since its last submit. Run
+`list` or `status` may say a tracked stack changed since its last submit. Run
 `jj-review status <head-change-id>` for the listed stack; that status output will
 show whether the next step is a plain submit or cleanup first.
 

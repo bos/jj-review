@@ -1,9 +1,9 @@
-"""Per-change topology pointer comparisons and orphan-record discovery.
+"""Per-change submitted-state comparisons and orphan-record discovery.
 
-`pointer_disagreement` walks each stack and reports the change_ids whose saved
-parent/head pointers no longer match the live DAG. The comparison is per change
-— aggregating into a stack-level verdict would miss insert and abandon-mid-stack
-rewrites.
+`submitted_state_disagreement` walks each stack and reports the change_ids whose
+saved submitted commit or parent/head pointers no longer match the live DAG. The
+comparison is per change — aggregating into a stack-level verdict would miss
+same-position rewrites, inserts, and abandon-mid-stack rewrites.
 
 `enumerate_orphaned_records` complements that: it finds saved records that have
 fallen out of every live stack while their PR is still open. Those PRs have
@@ -87,20 +87,23 @@ def enumerate_orphaned_records(
     return tuple(orphans)
 
 
-def pointer_disagreement(
+def submitted_state_disagreement(
     state: ReviewState,
     local_stacks: Sequence[LocalStack],
 ) -> tuple[str, ...]:
-    """Return change_ids whose saved pointers disagree with their live position.
+    """Return change_ids whose saved submitted state disagrees with the live DAG.
 
     For each revision on each stack, compare the saved record's
-    `last_submitted_parent_change_id` and `last_submitted_stack_head_change_id`
-    to the live values implied by the current stack walk. A revision is reported
-    when at least one pointer is populated in saved state and either differs.
+    `last_submitted_commit_id`, `last_submitted_parent_change_id`, and
+    `last_submitted_stack_head_change_id` to the live values implied by the
+    current stack walk. A revision is reported when the saved commit id differs
+    from the current commit, or when at least one saved topology pointer is
+    populated and either pointer differs.
 
-    Records with both pointers unset, unlinked records, and revisions whose
-    change_id has no saved record are skipped — lack of pointers is lack of
-    evidence of staleness, not evidence of staleness.
+    Records with no submitted commit or pointers, unlinked records, and
+    revisions whose change_id has no saved record are skipped — lack of a saved
+    submitted baseline is lack of evidence of staleness, not evidence of
+    staleness.
     """
 
     disagreements: list[str] = []
@@ -112,6 +115,9 @@ def pointer_disagreement(
             cached = state.changes.get(revision.change_id)
             if cached is None or cached.is_unlinked:
                 continue
+            if _submitted_commit_disagrees(cached, revision_commit_id=revision.commit_id):
+                disagreements.append(revision.change_id)
+                continue
             saved_parent = cached.last_submitted_parent_change_id
             saved_head = cached.last_submitted_stack_head_change_id
             if saved_parent is None and saved_head is None:
@@ -120,6 +126,15 @@ def pointer_disagreement(
             if saved_parent != live_parent or saved_head != live_head:
                 disagreements.append(revision.change_id)
     return tuple(disagreements)
+
+
+def _submitted_commit_disagrees(
+    cached_change: CachedChange,
+    *,
+    revision_commit_id: str,
+) -> bool:
+    saved_commit_id = cached_change.last_submitted_commit_id
+    return saved_commit_id is not None and saved_commit_id != revision_commit_id
 
 
 def _live_parent_change_id(stack: LocalStack, *, index: int) -> str | None:

@@ -82,7 +82,7 @@ def test_status_can_select_a_stack_by_pull_request_number(
     assert f"PR #{second_pr_number}" not in captured.out
 
 
-def test_status_warns_when_other_tracked_stack_has_moved_since_last_submit(
+def test_status_warns_when_other_tracked_stack_has_changed_since_last_submit(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -112,6 +112,39 @@ def test_status_warns_when_other_tracked_stack_has_moved_since_last_submit(
     assert exit_code == 0
     assert new_beta_head_change_id[:8] in captured.err
     assert alpha_head_change_id[:8] not in captured.err
+    assert "changed since their last submit" in captured.err
+    assert "run status on each" in captured.err
+
+
+def test_status_warns_when_other_tracked_stack_was_rewritten_without_moving(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    alpha_head_change_id = JjClient(repo).discover_review_stack().head.change_id
+
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "beta 1", "beta-1.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    beta_head_change_id = JjClient(repo).discover_review_stack().head.change_id
+
+    run_command(["jj", "describe", "-r", beta_head_change_id, "-m", "beta 1 renamed"], repo)
+
+    run_command(["jj", "edit", alpha_head_change_id], repo)
+    exit_code = run_main(repo, config_path, "status")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert beta_head_change_id[:8] in captured.err
+    assert alpha_head_change_id[:8] not in captured.err
+    assert "changed since their last submit" in captured.err
     assert "run status on each" in captured.err
 
 

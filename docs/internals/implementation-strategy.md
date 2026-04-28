@@ -200,6 +200,9 @@ Repo-scoped discovered stacks carry both their immediate base parent and the res
 checks compare the bottom tracked change against that actual DAG parent when the parent
 is another mutable review change, while still treating `trunk()` and its ancestors as no
 review parent.
+Repo-scoped stale-stack detection also compares each tracked change's saved
+`last_submitted_commit_id` against the live commit ID, so a rewrite in the same stack
+position still prompts the user to inspect and resubmit.
 
 Orphaned `close --cleanup --pull-request` uses the same bookmark and stack-comment
 validation as regular close before it mutates GitHub state or prunes saved tracking.

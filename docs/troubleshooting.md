@@ -85,10 +85,11 @@ jj-review submit
 and rebases the remaining changes above the current `trunk()`. After that,
 `submit` refreshes the open PRs to reflect the new base.
 
-## `list` or `status` says another stack changed since its PRs were last updated
+## `list` or `status` says another stack changed since its last submit
 
 Possible causes:
 
+- you amended, described, or otherwise rewrote a reviewed change without moving it
 - you inserted a new change into a reviewed stack
 - you abandoned, reordered, or rebased changes that already have PRs
 - a stack that you are not currently looking at now has different parent relationships
@@ -99,8 +100,9 @@ What to do:
 jj-review submit <head-change-id>
 ```
 
-Use the head change ID printed in the warning. `submit` refreshes that stack's PR branches and
-base branches on GitHub so reviewers see the current local stack.
+Use the head change ID printed in the warning. `status` can show whether that stack only needs a
+submit or needs cleanup first; `submit` refreshes that stack's PR branches and base branches on
+GitHub so reviewers see the current local stack.
 
 ## `land` says the local change differs from what reviewers approved
 

@@ -205,10 +205,11 @@ If anything is saved locally, it is a small record per change:
 - PR number and URL
 - the navigation/overview comment IDs, if used
 - the last known PR state and review decision, used as a fallback when GitHub is offline
-- the last submitted `commit_id`
+- the last submitted `commit_id`, compared against the live commit to detect rewrites
+  that keep the same stack position
 - topology pointers `last_submitted_parent_change_id` (or null for trunk) and
   `last_submitted_stack_head_change_id`. These are compared per change against the
-  current DAG to detect when a tracked chain has moved since the last successful
+  current DAG to detect when a tracked chain has changed since the last successful
   `submit` — never aggregated into a stack-level comparison
 - a durable "unlinked" marker for a change the user explicitly detached, because that is
   user intent the tool must not silently undo
@@ -409,11 +410,12 @@ concise — one effective summary per change rather than dumping saved-data and 
 diagnostics inline.
 
 `status` may add a repo-level advisory for other tracked stacks when the saved
-topology pointers (`last_submitted_parent_change_id`,
-`last_submitted_stack_head_change_id`) disagree with the current DAG. The advisory
-names the stack heads and points the user at running `status` on each, because the
-correct follow-up depends on the cause. Stale comments alone do not trigger the
-advisory.
+submitted state disagrees with the current DAG: either a tracked change's saved
+`last_submitted_commit_id` differs from its current commit, or the saved topology
+pointers (`last_submitted_parent_change_id`, `last_submitted_stack_head_change_id`)
+no longer match the live chain. The advisory names the stack heads and points the
+user at running `status` on each, because the correct follow-up depends on the cause.
+Stale comments alone do not trigger the advisory.
 
 The stack revisions and the footer row beneath them both render through the user's
 native `jj log` formatting; status-specific suffixes (PR state, etc.) are appended to
@@ -464,9 +466,9 @@ PRs needing cleanup. If GitHub is unavailable or a saved PR link has gone stale,
 row surfaces that and `list` exits non-zero rather than reporting a healthy tracked
 stack from incomplete data.
 
-Like `status`, `list` may surface tracked stacks whose pointers no longer match the
-live DAG, naming the heads and pointing the user at `status` for the per-stack next
-step.
+Like `status`, `list` may surface tracked stacks whose submitted state no longer
+matches the live DAG, naming the heads and pointing the user at `status` for the
+per-stack next step.
 
 `list` also surfaces orphaned PRs — saved tracking records whose change is no longer
 present in any current stack — as their own rows, separate from the live stacks. Each
@@ -692,8 +694,8 @@ The same applies when one rewrite affects more than two stacks.
 Stacks the user has not yet resubmitted may still display old navigation or overview
 comments. That is expected — `submit` does not chase comments on stacks it isn't
 operating on, and `land` does not block on stale state outside the selected stack.
-`status` and `list` surface those stacks via the topology-pointer rule, naming
-their heads and directing the user at `status` for the per-stack next step.
+`status` and `list` surface those stacks via the submitted-state rule, naming their
+heads and directing the user at `status` for the per-stack next step.
 Orphaned PRs left behind by a cross-stack rewrite need an explicit `close
 --cleanup --pull-request <pr>`.
 

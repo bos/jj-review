@@ -103,7 +103,7 @@ def test_list_surfaces_orphaned_pull_request_when_no_live_stacks_remain(
     assert "No review stacks." not in captured.out
 
 
-def test_list_warns_when_tracked_stack_has_moved_since_last_submit(
+def test_list_warns_when_tracked_stack_has_changed_since_last_submit(
     tmp_path,
     monkeypatch,
     capsys,
@@ -124,6 +124,27 @@ def test_list_warns_when_tracked_stack_has_moved_since_last_submit(
 
     assert exit_code == 0
     assert new_alpha_head_change_id[:8] in captured.err
+    assert "changed since their last submit" in captured.err
+    assert "run status on each" in captured.err
+
+
+def test_list_warns_when_tracked_stack_was_rewritten_without_moving(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    change_id = JjClient(repo).discover_review_stack().head.change_id
+    run_command(["jj", "describe", "-r", change_id, "-m", "feature 1 renamed"], repo)
+
+    exit_code = run_main(repo, config_path, "list")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert change_id[:8] in captured.err
+    assert "changed since their last submit" in captured.err
     assert "run status on each" in captured.err
 
 

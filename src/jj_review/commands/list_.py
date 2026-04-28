@@ -38,7 +38,7 @@ from jj_review.review.status import (
     refresh_remote_state_for_status,
     revision_has_merged_pull_request,
 )
-from jj_review.review.topology import enumerate_orphaned_records, pointer_disagreement
+from jj_review.review.topology import enumerate_orphaned_records, submitted_state_disagreement
 from jj_review.state.store import ReviewStateStore
 
 HELP = "List review stacks in this repo"
@@ -195,7 +195,7 @@ def list_(
         )
     )
     _emit_orphan_hints(orphan_rows)
-    _emit_moved_stacks_advisory(discovered=ordered, state=state)
+    _emit_stale_stacks_advisory(discovered=ordered, state=state)
     return 1 if any(row.incomplete for row in rows) else 0
 
 
@@ -221,29 +221,30 @@ def _emit_orphan_hints(orphan_rows: tuple[OrphanRow, ...]) -> None:
         console.note(t"Orphan {orphan.review}: run {ui.cmd(orphan.hint)} to retire it.")
 
 
-def _emit_moved_stacks_advisory(
+def _emit_stale_stacks_advisory(
     *,
     discovered: tuple[LocalStack, ...],
     state: ReviewState,
 ) -> None:
-    """Hint that tracked stacks have moved since their last successful submit.
+    """Hint that tracked stacks have changed since their last successful submit.
 
-    Pointer disagreement means the saved topology no longer matches the live DAG.
-    The right follow-up can depend on the specific stack state, so this advisory
-    directs the user to inspect each stack rather than naming one mutation.
+    Submitted-state disagreement means the saved commit or topology baseline no
+    longer matches the live DAG. The right follow-up can depend on the specific
+    stack state, so this advisory directs the user to inspect each stack rather
+    than naming one mutation.
     """
 
-    moved_heads = tuple(
+    stale_heads = tuple(
         stack.head.change_id
         for stack in discovered
-        if pointer_disagreement(state, (stack,))
+        if submitted_state_disagreement(state, (stack,))
     )
-    if not moved_heads:
+    if not stale_heads:
         return
-    heads_fragments = ui.join(ui.change_id, moved_heads)
+    heads_fragments = ui.join(ui.change_id, stale_heads)
     console.warning(
         (
-            "Tracked stacks have moved since their last submit; ",
+            "Tracked stacks have changed since their last submit; ",
             t"run {ui.cmd('status')} on each: ",
             *heads_fragments,
         )

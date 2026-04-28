@@ -4,7 +4,7 @@ from jj_review.models.review_state import CachedChange, LinkState, ReviewState
 from jj_review.models.stack import LocalRevision, LocalStack
 from jj_review.review.topology import (
     enumerate_orphaned_records,
-    pointer_disagreement,
+    submitted_state_disagreement,
 )
 
 
@@ -38,13 +38,14 @@ def _stack(
 
 def _tracked(
     *,
+    commit_id: str | None = None,
     parent: str | None,
     head: str,
     pr_number: int = 1,
 ) -> CachedChange:
     return CachedChange(
         bookmark="review/example",
-        last_submitted_commit_id="abc",
+        last_submitted_commit_id=commit_id,
         last_submitted_parent_change_id=parent,
         last_submitted_stack_head_change_id=head,
         pr_number=pr_number,
@@ -53,7 +54,7 @@ def _tracked(
     )
 
 
-def test_pointer_disagreement_returns_empty_when_pointers_match() -> None:
+def test_submitted_state_disagreement_returns_empty_when_saved_state_matches() -> None:
     a = _revision("change-a")
     b = _revision("change-b")
     c = _revision("change-c")
@@ -66,10 +67,10 @@ def test_pointer_disagreement_returns_empty_when_pointers_match() -> None:
         }
     )
 
-    assert pointer_disagreement(state, (stack,)) == ()
+    assert submitted_state_disagreement(state, (stack,)) == ()
 
 
-def test_pointer_disagreement_flags_change_after_rebase_changed_parent() -> None:
+def test_submitted_state_disagreement_flags_change_after_rebase_changed_parent() -> None:
     a = _revision("change-a")
     b = _revision("change-b")
     stack = _stack(a, b)
@@ -80,10 +81,10 @@ def test_pointer_disagreement_flags_change_after_rebase_changed_parent() -> None
         }
     )
 
-    assert pointer_disagreement(state, (stack,)) == ("change-b",)
+    assert submitted_state_disagreement(state, (stack,)) == ("change-b",)
 
 
-def test_pointer_disagreement_flags_changes_when_head_moved() -> None:
+def test_submitted_state_disagreement_flags_changes_when_head_moved() -> None:
     a = _revision("change-a")
     b = _revision("change-b")
     stack = _stack(a, b)
@@ -94,10 +95,42 @@ def test_pointer_disagreement_flags_changes_when_head_moved() -> None:
         }
     )
 
-    assert pointer_disagreement(state, (stack,)) == ("change-a", "change-b")
+    assert submitted_state_disagreement(state, (stack,)) == ("change-a", "change-b")
 
 
-def test_pointer_disagreement_catches_inserted_change_via_neighbors() -> None:
+def test_submitted_state_disagreement_flags_rewrite_without_topology_change() -> None:
+    a = _revision("change-a")
+    stack = _stack(a)
+    state = ReviewState(
+        changes={
+            "change-a": _tracked(
+                commit_id="old-commit-change-a",
+                parent=None,
+                head="change-a",
+            ),
+        }
+    )
+
+    assert submitted_state_disagreement(state, (stack,)) == ("change-a",)
+
+
+def test_submitted_state_disagreement_accepts_same_submitted_commit() -> None:
+    a = _revision("change-a")
+    stack = _stack(a)
+    state = ReviewState(
+        changes={
+            "change-a": _tracked(
+                commit_id=a.commit_id,
+                parent=None,
+                head="change-a",
+            ),
+        }
+    )
+
+    assert submitted_state_disagreement(state, (stack,)) == ()
+
+
+def test_submitted_state_disagreement_catches_inserted_change_via_neighbors() -> None:
     a = _revision("change-a")
     inserted = _revision("change-inserted")
     b = _revision("change-b")
@@ -109,10 +142,10 @@ def test_pointer_disagreement_catches_inserted_change_via_neighbors() -> None:
         }
     )
 
-    assert pointer_disagreement(state, (stack,)) == ("change-b",)
+    assert submitted_state_disagreement(state, (stack,)) == ("change-b",)
 
 
-def test_pointer_disagreement_catches_untracked_insert_below_bottom_change() -> None:
+def test_submitted_state_disagreement_catches_untracked_insert_below_bottom_change() -> None:
     inserted = _revision("change-inserted")
     a = _revision("change-a", parents=(inserted.commit_id,))
     stack = _stack(a, base_parent=inserted)
@@ -122,10 +155,10 @@ def test_pointer_disagreement_catches_untracked_insert_below_bottom_change() -> 
         }
     )
 
-    assert pointer_disagreement(state, (stack,)) == ("change-a",)
+    assert submitted_state_disagreement(state, (stack,)) == ("change-a",)
 
 
-def test_pointer_disagreement_treats_actual_trunk_parent_as_no_review_parent() -> None:
+def test_submitted_state_disagreement_treats_actual_trunk_parent_as_no_review_parent() -> None:
     trunk = _revision("trunk-change", parents=("root-commit",))
     a = _revision("change-a", parents=(trunk.commit_id,))
     stack = LocalStack(
@@ -141,10 +174,10 @@ def test_pointer_disagreement_treats_actual_trunk_parent_as_no_review_parent() -
         }
     )
 
-    assert pointer_disagreement(state, (stack,)) == ()
+    assert submitted_state_disagreement(state, (stack,)) == ()
 
 
-def test_pointer_disagreement_treats_trunk_ancestor_as_no_review_parent() -> None:
+def test_submitted_state_disagreement_treats_trunk_ancestor_as_no_review_parent() -> None:
     old_trunk = _revision("old-trunk", parents=("root-commit",))
     current_trunk = _revision("trunk-change", parents=(old_trunk.commit_id,))
     a = _revision("change-a", parents=(old_trunk.commit_id,))
@@ -162,10 +195,10 @@ def test_pointer_disagreement_treats_trunk_ancestor_as_no_review_parent() -> Non
         }
     )
 
-    assert pointer_disagreement(state, (stack,)) == ()
+    assert submitted_state_disagreement(state, (stack,)) == ()
 
 
-def test_pointer_disagreement_skips_records_without_saved_pointers() -> None:
+def test_submitted_state_disagreement_skips_records_without_saved_baseline() -> None:
     a = _revision("change-a")
     stack = _stack(a)
     state = ReviewState(
@@ -179,10 +212,10 @@ def test_pointer_disagreement_skips_records_without_saved_pointers() -> None:
         }
     )
 
-    assert pointer_disagreement(state, (stack,)) == ()
+    assert submitted_state_disagreement(state, (stack,)) == ()
 
 
-def test_pointer_disagreement_skips_unlinked_records_even_when_stale() -> None:
+def test_submitted_state_disagreement_skips_unlinked_records_even_when_stale() -> None:
     a = _revision("change-a")
     stack = _stack(a)
     state = ReviewState(
@@ -196,14 +229,14 @@ def test_pointer_disagreement_skips_unlinked_records_even_when_stale() -> None:
         }
     )
 
-    assert pointer_disagreement(state, (stack,)) == ()
+    assert submitted_state_disagreement(state, (stack,)) == ()
 
 
-def test_pointer_disagreement_skips_revisions_without_any_saved_record() -> None:
+def test_submitted_state_disagreement_skips_revisions_without_any_saved_record() -> None:
     a = _revision("change-a")
     stack = _stack(a)
 
-    assert pointer_disagreement(ReviewState(), (stack,)) == ()
+    assert submitted_state_disagreement(ReviewState(), (stack,)) == ()
 
 
 def _orphan_record(
@@ -279,7 +312,7 @@ def test_enumerate_orphaned_records_skips_unlinked_records() -> None:
     assert enumerate_orphaned_records(state, ()) == ()
 
 
-def test_pointer_disagreement_inspects_each_stack_independently() -> None:
+def test_submitted_state_disagreement_inspects_each_stack_independently() -> None:
     a = _revision("change-a")
     b = _revision("change-b")
     stack_one = _stack(a)
@@ -291,4 +324,4 @@ def test_pointer_disagreement_inspects_each_stack_independently() -> None:
         }
     )
 
-    assert pointer_disagreement(state, (stack_one, stack_two)) == ("change-b",)
+    assert submitted_state_disagreement(state, (stack_one, stack_two)) == ("change-b",)
