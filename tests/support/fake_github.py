@@ -743,7 +743,7 @@ def _require_graphql_variable(payload: dict[str, object], key: str) -> str:
 
 _HEAD_REF_QUERY_PATTERN = re.compile(
     r"(?m)^\s*(?P<alias>\w+):\s*pullRequests\([^)]*headRefName:\s*"
-    r'(?P<head_ref>"(?:\\.|[^"])*")[^)]*\)\s*\{'
+    r'(?P<head_ref>"(?:\\.|[^"\\])*")[^)]*\)\s*\{'
 )
 _PULL_REQUEST_NUMBER_QUERY_PATTERN = re.compile(
     r"(?m)^\s*(?P<alias>\w+):\s*pullRequest\(number:\s*(?P<number>\d+)\)\s*\{"
