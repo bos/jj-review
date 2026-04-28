@@ -124,8 +124,7 @@ def test_list_warns_when_tracked_stack_has_moved_since_last_submit(
 
     assert exit_code == 0
     assert new_alpha_head_change_id[:8] in captured.err
-    assert "submit" in captured.err
-    assert "jj-review submit" not in captured.err
+    assert "run status on each" in captured.err
 
 
 def test_list_warns_when_untracked_change_is_inserted_below_tracked_stack(
@@ -155,7 +154,7 @@ def test_list_warns_when_untracked_change_is_inserted_below_tracked_stack(
 
     assert exit_code == 0
     assert head_change_id[:8] in captured.err
-    assert "submit" in captured.err
+    assert "run status on each" in captured.err
 
 
 def test_list_does_not_warn_when_tracked_stack_still_starts_at_mutable_trunk(

@@ -195,7 +195,7 @@ def list_(
         )
     )
     _emit_orphan_hints(orphan_rows)
-    _emit_needs_submit_advisory(discovered=ordered, state=state)
+    _emit_moved_stacks_advisory(discovered=ordered, state=state)
     return 1 if any(row.incomplete for row in rows) else 0
 
 
@@ -221,26 +221,30 @@ def _emit_orphan_hints(orphan_rows: tuple[OrphanRow, ...]) -> None:
         console.note(t"Orphan {orphan.review}: run {ui.cmd(orphan.hint)} to retire it.")
 
 
-def _emit_needs_submit_advisory(
+def _emit_moved_stacks_advisory(
     *,
     discovered: tuple[LocalStack, ...],
     state: ReviewState,
 ) -> None:
-    """Hint that tracked stacks have moved since their last successful submit."""
+    """Hint that tracked stacks have moved since their last successful submit.
 
-    needs_submit_heads = tuple(
+    Pointer disagreement means the saved topology no longer matches the live DAG.
+    The right follow-up can depend on the specific stack state, so this advisory
+    directs the user to inspect each stack rather than naming one mutation.
+    """
+
+    moved_heads = tuple(
         stack.head.change_id
         for stack in discovered
         if pointer_disagreement(state, (stack,))
     )
-    if not needs_submit_heads:
+    if not moved_heads:
         return
-    heads_fragments = ui.join(ui.change_id, needs_submit_heads)
+    heads_fragments = ui.join(ui.change_id, moved_heads)
     console.warning(
         (
-            "Some stacks changed since their PRs were last updated; run ",
-            ui.cmd("submit"),
-            " for: ",
+            "Tracked stacks have moved since their last submit; ",
+            t"run {ui.cmd('status')} on each: ",
             *heads_fragments,
         )
     )

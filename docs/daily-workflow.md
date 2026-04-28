@@ -212,9 +212,9 @@ longer part of any current stack. When you are ready to retire that PR, close it
 jj-review close --cleanup --pull-request 7
 ```
 
-If `jj-review list` or `jj-review status` says another stack changed since its PRs were last
-updated, run `jj-review submit <head-change-id>` for the listed stack. That refreshes the PR
-branches and base branches after a local insert, abandon, reorder, or rebase.
+If `jj-review list` or `jj-review status` says another tracked stack moved since its last submit,
+run `jj-review status <head-change-id>` for the listed stack. That status output will show whether
+the next step is a plain submit or cleanup first.
 
 ## Short version
 

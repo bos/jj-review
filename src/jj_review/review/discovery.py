@@ -1,9 +1,9 @@
 """Discover tracked review stacks from saved state plus the live `jj` DAG.
 
-Both `status` (for the per-other-stack `needs submit` advisory) and `list` (for the
-per-stack rendering and for orphan-row enumeration) need the same primitive: walk
-every change `jj-review` has tracked, project it onto the current DAG, and return
-the linear stacks those changes participate in.
+Both `status` (for the moved-stacks advisory it emits about other tracked stacks)
+and `list` (for the per-stack rendering and for orphan-row enumeration) need the
+same primitive: walk every change `jj-review` has tracked, project it onto the
+current DAG, and return the linear stacks those changes participate in.
 
 The walk tolerates rewrite-heavy state — divergent and immutable copies appear in
 `jj`'s `descendants()` after fetching merged PR branches — and skips revisions

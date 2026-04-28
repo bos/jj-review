@@ -130,7 +130,7 @@ def status(
             prepared_status=prepared_status,
             verbose=verbose,
         )
-        _emit_other_stacks_needs_submit_advisory(
+        _emit_other_moved_stacks_advisory(
             jj_client=context.jj_client,
             repo_root=context.repo_root,
             rendered_head_change_ids=rendered_head_change_ids,
@@ -186,7 +186,7 @@ def status(
             ),
         )
         printed_blocks += 1
-    _emit_other_stacks_needs_submit_advisory(
+    _emit_other_moved_stacks_advisory(
         jj_client=context.jj_client,
         repo_root=context.repo_root,
         rendered_head_change_ids=rendered_head_change_ids,
@@ -194,13 +194,18 @@ def status(
     return exit_code
 
 
-def _emit_other_stacks_needs_submit_advisory(
+def _emit_other_moved_stacks_advisory(
     *,
     jj_client: JjClient,
     repo_root: Path,
     rendered_head_change_ids: set[str],
 ) -> None:
-    """Hint that other tracked stacks have moved since their last successful submit."""
+    """Hint that other tracked stacks have moved since their last successful submit.
+
+    Pointer disagreement means the saved topology no longer matches the live DAG.
+    The right follow-up can depend on the specific stack state, so this advisory
+    directs the user to inspect each stack rather than naming one mutation.
+    """
 
     state = ReviewStateStore.for_repo(repo_root).load()
     if not state.changes:
@@ -213,19 +218,18 @@ def _emit_other_stacks_needs_submit_advisory(
     )
     if not other_stacks:
         return
-    needs_submit_heads = tuple(
+    moved_heads = tuple(
         stack.head.change_id
         for stack in other_stacks
         if pointer_disagreement(state, (stack,))
     )
-    if not needs_submit_heads:
+    if not moved_heads:
         return
-    heads_fragments = ui.join(ui.change_id, needs_submit_heads)
+    heads_fragments = ui.join(ui.change_id, moved_heads)
     console.warning(
         (
-            "Other stacks changed since their PRs were last updated; run ",
-            ui.cmd("submit"),
-            " for: ",
+            "Other tracked stacks have moved since their last submit; ",
+            t"run {ui.cmd('status')} on each: ",
             *heads_fragments,
         )
     )

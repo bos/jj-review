@@ -408,10 +408,12 @@ configured well enough to resolve a remote or GitHub target. Default output stay
 concise — one effective summary per change rather than dumping saved-data and transport
 diagnostics inline.
 
-`status` may add a repo-level `needs submit` advisory for other tracked stacks when
-the saved topology pointers (`last_submitted_parent_change_id`,
-`last_submitted_stack_head_change_id`) disagree with the current DAG. Stale comments
-alone do not trigger the advisory.
+`status` may add a repo-level advisory for other tracked stacks when the saved
+topology pointers (`last_submitted_parent_change_id`,
+`last_submitted_stack_head_change_id`) disagree with the current DAG. The advisory
+names the stack heads and points the user at running `status` on each, because the
+correct follow-up depends on the cause. Stale comments alone do not trigger the
+advisory.
 
 The stack revisions and the footer row beneath them both render through the user's
 native `jj log` formatting; status-specific suffixes (PR state, etc.) are appended to
@@ -462,8 +464,9 @@ PRs needing cleanup. If GitHub is unavailable or a saved PR link has gone stale,
 row surfaces that and `list` exits non-zero rather than reporting a healthy tracked
 stack from incomplete data.
 
-Like `status`, `list` may mark a tracked stack as `needs submit` using the same
-topology-pointer rule.
+Like `status`, `list` may surface tracked stacks whose pointers no longer match the
+live DAG, naming the heads and pointing the user at `status` for the per-stack next
+step.
 
 `list` also surfaces orphaned PRs — saved tracking records whose change is no longer
 present in any current stack — as their own rows, separate from the live stacks. Each
@@ -689,8 +692,9 @@ The same applies when one rewrite affects more than two stacks.
 Stacks the user has not yet resubmitted may still display old navigation or overview
 comments. That is expected — `submit` does not chase comments on stacks it isn't
 operating on, and `land` does not block on stale state outside the selected stack.
-`status` and `list` flag those stacks as `needs submit` via the topology-pointer
-rule. Orphaned PRs left behind by a cross-stack rewrite need an explicit `close
+`status` and `list` surface those stacks via the topology-pointer rule, naming
+their heads and directing the user at `status` for the per-stack next step.
+Orphaned PRs left behind by a cross-stack rewrite need an explicit `close
 --cleanup --pull-request <pr>`.
 
 Records left behind by an interrupted command (`submit`, `close`, `cleanup --rebase`)

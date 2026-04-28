@@ -112,8 +112,7 @@ def test_status_warns_when_other_tracked_stack_has_moved_since_last_submit(
     assert exit_code == 0
     assert new_beta_head_change_id[:8] in captured.err
     assert alpha_head_change_id[:8] not in captured.err
-    assert "submit" in captured.err
-    assert "jj-review submit" not in captured.err
+    assert "run status on each" in captured.err
 
 
 def test_status_pull_request_selector_requires_a_linked_local_change(
