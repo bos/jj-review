@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Coroutine, Sequence
-from typing import Any, TypeVar, cast
+from enum import Enum
+from typing import Any, Literal, TypeVar
 
 DEFAULT_BOUNDED_CONCURRENCY = 4
 
 _TaskItemT = TypeVar("_TaskItemT")
 _TaskResultT = TypeVar("_TaskResultT")
-_MISSING = object()
+
+
+class _Missing(Enum):
+    MISSING = "missing"
+
+
+_MISSING: Literal[_Missing.MISSING] = _Missing.MISSING
 
 
 async def run_bounded_tasks(
@@ -31,7 +38,7 @@ async def run_bounded_tasks(
 
     item_iter = iter(enumerate(items))
     in_flight: dict[asyncio.Task[_TaskResultT], int] = {}
-    results: list[_TaskResultT | object] = [_MISSING] * len(items)
+    results: list[_TaskResultT | Literal[_Missing.MISSING]] = [_MISSING] * len(items)
     first_failure: tuple[int, Exception] | None = None
 
     def start_next() -> bool:
@@ -85,5 +92,5 @@ async def run_bounded_tasks(
     for result in results:
         if result is _MISSING:
             raise AssertionError("Bounded task runner completed without a task result.")
-        completed_results.append(cast(_TaskResultT, result))
+        completed_results.append(result)
     return completed_results

@@ -13,9 +13,30 @@ from jj_review.commands.close import (
     _CloseCleanupContext,
 )
 from jj_review.github.client import GithubClient
+from jj_review.github.resolution import ParsedGithubRepo
 from jj_review.jj import JjClient
 from jj_review.models.bookmarks import BookmarkState, RemoteBookmarkState
 from jj_review.models.review_state import CachedChange
+from jj_review.review.status import ReviewStatusRevision
+
+
+def _stub_revision(*, change_id: str) -> ReviewStatusRevision:
+    return ReviewStatusRevision(
+        bookmark="",
+        bookmark_source="generated",
+        cached_change=None,
+        change_id=change_id,
+        commit_id="",
+        link_state="active",
+        local_divergent=False,
+        pull_request_lookup=None,
+        remote_state=None,
+        managed_comments_lookup=None,
+        subject="",
+    )
+
+
+_GITHUB_REPO = ParsedGithubRepo(host="github.com", owner="octo-org", repo="stacked-review")
 
 
 @pytest.mark.parametrize(
@@ -132,12 +153,12 @@ async def _run_cleanup_revision(*, bookmark_state: BookmarkState) -> _CleanupRes
             cleanup_user_bookmarks=False,
             dry_run=False,
             github_client=cast(GithubClient, SimpleNamespace()),
-            github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
+            github_repository=_GITHUB_REPO,
             jj_client=cast(JjClient, jj_client),
             next_changes={},
             record_action=actions.append,
             remote_name="origin",
-            revision=SimpleNamespace(change_id="aaaaaaaaaaaaaaaa"),
+            revision=_stub_revision(change_id="aaaaaaaaaaaaaaaa"),
             revision_label="feature 1 (aaaaaaaa)",
         ),
     )
@@ -165,12 +186,12 @@ def test_cleanup_revision_keeps_external_bookmark() -> None:
                 cleanup_user_bookmarks=False,
                 dry_run=False,
                 github_client=cast(GithubClient, SimpleNamespace()),
-                github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
+                github_repository=_GITHUB_REPO,
                 jj_client=cast(JjClient, jj_client),
                 next_changes={},
                 record_action=actions.append,
                 remote_name="origin",
-                revision=SimpleNamespace(change_id="aaaaaaaaaaaaaaaa"),
+                revision=_stub_revision(change_id="aaaaaaaaaaaaaaaa"),
                 revision_label="feature 1 (aaaaaaaa)",
             ),
         )
@@ -202,12 +223,12 @@ def test_cleanup_revision_deletes_external_bookmark_when_configured() -> None:
                 cleanup_user_bookmarks=True,
                 dry_run=False,
                 github_client=cast(GithubClient, SimpleNamespace()),
-                github_repository=SimpleNamespace(owner="octo-org", repo="stacked-review"),
+                github_repository=_GITHUB_REPO,
                 jj_client=cast(JjClient, jj_client),
                 next_changes={},
                 record_action=actions.append,
                 remote_name="origin",
-                revision=SimpleNamespace(change_id="aaaaaaaaaaaaaaaa"),
+                revision=_stub_revision(change_id="aaaaaaaaaaaaaaaa"),
                 revision_label="feature 1 (aaaaaaaa)",
             ),
         )

@@ -20,7 +20,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
@@ -44,7 +43,7 @@ from jj_review.github.error_messages import (
     github_unavailable_message,
     remote_unavailable_message,
 )
-from jj_review.github.resolution import parse_github_repo, select_submit_remote
+from jj_review.github.resolution import ParsedGithubRepo, parse_github_repo, select_submit_remote
 from jj_review.github.stack_comments import stack_comment_label
 from jj_review.jj import JjCliArgs, JjClient
 from jj_review.models.bookmarks import BookmarkState, GitRemote
@@ -70,6 +69,7 @@ from jj_review.review.status import (
     PreparedRevision,
     PreparedStack,
     PreparedStatus,
+    ReviewStatusRevision,
     prepare_status,
     prepared_status_github_inspection_count,
     stream_status,
@@ -159,12 +159,12 @@ class _CloseCleanupContext:
     cleanup_user_bookmarks: bool
     dry_run: bool
     github_client: GithubClient
-    github_repository: Any
+    github_repository: ParsedGithubRepo
     jj_client: JjClient
     next_changes: dict[str, CachedChange]
     record_action: Callable[[CloseAction], None]
     remote_name: str | None
-    revision: Any
+    revision: ReviewStatusRevision
     revision_label: CloseActionBody
 
 

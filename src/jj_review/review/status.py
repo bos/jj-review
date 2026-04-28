@@ -614,7 +614,7 @@ def build_status_revisions_for_prepared_stack(
                 if revision.cached_change is not None
                 else "active"
             ),
-            local_divergent=getattr(revision.revision, "divergent", False),
+            local_divergent=revision.revision.divergent,
             pull_request_lookup=(
                 pull_request_lookups.get(revision.bookmark)
                 if pull_request_lookups is not None
@@ -661,7 +661,7 @@ def _prepared_revision_needs_github_inspection(
 ) -> bool:
     if discover_remote_review:
         return True
-    cached_change = getattr(prepared_revision, "cached_change", None)
+    cached_change = prepared_revision.cached_change
     return cached_change is not None and cached_change.has_review_identity
 
 

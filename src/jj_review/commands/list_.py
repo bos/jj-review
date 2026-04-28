@@ -525,7 +525,7 @@ def _has_stale_link(revision: ReviewStatusRevision) -> bool:
 def _has_lookup_failure(revision: ReviewStatusRevision) -> bool:
     lookup = revision.pull_request_lookup
     return lookup is not None and (
-        lookup.state == "error" or getattr(lookup, "review_decision_error", None) is not None
+        lookup.state == "error" or lookup.review_decision_error is not None
     )
 
 

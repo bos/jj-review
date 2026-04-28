@@ -32,7 +32,7 @@ from string.templatelib import Template
 from typing import IO, Any, Literal, Protocol, cast
 
 from rich import box as rich_box
-from rich.console import Console, ConsoleRenderable, Group, NewLine
+from rich.console import Console, ConsoleRenderable, Group, NewLine, RenderableType, RichCast
 from rich.progress import (
     BarColumn,
     Progress,
@@ -64,12 +64,6 @@ _SEMANTIC_STYLE_FALLBACKS: tuple[tuple[frozenset[str], tuple[str, ...]], ...] = 
     (frozenset({"code"}), ("config_list", "value")),
 )
 StyleArg = Style | str
-
-
-class ConsoleLike(Protocol):
-    """Minimal console protocol used by the module-level output helpers."""
-
-    def print(self, *objects, **kwargs) -> None: ...
 
 
 class ProgressLike(Protocol):
@@ -137,9 +131,9 @@ class _SemanticStyles:
 class _TimePrefixedRenderable:
     """Render content with a Rich-managed elapsed-time prefix on every line."""
 
-    renderable: Any
+    renderable: RenderableType
     end: str
-    prefix_style: Any | None
+    prefix_style: Style | None
     start: float
 
     def __rich_console__(self, console, options):
@@ -164,9 +158,9 @@ class _TimePrefixedRenderable:
 class _HangingIndentRenderable:
     """Render a prefix once and indent wrapped body lines to the same column."""
 
-    prefix: Any
+    prefix: RenderableType
     prefix_width: int
-    body: Any
+    body: RenderableType
     end: str = "\n"
 
     def __rich_console__(self, console, options):
@@ -205,7 +199,7 @@ class _HangingIndentRenderable:
 class _TrimmedRenderable:
     """Render content with trailing whitespace removed from each line."""
 
-    renderable: Any
+    renderable: RenderableType
     end: str = "\n"
 
     def __rich_console__(self, console, options):
@@ -233,9 +227,9 @@ class _ConfiguredConsole:
 
     def __init__(
         self,
-        console: Any,
+        console: Console,
         *,
-        prefix_style: Any | None,
+        prefix_style: Style | None,
         start: float | None,
         time_output: bool,
     ) -> None:
@@ -357,15 +351,13 @@ def _build_console(
     semantic_styles: _SemanticStyles | None,
     time_output: bool,
     start: float | None,
-) -> ConsoleLike:
-    kwargs: dict[str, object] = {
-        "file": stream,
-    }
+) -> _ConfiguredConsole:
     if color_mode == "always":
-        kwargs["force_terminal"] = True
+        console = Console(file=stream, force_terminal=True)
     elif color_mode == "never":
-        kwargs["no_color"] = True
-    console = Console(**cast(Any, kwargs))
+        console = Console(file=stream, no_color=True)
+    else:
+        console = Console(file=stream)
     return _ConfiguredConsole(
         console,
         prefix_style=_time_output_prefix_style(semantic_styles=semantic_styles),
@@ -382,7 +374,7 @@ def _build_consoles(
     stderr: IO[str] | None = None,
     stdout: IO[str] | None = None,
     time_output: bool = False,
-) -> tuple[ConsoleLike, ConsoleLike, _SemanticStyles | None]:
+) -> tuple[_ConfiguredConsole, _ConfiguredConsole, _SemanticStyles | None]:
     start = time.perf_counter() if time_output else None
     stdout_stream = sys.stdout if stdout is None else stdout
     stderr_stream = sys.stderr if stderr is None else stderr
@@ -406,8 +398,8 @@ def _build_consoles(
     )
 
 
-_STDOUT_CONSOLE: ConsoleLike
-_STDERR_CONSOLE: ConsoleLike
+_STDOUT_CONSOLE: _ConfiguredConsole
+_STDERR_CONSOLE: _ConfiguredConsole
 _SEMANTIC_STYLES: _SemanticStyles | None
 _REQUESTED_COLOR_MODE: RequestedColorMode | None = None
 _ACTIVE_COLOR_MODE: ColorMode = "auto"
@@ -500,11 +492,11 @@ def _render_status_badge(status: ui.StatusBadge) -> Text:
 def rich_text(
     content: Template | ui.SemanticText | tuple[Any, ...] | Any,
     *,
-    style: object | None = None,
+    style: StyleArg | None = None,
 ) -> Text:
     """Render semantic template content into Rich `Text`."""
 
-    rendered = Text("") if style is None else Text("", style=cast(StyleArg, style))
+    rendered = Text("") if style is None else Text("", style=style)
     _append_rich_text(rendered, content, base_style=style)
     return rendered
 
@@ -521,9 +513,9 @@ def style_time_prefix(text: str) -> str:
     style = semantic_style("prefix", "timestamp")
     if style is None:
         return text
-    rich_console = getattr(_STDERR_CONSOLE, "_console", None)
-    if rich_console is None:
+    if not isinstance(_STDERR_CONSOLE, _ConfiguredConsole):
         return text
+    rich_console = _STDERR_CONSOLE._console
     with rich_console.capture() as capture:
         rich_console.print(Text(text, style=style), end="")
     return capture.get()
@@ -533,7 +525,7 @@ def _is_semantic_message_object(value: object) -> bool:
     return isinstance(value, Template | ui.SemanticText | tuple)
 
 
-def _coerce_renderable(value: object) -> object:
+def _coerce_renderable(value: object) -> RenderableType:
     if isinstance(value, str) and "\x1b[" in value:
         return ansi_text(value)
     if isinstance(value, ui.StatusBadge):
@@ -544,7 +536,9 @@ def _coerce_renderable(value: object) -> object:
         return _render_data_table(value)
     if _is_semantic_message_object(value):
         return rich_text(value)
-    return value
+    if isinstance(value, str | ConsoleRenderable | RichCast):
+        return value
+    return str(value)
 
 
 def output(*objects, **kwargs) -> None:
@@ -758,29 +752,25 @@ def _time_output_prefix_style(*, semantic_styles: _SemanticStyles | None) -> Sty
 
 
 def _stream_supports_live_progress(stream: IO[str]) -> bool:
-    isatty = getattr(stream, "isatty", None)
-    if not callable(isatty):
-        return False
     try:
-        return bool(isatty())
+        return bool(stream.isatty())
     except OSError:
         return False
 
 
 def _progress_console(*, stream: IO[str], color_mode: ColorMode) -> Console:
-    kwargs: dict[str, object] = {"file": stream}
     if color_mode == "always":
-        kwargs["force_terminal"] = True
-    elif color_mode == "never":
-        kwargs["no_color"] = True
-    return Console(**cast(Any, kwargs))
+        return Console(file=stream, force_terminal=True)
+    if color_mode == "never":
+        return Console(file=stream, no_color=True)
+    return Console(file=stream)
 
 
 def _append_rich_text(
-    rendered,
+    rendered: Text,
     content: Template | ui.SemanticText | tuple[Any, ...] | Any,
     *,
-    base_style,
+    base_style: StyleArg | None,
 ) -> None:
     if isinstance(content, tuple):
         for item in content:
@@ -812,7 +802,10 @@ def _append_rich_text(
     rendered.append(str(content), style=base_style)
 
 
-def _combine_styles(base_style: object | None, extra_style: object | None) -> object | None:
+def _combine_styles(
+    base_style: StyleArg | None,
+    extra_style: StyleArg | None,
+) -> StyleArg | None:
     if base_style is None:
         return extra_style
     if extra_style is None:
@@ -820,37 +813,35 @@ def _combine_styles(base_style: object | None, extra_style: object | None) -> ob
     return _to_rich_style(base_style) + _to_rich_style(extra_style)
 
 
-def _to_rich_style(style: object) -> Style:
+def _to_rich_style(style: StyleArg) -> Style:
     if isinstance(style, Style):
         return style
-    if isinstance(style, str):
-        return Style.parse(style)
-    return cast(Style, style)
+    return Style.parse(style)
 
 
 def _render_prefixed_line(line: ui.PrefixedLine) -> _HangingIndentRenderable:
     """Render one semantic hanging-indent line."""
 
     prefix_width = max(1, len(ui.plain_text(line.prefix)))
-    message_style = line.message_style
-    if line.message_labels is not None:
-        message_style = _combine_styles(message_style, semantic_style(*line.message_labels))
+    message_style = (
+        semantic_style(*line.message_labels) if line.message_labels is not None else None
+    )
     if isinstance(line.body, str | Template | ui.SemanticText | tuple):
-        message_cell: Any = rich_text(line.body, style=message_style)
+        message_cell: RenderableType = rich_text(line.body, style=message_style)
     else:
         message_cell = _coerce_renderable(line.body)
 
-    prefix_style = line.prefix_style
-    if line.prefix_labels is not None:
-        prefix_style = _combine_styles(prefix_style, semantic_style(*line.prefix_labels))
+    prefix_style = (
+        semantic_style(*line.prefix_labels) if line.prefix_labels is not None else None
+    )
     if isinstance(line.prefix, str | Template | ui.SemanticText | tuple):
-        prefix_cell: Any = rich_text(line.prefix, style=prefix_style)
+        prefix_cell: RenderableType = rich_text(line.prefix, style=prefix_style)
     else:
         prefix_cell = _coerce_renderable(line.prefix)
     return _HangingIndentRenderable(
-        prefix=cast(Any, prefix_cell),
+        prefix=prefix_cell,
         prefix_width=prefix_width,
-        body=cast(Any, message_cell),
+        body=message_cell,
     )
 
 
@@ -870,7 +861,7 @@ def _render_data_table(table_data: ui.DataTable) -> ConsoleRenderable:
     for column in table_data.columns:
         table.add_column(column.header, no_wrap=column.no_wrap, width=column.width)
     for row in table_data.rows:
-        table.add_row(*(cast(Any, _coerce_renderable(cell)) for cell in row))
+        table.add_row(*(_coerce_renderable(cell) for cell in row))
     return _TrimmedRenderable(table)
 
 

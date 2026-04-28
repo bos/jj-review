@@ -30,6 +30,7 @@ def _open_revision(
             pull_request_lookup=SimpleNamespace(
                 pull_request=SimpleNamespace(is_draft=is_draft, state="open"),
                 review_decision=review_decision,
+                review_decision_error=None,
                 state="open",
             ),
         ),
