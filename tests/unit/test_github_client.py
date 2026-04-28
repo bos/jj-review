@@ -467,6 +467,56 @@ def test_github_client_batches_review_decision_lookup_with_graphql() -> None:
     assert asyncio.run(run_test()) == ("changes_requested", None)
 
 
+def test_github_client_loads_issue_comments_with_graphql() -> None:
+    queries: list[str] = []
+
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
+        assert request.url.path == "/graphql"
+        payload = json.loads(request.content.decode("utf-8"))
+        queries.append(payload["query"])
+        assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-review"}
+        assert "pr_7: pullRequest(number: 7)" in payload["query"]
+        assert "comments(first: 100)" in payload["query"]
+        return httpxyz.Response(
+            200,
+            json={
+                "data": {
+                    "repository": {
+                        "pr_7": {
+                            "comments": {
+                                "nodes": [
+                                    {
+                                        "body": "<!-- jj-review-navigation -->",
+                                        "databaseId": 70,
+                                        "url": "https://github.test/comment/70",
+                                    }
+                                ],
+                                "pageInfo": {"hasNextPage": False},
+                            }
+                        },
+                    }
+                }
+            },
+            request=request,
+        )
+
+    async def run_test() -> tuple[int, str]:
+        transport = httpxyz.MockTransport(handler)
+        async with GithubClient(
+            base_url="https://api.github.test",
+            transport=transport,
+        ) as client:
+            comments = await client.get_issue_comments_by_pull_request_numbers(
+                "octo-org",
+                "stacked-review",
+                pull_numbers=(7,),
+            )
+        return comments[7][0].id, comments[7][0].html_url
+
+    assert asyncio.run(run_test()) == (70, "https://github.test/comment/70")
+    assert len(queries) == 1
+
+
 def test_github_client_closes_pull_request_via_issue_api() -> None:
     def handler(request: httpxyz.Request) -> httpxyz.Response:
         assert request.method == "PATCH"

@@ -168,6 +168,9 @@ When endpoint semantics allow it, the client and command layers prefer batched o
 bounded-parallel GitHub work over one-request-per-item serial loops. Ordering
 constraints stay explicit at the command layer when the visible result needs a specific
 sequence.
+`submit` batches stack-comment reads by PR number through GraphQL before mutating the
+managed comments, falling back to REST pagination only for PRs whose first comment page
+is incomplete.
 
 It does not decide stack topology or branch naming.
 

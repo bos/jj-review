@@ -737,6 +737,63 @@ def test_submit_dry_run_skips_stack_comment_github_reads(
     assert "Planned changes:" in captured.out
 
 
+def test_submit_batches_stack_comment_reads_with_graphql(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    comment_batch_calls: list[tuple[int, ...]] = []
+
+    class CountingCommentLookupClient(GithubClient):
+        async def get_issue_comments_by_pull_request_numbers(
+            self,
+            owner: str,
+            repo: str,
+            *,
+            pull_numbers: Sequence[int],
+        ):
+            comment_batch_calls.append(tuple(sorted(pull_numbers)))
+            return await super().get_issue_comments_by_pull_request_numbers(
+                owner,
+                repo,
+                pull_numbers=pull_numbers,
+            )
+
+        async def list_issue_comments(
+            self,
+            owner: str,
+            repo: str,
+            *,
+            issue_number: int,
+        ):
+            raise AssertionError(
+                f"submit should batch stack comment reads for pull request #{issue_number}"
+            )
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+    patch_github_client_builders(
+        monkeypatch,
+        app=app,
+        fake_repo=fake_repo,
+        modules=("jj_review.commands.submit",),
+        client_type=CountingCommentLookupClient,
+    )
+
+    exit_code = run_main(repo, config_path, "submit")
+    capsys.readouterr()
+
+    assert exit_code == 0
+    assert comment_batch_calls == [(1, 2)]
+
+
 def test_submit_rediscovers_and_regenerates_stack_comments_when_cache_is_missing(
     tmp_path: Path,
     monkeypatch,
@@ -1957,27 +2014,29 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
 
     stale_comment_1 = _navigation_comments(fake_repo, issue_number_1)[0]
     stale_comment_2 = _navigation_comments(fake_repo, issue_number_2)[0]
+    stale_comment_3 = _navigation_comments(fake_repo, issue_number_3)[0]
     stale_comment_1.body = f"{STACK_NAVIGATION_COMMENT_MARKER}\nstale bottom navigation"
     stale_comment_2.body = f"{STACK_NAVIGATION_COMMENT_MARKER}\nstale middle navigation"
 
     app = create_app(FakeGithubState.single_repository(fake_repo))
-    started_issue_numbers: list[int] = []
+    updated_comment_ids: list[int] = []
 
     class FlakyCommentClient(GithubClient):
-        async def list_issue_comments(self, owner, repo, *, issue_number):
-            started_issue_numbers.append(issue_number)
-            if issue_number == issue_number_2:
+        async def update_issue_comment(self, owner, repo, *, comment_id, body):
+            updated_comment_ids.append(comment_id)
+            if comment_id == stale_comment_2.id:
                 await asyncio.sleep(0.01)
                 raise GithubClientError(
                     "Simulated stack navigation comment failure",
                     status_code=500,
                 )
-            if issue_number == issue_number_1:
+            if comment_id == stale_comment_1.id:
                 await asyncio.sleep(0.03)
-            return await super().list_issue_comments(
+            return await super().update_issue_comment(
                 owner,
                 repo,
-                issue_number=issue_number,
+                comment_id=comment_id,
+                body=body,
             )
 
     patch_github_client_builders(
@@ -1999,9 +2058,9 @@ def test_submit_checkpoints_successful_in_flight_stack_comment_before_failure(
     assert refreshed_state.changes[change_id_3].navigation_comment_id == (
         initial_state.changes[change_id_3].navigation_comment_id
     )
-    assert issue_number_1 in started_issue_numbers
-    assert issue_number_2 in started_issue_numbers
-    assert issue_number_3 not in started_issue_numbers
+    assert stale_comment_1.id in updated_comment_ids
+    assert stale_comment_2.id in updated_comment_ids
+    assert stale_comment_3.id not in updated_comment_ids
     assert len(_navigation_comments(fake_repo, issue_number_1)) == 1
     assert len(issue_comments(fake_repo, issue_number_2)) == 1
     assert len(issue_comments(fake_repo, issue_number_3)) == 1

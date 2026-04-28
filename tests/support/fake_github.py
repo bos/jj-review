@@ -117,6 +117,19 @@ class FakeGithubIssueComment:
             "id": self.id,
         }
 
+    def to_graphql_payload(
+        self,
+        *,
+        repository: FakeGithubRepository,
+        web_origin: str,
+    ) -> dict[str, object]:
+        payload = self.to_payload(repository=repository, web_origin=web_origin)
+        return {
+            "body": payload["body"],
+            "databaseId": payload["id"],
+            "url": payload["html_url"],
+        }
+
 
 @dataclass(slots=True)
 class FakeGithubRepository:
@@ -798,6 +811,20 @@ def _graphql_repository_payload(
         if include_latest_opinionated_reviews:
             graphql_payload["latestOpinionatedReviews"] = {
                 "nodes": _latest_opinionated_review_payloads(repository, pull_number)
+            }
+        if "comments(" in query:
+            graphql_payload["comments"] = {
+                "nodes": [
+                    comment.to_graphql_payload(
+                        repository=repository,
+                        web_origin=web_origin,
+                    )
+                    for comment in sorted(
+                        repository.list_issue_comments(pull_number),
+                        key=lambda candidate: candidate.id,
+                    )
+                ],
+                "pageInfo": {"hasNextPage": False},
             }
         payload[alias] = graphql_payload
     return payload

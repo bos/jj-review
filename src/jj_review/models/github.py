@@ -99,11 +99,11 @@ class GithubPullRequestReview(BaseModel):
 class GithubIssueComment(BaseModel):
     """Subset of issue-comment fields used by the client."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     body: str
-    html_url: str
-    id: int
+    html_url: str = Field(alias="url")
+    id: int = Field(alias="databaseId")
 
 
 def _graphql_head_label(raw_pull_request: dict[str, Any]) -> str | None:

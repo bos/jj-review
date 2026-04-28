@@ -945,35 +945,47 @@ async def _run_submit_async(
     submitted_revisions: tuple[SubmittedRevision, ...] = ()
     try:
         async with build_github_client(base_url=github_repository.api_base_url) as github_client:
-            try:
-                github_repository_state = await github_client.get_repository(
-                    github_repository.owner,
-                    github_repository.repo,
+            with console.spinner(description="Inspecting GitHub"):
+                try:
+                    github_repository_state = await github_client.get_repository(
+                        github_repository.owner,
+                        github_repository.repo,
+                    )
+                except GithubClientError as error:
+                    raise CliError(
+                        f"Could not load GitHub repository {github_repository.full_name}"
+                    ) from error
+                trunk_branch = resolve_trunk_branch(
+                    bookmark_states=client.list_bookmark_states(),
+                    github_repository_state=github_repository_state,
+                    remote_name=remote.name,
+                    trunk_commit_id=stack.trunk.commit_id,
                 )
-            except GithubClientError as error:
-                raise CliError(
-                    f"Could not load GitHub repository {github_repository.full_name}"
-                ) from error
-            trunk_branch = resolve_trunk_branch(
-                bookmark_states=client.list_bookmark_states(),
-                github_repository_state=github_repository_state,
-                remote_name=remote.name,
-                trunk_commit_id=stack.trunk.commit_id,
-            )
-            discovered_pull_requests = await _discover_pull_requests_by_bookmark(
-                github_client=github_client,
-                github_repository=github_repository,
-                bookmarks=tuple(
-                    resolution.bookmark for resolution in bookmark_result.resolutions
-                ),
-            )
+                discovered_pull_requests = await _discover_pull_requests_by_bookmark(
+                    github_client=github_client,
+                    github_repository=github_repository,
+                    bookmarks=tuple(
+                        resolution.bookmark for resolution in bookmark_result.resolutions
+                    ),
+                )
 
-            _sync_remote_bookmarks(
-                client=client,
-                dry_run=dry_run,
-                prepared_revisions=prepared_revisions,
-                remote=remote,
-            )
+            if not dry_run and any(
+                revision.remote_action == "pushed" for revision in prepared_revisions
+            ):
+                with console.spinner(description="Pushing review branches"):
+                    _sync_remote_bookmarks(
+                        client=client,
+                        dry_run=dry_run,
+                        prepared_revisions=prepared_revisions,
+                        remote=remote,
+                    )
+            else:
+                _sync_remote_bookmarks(
+                    client=client,
+                    dry_run=dry_run,
+                    prepared_revisions=prepared_revisions,
+                    remote=remote,
+                )
             with console.progress(
                 description="Syncing pull requests",
                 total=len(prepared_revisions),
@@ -997,27 +1009,18 @@ async def _run_submit_async(
                     generated_descriptions=prepared_inputs.generated_pull_request_descriptions,
                 )
 
-            with console.progress(
-                description="Syncing stack comments",
-                total=sum(
-                    1
-                    for revision in submitted_revisions
-                    if revision.pull_request_number is not None
-                ),
-            ) as progress:
-                if not dry_run:
-                    await _sync_stack_comments(
-                        dry_run=dry_run,
-                        generated_stack_description=prepared_inputs.generated_stack_description,
-                        github_client=github_client,
-                        github_repository=github_repository,
-                        on_progress=progress.advance,
-                        revisions=submitted_revisions,
-                        state=bookmark_result.state,
-                        state_changes=state_changes,
-                        state_store=state_store,
-                        trunk_branch=trunk_branch,
-                    )
+            if not dry_run:
+                await _sync_stack_comments(
+                    dry_run=dry_run,
+                    generated_stack_description=prepared_inputs.generated_stack_description,
+                    github_client=github_client,
+                    github_repository=github_repository,
+                    revisions=submitted_revisions,
+                    state=bookmark_result.state,
+                    state_changes=state_changes,
+                    state_store=state_store,
+                    trunk_branch=trunk_branch,
+                )
 
         if not dry_run:
             next_state = bookmark_result.state.model_copy(update={"changes": state_changes})
@@ -2045,7 +2048,6 @@ async def _sync_stack_comments(
     state_changes: dict[str, CachedChange],
     state_store: ReviewStateStore,
     trunk_branch: str,
-    on_progress: Callable[[], None] | None = None,
 ) -> None:
     if not revisions:
         return
@@ -2091,29 +2093,44 @@ async def _sync_stack_comments(
         )
     if not pending:
         return
+    with console.spinner(description="Loading stack comments"):
+        try:
+            comments_by_pull_request_number = (
+                await github_client.get_issue_comments_by_pull_request_numbers(
+                    github_repository.owner,
+                    github_repository.repo,
+                    pull_numbers=tuple(
+                        pending_sync.pull_request_number for pending_sync in pending
+                    ),
+                )
+            )
+        except GithubClientError as error:
+            raise CliError("Could not list stack comments") from error
 
-    def handle_success(_index: int, result: tuple[str, CachedChange]) -> None:
-        _record_stack_comment_success(
-            dry_run=dry_run,
-            result=result,
-            state=state,
-            state_changes=state_changes,
-            state_store=state_store,
+    with console.progress(description="Syncing stack comments", total=len(pending)) as progress:
+
+        def handle_success(_index: int, result: tuple[str, CachedChange]) -> None:
+            _record_stack_comment_success(
+                dry_run=dry_run,
+                result=result,
+                state=state,
+                state_changes=state_changes,
+                state_store=state_store,
+            )
+            progress.advance()
+
+        await run_bounded_tasks(
+            concurrency=_GITHUB_INSPECTION_CONCURRENCY,
+            items=tuple(pending),
+            run_item=lambda pending_sync: _sync_stack_comment_task(
+                dry_run=dry_run,
+                github_client=github_client,
+                github_repository=github_repository,
+                comments=comments_by_pull_request_number[pending_sync.pull_request_number],
+                pending_sync=pending_sync,
+            ),
+            on_success=handle_success,
         )
-        if on_progress is not None:
-            on_progress()
-
-    await run_bounded_tasks(
-        concurrency=_GITHUB_INSPECTION_CONCURRENCY,
-        items=tuple(pending),
-        run_item=lambda pending_sync: _sync_stack_comment_task(
-            dry_run=dry_run,
-            github_client=github_client,
-            github_repository=github_repository,
-            pending_sync=pending_sync,
-        ),
-        on_success=handle_success,
-    )
 
 
 def _record_stack_comment_success(
@@ -2137,17 +2154,12 @@ def _record_stack_comment_success(
 
 async def _sync_stack_comment_task(
     *,
+    comments: tuple[GithubIssueComment, ...],
     dry_run: bool,
     github_client: GithubClient,
     github_repository: ParsedGithubRepo,
     pending_sync: PendingStackCommentSync,
 ) -> tuple[str, CachedChange]:
-    comments = await _list_pull_request_comments(
-        github_client=github_client,
-        github_repository=github_repository,
-        pull_request_number=pending_sync.pull_request_number,
-        label="stack comments",
-    )
     navigation_comment = await _sync_managed_comment(
         cached_comment_id=pending_sync.cached_change.navigation_comment_id,
         comment_body=pending_sync.navigation_comment_body,
@@ -2177,25 +2189,6 @@ async def _sync_stack_comment_task(
         }
     )
     return pending_sync.change_id, updated_change
-
-
-async def _list_pull_request_comments(
-    *,
-    github_client: GithubClient,
-    github_repository: ParsedGithubRepo,
-    label: str,
-    pull_request_number: int,
-) -> tuple[GithubIssueComment, ...]:
-    try:
-        return await github_client.list_issue_comments(
-            github_repository.owner,
-            github_repository.repo,
-            issue_number=pull_request_number,
-        )
-    except GithubClientError as error:
-        raise CliError(
-            f"Could not list {label} for pull request #{pull_request_number}"
-        ) from error
 
 
 def _managed_comment_matches_kind(

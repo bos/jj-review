@@ -7,7 +7,7 @@ from collections.abc import Callable, Coroutine, Sequence
 from enum import Enum
 from typing import Any, Literal, TypeVar
 
-DEFAULT_BOUNDED_CONCURRENCY = 4
+DEFAULT_BOUNDED_CONCURRENCY = 8
 
 _TaskItemT = TypeVar("_TaskItemT")
 _TaskResultT = TypeVar("_TaskResultT")

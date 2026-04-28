@@ -14,7 +14,7 @@ from typing import Any, TypeVar
 from urllib.parse import urlparse
 
 import httpxyz
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from jj_review.models.github import (
     GithubIssueComment,
@@ -59,6 +59,11 @@ class _GraphqlReview(BaseModel):
 
 class _GraphqlReviewConnection(BaseModel):
     nodes: tuple[object, ...] | None = None
+
+
+class _GraphqlIssueCommentConnection(BaseModel):
+    nodes: tuple[object | None, ...] | None = None
+    page_info: dict[str, object] | None = Field(default=None, alias="pageInfo")
 
 
 class GithubClient:
@@ -290,6 +295,50 @@ class GithubClient:
             response_name="issue comment list",
         )
         return tuple(GithubIssueComment.model_validate(item) for item in payload)
+
+    async def get_issue_comments_by_pull_request_numbers(
+        self,
+        owner: str,
+        repo: str,
+        *,
+        pull_numbers: Sequence[int],
+    ) -> dict[int, tuple[GithubIssueComment, ...]]:
+        numbers = sorted(set(pull_numbers))
+        if not numbers:
+            return {}
+
+        results: dict[int, tuple[GithubIssueComment, ...]] = {}
+        fallback_numbers: list[int] = []
+        for chunk in _chunked(numbers, size=_GRAPHQL_PULL_REQUEST_BATCH_SIZE):
+            query = _pull_request_issue_comments_query(chunk)
+            payload = await self._graphql_query(
+                query,
+                variables={"owner": owner, "repo": repo},
+                response_name="pull request issue comment lookup",
+            )
+            repository = _graphql_repository_payload(
+                payload,
+                response_name="pull request issue comment lookup",
+            )
+            for number in chunk:
+                alias = f"pr_{number}"
+                comments, has_next_page = _issue_comments_from_graphql(
+                    alias=alias,
+                    raw_pull_request=repository.get(alias),
+                    response_name="pull request issue comment lookup",
+                )
+                if has_next_page:
+                    fallback_numbers.append(number)
+                    continue
+                results[number] = comments
+
+        for number in fallback_numbers:
+            results[number] = await self.list_issue_comments(
+                owner,
+                repo,
+                issue_number=number,
+            )
+        return results
 
     async def create_issue_comment(
         self,
@@ -719,6 +768,33 @@ def _pull_request_review_decisions_query(numbers: Sequence[int]) -> str:
     )
 
 
+def _pull_request_issue_comments_query(numbers: Sequence[int]) -> str:
+    selections = "\n".join(
+        (
+            f"      pr_{number}: pullRequest(number: {number}) {{\n"
+            "        comments(first: 100) {\n"
+            "          nodes {\n"
+            "            databaseId\n"
+            "            body\n"
+            "            url\n"
+            "          }\n"
+            "          pageInfo {\n"
+            "            hasNextPage\n"
+            "          }\n"
+            "        }\n"
+            "      }"
+        )
+        for number in numbers
+    )
+    return (
+        "query PullRequestIssueComments($owner: String!, $repo: String!) {\n"
+        "  repository(owner: $owner, name: $repo) {\n"
+        f"{selections}\n"
+        "  }\n"
+        "}\n"
+    )
+
+
 def _mark_pull_request_ready_for_review_mutation() -> str:
     return (
         "mutation MarkPullRequestReadyForReview($pullRequestId: ID!) {\n"
@@ -891,6 +967,45 @@ def _review_decision_from_graphql(
     if "APPROVED" in review_states:
         return "approved"
     return None
+
+
+def _issue_comments_from_graphql(
+    *,
+    alias: str,
+    raw_pull_request: object,
+    response_name: str,
+) -> tuple[tuple[GithubIssueComment, ...], bool]:
+    if raw_pull_request is None:
+        return (), False
+    if not isinstance(raw_pull_request, dict):
+        raise GithubClientError(
+            f"GitHub {response_name} response had invalid pull request payload for {alias}."
+        )
+    raw_comments = raw_pull_request.get("comments")
+    if raw_comments is None:
+        return (), False
+    parsed = _validate_graphql_model(
+        raw_comments,
+        model=_GraphqlIssueCommentConnection,
+        error_message=(
+            f"GitHub {response_name} response had invalid comments payload for {alias}."
+        ),
+    )
+    comments = tuple(
+        _validate_graphql_model(
+            comment,
+            model=GithubIssueComment,
+            error_message=(
+                f"GitHub {response_name} response had invalid comment payload for {alias}."
+            ),
+        )
+        for comment in parsed.nodes or ()
+        if comment is not None
+    )
+    has_next_page = (
+        parsed.page_info is not None and parsed.page_info.get("hasNextPage") is True
+    )
+    return comments, has_next_page
 
 
 GraphqlModel = TypeVar("GraphqlModel", bound=BaseModel)
