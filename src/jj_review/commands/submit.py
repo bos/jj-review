@@ -687,7 +687,7 @@ def _report_stale_submit_intents(
             current_commit_ids=ordered_commit_ids,
             current_identity=SubmitRecoveryIdentity.from_intent(current_intent),
         )
-        description = _render_submit_intent_description(loaded.intent)
+        description = describe_intent(loaded.intent)
         if decision is SubmitStatusDecision.CONTINUE:
             console.note(t"Continuing interrupted {description}", soft_wrap=True)
         elif decision is SubmitStatusDecision.CURRENT_STACK:
@@ -708,10 +708,6 @@ def _report_stale_submit_intents(
                 t"Note: incomplete operation outstanding: {description}",
                 soft_wrap=True,
             )
-
-
-def _render_submit_intent_description(intent: SubmitIntent) -> ui.Message:
-    return describe_intent(intent)
 
 
 def _prepare_submit_revisions(

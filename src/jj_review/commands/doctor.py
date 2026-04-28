@@ -39,7 +39,6 @@ from jj_review.github.resolution import (
 from jj_review.jj import JjCliArgs, JjClient
 from jj_review.models.bookmarks import GitRemote
 from jj_review.models.github import GithubRepository
-from jj_review.models.intent import IntentFile
 from jj_review.review.intents import describe_intent
 from jj_review.state.store import ReviewStateStore
 from jj_review.system import pid_is_alive
@@ -259,7 +258,7 @@ def _check_interruptions(state_store: ReviewStateStore) -> CheckResult:
         "interruptions",
         "warn",
         t"{count} {noun}: "
-        t"{ui.join(_intent_description_content, (loaded.intent for loaded in interrupted))}; "
+        t"{ui.join(describe_intent, (loaded.intent for loaded in interrupted))}; "
         t"run "
         t"{ui.cmd('jj-review abort --dry-run')} to preview recovery",
     )
@@ -281,6 +280,3 @@ def _results_table(results: list[CheckResult]) -> ui.DataTable:
             for result in results
         ),
     )
-
-def _intent_description_content(intent: IntentFile) -> Message:
-    return describe_intent(intent)

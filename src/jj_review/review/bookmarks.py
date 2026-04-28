@@ -180,7 +180,7 @@ def match_bookmarks_for_revisions(
         candidates = [
             bookmark
             for bookmark, bookmark_state in bookmark_states.items()
-            if _bookmark_matches_patterns(bookmark, patterns)
+            if any(fnmatch.fnmatchcase(bookmark, pattern) for pattern in patterns)
             and _bookmark_state_matches_revision(
                 bookmark_state=bookmark_state,
                 commit_id=revision.commit_id,
@@ -301,10 +301,6 @@ def _bookmark_state_is_discoverable(bookmark_state: BookmarkState, remote_name: 
         return True
     remote_state = bookmark_state.remote_target(remote_name)
     return remote_state is not None and bool(remote_state.targets)
-
-
-def _bookmark_matches_patterns(bookmark: str, patterns: tuple[str, ...]) -> bool:
-    return any(fnmatch.fnmatchcase(bookmark, pattern) for pattern in patterns)
 
 
 def _bookmark_state_matches_revision(
