@@ -45,7 +45,7 @@ def test_status_advises_cleanup_and_rebase_when_merged_pr_remains_in_stack() -> 
             config=RepoConfig(bookmark_prefix="team"),
         )
     )
-    normalized_lines = " ".join(lines)
+    normalized_lines = " ".join(" ".join(line.split()) for line in lines)
 
     assert "Advisories:" in lines
     assert "jj-review cleanup --rebase @" in normalized_lines

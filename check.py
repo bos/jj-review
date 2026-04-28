@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 from argparse import ArgumentParser
@@ -21,6 +22,27 @@ def _venv_python_relative_path() -> Path:
 REPO_ROOT = Path(__file__).resolve().parent
 VENV_PYTHON = REPO_ROOT / ".venv" / _venv_python_relative_path()
 PytestJobs = int | Literal["auto"]
+_FRAGILE_TEST_OUTPUT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "use output assertion helpers instead of exact captured output equality",
+        re.compile(r"captured\.(?:out|err)\s*=="),
+    ),
+    (
+        "avoid exact splitlines() assertions for captured console output",
+        re.compile(
+            r"(?:captured\.(?:out|err)|(?:stdout|stderr)\.getvalue\(\))"
+            r"\.splitlines\(\)\s*=="
+        ),
+    ),
+    (
+        "avoid asserting exact rendered indentation for wrapped output",
+        re.compile(r"""startswith\(["'] {4}["']\)"""),
+    ),
+    (
+        "avoid asserting whole rendered outputs are byte-for-byte identical",
+        re.compile(r"\.out\s*==\s*.*\.out"),
+    ),
+)
 
 
 def _parse_pytest_jobs(value: str) -> PytestJobs:
@@ -97,6 +119,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as error:
         parser.error(str(error))
     ensure_project_environment()
+    _check_fragile_test_output_assertions()
     command_env = _project_command_env()
 
     for name, command in _build_checks(
@@ -131,6 +154,28 @@ def ensure_project_environment() -> None:
     )
     if completed.returncode != 0:
         raise SystemExit(completed.returncode)
+
+
+def _check_fragile_test_output_assertions() -> None:
+    """Reject test assertions that are too sensitive to terminal rendering."""
+
+    violations: list[str] = []
+    for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for lineno, line in enumerate(lines, start=1):
+            for reason, pattern in _FRAGILE_TEST_OUTPUT_PATTERNS:
+                if pattern.search(line):
+                    violations.append(f"{path.relative_to(REPO_ROOT)}:{lineno}: {reason}")
+                    break
+    if not violations:
+        return
+
+    joined = "\n".join(violations)
+    raise SystemExit(
+        "Error: fragile test output assertions are not allowed.\n"
+        "Prefer tests.support.output_assertions helpers or semantic content checks.\n"
+        f"{joined}"
+    )
 
 
 def _project_command_env() -> dict[str, str]:

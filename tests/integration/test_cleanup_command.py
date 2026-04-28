@@ -18,6 +18,7 @@ from ..support.integration_helpers import (
     init_fake_github_repo_with_submitted_feature,
     run_command,
 )
+from ..support.output_assertions import assert_output_contains, assert_output_in_order
 from .submit_command_helpers import (
     configure_submit_environment,
     issue_comments,
@@ -509,16 +510,20 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
 
     exit_code = run_main(repo, config_path, "cleanup", "--dry-run")
     captured = capsys.readouterr()
-    normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 0
     assert "  ~ local bookmark: forget " in captured.out
-    assert f"{bookmark} (local change is no longer reviewable)" in normalized_output
-    assert f"remote branch: delete {bookmark}@origin" in normalized_output
+    assert_output_contains(
+        captured.out,
+        f"{bookmark} (local change is no longer reviewable)",
+        f"remote branch: delete {bookmark}@origin",
+    )
     assert "  ✗ remote branch:" not in captured.out
-    local_index = normalized_output.index(f"local bookmark: forget {bookmark}")
-    remote_index = normalized_output.index(f"remote branch: delete {bookmark}@origin")
-    assert local_index < remote_index
+    assert_output_in_order(
+        captured.out,
+        f"local bookmark: forget {bookmark}",
+        f"remote branch: delete {bookmark}@origin",
+    )
     assert bookmark in run_command(["jj", "bookmark", "list", bookmark], repo).stdout
     assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
 

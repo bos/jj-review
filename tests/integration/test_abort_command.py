@@ -17,6 +17,7 @@ from ..support.integration_helpers import (
     init_fake_github_repo_with_submitted_feature,
     run_command,
 )
+from ..support.output_assertions import assert_output_contains
 from .submit_command_helpers import (
     configure_submit_environment,
     read_remote_ref,
@@ -184,12 +185,14 @@ def test_abort_refuses_submit_retraction_after_stack_rewrite(
 
     exit_code = run_main(repo, config_path, "abort")
     captured = capsys.readouterr()
-    normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 1
     assert "Abort incomplete" in captured.out
-    assert "abort will not guess" in normalized_output
-    assert "current stack has changed since this submit" in normalized_output
+    assert_output_contains(
+        captured.out,
+        "abort will not guess",
+        "current stack has changed since this submit",
+    )
     assert "operation record kept" in captured.out
     assert state_store.load() == initial_state
     assert read_remote_ref(fake_repo.git_dir, bookmark) == initial_remote_target

@@ -23,6 +23,7 @@ from ..support.integration_helpers import (
     init_fake_github_repo_with_submitted_feature,
     run_command,
 )
+from ..support.output_assertions import assert_output_contains
 from .submit_command_helpers import (
     configure_submit_environment,
     issue_comments,
@@ -1525,11 +1526,13 @@ def test_close_apply_cleanup_rechecks_cached_comment_ownership_when_pr_is_missin
 
     exit_code = run_main(repo, config_path, "close", "--cleanup", change_id)
     captured = capsys.readouterr()
-    normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 1
-    assert "cannot delete saved stack navigation comment" in normalized_output
-    assert "does not belong to jj-review" in normalized_output
+    assert_output_contains(
+        captured.out,
+        "cannot delete saved stack navigation comment",
+        "does not belong to jj-review",
+    )
     assert manual_comment in issue_comments(fake_repo, 1)
 
 

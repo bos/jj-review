@@ -9,6 +9,7 @@ from ..support.integration_helpers import (
     init_repo,
     run_command,
 )
+from ..support.output_assertions import assert_output_contains
 from .submit_command_helpers import run_main
 
 
@@ -85,10 +86,9 @@ def test_commands_report_non_github_remote_without_traceback(
 
     exit_code = run_main(repo, config_path, command)
     captured = capsys.readouterr()
-    combined = " ".join((captured.out + captured.err).split())
 
     assert exit_code == 1
-    assert "Use a GitHub remote URL." in combined
+    assert_output_contains(captured.out + captured.err, "Use a GitHub remote URL.")
     _assert_no_traceback(captured)
 
 

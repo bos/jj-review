@@ -6,6 +6,7 @@ from jj_review import ui
 from jj_review.cli import main
 from jj_review.commands.status import StatusSelector
 from jj_review.errors import CliError
+from tests.support.output_assertions import assert_output_contains
 
 
 @pytest.fixture(autouse=True)
@@ -254,7 +255,7 @@ def test_main_reports_unknown_command_with_short_recovery_hint(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert captured.out == ""
+    assert_output_contains(captured.err, "Unknown command pants.")
     err_lines = captured.err.splitlines()
     assert err_lines[0] == "Error: Unknown command pants."
     assert "Hint: Run jj-review help to list commands." in err_lines
