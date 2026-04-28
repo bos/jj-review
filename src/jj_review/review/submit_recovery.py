@@ -3,33 +3,33 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.intent import SubmitIntent
 from jj_review.models.review_state import CachedChange
 
 
-class SubmitStackRelation(str, Enum):
+class SubmitStackRelation(StrEnum):
     EXACT = "exact"
     REWRITTEN = "rewritten"
     DISJOINT = "disjoint"
 
 
-class SubmitTargetRelation(str, Enum):
+class SubmitTargetRelation(StrEnum):
     MATCH = "match"
     MISMATCH = "mismatch"
     UNKNOWN = "unknown"
 
 
-class SubmitStatusDecision(str, Enum):
+class SubmitStatusDecision(StrEnum):
     CONTINUE = "continue"
     CURRENT_STACK = "current-stack"
     INSPECT = "inspect"
     OUTSTANDING = "outstanding"
 
 
-class ArtifactPresence(str, Enum):
+class ArtifactPresence(StrEnum):
     PRESENT = "present"
     ABSENT = "absent"
     UNKNOWN = "unknown"

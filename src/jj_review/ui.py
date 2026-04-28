@@ -86,6 +86,12 @@ def change_id(name: str) -> SemanticText:
     return semantic_text(name[:8], "change_id")
 
 
+def commit_id(name: str) -> SemanticText:
+    """Wrap a commit ID for semantic rendering, shortening it for display."""
+
+    return semantic_text(name[:8], "commit_id")
+
+
 def revset(text: str) -> SemanticText:
     """Wrap jj revset syntax for semantic rendering."""
 

@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.27.0"]
+requires = ["hatchling>=1.29.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -20,8 +20,8 @@ classifiers = [
 ]
 dependencies = [
   "httpxyz>=0.31.0,<0.32",
-  "pydantic>=2.11.0,<3",
-  "rich>=14.1.0,<15",
+  "pydantic>=2.13.3,<3",
+  "rich>=15.0.0,<16",
 ]
 
 [project.urls]
@@ -34,13 +34,13 @@ jj-review = "jj_review.cli:main"
 
 [dependency-groups]
 dev = [
-  "fastapi>=0.116.0,<0.117",
-  "pyrefly>=0.56.0,<0.57",
+  "fastapi>=0.136.0,<0.137",
+  "pyrefly>=0.62.0,<0.63",
   "pytest>=9.0.3,<10",
-  "pytest-cov>=6.2.0,<7",
-  "pytest-randomly>=3.16.0,<4",
+  "pytest-cov>=7.1.0,<8",
+  "pytest-randomly>=4.1.0,<5",
   "pytest-xdist>=3.8.0,<4",
-  "ruff>=0.12.0,<0.13",
+  "ruff>=0.15.11,<0.16",
 ]
 
 [tool.pytest.ini_options]

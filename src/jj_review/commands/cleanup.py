@@ -657,10 +657,12 @@ def _start_rebase_intent(
         return _RebaseIntentState(intent=None, intent_path=None, stale_intents=[])
 
     ordered_change_ids = tuple(
-        prepared_revision.revision.change_id for prepared_revision in prepared.status_revisions
+        str(prepared_revision.revision.change_id)
+        for prepared_revision in prepared.status_revisions
     )
     ordered_commit_ids = tuple(
-        prepared_revision.revision.commit_id for prepared_revision in prepared.status_revisions
+        str(prepared_revision.revision.commit_id)
+        for prepared_revision in prepared.status_revisions
     )
     intent = CleanupRebaseIntent(
         kind="cleanup-rebase",
