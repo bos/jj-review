@@ -27,8 +27,10 @@ from jj_review.commands._close_actions import (
     BookmarkCleanupPlan as _BookmarkCleanupPlan,
     CloseAction,
     CloseActionBody,
+    apply_bookmark_cleanup,
     close_action_presentation as _close_action_presentation,
     find_managed_comment as _find_managed_comment,
+    plan_bookmark_cleanup,
     render_close_action_message as _render_close_action_message,
     retire_cached_change as _retire_cached_change,
 )
@@ -53,7 +55,6 @@ from jj_review.models.intent import CloseIntent, LoadedIntent, SubmitIntent
 from jj_review.models.review_state import CachedChange, ReviewState
 from jj_review.review.bookmarks import (
     bookmark_ownership_for_source,
-    is_review_bookmark,
 )
 from jj_review.review.intents import (
     close_intent_mode_relation,
@@ -1172,12 +1173,16 @@ async def _cleanup_revision(
         commit_id=commit_id,
         context=context,
     )
-    _apply_review_bookmark_cleanup(
-        bookmark=bookmark,
-        commit_id=commit_id,
-        context=context,
-        cleanup_plan=cleanup_plan,
-    )
+    if bookmark is not None:
+        apply_bookmark_cleanup(
+            bookmark=bookmark,
+            cleanup_plan=cleanup_plan,
+            commit_id=commit_id,
+            dry_run=context.dry_run,
+            jj_client=context.jj_client,
+            record_action=context.record_action,
+            remote_name=context.remote_name,
+        )
 
     if cached_change.pr_number is None:
         return
@@ -1239,127 +1244,18 @@ def _plan_review_bookmark_cleanup(
     commit_id: str | None,
     context: _CloseCleanupContext,
 ) -> _BookmarkCleanupPlan:
-    """Validate bookmark ownership and decide which bookmark mutations are safe."""
-
     if bookmark is None:
         return _BookmarkCleanupPlan(local_forget=False, remote_delete=False)
-    if cached_change.manages_bookmark:
-        if not is_review_bookmark(bookmark, prefix=context.bookmark_prefix):
-            return _BookmarkCleanupPlan(local_forget=False, remote_delete=False)
-    elif not cleanup_user_bookmarks:
-        return _BookmarkCleanupPlan(local_forget=False, remote_delete=False)
-
-    local_forget = False
-    remote_delete = False
-    local_conflict = False
-    remote_conflict = False
-    local_target = bookmark_state.local_target
-    branch_label = (
-        f"{bookmark}@{context.remote_name}" if context.remote_name is not None else bookmark
+    return plan_bookmark_cleanup(
+        bookmark=bookmark,
+        bookmark_state=bookmark_state,
+        cached_change=cached_change,
+        cleanup_user_bookmarks=cleanup_user_bookmarks,
+        commit_id=commit_id,
+        prefix=context.bookmark_prefix,
+        record_action=context.record_action,
+        remote_name=context.remote_name,
     )
-
-    if len(bookmark_state.local_targets) > 1:
-        context.record_action(
-            CloseAction(
-                kind="local bookmark",
-                body=t"cannot forget {ui.bookmark(bookmark)} because it is conflicted",
-                status="blocked",
-            )
-        )
-        local_conflict = True
-    elif commit_id is not None and local_target is not None and local_target != commit_id:
-        context.record_action(
-            CloseAction(
-                kind="local bookmark",
-                body=t"cannot forget {ui.bookmark(bookmark)} because it already points "
-                t"to a different revision",
-                status="blocked",
-            )
-        )
-        local_conflict = True
-    elif commit_id is not None and local_target == commit_id:
-        local_forget = True
-
-    remote_state = (
-        bookmark_state.remote_target(context.remote_name)
-        if context.remote_name is not None
-        else None
-    )
-    if remote_state is not None and context.remote_name is not None and commit_id is not None:
-        if len(remote_state.targets) > 1:
-            context.record_action(
-                CloseAction(
-                    kind="remote branch",
-                    body=t"cannot delete {ui.bookmark(branch_label)} because the remote "
-                    t"bookmark is conflicted",
-                    status="blocked",
-                )
-            )
-            remote_conflict = True
-        elif remote_state.target != commit_id:
-            context.record_action(
-                CloseAction(
-                    kind="remote branch",
-                    body=t"cannot delete {ui.bookmark(branch_label)} because it already "
-                    t"points to a different revision",
-                    status="blocked",
-                )
-            )
-            remote_conflict = True
-        else:
-            remote_delete = True
-
-    if local_conflict:
-        remote_delete = False
-    if remote_conflict:
-        local_forget = False
-    return _BookmarkCleanupPlan(
-        local_forget=local_forget,
-        remote_delete=remote_delete,
-    )
-
-
-def _apply_review_bookmark_cleanup(
-    *,
-    bookmark: str | None,
-    commit_id: str | None,
-    context: _CloseCleanupContext,
-    cleanup_plan: _BookmarkCleanupPlan,
-) -> None:
-    """Record and optionally execute validated bookmark cleanup mutations."""
-
-    if bookmark is None:
-        return
-
-    if cleanup_plan.remote_delete:
-        branch_label = (
-            f"{bookmark}@{context.remote_name}" if context.remote_name is not None else bookmark
-        )
-        context.record_action(
-            CloseAction(
-                kind="remote branch",
-                body=t"delete {ui.bookmark(branch_label)}",
-                status="planned" if context.dry_run else "applied",
-            )
-        )
-        if not context.dry_run:
-            if context.remote_name is None or commit_id is None:
-                raise AssertionError("Planned remote branch deletion requires a target.")
-            context.jj_client.delete_remote_bookmarks(
-                remote=context.remote_name,
-                deletions=((bookmark, commit_id),),
-            )
-
-    if cleanup_plan.local_forget:
-        context.record_action(
-            CloseAction(
-                kind="local bookmark",
-                body=t"forget {ui.bookmark(bookmark)}",
-                status="planned" if context.dry_run else "applied",
-            )
-        )
-        if not context.dry_run:
-            context.jj_client.forget_bookmarks((bookmark,))
 
 
 def _has_retirable_cached_review_identity(cached_change: CachedChange) -> bool:

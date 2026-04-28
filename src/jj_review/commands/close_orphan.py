@@ -13,8 +13,10 @@ from jj_review import console, ui
 from jj_review.commands._close_actions import (
     BookmarkCleanupPlan as _OrphanBookmarkCleanupPlan,
     CloseAction,
+    apply_bookmark_cleanup,
     close_action_presentation,
     find_managed_comment,
+    plan_bookmark_cleanup,
     render_close_action_message,
     retire_cached_change as _retire_cached_change,
 )
@@ -421,13 +423,13 @@ async def run_orphan_close(
                 resolved_comments=resolved_comments,
             )
             if cleanup_bookmark:
-                _apply_orphan_bookmark_cleanup(
+                apply_bookmark_cleanup(
                     bookmark=bookmark,
                     cleanup_plan=cleanup_plan,
                     commit_id=last_target,
                     dry_run=dry_run,
                     jj_client=jj_client,
-                    recorder=recorder,
+                    record_action=recorder.record,
                     remote_name=remote.name,
                 )
 
@@ -593,73 +595,15 @@ def _plan_orphan_bookmark_cleanup(
     recorder: _OrphanActionRecorder,
     remote_name: str,
 ) -> _OrphanBookmarkCleanupPlan:
-    if cached_change.manages_bookmark:
-        if not is_review_bookmark(bookmark, prefix=prefix):
-            return _OrphanBookmarkCleanupPlan(local_forget=False, remote_delete=False)
-    elif not cleanup_user_bookmarks:
-        return _OrphanBookmarkCleanupPlan(local_forget=False, remote_delete=False)
-
-    local_forget = False
-    remote_delete = False
-    local_conflict = False
-    remote_conflict = False
-    local_target = bookmark_state.local_target
-    branch_label = f"{bookmark}@{remote_name}"
-
-    if len(bookmark_state.local_targets) > 1:
-        recorder.record(
-            CloseAction(
-                kind="local bookmark",
-                body=t"cannot forget {ui.bookmark(bookmark)} because it is conflicted",
-                status="blocked",
-            )
-        )
-        local_conflict = True
-    elif local_target is not None and local_target != commit_id:
-        recorder.record(
-            CloseAction(
-                kind="local bookmark",
-                body=t"cannot forget {ui.bookmark(bookmark)} because it already points "
-                t"to a different revision",
-                status="blocked",
-            )
-        )
-        local_conflict = True
-    elif local_target == commit_id:
-        local_forget = True
-
-    remote_state = bookmark_state.remote_target(remote_name)
-    if remote_state is not None:
-        if len(remote_state.targets) > 1:
-            recorder.record(
-                CloseAction(
-                    kind="remote branch",
-                    body=t"cannot delete {ui.bookmark(branch_label)} because the remote "
-                    t"bookmark is conflicted",
-                    status="blocked",
-                )
-            )
-            remote_conflict = True
-        elif remote_state.target != commit_id:
-            recorder.record(
-                CloseAction(
-                    kind="remote branch",
-                    body=t"cannot delete {ui.bookmark(branch_label)} because it already "
-                    t"points to a different revision",
-                    status="blocked",
-                )
-            )
-            remote_conflict = True
-        else:
-            remote_delete = True
-
-    if local_conflict:
-        remote_delete = False
-    if remote_conflict:
-        local_forget = False
-    return _OrphanBookmarkCleanupPlan(
-        local_forget=local_forget,
-        remote_delete=remote_delete,
+    return plan_bookmark_cleanup(
+        bookmark=bookmark,
+        bookmark_state=bookmark_state,
+        cached_change=cached_change,
+        cleanup_user_bookmarks=cleanup_user_bookmarks,
+        commit_id=commit_id,
+        prefix=prefix,
+        record_action=recorder.record,
+        remote_name=remote_name,
     )
 
 
@@ -724,45 +668,6 @@ async def _apply_orphaned_comment_cleanup(
                         t"Could not delete {stack_comment_label(resolved.kind)} "
                         t"#{resolved.comment.id}."
                     ) from error
-
-
-def _apply_orphan_bookmark_cleanup(
-    *,
-    bookmark: str,
-    cleanup_plan: _OrphanBookmarkCleanupPlan,
-    commit_id: str | None,
-    dry_run: bool,
-    jj_client: JjClient,
-    recorder: _OrphanActionRecorder,
-    remote_name: str,
-) -> None:
-    if cleanup_plan.remote_delete:
-        branch_label = f"{bookmark}@{remote_name}"
-        recorder.record(
-            CloseAction(
-                kind="remote branch",
-                body=t"delete {ui.bookmark(branch_label)}",
-                status="planned" if dry_run else "applied",
-            )
-        )
-        if not dry_run:
-            if commit_id is None:
-                raise AssertionError("Planned remote branch deletion requires a target.")
-            jj_client.delete_remote_bookmarks(
-                remote=remote_name,
-                deletions=((bookmark, commit_id),),
-            )
-
-    if cleanup_plan.local_forget:
-        recorder.record(
-            CloseAction(
-                kind="local bookmark",
-                body=t"forget {ui.bookmark(bookmark)}",
-                status="planned" if dry_run else "applied",
-            )
-        )
-        if not dry_run:
-            jj_client.forget_bookmarks((bookmark,))
 
 
 async def _lookup_orphaned_pull_request(

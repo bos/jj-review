@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -15,8 +16,11 @@ from jj_review.github.stack_comments import (
     is_overview_comment,
     stack_comment_label,
 )
+from jj_review.jj import JjClient
+from jj_review.models.bookmarks import BookmarkState
 from jj_review.models.github import GithubIssueComment
 from jj_review.models.review_state import CachedChange
+from jj_review.review.bookmarks import is_review_bookmark
 from jj_review.ui import Message, plain_text
 
 CloseActionStatus = Literal["applied", "blocked", "planned"]
@@ -207,3 +211,126 @@ def retire_cached_change(
         "pr_state": pr_state,
     }
     return cached_change.model_copy(update=updates)
+
+
+def plan_bookmark_cleanup(
+    *,
+    bookmark: str,
+    bookmark_state: BookmarkState,
+    cached_change: CachedChange,
+    cleanup_user_bookmarks: bool,
+    commit_id: str | None,
+    prefix: str,
+    record_action: Callable[[CloseAction], None],
+    remote_name: str | None,
+) -> BookmarkCleanupPlan:
+    """Validate bookmark ownership and decide which cleanup mutations are safe."""
+
+    if cached_change.manages_bookmark:
+        if not is_review_bookmark(bookmark, prefix=prefix):
+            return BookmarkCleanupPlan(local_forget=False, remote_delete=False)
+    elif not cleanup_user_bookmarks:
+        return BookmarkCleanupPlan(local_forget=False, remote_delete=False)
+
+    local_forget = False
+    remote_delete = False
+    local_conflict = False
+    remote_conflict = False
+    local_target = bookmark_state.local_target
+    branch_label = f"{bookmark}@{remote_name}" if remote_name is not None else bookmark
+
+    if len(bookmark_state.local_targets) > 1:
+        record_action(
+            CloseAction(
+                kind="local bookmark",
+                body=t"cannot forget {ui.bookmark(bookmark)} because it is conflicted",
+                status="blocked",
+            )
+        )
+        local_conflict = True
+    elif commit_id is not None and local_target is not None and local_target != commit_id:
+        record_action(
+            CloseAction(
+                kind="local bookmark",
+                body=t"cannot forget {ui.bookmark(bookmark)} because it already points "
+                t"to a different revision",
+                status="blocked",
+            )
+        )
+        local_conflict = True
+    elif commit_id is not None and local_target == commit_id:
+        local_forget = True
+
+    remote_state = bookmark_state.remote_target(remote_name) if remote_name is not None else None
+    if remote_state is not None and commit_id is not None:
+        if len(remote_state.targets) > 1:
+            record_action(
+                CloseAction(
+                    kind="remote branch",
+                    body=t"cannot delete {ui.bookmark(branch_label)} because the remote "
+                    t"bookmark is conflicted",
+                    status="blocked",
+                )
+            )
+            remote_conflict = True
+        elif remote_state.target != commit_id:
+            record_action(
+                CloseAction(
+                    kind="remote branch",
+                    body=t"cannot delete {ui.bookmark(branch_label)} because it already "
+                    t"points to a different revision",
+                    status="blocked",
+                )
+            )
+            remote_conflict = True
+        else:
+            remote_delete = True
+
+    if local_conflict:
+        remote_delete = False
+    if remote_conflict:
+        local_forget = False
+    return BookmarkCleanupPlan(
+        local_forget=local_forget,
+        remote_delete=remote_delete,
+    )
+
+
+def apply_bookmark_cleanup(
+    *,
+    bookmark: str,
+    cleanup_plan: BookmarkCleanupPlan,
+    commit_id: str | None,
+    dry_run: bool,
+    jj_client: JjClient,
+    record_action: Callable[[CloseAction], None],
+    remote_name: str | None,
+) -> None:
+    """Record and optionally execute validated bookmark cleanup mutations."""
+
+    if cleanup_plan.remote_delete:
+        branch_label = f"{bookmark}@{remote_name}" if remote_name is not None else bookmark
+        record_action(
+            CloseAction(
+                kind="remote branch",
+                body=t"delete {ui.bookmark(branch_label)}",
+                status="planned" if dry_run else "applied",
+            )
+        )
+        if not dry_run:
+            if remote_name is None or commit_id is None:
+                raise AssertionError("Planned remote branch deletion requires a target.")
+            jj_client.delete_remote_bookmarks(
+                remote=remote_name,
+                deletions=((bookmark, commit_id),),
+            )
+    if cleanup_plan.local_forget:
+        record_action(
+            CloseAction(
+                kind="local bookmark",
+                body=t"forget {ui.bookmark(bookmark)}",
+                status="planned" if dry_run else "applied",
+            )
+        )
+        if not dry_run:
+            jj_client.forget_bookmarks((bookmark,))
