@@ -24,11 +24,13 @@ from pathlib import Path
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
 from jj_review.commands._close_actions import (
+    BookmarkCleanupPlan as _BookmarkCleanupPlan,
     CloseAction,
     CloseActionBody,
     close_action_presentation as _close_action_presentation,
     find_managed_comment as _find_managed_comment,
     render_close_action_message as _render_close_action_message,
+    retire_cached_change as _retire_cached_change,
 )
 from jj_review.commands.close_orphan import (
     run_orphan_close,
@@ -166,14 +168,6 @@ class _CloseCleanupContext:
     remote_name: str | None
     revision: ReviewStatusRevision
     revision_label: CloseActionBody
-
-
-@dataclass(frozen=True, slots=True)
-class _BookmarkCleanupPlan:
-    """Resolved bookmark cleanup actions for one cached change."""
-
-    local_forget: bool
-    remote_delete: bool
 
 
 def close(
@@ -1366,21 +1360,6 @@ def _apply_review_bookmark_cleanup(
         )
         if not context.dry_run:
             context.jj_client.forget_bookmarks((bookmark,))
-
-
-def _retire_cached_change(
-    cached_change: CachedChange,
-    *,
-    pr_state: str,
-) -> CachedChange:
-    # Closed changes remain "active" unless they were explicitly unlinked. The saved
-    # jj-review data still needs the last known review identity so later cleanup or
-    # status refresh can reason about the already-closed stack without reattaching it.
-    updates: dict[str, object] = {
-        "pr_review_decision": None,
-        "pr_state": pr_state,
-    }
-    return cached_change.model_copy(update=updates)
 
 
 def _has_retirable_cached_review_identity(cached_change: CachedChange) -> bool:

@@ -16,10 +16,19 @@ from jj_review.github.stack_comments import (
     stack_comment_label,
 )
 from jj_review.models.github import GithubIssueComment
+from jj_review.models.review_state import CachedChange
 from jj_review.ui import Message, plain_text
 
 CloseActionStatus = Literal["applied", "blocked", "planned"]
 type CloseActionBody = Message
+
+
+@dataclass(frozen=True, slots=True)
+class BookmarkCleanupPlan:
+    """Resolved bookmark cleanup actions for one cached change."""
+
+    local_forget: bool
+    remote_delete: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,3 +192,18 @@ def close_action_presentation(
             ("warning heading",),
         )
     return ("  ?", None, None)
+
+
+def retire_cached_change(
+    cached_change: CachedChange,
+    *,
+    pr_state: str,
+) -> CachedChange:
+    # Closed changes remain "active" unless they were explicitly unlinked. The saved
+    # jj-review data still needs the last known review identity so later cleanup or
+    # status refresh can reason about the already-closed stack without reattaching it.
+    updates: dict[str, object] = {
+        "pr_review_decision": None,
+        "pr_state": pr_state,
+    }
+    return cached_change.model_copy(update=updates)

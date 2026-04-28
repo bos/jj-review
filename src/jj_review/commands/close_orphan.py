@@ -11,10 +11,12 @@ from typing import Any, Literal
 
 from jj_review import console, ui
 from jj_review.commands._close_actions import (
+    BookmarkCleanupPlan as _OrphanBookmarkCleanupPlan,
     CloseAction,
     close_action_presentation,
     find_managed_comment,
     render_close_action_message,
+    retire_cached_change as _retire_cached_change,
 )
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError, ErrorMessage, error_message
@@ -90,13 +92,6 @@ class _OrphanCloseIntentState:
     stale_close_intents: list[LoadedIntent]
     stale_submit_intents: list[LoadedIntent]
 
-
-@dataclass(frozen=True, slots=True)
-class _OrphanBookmarkCleanupPlan:
-    """Resolved bookmark cleanup actions for one orphaned cached change."""
-
-    local_forget: bool
-    remote_delete: bool
 
 
 def state_has_pull_request_record(
@@ -948,15 +943,3 @@ def _start_orphan_close_intent(
         stale_close_intents=stale_close_intents,
         stale_submit_intents=stale_submit_intents,
     )
-
-
-def _retire_cached_change(
-    cached_change: CachedChange,
-    *,
-    pr_state: str,
-) -> CachedChange:
-    updates: dict[str, object] = {
-        "pr_review_decision": None,
-        "pr_state": pr_state,
-    }
-    return cached_change.model_copy(update=updates)
