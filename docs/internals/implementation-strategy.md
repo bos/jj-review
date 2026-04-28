@@ -209,6 +209,9 @@ to detect duplicate live claims. This lets merged orphan PRs be retired without
 mistaking a same-named fork branch for the review branch.
 It also writes regular close-intent bookkeeping, so reruns after interruption can
 continue remaining cleanup and retire older close records for the same orphaned PR.
+The orphan path lives in its own command module because it is a saved-state recovery
+flow rather than normal stack close planning; close action rendering and managed
+stack-comment lookup stay in a shared helper used by both paths.
 
 ## Data model
 
