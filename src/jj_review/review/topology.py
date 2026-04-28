@@ -35,12 +35,16 @@ def is_open_pr_record(cached_change: CachedChange) -> bool:
     """Whether a saved record's PR is still open from the tool's perspective.
 
     Saved-state-only predicate: actively tracked link_state, has_review_identity
-    populated, and pr_state is open or draft (None falls back to "still open").
+    populated, a saved PR number, and pr_state is open or draft (None falls
+    back to "still open" only when a saved PR number makes the record
+    actionable).
     Does not check whether the change is gone from live stacks — callers that
     care about that half of the orphan predicate must filter first.
     """
 
     if not cached_change.is_tracked:
+        return False
+    if cached_change.pr_number is None:
         return False
     pr_state = cached_change.pr_state
     if pr_state is None:
@@ -58,11 +62,14 @@ def enumerate_orphaned_records(
 
     - it has review identity (PR fields populated) and is link_state=active, and
     - its change_id does not appear in any of the supplied local stacks, and
+    - the record has a saved PR number, and
     - the saved PR state is `open`/`draft` or unknown (treat None as still open).
 
     Records with a saved PR state of `closed` or `merged` are excluded — the PR
     is no longer live, so the user does not need to act on it as an orphan.
-    Unlinked records are excluded too: the user already detached them.
+    Records without a saved PR number are excluded too: there is no concrete PR
+    identity for `close --cleanup --pull-request` to retire. Unlinked records
+    are excluded too: the user already detached them.
     """
 
     live_change_ids: set[str] = set()

@@ -328,7 +328,10 @@ def test_plan_remote_branch_cleanup_allows_delete_when_local_forget_is_planned()
             remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
         ),
         prefix="bosullivan",
-        cached_change=CachedChange(bookmark="bosullivan/feature-aaaaaaaa"),
+        cached_change=CachedChange(
+            bookmark="bosullivan/feature-aaaaaaaa",
+            pr_number=1,
+        ),
         local_bookmark_forget_planned=True,
         remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
     )
@@ -336,6 +339,23 @@ def test_plan_remote_branch_cleanup_allows_delete_when_local_forget_is_planned()
     assert plan is not None
     assert plan.action.status == "planned"
     assert plan.expected_remote_target == "commit-1"
+
+
+def test_plan_remote_branch_cleanup_skips_records_without_saved_pr_number() -> None:
+    plan = _plan_remote_branch_cleanup(
+        cleanup_user_bookmarks=False,
+        bookmark_state=BookmarkState(
+            name="bosullivan/feature-aaaaaaaa",
+            local_targets=(),
+            remote_targets=(RemoteBookmarkState(remote="origin", targets=("commit-1",)),),
+        ),
+        prefix="bosullivan",
+        cached_change=CachedChange(bookmark="bosullivan/feature-aaaaaaaa"),
+        local_bookmark_forget_planned=True,
+        remote=GitRemote(name="origin", url="git@github.com:octo-org/stacked-review.git"),
+    )
+
+    assert plan is None
 
 
 def test_plan_local_bookmark_cleanup_forgets_safe_review_bookmark() -> None:

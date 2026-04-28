@@ -191,6 +191,10 @@ JSON file validated through `pydantic`. Human-authored config stays in TOML.
 Repo-scoped inspection treats orphan-only tracking as first-class output. `list` can
 render those saved orphan rows directly without loading bookmark state when no live
 stacks remain.
+Unknown saved PR state is treated as open only when the record has a saved PR number.
+Records without a PR number are not actionable orphan PRs and can be pruned by cleanup.
+Remote branch cleanup still requires a saved PR number, because without one the tool
+cannot prove whether an open PR still uses the branch.
 Repo-scoped discovered stacks carry both their immediate base parent and the resolved
 `trunk()` revision, plus whether the base parent is on the trunk lineage. Topology-pointer
 checks compare the bottom tracked change against that actual DAG parent when the parent

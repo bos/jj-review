@@ -442,6 +442,46 @@ def test_cleanup_preserves_open_orphan_record_and_remote_branch(
     assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
 
 
+def test_cleanup_prunes_orphan_record_without_saved_pr_number(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    change_id = JjClient(repo).discover_review_stack().revisions[-1].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    state = state_store.load()
+    bookmark = state.changes[change_id].bookmark
+    assert bookmark is not None
+    state_store.save(
+        state.model_copy(
+            update={
+                "changes": {
+                    **state.changes,
+                    change_id: state.changes[change_id].model_copy(
+                        update={
+                            "pr_number": None,
+                            "pr_state": None,
+                        }
+                    ),
+                }
+            }
+        )
+    )
+    run_command(["jj", "abandon", change_id], repo)
+
+    exit_code = run_main(repo, config_path, "cleanup")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "preserve open orphan" not in captured.out
+    assert f"remote branch: delete {bookmark}@origin" not in captured.out
+    assert change_id not in state_store.load().changes
+    assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
+
+
 def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
     tmp_path: Path,
     monkeypatch,

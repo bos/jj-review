@@ -840,6 +840,11 @@ remember that `GIT_DIR` may need to point at `.jj/repo/store/git`.
 - optionally delete remote PR branches only once the corresponding PR is closed,
   merged, or absent — not while it is still open but orphaned
 
+An orphan record must include a saved PR number to count as an open orphan; otherwise
+there is no concrete PR identity for `close --cleanup --pull-request <pr>` to retire.
+Cleanup may prune that saved record, but it must not delete the remote branch because
+it cannot prove whether an open PR still uses it.
+
 `cleanup` mutates by default; `cleanup --dry-run` shows the planned actions. Deleting
 open PRs or deleting branches in ambiguous cases still requires explicit user intent.
 

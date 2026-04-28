@@ -1168,19 +1168,14 @@ def _process_stale_cleanup_change(
         return None
     if is_open_pr_record(prepared_change.cached_change):
         pull_request_number = prepared_change.cached_change.pr_number
-        if pull_request_number is not None:
-            close_hint = ui.cmd(
-                f"jj-review close --cleanup --pull-request {pull_request_number}"
-            )
-            body = (
-                t"preserve open orphan {ui.change_id(prepared_change.change_id)} "
-                t"(run {close_hint} to retire it)"
-            )
-        else:
-            body = (
-                t"preserve open orphan {ui.change_id(prepared_change.change_id)} "
-                t"(no saved PR number; run {ui.cmd('jj-review unlink')} to detach)"
-            )
+        assert pull_request_number is not None
+        close_hint = ui.cmd(
+            f"jj-review close --cleanup --pull-request {pull_request_number}"
+        )
+        body = (
+            t"preserve open orphan {ui.change_id(prepared_change.change_id)} "
+            t"(run {close_hint} to retire it)"
+        )
         record_action(
             CleanupAction(
                 kind="tracking",
@@ -1594,6 +1589,8 @@ def _plan_remote_branch_cleanup(
 ) -> RemoteBranchCleanupPlan | None:
     bookmark = cached_change.bookmark
     if bookmark is None:
+        return None
+    if cached_change.pr_number is None:
         return None
     if cached_change.manages_bookmark:
         if not is_review_bookmark(bookmark, prefix=prefix):

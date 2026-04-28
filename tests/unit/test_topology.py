@@ -208,6 +208,7 @@ def test_pointer_disagreement_skips_revisions_without_any_saved_record() -> None
 
 def _orphan_record(
     *,
+    pr_number: int | None = 42,
     pr_state: str | None,
     link_state: LinkState = "active",
     bookmark: str | None = "review/example",
@@ -215,7 +216,7 @@ def _orphan_record(
     return CachedChange(
         bookmark=bookmark,
         link_state=link_state,
-        pr_number=42,
+        pr_number=pr_number,
         pr_state=pr_state,
         pr_url="https://example.test/pull/42",
     )
@@ -244,6 +245,17 @@ def test_enumerate_orphaned_records_treats_unknown_pr_state_as_still_open() -> N
     orphans = enumerate_orphaned_records(state, ())
 
     assert tuple(orphan.change_id for orphan in orphans) == ("change-orphan",)
+
+
+def test_enumerate_orphaned_records_skips_records_without_pr_number() -> None:
+    state = ReviewState(
+        changes={
+            "change-open": _orphan_record(pr_number=None, pr_state="open"),
+            "change-unknown": _orphan_record(pr_number=None, pr_state=None),
+        }
+    )
+
+    assert enumerate_orphaned_records(state, ()) == ()
 
 
 def test_enumerate_orphaned_records_skips_records_with_closed_or_merged_pr() -> None:
