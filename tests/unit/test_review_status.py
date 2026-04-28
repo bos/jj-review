@@ -13,6 +13,7 @@ from jj_review.github.error_messages import (
 from jj_review.github.resolution import (
     ParsedGithubRepo,
 )
+from jj_review.jj import JjClient
 from jj_review.models.bookmarks import GitRemote
 from jj_review.models.github import GithubPullRequest
 from jj_review.models.review_state import CachedChange, ReviewState
@@ -23,8 +24,10 @@ from jj_review.review.status import (
     PreparedStatus,
     ReviewStatusRevision,
     pinned_bookmarks_for_revisions,
+    prepare_stack_for_status,
     stream_status_async,
 )
+from jj_review.state.store import ReviewStateStore
 
 
 def test_stream_status_streams_local_fallback_revisions_after_github_abort(
@@ -427,6 +430,64 @@ def test_pull_request_lookup_ignores_draft_review_decision() -> None:
     )
 
     assert lookup.review_decision is None
+
+
+def test_prepare_stack_for_status_does_not_persist_generated_bookmarks() -> None:
+    revision = LocalRevision(
+        change_id="aaaaaaaa1234",
+        commit_id="commit-1",
+        current_working_copy=False,
+        description="feature 1",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=("trunk-commit",),
+    )
+    trunk = LocalRevision(
+        change_id="trunkchangeid",
+        commit_id="trunk-commit",
+        current_working_copy=False,
+        description="base",
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=True,
+        parents=("root",),
+    )
+    stack = LocalStack(
+        base_parent=trunk,
+        head=revision,
+        revisions=(revision,),
+        selected_revset="@",
+        trunk=trunk,
+    )
+
+    class FakeStateStore:
+        def __init__(self) -> None:
+            self.saved_states: list[ReviewState] = []
+
+        def save(self, state: ReviewState) -> None:
+            self.saved_states.append(state)
+
+    state_store = FakeStateStore()
+    prepared = prepare_stack_for_status(
+        config=RepoConfig(),
+        jj_client=cast(JjClient, SimpleNamespace(list_bookmark_states=lambda _: {})),
+        persist_bookmarks=False,
+        remote=None,
+        remote_error=None,
+        stack=stack,
+        state=ReviewState(),
+        state_store=cast(ReviewStateStore, state_store),
+    )
+
+    assert state_store.saved_states == []
+    assert prepared.bookmark_result_changed is False
+    assert prepared.state.changes == {}
+    assert prepared.state_changes == {}
+    assert prepared.status_revisions[0].bookmark_source == "generated"
+    assert prepared.status_revisions[0].cached_change is None
 
 
 def _prepare_status_for_test(

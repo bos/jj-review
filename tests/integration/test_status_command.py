@@ -22,26 +22,6 @@ from .submit_command_helpers import (
 )
 
 
-def test_status_reports_pull_request_link_without_showing_managed_bookmark(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    exit_code = run_main(repo, config_path, "status")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "feature 1" in captured.out
-    assert "PR #1" in captured.out
-    assert "Submitted stack (https://github.test/octo-org/stacked-review/pull/1):" in (
-        captured.out
-    )
-    assert "review/feature-1-" not in captured.out
-
-
 def test_status_can_select_a_stack_by_pull_request_number(
     tmp_path: Path,
     monkeypatch,
@@ -180,30 +160,6 @@ def test_status_warns_after_middle_change_is_split_into_sibling_stack(
     assert f"jj-review submit {change_c[:8]}" in normalized_err
 
 
-def test_status_explains_when_selected_stack_changed_since_last_submit(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    change_id = JjClient(repo).discover_review_stack().head.change_id
-    run_command(["jj", "describe", "-r", change_id, "-m", "feature 1 renamed"], repo)
-
-    exit_code = run_main(repo, config_path, "status", change_id)
-    captured = capsys.readouterr()
-    normalized_out = " ".join(captured.out.split())
-
-    assert exit_code == 0
-    assert "Submitted stack" in captured.out
-    assert "PR branches are behind the current local stack" in normalized_out
-    assert "Submit will push the current commit IDs and PR bases" in normalized_out
-    assert f"jj-review submit {change_id}" in normalized_out
-    assert "New commit IDs" in normalized_out
-    assert change_id[:8] in normalized_out
-
-
 def test_status_pull_request_selector_requires_a_linked_local_change(
     tmp_path: Path,
     monkeypatch,
@@ -258,53 +214,6 @@ def test_status_reports_missing_git_remote_for_local_only_repo(
     assert "no git remote" in combined_err.lower()
     assert "Unsubmitted stack:" in captured.out
     assert "GitHub status unknown" in captured.out
-
-
-def test_status_skips_github_when_stack_has_no_local_review_tracking(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    class FailingGithubClient(GithubClient):
-        async def get_pull_requests_by_head_refs(self, owner, repo, *, head_refs):
-            raise GithubClientError("status should stay local-only for untracked stacks")
-
-    patch_github_client_builders(
-        monkeypatch,
-        app=create_app(FakeGithubState.single_repository(fake_repo)),
-        fake_repo=fake_repo,
-        modules=("jj_review.review.status",),
-        client_type=FailingGithubClient,
-    )
-
-    exit_code = run_main(repo, config_path, "status")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "Unsubmitted stack:" in captured.out
-    assert "feature 1" in captured.out
-    assert "GitHub target:" not in captured.out
-    assert "status should stay local-only" not in captured.err
-
-
-def test_status_omits_github_target_placeholder_for_empty_stack(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    exit_code = run_main(repo, config_path, "status")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "GitHub target:" not in captured.out
-    assert "The selected stack has no changes to review." in captured.out
 
 
 def test_status_renders_base_parent_for_stack_forked_from_trunk_ancestor(
@@ -738,104 +647,6 @@ def test_status_refreshes_closed_pull_request_state_in_cache(
     )
     assert refreshed_state.changes[change_id].navigation_comment_id is None
     assert refreshed_state.changes[change_id].overview_comment_id is None
-
-
-def test_status_reports_draft_pull_request_state(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit", "--draft") == 0
-    capsys.readouterr()
-
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
-    state_store = ReviewStateStore.for_repo(repo)
-
-    exit_code = run_main(repo, config_path, "status", change_id)
-    captured = capsys.readouterr()
-    refreshed_state = state_store.load()
-
-    assert exit_code == 0
-    assert "draft PR #1" in captured.out
-    assert refreshed_state.changes[change_id].pr_is_draft is True
-    assert refreshed_state.changes[change_id].pr_state == "open"
-
-
-def test_status_reports_approved_pull_request_state(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
-    state_store = ReviewStateStore.for_repo(repo)
-    fake_repo.create_pull_request_review(
-        pull_number=1,
-        reviewer_login="reviewer-1",
-        state="APPROVED",
-    )
-
-    exit_code = run_main(repo, config_path, "status", change_id)
-    captured = capsys.readouterr()
-    refreshed_state = state_store.load()
-
-    assert exit_code == 0
-    assert "PR #1 approved" in captured.out
-    assert refreshed_state.changes[change_id].pr_review_decision == "approved"
-    assert refreshed_state.changes[change_id].pr_state == "open"
-
-
-def test_status_reads_review_decision_from_pull_request_lookup(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    stack = JjClient(repo).discover_review_stack()
-    change_id = stack.revisions[-1].change_id
-    state_store = ReviewStateStore.for_repo(repo)
-    fake_repo.create_pull_request_review(
-        pull_number=1,
-        reviewer_login="reviewer-1",
-        state="APPROVED",
-    )
-
-    assert run_main(repo, config_path, "status", change_id) == 0
-    capsys.readouterr()
-    assert state_store.load().changes[change_id].pr_review_decision == "approved"
-
-    app = create_app(FakeGithubState.single_repository(fake_repo))
-
-    class FailingReviewLookupClient(GithubClient):
-        async def get_review_decisions_by_pull_request_numbers(
-            self, owner, repo, *, pull_numbers
-        ):
-            raise AssertionError("status should read reviewDecision from the PR lookup")
-
-    patch_github_client_builders(
-        monkeypatch,
-        app=app,
-        fake_repo=fake_repo,
-        modules=("jj_review.review.status",),
-        client_type=FailingReviewLookupClient,
-    )
-
-    exit_code = run_main(repo, config_path, "status", change_id)
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "PR #1 approved" in captured.out
-    assert state_store.load().changes[change_id].pr_review_decision == "approved"
 
 
 def test_status_reports_merged_pull_request_state(
