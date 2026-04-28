@@ -198,6 +198,8 @@ It verifies the saved PR identity by PR number, then verifies that the PR head i
 saved branch on the configured GitHub repository before using head-branch lookup only
 to detect duplicate live claims. This lets merged orphan PRs be retired without
 mistaking a same-named fork branch for the review branch.
+It also writes regular close-intent bookkeeping, so reruns after interruption can
+continue remaining cleanup and retire older close records for the same orphaned PR.
 
 ## Data model
 

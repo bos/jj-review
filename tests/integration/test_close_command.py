@@ -137,6 +137,36 @@ def test_close_apply_can_select_a_stack_by_pull_request_number(
     assert refreshed_state.changes[second_change_id].pr_state == "open"
 
 
+def test_close_cleanup_pull_request_without_saved_record_reports_open_pr_not_tracked(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    pull_request = fake_repo.create_pull_request(
+        base_ref="main",
+        body="",
+        head_ref="review/untracked",
+        title="untracked",
+    )
+
+    exit_code = run_main(
+        repo,
+        config_path,
+        "close",
+        "--cleanup",
+        "--pull-request",
+        str(pull_request.number),
+    )
+    captured = capsys.readouterr()
+    combined = _combined_output(captured)
+
+    assert exit_code == 1
+    assert f"PR #{pull_request.number} is not tracked locally" in combined
+    assert "not linked to any local change" not in combined
+
+
 def test_close_noop_short_circuit_retires_covered_interrupted_close_intent(
     tmp_path: Path,
     monkeypatch,
@@ -450,8 +480,10 @@ def test_close_cleanup_pull_request_retires_orphaned_pr(
     state = state_store.load()
     bottom_bookmark = state.changes[bottom_change_id].bookmark
     bottom_pr_number = state.changes[bottom_change_id].pr_number
+    last_target = state.changes[bottom_change_id].last_submitted_commit_id
     assert bottom_bookmark is not None
     assert bottom_pr_number is not None
+    assert last_target is not None
 
     run_command(["jj", "abandon", bottom_change_id], repo)
 
@@ -474,6 +506,127 @@ def test_close_cleanup_pull_request_retires_orphaned_pr(
     assert fake_repo.pull_requests[bottom_pr_number].state == "closed"
     assert bottom_change_id not in refreshed_state.changes
     assert bottom_bookmark not in remote_refs(fake_repo.git_dir)
+
+    state_dir = state_store.require_writable()
+    stale_intent_path = write_new_intent(
+        state_dir,
+        CloseIntent(
+            kind="close",
+            pid=99999999,
+            label=f"close --cleanup for {bottom_change_id[:8]}",
+            display_revset=f"--pull-request {bottom_pr_number}",
+            ordered_change_ids=(bottom_change_id,),
+            ordered_commit_ids=(last_target,),
+            cleanup=True,
+            started_at=datetime.now(UTC).isoformat(),
+        ),
+    )
+    stale_plain_intent_path = write_new_intent(
+        state_dir,
+        CloseIntent(
+            kind="close",
+            pid=99999999,
+            label=f"close for {bottom_change_id[:8]}",
+            display_revset=bottom_change_id,
+            ordered_change_ids=(bottom_change_id,),
+            ordered_commit_ids=(last_target,),
+            cleanup=False,
+            started_at=datetime.now(UTC).isoformat(),
+        ),
+    )
+
+    rerun_exit_code = run_main(
+        repo,
+        config_path,
+        "close",
+        "--cleanup",
+        "--pull-request",
+        str(bottom_pr_number),
+    )
+    rerun_captured = capsys.readouterr()
+
+    assert rerun_exit_code == 0
+    assert f"Nothing to close for PR #{bottom_pr_number}." in rerun_captured.out
+    assert "not linked" not in _combined_output(rerun_captured)
+    assert not stale_intent_path.exists()
+    assert not stale_plain_intent_path.exists()
+    assert list(state_dir.glob("incomplete-*.json")) == []
+
+
+def test_close_cleanup_pull_request_continues_interrupted_orphan_close(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    commit_file(repo, "alpha 2", "alpha-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    state = state_store.load()
+    bottom_bookmark = state.changes[bottom_change_id].bookmark
+    bottom_pr_number = state.changes[bottom_change_id].pr_number
+    last_target = state.changes[bottom_change_id].last_submitted_commit_id
+    assert bottom_bookmark is not None
+    assert bottom_pr_number is not None
+    assert last_target is not None
+
+    run_command(["jj", "abandon", bottom_change_id], repo)
+    fake_repo.pull_requests[bottom_pr_number].state = "closed"
+
+    state_dir = state_store.require_writable()
+    cleanup_intent_path = write_new_intent(
+        state_dir,
+        CloseIntent(
+            kind="close",
+            pid=99999999,
+            label=f"close --cleanup for {bottom_change_id[:8]}",
+            display_revset=f"--pull-request {bottom_pr_number}",
+            ordered_change_ids=(bottom_change_id,),
+            ordered_commit_ids=(last_target,),
+            cleanup=True,
+            started_at=datetime.now(UTC).isoformat(),
+        ),
+    )
+    plain_intent_path = write_new_intent(
+        state_dir,
+        CloseIntent(
+            kind="close",
+            pid=99999999,
+            label=f"close for {bottom_change_id[:8]}",
+            display_revset=f"--pull-request {bottom_pr_number}",
+            ordered_change_ids=(bottom_change_id,),
+            ordered_commit_ids=(last_target,),
+            cleanup=False,
+            started_at=datetime.now(UTC).isoformat(),
+        ),
+    )
+
+    exit_code = run_main(
+        repo,
+        config_path,
+        "close",
+        "--cleanup",
+        "--pull-request",
+        str(bottom_pr_number),
+    )
+    captured = capsys.readouterr()
+    combined = _combined_output(captured)
+
+    assert exit_code == 0
+    assert "Continuing interrupted" in combined
+    assert "close --cleanup" in combined
+    assert "prune orphan record" in captured.out
+    assert bottom_change_id not in state_store.load().changes
+    assert bottom_bookmark not in remote_refs(fake_repo.git_dir)
+    assert not cleanup_intent_path.exists()
+    assert not plain_intent_path.exists()
+    assert list(state_dir.glob("incomplete-*.json")) == []
 
 
 def test_close_cleanup_pull_request_blocks_when_saved_pr_head_is_from_fork(

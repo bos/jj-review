@@ -60,6 +60,7 @@ from jj_review.review.intents import (
 from jj_review.review.selection import (
     resolve_linked_change_for_pull_request,
     resolve_orphaned_pull_request,
+    resolve_pull_request_number,
     resolve_selected_revset,
 )
 from jj_review.review.status import (
@@ -236,6 +237,10 @@ def close(
             if not dry_run:
                 state_store.require_writable()
             state = state_store.load()
+            pull_request_number = resolve_pull_request_number(
+                jj_client=context.jj_client,
+                pull_request_reference=pull_request,
+            )
             orphan_target = resolve_orphaned_pull_request(
                 jj_client=context.jj_client,
                 pull_request_reference=pull_request,
@@ -247,6 +252,19 @@ def close(
                     _run_orphan_close(
                         change_id=change_id,
                         config=context.config,
+                        dry_run=dry_run,
+                        jj_client=context.jj_client,
+                        pull_request_number=pull_request_number,
+                        state=state,
+                        state_store=state_store,
+                    )
+                )
+            if not _state_has_pull_request_record(
+                pull_request_number=pull_request_number,
+                state=state,
+            ):
+                return asyncio.run(
+                    _run_untracked_cleanup_pull_request(
                         dry_run=dry_run,
                         jj_client=context.jj_client,
                         pull_request_number=pull_request_number,
@@ -332,6 +350,155 @@ def _orphan_should_cleanup_bookmark(
     return cleanup_user_bookmarks
 
 
+def _state_has_pull_request_record(
+    *,
+    pull_request_number: int,
+    state: ReviewState,
+) -> bool:
+    return any(
+        cached_change.link_state == "active"
+        and cached_change.pr_number == pull_request_number
+        for cached_change in state.changes.values()
+    )
+
+
+async def _run_untracked_cleanup_pull_request(
+    *,
+    dry_run: bool,
+    jj_client: JjClient,
+    pull_request_number: int,
+    state: ReviewState,
+    state_store: ReviewStateStore,
+) -> int:
+    """Handle cleanup by PR number after saved tracking was already retired."""
+
+    remotes = jj_client.list_git_remotes()
+    if not remotes:
+        raise _untracked_cleanup_verification_error(
+            detail="no GitHub remote is configured",
+            pull_request_number=pull_request_number,
+        )
+    try:
+        remote = select_submit_remote(remotes)
+    except CliError as error:
+        raise _untracked_cleanup_verification_error(
+            detail=plain_text(error_message(error)),
+            pull_request_number=pull_request_number,
+        ) from error
+
+    github_repository = parse_github_repo(remote)
+    if github_repository is None:
+        raise _untracked_cleanup_verification_error(
+            detail=f"remote {remote.name} is not a GitHub remote",
+            pull_request_number=pull_request_number,
+        )
+
+    async with build_github_client(base_url=github_repository.api_base_url) as github_client:
+        try:
+            pull_request = await github_client.get_pull_request(
+                github_repository.owner,
+                github_repository.repo,
+                pull_number=pull_request_number,
+            )
+        except GithubClientError as error:
+            raise _untracked_cleanup_verification_error(
+                detail=summarize_github_error_reason(error),
+                pull_request_number=pull_request_number,
+            ) from error
+
+    if pull_request.state != "closed":
+        raise CliError(
+            t"PR #{pull_request_number} is not tracked locally, and it is still open.",
+            hint=(
+                t"Run {ui.cmd('import')} or {ui.cmd('relink')} if this PR should be "
+                t"attached locally, or close it on GitHub."
+            ),
+        )
+
+    if not dry_run:
+        _retire_pull_request_close_intents(
+            pull_request_number=pull_request_number,
+            state_store=state_store,
+        )
+        _retire_submit_intents_cleared_by_cleanup(
+            current_state=state,
+            jj_client=jj_client,
+            stale_submit_intents=[
+                loaded
+                for loaded in state_store.list_intents()
+                if isinstance(loaded.intent, SubmitIntent)
+                and not pid_is_alive(loaded.intent.pid)
+            ],
+        )
+    console.output(t"Nothing to close for PR #{pull_request_number}.")
+    return 0
+
+
+def _untracked_cleanup_verification_error(
+    *,
+    detail: str,
+    pull_request_number: int,
+) -> CliError:
+    return CliError(
+        t"Could not verify whether PR #{pull_request_number} was already cleaned up.",
+        hint=(
+            t"{detail}. Restore GitHub access and retry "
+            t"{ui.cmd(f'close --cleanup --pull-request {pull_request_number}')}."
+        ),
+    )
+
+
+def _retire_pull_request_close_intents(
+    *,
+    pull_request_number: int,
+    state_store: ReviewStateStore,
+) -> None:
+    """Retire stale close intents recorded for a now-closed PR selector."""
+
+    display_revset = f"--pull-request {pull_request_number}"
+    state_dir = state_store.require_writable()
+    probe_intent = CloseIntent(
+        kind="close",
+        pid=os.getpid(),
+        label=f"close --cleanup for PR #{pull_request_number}",
+        display_revset=display_revset,
+        ordered_change_ids=(),
+        ordered_commit_ids=(),
+        cleanup=True,
+        started_at=datetime.now(UTC).isoformat(),
+    )
+    stale_close_intents: list[tuple[LoadedIntent, CloseIntent]] = []
+    for loaded in check_same_kind_intent(state_dir, probe_intent):
+        intent = loaded.intent
+        if isinstance(intent, CloseIntent):
+            stale_close_intents.append((loaded, intent))
+    pr_selector_intents = [
+        intent
+        for _loaded, intent in stale_close_intents
+        if intent.display_revset == display_revset
+    ]
+    covered_change_ids = {
+        change_id
+        for intent in pr_selector_intents
+        for change_id in intent.ordered_change_ids
+    }
+    for loaded, intent in stale_close_intents:
+        recorded_change_ids = set(intent.ordered_change_ids)
+        matches_pr_selector = intent.display_revset == display_revset
+        covered_by_pr_selector = (
+            bool(recorded_change_ids)
+            and recorded_change_ids.issubset(covered_change_ids)
+            and close_intent_mode_relation(
+                recorded_cleanup=intent.cleanup,
+                current_cleanup=True,
+            )
+            != "incompatible"
+        )
+        if not matches_pr_selector and not covered_by_pr_selector:
+            continue
+        loaded.path.unlink(missing_ok=True)
+
+
 async def _run_orphan_close(
     *,
     change_id: str,
@@ -411,121 +578,150 @@ async def _run_orphan_close(
         jj_client.fetch_remote(remote=remote.name, branches=(bookmark,))
     bookmark_state = jj_client.get_bookmark_state(bookmark)
     recorder = _CloseActionRecorder(on_action=None)
-
-    async with build_github_client(base_url=github_repository.api_base_url) as github_client:
-        cleanup_context = _CloseCleanupContext(
-            bookmark_prefix=config.bookmark_prefix,
-            cleanup_user_bookmarks=config.cleanup_user_bookmarks,
-            dry_run=dry_run,
-            github_client=github_client,
-            github_repository=github_repository,
-            jj_client=jj_client,
-            next_changes=dict(state.changes),
-            record_action=recorder.record,
-            remote_name=remote.name,
-            revision=SimpleNamespace(change_id=change_id, bookmark=bookmark),
-            revision_label=revision_label,
-        )
-        inspection, blocked_action = await _lookup_orphaned_pull_request(
+    completed = False
+    final_state: ReviewState | None = None
+    intent_state = _CloseIntentState(
+        intent=None,
+        intent_path=None,
+        stale_close_intents=[],
+        stale_submit_intents=[],
+    )
+    try:
+        intent_state = _start_orphan_close_intent(
             cached_change=cached_change,
-            github_client=github_client,
-            github_repository=github_repository,
+            change_id=change_id,
+            dry_run=dry_run,
             pull_request_number=pull_request_number,
+            state_store=state_store,
         )
-        if blocked_action is not None:
-            recorder.record(blocked_action)
 
-        cleanup_plan = _BookmarkCleanupPlan(local_forget=False, remote_delete=False)
-        resolved_comments: tuple[_ResolvedOrphanedComment, ...] = ()
-        if not recorder.blocked and cleanup_bookmark:
-            cleanup_plan = _preflight_orphan_bookmark_cleanup(
-                bookmark=bookmark,
-                bookmark_state=bookmark_state,
-                cached_change=cached_change,
-                cleanup_context=cleanup_context,
-                recorder=recorder,
-                saved_commit_id=last_target,
+        async with build_github_client(base_url=github_repository.api_base_url) as github_client:
+            cleanup_context = _CloseCleanupContext(
+                bookmark_prefix=config.bookmark_prefix,
+                cleanup_user_bookmarks=config.cleanup_user_bookmarks,
+                dry_run=dry_run,
+                github_client=github_client,
+                github_repository=github_repository,
+                jj_client=jj_client,
+                next_changes=dict(state.changes),
+                record_action=recorder.record,
+                remote_name=remote.name,
+                revision=SimpleNamespace(change_id=change_id, bookmark=bookmark),
+                revision_label=revision_label,
             )
-        if not recorder.blocked:
-            resolved_comments = await _preflight_orphaned_comment_cleanup(
+            inspection, blocked_action = await _lookup_orphaned_pull_request(
                 cached_change=cached_change,
                 github_client=github_client,
                 github_repository=github_repository,
                 pull_request_number=pull_request_number,
-                recorder=recorder,
             )
-        if recorder.blocked:
-            _retire_blocked_orphan_close_tracking(
-                cached_change=cached_change,
-                change_id=change_id,
-                dry_run=dry_run,
-                inspection=inspection,
-                recorder=recorder,
-                revision_label=revision_label,
-                state=state,
-                state_store=state_store,
-            )
-            return _render_orphan_close_actions(
-                actions=recorder.as_tuple(),
-                blocked=True,
-                dry_run=dry_run,
-            )
+            if blocked_action is not None:
+                recorder.record(blocked_action)
 
-        if inspection is None:
-            raise AssertionError("Orphan close inspection must resolve a pull request state.")
-        if inspection.state == "open":
-            recorder.record(
-                CloseAction(
-                    kind="pull request",
-                    body=t"close PR #{pull_request_number} for orphaned change {label}",
-                    status="planned" if dry_run else "applied",
+            cleanup_plan = _BookmarkCleanupPlan(local_forget=False, remote_delete=False)
+            resolved_comments: tuple[_ResolvedOrphanedComment, ...] = ()
+            if not recorder.blocked and cleanup_bookmark:
+                cleanup_plan = _preflight_orphan_bookmark_cleanup(
+                    bookmark=bookmark,
+                    bookmark_state=bookmark_state,
+                    cached_change=cached_change,
+                    cleanup_context=cleanup_context,
+                    recorder=recorder,
+                    saved_commit_id=last_target,
                 )
-            )
-            if not dry_run:
-                try:
-                    await github_client.close_pull_request(
-                        github_repository.owner,
-                        github_repository.repo,
-                        pull_number=pull_request_number,
-                    )
-                except GithubClientError as error:
-                    raise CliError(
-                        t"Could not close PR #{pull_request_number}."
-                    ) from error
+            if not recorder.blocked:
+                resolved_comments = await _preflight_orphaned_comment_cleanup(
+                    cached_change=cached_change,
+                    github_client=github_client,
+                    github_repository=github_repository,
+                    pull_request_number=pull_request_number,
+                    recorder=recorder,
+                )
+            if recorder.blocked:
+                _retire_blocked_orphan_close_tracking(
+                    cached_change=cached_change,
+                    change_id=change_id,
+                    dry_run=dry_run,
+                    inspection=inspection,
+                    recorder=recorder,
+                    revision_label=revision_label,
+                    state=state,
+                    state_store=state_store,
+                )
+                completed = True
+                return _render_orphan_close_actions(
+                    actions=recorder.as_tuple(),
+                    blocked=True,
+                    dry_run=dry_run,
+                )
 
-        await _apply_orphaned_comment_cleanup(
-            github_client=github_client,
-            github_repository=github_repository,
-            pull_request_number=pull_request_number,
-            recorder=recorder,
-            resolved_comments=resolved_comments,
+            if inspection is None:
+                raise AssertionError("Orphan close inspection must resolve a pull request state.")
+            if inspection.state == "open":
+                recorder.record(
+                    CloseAction(
+                        kind="pull request",
+                        body=t"close PR #{pull_request_number} for orphaned change {label}",
+                        status="planned" if dry_run else "applied",
+                    )
+                )
+                if not dry_run:
+                    try:
+                        await github_client.close_pull_request(
+                            github_repository.owner,
+                            github_repository.repo,
+                            pull_number=pull_request_number,
+                        )
+                    except GithubClientError as error:
+                        raise CliError(
+                            t"Could not close PR #{pull_request_number}."
+                        ) from error
+
+            await _apply_orphaned_comment_cleanup(
+                github_client=github_client,
+                github_repository=github_repository,
+                pull_request_number=pull_request_number,
+                recorder=recorder,
+                resolved_comments=resolved_comments,
+                dry_run=dry_run,
+            )
+            if cleanup_bookmark:
+                _apply_review_bookmark_cleanup(
+                    bookmark=bookmark,
+                    commit_id=last_target,
+                    context=cleanup_context,
+                    cleanup_plan=cleanup_plan,
+                )
+
+        recorder.record(
+            CloseAction(
+                kind="saved data",
+                body=t"prune orphan record for {label}",
+                status="planned" if dry_run else "applied",
+            )
+        )
+        if not dry_run:
+            next_changes = dict(state.changes)
+            next_changes.pop(change_id, None)
+            final_state = state.model_copy(update={"changes": next_changes})
+            state_store.save(final_state)
+
+        completed = True
+        return _render_orphan_close_actions(
+            actions=recorder.as_tuple(),
+            blocked=recorder.blocked,
             dry_run=dry_run,
         )
-        if cleanup_bookmark:
-            _apply_review_bookmark_cleanup(
-                bookmark=bookmark,
-                commit_id=last_target,
-                context=cleanup_context,
-                cleanup_plan=cleanup_plan,
-            )
-
-    recorder.record(
-        CloseAction(
-            kind="saved data",
-            body=t"prune orphan record for {label}",
-            status="planned" if dry_run else "applied",
-        )
-    )
-    if not dry_run:
-        next_changes = dict(state.changes)
-        next_changes.pop(change_id, None)
-        state_store.save(state.model_copy(update={"changes": next_changes}))
-
-    return _render_orphan_close_actions(
-        actions=recorder.as_tuple(),
-        blocked=recorder.blocked,
-        dry_run=dry_run,
-    )
+    finally:
+        if completed and intent_state.intent_path is not None and intent_state.intent is not None:
+            retire_superseded_intents(intent_state.stale_close_intents, intent_state.intent)
+            if not recorder.blocked and final_state is not None:
+                _retire_submit_intents_cleared_by_cleanup(
+                    current_state=final_state,
+                    jj_client=jj_client,
+                    stale_submit_intents=intent_state.stale_submit_intents,
+                )
+            intent_state.intent_path.unlink(missing_ok=True)
 
 
 def _render_orphan_close_actions(
@@ -1193,6 +1389,64 @@ def _save_close_progress(
         prepared.state_store.save(
             current_state.model_copy(update={"changes": execution_state.next_changes})
         )
+
+
+def _start_orphan_close_intent(
+    *,
+    cached_change: CachedChange,
+    change_id: str,
+    dry_run: bool,
+    pull_request_number: int,
+    state_store: ReviewStateStore,
+) -> _CloseIntentState:
+    """Write close intent metadata for resumable orphan cleanup runs."""
+
+    if dry_run:
+        return _CloseIntentState(
+            intent=None,
+            intent_path=None,
+            stale_close_intents=[],
+            stale_submit_intents=[],
+        )
+
+    state_dir = state_store.require_writable()
+    ordered_change_ids = (change_id,)
+    ordered_commit_ids = (
+        (cached_change.last_submitted_commit_id,)
+        if cached_change.last_submitted_commit_id is not None
+        else ()
+    )
+    intent = CloseIntent(
+        kind="close",
+        pid=os.getpid(),
+        label=(
+            f"close --cleanup for {short_change_id(change_id)} "
+            f"(from --pull-request {pull_request_number})"
+        ),
+        display_revset=f"--pull-request {pull_request_number}",
+        ordered_change_ids=ordered_change_ids,
+        ordered_commit_ids=ordered_commit_ids,
+        cleanup=True,
+        started_at=datetime.now(UTC).isoformat(),
+    )
+    stale_close_intents = check_same_kind_intent(state_dir, intent)
+    _report_stale_close_intents(
+        current_change_ids=ordered_change_ids,
+        current_commit_ids=ordered_commit_ids,
+        current_cleanup=True,
+        stale_intents=stale_close_intents,
+    )
+    stale_submit_intents = [
+        loaded
+        for loaded in state_store.list_intents()
+        if isinstance(loaded.intent, SubmitIntent) and not pid_is_alive(loaded.intent.pid)
+    ]
+    return _CloseIntentState(
+        intent=intent,
+        intent_path=write_new_intent(state_dir, intent),
+        stale_close_intents=stale_close_intents,
+        stale_submit_intents=stale_submit_intents,
+    )
 
 
 def _start_close_intent(

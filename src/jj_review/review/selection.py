@@ -108,6 +108,19 @@ def resolve_orphaned_pull_request(
     return pull_request_number, change_id
 
 
+def resolve_pull_request_number(
+    *,
+    jj_client: JjClient,
+    pull_request_reference: str,
+) -> int:
+    """Resolve a pull-request selector as a pull request number for this repo."""
+
+    return _parse_repo_pull_request_number(
+        jj_client=jj_client,
+        pull_request_reference=pull_request_reference,
+    )
+
+
 def resolve_linked_change_for_pull_request(
     *,
     action_name: str,
