@@ -1014,7 +1014,7 @@ def _pull_request_lookup_from_discovered(
         )
 
     pull_request = pull_requests[0]
-    effective_pull_request = _normalize_pull_request_state(pull_request)
+    effective_pull_request = normalize_pull_request_state(pull_request)
     if effective_pull_request.state != "open":
         return PullRequestLookup(
             message=(
@@ -1041,7 +1041,7 @@ def _pull_request_lookup_from_discovered(
     )
 
 
-def _normalize_pull_request_state(pull_request: GithubPullRequest) -> GithubPullRequest:
+def normalize_pull_request_state(pull_request: GithubPullRequest) -> GithubPullRequest:
     if pull_request.state != "closed" or pull_request.merged_at is None:
         return pull_request
     return pull_request.model_copy(update={"state": "merged"})

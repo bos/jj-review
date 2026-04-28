@@ -67,6 +67,7 @@ from jj_review.review.status import (
     PreparedStatus,
     ReviewStatusRevision,
     StatusResult,
+    normalize_pull_request_state as _normalize_pull_request_state,
     prepare_status,
     prepared_status_github_inspection_count,
     revision_has_merged_pull_request,
@@ -1579,7 +1580,3 @@ def _build_land_intent(
     )
 
 
-def _normalize_pull_request_state(pull_request):
-    if pull_request.state != "closed" or pull_request.merged_at is None:
-        return pull_request
-    return pull_request.model_copy(update={"state": "merged"})
