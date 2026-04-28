@@ -800,6 +800,19 @@ def test_find_private_commits_returns_matching_revisions() -> None:
     assert result[0].commit_id == "head"
 
 
+def test_find_private_commits_skips_empty_policy() -> None:
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "config", "get", "git.private-commits"): "none()\n",
+    }
+    revisions = (
+        make_revision(commit_id="head", change_id="head-change", description="head\n"),
+    )
+
+    result = JjClient(Path("/repo"), runner=_runner(responses)).find_private_commits(revisions)
+
+    assert result == ()
+
+
 def _template() -> str:
     return (
         r'json(change_id) ++ "\t" ++ json(commit_id) ++ "\t" ++ json(description) ++ "\t" ++ '

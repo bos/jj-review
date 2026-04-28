@@ -746,6 +746,8 @@ class JjClient:
         private_commits_revset = self.get_config_string("git.private-commits")
         if not private_commits_revset or not revisions:
             return ()
+        if private_commits_revset == "none()":
+            return ()
         commit_ids_revset = " | ".join(_quote_revset_symbol(r.commit_id) for r in revisions)
         combined_revset = f"({private_commits_revset}) & ({commit_ids_revset})"
         return tuple(self.query_revisions(combined_revset))

@@ -947,26 +947,29 @@ async def _run_submit_async(
         async with build_github_client(base_url=github_repository.api_base_url) as github_client:
             with console.spinner(description="Inspecting GitHub"):
                 try:
-                    github_repository_state = await github_client.get_repository(
-                        github_repository.owner,
-                        github_repository.repo,
+                    github_repository_state, discovered_pull_requests = await asyncio.gather(
+                        github_client.get_repository(
+                            github_repository.owner,
+                            github_repository.repo,
+                        ),
+                        _discover_pull_requests_by_bookmark(
+                            github_client=github_client,
+                            github_repository=github_repository,
+                            bookmarks=tuple(
+                                resolution.bookmark
+                                for resolution in bookmark_result.resolutions
+                            ),
+                        ),
                     )
                 except GithubClientError as error:
                     raise CliError(
                         f"Could not load GitHub repository {github_repository.full_name}"
                     ) from error
                 trunk_branch = resolve_trunk_branch(
-                    bookmark_states=client.list_bookmark_states(),
+                    bookmark_states=bookmark_states,
                     github_repository_state=github_repository_state,
                     remote_name=remote.name,
                     trunk_commit_id=stack.trunk.commit_id,
-                )
-                discovered_pull_requests = await _discover_pull_requests_by_bookmark(
-                    github_client=github_client,
-                    github_repository=github_repository,
-                    bookmarks=tuple(
-                        resolution.bookmark for resolution in bookmark_result.resolutions
-                    ),
                 )
 
             if not dry_run and any(
