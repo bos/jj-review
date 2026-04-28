@@ -111,9 +111,12 @@ def test_status_warns_when_other_tracked_stack_has_moved_since_last_submit(
     combined = captured.out + captured.err
 
     assert exit_code == 0
-    assert "Other tracked stacks need submit:" in combined
+    assert "Other stacks changed since their PRs were last updated" in combined
+    assert "jj-review submit" in combined
     assert new_beta_head_change_id[:8] in combined
-    assert alpha_head_change_id[:8] not in combined.split("Other tracked stacks need submit:")[1]
+    assert alpha_head_change_id[:8] not in combined.split(
+        "Other stacks changed since their PRs were last updated"
+    )[1]
 
 
 def test_status_pull_request_selector_requires_a_linked_local_change(

@@ -171,6 +171,11 @@ When you are juggling more than one local review stack in the same repo, run
 `jj-review list` to see the locally tracked stacks at a glance before drilling
 into one of them with `jj-review status`.
 
+`list` or `status` may say a stack changed since its PRs were last updated. That
+usually means you inserted, abandoned, reordered, or rebased changes in a
+reviewed stack. Run `jj-review submit <head-change-id>` for the listed stack to
+refresh its PR branches and base branches on GitHub.
+
 `list` may also show an `orphan` row. That means a PR is still open, but the
 local change it reviewed is no longer part of any current stack. When you are
 ready to retire that PR, run `jj-review close --cleanup --pull-request <pr>`.

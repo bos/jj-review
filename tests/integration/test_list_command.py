@@ -123,7 +123,8 @@ def test_list_warns_when_tracked_stack_has_moved_since_last_submit(
     combined = captured.out + captured.err
 
     assert exit_code == 0
-    assert "Tracked stacks need submit:" in combined
+    assert "Some stacks changed since their PRs were last updated" in combined
+    assert "jj-review submit" in combined
     assert new_alpha_head_change_id[:8] in combined
 
 

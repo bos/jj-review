@@ -225,7 +225,14 @@ def _emit_needs_submit_advisory(
     if not needs_submit_heads:
         return
     heads_fragments = ui.join(ui.change_id, needs_submit_heads)
-    console.warning(("Tracked stacks need submit: ", *heads_fragments))
+    console.warning(
+        (
+            "Some stacks changed since their PRs were last updated; run ",
+            ui.cmd("jj-review submit"),
+            " for: ",
+            *heads_fragments,
+        )
+    )
 
 
 def _prepare_repo_inspection_context(

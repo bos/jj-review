@@ -221,7 +221,14 @@ def _emit_other_stacks_needs_submit_advisory(
     if not needs_submit_heads:
         return
     heads_fragments = ui.join(ui.change_id, needs_submit_heads)
-    console.warning(("Other tracked stacks need submit: ", *heads_fragments))
+    console.warning(
+        (
+            "Other stacks changed since their PRs were last updated; run ",
+            ui.cmd("jj-review submit"),
+            " for: ",
+            *heads_fragments,
+        )
+    )
 
 
 def _normalize_status_selectors(

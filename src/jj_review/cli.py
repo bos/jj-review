@@ -445,7 +445,10 @@ def build_parser() -> ArgumentParser:
         close_parser,
         *_PULL_REQUEST_OPTION_STRINGS,
         metavar="PR",
-        help="Select the local change linked to this PR number or URL",
+        help=(
+            "Select a stack by PR number or URL; with --cleanup, this can also retire "
+            "an orphaned PR shown by list"
+        ),
     )
     _add_import_parser(
         subparsers,
