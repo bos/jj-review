@@ -74,4 +74,6 @@ search_path = ["src", "."]
 packages = ["src/jj_review"]
 
 [tool.uv]
+exclude-newer = "7 days"
+exclude-newer-package = { httpxyz = false, httpcorexyz = false }
 default-groups = ["dev"]
