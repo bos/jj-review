@@ -751,6 +751,7 @@ def _pull_request_graphql_selection(*, indent: str) -> str:
             f"{indent}state",
             f"{indent}isDraft",
             f"{indent}mergedAt",
+            f"{indent}reviewDecision",
             f"{indent}url",
             f"{indent}title",
             f"{indent}body",

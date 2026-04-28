@@ -80,6 +80,7 @@ def test_status_updates_tty_progress_bar_while_streaming(
         yield Handle()
 
     def fake_stream_status(**kwargs):
+        assert kwargs.get("inspect_stack_comments", False) is False
         kwargs["on_revision"](object(), True)
         kwargs["on_revision"](object(), True)
         return SimpleNamespace(

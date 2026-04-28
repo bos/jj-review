@@ -96,16 +96,37 @@ def discover_connected_tracked_stacks(
     )
     if not selected_revisions:
         return ()
-    if tracked_change_ids.isdisjoint(revision.change_id for revision in selected_revisions):
+    selected_change_ids = {revision.change_id for revision in selected_revisions}
+    if tracked_change_ids.isdisjoint(selected_change_ids):
+        return ()
+    outside_tracked_change_ids = tuple(
+        change_id
+        for change_id, cached_change in state.changes.items()
+        if change_id not in selected_change_ids
+        and (cached_change.has_review_identity or cached_change.is_unlinked)
+    )
+    if not outside_tracked_change_ids:
+        return ()
+
+    connected_tracked_revisions = jj_client.query_revisions_by_change_ids_descending_from(
+        outside_tracked_change_ids,
+        tuple(revision.commit_id for revision in selected_revisions),
+    )
+    connected_tracked_revisions = tuple(
+        revision
+        for revision in connected_tracked_revisions
+        if revision.is_reviewable(allow_divergent=True, allow_immutable=True)
+    )
+    if not connected_tracked_revisions:
         return ()
 
     descendants = jj_client.query_descendant_revisions(
-        tuple(revision.commit_id for revision in selected_revisions)
+        tuple(revision.commit_id for revision in connected_tracked_revisions)
     )
     trunk = selected_stacks[0].trunk
     return _discover_stacks_from_revisions(
         jj_client=jj_client,
-        revisions=(*descendants, *selected_revisions),
+        revisions=(*descendants, *selected_revisions, *connected_tracked_revisions),
         trunk=trunk,
         known_base_parents=tuple(stack.base_parent for stack in selected_stacks),
     )

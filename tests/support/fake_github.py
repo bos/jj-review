@@ -810,10 +810,27 @@ def _graphql_pull_request_payload(
     web_origin: str,
 ) -> dict[str, object]:
     repository.refresh_pull_request_state(pull_request)
-    return pull_request.to_graphql_payload(
+    payload = pull_request.to_graphql_payload(
         repository=repository,
         web_origin=web_origin,
     )
+    payload["reviewDecision"] = _graphql_review_decision(repository, pull_request.number)
+    return payload
+
+
+def _graphql_review_decision(
+    repository: FakeGithubRepository,
+    pull_number: int,
+) -> str | None:
+    review_states = {
+        str(raw_review["state"]).upper()
+        for raw_review in _latest_opinionated_review_payloads(repository, pull_number)
+    }
+    if "CHANGES_REQUESTED" in review_states:
+        return "CHANGES_REQUESTED"
+    if "APPROVED" in review_states:
+        return "APPROVED"
+    return None
 
 
 def _latest_opinionated_review_payloads(

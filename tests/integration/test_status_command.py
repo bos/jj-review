@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from jj_review.github.client import GithubClient, GithubClientError
-from jj_review.github.stack_comments import STACK_NAVIGATION_COMMENT_MARKER
 from jj_review.jj import JjClient
 from jj_review.models.intent import SubmitIntent
 from jj_review.state.intents import write_new_intent
@@ -530,7 +529,7 @@ def test_status_exits_nonzero_when_github_reports_multiple_pull_requests(
     assert "relink <pr>" in captured.out
 
 
-def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
+def test_status_skips_stack_comment_github_reads(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -543,16 +542,26 @@ def test_status_exits_nonzero_when_github_reports_multiple_stack_comments(
     assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
-    fake_repo.create_issue_comment(
-        body=f"{STACK_NAVIGATION_COMMENT_MARKER}\nextra",
-        issue_number=2,
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    class FailingCommentLookupClient(GithubClient):
+        async def list_issue_comments(self, owner, repo, *, issue_number):
+            raise AssertionError("status should not inspect stack comments")
+
+    patch_github_client_builders(
+        monkeypatch,
+        app=app,
+        fake_repo=fake_repo,
+        modules=("jj_review.review.status",),
+        client_type=FailingCommentLookupClient,
     )
 
     exit_code = run_main(repo, config_path, "status")
     captured = capsys.readouterr()
 
-    assert exit_code == 1
-    assert "multiple jj-review stack navigation comments" in captured.out
+    assert exit_code == 0
+    assert "PR #2" in captured.out
+    assert "stack comment" not in captured.out
 
 
 def test_status_fetch_surfaces_unlinked_state_without_repopulating_link(
@@ -581,7 +590,7 @@ def test_status_fetch_surfaces_unlinked_state_without_repopulating_link(
     assert unlinked_change.overview_comment_id is None
 
 
-def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
+def test_status_fetch_refreshes_pr_metadata_without_stack_comment_reads(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -607,12 +616,26 @@ def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
                         update={
                             "pr_number": None,
                             "pr_url": None,
-                                "navigation_comment_id": None,
-                            }
-                        ),
+                            "navigation_comment_id": None,
+                        }
+                    ),
                 }
             }
         )
+    )
+
+    app = create_app(FakeGithubState.single_repository(fake_repo))
+
+    class FailingCommentLookupClient(GithubClient):
+        async def list_issue_comments(self, owner, repo, *, issue_number):
+            raise AssertionError("status should not inspect stack comments")
+
+    patch_github_client_builders(
+        monkeypatch,
+        app=app,
+        fake_repo=fake_repo,
+        modules=("jj_review.review.status",),
+        client_type=FailingCommentLookupClient,
     )
 
     exit_code = run_main(repo, config_path, "status", "--fetch", change_id)
@@ -622,7 +645,7 @@ def test_status_refreshes_cached_stack_comment_metadata_after_state_loss(
     assert exit_code == 0
     assert "PR #2" in captured.out
     assert refreshed_state.changes[change_id].pr_number == 2
-    assert refreshed_state.changes[change_id].navigation_comment_id == 2
+    assert refreshed_state.changes[change_id].navigation_comment_id is None
 
 
 def test_status_reports_unsubmitted_after_state_loss(
@@ -803,7 +826,7 @@ def test_status_reports_approved_pull_request_state(
     assert refreshed_state.changes[change_id].pr_state == "open"
 
 
-def test_status_preserves_cached_review_decision_when_review_lookup_fails(
+def test_status_reads_review_decision_from_pull_request_lookup(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -830,7 +853,7 @@ def test_status_preserves_cached_review_decision_when_review_lookup_fails(
         async def get_review_decisions_by_pull_request_numbers(
             self, owner, repo, *, pull_numbers
         ):
-            raise GithubClientError("Connection refused")
+            raise AssertionError("status should read reviewDecision from the PR lookup")
 
     patch_github_client_builders(
         monkeypatch,
@@ -843,7 +866,7 @@ def test_status_preserves_cached_review_decision_when_review_lookup_fails(
     exit_code = run_main(repo, config_path, "status", change_id)
     captured = capsys.readouterr()
 
-    assert exit_code == 1
+    assert exit_code == 0
     assert "PR #1 approved" in captured.out
     assert state_store.load().changes[change_id].pr_review_decision == "approved"
 

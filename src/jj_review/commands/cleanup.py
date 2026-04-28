@@ -539,6 +539,7 @@ def _stream_rebase(
     )
     with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         status_result = stream_status(
+            inspect_stack_comments=True,
             on_revision=lambda _revision, _github_available: progress.advance(),
             prepared_status=prepared_status,
         )

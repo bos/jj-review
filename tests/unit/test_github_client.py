@@ -337,6 +337,7 @@ def test_github_client_batches_pull_request_lookup_by_head_ref_with_graphql() ->
         assert 'headRefName: "review/seven"' in payload["query"]
         assert 'headRefName: "review/nine"' in payload["query"]
         assert "headRepositoryOwner" in payload["query"]
+        assert "reviewDecision" in payload["query"]
         return httpxyz.Response(
             200,
             json={
@@ -366,6 +367,7 @@ def test_github_client_batches_pull_request_lookup_by_head_ref_with_graphql() ->
                                     "headRepositoryOwner": {"login": "octo-org"},
                                     "mergedAt": None,
                                     "number": 7,
+                                    "reviewDecision": "APPROVED",
                                     "state": "OPEN",
                                     "title": "seven",
                                     "url": "https://github.test/octo-org/stacked-review/pull/7",
@@ -378,7 +380,7 @@ def test_github_client_batches_pull_request_lookup_by_head_ref_with_graphql() ->
             request=request,
         )
 
-    async def run_test() -> tuple[str, str, str | None]:
+    async def run_test() -> tuple[str, str, str | None, str | None]:
         transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
@@ -391,12 +393,18 @@ def test_github_client_batches_pull_request_lookup_by_head_ref_with_graphql() ->
             )
         pull_request_7 = pull_requests["review/seven"][0]
         pull_request_9 = pull_requests["review/nine"][0]
-        return pull_request_7.head.ref, pull_request_9.state, pull_request_7.head.label
+        return (
+            pull_request_7.head.ref,
+            pull_request_9.state,
+            pull_request_7.head.label,
+            pull_request_7.review_decision,
+        )
 
     assert asyncio.run(run_test()) == (
         "review/seven",
         "closed",
         "octo-org:review/seven",
+        "approved",
     )
 
 

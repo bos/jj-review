@@ -421,9 +421,8 @@ def test_list_batches_github_lookup_across_repo_stacks(
     assert "feature 1" in captured.out
     assert "feature 2" in captured.out
     assert len(CountingGithubClient.pull_request_lookup_calls) == 1
-    assert len(CountingGithubClient.review_decision_calls) == 1
     assert len(CountingGithubClient.pull_request_lookup_calls[0]) == 2
-    assert CountingGithubClient.review_decision_calls == [(1, 2)]
+    assert CountingGithubClient.review_decision_calls == []
 
 
 def test_list_fails_closed_when_tracked_changes_share_bookmark(

@@ -231,8 +231,9 @@ live in `jj` config, not in the tracking-state file.
 
 The tool also writes a stack-summary comment onto each PR (the navigation/overview
 comments described in the submission algorithm). That summary is not a source of truth —
-it is regenerated on every `submit` from the current `jj` stack, and the tool does not
-parse it back from GitHub except to re-find the ID of a comment it previously wrote.
+it is regenerated on every `submit` from the current `jj` stack. `submit`, `close`,
+and `cleanup` may read comments to re-find or delete comments the tool previously wrote,
+but `status` does not inspect issue comments.
 
 ## Storage strategy
 
@@ -430,14 +431,16 @@ When GitHub data is available, `status`:
 - if GitHub is unreachable or misconfigured, reports that once at the repo level and
   falls back to conservative per-change summaries from saved data rather than claiming a
   PR is absent. Because the output is incomplete, `status` exits non-zero
-- if it finds an ambiguous PR match or multiple stack-summary comments for the same PR,
-  surfaces that inline and exits non-zero rather than silently calling the stack healthy
+- if it finds an ambiguous PR match, surfaces that inline and exits non-zero rather
+  than silently calling the stack healthy
 - if a saved PR link existed but GitHub reports no PR for that branch, surfaces that
   stale link inline and exits non-zero before clearing it
 - when the link is stale or ambiguous, prints a short repair advisory pointing at
   `status --fetch` and `relink`
 - when a saved PR link includes a last-known PR state, surfaces that as saved data
   rather than implying it is live
+- does not inspect managed stack-summary comments. Those comments are derived review
+  artifacts, and the commands that create or delete them own their validation.
 - on a successful live run, refreshes the saved link bidirectionally — including
   clearing it when GitHub reports the branch has no PR
 

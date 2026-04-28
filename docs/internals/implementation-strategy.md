@@ -207,6 +207,9 @@ disagreement inline, including whether the saved submit baseline differs because
 rewrite, a changed review parent, or changed stack membership.
 Plain `status` does not run repo-scoped stale-stack discovery. Its "other stack changed" advisory
 is limited to stacks built on top of the stack being rendered; use `list` for the repo-wide view.
+Plain `status` also does not inspect managed stack-summary comments. That keeps status from doing
+one issue-comment request per open PR; `submit`, `close`, and `cleanup` own stack-comment
+validation when they mutate those comments.
 
 Orphaned `close --cleanup --pull-request` uses the same bookmark and stack-comment
 validation as regular close before it mutates GitHub state or prunes saved tracking.

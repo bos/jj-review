@@ -41,6 +41,7 @@ class GithubPullRequest(BaseModel):
     merged_at: str | None = None
     node_id: str | None = None
     number: int
+    review_decision: str | None = None
     state: str
     title: str
 
@@ -70,6 +71,10 @@ class GithubPullRequest(BaseModel):
             payload["draft"] = value.get("isDraft")
         if "id" in value:
             payload["node_id"] = value.get("id")
+        if "reviewDecision" in value:
+            payload["review_decision"] = _normalize_graphql_review_decision(
+                value.get("reviewDecision")
+            )
         return payload
 
 
@@ -125,3 +130,14 @@ class _GraphqlHeadLabelParts(BaseModel):
         default=None,
         alias="headRepositoryOwner",
     )
+
+
+def _normalize_graphql_review_decision(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.upper()
+    if normalized == "APPROVED":
+        return "approved"
+    if normalized == "CHANGES_REQUESTED":
+        return "changes_requested"
+    return None

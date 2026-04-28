@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -261,7 +261,7 @@ def _classify_status_intents(
 def stream_status(
     *,
     discover_remote_review: bool = False,
-    inspect_stack_comments: bool = True,
+    inspect_stack_comments: bool = False,
     persist_cache_updates: bool = True,
     prepared_status: PreparedStatus,
     on_github_status: Callable[[str | None, ErrorMessage | None], None] | None = None,
@@ -284,7 +284,7 @@ def stream_status(
 async def stream_status_async(
     *,
     discover_remote_review: bool = False,
-    inspect_stack_comments: bool = True,
+    inspect_stack_comments: bool = False,
     on_github_status: Callable[[str | None, ErrorMessage | None], None] | None,
     on_revision: Callable[[ReviewStatusRevision, bool], None] | None,
     persist_cache_updates: bool = True,
@@ -978,12 +978,9 @@ async def _resolve_pull_request_lookups(
         github_repository=github_repository,
         prepared_revisions=prepared_revisions,
     )
-    return await _attach_review_decisions_to_pull_request_lookups(
-        github_client=github_client,
-        github_repository=github_repository,
-        on_progress=on_progress,
-        pull_request_lookups=pull_request_lookups,
-    )
+    if on_progress is not None and pull_request_lookups:
+        on_progress(len(pull_request_lookups))
+    return pull_request_lookups
 
 
 async def _discover_pull_request_lookups(
@@ -1028,60 +1025,6 @@ async def _discover_pull_request_lookups(
     }
 
 
-async def _attach_review_decisions_to_pull_request_lookups(
-    *,
-    github_client: GithubClient,
-    github_repository,
-    on_progress: Callable[[int], None] | None,
-    pull_request_lookups: dict[str, PullRequestLookup],
-) -> dict[str, PullRequestLookup]:
-    open_pull_requests = {
-        bookmark: lookup.pull_request
-        for bookmark, lookup in pull_request_lookups.items()
-        if lookup.state == "open" and lookup.pull_request is not None
-    }
-    if on_progress is not None:
-        completed = len(pull_request_lookups) - len(open_pull_requests)
-        if completed:
-            on_progress(completed)
-    if not open_pull_requests:
-        return pull_request_lookups
-
-    try:
-        review_decisions = await github_client.get_review_decisions_by_pull_request_numbers(
-            github_repository.owner,
-            github_repository.repo,
-            pull_numbers=tuple(
-                pull_request.number for pull_request in open_pull_requests.values()
-            ),
-        )
-    except GithubClientError:
-        return {
-            bookmark: (
-                replace(lookup, review_decision_error="review decision lookup failed")
-                if bookmark in open_pull_requests
-                else lookup
-            )
-            for bookmark, lookup in pull_request_lookups.items()
-        }
-    finally:
-        if on_progress is not None:
-            on_progress(len(open_pull_requests))
-
-    return {
-        bookmark: (
-            replace(
-                lookup,
-                review_decision=review_decisions.get(pull_request.number),
-                review_decision_error=None,
-            )
-            if (lookup.state == "open" and (pull_request := lookup.pull_request) is not None)
-            else lookup
-        )
-        for bookmark, lookup in pull_request_lookups.items()
-    }
-
-
 def _pull_request_lookup_from_discovered(
     *,
     head_label: Message,
@@ -1123,7 +1066,11 @@ def _pull_request_lookup_from_discovered(
     return PullRequestLookup(
         message=None,
         pull_request=effective_pull_request,
-        review_decision=None,
+        review_decision=(
+            None
+            if effective_pull_request.is_draft
+            else effective_pull_request.review_decision
+        ),
         review_decision_error=None,
         repository_error=None,
         state="open",

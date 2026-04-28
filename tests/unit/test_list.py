@@ -7,8 +7,8 @@ from typing import Any, cast
 from jj_review import console as console_module
 from jj_review.commands.list_ import _state_from_status
 from jj_review.models.review_state import CachedChange, ReviewState
-from jj_review.models.stack import LocalRevision
-from jj_review.review.discovery import discover_tracked_stacks
+from jj_review.models.stack import LocalRevision, LocalStack
+from jj_review.review.discovery import discover_connected_tracked_stacks, discover_tracked_stacks
 from jj_review.review.status import ReviewStatusRevision
 
 
@@ -34,6 +34,26 @@ def _open_revision(
                 state="open",
             ),
         ),
+    )
+
+
+def _revision(
+    change_id: str,
+    commit_id: str,
+    *,
+    parent: str,
+    subject: str,
+) -> LocalRevision:
+    return LocalRevision(
+        change_id=change_id,
+        commit_id=commit_id,
+        current_working_copy=False,
+        description=subject,
+        divergent=False,
+        empty=False,
+        hidden=False,
+        immutable=False,
+        parents=(parent,),
     )
 
 
@@ -152,39 +172,9 @@ def test_state_from_status_marks_stale_saved_pull_request_link() -> None:
 
 
 def test_discover_stacks_extends_only_tracked_heads_for_fully_tracked_linear_stack() -> None:
-    root = LocalRevision(
-        change_id="a" * 32,
-        commit_id="commit-a",
-        current_working_copy=False,
-        description="feature 1",
-        divergent=False,
-        empty=False,
-        hidden=False,
-        immutable=False,
-        parents=("main",),
-    )
-    middle = LocalRevision(
-        change_id="b" * 32,
-        commit_id="commit-b",
-        current_working_copy=False,
-        description="feature 2",
-        divergent=False,
-        empty=False,
-        hidden=False,
-        immutable=False,
-        parents=("commit-a",),
-    )
-    head = LocalRevision(
-        change_id="c" * 32,
-        commit_id="commit-c",
-        current_working_copy=False,
-        description="feature 3",
-        divergent=False,
-        empty=False,
-        hidden=False,
-        immutable=False,
-        parents=("commit-b",),
-    )
+    root = _revision("a" * 32, "commit-a", parent="main", subject="feature 1")
+    middle = _revision("b" * 32, "commit-b", parent="commit-a", subject="feature 2")
+    head = _revision("c" * 32, "commit-c", parent="commit-b", subject="feature 3")
     tracked_revisions = {
         root.change_id: (root,),
         middle.change_id: (middle,),
@@ -226,3 +216,90 @@ def test_discover_stacks_extends_only_tracked_heads_for_fully_tracked_linear_sta
     assert queried_descendants == [(root.commit_id, middle.commit_id, head.commit_id)]
     assert queried_base_parents == [("main",)]
     assert queried_trunk_ancestors == [("main",)]
+
+
+def test_connected_stacks_skip_descendant_walk_when_other_tracking_is_unrelated() -> None:
+    trunk = _revision("m" * 32, "main", parent="root", subject="main")
+    selected = _revision("a" * 32, "commit-a", parent="main", subject="feature A")
+    unrelated = _revision("b" * 32, "commit-b", parent="main", subject="feature B")
+    selected_stack = LocalStack(
+        base_parent=trunk,
+        head=selected,
+        revisions=(selected,),
+        selected_revset=selected.change_id,
+        trunk=trunk,
+    )
+    queried_matches: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+
+    def query_connected(change_ids, ancestor_commit_ids):
+        queried_matches.append((tuple(change_ids), tuple(ancestor_commit_ids)))
+        return ()
+
+    jj_client = cast(
+        Any,
+        SimpleNamespace(
+            query_revisions_by_change_ids_descending_from=query_connected,
+            query_descendant_revisions=lambda _commit_ids: (_ for _ in ()).throw(
+                AssertionError("unrelated tracking should not walk descendants")
+            ),
+        ),
+    )
+    state = ReviewState(
+        changes={
+            selected.change_id: CachedChange(last_submitted_commit_id=selected.commit_id),
+            unrelated.change_id: CachedChange(last_submitted_commit_id=unrelated.commit_id),
+        }
+    )
+
+    discovered = discover_connected_tracked_stacks(
+        jj_client=jj_client,
+        selected_stacks=(selected_stack,),
+        state=state,
+    )
+
+    assert discovered == ()
+    assert queried_matches == [((unrelated.change_id,), (selected.commit_id,))]
+
+
+def test_connected_stacks_warn_for_tracked_change_built_on_selected_stack() -> None:
+    trunk = _revision("m" * 32, "main", parent="root", subject="main")
+    selected = _revision("a" * 32, "commit-a", parent="main", subject="feature A")
+    connected = _revision("b" * 32, "commit-b", parent="commit-a", subject="feature B")
+    selected_stack = LocalStack(
+        base_parent=trunk,
+        head=selected,
+        revisions=(selected,),
+        selected_revset=selected.change_id,
+        trunk=trunk,
+    )
+    queried_descendants: list[tuple[str, ...]] = []
+
+    def query_descendants(commit_ids):
+        queried_descendants.append(tuple(commit_ids))
+        return (connected,)
+
+    jj_client = cast(
+        Any,
+        SimpleNamespace(
+            query_revisions_by_change_ids_descending_from=lambda _change_ids,
+            _ancestor_commit_ids: (connected,),
+            query_descendant_revisions=query_descendants,
+            query_revisions_by_commit_ids=lambda _commit_ids: (),
+            query_trunk_ancestor_commit_ids=lambda commit_ids: set(commit_ids),
+        ),
+    )
+    state = ReviewState(
+        changes={
+            selected.change_id: CachedChange(last_submitted_commit_id=selected.commit_id),
+            connected.change_id: CachedChange(last_submitted_commit_id=connected.commit_id),
+        }
+    )
+
+    discovered = discover_connected_tracked_stacks(
+        jj_client=jj_client,
+        selected_stacks=(selected_stack,),
+        state=state,
+    )
+
+    assert tuple(stack.head.change_id for stack in discovered) == (connected.change_id,)
+    assert queried_descendants == [(connected.commit_id,)]
