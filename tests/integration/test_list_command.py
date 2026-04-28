@@ -78,6 +78,7 @@ def test_list_surfaces_orphaned_pull_request_after_change_is_abandoned(
     assert exit_code == 0
     assert "orphan" in captured.out
     assert f"PR #{middle_pr_number}" in captured.out
+    assert "local change missing" in captured.out
     assert f"close --cleanup --pull-request {middle_pr_number}" in captured.out
 
 
@@ -120,12 +121,11 @@ def test_list_warns_when_tracked_stack_has_moved_since_last_submit(
 
     exit_code = run_main(repo, config_path, "list")
     captured = capsys.readouterr()
-    combined = captured.out + captured.err
 
     assert exit_code == 0
-    assert "Some stacks changed since their PRs were last updated" in combined
-    assert "jj-review submit" in combined
-    assert new_alpha_head_change_id[:8] in combined
+    assert new_alpha_head_change_id[:8] in captured.err
+    assert "submit" in captured.err
+    assert "jj-review submit" not in captured.err
 
 
 def test_list_warns_when_untracked_change_is_inserted_below_tracked_stack(
@@ -152,11 +152,10 @@ def test_list_warns_when_untracked_change_is_inserted_below_tracked_stack(
 
     exit_code = run_main(repo, config_path, "list")
     captured = capsys.readouterr()
-    combined = captured.out + captured.err
 
     assert exit_code == 0
-    assert "Some stacks changed since their PRs were last updated" in combined
-    assert head_change_id[:8] in combined
+    assert head_change_id[:8] in captured.err
+    assert "submit" in captured.err
 
 
 def test_list_does_not_warn_when_tracked_stack_still_starts_at_mutable_trunk(
@@ -174,13 +173,13 @@ def test_list_does_not_warn_when_tracked_stack_still_starts_at_mutable_trunk(
     commit_file(repo, "alpha 1", "alpha-1.txt")
     assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
+    head_change_id = JjClient(repo).discover_review_stack().head.change_id
 
     exit_code = run_main(repo, config_path, "list")
     captured = capsys.readouterr()
-    combined = captured.out + captured.err
 
     assert exit_code == 0
-    assert "Some stacks changed since their PRs were last updated" not in combined
+    assert head_change_id[:8] not in captured.err
 
 
 def test_list_does_not_warn_when_tracked_stack_starts_at_mutable_trunk_ancestor(
@@ -198,6 +197,7 @@ def test_list_does_not_warn_when_tracked_stack_starts_at_mutable_trunk_ancestor(
     commit_file(repo, "alpha 1", "alpha-1.txt")
     assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
+    head_change_id = JjClient(repo).discover_review_stack().head.change_id
 
     run_command(["jj", "new", "main"], repo)
     commit_file(repo, "trunk 2", "trunk-2.txt")
@@ -205,10 +205,9 @@ def test_list_does_not_warn_when_tracked_stack_starts_at_mutable_trunk_ancestor(
 
     exit_code = run_main(repo, config_path, "list")
     captured = capsys.readouterr()
-    combined = captured.out + captured.err
 
     assert exit_code == 0
-    assert "Some stacks changed since their PRs were last updated" not in combined
+    assert head_change_id[:8] not in captured.err
 
 
 def test_list_extends_tracked_stack_through_unsubmitted_local_descendant(

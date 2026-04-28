@@ -60,6 +60,7 @@ class OrphanRow:
     """One orphaned PR — its local change has left every current stack."""
 
     change_id: str
+    hint: str | None
     review: str
     state: ui.Message
     subject: str
@@ -131,6 +132,7 @@ def list_(
                 rows=(),
             )
         )
+        _emit_orphan_hints(orphan_rows)
         return 0
     with console.spinner(description="Loading bookmark state"):
         repo_inspection = _prepare_repo_inspection_context(
@@ -192,6 +194,7 @@ def list_(
             rows=rows,
         )
     )
+    _emit_orphan_hints(orphan_rows)
     _emit_needs_submit_advisory(discovered=ordered, state=state)
     return 1 if any(row.incomplete for row in rows) else 0
 
@@ -200,14 +203,22 @@ def _build_orphan_row(orphan) -> OrphanRow:
     pr_number = orphan.cached_change.pr_number
     return OrphanRow(
         change_id=orphan.change_id,
-        review=f"PR #{pr_number}" if pr_number is not None else "(no PR number)",
-        state=ui.semantic_text("orphan", "warning", "heading"),
-        subject=(
+        hint=(
             f"close --cleanup --pull-request {pr_number}"
             if pr_number is not None
-            else "no saved PR number; reattach with relink before closing"
+            else None
         ),
+        review=f"PR #{pr_number}" if pr_number is not None else "(no PR number)",
+        state=ui.semantic_text("orphan", "warning", "heading"),
+        subject="local change missing",
     )
+
+
+def _emit_orphan_hints(orphan_rows: tuple[OrphanRow, ...]) -> None:
+    for orphan in orphan_rows:
+        if orphan.hint is None:
+            continue
+        console.note(t"Orphan {orphan.review}: run {ui.cmd(orphan.hint)} to retire it.")
 
 
 def _emit_needs_submit_advisory(
@@ -228,7 +239,7 @@ def _emit_needs_submit_advisory(
     console.warning(
         (
             "Some stacks changed since their PRs were last updated; run ",
-            ui.cmd("jj-review submit"),
+            ui.cmd("submit"),
             " for: ",
             *heads_fragments,
         )

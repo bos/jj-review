@@ -119,7 +119,7 @@ def discover_tracked_stacks(
                     ),
                     head=head,
                     revisions=stack_revisions,
-                    selected_revset=head.commit_id,
+                    selected_revset=head.change_id,
                     trunk=trunk,
                 )
             )

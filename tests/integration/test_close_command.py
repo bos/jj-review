@@ -504,6 +504,7 @@ def test_close_cleanup_pull_request_retires_orphaned_pr(
     assert f"close PR #{bottom_pr_number}" in output
     assert "prune orphan record" in output
     assert fake_repo.pull_requests[bottom_pr_number].state == "closed"
+    assert issue_comments(fake_repo, bottom_pr_number) == []
     assert bottom_change_id not in refreshed_state.changes
     assert bottom_bookmark not in remote_refs(fake_repo.git_dir)
 

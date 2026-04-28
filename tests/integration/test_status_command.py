@@ -108,15 +108,12 @@ def test_status_warns_when_other_tracked_stack_has_moved_since_last_submit(
     run_command(["jj", "edit", alpha_head_change_id], repo)
     exit_code = run_main(repo, config_path, "status")
     captured = capsys.readouterr()
-    combined = captured.out + captured.err
 
     assert exit_code == 0
-    assert "Other stacks changed since their PRs were last updated" in combined
-    assert "jj-review submit" in combined
-    assert new_beta_head_change_id[:8] in combined
-    assert alpha_head_change_id[:8] not in combined.split(
-        "Other stacks changed since their PRs were last updated"
-    )[1]
+    assert new_beta_head_change_id[:8] in captured.err
+    assert alpha_head_change_id[:8] not in captured.err
+    assert "submit" in captured.err
+    assert "jj-review submit" not in captured.err
 
 
 def test_status_pull_request_selector_requires_a_linked_local_change(

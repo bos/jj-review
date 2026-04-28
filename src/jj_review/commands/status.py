@@ -224,7 +224,7 @@ def _emit_other_stacks_needs_submit_advisory(
     console.warning(
         (
             "Other stacks changed since their PRs were last updated; run ",
-            ui.cmd("jj-review submit"),
+            ui.cmd("submit"),
             " for: ",
             *heads_fragments,
         )
