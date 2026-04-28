@@ -77,7 +77,7 @@ from jj_review.ui import Message, plain_text
 
 HELP = "Remove stale tracking data and review branches; optionally rebase one stack"
 
-CleanupActionStatus = Literal["applied", "blocked", "planned"]
+CleanupActionStatus = Literal["applied", "blocked", "planned", "skipped"]
 type StackCommentCleanupEligibility = Literal["inspect", "needs-remote-check", "skip"]
 type CleanupBody = Message
 _GITHUB_INSPECTION_CONCURRENCY = DEFAULT_BOUNDED_CONCURRENCY
@@ -85,7 +85,7 @@ _GITHUB_INSPECTION_CONCURRENCY = DEFAULT_BOUNDED_CONCURRENCY
 
 @dataclass(frozen=True, slots=True)
 class CleanupAction:
-    """One cleanup action that was planned, applied, or blocked."""
+    """One cleanup action that was planned, applied, blocked, or skipped."""
 
     kind: str
     status: CleanupActionStatus
@@ -453,6 +453,12 @@ def _action_presentation(
             "  ✗",
             ("error heading",),
             ("warning heading",),
+        )
+    if status == "skipped":
+        return (
+            "  -",
+            ("hint heading",),
+            None,
         )
     return ("  ?", None, None)
 
@@ -1179,7 +1185,7 @@ def _process_stale_cleanup_change(
         record_action(
             CleanupAction(
                 kind="tracking",
-                status="planned" if prepared_cleanup.dry_run else "applied",
+                status="skipped",
                 body=body,
             )
         )

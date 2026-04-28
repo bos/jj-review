@@ -435,6 +435,7 @@ def test_cleanup_preserves_open_orphan_record_and_remote_branch(
     normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 0
+    assert "  - preserve open orphan" in captured.out
     assert "preserve open orphan" in normalized_output
     assert f"close --cleanup --pull-request {pr_number}" in normalized_output
     assert change_id in refreshed_state.changes
