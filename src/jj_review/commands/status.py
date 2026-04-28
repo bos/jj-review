@@ -43,6 +43,7 @@ from jj_review.models.stack import LocalStack
 from jj_review.review.bookmarks import bookmark_glob, is_review_bookmark
 from jj_review.review.discovery import discover_connected_tracked_stacks
 from jj_review.review.intents import (
+    SubmitIntentMatch,
     describe_intent,
     match_cleanup_rebase_intent,
     match_close_intent,
@@ -922,23 +923,19 @@ def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
                         ),
                     )
                 )
-            elif isinstance(loaded.intent, CleanupRebaseIntent):
+            elif isinstance(loaded.intent, CleanupRebaseIntent | CloseIntent):
                 lines.append(
                     _prefixed_intent_line(
                         description,
-                        _render_interrupted_cleanup_rebase_status_line(
-                            intent=loaded.intent,
-                            prepared_status=prepared_status,
-                        ),
-                    )
-                )
-            elif isinstance(loaded.intent, CloseIntent):
-                lines.append(
-                    _prefixed_intent_line(
-                        description,
-                        _render_interrupted_close_status_line(
-                            intent=loaded.intent,
-                            prepared_status=prepared_status,
+                        _render_interrupted_match_status_line(
+                            match=_match_ordered_intent(
+                                intent=loaded.intent,
+                                prepared_status=prepared_status,
+                            ),
+                            rerun_command=_render_rerun_command(
+                                command=_intent_rerun_command(loaded.intent),
+                                revset=prepared_status.selected_revset,
+                            ),
                         ),
                     )
                 )
@@ -1112,15 +1109,17 @@ def _render_rerun_command(*, command: str, revset: str) -> tuple[object, ...]:
     )
 
 
-def _render_interrupted_cleanup_rebase_status_line(
+def _intent_rerun_command(intent: CleanupRebaseIntent | CloseIntent) -> str:
+    if isinstance(intent, CleanupRebaseIntent):
+        return "cleanup --rebase"
+    return "close --cleanup" if intent.cleanup else "close"
+
+
+def _match_ordered_intent(
     *,
-    intent: CleanupRebaseIntent,
+    intent: CleanupRebaseIntent | CloseIntent,
     prepared_status,
-) -> object:
-    rerun_command = _render_rerun_command(
-        command="cleanup --rebase",
-        revset=prepared_status.selected_revset,
-    )
+) -> SubmitIntentMatch:
     current_change_ids = tuple(
         prepared_revision.revision.change_id
         for prepared_revision in prepared_status.prepared.status_revisions
@@ -1129,99 +1128,60 @@ def _render_interrupted_cleanup_rebase_status_line(
         prepared_revision.revision.commit_id
         for prepared_revision in prepared_status.prepared.status_revisions
     )
-    match = match_cleanup_rebase_intent(
+    if isinstance(intent, CleanupRebaseIntent):
+        return match_cleanup_rebase_intent(
+            intent=intent,
+            current_change_ids=current_change_ids,
+            current_commit_ids=current_commit_ids,
+        )
+    return match_close_intent(
         intent=intent,
         current_change_ids=current_change_ids,
         current_commit_ids=current_commit_ids,
     )
+
+
+def _render_interrupted_match_status_line(
+    *,
+    match: SubmitIntentMatch,
+    rerun_command: tuple[object, ...],
+) -> object:
+    """Render the interrupted-status message for an ordered-stack intent match."""
+
     if match == "exact":
-        status = (
+        return (
             "interrupted, rerun ",
             rerun_command,
             " to continue on the current stack",
         )
-    elif match == "same-logical":
-        status = (
+    if match == "same-logical":
+        return (
             "interrupted, recorded stack was rewritten; rerunning ",
             rerun_command,
             " will use the current stack",
         )
-    elif match == "covered":
-        status = (
+    if match == "covered":
+        return (
             "interrupted, the recorded changes are all included in the current stack; ",
             "rerunning ",
             rerun_command,
             " will use the current stack",
         )
-    elif match == "trimmed":
-        status = (
+    if match == "trimmed":
+        return (
             "interrupted, the recorded stack still includes changes that are no "
             "longer on the current stack; ",
             "rerunning ",
             rerun_command,
             " will use the current stack",
         )
-    elif match == "overlap":
-        status = (
+    if match == "overlap":
+        return (
             "interrupted, current stack differs; inspect before running ",
             rerun_command,
             " again",
         )
-    else:
-        status = "interrupted, recorded stack differs from the current selection"
-    return status
-
-
-def _render_interrupted_close_status_line(
-    *,
-    intent: CloseIntent,
-    prepared_status,
-) -> object:
-    rerun_command = _render_rerun_command(
-        command="close --cleanup" if intent.cleanup else "close",
-        revset=prepared_status.selected_revset,
-    )
-    current_change_ids = tuple(
-        prepared_revision.revision.change_id
-        for prepared_revision in prepared_status.prepared.status_revisions
-    )
-    current_commit_ids = tuple(
-        prepared_revision.revision.commit_id
-        for prepared_revision in prepared_status.prepared.status_revisions
-    )
-    match = match_close_intent(
-        intent=intent,
-        current_change_ids=current_change_ids,
-        current_commit_ids=current_commit_ids,
-    )
-    if match == "exact":
-        status = (
-            "interrupted, rerun ",
-            rerun_command,
-            " to continue on the current stack",
-        )
-    elif match == "same-logical":
-        status = (
-            "interrupted, recorded stack was rewritten; rerunning ",
-            rerun_command,
-            " will use the current stack",
-        )
-    elif match == "covered":
-        status = (
-            "interrupted, the recorded changes are all included in the current stack; ",
-            "rerunning ",
-            rerun_command,
-            " will use the current stack",
-        )
-    elif match == "overlap":
-        status = (
-            "interrupted, current stack differs; inspect before running ",
-            rerun_command,
-            " again",
-        )
-    else:
-        status = "interrupted, recorded stack differs from the current selection"
-    return status
+    return "interrupted, recorded stack differs from the current selection"
 
 
 def _render_summary_revision_lines(
