@@ -188,15 +188,53 @@ def prepare_status(
 ) -> PreparedStatus:
     """Resolve local status inputs before any GitHub network inspection."""
 
-    prepared = _prepare_stack(
+    state_store = ReviewStateStore.for_repo(jj_client.repo_root)
+    state = state_store.load()
+    remotes = jj_client.list_git_remotes()
+    remote: GitRemote | None = None
+    remote_error: ErrorMessage | None = None
+    if remotes:
+        try:
+            remote = select_submit_remote(remotes)
+        except CliError as error:
+            remote_error = error_message(error)
+
+    stack: LocalStack | None = None
+    if (
+        remote is not None
+        and fetch_remote_state
+        and re_resolve_after_remote_refresh
+        and not fetch_only_when_tracked
+    ):
+        jj_client.fetch_remote(remote=remote.name)
+    else:
+        stack = jj_client.discover_review_stack(
+            revset, allow_divergent=True, allow_immutable=True
+        )
+        if remote is not None and fetch_remote_state:
+            should_fetch = not fetch_only_when_tracked or any(
+                (cached := state.changes.get(revision.change_id)) is not None
+                and cached.has_review_identity
+                for revision in stack.revisions
+            )
+            if should_fetch:
+                jj_client.fetch_remote(remote=remote.name)
+                if re_resolve_after_remote_refresh:
+                    stack = None
+    if stack is None:
+        stack = jj_client.discover_review_stack(
+            revset, allow_divergent=True, allow_immutable=True
+        )
+
+    prepared = prepare_stack_for_status(
         config=config,
         jj_client=jj_client,
         persist_bookmarks=persist_bookmarks,
-        re_resolve_after_remote_refresh=re_resolve_after_remote_refresh,
-        refresh_remote_state=fetch_remote_state,
-        refresh_requires_tracked=fetch_only_when_tracked,
-        require_remote=False,
-        revset=revset,
+        remote=remote,
+        remote_error=remote_error,
+        stack=stack,
+        state=state,
+        state_store=state_store,
     )
     logger.debug(
         "status prepared: selected_revset=%s revisions=%d remote=%s",
@@ -438,80 +476,6 @@ async def stream_status_async(
         selected_revset=selected_revset,
         base_parent_subject=base_parent_subject,
         submitted_state_disagreements=submitted_disagreements,
-    )
-
-
-def _prepare_stack(
-    *,
-    config: RepoConfig,
-    jj_client: JjClient,
-    persist_bookmarks: bool,
-    re_resolve_after_remote_refresh: bool,
-    refresh_remote_state: bool,
-    refresh_requires_tracked: bool = False,
-    require_remote: bool,
-    revset: str | None,
-) -> PreparedStack:
-    client = jj_client
-    state_store = ReviewStateStore.for_repo(jj_client.repo_root)
-    state = state_store.load()
-    remotes = client.list_git_remotes()
-    remote: GitRemote | None = None
-    remote_error: ErrorMessage | None = None
-    if require_remote or remotes:
-        try:
-            remote = select_submit_remote(remotes)
-        except CliError as error:
-            if require_remote:
-                raise
-            remote_error = error_message(error)
-    logger.debug(
-        "prepared stack: remotes=%s selected_remote=%s remote_error=%s",
-        [remote.name for remote in remotes],
-        remote.name if remote is not None else None,
-        remote_error,
-    )
-    stack: LocalStack | None = None
-    if (
-        remote is not None
-        and refresh_remote_state
-        and re_resolve_after_remote_refresh
-        and not refresh_requires_tracked
-    ):
-        client.fetch_remote(remote=remote.name)
-    else:
-        stack = client.discover_review_stack(
-            revset,
-            allow_divergent=True,
-            allow_immutable=True,
-        )
-        if remote is not None and refresh_remote_state:
-            should_fetch = not refresh_requires_tracked or any(
-                (cached := state.changes.get(revision.change_id)) is not None
-                and cached.has_review_identity
-                for revision in stack.revisions
-            )
-            if should_fetch:
-                client.fetch_remote(remote=remote.name)
-                if re_resolve_after_remote_refresh:
-                    stack = None
-
-    if stack is None:
-        stack = client.discover_review_stack(
-            revset,
-            allow_divergent=True,
-            allow_immutable=True,
-        )
-
-    return prepare_stack_for_status(
-        config=config,
-        jj_client=client,
-        persist_bookmarks=persist_bookmarks,
-        remote=remote,
-        remote_error=remote_error,
-        stack=stack,
-        state=state,
-        state_store=state_store,
     )
 
 

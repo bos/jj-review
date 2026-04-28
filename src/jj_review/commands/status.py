@@ -1327,14 +1327,6 @@ def _emit_lines(
         emitter(line, soft_wrap=soft_wrap)
 
 
-def _prefixed_status_line(prefix: str, body: object) -> object:
-    return ui.prefixed_line(
-        f"{prefix}: ",
-        body,
-        prefix_labels=("prefix",),
-    )
-
-
 def _format_cached_pull_request_label(cached_change) -> str | None:
     if cached_change is None or cached_change.pr_number is None:
         return None
