@@ -544,10 +544,11 @@ resolve to one linked local change. The one exception is `close --cleanup
 --pull-request <pr>` for an orphaned PR (one whose local change has been abandoned
 or otherwise dropped from every current stack): saved tracking is the only available
 identity, so `close` acts from the exact saved PR and branch fields and still fails
-closed if either is missing or ambiguous. "Ambiguous" includes the case where the
+closed if either is missing or ambiguous. Before deleting a branch, it verifies that
+the saved PR still uses the saved branch name on the configured GitHub repository, not
+just a same-named branch from another owner. "Ambiguous" includes the case where the
 saved branch is now claimed by another tracked change (e.g. via `use_bookmarks`) —
-branch deletion in that mode would silently take a branch out from under a live
-review.
+branch deletion in that mode would silently take a branch out from under a live review.
 
 Without `--cleanup`, `close`:
 

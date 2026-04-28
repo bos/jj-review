@@ -476,6 +476,50 @@ def test_close_cleanup_pull_request_retires_orphaned_pr(
     assert bottom_bookmark not in remote_refs(fake_repo.git_dir)
 
 
+def test_close_cleanup_pull_request_blocks_when_saved_pr_head_is_from_fork(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    commit_file(repo, "alpha 2", "alpha-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    state_store = ReviewStateStore.for_repo(repo)
+    state = state_store.load()
+    bottom_bookmark = state.changes[bottom_change_id].bookmark
+    bottom_pr_number = state.changes[bottom_change_id].pr_number
+    assert bottom_bookmark is not None
+    assert bottom_pr_number is not None
+
+    run_command(["jj", "abandon", bottom_change_id], repo)
+    fake_repo.pull_requests[bottom_pr_number].head_label = f"fork-owner:{bottom_bookmark}"
+
+    exit_code = run_main(
+        repo,
+        config_path,
+        "close",
+        "--cleanup",
+        "--pull-request",
+        str(bottom_pr_number),
+    )
+    captured = capsys.readouterr()
+    combined = _combined_output(captured)
+
+    assert exit_code == 1
+    assert "Close blocked:" in captured.out
+    assert f"its head is fork-owner:{bottom_bookmark}" in combined
+    assert f"close PR #{bottom_pr_number}" not in captured.out
+    assert fake_repo.pull_requests[bottom_pr_number].state == "open"
+    assert f"refs/heads/{bottom_bookmark}" in remote_refs(fake_repo.git_dir)
+    assert bottom_change_id in state_store.load().changes
+
+
 def test_close_cleanup_pull_request_refuses_when_orphan_bookmark_is_reclaimed(
     tmp_path: Path,
     monkeypatch,

@@ -759,6 +759,20 @@ async def _lookup_orphaned_pull_request(
                 status="blocked",
             ),
         )
+    expected_head_label = f"{github_repository.owner}:{bookmark}"
+    if pull_request.head.label != expected_head_label:
+        return (
+            inspection,
+            CloseAction(
+                kind="close",
+                body=(
+                    t"cannot close orphaned PR #{pull_request_number} because its head "
+                    t"is {pull_request.head.label or '<unknown>'}, not "
+                    t"{expected_head_label}"
+                ),
+                status="blocked",
+            ),
+        )
 
     try:
         branch_matches = await github_client.get_pull_requests_by_head_refs(

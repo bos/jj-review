@@ -188,13 +188,16 @@ It does not decide stack topology or branch naming.
 Tracking state stays minimal, optional, and non-authoritative. It is a small versioned
 JSON file validated through `pydantic`. Human-authored config stays in TOML.
 
-Repo-scoped inspection treats orphan-only tracking as first-class output. `list` can render those
-saved orphan rows directly without loading bookmark state when no live stacks remain.
+Repo-scoped inspection treats orphan-only tracking as first-class output. `list` can
+render those saved orphan rows directly without loading bookmark state when no live
+stacks remain.
 
-Orphaned `close --cleanup --pull-request` uses the same bookmark and stack-comment validation as
-regular close before it mutates GitHub state or prunes saved tracking. It verifies the saved PR
-identity by PR number before using head-branch lookup only to detect duplicate live claims, so
-merged orphan PRs can still be retired.
+Orphaned `close --cleanup --pull-request` uses the same bookmark and stack-comment
+validation as regular close before it mutates GitHub state or prunes saved tracking.
+It verifies the saved PR identity by PR number, then verifies that the PR head is the
+saved branch on the configured GitHub repository before using head-branch lookup only
+to detect duplicate live claims. This lets merged orphan PRs be retired without
+mistaking a same-named fork branch for the review branch.
 
 ## Data model
 
