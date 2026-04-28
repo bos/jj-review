@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import httpx
+import httpxyz
 
 import jj_review.commands.doctor as doctor_mod
 from jj_review.github.client import GithubClient, GithubClientError
@@ -29,7 +29,7 @@ def _configure_doctor_environment(monkeypatch, tmp_path: Path, fake_repo) -> Pat
     app = create_app(FakeGithubState.single_repository(fake_repo))
 
     def fake_github_client(*, base_url: str, token: str | None = None, **kwargs) -> GithubClient:
-        return GithubClient(base_url=base_url, transport=httpx.ASGITransport(app=app))
+        return GithubClient(base_url=base_url, transport=httpxyz.ASGITransport(app=app))
 
     monkeypatch.setattr(doctor_mod, "GithubClient", fake_github_client)
     monkeypatch.setattr(

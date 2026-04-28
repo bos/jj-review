@@ -25,11 +25,11 @@ wheels = [
 
 [[package]]
 name = "certifi"
-version = "2026.2.25"
+version = "2026.4.22"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/af/2d/7bf41579a8986e348fa033a31cdd0e4121114f6bce2457e8876010b092dd/certifi-2026.2.25.tar.gz", hash = "sha256:e887ab5cee78ea814d3472169153c2d12cd43b14bd03329a39a9c6e2e80bfba7", size = 155029, upload-time = "2026-02-25T02:54:17.342Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/25/ee/6caf7a40c36a1220410afe15a1cc64993a1f864871f698c0f93acb72842a/certifi-2026.4.22.tar.gz", hash = "sha256:8d455352a37b71bf76a79caa83a3d6c25afee4a385d632127b6afb3963f1c580", size = 137077, upload-time = "2026-04-22T11:26:11.191Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9a/3c/c17fb3ca2d9c3acff52e30b309f538586f9f5b9c9cf454f3845fc9af4881/certifi-2026.2.25-py3-none-any.whl", hash = "sha256:027692e4402ad994f1c42e52a4997a9763c646b73e4096e4d5d6db8af1d6f0fa", size = 153684, upload-time = "2026-02-25T02:54:15.766Z" },
+    { url = "https://files.pythonhosted.org/packages/22/30/7cd8fdcdfbc5b869528b079bfb76dcdf6056b1a2097a662e5e8c04f42965/certifi-2026.4.22-py3-none-any.whl", hash = "sha256:3cb2210c8f88ba2318d29b0388d1023c8492ff72ecdde4ebdaddbb13a31b1c4a", size = 135707, upload-time = "2026-04-22T11:26:09.372Z" },
 ]
 
 [[package]]
@@ -113,31 +113,31 @@ wheels = [
 ]
 
 [[package]]
-name = "httpcore"
-version = "1.0.9"
+name = "httpcorexyz"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "certifi" },
     { name = "h11" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/06/94/82699a10bca87a5556c9c59b5963f2d039dbd239f25bc2a63907a05a14cb/httpcore-1.0.9.tar.gz", hash = "sha256:6e34463af53fd2ab5d807f399a9b45ea31c3dfa2276f15a2c3f00afff6e176e8", size = 85484, upload-time = "2025-04-24T22:06:22.219Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/26/c7/cb12e738c9bf3b8a0b90afc833b0c96c1b87b1fa644ba163d51104e8ad53/httpcorexyz-1.1.0.tar.gz", hash = "sha256:2678734930cbfe575a25356a0688b2290ced297865112e7a3cc742308db90b15", size = 95953, upload-time = "2026-04-25T18:10:21.795Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl", hash = "sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55", size = 78784, upload-time = "2025-04-24T22:06:20.566Z" },
+    { url = "https://files.pythonhosted.org/packages/ce/93/71eabbde12b7211b327a1e5282755f066a191d02f9a8ce7dca961fae3518/httpcorexyz-1.1.0-py3-none-any.whl", hash = "sha256:98c6078baccc4d7b5c8e804e78297f785ff6dd53439e6135dae4c19326753faf", size = 83153, upload-time = "2026-04-25T18:10:19.278Z" },
 ]
 
 [[package]]
-name = "httpx"
-version = "0.28.1"
+name = "httpxyz"
+version = "0.31.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "certifi" },
-    { name = "httpcore" },
+    { name = "httpcorexyz" },
     { name = "idna" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b1/df/48c586a5fe32a0f01324ee087459e112ebb7224f646c0b5023f5e79e9956/httpx-0.28.1.tar.gz", hash = "sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc", size = 141406, upload-time = "2024-12-06T15:37:23.222Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/17/46259b2f8fc4d898b2cd61f372d6bdcc7a4b0ecb12769258a5f2368b5043/httpxyz-0.31.0.tar.gz", hash = "sha256:0b91d54dd900d87b46d24d6ec3a69b6c20c5e9d2b89a540771c172c7835bf717", size = 149393, upload-time = "2026-04-25T19:14:43.194Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad", size = 73517, upload-time = "2024-12-06T15:37:21.509Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/00/87868350bc747b1d48926dd73a793876a5acc33ec8014169c0feaeedaedf/httpxyz-0.31.0-py3-none-any.whl", hash = "sha256:0f9d3490cebf8fc97e59c1bc264d6139c8c99f569da4779c3abff8b476df5b21", size = 77339, upload-time = "2026-04-25T19:14:41.467Z" },
 ]
 
 [[package]]
@@ -163,7 +163,7 @@ name = "jj-review"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "httpx" },
+    { name = "httpxyz" },
     { name = "pydantic" },
     { name = "rich" },
 ]
@@ -181,7 +181,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "httpx", specifier = ">=0.28.1,<0.29" },
+    { name = "httpxyz", specifier = ">=0.31.0,<0.32" },
     { name = "pydantic", specifier = ">=2.11.0,<3" },
     { name = "rich", specifier = ">=14.1.0,<15" },
 ]

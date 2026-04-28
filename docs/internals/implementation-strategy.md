@@ -18,7 +18,7 @@ The client:
 - uses `uv` for environment, execution, and dependency management
 - uses `pyrefly` for static type checking
 - uses `pydantic` for typed local and remote data models
-- uses `httpx` for GitHub API traffic
+- uses `httpxyz` for GitHub API traffic
 
 We test every behavior first against a local fake GitHub server backed by a real Git
 repo, and then against a real GitHub test repo in an opt-in live mode.
@@ -160,7 +160,7 @@ This is where most correctness lives.
 
 ### GitHub client
 
-Thin `httpx` wrapper plus typed `pydantic` models. Knows how to fetch PR state, batch PR
+Thin `httpxyz` wrapper plus typed `pydantic` models. Knows how to fetch PR state, batch PR
 lookup by known head branch, create PRs, update PRs, assign reviewers and labels, manage
 stack-summary comments, and handle endpoint-specific pagination or retry.
 
@@ -230,7 +230,7 @@ GitHub credentials resolve in this order:
   authenticated
 - otherwise fail with an explicit authentication error
 
-The application client uses `httpx` directly for GitHub calls. If we reuse `gh`
+The application client uses `httpxyz` directly for GitHub calls. If we reuse `gh`
 credentials, we go through the supported `gh auth token` command, not by reading `gh`
 config files, keychain entries, or other internal storage.
 

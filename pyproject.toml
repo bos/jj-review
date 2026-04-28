@@ -19,7 +19,7 @@ classifiers = [
   "Topic :: Software Development :: Version Control :: Git",
 ]
 dependencies = [
-  "httpx>=0.28.1,<0.29",
+  "httpxyz>=0.31.0,<0.32",
   "pydantic>=2.11.0,<3",
   "rich>=14.1.0,<15",
 ]

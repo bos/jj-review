@@ -13,7 +13,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any, TypeVar
 from urllib.parse import urlparse
 
-import httpx
+import httpxyz
 from pydantic import BaseModel, ValidationError
 
 from jj_review.models.github import (
@@ -73,7 +73,7 @@ class GithubClient:
         max_rate_limit_retries: int = _DEFAULT_RATE_LIMIT_RETRIES,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         token: str | None = None,
-        transport: httpx.AsyncBaseTransport | None = None,
+        transport: httpxyz.AsyncBaseTransport | None = None,
     ) -> None:
         headers = {
             "Accept": "application/vnd.github+json",
@@ -82,7 +82,7 @@ class GithubClient:
         if token is not None:
             headers["Authorization"] = f"Bearer {token}"
 
-        self._client = httpx.AsyncClient(
+        self._client = httpxyz.AsyncClient(
             base_url=base_url,
             headers=headers,
             timeout=30.0,
@@ -448,7 +448,7 @@ class GithubClient:
         *,
         json: Any | None = None,
         params: dict[str, str] | None = None,
-    ) -> httpx.Response:
+    ) -> httpxyz.Response:
         for attempt in range(self._max_rate_limit_retries + 1):
             try:
                 response = await self._client.request(
@@ -457,7 +457,7 @@ class GithubClient:
                     json=json,
                     params=params,
                 )
-            except httpx.RequestError as error:
+            except httpxyz.RequestError as error:
                 raise GithubClientError(f"GitHub request failed: {error}") from error
 
             retry_after_seconds = self._retry_after_seconds(
@@ -532,10 +532,10 @@ class GithubClient:
             raise GithubClientError(f"GitHub {response_name} response was missing `data`.")
         return data
 
-    def _expect_success(self, response: httpx.Response) -> Any:
+    def _expect_success(self, response: httpxyz.Response) -> Any:
         try:
             response.raise_for_status()
-        except httpx.HTTPStatusError as error:
+        except httpxyz.HTTPStatusError as error:
             raise GithubClientError(
                 f"GitHub request failed: {error.response.status_code} {error.response.text}",
                 retry_after_seconds=_parse_retry_after_header(
@@ -545,10 +545,10 @@ class GithubClient:
             ) from error
         return response.json()
 
-    def _expect_no_content(self, response: httpx.Response) -> None:
+    def _expect_no_content(self, response: httpxyz.Response) -> None:
         try:
             response.raise_for_status()
-        except httpx.HTTPStatusError as error:
+        except httpxyz.HTTPStatusError as error:
             raise GithubClientError(
                 f"GitHub request failed: {error.response.status_code} {error.response.text}",
                 retry_after_seconds=_parse_retry_after_header(
@@ -561,7 +561,7 @@ class GithubClient:
         self,
         *,
         attempt: int,
-        response: httpx.Response,
+        response: httpxyz.Response,
     ) -> float | None:
         if not _is_retryable_rate_limit(response):
             return None
@@ -582,7 +582,7 @@ class GithubClient:
         return min(backoff_seconds, self._max_rate_limit_backoff_seconds)
 
 
-def _is_retryable_rate_limit(response: httpx.Response) -> bool:
+def _is_retryable_rate_limit(response: httpxyz.Response) -> bool:
     if response.status_code == 429:
         return True
     if response.status_code != 403:

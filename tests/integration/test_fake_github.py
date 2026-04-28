@@ -4,7 +4,7 @@ import asyncio
 import subprocess
 from pathlib import Path
 
-import httpx
+import httpxyz
 from fastapi import FastAPI
 
 from jj_review.github.client import GithubClient
@@ -17,14 +17,14 @@ from ..support.fake_github import (
 
 
 async def _fetch_repository(app: FastAPI) -> tuple[str, str | None]:
-    transport = httpx.ASGITransport(app=app)
+    transport = httpxyz.ASGITransport(app=app)
     async with GithubClient(base_url="https://api.github.test", transport=transport) as client:
         repository = await client.get_repository("octo-org", "stacked-review")
     return repository.full_name, repository.default_branch
 
 
 async def _round_trip_issue_comment(app: FastAPI) -> tuple[str, str]:
-    transport = httpx.ASGITransport(app=app)
+    transport = httpxyz.ASGITransport(app=app)
     async with GithubClient(base_url="https://api.github.test", transport=transport) as client:
         pull_request = await client.create_pull_request(
             "octo-org",
@@ -55,7 +55,7 @@ async def _round_trip_issue_comment(app: FastAPI) -> tuple[str, str]:
 
 
 async def _round_trip_pull_request_reviews(app: FastAPI) -> tuple[str, str]:
-    transport = httpx.ASGITransport(app=app)
+    transport = httpxyz.ASGITransport(app=app)
     async with GithubClient(base_url="https://api.github.test", transport=transport) as client:
         reviews = await client.list_pull_request_reviews(
             "octo-org",
@@ -68,7 +68,7 @@ async def _round_trip_pull_request_reviews(app: FastAPI) -> tuple[str, str]:
 
 
 async def _round_trip_draft_pull_request(app: FastAPI) -> tuple[bool, bool, bool]:
-    transport = httpx.ASGITransport(app=app)
+    transport = httpxyz.ASGITransport(app=app)
     async with GithubClient(base_url="https://api.github.test", transport=transport) as client:
         pull_request = await client.create_pull_request(
             "octo-org",
@@ -89,7 +89,7 @@ async def _round_trip_draft_pull_request(app: FastAPI) -> tuple[bool, bool, bool
 
 
 async def _lookup_pull_requests_by_head_refs(app: FastAPI) -> tuple[int, int]:
-    transport = httpx.ASGITransport(app=app)
+    transport = httpxyz.ASGITransport(app=app)
     async with GithubClient(base_url="https://api.github.test", transport=transport) as client:
         pull_requests = await client.get_pull_requests_by_head_refs(
             "octo-org",

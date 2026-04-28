@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-import httpx
+import httpxyz
 import pytest
 
 from jj_review.github.client import GithubClient, GithubClientError
@@ -13,17 +13,17 @@ def test_github_client_retries_429_responses_with_retry_after() -> None:
     attempts = 0
     sleeps: list[float] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
-            return httpx.Response(
+            return httpxyz.Response(
                 429,
                 headers={"Retry-After": "0"},
                 json={"message": "slow down"},
                 request=request,
             )
-        return httpx.Response(
+        return httpxyz.Response(
             200,
             json={
                 "clone_url": "https://github.test/octo-org/stacked-review.git",
@@ -41,7 +41,7 @@ def test_github_client_retries_429_responses_with_retry_after() -> None:
         sleeps.append(delay)
 
     async def run_test() -> str:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
             max_rate_limit_retries=1,
@@ -60,16 +60,16 @@ def test_github_client_retries_secondary_rate_limits_without_retry_after() -> No
     attempts = 0
     sleeps: list[float] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
-            return httpx.Response(
+            return httpxyz.Response(
                 403,
                 json={"message": "You have exceeded a secondary rate limit."},
                 request=request,
             )
-        return httpx.Response(
+        return httpxyz.Response(
             200,
             json={
                 "clone_url": "https://github.test/octo-org/stacked-review.git",
@@ -87,7 +87,7 @@ def test_github_client_retries_secondary_rate_limits_without_retry_after() -> No
         sleeps.append(delay)
 
     async def run_test() -> str:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_rate_limit_backoff_seconds=0.25,
             base_url="https://api.github.test",
@@ -107,16 +107,16 @@ def test_github_client_does_not_retry_non_rate_limited_errors() -> None:
     attempts = 0
     sleeps: list[float] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         nonlocal attempts
         attempts += 1
-        return httpx.Response(404, json={"message": "Not Found"}, request=request)
+        return httpxyz.Response(404, json={"message": "Not Found"}, request=request)
 
     async def record_sleep(delay: float) -> None:
         sleeps.append(delay)
 
     async def run_test() -> None:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
             max_rate_limit_retries=1,
@@ -133,10 +133,10 @@ def test_github_client_does_not_retry_non_rate_limited_errors() -> None:
 
 
 def test_github_client_lists_pull_request_reviews() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         assert request.url.path == "/repos/octo-org/stacked-review/pulls/7/reviews"
         if request.url.params.get("page") == "2":
-            return httpx.Response(
+            return httpxyz.Response(
                 200,
                 json=[
                     {
@@ -147,7 +147,7 @@ def test_github_client_lists_pull_request_reviews() -> None:
                 ],
                 request=request,
             )
-        return httpx.Response(
+        return httpxyz.Response(
             200,
             headers={
                 "Link": (
@@ -166,7 +166,7 @@ def test_github_client_lists_pull_request_reviews() -> None:
         )
 
     async def run_test() -> tuple[str, str]:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
             transport=transport,
@@ -184,10 +184,10 @@ def test_github_client_lists_pull_request_reviews() -> None:
 
 
 def test_github_client_paginates_pull_request_list() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         assert request.url.path == "/repos/octo-org/stacked-review/pulls"
         if request.url.params.get("page") == "2":
-            return httpx.Response(
+            return httpxyz.Response(
                 200,
                 json=[
                     {
@@ -202,7 +202,7 @@ def test_github_client_paginates_pull_request_list() -> None:
                 ],
                 request=request,
             )
-        return httpx.Response(
+        return httpxyz.Response(
             200,
             headers={
                 "Link": (
@@ -225,7 +225,7 @@ def test_github_client_paginates_pull_request_list() -> None:
         )
 
     async def run_test() -> tuple[int, int]:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
             transport=transport,
@@ -241,13 +241,13 @@ def test_github_client_paginates_pull_request_list() -> None:
 
 
 def test_github_client_batches_pull_request_lookup_by_number_with_graphql() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         assert request.url.path == "/graphql"
         payload = json.loads(request.content.decode("utf-8"))
         assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-review"}
         assert "pr_7: pullRequest(number: 7)" in payload["query"]
         assert "pr_9: pullRequest(number: 9)" in payload["query"]
-        return httpx.Response(
+        return httpxyz.Response(
             200,
             json={
                 "data": {
@@ -281,7 +281,7 @@ def test_github_client_batches_pull_request_lookup_by_number_with_graphql() -> N
         )
 
     async def run_test() -> tuple[str, str, str | None]:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
             transport=transport,
@@ -305,16 +305,16 @@ def test_github_client_batches_pull_request_lookup_by_number_with_graphql() -> N
 
 
 def test_github_client_rejects_graphql_payload_missing_repository_data() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         assert request.url.path == "/graphql"
-        return httpx.Response(
+        return httpxyz.Response(
             200,
             json={"data": {}},
             request=request,
         )
 
     async def run_test() -> None:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
             transport=transport,
@@ -330,14 +330,14 @@ def test_github_client_rejects_graphql_payload_missing_repository_data() -> None
 
 
 def test_github_client_batches_pull_request_lookup_by_head_ref_with_graphql() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         assert request.url.path == "/graphql"
         payload = json.loads(request.content.decode("utf-8"))
         assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-review"}
         assert 'headRefName: "review/seven"' in payload["query"]
         assert 'headRefName: "review/nine"' in payload["query"]
         assert "headRepositoryOwner" in payload["query"]
-        return httpx.Response(
+        return httpxyz.Response(
             200,
             json={
                 "data": {
@@ -379,7 +379,7 @@ def test_github_client_batches_pull_request_lookup_by_head_ref_with_graphql() ->
         )
 
     async def run_test() -> tuple[str, str, str | None]:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
             transport=transport,
@@ -401,14 +401,14 @@ def test_github_client_batches_pull_request_lookup_by_head_ref_with_graphql() ->
 
 
 def test_github_client_batches_review_decision_lookup_with_graphql() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         assert request.url.path == "/graphql"
         payload = json.loads(request.content.decode("utf-8"))
         assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-review"}
         assert "pr_7: pullRequest(number: 7)" in payload["query"]
         assert "pr_9: pullRequest(number: 9)" in payload["query"]
         assert "latestOpinionatedReviews" in payload["query"]
-        return httpx.Response(
+        return httpxyz.Response(
             200,
             json={
                 "data": {
@@ -444,7 +444,7 @@ def test_github_client_batches_review_decision_lookup_with_graphql() -> None:
         )
 
     async def run_test() -> tuple[str | None, str | None]:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
             transport=transport,
@@ -460,14 +460,14 @@ def test_github_client_batches_review_decision_lookup_with_graphql() -> None:
 
 
 def test_github_client_closes_pull_request_via_issue_api() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         assert request.method == "PATCH"
         assert request.url.path == "/repos/octo-org/stacked-review/issues/7"
         assert json.loads(request.content.decode("utf-8")) == {"state": "closed"}
-        return httpx.Response(200, json={"state": "closed"}, request=request)
+        return httpxyz.Response(200, json={"state": "closed"}, request=request)
 
     async def run_test() -> None:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
             transport=transport,
@@ -478,13 +478,13 @@ def test_github_client_closes_pull_request_via_issue_api() -> None:
 
 
 def test_github_client_converts_pull_request_to_draft_via_graphql() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         assert request.method == "POST"
         assert request.url.path == "/graphql"
         payload = json.loads(request.content.decode("utf-8"))
         assert payload["variables"] == {"pullRequestId": "PR_kwDOA7"}
         assert "convertPullRequestToDraft" in payload["query"]
-        return httpx.Response(
+        return httpxyz.Response(
             200,
             json={
                 "data": {
@@ -509,7 +509,7 @@ def test_github_client_converts_pull_request_to_draft_via_graphql() -> None:
         )
 
     async def run_test() -> bool:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
             transport=transport,
@@ -523,13 +523,13 @@ def test_github_client_converts_pull_request_to_draft_via_graphql() -> None:
 
 
 def test_github_client_marks_pull_request_ready_for_review_via_graphql() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         assert request.method == "POST"
         assert request.url.path == "/graphql"
         payload = json.loads(request.content.decode("utf-8"))
         assert payload["variables"] == {"pullRequestId": "PR_kwDOA7"}
         assert "markPullRequestReadyForReview" in payload["query"]
-        return httpx.Response(
+        return httpxyz.Response(
             200,
             json={
                 "data": {
@@ -554,7 +554,7 @@ def test_github_client_marks_pull_request_ready_for_review_via_graphql() -> None
         )
 
     async def run_test() -> bool:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
             transport=transport,
@@ -568,10 +568,10 @@ def test_github_client_marks_pull_request_ready_for_review_via_graphql() -> None
 
 
 def test_github_client_filters_batched_head_lookup_results_to_repo_owner() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
         payload = json.loads(request.content.decode("utf-8"))
         assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-review"}
-        return httpx.Response(
+        return httpxyz.Response(
             200,
             json={
                 "data": {
@@ -609,7 +609,7 @@ def test_github_client_filters_batched_head_lookup_results_to_repo_owner() -> No
         )
 
     async def run_test() -> list[int]:
-        transport = httpx.MockTransport(handler)
+        transport = httpxyz.MockTransport(handler)
         async with GithubClient(
             base_url="https://api.github.test",
             transport=transport,
