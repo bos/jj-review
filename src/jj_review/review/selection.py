@@ -61,7 +61,7 @@ def resolve_orphaned_pull_request(
     pull_request_reference: str,
     state: ReviewState,
 ) -> tuple[int, str] | None:
-    """Resolve `--pull-request` to a saved record whose change is no longer visible.
+    """Resolve `--pull-request` to a saved record whose change is not in any live stack.
 
     Returns `(pull_request_number, change_id)` only when:
     - exactly one tracked record matches the pull request number, and
@@ -75,6 +75,12 @@ def resolve_orphaned_pull_request(
     pull request number. The saved state is ambiguous; the user must repair it
     via `unlink` or `relink` before `close --cleanup --pull-request` can act,
     because there is no single orphan target to retire.
+
+    The membership check matches what `list` renders as an `orphan` row: a
+    visible-but-unsupported revision, for example one on a bookmark outside the
+    review prefix or otherwise filtered out of stack discovery, should still be
+    cleaned up via this path rather than routed back through the live-link
+    selector.
     """
 
     pull_request_number = _parse_repo_pull_request_number(
