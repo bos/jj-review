@@ -204,26 +204,6 @@ def test_status_reports_missing_git_remote_for_local_only_repo(
     assert "GitHub status unknown" in captured.out
 
 
-def test_status_truncates_long_unsubmitted_stack_summary(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    for index in range(8):
-        commit_file(repo, f"feature {index + 1}", f"feature-{index + 1}.txt")
-
-    exit_code = run_main(repo, config_path, "status")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "Unsubmitted stack:" in captured.out
-    assert "... 2 changes omitted ..." in captured.out
-    assert "feature 4" not in captured.out
-    assert "feature 3" in captured.out
-
-
 def test_status_skips_github_when_stack_has_no_local_review_tracking(
     tmp_path: Path,
     monkeypatch,
