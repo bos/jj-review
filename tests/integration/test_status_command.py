@@ -82,7 +82,7 @@ def test_status_can_select_a_stack_by_pull_request_number(
     assert f"PR #{second_pr_number}" not in captured.out
 
 
-def test_status_warns_when_other_tracked_stack_has_changed_since_last_submit(
+def test_status_does_not_warn_when_unrelated_stack_changed_since_last_submit(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -108,15 +108,16 @@ def test_status_warns_when_other_tracked_stack_has_changed_since_last_submit(
     run_command(["jj", "edit", alpha_head_change_id], repo)
     exit_code = run_main(repo, config_path, "status")
     captured = capsys.readouterr()
+    normalized_err = " ".join(captured.err.split())
 
     assert exit_code == 0
-    assert new_beta_head_change_id[:8] in captured.err
+    assert new_beta_head_change_id[:8] not in captured.err
     assert alpha_head_change_id[:8] not in captured.err
-    assert "changed since their last submit" in captured.err
-    assert "run status on each" in captured.err
+    assert "changed since its last submit" not in captured.err
+    assert "jj-review status" not in normalized_err
 
 
-def test_status_warns_when_other_tracked_stack_was_rewritten_without_moving(
+def test_status_does_not_warn_when_unrelated_stack_was_rewritten_without_moving(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -140,12 +141,101 @@ def test_status_warns_when_other_tracked_stack_was_rewritten_without_moving(
     run_command(["jj", "edit", alpha_head_change_id], repo)
     exit_code = run_main(repo, config_path, "status")
     captured = capsys.readouterr()
+    normalized_err = " ".join(captured.err.split())
+
+    assert exit_code == 0
+    assert beta_head_change_id[:8] not in captured.err
+    assert alpha_head_change_id[:8] not in captured.err
+    assert "changed since its last submit" not in captured.err
+    assert "jj-review status" not in normalized_err
+
+
+def test_status_warns_when_other_stack_is_built_on_selected_stack(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    commit_file(repo, "alpha 2", "alpha-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    alpha_head_change_id = JjClient(repo).discover_review_stack().head.change_id
+
+    commit_file(repo, "beta 1", "beta-1.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    commit_file(repo, "beta 2", "beta-2.txt")
+    beta_head_change_id = JjClient(repo).discover_review_stack().head.change_id
+
+    exit_code = run_main(repo, config_path, "status", alpha_head_change_id)
+    captured = capsys.readouterr()
+    normalized_err = " ".join(captured.err.split())
 
     assert exit_code == 0
     assert beta_head_change_id[:8] in captured.err
-    assert alpha_head_change_id[:8] not in captured.err
-    assert "changed since their last submit" in captured.err
-    assert "run status on each" in captured.err
+    assert "changed since its last submit" in captured.err
+    assert f"jj-review status {beta_head_change_id[:8]}" in normalized_err
+    assert f"jj-review submit {beta_head_change_id[:8]}" in normalized_err
+
+
+def test_status_warns_after_middle_change_is_split_into_sibling_stack(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    commit_file(repo, "feature A", "feature-a.txt")
+    commit_file(repo, "feature B", "feature-b.txt")
+    commit_file(repo, "feature C", "feature-c.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    change_a = stack.revisions[0].change_id
+    change_b = stack.revisions[1].change_id
+    change_c = stack.revisions[2].change_id
+
+    run_command(["jj", "rebase", "-s", change_c, "-d", change_a], repo)
+    run_command(["jj", "edit", change_b], repo)
+
+    exit_code = run_main(repo, config_path, "status")
+    captured = capsys.readouterr()
+    normalized_err = " ".join(captured.err.split())
+
+    assert exit_code == 0
+    assert change_c[:8] in captured.err
+    assert "changed since its last submit" in captured.err
+    assert f"jj-review status {change_c[:8]}" in normalized_err
+    assert f"jj-review submit {change_c[:8]}" in normalized_err
+
+
+def test_status_explains_when_selected_stack_changed_since_last_submit(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    change_id = JjClient(repo).discover_review_stack().head.change_id
+    run_command(["jj", "describe", "-r", change_id, "-m", "feature 1 renamed"], repo)
+
+    exit_code = run_main(repo, config_path, "status", change_id)
+    captured = capsys.readouterr()
+    normalized_out = " ".join(captured.out.split())
+
+    assert exit_code == 0
+    assert "Submitted stack" in captured.out
+    assert "PR branches are behind the current local stack" in normalized_out
+    assert "Submit will push the current commit IDs and PR bases" in normalized_out
+    assert f"jj-review submit {change_id}" in normalized_out
+    assert "New commit IDs" in normalized_out
+    assert change_id[:8] in normalized_out
 
 
 def test_status_pull_request_selector_requires_a_linked_local_change(

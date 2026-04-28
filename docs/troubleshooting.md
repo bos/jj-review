@@ -87,6 +87,9 @@ and rebases the remaining changes above the current `trunk()`. After that,
 
 ## `list` or `status` says another stack changed since its last submit
 
+`list` checks every tracked stack in the repo. `status` only checks another stack when that stack
+is built on top of a change in the stack you are inspecting.
+
 Possible causes:
 
 - you amended, described, or otherwise rewrote a reviewed change without moving it
@@ -100,9 +103,15 @@ What to do:
 jj-review submit <head-change-id>
 ```
 
-Use the head change ID printed in the warning. `status` can show whether that stack only needs a
-submit or needs cleanup first; `submit` refreshes that stack's PR branches and base branches on
-GitHub so reviewers see the current local stack.
+Use the head change ID printed in the warning. To inspect first, run:
+
+```bash
+jj-review status <head-change-id>
+```
+
+Status reports which saved submit baseline changed: local commits, review parents, or stack
+membership. `submit` refreshes that stack's PR branches and base branches on GitHub so reviewers
+see the current local stack.
 
 ## `land` says the local change differs from what reviewers approved
 

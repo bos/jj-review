@@ -46,6 +46,10 @@ from jj_review.review.bookmarks import (
     match_bookmarks_for_revisions,
 )
 from jj_review.review.intents import intent_is_stale
+from jj_review.review.topology import (
+    SubmittedStateDisagreement,
+    submitted_state_disagreements,
+)
 from jj_review.state.store import ReviewStateStore
 from jj_review.ui import Message
 
@@ -109,6 +113,7 @@ class StatusResult:
     revisions: tuple[ReviewStatusRevision, ...]
     selected_revset: str
     base_parent_subject: str
+    submitted_state_disagreements: tuple[SubmittedStateDisagreement, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -290,6 +295,10 @@ async def stream_status_async(
     base_parent_subject = prepared_status.base_parent_subject
     github_repository = prepared_status.github_repository
     github_repository_error = prepared_status.github_repository_error
+    submitted_disagreements = submitted_state_disagreements(
+        prepared.state,
+        (prepared.stack,),
+    )
 
     if prepared.remote is None:
         display_revisions = tuple(reversed(build_status_revisions_for_prepared_stack(prepared)))
@@ -307,6 +316,7 @@ async def stream_status_async(
             revisions=display_revisions,
             selected_revset=selected_revset,
             base_parent_subject=base_parent_subject,
+            submitted_state_disagreements=submitted_disagreements,
         )
 
     if github_repository is None:
@@ -326,6 +336,7 @@ async def stream_status_async(
             revisions=display_revisions,
             selected_revset=selected_revset,
             base_parent_subject=base_parent_subject,
+            submitted_state_disagreements=submitted_disagreements,
         )
 
     github_status_reported = False
@@ -350,6 +361,7 @@ async def stream_status_async(
             revisions=(),
             selected_revset=selected_revset,
             base_parent_subject=base_parent_subject,
+            submitted_state_disagreements=submitted_disagreements,
         )
 
     fallback_revisions = tuple(reversed(build_status_revisions_for_prepared_stack(prepared)))
@@ -371,6 +383,7 @@ async def stream_status_async(
             revisions=fallback_revisions,
             selected_revset=selected_revset,
             base_parent_subject=base_parent_subject,
+            submitted_state_disagreements=submitted_disagreements,
         )
 
     revisions: list[ReviewStatusRevision] = []
@@ -403,6 +416,7 @@ async def stream_status_async(
             revisions=fallback_revisions,
             selected_revset=selected_revset,
             base_parent_subject=base_parent_subject,
+            submitted_state_disagreements=submitted_disagreements,
         )
 
     if not github_status_reported:
@@ -423,6 +437,7 @@ async def stream_status_async(
         revisions=display_revisions,
         selected_revset=selected_revset,
         base_parent_subject=base_parent_subject,
+        submitted_state_disagreements=submitted_disagreements,
     )
 
 

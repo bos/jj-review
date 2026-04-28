@@ -52,19 +52,80 @@ def discover_tracked_stacks(
     if not tracked_revisions:
         return DiscoveredTrackedStacks(current_commit_id=None, stacks=())
 
-    trunk = jj_client.resolve_revision("trunk()")
     descendants = jj_client.query_descendant_revisions(
         tuple(revision.commit_id for revision in tracked_revisions)
     )
     current_commit_id = _current_review_commit_id(descendants)
+    trunk = jj_client.resolve_revision("trunk()")
+    discovered = _discover_stacks_from_revisions(
+        jj_client=jj_client,
+        revisions=(*descendants, *tracked_revisions),
+        trunk=trunk,
+    )
+    return DiscoveredTrackedStacks(
+        current_commit_id=current_commit_id,
+        stacks=discovered,
+    )
+
+
+def discover_connected_tracked_stacks(
+    *,
+    jj_client: JjClient,
+    selected_stacks: tuple[LocalStack, ...],
+    state: ReviewState,
+) -> tuple[LocalStack, ...]:
+    """Return tracked stacks connected to the supplied selected stacks.
+
+    `status` uses this narrower walk for "other stack changed" advisories. It
+    only follows descendants of the stack(s) the user actually rendered, so
+    unrelated tracked stacks elsewhere in the repo do not affect status output
+    or latency.
+    """
+
+    if not selected_stacks:
+        return ()
+    tracked_change_ids = {
+        change_id
+        for change_id, cached_change in state.changes.items()
+        if cached_change.has_review_identity or cached_change.is_unlinked
+    }
+    if not tracked_change_ids:
+        return ()
+    selected_revisions = tuple(
+        revision for stack in selected_stacks for revision in stack.revisions
+    )
+    if not selected_revisions:
+        return ()
+    if tracked_change_ids.isdisjoint(revision.change_id for revision in selected_revisions):
+        return ()
+
+    descendants = jj_client.query_descendant_revisions(
+        tuple(revision.commit_id for revision in selected_revisions)
+    )
+    trunk = selected_stacks[0].trunk
+    return _discover_stacks_from_revisions(
+        jj_client=jj_client,
+        revisions=(*descendants, *selected_revisions),
+        trunk=trunk,
+        known_base_parents=tuple(stack.base_parent for stack in selected_stacks),
+    )
+
+
+def _discover_stacks_from_revisions(
+    *,
+    jj_client: JjClient,
+    revisions: tuple[LocalRevision, ...],
+    trunk: LocalRevision,
+    known_base_parents: tuple[LocalRevision, ...] = (),
+) -> tuple[LocalStack, ...]:
     all_revisions_by_commit_id = {
         revision.commit_id: revision
-        for revision in descendants
+        for revision in revisions
         if not revision.current_working_copy
         and revision.is_reviewable(allow_divergent=True, allow_immutable=True)
     }
-    for revision in tracked_revisions:
-        all_revisions_by_commit_id[revision.commit_id] = revision
+    if not all_revisions_by_commit_id:
+        return ()
 
     all_revisions = tuple(all_revisions_by_commit_id.values())
     all_commit_ids = {revision.commit_id for revision in all_revisions}
@@ -77,7 +138,7 @@ def discover_tracked_stacks(
         if revision.only_parent_commit_id() not in all_commit_ids
     )
     if not stack_roots:
-        return DiscoveredTrackedStacks(current_commit_id=current_commit_id, stacks=())
+        return ()
 
     reviewable_children = _children_by_parent(tuple(all_revisions_by_commit_id.values()))
     base_parent_commit_ids = tuple(
@@ -91,6 +152,7 @@ def discover_tracked_stacks(
         revision.commit_id: revision
         for revision in jj_client.query_revisions_by_commit_ids(base_parent_commit_ids)
     }
+    base_parents.update({revision.commit_id: revision for revision in known_base_parents})
     trunk_ancestor_base_parent_commit_ids = jj_client.query_trunk_ancestor_commit_ids(
         base_parent_commit_ids
     )
@@ -123,10 +185,7 @@ def discover_tracked_stacks(
                     trunk=trunk,
                 )
             )
-    return DiscoveredTrackedStacks(
-        current_commit_id=current_commit_id,
-        stacks=tuple(discovered),
-    )
+    return tuple(discovered)
 
 
 def _current_review_commit_id(revisions: tuple[LocalRevision, ...]) -> str | None:

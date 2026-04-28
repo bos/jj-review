@@ -202,7 +202,11 @@ is another mutable review change, while still treating `trunk()` and its ancesto
 review parent.
 Repo-scoped stale-stack detection also compares each tracked change's saved
 `last_submitted_commit_id` against the live commit ID, so a rewrite in the same stack
-position still prompts the user to inspect and resubmit.
+position still prompts the user to inspect and resubmit. `status` renders the same selected-stack
+disagreement inline, including whether the saved submit baseline differs because of a local commit
+rewrite, a changed review parent, or changed stack membership.
+Plain `status` does not run repo-scoped stale-stack discovery. Its "other stack changed" advisory
+is limited to stacks built on top of the stack being rendered; use `list` for the repo-wide view.
 
 Orphaned `close --cleanup --pull-request` uses the same bookmark and stack-comment
 validation as regular close before it mutates GitHub state or prunes saved tracking.

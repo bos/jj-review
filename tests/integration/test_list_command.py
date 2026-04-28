@@ -121,11 +121,13 @@ def test_list_warns_when_tracked_stack_has_changed_since_last_submit(
 
     exit_code = run_main(repo, config_path, "list")
     captured = capsys.readouterr()
+    normalized_err = " ".join(captured.err.split())
 
     assert exit_code == 0
     assert new_alpha_head_change_id[:8] in captured.err
-    assert "changed since their last submit" in captured.err
-    assert "run status on each" in captured.err
+    assert "changed since its last submit" in captured.err
+    assert f"jj-review status {new_alpha_head_change_id[:8]}" in normalized_err
+    assert f"jj-review submit {new_alpha_head_change_id[:8]}" in normalized_err
 
 
 def test_list_warns_when_tracked_stack_was_rewritten_without_moving(
@@ -141,11 +143,13 @@ def test_list_warns_when_tracked_stack_was_rewritten_without_moving(
 
     exit_code = run_main(repo, config_path, "list")
     captured = capsys.readouterr()
+    normalized_err = " ".join(captured.err.split())
 
     assert exit_code == 0
     assert change_id[:8] in captured.err
-    assert "changed since their last submit" in captured.err
-    assert "run status on each" in captured.err
+    assert "changed since its last submit" in captured.err
+    assert f"jj-review status {change_id[:8]}" in normalized_err
+    assert f"jj-review submit {change_id[:8]}" in normalized_err
 
 
 def test_list_warns_when_untracked_change_is_inserted_below_tracked_stack(
@@ -172,10 +176,12 @@ def test_list_warns_when_untracked_change_is_inserted_below_tracked_stack(
 
     exit_code = run_main(repo, config_path, "list")
     captured = capsys.readouterr()
+    normalized_err = " ".join(captured.err.split())
 
     assert exit_code == 0
     assert head_change_id[:8] in captured.err
-    assert "run status on each" in captured.err
+    assert f"jj-review status {head_change_id[:8]}" in normalized_err
+    assert f"jj-review submit {head_change_id[:8]}" in normalized_err
 
 
 def test_list_does_not_warn_when_tracked_stack_still_starts_at_mutable_trunk(

@@ -212,9 +212,12 @@ longer part of any current stack. When you are ready to retire that PR, close it
 jj-review close --cleanup --pull-request 7
 ```
 
-If `jj-review list` or `jj-review status` says another tracked stack changed since its last
-submit, run `jj-review status <head-change-id>` for the listed stack. That status output will
-show whether the next step is a plain submit or cleanup first.
+If `jj-review list` says another tracked stack changed since its last submit, either run
+`jj-review submit <head-change-id>` to refresh the PR branches or run
+`jj-review status <head-change-id>` to inspect first. `status` only emits this warning for another
+stack when that stack is built on top of a change in the stack you are inspecting. Status calls
+out whether local commits, review parents, or stack membership differ from the last successful
+submit, and it will also show if cleanup is needed first.
 
 ## Short version
 

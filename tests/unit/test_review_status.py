@@ -46,6 +46,8 @@ def test_stream_status_streams_local_fallback_revisions_after_github_abort(
             SimpleNamespace(
                 remote=remote,
                 remote_error=None,
+                stack=SimpleNamespace(revisions=()),
+                state=ReviewState(),
                 status_revisions=(
                     SimpleNamespace(
                         cached_change=CachedChange(pr_number=1),
@@ -148,6 +150,8 @@ def test_stream_status_reports_github_target_without_error_for_empty_stack() -> 
             SimpleNamespace(
                 remote=remote,
                 remote_error=None,
+                stack=SimpleNamespace(revisions=()),
+                state=ReviewState(),
                 status_revisions=(),
             ),
         ),
@@ -204,6 +208,8 @@ def test_stream_status_skips_github_discovery_for_untracked_stack(monkeypatch) -
             SimpleNamespace(
                 remote=remote,
                 remote_error=None,
+                stack=SimpleNamespace(revisions=()),
+                state=ReviewState(),
                 status_revisions=(
                     SimpleNamespace(
                         bookmark="review/feature-1-aaaaaaaa",

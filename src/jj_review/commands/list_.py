@@ -241,11 +241,22 @@ def _emit_stale_stacks_advisory(
     )
     if not stale_heads:
         return
+    if len(stale_heads) == 1:
+        head = stale_heads[0][:8]
+        console.warning(
+            (
+                "Tracked stack has changed since its last submit; ",
+                t"inspect with {ui.cmd(f'jj-review status {head}')} or refresh with "
+                t"{ui.cmd(f'jj-review submit {head}')}.",
+            )
+        )
+        return
     heads_fragments = ui.join(ui.change_id, stale_heads)
     console.warning(
         (
             "Tracked stacks have changed since their last submit; ",
-            t"run {ui.cmd('status')} on each: ",
+            t"inspect with {ui.cmd('jj-review status <head>')} or refresh with "
+            t"{ui.cmd('jj-review submit <head>')}: ",
             *heads_fragments,
         )
     )

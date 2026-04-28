@@ -19,7 +19,6 @@ from jj_review.bootstrap import bootstrap_context
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError, ErrorMessage, error_message
 from jj_review.formatting import (
-    format_change_marker,
     format_pull_request_label,
     format_status_annotation,
     render_revision_blocks,
@@ -40,8 +39,10 @@ from jj_review.models.intent import (
     RelinkIntent,
     SubmitIntent,
 )
+from jj_review.models.review_state import ReviewState
+from jj_review.models.stack import LocalStack
 from jj_review.review.bookmarks import bookmark_glob, is_review_bookmark
-from jj_review.review.discovery import discover_tracked_stacks
+from jj_review.review.discovery import discover_connected_tracked_stacks
 from jj_review.review.intents import (
     describe_intent,
     match_cleanup_rebase_intent,
@@ -52,6 +53,7 @@ from jj_review.review.selection import (
     resolve_selected_revset,
 )
 from jj_review.review.status import (
+    StatusResult,
     prepare_status,
     prepared_status_github_inspection_count,
     refresh_remote_state_for_status,
@@ -65,8 +67,10 @@ from jj_review.review.submit_recovery import (
     SubmitStatusDecision,
     submit_status_decision,
 )
-from jj_review.review.topology import submitted_state_disagreement
-from jj_review.state.store import ReviewStateStore
+from jj_review.review.topology import (
+    SubmittedStateDisagreement,
+    submitted_state_disagreement,
+)
 from jj_review.system import pid_is_alive
 
 _SUMMARY_SECTION_HEAD_COUNT = 3
@@ -117,29 +121,29 @@ def status(
     if fetch:
         refresh_remote_state_for_status(jj_client=context.jj_client)
 
-    rendered_head_change_ids: set[str] = set()
     if not ordered_selectors:
         prepared_status = _prepare_status_with_spinner(
             config=context.config,
             jj_client=context.jj_client,
             revset=None,
         )
-        rendered_head_change_ids.add(prepared_status.prepared.stack.head.change_id)
         exit_code = _render_prepared_status(
             config=context.config,
             prepared_status=prepared_status,
             verbose=verbose,
         )
-        _emit_other_stale_stacks_advisory(
+        _emit_connected_stale_stacks_advisory(
             jj_client=context.jj_client,
-            repo_root=context.repo_root,
-            rendered_head_change_ids=rendered_head_change_ids,
+            rendered_stacks=(prepared_status.prepared.stack,),
+            state=prepared_status.prepared.state,
         )
         return exit_code
 
     exit_code = 0
     multi_selector = len(ordered_selectors) > 1
     rendered_stack_keys: set[tuple[object, ...]] = set()
+    rendered_stacks: list[LocalStack] = []
+    state: ReviewState | None = None
     printed_blocks = 0
     for selector in ordered_selectors:
         try:
@@ -169,7 +173,8 @@ def status(
         if stack_key in rendered_stack_keys:
             continue
         rendered_stack_keys.add(stack_key)
-        rendered_head_change_ids.add(prepared_status.prepared.stack.head.change_id)
+        rendered_stacks.append(prepared_status.prepared.stack)
+        state = prepared_status.prepared.state
 
         if printed_blocks:
             console.output("")
@@ -186,36 +191,48 @@ def status(
             ),
         )
         printed_blocks += 1
-    _emit_other_stale_stacks_advisory(
-        jj_client=context.jj_client,
-        repo_root=context.repo_root,
-        rendered_head_change_ids=rendered_head_change_ids,
-    )
+    if state is not None:
+        _emit_connected_stale_stacks_advisory(
+            jj_client=context.jj_client,
+            rendered_stacks=tuple(rendered_stacks),
+            state=state,
+        )
     return exit_code
 
 
-def _emit_other_stale_stacks_advisory(
+def _emit_connected_stale_stacks_advisory(
     *,
     jj_client: JjClient,
-    repo_root: Path,
-    rendered_head_change_ids: set[str],
+    rendered_stacks: tuple[LocalStack, ...],
+    state: ReviewState,
 ) -> None:
-    """Hint that other tracked stacks have changed since their last successful submit.
+    """Hint that connected stacks changed since their last successful submit.
 
-    Submitted-state disagreement means the saved commit or topology baseline no
-    longer matches the live DAG. The right follow-up can depend on the specific
-    stack state, so this advisory directs the user to inspect each stack rather
-    than naming one mutation.
+    This intentionally walks only descendants of the stack(s) status rendered.
+    Repo-wide stale-stack warnings belong to `list`; plain `status` should not
+    inspect or warn about unrelated review work.
     """
 
-    state = ReviewStateStore.for_repo(repo_root).load()
     if not state.changes:
         return
-    discovered = discover_tracked_stacks(jj_client=jj_client, state=state)
+    discovered = discover_connected_tracked_stacks(
+        jj_client=jj_client,
+        selected_stacks=rendered_stacks,
+        state=state,
+    )
+    rendered_head_change_ids = {stack.head.change_id for stack in rendered_stacks}
+    rendered_change_ids = {
+        revision.change_id for stack in rendered_stacks for revision in stack.revisions
+    }
     other_stacks = tuple(
         stack
-        for stack in discovered.stacks
+        for stack in discovered
         if stack.head.change_id not in rendered_head_change_ids
+        and _stack_has_tracked_change_outside_selection(
+            stack,
+            rendered_change_ids=rendered_change_ids,
+            state=state,
+        )
     )
     if not other_stacks:
         return
@@ -226,14 +243,42 @@ def _emit_other_stale_stacks_advisory(
     )
     if not stale_heads:
         return
+    if len(stale_heads) == 1:
+        head = stale_heads[0][:8]
+        console.warning(
+            (
+                "Other tracked stack has changed since its last submit; ",
+                t"inspect with {ui.cmd(f'jj-review status {head}')} or refresh with "
+                t"{ui.cmd(f'jj-review submit {head}')}.",
+            )
+        )
+        return
     heads_fragments = ui.join(ui.change_id, stale_heads)
     console.warning(
         (
             "Other tracked stacks have changed since their last submit; ",
-            t"run {ui.cmd('status')} on each: ",
+            t"inspect with {ui.cmd('jj-review status <head>')} or refresh with "
+            t"{ui.cmd('jj-review submit <head>')}: ",
             *heads_fragments,
         )
     )
+
+
+def _stack_has_tracked_change_outside_selection(
+    stack: LocalStack,
+    *,
+    rendered_change_ids: set[str],
+    state: ReviewState,
+) -> bool:
+    for revision in stack.revisions:
+        if revision.change_id in rendered_change_ids:
+            continue
+        cached_change = state.changes.get(revision.change_id)
+        if cached_change is None:
+            continue
+        if cached_change.has_review_identity or cached_change.is_unlinked:
+            return True
+    return False
 
 
 def _normalize_status_selectors(
@@ -601,11 +646,12 @@ def _render_submitted_section_title(revisions: tuple) -> str:
     return f"Submitted stack ({top_pull_request_url})"
 
 
-def render_status_advisory_lines(*, config: RepoConfig, result) -> tuple[object, ...]:
+def render_status_advisory_lines(
+    *,
+    config: RepoConfig,
+    result: StatusResult,
+) -> tuple[object, ...]:
     """Render any advisories that follow the status stack output."""
-
-    if not hasattr(result, "revisions") or not hasattr(result, "selected_revset"):
-        return ()
 
     cleanup_revisions = [
         revision for revision in result.revisions if revision_has_merged_pull_request(revision)
@@ -618,40 +664,91 @@ def render_status_advisory_lines(*, config: RepoConfig, result) -> tuple[object,
     link_revisions = [
         revision for revision in result.revisions if _revision_has_link_advisory(revision)
     ]
-    policy_warnings = [
-        revision
-        for revision in cleanup_revisions
-        if (
-            revision.pull_request_lookup is not None
-            and revision.pull_request_lookup.pull_request is not None
-            and is_review_bookmark(
-                revision.pull_request_lookup.pull_request.base.ref,
-                prefix=config.bookmark_prefix,
+    submitted_disagreements = result.submitted_state_disagreements
+    policy_warning_rows: list[tuple[object, object]] = []
+    for revision in cleanup_revisions:
+        lookup = revision.pull_request_lookup
+        pull_request = lookup.pull_request if lookup is not None else None
+        if pull_request is None:
+            continue
+        base_ref = pull_request.base.ref
+        if not is_review_bookmark(base_ref, prefix=config.bookmark_prefix):
+            continue
+        policy_warning_rows.append(
+            (
+                "Repository policy",
+                t"Repository policy warning: PR #{pull_request.number} merged into "
+                t"{ui.bookmark(base_ref)}; configure GitHub to block merges of PRs "
+                t"targeting {ui.bookmark(bookmark_glob(config.bookmark_prefix))}",
             )
         )
-    ]
     if (
         not cleanup_revisions
         and not divergent_revisions
         and not link_revisions
-        and not policy_warnings
+        and not submitted_disagreements
+        and not policy_warning_rows
     ):
         return ()
 
-    lines: list[object] = ["", "Advisories:"]
-    if cleanup_revisions:
-        lines.append(
-            _wrap_advisory(
-                "Submit note: descendant PR bases still follow the old local ancestry "
-                "until the remaining local changes are rebased"
+    rows: list[tuple[object, object]] = []
+    if submitted_disagreements:
+        rows.append(
+            (
+                "Submit needed",
+                "PR branches are behind the current local stack",
             )
         )
-        lines.append(
-            _wrap_advisory(
-                t"Next step: run {ui.cmd('jj-review cleanup --rebase')} "
-                t"{ui.revset(result.selected_revset)} to rewrite the local stack, or "
-                t"{ui.cmd('jj-review cleanup --rebase --dry-run')} "
-                t"{ui.revset(result.selected_revset)} to preview the rebase plan first"
+        rows.append(
+            (
+                "Meaning",
+                "Submit will push the current commit IDs and PR bases to GitHub",
+            )
+        )
+        if cleanup_revisions:
+            rows.append(
+                (
+                    "After cleanup",
+                    (
+                        ui.cmd("jj-review submit"),
+                        " ",
+                        ui.revset(result.selected_revset),
+                    ),
+                )
+            )
+        else:
+            rows.append(
+                (
+                    "Next step",
+                    (
+                        ui.cmd("jj-review submit"),
+                        " ",
+                        ui.revset(result.selected_revset),
+                    ),
+                )
+            )
+        rows.extend(_submitted_state_disagreement_rows(submitted_disagreements))
+
+    if cleanup_revisions:
+        rows.append(
+            (
+                "Cleanup needed",
+                "Submit note: descendant PR bases still follow the old local ancestry "
+                "until the remaining local changes are rebased",
+            )
+        )
+        rows.append(
+            (
+                "Next step",
+                (
+                    ui.cmd("jj-review cleanup --rebase"),
+                    " ",
+                    ui.revset(result.selected_revset),
+                    " or ",
+                    ui.cmd("jj-review cleanup --rebase --dry-run"),
+                    " ",
+                    ui.revset(result.selected_revset),
+                ),
             )
         )
         for revision in cleanup_revisions:
@@ -659,58 +756,133 @@ def render_status_advisory_lines(*, config: RepoConfig, result) -> tuple[object,
             pull_request_label = (
                 f"PR #{pull_request_number}" if pull_request_number is not None else "merged PR"
             )
-            lines.append(
-                _wrap_advisory(
+            rows.append(
+                (
+                    ui.change_id(revision.change_id),
                     (
-                        _status_revision_label(revision),
-                        ": ",
                         pull_request_label,
                         " is merged, and later local changes are still based on it",
-                    )
+                    ),
                 )
             )
 
     if link_revisions:
-        lines.append(
-            _wrap_advisory(
+        rows.append(
+            (
+                "PR link",
                 t"PR link note: refresh remote and GitHub observations with "
                 t"{ui.cmd('jj-review status --fetch')} {ui.revset(result.selected_revset)}. "
                 t"If the existing PR should stay attached to one of these changes, repair "
                 t"that PR link intentionally with {ui.cmd('jj-review relink <pr>')} "
-                t"{ui.revset(result.selected_revset)}."
+                t"{ui.revset(result.selected_revset)}.",
             )
         )
         for revision in link_revisions:
-            lines.append(
-                _wrap_advisory(
-                    (
-                        _status_revision_label(revision),
-                        ": ",
-                        _describe_link_advisory(revision),
-                    )
+            rows.append(
+                (
+                    ui.change_id(revision.change_id),
+                    _describe_link_advisory(revision),
                 )
             )
 
-    for revision in policy_warnings:
-        base_ref = revision.pull_request_lookup.pull_request.base.ref
-        pull_request_number = revision_pull_request_number(revision)
-        lines.append(
-            _wrap_advisory(
-                t"Repository policy warning: PR #{pull_request_number} merged into "
-                t"{ui.bookmark(base_ref)}; configure GitHub to block merges of PRs "
-                t"targeting {ui.bookmark(bookmark_glob(config.bookmark_prefix))}"
-            )
-        )
+    rows.extend(policy_warning_rows)
 
     for revision in divergent_revisions:
-        lines.append(
-            _wrap_advisory(
-                t"{_status_revision_label(revision)}: resolve the multiple visible "
-                t"revisions for this change before retrying "
-                t"({ui.cmd('jj log -r')} {ui.revset(f'change_id({revision.change_id})')})"
+        rows.append(
+            (
+                ui.change_id(revision.change_id),
+                t"Resolve the multiple visible revisions for this change before retrying "
+                t"({ui.cmd('jj log -r')} {ui.revset(f'change_id({revision.change_id})')})",
             )
         )
-    return tuple(lines)
+    return ("", "Advisories:", _advisory_table(tuple(rows)))
+
+
+def _submitted_state_disagreement_rows(
+    disagreements: Sequence[SubmittedStateDisagreement],
+) -> tuple[tuple[object, object], ...]:
+    commit_changed = tuple(
+        disagreement.change_id
+        for disagreement in disagreements
+        if disagreement.commit_changed
+    )
+    parent_changed = tuple(
+        disagreement.change_id
+        for disagreement in disagreements
+        if disagreement.parent_changed
+    )
+    stack_head_changed = tuple(
+        disagreement.change_id
+        for disagreement in disagreements
+        if disagreement.stack_head_changed
+    )
+    rows: list[tuple[object, object]] = []
+    if commit_changed:
+        rows.append(
+            (
+                "New commit IDs",
+                _format_submit_baseline_reason(
+                    change_ids=commit_changed,
+                    noun="change",
+                ),
+            )
+        )
+    if parent_changed:
+        rows.append(
+            (
+                "New PR bases",
+                _format_submit_baseline_reason(
+                    change_ids=parent_changed,
+                    noun="change",
+                ),
+            )
+        )
+    if stack_head_changed:
+        rows.append(
+            (
+                "New stack head",
+                _format_submit_baseline_reason(
+                    change_ids=stack_head_changed,
+                    noun="change",
+                ),
+            )
+        )
+    return tuple(rows)
+
+
+def _format_submit_baseline_reason(
+    *,
+    change_ids: Sequence[str],
+    noun: str,
+) -> object:
+    if len(change_ids) == 1:
+        return ui.change_id(change_ids[0])
+    plural_noun = f"{noun}s" if len(change_ids) != 1 else noun
+    return (f"{len(change_ids)} {plural_noun}: ", *_format_change_id_list(change_ids))
+
+
+def _format_change_id_list(change_ids: Sequence[str], *, limit: int = 5) -> tuple[object, ...]:
+    visible = tuple(change_ids[:limit])
+    rendered = list(ui.join(ui.change_id, visible))
+    remaining = len(change_ids) - limit
+    if remaining > 0:
+        if rendered:
+            rendered.append(", ")
+        rendered.append(f"... {remaining} more")
+    return tuple(rendered)
+
+
+def _advisory_table(rows: tuple[tuple[object, object], ...]) -> ui.DataTable:
+    return ui.DataTable(
+        columns=(
+            ui.TableColumn("advisory", no_wrap=True),
+            ui.TableColumn("detail"),
+        ),
+        rows=rows,
+        box="none",
+        padding=(0, 2),
+        show_header=False,
+    )
 
 
 def render_status_intent_lines(*, prepared_status) -> tuple[object, ...]:
@@ -1227,10 +1399,6 @@ def _format_cached_pull_request_label(cached_change) -> str | None:
     return f"{label} ({', '.join(details)})"
 
 
-def _wrap_advisory(message: object) -> object:
-    return ui.prefixed_line("- ", message)
-
-
 def _prefixed_intent_line(description: object, status: object) -> object:
     return ui.prefixed_line("  ", (description, "  ", status))
 
@@ -1241,10 +1409,6 @@ def _render_intent_description(intent) -> object:
     if isinstance(intent, AbortIntent):
         return ui.cmd("abort")
     return describe_intent(intent)
-
-
-def _status_revision_label(revision) -> str:
-    return format_change_marker(revision.change_id)
 
 
 def _revision_has_link_advisory(revision) -> bool:

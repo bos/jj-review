@@ -3,12 +3,15 @@ from __future__ import annotations
 from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
 from jj_review import console as console_module
 from jj_review.commands import status as status_module
 from jj_review.config import RepoConfig
+from jj_review.review.status import StatusResult
+from jj_review.review.topology import SubmittedStateDisagreement
 
 
 def _render_lines(*lines: object) -> tuple[str, ...]:
@@ -38,9 +41,13 @@ def test_status_advises_cleanup_and_rebase_when_merged_pr_remains_in_stack() -> 
 
     lines = _render_lines(
         *status_module.render_status_advisory_lines(
-            result=SimpleNamespace(
-                revisions=(merged_revision,),
-                selected_revset="@",
+            result=cast(
+                StatusResult,
+                SimpleNamespace(
+                    revisions=(merged_revision,),
+                    selected_revset="@",
+                    submitted_state_disagreements=(),
+                ),
             ),
             config=RepoConfig(bookmark_prefix="team"),
         )
@@ -52,6 +59,41 @@ def test_status_advises_cleanup_and_rebase_when_merged_pr_remains_in_stack() -> 
     assert "jj-review cleanup --rebase --dry-run @" in normalized_lines
     assert "PR #5 is merged" in normalized_lines
     assert "merged into team/feature-base" in normalized_lines
+
+
+def test_status_advises_submit_when_selected_stack_changed_since_submit() -> None:
+    lines = _render_lines(
+        *status_module.render_status_advisory_lines(
+            result=cast(
+                StatusResult,
+                SimpleNamespace(
+                    revisions=(),
+                    selected_revset="ulxwxsqw",
+                    submitted_state_disagreements=(
+                        SubmittedStateDisagreement(
+                            change_id="abcdefghijkl",
+                            commit_changed=True,
+                        ),
+                        SubmittedStateDisagreement(
+                            change_id="bcdefghijklm",
+                            parent_changed=True,
+                            stack_head_changed=True,
+                        ),
+                    ),
+                ),
+            ),
+            config=RepoConfig(),
+        )
+    )
+    normalized_lines = " ".join(" ".join(line.split()) for line in lines)
+
+    assert "Advisories:" in lines
+    assert "PR branches are behind the current local stack" in normalized_lines
+    assert "Submit will push the current commit IDs and PR bases" in normalized_lines
+    assert "jj-review submit ulxwxsqw" in normalized_lines
+    assert "New commit IDs abcdefgh" in normalized_lines
+    assert "New PR bases bcdefghi" in normalized_lines
+    assert "New stack head bcdefghi" in normalized_lines
 
 
 def test_render_status_intent_lines_reports_stale_and_interrupted_operations(

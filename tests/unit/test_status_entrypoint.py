@@ -8,7 +8,7 @@ import pytest
 from jj_review import console as console_module
 from jj_review.commands import status as status_module
 from jj_review.jj import JjCliArgs
-from jj_review.models.review_state import CachedChange
+from jj_review.models.review_state import CachedChange, ReviewState
 
 from .entrypoint_test_helpers import patch_bootstrap
 
@@ -41,6 +41,7 @@ def test_status_updates_tty_progress_bar_while_streaming(
                 ),
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
+                state=ReviewState(),
                 stack=SimpleNamespace(
                     base_parent=SimpleNamespace(
                         change_id="trunkchangeid",
@@ -86,6 +87,7 @@ def test_status_updates_tty_progress_bar_while_streaming(
             github_repository="octo-org/stacked-review",
             incomplete=False,
             revisions=(),
+            submitted_state_disagreements=(),
         )
 
     monkeypatch.setattr(status_module, "stream_status", fake_stream_status)
@@ -131,6 +133,7 @@ def test_status_passes_cli_color_override_to_native_jj_rendering(
                 ),
                 remote=SimpleNamespace(name="origin"),
                 remote_error=None,
+                state=ReviewState(),
                 stack=SimpleNamespace(
                     base_parent=SimpleNamespace(
                         change_id="trunkchangeid",
@@ -162,6 +165,7 @@ def test_status_passes_cli_color_override_to_native_jj_rendering(
             github_repository="octo-org/stacked-review",
             incomplete=False,
             revisions=(),
+            submitted_state_disagreements=(),
         ),
     )
 
@@ -205,6 +209,7 @@ def test_status_fetches_once_and_skips_duplicate_stack(
                     ),
                     head=SimpleNamespace(change_id=change_ids[-1]),
                 ),
+                state=ReviewState(),
                 status_revisions=tuple(
                     SimpleNamespace(revision=SimpleNamespace(change_id=change_id))
                     for change_id in change_ids
@@ -261,6 +266,7 @@ def test_status_continues_after_selector_error(
                     base_parent=SimpleNamespace(commit_id=f"base-{revset}"),
                     head=SimpleNamespace(change_id=f"{revset}-head"),
                 ),
+                state=ReviewState(),
                 status_revisions=(
                     SimpleNamespace(revision=SimpleNamespace(change_id=f"{revset}-change")),
                 ),
