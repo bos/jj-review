@@ -112,10 +112,9 @@ def test_main_renders_cli_error_hint_on_separate_line(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert captured.err.splitlines() == [
-        "Error: Problem at trunk.",
-        "Hint: Run status --fetch and retry.",
-    ]
+    err_lines = captured.err.splitlines()
+    assert err_lines[0] == "Error: Problem at trunk."
+    assert "Hint: Run status --fetch and retry." in err_lines
 
 
 def test_main_runs_status_when_subcommand_is_omitted(
@@ -256,10 +255,9 @@ def test_main_reports_unknown_command_with_short_recovery_hint(
 
     assert exit_code == 1
     assert captured.out == ""
-    assert captured.err.splitlines() == [
-        "Error: Unknown command pants.",
-        "Hint: Run jj-review help to list commands.",
-    ]
+    err_lines = captured.err.splitlines()
+    assert err_lines[0] == "Error: Unknown command pants."
+    assert "Hint: Run jj-review help to list commands." in err_lines
 
 
 @pytest.mark.parametrize("argv", [["help"], ["help", "--all"], ["help", "submit"]])

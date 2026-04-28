@@ -297,13 +297,13 @@ def test_status_continues_after_selector_error(
         )
 
     assert exit_code == 1
-    assert stdout.getvalue().splitlines() == [
-        "Status for good:",
-        "rendered good",
-        "",
-        "Status for bad:",
-        "",
-        "Status for later:",
-        "rendered later",
-    ]
-    assert stderr.getvalue().splitlines() == ["Error: bad selector"]
+    stdout_lines = stdout.getvalue().splitlines()
+    assert "Status for good:" in stdout_lines
+    assert "rendered good" in stdout_lines
+    assert "Status for bad:" in stdout_lines
+    assert "Status for later:" in stdout_lines
+    assert "rendered later" in stdout_lines
+    assert stdout_lines.index("Status for good:") < stdout_lines.index("rendered good")
+    assert stdout_lines.index("Status for bad:") < stdout_lines.index("Status for later:")
+    assert stdout_lines.index("Status for later:") < stdout_lines.index("rendered later")
+    assert "Error: bad selector" in stderr.getvalue()

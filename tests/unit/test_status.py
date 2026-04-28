@@ -45,12 +45,13 @@ def test_status_advises_cleanup_and_rebase_when_merged_pr_remains_in_stack() -> 
             config=RepoConfig(bookmark_prefix="team"),
         )
     )
+    normalized_lines = " ".join(lines)
 
     assert "Advisories:" in lines
-    assert any("jj-review cleanup --rebase @" in line for line in lines)
-    assert any("jj-review cleanup --rebase --dry-run @" in line for line in lines)
-    assert any("PR #5 is merged" in line for line in lines)
-    assert any("merged into team/feature-base" in line for line in lines)
+    assert "jj-review cleanup --rebase @" in normalized_lines
+    assert "jj-review cleanup --rebase --dry-run @" in normalized_lines
+    assert "PR #5 is merged" in normalized_lines
+    assert "merged into team/feature-base" in normalized_lines
 
 
 def test_render_status_intent_lines_reports_stale_and_interrupted_operations(

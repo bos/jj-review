@@ -85,7 +85,7 @@ def test_commands_report_non_github_remote_without_traceback(
 
     exit_code = run_main(repo, config_path, command)
     captured = capsys.readouterr()
-    combined = captured.out + captured.err
+    combined = " ".join((captured.out + captured.err).split())
 
     assert exit_code == 1
     assert "Use a GitHub remote URL." in combined

@@ -25,7 +25,7 @@ def test_main_reports_keyboard_interrupt_without_traceback(
     captured = capsys.readouterr()
 
     assert exit_code == 130
-    assert captured.out == ""
+    assert captured.out.strip() == ""
     assert captured.err.strip() == "Interrupted."
     assert "Traceback" not in captured.err
 

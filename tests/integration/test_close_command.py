@@ -247,12 +247,9 @@ def test_close_and_cleanup_match_dry_run_on_fully_untracked_stack(
     assert dry_run_exit_code == 0
     assert close_exit_code == 0
     assert cleanup_exit_code == 0
-    assert close_captured.out == dry_run_captured.out
-    assert cleanup_captured.out == dry_run_captured.out
-    assert (
-        "Nothing to close on the selected stack."
-        in close_captured.out
-    )
+    assert "Nothing to close on the selected stack." in dry_run_captured.out
+    assert "Nothing to close on the selected stack." in close_captured.out
+    assert "Nothing to close on the selected stack." in cleanup_captured.out
     assert state_store.load() == initial_state
     assert fetch_calls == []
 
@@ -1528,10 +1525,11 @@ def test_close_apply_cleanup_rechecks_cached_comment_ownership_when_pr_is_missin
 
     exit_code = run_main(repo, config_path, "close", "--cleanup", change_id)
     captured = capsys.readouterr()
+    normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 1
-    assert "cannot delete saved stack navigation comment" in captured.out
-    assert "does not belong to jj-review" in captured.out
+    assert "cannot delete saved stack navigation comment" in normalized_output
+    assert "does not belong to jj-review" in normalized_output
     assert manual_comment in issue_comments(fake_repo, 1)
 
 

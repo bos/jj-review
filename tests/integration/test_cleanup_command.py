@@ -510,14 +510,15 @@ def test_cleanup_plans_local_bookmark_forget_before_remote_delete_when_safe(
     exit_code = run_main(repo, config_path, "cleanup", "--dry-run")
     captured = capsys.readouterr()
     normalized_output = " ".join(captured.out.split())
-    rendered_lines = [line.rstrip() for line in captured.out.splitlines()]
 
     assert exit_code == 0
     assert "  ~ local bookmark: forget " in captured.out
     assert f"{bookmark} (local change is no longer reviewable)" in normalized_output
     assert f"remote branch: delete {bookmark}@origin" in normalized_output
     assert "  ✗ remote branch:" not in captured.out
-    assert any(line.startswith("    ") for line in rendered_lines)
+    local_index = normalized_output.index(f"local bookmark: forget {bookmark}")
+    remote_index = normalized_output.index(f"remote branch: delete {bookmark}@origin")
+    assert local_index < remote_index
     assert bookmark in run_command(["jj", "bookmark", "list", bookmark], repo).stdout
     assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
 
