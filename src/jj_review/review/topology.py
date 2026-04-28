@@ -109,9 +109,21 @@ def pointer_disagreement(
             saved_head = cached.last_submitted_stack_head_change_id
             if saved_parent is None and saved_head is None:
                 continue
-            live_parent = (
-                stack.revisions[index - 1].change_id if index > 0 else None
-            )
+            live_parent = _live_parent_change_id(stack, index=index)
             if saved_parent != live_parent or saved_head != live_head:
                 disagreements.append(revision.change_id)
     return tuple(disagreements)
+
+
+def _live_parent_change_id(stack: LocalStack, *, index: int) -> str | None:
+    """Return the live review parent change_id for one stack revision."""
+
+    if index > 0:
+        return stack.revisions[index - 1].change_id
+
+    base_parent = stack.base_parent
+    if stack.base_parent_is_trunk_ancestor or base_parent.commit_id == stack.trunk.commit_id:
+        return None
+    if not base_parent.is_reviewable(allow_divergent=True):
+        return None
+    return base_parent.change_id

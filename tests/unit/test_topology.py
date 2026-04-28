@@ -22,11 +22,13 @@ def _revision(change_id: str, *, parents: tuple[str, ...] = ("parent-commit",)) 
     )
 
 
-def _stack(*revisions: LocalRevision) -> LocalStack:
+def _stack(
+    *revisions: LocalRevision,
+    base_parent: LocalRevision | None = None,
+) -> LocalStack:
     trunk = _revision("trunk-change", parents=())
-    base_parent = trunk
     return LocalStack(
-        base_parent=base_parent,
+        base_parent=base_parent or trunk,
         head=revisions[-1],
         revisions=revisions,
         selected_revset="@-",
@@ -108,6 +110,59 @@ def test_pointer_disagreement_catches_inserted_change_via_neighbors() -> None:
     )
 
     assert pointer_disagreement(state, (stack,)) == ("change-b",)
+
+
+def test_pointer_disagreement_catches_untracked_insert_below_bottom_change() -> None:
+    inserted = _revision("change-inserted")
+    a = _revision("change-a", parents=(inserted.commit_id,))
+    stack = _stack(a, base_parent=inserted)
+    state = ReviewState(
+        changes={
+            "change-a": _tracked(parent=None, head="change-a", pr_number=1),
+        }
+    )
+
+    assert pointer_disagreement(state, (stack,)) == ("change-a",)
+
+
+def test_pointer_disagreement_treats_actual_trunk_parent_as_no_review_parent() -> None:
+    trunk = _revision("trunk-change", parents=("root-commit",))
+    a = _revision("change-a", parents=(trunk.commit_id,))
+    stack = LocalStack(
+        base_parent=trunk,
+        head=a,
+        revisions=(a,),
+        selected_revset="@-",
+        trunk=trunk,
+    )
+    state = ReviewState(
+        changes={
+            "change-a": _tracked(parent=None, head="change-a", pr_number=1),
+        }
+    )
+
+    assert pointer_disagreement(state, (stack,)) == ()
+
+
+def test_pointer_disagreement_treats_trunk_ancestor_as_no_review_parent() -> None:
+    old_trunk = _revision("old-trunk", parents=("root-commit",))
+    current_trunk = _revision("trunk-change", parents=(old_trunk.commit_id,))
+    a = _revision("change-a", parents=(old_trunk.commit_id,))
+    stack = LocalStack(
+        base_parent=old_trunk,
+        base_parent_is_trunk_ancestor=True,
+        head=a,
+        revisions=(a,),
+        selected_revset="@-",
+        trunk=current_trunk,
+    )
+    state = ReviewState(
+        changes={
+            "change-a": _tracked(parent=None, head="change-a", pr_number=1),
+        }
+    )
+
+    assert pointer_disagreement(state, (stack,)) == ()
 
 
 def test_pointer_disagreement_skips_records_without_saved_pointers() -> None:

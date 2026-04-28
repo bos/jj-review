@@ -128,6 +128,89 @@ def test_list_warns_when_tracked_stack_has_moved_since_last_submit(
     assert new_alpha_head_change_id[:8] in combined
 
 
+def test_list_warns_when_untracked_change_is_inserted_below_tracked_stack(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    commit_file(repo, "alpha 2", "alpha-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    stack = JjClient(repo).discover_review_stack()
+    bottom_change_id = stack.revisions[0].change_id
+    head_change_id = stack.head.change_id
+
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "alpha 0", "alpha-0.txt")
+    inserted_change_id = JjClient(repo).discover_review_stack().head.change_id
+    run_command(["jj", "rebase", "-s", bottom_change_id, "-d", inserted_change_id], repo)
+
+    exit_code = run_main(repo, config_path, "list")
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+
+    assert exit_code == 0
+    assert "Some stacks changed since their PRs were last updated" in combined
+    assert head_change_id[:8] in combined
+
+
+def test_list_does_not_warn_when_tracked_stack_still_starts_at_mutable_trunk(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    run_command(
+        ["jj", "config", "set", "--repo", 'revset-aliases."immutable_heads()"', "none()"],
+        repo,
+    )
+
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    exit_code = run_main(repo, config_path, "list")
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+
+    assert exit_code == 0
+    assert "Some stacks changed since their PRs were last updated" not in combined
+
+
+def test_list_does_not_warn_when_tracked_stack_starts_at_mutable_trunk_ancestor(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    run_command(
+        ["jj", "config", "set", "--repo", 'revset-aliases."immutable_heads()"', "none()"],
+        repo,
+    )
+
+    commit_file(repo, "alpha 1", "alpha-1.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "trunk 2", "trunk-2.txt")
+    run_command(["jj", "bookmark", "set", "main", "-r", "@-"], repo)
+
+    exit_code = run_main(repo, config_path, "list")
+    captured = capsys.readouterr()
+    combined = captured.out + captured.err
+
+    assert exit_code == 0
+    assert "Some stacks changed since their PRs were last updated" not in combined
+
+
 def test_list_extends_tracked_stack_through_unsubmitted_local_descendant(
     tmp_path,
     monkeypatch,

@@ -58,6 +58,7 @@ class LocalStack(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     base_parent: LocalRevision
+    base_parent_is_trunk_ancestor: bool = False
     head: LocalRevision
     revisions: tuple[LocalRevision, ...]
     selected_revset: str

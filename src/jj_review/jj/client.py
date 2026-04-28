@@ -162,6 +162,7 @@ class JjClient:
         if head.commit_id == trunk.commit_id:
             return LocalStack(
                 base_parent=trunk,
+                base_parent_is_trunk_ancestor=True,
                 head=head,
                 revisions=(),
                 selected_revset=selected_revset,
@@ -213,14 +214,20 @@ class JjClient:
 
         stack_revisions = tuple(reversed(stack_head_first))
         stack_base_parent = trunk
+        base_parent_is_trunk_ancestor = True
         if stack_revisions:
             stack_base_parent_commit_id = stack_revisions[0].only_parent_commit_id()
             stack_base_parent = revisions_by_commit_id.get(
                 stack_base_parent_commit_id
             ) or self.resolve_revision(stack_base_parent_commit_id)
+            base_parent_is_trunk_ancestor = (
+                stack_base_parent.commit_id == boundary.commit_id
+                and not include_boundary_in_stack
+            )
 
         return LocalStack(
             base_parent=stack_base_parent,
+            base_parent_is_trunk_ancestor=base_parent_is_trunk_ancestor,
             head=head,
             revisions=stack_revisions,
             selected_revset=selected_revset,
@@ -337,6 +344,25 @@ class JjClient:
             for revision in self._query_revisions(_union_revset_symbols(chunk)):
                 revisions_by_commit_id.setdefault(revision.commit_id, revision)
         return tuple(revisions_by_commit_id.values())
+
+    def query_trunk_ancestor_commit_ids(
+        self,
+        commit_ids: Sequence[str],
+    ) -> set[str]:
+        """Return supplied commit IDs that are ancestors of `trunk()`."""
+
+        ordered_commit_ids = tuple(dict.fromkeys(commit_ids))
+        if not ordered_commit_ids:
+            return set()
+
+        trunk_ancestor_commit_ids: set[str] = set()
+        for chunk in _chunked(ordered_commit_ids):
+            revisions = self._query_revisions(
+                f"({_union_revset_symbols(chunk)}) & ::trunk()"
+            )
+            for revision in revisions:
+                trunk_ancestor_commit_ids.add(revision.commit_id)
+        return trunk_ancestor_commit_ids
 
     def query_ancestor_revisions(
         self,

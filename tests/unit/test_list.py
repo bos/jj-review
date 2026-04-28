@@ -191,6 +191,7 @@ def test_discover_stacks_extends_only_tracked_heads_for_fully_tracked_linear_sta
     }
     queried_descendants: list[tuple[str, ...]] = []
     queried_base_parents: list[tuple[str, ...]] = []
+    queried_trunk_ancestors: list[tuple[str, ...]] = []
     base_parent = root.model_copy(update={"commit_id": "main", "change_id": "m" * 32})
 
     jj_client = cast(
@@ -205,6 +206,10 @@ def test_discover_stacks_extends_only_tracked_heads_for_fully_tracked_linear_sta
             query_revisions_by_commit_ids=lambda commit_ids: (
                 queried_base_parents.append(tuple(commit_ids)) or (base_parent,)
             ),
+            query_trunk_ancestor_commit_ids=lambda commit_ids: (
+                queried_trunk_ancestors.append(tuple(commit_ids)) or {"main"}
+            ),
+            resolve_revision=lambda revset: base_parent,
         ),
     )
     state = ReviewState(
@@ -219,3 +224,4 @@ def test_discover_stacks_extends_only_tracked_heads_for_fully_tracked_linear_sta
     assert tuple(stack.head.commit_id for stack in discovered.stacks) == (head.commit_id,)
     assert queried_descendants == [(root.commit_id, middle.commit_id, head.commit_id)]
     assert queried_base_parents == [("main",)]
+    assert queried_trunk_ancestors == [("main",)]

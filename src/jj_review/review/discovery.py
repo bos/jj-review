@@ -52,6 +52,7 @@ def discover_tracked_stacks(
     if not tracked_revisions:
         return DiscoveredTrackedStacks(current_commit_id=None, stacks=())
 
+    trunk = jj_client.resolve_revision("trunk()")
     descendants = jj_client.query_descendant_revisions(
         tuple(revision.commit_id for revision in tracked_revisions)
     )
@@ -90,6 +91,9 @@ def discover_tracked_stacks(
         revision.commit_id: revision
         for revision in jj_client.query_revisions_by_commit_ids(base_parent_commit_ids)
     }
+    trunk_ancestor_base_parent_commit_ids = jj_client.query_trunk_ancestor_commit_ids(
+        base_parent_commit_ids
+    )
 
     discovered: list[LocalStack] = []
     seen_keys: set[tuple[str, ...]] = set()
@@ -110,10 +114,13 @@ def discover_tracked_stacks(
             discovered.append(
                 LocalStack(
                     base_parent=base_parent,
+                    base_parent_is_trunk_ancestor=(
+                        base_parent.commit_id in trunk_ancestor_base_parent_commit_ids
+                    ),
                     head=head,
                     revisions=stack_revisions,
                     selected_revset=head.commit_id,
-                    trunk=base_parent,
+                    trunk=trunk,
                 )
             )
     return DiscoveredTrackedStacks(
