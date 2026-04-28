@@ -14,11 +14,12 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest]
         python-version: ["3.14"]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Check out repository
