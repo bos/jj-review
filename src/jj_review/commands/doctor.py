@@ -30,7 +30,7 @@ from jj_review.github.client import (
     _github_token_for_base_url,
     github_token_from_env,
 )
-from jj_review.github.error_messages import summarize_github_repository_error
+from jj_review.github.error_messages import summarize_github_error_reason
 from jj_review.github.resolution import (
     ParsedGithubRepo,
     parse_github_repo,
@@ -203,7 +203,7 @@ async def _check_github_connectivity(
                     "connectivity",
                     "fail",
                     f"{parsed_repo.host}/{parsed_repo.full_name}: "
-                    f"{summarize_github_repository_error(error)}",
+                    f"{summarize_github_error_reason(error)}",
                 ),
                 None,
             )

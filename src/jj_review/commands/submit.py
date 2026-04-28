@@ -38,7 +38,6 @@ from jj_review.formatting import (
     format_pull_request_label,
     render_revision_blocks,
     render_revision_lines,
-    render_revision_with_suffix_lines,
     short_change_id,
 )
 from jj_review.github.client import GithubClient, GithubClientError, build_github_client
@@ -461,7 +460,7 @@ def _render_submit_revision_lines(
                 t"{revision.subject} ({ui.change_id(revision.change_id)}): {summary}",
             ),
         )
-    return render_revision_with_suffix_lines(
+    return render_revision_lines(
         client=client,
         prerendered_lines=prerendered_lines,
         revision=revision,

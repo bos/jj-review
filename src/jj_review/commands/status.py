@@ -23,7 +23,6 @@ from jj_review.formatting import (
     format_status_annotation,
     render_revision_blocks,
     render_revision_lines,
-    render_revision_with_suffix_lines,
 )
 from jj_review.github.error_messages import (
     github_unavailable_message,
@@ -1239,7 +1238,7 @@ def _render_summary_revision_lines(
     summary = _format_status_summary(revision, github_available=github_available)
     if not show_status and summary == "not submitted":
         summary = None
-    return render_revision_with_suffix_lines(
+    return render_revision_lines(
         client=client,
         revision=revision,
         bookmark=None if verbose else revision.bookmark,

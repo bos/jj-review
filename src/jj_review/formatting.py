@@ -40,12 +40,6 @@ def short_change_id(change_id: str) -> str:
     return change_id[:8]
 
 
-def format_change_marker(change_id: str) -> str:
-    """Render a short change ID marker for CLI output."""
-
-    return f"({short_change_id(change_id)})"
-
-
 def format_status_annotation(annotation: str) -> str:
     """Render a parenthetical status annotation for CLI output."""
 
@@ -115,25 +109,6 @@ def render_revision_blocks(
         stdout_is_tty=stream.isatty(),
     )
     return client.render_revision_log_blocks(revisions, color_when=color_when)
-
-
-def render_revision_with_suffix_lines(
-    *,
-    client: NativeRevisionRenderClient,
-    revision,
-    bookmark: str | None = None,
-    suffix: str | None = None,
-    prerendered_lines: tuple[str, ...] | None = None,
-) -> tuple[str, ...]:
-    """Render one revision with native `jj log` output plus an optional suffix."""
-
-    return render_revision_lines(
-        client=client,
-        revision=revision,
-        bookmark=bookmark,
-        suffix=suffix,
-        prerendered_lines=prerendered_lines,
-    )
 
 
 def strip_revision_bookmark_from_rendered_lines(

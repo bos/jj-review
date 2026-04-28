@@ -117,7 +117,7 @@ def resolve_trunk_branch(
         raise CliError(
             t"Could not determine the trunk branch because multiple remote bookmarks on "
             t"{ui.bookmark(remote_name)} point at {ui.revset('trunk()')}: "
-            t"{_render_bookmark_list(remote_bookmarks)}."
+            t"{ui.join(ui.bookmark, remote_bookmarks)}."
         )
     raise CliError(
         t"Could not determine the trunk branch for remote {ui.bookmark(remote_name)}.",
@@ -126,10 +126,6 @@ def resolve_trunk_branch(
             t"remote bookmark that points at {ui.revset('trunk()')}."
         ),
     )
-
-
-def _render_bookmark_list(bookmarks: tuple[str, ...]) -> tuple[object, ...]:
-    return ui.join(ui.bookmark, bookmarks)
 
 
 def remote_bookmarks_pointing_at_commit(

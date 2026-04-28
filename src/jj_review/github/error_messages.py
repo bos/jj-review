@@ -30,12 +30,6 @@ def summarize_github_lookup_error(*, action: str, error: GithubClientError) -> s
     return f"{action} failed ({_request_failure_detail(error)})"
 
 
-def summarize_github_repository_error(error: GithubClientError) -> str:
-    """Render a concise repository-level GitHub availability failure."""
-
-    return summarize_github_error_reason(error)
-
-
 def github_unavailable_message(
     *,
     github_error: Message | None,

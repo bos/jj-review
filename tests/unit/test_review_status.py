@@ -9,7 +9,6 @@ from jj_review.errors import CliError, ErrorMessage
 from jj_review.github.client import GithubClientError
 from jj_review.github.error_messages import (
     summarize_github_lookup_error,
-    summarize_github_repository_error,
 )
 from jj_review.github.resolution import (
     ParsedGithubRepo,
@@ -254,23 +253,6 @@ def test_stream_status_skips_github_discovery_for_untracked_stack(monkeypatch) -
     assert result.github_repository == "octo-org/stacked-review"
     assert result.incomplete is False
     assert result.revisions == local_only_revisions
-
-
-def test_summarize_github_repository_error_detects_graphql_repo_not_found(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr("jj_review.github.error_messages.github_token_from_env", lambda: None)
-
-    error = GithubClientError(
-        "GitHub pull request head lookup failed: "
-        "[{'type': 'NOT_FOUND', 'message': "
-        "\"Could not resolve to a Repository with the name 'voxel-ai/voxel'.\"}]"
-    )
-
-    assert (
-        summarize_github_repository_error(error)
-        == "repo not found or inaccessible - check GITHUB_TOKEN or gh auth"
-    )
 
 
 def test_summarize_github_lookup_error_preserves_transport_detail() -> None:
