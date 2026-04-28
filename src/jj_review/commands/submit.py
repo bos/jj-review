@@ -31,6 +31,9 @@ from typing import Literal, Protocol
 
 from jj_review import console, ui
 from jj_review.bootstrap import bootstrap_context
+from jj_review.commands._close_actions import (
+    comment_matches_kind as _managed_comment_matches_kind,
+)
 from jj_review.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_review.config import RepoConfig
 from jj_review.errors import CliError
@@ -51,8 +54,6 @@ from jj_review.github.resolution import (
 )
 from jj_review.github.stack_comments import (
     StackCommentKind,
-    is_navigation_comment,
-    is_overview_comment,
     stack_comment_label,
     stack_comment_marker,
 )
@@ -2192,15 +2193,6 @@ async def _sync_stack_comment_task(
     )
     return pending_sync.change_id, updated_change
 
-
-def _managed_comment_matches_kind(
-    *,
-    body: str,
-    kind: StackCommentKind,
-) -> bool:
-    if kind == "navigation":
-        return is_navigation_comment(body)
-    return is_overview_comment(body)
 
 
 async def _sync_managed_comment(
