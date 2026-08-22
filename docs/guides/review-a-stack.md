@@ -11,10 +11,16 @@ locally; reviewers work with native stacked pull requests on GitHub.
 
 ## Read the stack map
 
-GitHub shows the ordered stack and each pull request's position. Start at the bottom, which is
-closest to the final base branch, and move upward. Each pull request's **Files changed** view is
-the diff for that layer, not the cumulative diff from the final base. Review and approve each
+GitHub shows the ordered stack and each pull request's position. Start at the bottom, where the
+stack branches from its base branch, and move upward. Each pull request's **Files changed** view
+is the diff for that layer, not the cumulative diff from the base branch. Review and approve each
 layer independently, while reading a higher layer with its dependencies in mind.
+
+From a checkout that tracks the stack, you can print the same order before opening GitHub:
+
+```console
+jj-stack view --pull-request <pr>
+```
 
 ## Review and merge in order
 

@@ -40,17 +40,19 @@ Stacks API before `submit` pushes anything.
 
 ## Build your local stack
 
-Create a linear series of `jj` changes above `trunk()`. For example:
+Treat `@` as a scratch working copy. Edit files, then use `jj commit` to finish each change and
+start a fresh empty `@` on top:
 
 ```console
-jj new -m "refactor shared model"
 # edit files
-jj new -m "add API"
+jj commit -m "A: refactor shared model"
 # edit files
-jj new -m "add UI"
+jj commit -m "B: add API"
 # edit files
+jj commit -m "C: add UI"
 ```
 
+You now have three described changes above `trunk()`, with a new empty working copy above them.
 Keep using ordinary `jj` commands to create and rearrange your local changes. `jj-stack` will take
 care of the GitHub side.
 
@@ -61,6 +63,8 @@ Run `jj-stack` with no subcommand to see your stack:
 ```console
 jj-stack
 ```
+
+Because `@` is empty, `jj-stack` selects the described change at `@-` as the top of the stack.
 
 Submit your stack for review:
 
@@ -73,15 +77,20 @@ order, and creates your stack on GitHub.
 
 ## Revise normally
 
-Edit, split, squash, or reorder your changes with `jj`. When your changes are ready for another
-round of review, update your existing pull requests:
+After submitting, `@` is still the empty scratch working copy above the `C: add UI` change. To
+revise that change, edit files in `@` and squash those edits into `@-`. You can also rearrange the
+stack before resubmitting:
 
 ```console
+# edit files
+jj squash
+jj arrange
 jj-stack submit
 ```
 
-Because a `jj` change keeps its change ID when you edit it, `jj-stack` updates your existing pull
-request instead of opening a new one.
+`jj squash` moves the working-copy changes into `@-`. Because the `C: add UI` change keeps its
+change ID, `jj-stack` updates its existing pull request instead of opening a new one. After
+`jj arrange` reorders the stack, `jj-stack` updates the existing pull requests to match.
 
 ## What next?
 

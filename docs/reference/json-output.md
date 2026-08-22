@@ -70,7 +70,7 @@ Known change statuses are:
 
 ## `view --json`
 
-`view --json` returns the selected stack or stacks:
+`view --json` returns the stack or stacks you asked it to inspect:
 
 ```json
 {

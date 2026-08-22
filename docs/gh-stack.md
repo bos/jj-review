@@ -16,7 +16,7 @@ below it. They differ in what defines the stack locally.
 | PR branches | Remote-only and normally hidden | Ordinary local and remote branches |
 | Restructure | Standard `jj` history editing | `gh stack` commands and its modify UI |
 | Refresh PRs | Submit after a `jj` rewrite | Rebase higher branches, then push or submit |
-| Continue work elsewhere | Adopt PRs and edit the selected change | Create branches and switch |
+| Continue work elsewhere | Adopt PRs and edit the change you chose | Create branches and switch |
 
 ## Which should I use?
 

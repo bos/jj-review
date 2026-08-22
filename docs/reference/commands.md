@@ -36,7 +36,7 @@ Running `jj-stack` without a subcommand is equivalent to `jj-stack view` without
 
 | Command | Use it to |
 |---|---|
-| `checkout` | Connect existing pull requests to local changes and edit the selected change. |
+| `checkout` | Connect existing pull requests to local changes and edit the change you chose. |
 | `relink` | Tell jj-stack which change an existing pull request belongs to. |
 | `doctor` | Check repo setup, GitHub access, and leftovers from interrupted commands. |
 | `in-use` | Silently check whether jj-stack is set up in this repo. |

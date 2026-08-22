@@ -30,9 +30,8 @@ Choose any pull request in your stack:
 jj-stack checkout --pull-request <pr>
 ```
 
-`checkout` follows the selected pull request down to the bottom of its stack, fetches those
-commits, records which local change belongs to each pull request, and runs `jj edit` on the
-selected pull request's change.
+`checkout` follows that pull request down to the bottom of its stack, fetches those commits,
+records which local change belongs to each pull request, and runs `jj edit` on its change.
 
 To start a new change on top instead of editing that change directly, run:
 
@@ -54,4 +53,5 @@ jj-stack submit <head-change-id>
 ```
 
 `relink` is a repair command for this specific mismatch. It verifies that your pull request's
-branch belongs to your selected change; it cannot attach an unrelated pull request to new work.
+branch belongs to the local change you chose; it cannot attach an unrelated pull request to new
+work.

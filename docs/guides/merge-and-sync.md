@@ -52,9 +52,9 @@ After GitHub merges some or all of your pull requests, `sync` fetches trunk, rem
 changes from your local history if needed, rebases your remaining changes, updates your remaining
 pull requests, and removes your PR branches when they are no longer needed.
 
-If no selected pull request has merged and GitHub has not rebased the stack, `sync` reports that
-there are no merged changes and leaves the pull requests unchanged. Run `submit` explicitly when
-you want to publish local changes.
+If none of the pull requests in your stack has merged and GitHub has not rebased the stack,
+`sync` reports that there are no merged changes and leaves the pull requests unchanged. Run
+`submit` explicitly when you want to publish local changes.
 
 What does “removes the merged changes from your local history” mean? If GitHub uses a merge
 commit or rebase merge for your pull requests, it preserves their `jj` change IDs, and
@@ -69,16 +69,16 @@ not need to run another cleanup command.
 
 ### Merge queues
 
-When `merge` uses a merge queue, it returns successfully once GitHub accepts your selected pull
-requests into the queue. This does not mean trunk has changed. Wait until GitHub reports that
-your stack has merged. Then run `sync` with the head of your stack:
+When `merge` uses a merge queue, it returns successfully once GitHub accepts the pull requests
+you asked it to merge. This does not mean trunk has changed. Wait until GitHub reports that your
+stack has merged. Then run `sync` with the head of your stack:
 
 ```console
 jj-stack sync <head-change-id>
 ```
 
-If you run either command while one of your selected pull requests is queued, `submit` and `sync`
-leave your stack unchanged.
+If you run either command while one of those pull requests is queued, `submit` and `sync` leave
+your stack unchanged.
 
 ### Merges outside jj-stack
 
@@ -113,9 +113,9 @@ to it. It also removes branches, comments, and saved pull-request links for merg
 local changes are gone. If one stack cannot be updated, jj-stack explains why and continues with
 independent stacks.
 
-Like selected `sync`, `sync --all` does not rebase a stack merely because trunk advanced. A
-selected `sync` also recognizes a completed native GitHub stack rebase because GitHub moved every
-PR branch and the rewritten contents can be verified.
+`sync --all` and `sync <head-change-id>` do not rebase a stack merely because trunk advanced.
+`sync <head-change-id>` also recognizes a completed native GitHub stack rebase because GitHub
+moved every PR branch and the rewritten contents can be verified.
 
 ## If `merge` fails after GitHub merges your pull requests
 

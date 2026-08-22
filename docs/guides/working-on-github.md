@@ -24,8 +24,8 @@ edits and GitHub's rewritten contents disagree, `sync` stops instead of choosing
 
 ## What the next submit replaces
 
-`jj-stack submit` makes GitHub match the selected local stack. It pushes each selected change to
-its PR branch, sets each pull request's base from the local parent order, refreshes titles and
+`jj-stack submit` makes GitHub's stack match your local stack. It pushes each change in your stack
+to its PR branch, sets each pull request's base from the local parent order, refreshes titles and
 bodies from `jj` descriptions or supplied description files, and updates native stack membership.
 `--draft` affects new pull requests. `--draft=all`, `--open`, and the choices made through
 `--edit` can change existing draft states. Labels and reviewer requests that submit applies are

@@ -46,9 +46,9 @@ Both commands write JSON to standard output and diagnostics to standard error. T
 follows `jj-stack`'s [published JSON
 Schema](https://github.com/bos/jj-stack/blob/main/docs/json-output.schema.json).
 
-In `view` output, the `stacks` array contains the selected stacks. In `list` output, the `rows`
-array contains both stacks and orphaned PRs. A stack row contains a `changes` array ordered
-from the bottom of the stack to its head.
+In `view` output, the `stacks` array contains the stacks you asked it to inspect. In `list`
+output, the `rows` array contains both stacks and orphaned PRs. A stack row contains a `changes`
+array ordered from the bottom of the stack to its head.
 
 Each change has a stable `status` value such as `unsubmitted`, `open`, `draft`, `approved`,
 `changes_requested`, `merged`, or `closed`. Inspect those values rather than the stack row's
