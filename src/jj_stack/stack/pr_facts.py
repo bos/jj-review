@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from collections.abc import Awaitable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import jj_stack.github.resolution as github_resolution
@@ -97,39 +97,44 @@ async def observe_prs(
     known_identities = tuple(identity for identity in identities.values() if identity is not None)
     head_refs = tuple(dict.fromkeys(identity.head_ref for identity in known_identities))
     pr_numbers = tuple(dict.fromkeys(identity.pr_number for identity in known_identities))
-    open_heads_request: Awaitable[dict[str, tuple[GithubPR, ...]]]
+    if local_commits_snapshot is None:
+
+        def observe_local_commits() -> dict[str, tuple[LocalCommit, ...]]:
+            prepare_visible_pr_snapshots(jj_client=context.jj_client, state=state)
+            return context.jj_client.query_commits_by_change_ids(tuple(identities))
+
+        local_task = asyncio.create_task(asyncio.to_thread(observe_local_commits))
+    else:
+        local_task = asyncio.create_task(asyncio.sleep(0, result=local_commits_snapshot))
     if include_open_head_prs:
         open_heads_request = github_client.get_open_prs_by_head_refs(head_refs=head_refs)
     else:
         open_heads_request = asyncio.sleep(0, result={})
-    remote_targets_request: Awaitable[dict[str, str]]
     if include_remote_targets and remote is not None and head_refs:
         remote_targets_request = github_client.get_branch_targets(branches=head_refs)
     else:
         remote_targets_request = asyncio.sleep(0, result={})
-    numbered, by_head, by_base, github_repo, remote_targets = await asyncio.gather(
-        github_client.get_prs_by_numbers(pr_numbers=pr_numbers),
-        open_heads_request,
-        (
-            github_client.get_open_prs_by_base_refs(base_refs=head_refs)
-            if include_open_dependents
-            else asyncio.sleep(0, result=None)
-        ),
-        (
-            github_client.get_repo()
-            if github_repo_snapshot is None
-            else asyncio.sleep(0, result=github_repo_snapshot)
-        ),
-        remote_targets_request,
-    )
-    if local_commits_snapshot is None:
-        prepare_visible_pr_snapshots(
-            jj_client=context.jj_client,
-            state=state,
+    try:
+        results = await asyncio.gather(
+            github_client.get_prs_by_numbers(pr_numbers=pr_numbers),
+            open_heads_request,
+            (
+                github_client.get_open_prs_by_base_refs(base_refs=head_refs)
+                if include_open_dependents
+                else asyncio.sleep(0, result=None)
+            ),
+            (
+                github_client.get_repo()
+                if github_repo_snapshot is None
+                else asyncio.sleep(0, result=github_repo_snapshot)
+            ),
+            remote_targets_request,
         )
-        local_commits = context.jj_client.query_commits_by_change_ids(tuple(identities))
-    else:
-        local_commits = local_commits_snapshot
+        local_commits = await asyncio.shield(local_task)
+    except BaseException:
+        await asyncio.gather(asyncio.shield(local_task), return_exceptions=True)
+        raise
+    numbered, by_head, by_base, github_repo, remote_targets = results
     prs = {
         change_id: PRFacts(
             baseline=state.submitted_baselines.get(change_id),

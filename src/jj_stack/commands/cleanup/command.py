@@ -32,7 +32,6 @@ from jj_stack.commands._cleanup_actions import (
     github_stack_cleanup_blocker,
     plan_pr_cleanup,
 )
-from jj_stack.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_stack.errors import AmbiguousSelectionError, UsageError
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
 from jj_stack.github.error_messages import github_target_unavailable_messages
@@ -465,11 +464,7 @@ async def _observe_cleanup_prs(
             remote_name=remote_name,
         )
     except GithubClientError:
-        values = await run_bounded_tasks(
-            concurrency=DEFAULT_BOUNDED_CONCURRENCY,
-            items=change_ids,
-            run_item=observe_one,
-        )
+        values = [await observe_one(change_id) for change_id in change_ids]
     else:
         values = (observation,) * len(change_ids)
     return dict(zip(change_ids, values, strict=True))
