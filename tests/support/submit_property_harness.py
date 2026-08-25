@@ -259,6 +259,15 @@ def replay_external_drift_scenario(
         repo=repo,
         run_cli=run_cli,
     )
+    if scenario.secondary_drift is not None:
+        _apply_drift_operation(
+            baseline=baseline,
+            drift=scenario.secondary_drift,
+            fake_repo=fake_repo,
+            labels_to_change_ids=labels_to_change_ids,
+            repo=repo,
+            run_cli=run_cli,
+        )
     discard_output()
     if revset_override is not None:
         submit_revset = revset_override

@@ -243,12 +243,15 @@ class DriftOperation:
 
 @dataclass(frozen=True, slots=True)
 class ExternalDriftScenario:
-    """A submitted stack, an optional local edit, and one boundary drift.
+    """A submitted stack, local edits, and one boundary drift.
 
     The scenario model predicts the submit outcome: a fail-closed drift must
     leave every boundary untouched, success drifts must converge on the normal
-    post-submit contract. Every scenario also asserts that `view` still
-    produces a report for the drifted state instead of crashing.
+    post-submit contract. Success-kind drifts may carry a second success-kind
+    drift, because external changes accumulate; a fail-closed drift never
+    compounds, since its value is the exact diagnosis. Every scenario also
+    asserts that `view` still produces a report for the drifted state instead
+    of crashing.
     """
 
     name: str
@@ -259,11 +262,14 @@ class ExternalDriftScenario:
     final_live_labels: tuple[str, ...]
     orphaned_labels: tuple[str, ...]
     rewritten_initial_labels: tuple[str, ...]
+    secondary_drift: DriftOperation | None = None
 
     @property
     def trace(self) -> str:
         parts = [operation.trace for operation in self.edit_operations]
         parts.append(self.drift.trace)
+        if self.secondary_drift is not None:
+            parts.append(self.secondary_drift.trace)
         return ",".join(parts)
 
     @property
@@ -281,6 +287,7 @@ class ExternalDriftScenario:
     ) -> tuple[
         str,
         str,
+        str,
         tuple[str, ...],
         tuple[str, ...],
         tuple[str, ...],
@@ -288,6 +295,7 @@ class ExternalDriftScenario:
         return (
             self.hazard_class,
             self.drift.trace,
+            self.secondary_drift.trace if self.secondary_drift is not None else "",
             self.final_live_labels,
             self.orphaned_labels,
             self.rewritten_initial_labels,
@@ -752,6 +760,7 @@ def generate_external_drift_scenarios(
         tuple[
             str,
             str,
+            str,
             tuple[str, ...],
             tuple[str, ...],
             tuple[str, ...],
@@ -800,6 +809,7 @@ def _drift_scenario(
     name: str,
     edit_operations: tuple[StackEditOperation, ...] = (),
     initial_size: int = 3,
+    secondary_drift: DriftOperation | None = None,
 ) -> ExternalDriftScenario:
     model = _model(initial_size)
     for operation in edit_operations:
@@ -813,6 +823,7 @@ def _drift_scenario(
         name=name,
         orphaned_labels=model.orphaned_labels,
         rewritten_initial_labels=model.rewritten_initial_labels,
+        secondary_drift=secondary_drift,
     )
 
 
@@ -823,23 +834,30 @@ def _random_external_drift_scenario(
 ) -> ExternalDriftScenario:
     initial_size = rng.randint(2, 5)
     model = _model(initial_size)
-    edit_operations: tuple[StackEditOperation, ...] = ()
-    if rng.random() < 0.5:
+    edit_operations: list[StackEditOperation] = []
+    for _ in range(rng.randint(0, 3)):
+        # Drift lands on stacks users kept editing between submits. Stop before
+        # the edits can empty the stack: the submit revset is its final head.
+        if len(model.live_labels) <= 1:
+            break
         operations = _available_operations(model, rng)
-        if operations:
-            operation = rng.choice(operations)
-            model = model.append(operation)
-            edit_operations = (operation,)
+        if not operations:
+            break
+        operation = rng.choice(operations)
+        model = model.append(operation)
+        edit_operations.append(operation)
+    drift = _random_drift_operation(rng, model=model)
 
     return ExternalDriftScenario(
-        drift=_random_drift_operation(rng, model=model),
-        edit_operations=edit_operations,
+        drift=drift,
+        edit_operations=tuple(edit_operations),
         final_live_labels=model.live_labels,
         hazard_class="random",
         initial_size=initial_size,
         name=f"drift-random-{attempts:03d}",
         orphaned_labels=model.orphaned_labels,
         rewritten_initial_labels=model.rewritten_initial_labels,
+        secondary_drift=_random_compound_drift(rng, drift=drift, model=model),
     )
 
 
@@ -870,6 +888,47 @@ def _drift_label_is_valid(kind: DriftKind, *, label: str, model: _ScenarioModel)
         # stacked base originally and must still be expected to have one.
         return label != "c1" and model.live_labels.index(label) > 0
     return True
+
+
+_SUCCESS_DRIFT_KINDS: tuple[DriftKind, ...] = (
+    "pr_base_retargeted",
+    "pr_draft_toggled",
+    "trunk_advanced",
+)
+
+
+def _random_compound_drift(
+    rng: random.Random,
+    *,
+    drift: DriftOperation,
+    model: _ScenarioModel,
+) -> DriftOperation | None:
+    """Pair some drifts with a second success-kind external transition.
+
+    External changes accumulate — the trunk moves while a base is retargeted —
+    so success-kind drifts compound. Fail-closed kinds never do: their value is
+    the exact diagnosis, which a second transition could mask.
+    """
+
+    if rng.random() >= 0.35:
+        return None
+    live_initial_labels = [label for label in model.live_labels if label.startswith("c")]
+    candidates = [
+        DriftOperation(kind=kind, label=label)
+        for kind in _SUCCESS_DRIFT_KINDS
+        if DRIFT_KIND_SPECS[kind].needs_label
+        for label in live_initial_labels
+        if _drift_label_is_valid(kind, label=label, model=model)
+    ]
+    candidates.extend(
+        DriftOperation(kind=kind)
+        for kind in _SUCCESS_DRIFT_KINDS
+        if not DRIFT_KIND_SPECS[kind].needs_label
+    )
+    candidates = [candidate for candidate in candidates if candidate.trace != drift.trace]
+    if not candidates:
+        return None
+    return rng.choice(candidates)
 
 
 def _fixed_submit_retry_scenarios() -> tuple[SubmitRetryScenario, ...]:

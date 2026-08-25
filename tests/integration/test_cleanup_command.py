@@ -246,6 +246,38 @@ def test_cleanup_preserves_closed_pr_branch_used_by_open_pr(
     assert f"refs/heads/{identity.head_ref}" in remote_refs(fake_repo.git_dir)
 
 
+def test_cleanup_preserves_closed_pr_branch_used_as_head_by_another_open_pr(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    change_id = selected_stack(repo).head.change_id
+    state_store = TrackingStore.for_repo(repo)
+    state = state_store.load()
+    identity = state.pr_identities[change_id]
+    comments_before = issue_comments(fake_repo, identity.pr_number)
+    fake_repo.prs[identity.pr_number].state = "closed"
+    competing_pr = fake_repo.create_pr(
+        base_ref="main",
+        body="outside pull request sharing the head branch",
+        head_ref=identity.head_ref,
+        title="outside change on the same head branch",
+    )
+
+    exit_code = run_main(repo, config_path, "cleanup")
+    captured = capsys.readouterr()
+    output = " ".join(captured.out.split())
+
+    assert exit_code == 1
+    assert "uses it as its head branch" in output
+    assert state_store.load() == state
+    assert issue_comments(fake_repo, identity.pr_number) == comments_before
+    assert f"refs/heads/{identity.head_ref}" in remote_refs(fake_repo.git_dir)
+    assert competing_pr.state == "open"
+
+
 def test_cleanup_stops_later_prs_after_partial_mutation_failure(
     tmp_path: Path,
     monkeypatch,
