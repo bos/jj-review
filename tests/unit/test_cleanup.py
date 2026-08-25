@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from typing import cast
 
 import jj_stack.commands.cleanup.stale as stale_module
-from jj_stack.bootstrap import CommandContext
 from jj_stack.commands._cleanup_actions import plan_pr_cleanup
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.jj.client import JjClient, PRRefUpdate
@@ -14,16 +13,15 @@ from jj_stack.models.tracking import (
     PRIdentity,
     SubmittedBaseline,
     TrackedPR,
-    TrackingState,
 )
 from jj_stack.stack.pr_facts import (
     PRFacts,
     RepoFacts,
     duplicate_pr_claim_change_ids,
 )
-from jj_stack.state.store import TrackingStore
 from jj_stack.ui import plain_text
 from tests.support.change_helpers import make_change
+from tests.support.contexts import fake_command_context
 
 CHANGE_ID = "aaaaaaaaabcdefgh"
 BRANCH = "jj-stack/feature-aaaaaaaa"
@@ -78,7 +76,7 @@ def test_local_cleanup_observations_flag_changes_outside_current_stacks(
 
     observations = stale_module.local_cleanup_observations(
         change_ids=("live-change", "stale-change"),
-        context=_fake_context(jj_client=cast(JjClient, FakeJjClient())),
+        context=fake_command_context(jj_client=cast(JjClient, FakeJjClient())),
     )
 
     assert observations["live-change"] == stale_module.LocalCleanupObservation(
@@ -139,24 +137,6 @@ def test_cleanup_preserves_a_head_branch_shared_by_another_open_pr() -> None:
     assert blocker is not None
     assert blocker.kind == "remote branch"
     assert "another open pull request" in plain_text(blocker.body)
-
-
-def _fake_context(
-    *,
-    jj_client: JjClient | None = None,
-    state_store: TrackingStore | None = None,
-) -> CommandContext:
-    return cast(
-        CommandContext,
-        SimpleNamespace(
-            jj_client=cast(JjClient, SimpleNamespace()) if jj_client is None else jj_client,
-            state_store=(
-                cast(TrackingStore, SimpleNamespace(load=TrackingState))
-                if state_store is None
-                else state_store
-            ),
-        ),
-    )
 
 
 def _identity() -> PRIdentity:

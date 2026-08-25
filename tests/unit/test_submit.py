@@ -3,12 +3,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 from dataclasses import replace
-from types import SimpleNamespace
-from typing import cast
 
 import pytest
 
-from jj_stack.bootstrap import CommandContext
 from jj_stack.commands.submit.changes import prepare_submit_changes
 from jj_stack.commands.submit.command import (
     _pr_sync_plans,
@@ -42,6 +39,7 @@ from jj_stack.models.tracking import (
 )
 from jj_stack.stack.pr_branches import ResolvedPRBranch
 from tests.support.change_helpers import make_change
+from tests.support.contexts import fake_command_context
 from tests.support.tracking import make_pr_identity
 
 _REMOTE_URL = "https://github.test/octo-org/repo.git"
@@ -247,14 +245,11 @@ def test_discovered_pr_must_have_only_one_open_pr() -> None:
 
 
 def test_pr_plan_prefers_cli_metadata_over_config() -> None:
-    context = cast(
-        CommandContext,
-        SimpleNamespace(
-            config=AppConfig(
-                labels=["config-label"],
-                reviewers=["config-user"],
-                team_reviewers=["config-team"],
-            )
+    context = fake_command_context(
+        config=AppConfig(
+            labels=["config-label"],
+            reviewers=["config-user"],
+            team_reviewers=["config-team"],
         ),
     )
 

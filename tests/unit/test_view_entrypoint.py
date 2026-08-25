@@ -8,12 +8,19 @@ import pytest
 
 import jj_stack.commands.view as view_module
 import jj_stack.console as console_module
-from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import EXIT_INCOMPLETE
 from jj_stack.jj.cli_args import JjCliArgs
+from jj_stack.jj.client import JjClient
 from jj_stack.models.tracking import TrackingState
+from tests.support.contexts import fake_command_context
 
-from .entrypoint_test_helpers import patch_bootstrap
+
+def patch_bootstrap(monkeypatch, module, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        module,
+        "bootstrap_context",
+        lambda **_kwargs: fake_command_context(tmp_path),
+    )
 
 
 def test_change_id_selector_distinguishes_change_ids_from_revsets_and_bookmarks() -> None:
@@ -25,7 +32,7 @@ def test_change_id_selector_distinguishes_change_ids_from_revsets_and_bookmarks(
             change_id = "klmnopqrstuvwxyz" if value == bare_change_id else "otherchangeid"
             return SimpleNamespace(change_id=change_id)
 
-    context = cast(CommandContext, SimpleNamespace(jj_client=JjClientStub()))
+    context = fake_command_context(jj_client=cast(JjClient, JjClientStub()))
 
     assert (
         view_module._change_id_selector(context=context, value=bare_change_id) == bare_change_id

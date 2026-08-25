@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
 
 import jj_stack.commands.view as view_module
 import jj_stack.console as console_module
 import jj_stack.ui as ui_module
-from jj_stack.models.github import GithubPR
-from jj_stack.models.tracking import PRIdentity, SubmittedBaseline
+from jj_stack.jj.client import JjClient
+from jj_stack.models.github import GithubBranchRef, GithubPR
+from jj_stack.models.stack import LocalStack
+from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
 from jj_stack.stack.status import (
     PreparedStack,
     PRLookup,
@@ -17,24 +19,54 @@ from jj_stack.stack.status import (
     StackStatusChange,
     StatusResult,
 )
+from tests.support.change_helpers import make_change
+
+
+def _pr(*, base_ref: str = "main", number: int, state: str) -> GithubPR:
+    return GithubPR(
+        base=GithubBranchRef(ref=base_ref),
+        head=GithubBranchRef(ref="jj-stack/feature"),
+        html_url=f"https://github.test/octo-org/repo/pull/{number}",
+        number=number,
+        state=state,
+        title="feature",
+    )
 
 
 def _lookup(
     *,
     state: PRLookupState,
     message: str | None = None,
-    pr: object | None = None,
+    pr: GithubPR | None = None,
     review_decision: str | None = None,
     review_decision_error: str | None = None,
     source: PRLookupSource = "head",
 ) -> PRLookup:
     return PRLookup(
         message=message,
-        pr=cast(GithubPR | None, pr),
+        pr=pr,
         review_decision=review_decision,
         review_decision_error=review_decision_error,
         state=state,
         source=source,
+    )
+
+
+def _status_result(
+    *,
+    changes: tuple[StackStatusChange, ...],
+    selected_revset: str = "@",
+    submitted_state_disagreements: tuple[str, ...] = (),
+) -> StatusResult:
+    return StatusResult(
+        changes=changes,
+        github_error=None,
+        github_repo=None,
+        incomplete=False,
+        remote=None,
+        remote_error=None,
+        selected_revset=selected_revset,
+        submitted_state_disagreements=submitted_state_disagreements,
     )
 
 
@@ -83,25 +115,14 @@ def test_view_advises_cleanup_and_rebase_when_merged_pr_remains_in_stack() -> No
     merged_change = _status_change(
         change_id="abcdefghijkl",
         pr_lookup=_lookup(
-            pr=SimpleNamespace(
-                base=SimpleNamespace(ref="team/feature-base"),
-                number=5,
-                state="merged",
-            ),
+            pr=_pr(base_ref="team/feature-base", number=5, state="merged"),
             state="closed",
         ),
     )
 
     lines = _render_lines(
         *view_module.render_status_advisory_lines(
-            result=cast(
-                StatusResult,
-                SimpleNamespace(
-                    changes=(merged_change,),
-                    selected_revset="@",
-                    submitted_state_disagreements=(),
-                ),
-            ),
+            result=_status_result(changes=(merged_change,)),
         )
     )
     normalized_lines = " ".join(" ".join(line.split()) for line in lines)
@@ -119,15 +140,12 @@ def test_view_advises_cleanup_and_rebase_when_merged_pr_remains_in_stack() -> No
 def test_view_advises_submit_when_selected_stack_changed_since_submit() -> None:
     lines = _render_lines(
         *view_module.render_status_advisory_lines(
-            result=cast(
-                StatusResult,
-                SimpleNamespace(
-                    changes=(),
-                    selected_revset="ulxwxsqw",
-                    submitted_state_disagreements=(
-                        "abcdefghijkl",
-                        "bcdefghijklm",
-                    ),
+            result=_status_result(
+                changes=(),
+                selected_revset="ulxwxsqw",
+                submitted_state_disagreements=(
+                    "abcdefghijkl",
+                    "bcdefghijklm",
                 ),
             ),
         )
@@ -144,21 +162,14 @@ def test_view_closed_pr_advisory_guides_reopen_relink_or_cleanup() -> None:
     change = _status_change(
         change_id="loqvlqrqabcdefghijkl",
         pr_lookup=_lookup(
-            pr=SimpleNamespace(number=21216, state="closed"),
+            pr=_pr(number=21216, state="closed"),
             state="closed",
         ),
     )
 
     lines = _render_lines(
         *view_module.render_status_advisory_lines(
-            result=cast(
-                StatusResult,
-                SimpleNamespace(
-                    changes=(change,),
-                    selected_revset="@",
-                    submitted_state_disagreements=(),
-                ),
-            ),
+            result=_status_result(changes=(change,)),
         )
     )
     normalized_lines = " ".join(" ".join(line.split()) for line in lines)
@@ -186,14 +197,7 @@ def test_view_missing_pr_advisory_guides_fetch_relink_or_cleanup() -> None:
 
     lines = _render_lines(
         *view_module.render_status_advisory_lines(
-            result=cast(
-                StatusResult,
-                SimpleNamespace(
-                    changes=(change,),
-                    selected_revset="@",
-                    submitted_state_disagreements=(),
-                ),
-            ),
+            result=_status_result(changes=(change,)),
         )
     )
     normalized_lines = " ".join(" ".join(line.split()) for line in lines)
@@ -232,7 +236,7 @@ def test_view_summary_does_not_call_tracked_missing_pr_not_submitted() -> None:
         ),
         github_available=True,
         leading_separator=False,
-        result=SimpleNamespace(changes=(change,)),
+        result=_status_result(changes=(change,)),
         verbose=False,
     )
 
@@ -244,14 +248,26 @@ def test_view_summary_does_not_call_tracked_missing_pr_not_submitted() -> None:
 
 
 def test_view_joins_summary_to_base_without_a_dangling_graph_edge() -> None:
-    base = SimpleNamespace(commit_id="base-commit")
+    base = make_change(
+        change_id="trunkchange",
+        commit_id="base-commit",
+        description="base\n",
+    )
+    stack = LocalStack(
+        base_parent=base,
+        head=base,
+        changes=(),
+        selected_revset="@",
+        trunk=base,
+    )
     lines = view_module.render_trunk_status_lines(
-        prepared=cast(
-            PreparedStack,
-            SimpleNamespace(
-                client=SimpleNamespace(),
-                stack=SimpleNamespace(base_parent=base),
-            ),
+        prepared=PreparedStack(
+            client=JjClient(Path("/repo")),
+            remote=None,
+            remote_error=None,
+            stack=stack,
+            state=TrackingState(),
+            status_changes=(),
         ),
         prerendered_blocks={
             base.commit_id: (
@@ -274,12 +290,7 @@ def test_view_summary_omits_review_decision_when_live_decision_lookup_fails() ->
         change_id="abcdefgh1234",
         commit_id="1234567890abcdef",
         pr_lookup=_lookup(
-            pr=SimpleNamespace(
-                html_url="https://github.test/octo/repo/pull/7",
-                is_draft=False,
-                is_queued=False,
-                number=7,
-            ),
+            pr=_pr(number=7, state="open"),
             review_decision=None,
             review_decision_error="review decision lookup failed",
             state="open",
@@ -297,7 +308,7 @@ def test_view_summary_omits_review_decision_when_live_decision_lookup_fails() ->
         ),
         github_available=True,
         leading_separator=False,
-        result=SimpleNamespace(changes=(change,)),
+        result=_status_result(changes=(change,)),
         verbose=False,
     )
 
@@ -335,7 +346,7 @@ def test_view_summary_labels_row_when_pr_lookup_fails() -> None:
         ),
         github_available=True,
         leading_separator=False,
-        result=SimpleNamespace(changes=(change,)),
+        result=_status_result(changes=(change,)),
         verbose=False,
     )
 
@@ -363,7 +374,7 @@ def test_view_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
         ),
         github_available=True,
         leading_separator=False,
-        result=SimpleNamespace(changes=changes),
+        result=_status_result(changes=changes),
         verbose=False,
     )
 

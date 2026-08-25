@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import cast
 
-from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError
+from jj_stack.github.client import GithubClient
 from jj_stack.github.resolution import GithubRepoAddress, GithubTarget
 from jj_stack.jj.client import JjClient
 from jj_stack.models.git import GitRemote
@@ -14,12 +13,13 @@ from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
 from jj_stack.stack import status as status_module
 from jj_stack.stack.status import (
+    PreparedChange,
     PreparedStatus,
     prepare_stack_for_status,
     stream_status_async,
 )
-from jj_stack.state.store import TrackingStore
 from tests.support.change_helpers import make_change
+from tests.support.contexts import fake_command_context
 
 
 def test_untracked_status_omits_branch_and_skips_github_discovery(
@@ -32,7 +32,7 @@ def test_untracked_status_omits_branch_and_skips_github_discovery(
     )
     client = _PrepareStatusClient(_stack_for_status(change))
     prepared = prepare_stack_for_status(
-        context=_context(client=client, state=TrackingState()),
+        context=fake_command_context(jj_client=cast(JjClient, client)),
         remote=_STATUS_REMOTE,
         remote_error=None,
         stack=_stack_for_status(change),
@@ -80,7 +80,7 @@ def test_stream_status_falls_back_to_local_data_after_github_abort(monkeypatch) 
     )
     client = _PrepareStatusClient(_stack_for_status(change))
     prepared = prepare_stack_for_status(
-        context=_context(client=client, state=state),
+        context=fake_command_context(jj_client=cast(JjClient, client)),
         remote=_STATUS_REMOTE,
         remote_error=None,
         stack=_stack_for_status(change),
@@ -147,18 +147,24 @@ def test_pr_lookup_falls_back_to_exact_remembered_pr_number() -> None:
                 )
             }
 
-    prepared_change = SimpleNamespace(
+    prepared_change = PreparedChange(
         branch="jj-stack/old-branch",
+        change=make_change(
+            change_id="feature7change",
+            commit_id="old-commit",
+            description="feature 7\n",
+        ),
         pr_identity=_identity(
             head_ref="jj-stack/old-branch",
             pr_number=7,
         ),
+        submitted_baseline=None,
     )
 
     lookups = asyncio.run(
         status_module._discover_pr_lookups(
-            github_client=cast(Any, FakeGithubClient()),
-            prepared_changes=cast(Any, (prepared_change,)),
+            github_client=cast(GithubClient, FakeGithubClient()),
+            prepared_changes=(prepared_change,),
         )
     )
 
@@ -242,25 +248,3 @@ class _PrepareStatusClient:
 
     def list_git_remotes(self) -> tuple[GitRemote, ...]:
         return (_STATUS_REMOTE,)
-
-
-class _StateStoreStub:
-    def __init__(self, state: TrackingState) -> None:
-        self.state = state
-
-    def load(self) -> TrackingState:
-        return self.state
-
-
-def _context(
-    *,
-    client: _PrepareStatusClient,
-    state: TrackingState | None = None,
-) -> CommandContext:
-    return cast(
-        CommandContext,
-        SimpleNamespace(
-            jj_client=cast(JjClient, client),
-            state_store=cast(TrackingStore, _StateStoreStub(state or TrackingState())),
-        ),
-    )
