@@ -699,13 +699,12 @@ they do not block the mutation because they are no longer active.
 PR titles, bodies, and the stack overview comment are derived on every submit and never determine
 topology; see [pull request descriptions](../reference/descriptions.md).
 
-The managed overview comment is rediscovered by an unambiguous body marker, never a stored
-comment ID. Ambiguous matches are left untouched. A lone PR has no overview comment. New
-PRs are created in the requested draft state. Existing PRs become draft only with `--draft=all`
-and become ready only with `--open`; plain `submit --draft` never unpublishes an existing PR.
-With `--edit`, GitHub's current state and those command-wide defaults populate one editable draft
-choice per change. The validated document then determines each selected PR's draft state without
-adding local state.
+The managed overview comment is the first comment whose body contains its marker; its ID is never
+stored. A lone PR has no overview comment. New PRs are created in the requested draft state.
+Existing PRs become draft only with `--draft=all` and become ready only with `--open`; plain
+`submit --draft` never unpublishes an existing PR. With `--edit`, GitHub's current state and those
+command-wide defaults populate one editable draft choice per change. The validated document then
+determines each selected PR's draft state without adding local state.
 
 `--reviewers` and `--team-reviewers` request the named reviewers even when a PR is otherwise
 unchanged and never remove omitted reviewers. `--re-request` acts on an otherwise unchanged PR,

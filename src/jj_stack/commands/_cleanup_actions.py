@@ -13,8 +13,8 @@ from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.overview_comments import (
     STACK_OVERVIEW_COMMENT_LABEL,
+    STACK_OVERVIEW_COMMENT_MARKER,
     delete_stack_overview_comment,
-    is_overview_comment,
 )
 from jj_stack.jj.client import JjClient, PRRefUpdate
 from jj_stack.models.github import GithubIssueComment, GithubPR
@@ -128,12 +128,15 @@ async def find_overview_comment(
     github_client: GithubClient,
     pr_number: int,
 ) -> OverviewCommentLookup:
-    """Discover the managed overview comment for one PR via a single list call."""
+    """Discover the managed overview comment for one PR."""
 
     try:
-        comments = await github_client.list_issue_comments(
-            issue_number=pr_number,
-        )
+        comment = (
+            await github_client.find_issue_comments_by_body_marker(
+                body_marker=STACK_OVERVIEW_COMMENT_MARKER,
+                pr_numbers=(pr_number,),
+            )
+        )[pr_number]
     except GithubClientError as error:
         if error.status_code == 404:
             return OverviewCommentLookup()
@@ -144,10 +147,7 @@ async def find_overview_comment(
             ),
         )
 
-    return _resolve_overview_comment_from_listed(
-        comments=comments,
-        pr_number=pr_number,
-    )
+    return OverviewCommentLookup(comment=comment)
 
 
 async def apply_overview_comment_cleanup(
@@ -189,24 +189,6 @@ async def apply_overview_comment_cleanup(
             status="planned" if dry_run else "applied",
         ),
     ), True
-
-
-def _resolve_overview_comment_from_listed(
-    *,
-    comments: tuple[GithubIssueComment, ...],
-    pr_number: int,
-) -> OverviewCommentLookup:
-    matching_comments = [comment for comment in comments if is_overview_comment(comment.body)]
-    if len(matching_comments) > 1:
-        return OverviewCommentLookup(
-            blocked_reason=(
-                f"cannot delete {STACK_OVERVIEW_COMMENT_LABEL}s because GitHub reports "
-                f"multiple candidates on PR #{pr_number}"
-            ),
-        )
-    if not matching_comments:
-        return OverviewCommentLookup()
-    return OverviewCommentLookup(comment=matching_comments[0])
 
 
 def emit_action_row(

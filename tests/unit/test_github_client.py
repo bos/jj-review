@@ -542,7 +542,7 @@ def test_github_client_batches_open_pr_lookup_by_head_ref_with_graphql() -> None
     )
 
 
-def test_github_client_loads_issue_comments_with_graphql() -> None:
+def test_github_client_paginates_issue_comments_with_graphql() -> None:
     queries: list[str] = []
 
     def handler(request: httpxyz.Request) -> httpxyz.Response:
@@ -551,7 +551,8 @@ def test_github_client_loads_issue_comments_with_graphql() -> None:
         queries.append(payload["query"])
         assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-prs"}
         assert "pr_7: pullRequest(number: 7)" in payload["query"]
-        assert "comments(first: 100)" in payload["query"]
+        assert "comments(first: 100" in payload["query"]
+        next_page = 'after: "comments-1"' in payload["query"]
         return httpxyz.Response(
             200,
             json={
@@ -561,11 +562,18 @@ def test_github_client_loads_issue_comments_with_graphql() -> None:
                             "comments": {
                                 "nodes": [
                                     {
-                                        "body": "<!-- jj-stack-overview -->",
-                                        "databaseId": 70,
+                                        "body": (
+                                            "<!-- jj-stack-overview -->"
+                                            if next_page
+                                            else "ordinary comment"
+                                        ),
+                                        "databaseId": 71 if next_page else 70,
                                     }
                                 ],
-                                "pageInfo": {"hasNextPage": False},
+                                "pageInfo": {
+                                    "endCursor": None if next_page else "comments-1",
+                                    "hasNextPage": not next_page,
+                                },
                             }
                         },
                     }
@@ -574,15 +582,16 @@ def test_github_client_loads_issue_comments_with_graphql() -> None:
             request=request,
         )
 
-    async def run_test() -> int:
+    async def run_test() -> int | None:
         async with _github_client(handler) as client:
-            comments = await client.get_issue_comments_by_pr_numbers(
+            comments = await client.find_issue_comments_by_body_marker(
+                body_marker="<!-- jj-stack-overview -->",
                 pr_numbers=(7,),
             )
-        return comments[7][0].id
+        return comments[7].id if comments[7] is not None else None
 
-    assert asyncio.run(run_test()) == 70
-    assert len(queries) == 1
+    assert asyncio.run(run_test()) == 71
+    assert len(queries) == 2
 
 
 def test_github_client_filters_batched_head_lookup_results_to_repo_owner() -> None:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import jj_stack.console as console
-import jj_stack.ui as ui
 from jj_stack.concurrency import run_bounded_tasks
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError
@@ -11,7 +10,6 @@ from jj_stack.github.overview_comments import (
     STACK_OVERVIEW_COMMENT_LABEL,
     STACK_OVERVIEW_COMMENT_MARKER,
     delete_stack_overview_comment,
-    is_overview_comment,
 )
 from jj_stack.models.github import GithubIssueComment
 
@@ -54,7 +52,8 @@ async def sync_stack_overview_comments(
         return
     with console.spinner(description="Loading stack overview comments"):
         try:
-            comments_by_pr_number = await github_client.get_issue_comments_by_pr_numbers(
+            comments_by_pr_number = await github_client.find_issue_comments_by_body_marker(
+                body_marker=STACK_OVERVIEW_COMMENT_MARKER,
                 pr_numbers=pr_numbers,
             )
         except GithubClientError as error:
@@ -69,7 +68,7 @@ async def sync_stack_overview_comments(
             items=pr_numbers,
             run_item=lambda pr_number: _sync_overview_comment(
                 comment_body=overview_bodies[pr_number],
-                comments=comments_by_pr_number[pr_number],
+                existing_comment=comments_by_pr_number[pr_number],
                 github_client=github_client,
                 pr_number=pr_number,
             ),
@@ -80,11 +79,10 @@ async def sync_stack_overview_comments(
 async def _sync_overview_comment(
     *,
     comment_body: str | None,
-    comments: tuple[GithubIssueComment, ...],
+    existing_comment: GithubIssueComment | None,
     github_client: GithubClient,
     pr_number: int,
 ) -> GithubIssueComment | None:
-    existing_comment = _discover_overview_comment(comments=comments)
     if comment_body is None:
         if existing_comment is None:
             return None
@@ -106,26 +104,6 @@ async def _sync_overview_comment(
         github_client=github_client,
         pr_number=pr_number,
     )
-
-
-def _discover_overview_comment(
-    *,
-    comments: tuple[GithubIssueComment, ...],
-) -> GithubIssueComment | None:
-    matching_comments = [comment for comment in comments if is_overview_comment(comment.body)]
-    if not matching_comments:
-        return None
-    if len(matching_comments) > 1:
-        comment_ids = ", ".join(str(comment.id) for comment in matching_comments)
-        raise CliError(
-            t"GitHub reports multiple jj-stack {STACK_OVERVIEW_COMMENT_LABEL}s for the same "
-            t"pull request: {comment_ids}.",
-            hint=(
-                t"Inspect the PR link with {ui.cmd('view')} or delete the "
-                t"extra {STACK_OVERVIEW_COMMENT_LABEL}s before submitting again."
-            ),
-        )
-    return matching_comments[0]
 
 
 async def _create_stack_overview_comment(

@@ -9,12 +9,6 @@ STACK_OVERVIEW_COMMENT_LABEL = "stack overview comment"
 STACK_OVERVIEW_COMMENT_MARKER = "<!-- jj-stack-overview -->"
 
 
-def is_overview_comment(body: str) -> bool:
-    """Return whether a GitHub comment body is a managed overview comment."""
-
-    return STACK_OVERVIEW_COMMENT_MARKER in body
-
-
 async def delete_stack_overview_comment(
     *,
     comment_id: int,

@@ -8,10 +8,7 @@ import pytest
 
 from jj_stack.errors import EXIT_CONFLICTS, EXIT_GITHUB, EXIT_INCOMPLETE, EXIT_USAGE
 from jj_stack.github.client import GithubClient, GithubClientError
-from jj_stack.github.overview_comments import (
-    STACK_OVERVIEW_COMMENT_MARKER,
-    is_overview_comment,
-)
+from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_MARKER
 from jj_stack.jj.client import JjClient
 from jj_stack.state.store import TrackingStore, resolve_state_path
 
@@ -44,7 +41,7 @@ def _overview_comments(fake_repo, issue_number: int):
     return [
         comment
         for comment in issue_comments(fake_repo, issue_number)
-        if is_overview_comment(comment.body)
+        if STACK_OVERVIEW_COMMENT_MARKER in comment.body
     ]
 
 
@@ -1536,32 +1533,6 @@ def test_submit_single_change_clears_stale_stack_overview_comment(
     capsys.readouterr()
 
     assert issue_comments(fake_repo, 1) == []
-
-
-def test_submit_rejects_ambiguous_stack_overview_comments(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    stack = selected_stack(repo)
-    change_id = stack.changes[-1].change_id
-    fake_repo.create_issue_comment(
-        body=f"{STACK_OVERVIEW_COMMENT_MARKER}\none",
-        issue_number=2,
-    )
-    fake_repo.create_issue_comment(
-        body=f"{STACK_OVERVIEW_COMMENT_MARKER}\ntwo",
-        issue_number=2,
-    )
-
-    exit_code = run_main(repo, config_path, "submit", change_id)
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "multiple jj-stack stack overview comments" in captured.err
 
 
 def test_submit_reports_stack_overview_comment_update_failures_without_traceback(

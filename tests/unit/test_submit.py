@@ -53,20 +53,15 @@ def test_overview_comment_sync_batches_comment_reads() -> None:
         def __init__(self) -> None:
             self.comment_batches: list[tuple[int, ...]] = []
 
-        async def get_issue_comments_by_pr_numbers(
+        async def find_issue_comments_by_body_marker(
             self,
             *,
+            body_marker: str,
             pr_numbers: Sequence[int],
-        ) -> dict[int, tuple[GithubIssueComment, ...]]:
+        ) -> dict[int, GithubIssueComment | None]:
+            assert body_marker == "<!-- jj-stack-overview -->"
             self.comment_batches.append(tuple(pr_numbers))
-            return {number: () for number in pr_numbers}
-
-        async def list_issue_comments(
-            self,
-            *,
-            issue_number: int,
-        ) -> tuple[GithubIssueComment, ...]:
-            raise AssertionError(f"unexpected per-PR comment lookup for #{issue_number}")
+            return {number: None for number in pr_numbers}
 
     client = CommentClientStub()
 

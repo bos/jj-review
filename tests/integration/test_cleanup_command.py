@@ -345,35 +345,6 @@ def test_cleanup_removes_overview_comment_for_closed_pr(
     assert issue_comments(fake_repo, 2) == []
 
 
-def test_cleanup_blocks_ambiguous_overview_comments_before_mutation(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    change_id = selected_stack(repo).head.change_id
-    state_store = TrackingStore.for_repo(repo)
-    initial_state = state_store.load()
-    identity = initial_state.pr_identities[change_id]
-    fake_repo.prs[identity.pr_number].state = "closed"
-    for label in ("one", "two"):
-        fake_repo.create_issue_comment(
-            body=f"{STACK_OVERVIEW_COMMENT_MARKER}\n{label}",
-            issue_number=identity.pr_number,
-        )
-    initial_comments = issue_comments(fake_repo, identity.pr_number)
-
-    exit_code = run_main(repo, config_path, "cleanup")
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "multiple candidates" in captured.out
-    assert state_store.load() == initial_state
-    assert issue_comments(fake_repo, identity.pr_number) == initial_comments
-    assert f"refs/heads/{identity.head_ref}" in remote_refs(fake_repo.git_dir)
-
-
 def test_cleanup_blocks_pr_head_drift_observed_during_planning(
     tmp_path: Path,
     monkeypatch,

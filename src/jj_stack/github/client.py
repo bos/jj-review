@@ -61,7 +61,6 @@ class GithubClientError(SummarizedError):
             "GitHub pull request head lookup failed: ",
             "GitHub pull request batch lookup failed: ",
             "GitHub pull request review decision lookup failed: ",
-            "GitHub issue comment list failed: ",
         ):
             if message.startswith(prefix):
                 return message.removeprefix(prefix).strip()
@@ -124,7 +123,7 @@ class _GraphqlRefConnection(BaseModel):
 
 class _GraphqlIssueCommentConnection(BaseModel):
     nodes: tuple[GithubIssueComment | None, ...] | None = None
-    page_info: _GraphqlPageInfo | None = Field(default=None, alias="pageInfo")
+    page_info: _GraphqlPageInfo = Field(alias="pageInfo")
 
 
 class _GraphqlIssueCommentsPR(BaseModel):
@@ -454,53 +453,48 @@ class GithubClient:
         )
         return tuple(GithubPRReview.model_validate(item) for item in payload)
 
-    async def list_issue_comments(
+    async def find_issue_comments_by_body_marker(
         self,
         *,
-        issue_number: int,
-    ) -> tuple[GithubIssueComment, ...]:
-        payload = await self._get_paginated_json_array(
-            f"{self._repo_path}/issues/{issue_number}/comments",
-            response_name="issue comment list",
-        )
-        return tuple(GithubIssueComment.model_validate(item) for item in payload)
-
-    async def get_issue_comments_by_pr_numbers(
-        self,
-        *,
+        body_marker: str,
         pr_numbers: Sequence[int],
-    ) -> dict[int, tuple[GithubIssueComment, ...]]:
+    ) -> dict[int, GithubIssueComment | None]:
         numbers = sorted(set(pr_numbers))
         if not numbers:
             return {}
 
-        results: dict[int, tuple[GithubIssueComment, ...]] = {}
-        fallback_numbers: list[int] = []
+        results: dict[int, GithubIssueComment | None] = {number: None for number in numbers}
         for chunk in _chunked(numbers, size=_GRAPHQL_PR_BATCH_SIZE):
-            query = _pr_issue_comments_query(chunk)
-            payload = await self._graphql_query(
-                query,
-                variables=self._repo_variables,
-                response_name="pull request issue comment lookup",
+            pending: tuple[tuple[int, str | None], ...] = tuple(
+                (number, None) for number in chunk
             )
-            repo = _graphql_repo_payload(
-                payload,
-                response_name="pull request issue comment lookup",
-            )
-            for number in chunk:
-                alias = f"pr_{number}"
-                comments, has_next_page = _issue_comments_from_graphql(
-                    alias=alias,
-                    raw_pr=repo.get(alias),
+            while pending:
+                payload = await self._graphql_query(
+                    _pr_issue_comments_query(pending),
+                    variables=self._repo_variables,
                     response_name="pull request issue comment lookup",
                 )
-                if has_next_page:
-                    fallback_numbers.append(number)
-                    continue
-                results[number] = comments
-
-        for number in fallback_numbers:
-            results[number] = await self.list_issue_comments(issue_number=number)
+                repo = _graphql_repo_payload(
+                    payload,
+                    response_name="pull request issue comment lookup",
+                )
+                next_page: list[tuple[int, str]] = []
+                for number, _cursor in pending:
+                    comments, cursor = _issue_comments_from_graphql(
+                        alias=f"pr_{number}",
+                        raw_pr=repo.get(f"pr_{number}"),
+                        response_name="pull request issue comment lookup",
+                    )
+                    results[number] = next(
+                        (comment for comment in comments if body_marker in comment.body),
+                        None,
+                    )
+                    # Racing commands could create duplicate marker comments. The first match is
+                    # authoritative; detecting that harmless, improbable race is not worth
+                    # scanning later pages.
+                    if results[number] is None and cursor is not None:
+                        next_page.append((number, cursor))
+                pending = tuple(next_page)
         return results
 
     async def create_issue_comment(
@@ -1029,28 +1023,31 @@ def _open_prs_by_ref_query(aliases: dict[str, str], *, base: bool) -> str:
     )
 
 
-def _pr_issue_comments_query(numbers: Sequence[int]) -> str:
-    selections = "\n\n".join(
-        _graphql_document(
-            f"""
+def _pr_issue_comments_query(requests: Sequence[tuple[int, str | None]]) -> str:
+    selections: list[str] = []
+    for number, cursor in requests:
+        after = f", after: {json.dumps(cursor)}" if cursor is not None else ""
+        selections.append(
+            _graphql_document(
+                f"""
             pr_{number}: pullRequest(number: {number}) {{
-              comments(first: 100) {{
+              comments(first: 100{after}) {{
                 nodes {{
                   databaseId
                   body
                 }}
                 pageInfo {{
+                  endCursor
                   hasNextPage
                 }}
               }}
             }}
             """
-        ).strip()
-        for number in numbers
-    )
+            ).strip()
+        )
     return _repo_graphql_query(
         operation_name="PullRequestIssueComments",
-        selections=selections,
+        selections="\n\n".join(selections),
     )
 
 
@@ -1228,9 +1225,9 @@ def _issue_comments_from_graphql(
     alias: str,
     raw_pr: object,
     response_name: str,
-) -> tuple[tuple[GithubIssueComment, ...], bool]:
+) -> tuple[tuple[GithubIssueComment, ...], str | None]:
     if raw_pr is None:
-        return (), False
+        return (), None
     parsed = _validate_graphql_model(
         raw_pr,
         model=_GraphqlIssueCommentsPR,
@@ -1240,10 +1237,16 @@ def _issue_comments_from_graphql(
     )
     comments = parsed.comments
     if comments is None:
-        return (), False
+        return (), None
     valid_comments = tuple(comment for comment in comments.nodes or () if comment is not None)
-    has_next_page = comments.page_info is not None and comments.page_info.has_next_page
-    return valid_comments, has_next_page
+    if not comments.page_info.has_next_page:
+        return valid_comments, None
+    cursor = comments.page_info.end_cursor
+    if cursor is None:
+        raise GithubClientError(
+            f"GitHub {response_name} response had no page cursor for {alias}."
+        )
+    return valid_comments, cursor
 
 
 def _validate_stack_payload(payload: object, *, response_name: str) -> GithubStack:

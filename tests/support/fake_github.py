@@ -1238,19 +1238,6 @@ def _register_pr_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
 def _register_issue_comment_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
     """Register issue comment routes on the fake GitHub app."""
 
-    @app.get("/repos/{owner}/{repo_name}/issues/{issue_number}/comments")
-    async def list_issue_comments(
-        owner: str,
-        repo_name: str,
-        issue_number: int,
-    ) -> list[dict[str, object]]:
-        repo = _get_repo(fake_state, owner, repo_name)
-        comments = repo.list_issue_comments(issue_number)
-        return [
-            comment.to_payload()
-            for comment in sorted(comments, key=lambda candidate: candidate.id)
-        ]
-
     @app.post("/repos/{owner}/{repo_name}/issues/{issue_number}/comments", status_code=201)
     async def create_issue_comment(
         owner: str,
