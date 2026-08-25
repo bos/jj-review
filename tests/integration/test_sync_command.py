@@ -488,7 +488,7 @@ def test_sync_rejects_unselected_mutable_copy_of_proven_survivor(
     assert fake_repo.prs == prs_before
 
 
-def test_sync_noop_after_partial_merge_does_not_read_pr_branch_refs_or_submit(
+def test_sync_noop_after_partial_merge_does_not_read_pr_branch_targets_or_submit(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -504,10 +504,10 @@ def test_sync_noop_after_partial_merge_does_not_read_pr_branch_refs_or_submit(
     survivor = selected_stack(repo).head
     pr_before = deepcopy(fake_repo.prs[2])
 
-    def fail_pr_branch_ref_read(*_args, **_kwargs):
+    async def fail_pr_branch_ref_read(*_args, **_kwargs):
         raise AssertionError("no-op sync should not read exact PR branch refs")
 
-    monkeypatch.setattr(JjClient, "list_remote_branches", fail_pr_branch_ref_read)
+    monkeypatch.setattr(GithubClient, "get_branch_targets", fail_pr_branch_ref_read)
     exit_code = run_main(repo, config_path, "sync", survivor.change_id)
     captured = capsys.readouterr()
 

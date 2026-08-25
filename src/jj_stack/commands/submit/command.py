@@ -440,29 +440,29 @@ def _submit_pr_branches(
     )
 
 
-def _submit_remote_branch_patterns(
+def _submit_remote_branch_queries(
     *,
     base_branch: str | None,
     resolutions: tuple[ResolvedPRBranch, ...],
     state_identities: Mapping[str, PRIdentity],
-) -> tuple[str, ...]:
-    namespace = current_pr_branch_namespace()
-    return tuple(
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    exact_branches = tuple(
         dict.fromkeys(
-            (
-                *(
-                    (
-                        f"refs/heads/{resolution.branch}"
-                        if resolution.change_id in state_identities
-                        else f"refs/heads/{namespace.branch_glob}-"
-                        f"{short_change_id(resolution.change_id)}"
-                    )
-                    for resolution in resolutions
-                ),
-                *((f"refs/heads/{base_branch}",) if base_branch is not None else ()),
-            )
+            resolution.branch
+            for resolution in resolutions
+            if resolution.change_id in state_identities
         )
     )
+    if base_branch is not None and base_branch not in exact_branches:
+        exact_branches = (*exact_branches, base_branch)
+    recovery_suffixes = tuple(
+        dict.fromkeys(
+            f"-{short_change_id(resolution.change_id)}"
+            for resolution in resolutions
+            if resolution.change_id not in state_identities
+        )
+    )
+    return exact_branches, recovery_suffixes
 
 
 async def _apply_planned_submit(
@@ -573,7 +573,7 @@ async def run_submit_async(
         base_branch=base_branch,
         resolutions=branch_resolutions,
     )
-    remote_branch_patterns = _submit_remote_branch_patterns(
+    exact_remote_branches, recovery_suffixes = _submit_remote_branch_queries(
         base_branch=base_branch,
         resolutions=branch_resolutions,
         state_identities=state.pr_identities,
@@ -590,15 +590,19 @@ async def run_submit_async(
         generated_descriptions = prepared_inputs.generated_pr_descriptions
         with console.spinner(description="Inspecting remotes"):
             (
-                remote_targets_result,
+                exact_remote_targets_result,
+                recovery_targets_result,
                 github_repo_result,
                 discovered_prs_result,
                 observed_stacks_result,
                 branches_at_trunk_result,
             ) = await asyncio.gather(
-                client.list_remote_branches_async(
-                    remote=remote.name,
-                    patterns=remote_branch_patterns,
+                github_client.get_branch_targets(
+                    branches=exact_remote_branches,
+                ),
+                github_client.find_branch_targets_by_suffix(
+                    branch_prefix=current_pr_branch_namespace().branch_prefix,
+                    suffixes=recovery_suffixes,
                 ),
                 github_client.get_repo(),
                 discover_prs_by_branch(
@@ -610,9 +614,14 @@ async def run_submit_async(
                 github_client.list_branches_for_head_commit(commit_sha=stack.trunk.commit_id),
                 return_exceptions=True,
             )
-            if isinstance(remote_targets_result, BaseException):
-                raise remote_targets_result
-            remote_targets = cast(dict[str, str], remote_targets_result)
+            if isinstance(exact_remote_targets_result, BaseException):
+                raise exact_remote_targets_result
+            if isinstance(recovery_targets_result, BaseException):
+                raise recovery_targets_result
+            remote_targets = {
+                **cast(dict[str, str], exact_remote_targets_result),
+                **cast(dict[str, str], recovery_targets_result),
+            }
             branch_resolutions = _recover_interrupted_first_submissions(
                 client=client,
                 remote=remote,
@@ -771,9 +780,8 @@ async def run_submit_async(
                 and pr.base.ref not in remote_targets
             )
         )
-        observed_base_targets = client.list_remote_branches(
-            remote=remote.name,
-            patterns=tuple(f"refs/heads/{branch}" for branch in observed_base_refs),
+        observed_base_targets = await github_client.get_branch_targets(
+            branches=observed_base_refs,
         )
         retarget_plans = (
             auto_close.predict_prs_auto_closed_by_push(

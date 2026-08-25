@@ -264,7 +264,6 @@ def run_stack_convergence(
             prepared_status = prepare_status(
                 context=context,
                 fetch_remote_state=fetch_remote_state,
-                observe_remote_targets=False,
                 revset=revset,
             )
         except UnsupportedStackError as error:

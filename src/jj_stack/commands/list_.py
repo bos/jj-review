@@ -52,7 +52,6 @@ from jj_stack.stack.status import (
     StackStatusChange,
     build_status_changes_for_prepared_stack,
     lookup_pr_lookups,
-    observe_remote_targets_for_status,
     prepare_stack_for_status,
 )
 
@@ -173,31 +172,22 @@ def _run_list(
         _emit_orphan_hint(orphan_rows)
         return 0
     github_target = resolve_github_target(context.jj_client.list_git_remotes())
-    with console.spinner(description="Inspecting PR branches"):
-        observed_remote_targets = observe_remote_targets_for_status(
-            context=context,
-            excluded_branches=duplicate_branch_names,
-            remote=github_target.remote,
-            stacks=ordered,
-            state=state,
+    prepared_discovered = tuple(
+        _PreparedDiscoveredStack(
+            current=_stack_contains_commit_id(
+                stack,
+                commit_id=current_tracked_commit_id,
+            ),
+            prepared=prepare_stack_for_status(
+                context=context,
+                remote=github_target.remote,
+                remote_error=github_target.remote_error,
+                stack=stack,
+                state=state,
+            ),
         )
-        prepared_discovered = tuple(
-            _PreparedDiscoveredStack(
-                current=_stack_contains_commit_id(
-                    stack,
-                    commit_id=current_tracked_commit_id,
-                ),
-                prepared=prepare_stack_for_status(
-                    context=context,
-                    observed_remote_targets=observed_remote_targets,
-                    remote=github_target.remote,
-                    remote_error=github_target.remote_error,
-                    stack=stack,
-                    state=state,
-                ),
-            )
-            for stack in ordered
-        )
+        for stack in ordered
+    )
     for branch, change_ids in sorted(duplicate_branches.items()):
         console.warning(
             t"PR branch {ui.bookmark(branch)} is saved for changes "
@@ -602,14 +592,12 @@ def _load_pr_lookups(
             description="Inspecting GitHub",
             total=len(prepared_changes_by_branch),
         ) as progress:
-            return (
-                lookup_pr_lookups(
-                    github_repo=github_target.repo,
-                    on_progress=progress.advance,
-                    prepared_changes=tuple(prepared_changes_by_branch.values()),
-                ),
-                None,
+            pr_lookups = lookup_pr_lookups(
+                github_repo=github_target.repo,
+                on_progress=progress.advance,
+                prepared_changes=tuple(prepared_changes_by_branch.values()),
             )
+            return pr_lookups, None
     except CliError as error:
         return {}, error_message(error)
 

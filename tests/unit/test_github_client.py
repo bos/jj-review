@@ -324,6 +324,77 @@ def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
     assert request_sizes == [25, 2]
 
 
+def test_github_client_observes_exact_and_suffix_matched_branch_targets() -> None:
+    suffix_queries: list[str] = []
+
+    def handler(request: httpxyz.Request) -> httpxyz.Response:
+        assert request.url.path == "/graphql"
+        payload = json.loads(request.content.decode("utf-8"))
+        query = payload["query"]
+        assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-prs"}
+        if "BranchTargetsBySuffix" in query:
+            suffix_queries.append(query)
+            assert 'query: "-aaaaaaaa"' in query
+            assert 'refPrefix: "refs/heads/jj-stack/"' in query
+            if 'after: "page-1"' in query:
+                nodes = [
+                    {
+                        "name": "old-slug-aaaaaaaa",
+                        "prefix": "refs/heads/jj-stack/",
+                        "target": {"oid": "old-target"},
+                    }
+                ]
+                page_info = {"endCursor": "page-2", "hasNextPage": False}
+            else:
+                nodes = [
+                    {
+                        "name": "contains-aaaaaaaa-elsewhere",
+                        "prefix": "refs/heads/jj-stack/",
+                        "target": {"oid": "unrelated-target"},
+                    }
+                ]
+                page_info = {"endCursor": "page-1", "hasNextPage": True}
+            repo = {
+                "suffix_0": {
+                    "nodes": nodes,
+                    "pageInfo": page_info,
+                }
+            }
+        else:
+            assert 'ref(qualifiedName: "refs/heads/jj-stack/current")' in query
+            assert 'ref(qualifiedName: "refs/heads/jj-stack/missing")' in query
+            repo = {
+                "branch_0": {
+                    "name": "jj-stack/current",
+                    "prefix": "refs/heads/",
+                    "target": {"oid": "current-target"},
+                },
+                "branch_1": None,
+            }
+        return httpxyz.Response(
+            200,
+            json={"data": {"repository": repo}},
+            request=request,
+        )
+
+    async def run_test() -> tuple[dict[str, str], dict[str, str]]:
+        async with _github_client(handler) as client:
+            exact = await client.get_branch_targets(
+                branches=("jj-stack/current", "jj-stack/missing"),
+            )
+            recovered = await client.find_branch_targets_by_suffix(
+                branch_prefix="jj-stack/",
+                suffixes=("-aaaaaaaa",),
+            )
+        return exact, recovered
+
+    assert asyncio.run(run_test()) == (
+        {"jj-stack/current": "current-target"},
+        {"jj-stack/old-slug-aaaaaaaa": "old-target"},
+    )
+    assert len(suffix_queries) == 2
+
+
 def test_github_client_detects_merge_queue_branch_rule() -> None:
     def handler(request: httpxyz.Request) -> httpxyz.Response:
         payload = json.loads(request.content.decode("utf-8"))

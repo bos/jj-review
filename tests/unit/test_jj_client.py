@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import subprocess
 from collections.abc import Sequence
@@ -224,158 +223,10 @@ def test_find_private_commits_returns_matching_changes(monkeypatch: pytest.Monke
     assert result[0].commit_id == "head"
 
 
-def test_list_remote_branches_resolves_jj_remote_name_to_fetch_url(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen_commands: list[tuple[str, ...]] = []
-
-    def runner(command: Sequence[str], **kwargs) -> subprocess.CompletedProcess[str]:
-        assert Path(kwargs["cwd"]) == Path("/repo")
-        invocation = tuple(command)
-        seen_commands.append(invocation)
-        if invocation == ("jj", "--ignore-working-copy", "git", "remote", "list"):
-            return subprocess.CompletedProcess(
-                command,
-                0,
-                stdout=(
-                    "origin https://github.test/octo-org/repo.git "
-                    "(push: git@github.test:octo-org/repo.git)\n"
-                ),
-                stderr="",
-            )
-        if invocation == ("jj", "--ignore-working-copy", "git", "root"):
-            return subprocess.CompletedProcess(command, 0, stdout="/repo/.git\n", stderr="")
-        if invocation == (
-            "git",
-            "--git-dir",
-            _REPO_GIT_DIR,
-            "ls-remote",
-            "--refs",
-            "https://github.test/octo-org/repo.git",
-            "refs/heads/jj-stack/feat",
-        ):
-            return subprocess.CompletedProcess(
-                command,
-                0,
-                stdout="abc123\trefs/heads/jj-stack/feat\n",
-                stderr="",
-            )
-        raise AssertionError(f"unexpected command: {invocation!r}")
-
-    monkeypatch.setattr(subprocess, "run", runner)
-    result = JjClient(Path("/repo")).list_remote_branches(
-        remote="origin", patterns=("refs/heads/jj-stack/feat",)
-    )
-
-    assert result == {"jj-stack/feat": "abc123"}
-    assert seen_commands == [
-        ("jj", "--ignore-working-copy", "git", "remote", "list"),
-        ("jj", "--ignore-working-copy", "git", "root"),
-        (
-            "git",
-            "--git-dir",
-            _REPO_GIT_DIR,
-            "ls-remote",
-            "--refs",
-            "https://github.test/octo-org/repo.git",
-            "refs/heads/jj-stack/feat",
-        ),
-    ]
-
-
-def test_async_remote_branch_read_terminates_its_process_when_cancelled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def runner(command: Sequence[str], **_kwargs) -> subprocess.CompletedProcess[str]:
-        invocation = tuple(command)
-        if invocation == ("jj", "--ignore-working-copy", "git", "remote", "list"):
-            return subprocess.CompletedProcess(
-                command,
-                0,
-                stdout="origin ssh://git@github.test/octo-org/repo.git\n",
-                stderr="",
-            )
-        if invocation == ("jj", "--ignore-working-copy", "git", "root"):
-            return subprocess.CompletedProcess(command, 0, stdout="/repo/.git\n", stderr="")
-        raise AssertionError(f"unexpected command: {invocation!r}")
-
-    monkeypatch.setattr(subprocess, "run", runner)
-
-    async def run_case() -> bool:
-        communication_started = asyncio.Event()
-
-        class Process:
-            returncode: int | None = None
-            terminated = False
-
-            async def communicate(self) -> tuple[bytes, bytes]:
-                communication_started.set()
-                await asyncio.Event().wait()
-                raise AssertionError("unreachable")
-
-            def terminate(self) -> None:
-                self.terminated = True
-                self.returncode = -15
-
-            async def wait(self) -> int:
-                assert self.returncode is not None
-                return self.returncode
-
-        process = Process()
-
-        async def create_subprocess(*command: str, **kwargs) -> Process:
-            assert command == (
-                "git",
-                "--git-dir",
-                _REPO_GIT_DIR,
-                "ls-remote",
-                "--refs",
-                "ssh://git@github.test/octo-org/repo.git",
-                "refs/heads/jj-stack/feat",
-            )
-            assert Path(kwargs["cwd"]) == Path("/repo")
-            return process
-
-        monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subprocess)
-        task = asyncio.create_task(
-            JjClient(Path("/repo")).list_remote_branches_async(
-                remote="origin",
-                patterns=("refs/heads/jj-stack/feat",),
-            )
-        )
-        await communication_started.wait()
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        return process.terminated
-
-    assert asyncio.run(run_case())
-
-
-def test_list_remote_branches_rejects_an_unconfigured_remote(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen_commands: list[tuple[str, ...]] = []
-
-    def runner(command: Sequence[str], **_kwargs) -> subprocess.CompletedProcess[str]:
-        seen_commands.append(tuple(command))
-        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-
-    monkeypatch.setattr(subprocess, "run", runner)
-    with pytest.raises(JjCommandError, match="missing.*not configured"):
-        JjClient(Path("/repo")).list_remote_branches(
-            remote="missing",
-            patterns=("refs/heads/jj-stack/feat",),
-        )
-
-    assert seen_commands == [("jj", "--ignore-working-copy", "git", "remote", "list")]
-
-
 def test_remote_failure_redacts_http_userinfo_without_changing_subprocess_argv(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     remote_url = "https://alice:top-secret@github.test/octo-org/repo.git"
-    scp_url = "git@github.test:octo-org/repo.git"
     seen_commands: list[tuple[str, ...]] = []
 
     def runner(command: Sequence[str], **kwargs) -> subprocess.CompletedProcess[str]:
@@ -386,7 +237,7 @@ def test_remote_failure_redacts_http_userinfo_without_changing_subprocess_argv(
             return subprocess.CompletedProcess(
                 command,
                 0,
-                stdout=f"origin {remote_url} (push: {scp_url})\n",
+                stdout=f"origin {remote_url}\n",
                 stderr="",
             )
         if invocation == ("jj", "--ignore-working-copy", "git", "root"):
@@ -400,32 +251,40 @@ def test_remote_failure_redacts_http_userinfo_without_changing_subprocess_argv(
             "git",
             "--git-dir",
             _REPO_GIT_DIR,
-            "ls-remote",
-            "--refs",
+            "push",
+            "--atomic",
+            "--no-follow-tags",
+            "--no-verify",
+            "--force-with-lease=refs/heads/jj-stack/feat:abc123",
             remote_url,
-            "refs/heads/jj-stack/feat",
+            "def456:refs/heads/jj-stack/feat",
         ):
             return subprocess.CompletedProcess(
                 command,
                 1,
                 stdout="",
-                stderr=f"could not access {remote_url}; push URL remains {scp_url}",
+                stderr=f"could not access {remote_url}",
             )
         raise AssertionError(f"unexpected command: {invocation!r}")
 
     monkeypatch.setattr(subprocess, "run", runner)
 
     with pytest.raises(JjCommandError) as raised:
-        JjClient(Path("/repo")).list_remote_branches(
+        JjClient(Path("/repo")).mutate_remote_pr_branch_refs(
             remote="origin",
-            patterns=("refs/heads/jj-stack/feat",),
+            updates=(
+                PRRefUpdate(
+                    branch="jj-stack/feat",
+                    expected_target="abc123",
+                    desired_target="def456",
+                ),
+            ),
         )
 
     rendered = str(raised.value)
     assert "alice" not in rendered
     assert "top-secret" not in rendered
     assert "https://github.test/octo-org/repo.git" in rendered
-    assert scp_url in rendered
     assert remote_url in seen_commands[-1]
 
 

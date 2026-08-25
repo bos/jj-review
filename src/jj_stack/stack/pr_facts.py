@@ -102,7 +102,12 @@ async def observe_prs(
         open_heads_request = github_client.get_open_prs_by_head_refs(head_refs=head_refs)
     else:
         open_heads_request = asyncio.sleep(0, result={})
-    numbered, by_head, by_base, github_repo = await asyncio.gather(
+    remote_targets_request: Awaitable[dict[str, str]]
+    if include_remote_targets and remote is not None and head_refs:
+        remote_targets_request = github_client.get_branch_targets(branches=head_refs)
+    else:
+        remote_targets_request = asyncio.sleep(0, result={})
+    numbered, by_head, by_base, github_repo, remote_targets = await asyncio.gather(
         github_client.get_prs_by_numbers(pr_numbers=pr_numbers),
         open_heads_request,
         (
@@ -115,13 +120,8 @@ async def observe_prs(
             if github_repo_snapshot is None
             else asyncio.sleep(0, result=github_repo_snapshot)
         ),
+        remote_targets_request,
     )
-    remote_targets: dict[str, str] = {}
-    if include_remote_targets and remote is not None and head_refs:
-        remote_targets = context.jj_client.list_remote_branches(
-            remote=remote.name,
-            patterns=tuple(f"refs/heads/{ref}" for ref in head_refs),
-        )
     if local_commits_snapshot is None:
         prepare_visible_pr_snapshots(
             jj_client=context.jj_client,

@@ -376,7 +376,7 @@ def test_view_renders_base_parent_for_stack_forked_from_trunk_ancestor(
     assert stack.trunk.subject not in captured.out
 
 
-def test_view_preserves_remote_observations_when_github_lookup_fails(
+def test_view_preserves_saved_identity_when_github_lookup_fails(
     tmp_path: Path,
     monkeypatch,
     capsys,

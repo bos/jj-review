@@ -180,20 +180,20 @@ async def _checkout_pr_stack(
             repo=repo,
         )
         top_head_sha = _require_pr_head_sha(top_pr)
-        observed_top = client.list_remote_branches(
-            remote=remote.name,
-            patterns=(f"refs/heads/{top_pr.head.ref}",),
-        ).get(top_pr.head.ref)
+        observed_top_targets, prs = await asyncio.gather(
+            github_client.get_branch_targets(branches=(top_pr.head.ref,)),
+            _load_pr_chain(
+                github_client=github_client,
+                repo=repo,
+                top=top_pr,
+            ),
+        )
+        observed_top = observed_top_targets.get(top_pr.head.ref)
         if observed_top != top_head_sha:
             raise CliError(
                 t"PR #{pr_number} and remote branch "
                 t"{ui.bookmark(top_pr.head.ref)} no longer identify the same commit."
             )
-        prs = await _load_pr_chain(
-            github_client=github_client,
-            repo=repo,
-            top=top_pr,
-        )
 
         for pr in reversed(prs):
             _reject_locally_rewritten_change(
@@ -233,10 +233,13 @@ async def _checkout_pr_stack(
                 state=state,
             )
 
+        remote_targets = await github_client.get_branch_targets(
+            branches=tuple(pr.head.ref for pr in prs),
+        )
         adopted_count = _save_checkout_tracking(
             context=context,
             prs=prs,
-            remote_name=remote.name,
+            remote_targets=remote_targets,
             repo=repo,
             stack=stack,
             state=state,
@@ -367,7 +370,7 @@ def _save_checkout_tracking(
     *,
     context: CommandContext,
     prs: tuple[GithubPR, ...],
-    remote_name: str,
+    remote_targets: dict[str, str],
     repo: GithubRepoAddress,
     stack: LocalStack,
     state: TrackingState,
@@ -381,10 +384,6 @@ def _save_checkout_tracking(
             hint=t"Run {ui.cmd('jj-stack view')} to compare them, then submit or "
             t"relink the pull requests that should match this history.",
         )
-    remote_targets = context.jj_client.list_remote_branches(
-        remote=remote_name,
-        patterns=tuple(f"refs/heads/{pr.head.ref}" for pr in prs),
-    )
     replacements: dict[str, tuple[PRIdentity, SubmittedBaseline]] = {}
     for pr, head_sha, change in zip(
         prs,

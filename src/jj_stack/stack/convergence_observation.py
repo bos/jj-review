@@ -71,13 +71,11 @@ async def complete_sync_observation(
         **(missing.prs if missing is not None else {}),
     }
     identities = tuple(item.identity for item in prs.values() if item.identity is not None)
-    remote = initial.remote or (missing.remote if missing is not None else None)
     targets = (
-        context.jj_client.list_remote_branches(
-            remote=remote.name,
-            patterns=tuple(f"refs/heads/{item.head_ref}" for item in identities),
+        await github.get_branch_targets(
+            branches=tuple(item.head_ref for item in identities),
         )
-        if remote is not None and identities
+        if identities
         else {}
     )
     observation = replace(

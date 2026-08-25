@@ -69,7 +69,6 @@ class StackStatusChange:
     pr_identity: PRIdentity | None
     submitted_baseline: SubmittedBaseline | None
     pr_lookup: PRLookup | None
-    remote_target: str | None
     subject: str
 
     def pr(self) -> GithubPR | None:
@@ -134,7 +133,6 @@ class PreparedStack:
     client: JjClient
     remote: GitRemote | None
     remote_error: ErrorMessage | None
-    remote_targets: dict[str, str]
     stack: LocalStack
     state: TrackingState
     status_changes: tuple[PreparedChange, ...]
@@ -171,7 +169,6 @@ def prepare_status(
     *,
     context: CommandContext,
     fetch_remote_state: bool = False,
-    observe_remote_targets: bool = True,
     revset: str | None,
     containing_change_id: str | None = None,
     inspection_mode: bool = False,
@@ -201,7 +198,6 @@ def prepare_status(
         )
     prepared = prepare_stack_for_status(
         context=context,
-        observed_remote_targets=None if observe_remote_targets else {},
         remote=github_target.remote,
         remote_error=github_target.remote_error,
         stack=selected_path.stack,
@@ -358,7 +354,6 @@ async def stream_status_async(
 def prepare_stack_for_status(
     *,
     context: CommandContext,
-    observed_remote_targets: dict[str, str] | None = None,
     remote: GitRemote | None,
     remote_error: ErrorMessage | None,
     stack: LocalStack,
@@ -377,56 +372,13 @@ def prepare_stack_for_status(
         for change in stack.changes
         for identity in (state.pr_identities.get(change.change_id),)
     )
-    branches = tuple(change.branch for change in status_changes if change.branch is not None)
-    if observed_remote_targets is None:
-        observed_remote_targets = observe_remote_targets_for_status(
-            context=context,
-            remote=remote,
-            stacks=(stack,),
-            state=state,
-        )
-    remote_targets = {
-        branch: observed_remote_targets[branch]
-        for branch in branches
-        if branch in observed_remote_targets
-    }
     return PreparedStack(
         client=jj_client,
         remote=remote,
         remote_error=remote_error,
-        remote_targets=remote_targets,
         stack=stack,
         state=state,
         status_changes=status_changes,
-    )
-
-
-def observe_remote_targets_for_status(
-    *,
-    context: CommandContext,
-    excluded_branches: frozenset[str] = frozenset(),
-    remote: GitRemote | None,
-    stacks: tuple[LocalStack, ...],
-    state: TrackingState,
-) -> dict[str, str]:
-    """Observe the union of exact saved PR branch refs needed for status."""
-
-    if remote is None:
-        return {}
-    branches = tuple(
-        dict.fromkeys(
-            identity.head_ref
-            for stack in stacks
-            for change in stack.changes
-            for identity in (state.pr_identities.get(change.change_id),)
-            if identity is not None and identity.head_ref not in excluded_branches
-        )
-    )
-    if not branches:
-        return {}
-    return context.jj_client.list_remote_branches(
-        remote=remote.name,
-        patterns=tuple(f"refs/heads/{branch}" for branch in branches),
     )
 
 
@@ -445,9 +397,6 @@ def build_status_changes_for_prepared_stack(
                 pr_lookups.get(change.branch)
                 if pr_lookups is not None and change.branch is not None
                 else None
-            ),
-            remote_target=(
-                prepared.remote_targets.get(change.branch) if change.branch is not None else None
             ),
             pr_identity=change.pr_identity,
             submitted_baseline=change.submitted_baseline,
@@ -493,7 +442,6 @@ async def _iter_status_changes_with_github(
                 commit_id=prepared_change.change.commit_id,
                 local_divergent=prepared_change.change.divergent,
                 pr_lookup=pr_lookup,
-                remote_target=prepared.remote_targets.get(branch),
                 pr_identity=prepared_change.pr_identity,
                 submitted_baseline=prepared_change.submitted_baseline,
                 subject=prepared_change.change.subject,
@@ -506,7 +454,7 @@ def lookup_pr_lookups(
     on_progress: Callable[[int], None] | None = None,
     prepared_changes: tuple[PreparedChange, ...],
 ) -> dict[str, PRLookup]:
-    """Return batched pull-request lookups keyed by saved branch."""
+    """Return pull-request lookups for saved branches."""
 
     return asyncio.run(
         lookup_pr_lookups_async(
@@ -523,7 +471,7 @@ async def lookup_pr_lookups_async(
     on_progress: Callable[[int], None] | None = None,
     prepared_changes: tuple[PreparedChange, ...],
 ) -> dict[str, PRLookup]:
-    """Return batched pull-request lookups keyed by saved branch."""
+    """Return pull-request lookups for saved branches."""
 
     async with build_github_client(repo=github_repo) as github_client:
         return await _resolve_pr_lookups(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -1580,6 +1581,10 @@ def _graphql_repo_payload(
                 }
             },
         }
+    if "BranchTargetsBySuffix" in query:
+        return _graphql_branch_targets_by_suffix(query=query, repo=repo)
+    if "BranchTargets" in query:
+        return _graphql_branch_targets(query=query, repo=repo)
     lines = query.splitlines()
     ref_queries: list[tuple[str, str, str, int, frozenset[str]]] = []
     for index, line in enumerate(lines):
@@ -1682,6 +1687,63 @@ def _graphql_repo_payload(
                 "pageInfo": {"hasNextPage": False},
             }
         payload[alias] = graphql_payload
+    return payload
+
+
+def _graphql_branch_targets(*, query: str, repo: FakeGithubRepo) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    pattern = re.compile(
+        r'^\s*(branch_\d+): ref\(qualifiedName: ("(?:[^"\\]|\\.)*")\)',
+        re.MULTILINE,
+    )
+    for match in pattern.finditer(query):
+        alias, encoded_ref = match.groups()
+        qualified_ref = json.loads(encoded_ref)
+        branch = qualified_ref.removeprefix("refs/heads/")
+        target = repo.ref_target(branch)
+        payload[alias] = (
+            None
+            if target is None or not qualified_ref.startswith("refs/heads/")
+            else {
+                "name": branch,
+                "prefix": "refs/heads/",
+                "target": {"oid": target},
+            }
+        )
+    return payload
+
+
+def _graphql_branch_targets_by_suffix(
+    *,
+    query: str,
+    repo: FakeGithubRepo,
+) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    pattern = re.compile(
+        r"^\s*(suffix_\d+): refs\(\s*first: 100,\s*query: "
+        r'("(?:[^"\\]|\\.)*"),\s*refPrefix: ("(?:[^"\\]|\\.)*")\s*\)',
+        re.MULTILINE,
+    )
+    heads = repo.branch_heads()
+    for match in pattern.finditer(query):
+        alias, encoded_query, encoded_prefix = match.groups()
+        name_query = json.loads(encoded_query)
+        ref_prefix = json.loads(encoded_prefix)
+        nodes = [
+            {
+                "name": qualified.removeprefix(ref_prefix),
+                "prefix": ref_prefix,
+                "target": {"oid": target},
+            }
+            for branch, target in sorted(heads.items())
+            for qualified in (f"refs/heads/{branch}",)
+            if qualified.startswith(ref_prefix)
+            and name_query in qualified.removeprefix(ref_prefix)
+        ]
+        payload[alias] = {
+            "nodes": nodes,
+            "pageInfo": {"hasNextPage": False},
+        }
     return payload
 
 

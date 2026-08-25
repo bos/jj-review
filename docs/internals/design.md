@@ -481,8 +481,9 @@ from current state. When only one active PR remains, it is left as an ordinary P
 stacks require at least two members.
 
 All selected PR branches move in one atomic push. Every update carries the exact target
-`jj-stack` observed for that remote ref, including expected absence for a new branch. If any ref
-moved, the whole push fails; there is no sequential fallback. `jj-stack` never takes over a
+`jj-stack` observed for that GitHub branch, including expected absence for a new branch. The
+push binds each update to that target with an exact Git lease. If any ref moved, the whole push
+fails; there is no sequential fallback. `jj-stack` never takes over a
 branch for which it has no tracking. The only first-submit recovery is a branch left by an
 interrupted push: exactly one managed branch may end in the selected short change ID, and its
 commit must carry the full change-ID header.
@@ -788,9 +789,9 @@ GitHub.
 when the file is absent. An invalid file or failure to locate a jj repo is an error,
 not a negative result, and exits 11.
 
-`view` and `list` are read-only. For local stack rows, both observe saved PR branches directly
-on the remote and ask GitHub for current PR state without fetching. Orphan rows in `list` show
-saved identity only; they do not claim to report the PR's live state.
+`view` and `list` are read-only. For local stack rows, both ask GitHub for current PR state
+without fetching. Orphan rows in `list` show saved identity only; they do not claim to report the
+PR's live state.
 
 Both commands project paths from the local `jj` DAG. One projected path may therefore show
 changes that explicit submit boundaries placed in several native GitHub stacks. Inspection does

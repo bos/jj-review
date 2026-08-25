@@ -103,7 +103,23 @@ class _GraphqlPRConnection(BaseModel):
 class _GraphqlPageInfo(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    end_cursor: str | None = Field(default=None, alias="endCursor")
     has_next_page: bool = Field(default=False, alias="hasNextPage")
+
+
+class _GraphqlGitObject(BaseModel):
+    oid: str
+
+
+class _GraphqlRef(BaseModel):
+    name: str
+    prefix: str
+    target: _GraphqlGitObject
+
+
+class _GraphqlRefConnection(BaseModel):
+    nodes: tuple[_GraphqlRef | None, ...]
+    page_info: _GraphqlPageInfo = Field(alias="pageInfo")
 
 
 class _GraphqlIssueCommentConnection(BaseModel):
@@ -171,6 +187,87 @@ class GithubClient:
                 "GitHub branch-at-commit lookup response had invalid branch data."
             )
         return tuple(branch["name"] for branch in payload)
+
+    async def get_branch_targets(
+        self,
+        *,
+        branches: Sequence[str],
+    ) -> dict[str, str]:
+        """Return exact GitHub branch targets without advertising unrelated refs."""
+
+        ordered = tuple(dict.fromkeys(branches))
+        targets: dict[str, str] = {}
+        for chunk in _chunked(ordered, size=_GRAPHQL_PR_BATCH_SIZE):
+            payload = await self._graphql_query(
+                _branch_targets_query(chunk),
+                variables=self._repo_variables,
+                response_name="branch target lookup",
+            )
+            repo = _graphql_repo_payload(payload, response_name="branch target lookup")
+            for index, branch in enumerate(chunk):
+                raw_ref = repo.get(f"branch_{index}")
+                if raw_ref is None:
+                    continue
+                observed_branch, target = _branch_target_from_graphql(
+                    raw_ref,
+                    response_name="branch target lookup",
+                )
+                if observed_branch != branch:
+                    raise GithubClientError(
+                        "GitHub branch target lookup returned a different branch."
+                    )
+                targets[branch] = target
+        return targets
+
+    async def find_branch_targets_by_suffix(
+        self,
+        *,
+        branch_prefix: str,
+        suffixes: Sequence[str],
+    ) -> dict[str, str]:
+        """Find branch targets under one namespace by exact name suffix."""
+
+        ordered = tuple(dict.fromkeys(suffixes))
+        targets: dict[str, str] = {}
+        for chunk in _chunked(ordered, size=_GRAPHQL_PR_BATCH_SIZE):
+            pending: tuple[tuple[str, str | None], ...] = tuple(
+                (suffix, None) for suffix in chunk
+            )
+            while pending:
+                payload = await self._graphql_query(
+                    _branch_targets_by_suffix_query(
+                        after_cursors=tuple(cursor for _suffix, cursor in pending),
+                        branch_prefix=branch_prefix,
+                        suffixes=tuple(suffix for suffix, _cursor in pending),
+                    ),
+                    variables=self._repo_variables,
+                    response_name="branch suffix lookup",
+                )
+                repo = _graphql_repo_payload(payload, response_name="branch suffix lookup")
+                next_page: list[tuple[str, str]] = []
+                for index, (suffix, _cursor) in enumerate(pending):
+                    connection = _validate_graphql_model(
+                        repo.get(f"suffix_{index}"),
+                        model=_GraphqlRefConnection,
+                        error_message=(
+                            "GitHub branch suffix lookup response had invalid ref data."
+                        ),
+                    )
+                    for raw_ref in connection.nodes:
+                        if raw_ref is None:
+                            continue
+                        branch, target = _branch_target(raw_ref)
+                        if branch.startswith(branch_prefix) and branch.endswith(suffix):
+                            targets[branch] = target
+                    if connection.page_info.has_next_page:
+                        cursor = connection.page_info.end_cursor
+                        if cursor is None:
+                            raise GithubClientError(
+                                "GitHub branch suffix lookup response had no page cursor."
+                            )
+                        next_page.append((suffix, cursor))
+                pending = tuple(next_page)
+        return targets
 
     async def list_stacks(self) -> tuple[GithubStack, ...]:
         payload = await self._get_paginated_json_array(
@@ -845,6 +942,65 @@ def _prs_by_number_query(numbers: Sequence[int]) -> str:
     )
 
 
+def _branch_targets_query(branches: Sequence[str]) -> str:
+    selections = "\n\n".join(
+        _graphql_document(
+            f"""
+            branch_{index}: ref(qualifiedName: {json.dumps(f"refs/heads/{branch}")}) {{
+              name
+              prefix
+              target {{
+                oid
+              }}
+            }}
+            """
+        ).strip()
+        for index, branch in enumerate(branches)
+    )
+    return _repo_graphql_query(
+        operation_name="BranchTargets",
+        selections=selections,
+    )
+
+
+def _branch_targets_by_suffix_query(
+    *,
+    after_cursors: Sequence[str | None],
+    branch_prefix: str,
+    suffixes: Sequence[str],
+) -> str:
+    ref_prefix = f"refs/heads/{branch_prefix}"
+    selections = "\n\n".join(
+        _graphql_document(
+            f"""
+            suffix_{index}: refs(
+              {f"after: {json.dumps(cursor)}," if cursor is not None else ""}
+              first: 100,
+              query: {json.dumps(suffix)},
+              refPrefix: {json.dumps(ref_prefix)}
+            ) {{
+              nodes {{
+                name
+                prefix
+                target {{
+                  oid
+                }}
+              }}
+              pageInfo {{
+                endCursor
+                hasNextPage
+              }}
+            }}
+            """
+        ).strip()
+        for index, (suffix, cursor) in enumerate(zip(suffixes, after_cursors, strict=True))
+    )
+    return _repo_graphql_query(
+        operation_name="BranchTargetsBySuffix",
+        selections=selections,
+    )
+
+
 def _open_prs_by_ref_query(aliases: dict[str, str], *, base: bool) -> str:
     first = 100 if base else 2
     operation_name = "OpenPullRequestsByBaseRef" if base else "OpenPullRequestsByHeadRef"
@@ -1027,6 +1183,26 @@ def _pr_connection_from_graphql(
             continue
         prs.append(pr)
     return tuple(prs)
+
+
+def _branch_target_from_graphql(
+    raw_ref: object,
+    *,
+    response_name: str,
+) -> tuple[str, str]:
+    parsed = _validate_graphql_model(
+        raw_ref,
+        model=_GraphqlRef,
+        error_message=f"GitHub {response_name} response had invalid ref data.",
+    )
+    return _branch_target(parsed)
+
+
+def _branch_target(ref: _GraphqlRef) -> tuple[str, str]:
+    qualified = f"{ref.prefix}{ref.name}"
+    if not qualified.startswith("refs/heads/"):
+        raise GithubClientError("GitHub branch lookup returned a non-branch ref.")
+    return qualified.removeprefix("refs/heads/"), ref.target.oid
 
 
 def build_github_client(*, repo: GithubRepoAddress) -> GithubClient:

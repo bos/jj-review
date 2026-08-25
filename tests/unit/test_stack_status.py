@@ -13,18 +13,16 @@ from jj_stack.models.github import GithubPR
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
 from jj_stack.stack import status as status_module
-from jj_stack.stack.path import SelectedStackPath
 from jj_stack.stack.status import (
     PreparedStatus,
     prepare_stack_for_status,
-    prepare_status,
     stream_status_async,
 )
 from jj_stack.state.store import TrackingStore
 from tests.support.change_helpers import make_change
 
 
-def test_untracked_status_omits_branch_and_skips_remote_and_github_discovery(
+def test_untracked_status_omits_branch_and_skips_github_discovery(
     monkeypatch,
 ) -> None:
     change = make_change(
@@ -62,43 +60,7 @@ def test_untracked_status_omits_branch_and_skips_remote_and_github_discovery(
         )
     )
 
-    assert client.list_calls == []
     assert result.changes[0].branch is None
-    assert result.changes[0].remote_target is None
-
-
-def test_prepare_status_observes_only_exact_saved_pr_branches(monkeypatch) -> None:
-    first = make_change(
-        commit_id="commit-1",
-        description="feature 1",
-        change_id="aaaaaaaa1234",
-    )
-    second = make_change(
-        commit_id="commit-2",
-        description="feature 2",
-        change_id="bbbbbbbb5678",
-    )
-    state = TrackingState(
-        pr_identities={
-            first.change_id: _identity(head_ref="jj-stack/feature-1-aaaaaaaa"),
-        },
-        submitted_baselines={first.change_id: SubmittedBaseline(commit_id=first.commit_id)},
-    )
-    client = _PrepareStatusClient(
-        _stack_for_status(first, second),
-        remote_targets={"jj-stack/feature-1-aaaaaaaa": first.commit_id},
-    )
-    _patch_selected_path(monkeypatch, client=client, state=state)
-
-    prepared = prepare_status(
-        context=_context(client=client, state=state),
-        revset=None,
-    )
-
-    assert client.list_calls == [("refs/heads/jj-stack/feature-1-aaaaaaaa",)]
-    assert prepared.prepared.status_changes[0].branch == "jj-stack/feature-1-aaaaaaaa"
-    assert prepared.prepared.status_changes[1].branch is None
-    assert prepared.prepared.remote_targets == {"jj-stack/feature-1-aaaaaaaa": first.commit_id}
 
 
 def test_stream_status_falls_back_to_local_data_after_github_abort(monkeypatch) -> None:
@@ -116,10 +78,7 @@ def test_stream_status_falls_back_to_local_data_after_github_abort(monkeypatch) 
         },
         submitted_baselines={change.change_id: SubmittedBaseline(commit_id=change.commit_id)},
     )
-    client = _PrepareStatusClient(
-        _stack_for_status(change),
-        remote_targets={"jj-stack/feature-1-aaaaaaaa": change.commit_id},
-    )
+    client = _PrepareStatusClient(_stack_for_status(change))
     prepared = prepare_stack_for_status(
         context=_context(client=client, state=state),
         remote=_STATUS_REMOTE,
@@ -156,7 +115,6 @@ def test_stream_status_falls_back_to_local_data_after_github_abort(monkeypatch) 
     assert result.github_error == "GitHub lookup failed"
     assert result.incomplete is True
     assert result.changes[0].branch == "jj-stack/feature-1-aaaaaaaa"
-    assert result.changes[0].remote_target == change.commit_id
 
 
 def test_pr_lookup_falls_back_to_exact_remembered_pr_number() -> None:
@@ -279,33 +237,11 @@ def _stack_for_status(*changes: LocalCommit) -> LocalStack:
 
 
 class _PrepareStatusClient:
-    def __init__(
-        self,
-        stack: LocalStack,
-        *,
-        remote_targets: dict[str, str] | None = None,
-    ) -> None:
-        self.list_calls: list[tuple[str, ...]] = []
-        self.remote_targets = remote_targets or {}
+    def __init__(self, stack: LocalStack) -> None:
         self.stack = stack
 
     def list_git_remotes(self) -> tuple[GitRemote, ...]:
         return (_STATUS_REMOTE,)
-
-    def list_remote_branches(
-        self,
-        *,
-        remote: str,
-        patterns: tuple[str, ...],
-    ) -> dict[str, str]:
-        assert remote == "origin"
-        self.list_calls.append(patterns)
-        requested = {pattern.removeprefix("refs/heads/") for pattern in patterns}
-        return {
-            branch: target
-            for branch, target in self.remote_targets.items()
-            if branch in requested
-        }
 
 
 class _StateStoreStub:
@@ -314,23 +250,6 @@ class _StateStoreStub:
 
     def load(self) -> TrackingState:
         return self.state
-
-
-def _patch_selected_path(
-    monkeypatch,
-    *,
-    client: _PrepareStatusClient,
-    state: TrackingState,
-) -> None:
-    selected_path = SelectedStackPath(
-        is_maximal=True,
-        stack=client.stack,
-    )
-    monkeypatch.setattr(
-        status_module,
-        "select_stack_path",
-        lambda **_kwargs: selected_path,
-    )
 
 
 def _context(

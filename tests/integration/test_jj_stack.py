@@ -13,6 +13,7 @@ from ..support.integration_helpers import (
     init_repo,
     run_command,
 )
+from .submit_command_helpers import remote_refs
 
 
 def test_selected_path_observes_linear_history_from_default_head(tmp_path: Path) -> None:
@@ -228,10 +229,7 @@ def test_direct_git_pr_branch_ref_operations_use_the_backing_store(
     client.fetch_remote(remote="origin")
     visible_pr_bookmarks = {branch: frozenset({old_commit})}
     assert client.visible_pr_bookmark_targets() == visible_pr_bookmarks
-    assert client.list_remote_branches(
-        remote="origin",
-        patterns=(f"refs/heads/{branch}",),
-    ) == {branch: old_commit}
+    assert remote_refs(remote)[f"refs/heads/{branch}"] == old_commit
 
     publisher = tmp_path / "publisher"
     run_command(["jj", "git", "init", "--no-colocate", str(publisher)], tmp_path)
@@ -300,10 +298,9 @@ def test_direct_git_pr_branch_ref_operations_use_the_backing_store(
             ),
         ),
     )
-    assert client.list_remote_branches(
-        remote="origin",
-        patterns=(f"refs/heads/{branch}", f"refs/heads/{created_branch}"),
-    ) == {branch: new_commit, created_branch: new_commit}
+    heads = remote_refs(remote)
+    assert heads[f"refs/heads/{branch}"] == new_commit
+    assert heads[f"refs/heads/{created_branch}"] == new_commit
 
     run_command(
         [
@@ -333,13 +330,11 @@ def test_direct_git_pr_branch_ref_operations_use_the_backing_store(
                 ),
             ),
         )
-    assert (
-        client.list_remote_branches(
-            remote="origin",
-            patterns=(f"refs/heads/{branch}", f"refs/heads/{created_branch}"),
-        )
-        == stale_targets
-    )
+    heads = remote_refs(remote)
+    assert {
+        branch: heads[f"refs/heads/{branch}"],
+        created_branch: heads[f"refs/heads/{created_branch}"],
+    } == stale_targets
 
     run_command(
         [
@@ -367,13 +362,9 @@ def test_direct_git_pr_branch_ref_operations_use_the_backing_store(
             ),
         ),
     )
-    assert (
-        client.list_remote_branches(
-            remote="origin",
-            patterns=(f"refs/heads/{branch}", f"refs/heads/{created_branch}"),
-        )
-        == {}
-    )
+    heads = remote_refs(remote)
+    assert f"refs/heads/{branch}" not in heads
+    assert f"refs/heads/{created_branch}" not in heads
     assert client.visible_pr_bookmark_targets() == visible_pr_bookmarks
     assert (git_root == repo / ".git") is (layout_flag == "--colocate")
 

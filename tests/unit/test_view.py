@@ -46,7 +46,6 @@ def _status_change(
     local_divergent: bool = False,
     pr_lookup: PRLookup | None = None,
     pr_identity: PRIdentity | None = None,
-    remote_target: str | None = None,
     submitted_baseline: SubmittedBaseline | None = None,
     subject: str = "feature",
 ) -> StackStatusChange:
@@ -57,7 +56,6 @@ def _status_change(
         local_divergent=local_divergent,
         pr_lookup=pr_lookup,
         pr_identity=pr_identity,
-        remote_target=remote_target,
         submitted_baseline=submitted_baseline,
         subject=subject,
     )

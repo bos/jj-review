@@ -100,11 +100,8 @@ async def _run_relink_async(
             pr_number=pr_number,
             repo_owner=repo.owner,
         )
-    branch = pr.head.ref
-    remote_target = client.list_remote_branches(
-        remote=remote.name,
-        patterns=(f"refs/heads/{branch}",),
-    ).get(branch)
+        branch = pr.head.ref
+        remote_target = (await github_client.get_branch_targets(branches=(branch,))).get(branch)
     if remote_target is None:
         raise CliError(
             t"Remote branch {ui.bookmark(branch)} for pull request #{pr_number} does not exist."
