@@ -9,6 +9,7 @@ import jj_stack.ui as ui
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.models.github import GithubStack
+from jj_stack.stack.pr_facts import observe_github_stacks
 
 
 def selected_github_stack(
@@ -99,10 +100,7 @@ class GithubStackSelection:
     async def observe(self) -> tuple[GithubStack, ...]:
         """Return the current complete GitHub stack resources."""
 
-        try:
-            return await self.github_client.list_stacks()
-        except GithubClientError as error:
-            raise CliError("Could not inspect GitHub stack membership.") from error
+        return await observe_github_stacks(github=self.github_client)
 
     async def active_stacks(self) -> tuple[GithubStack, ...]:
         """Return resources in which a selected pull request is still an active member.
