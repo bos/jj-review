@@ -116,15 +116,3 @@ class GithubStackSelection:
         return tuple(
             stack for stack in stacks if not selected.isdisjoint(stack.active_pr_numbers)
         )
-
-    async def require_unstacked(self) -> None:
-        """Reject a mutation while a selected pull request is still an active member."""
-
-        blocking = await self.active_stacks()
-        if not blocking:
-            return
-        stack_number = blocking[0].number
-        raise CliError(
-            t"GitHub stack #{stack_number} blocks this jj-stack operation.",
-            hint=t"Run {ui.cmd(f'jj-stack unstack --stack {stack_number}')} and retry.",
-        )

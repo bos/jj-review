@@ -3,24 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Literal
 
 import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.commands.cleanup.shared import CleanupAction
 from jj_stack.errors import CliError
-from jj_stack.github.client import GithubClient, GithubClientError
+from jj_stack.github.client import GithubClient
 from jj_stack.github.overview_comments import (
     STACK_OVERVIEW_COMMENT_LABEL,
-    STACK_OVERVIEW_COMMENT_MARKER,
     delete_stack_overview_comment,
 )
 from jj_stack.jj.client import JjClient, PRRefUpdate
-from jj_stack.models.github import GithubIssueComment, GithubPR
+from jj_stack.models.github import GithubIssueComment, GithubPR, GithubStack
 from jj_stack.models.tracking import TrackedPR
 from jj_stack.pr_branch_namespace import pr_branch_matches_change
-from jj_stack.stack.github_stack_safety import GithubStackSelection
 from jj_stack.stack.pr_facts import RepoFacts, has_competing_open_pr
 from jj_stack.ui import Message
 
@@ -111,55 +108,15 @@ def check_tracked_pr(
     )
 
 
-@dataclass(frozen=True, slots=True)
-class OverviewCommentLookup:
-    """Resolution of the managed overview comment on one pull request.
-
-    At most one of ``comment`` or ``blocked_reason`` is set. Both are ``None`` when the marker is
-    absent.
-    """
-
-    comment: GithubIssueComment | None = None
-    blocked_reason: str | None = None
-
-
-async def find_overview_comment(
-    *,
-    github_client: GithubClient,
-    pr_number: int,
-) -> OverviewCommentLookup:
-    """Discover the managed overview comment for one PR."""
-
-    try:
-        comment = (
-            await github_client.find_issue_comments_by_body_marker(
-                body_marker=STACK_OVERVIEW_COMMENT_MARKER,
-                pr_numbers=(pr_number,),
-            )
-        )[pr_number]
-    except GithubClientError as error:
-        if error.status_code == 404:
-            return OverviewCommentLookup()
-        reason = error.user_facing_reason()
-        return OverviewCommentLookup(
-            blocked_reason=(
-                f"cannot inspect the {STACK_OVERVIEW_COMMENT_LABEL} for PR #{pr_number}: {reason}"
-            ),
-        )
-
-    return OverviewCommentLookup(comment=comment)
-
-
 async def apply_overview_comment_cleanup(
     *,
+    comment: GithubIssueComment | None,
     dry_run: bool,
     github_client: GithubClient,
-    lookup: OverviewCommentLookup,
     pr_number: int,
 ) -> tuple[tuple[CleanupAction, ...], bool]:
     """Delete one overview comment identified during cleanup planning."""
 
-    comment = lookup.comment
     if comment is None:
         return (), True
     deleted = True
@@ -329,18 +286,24 @@ def plan_pr_cleanup(
     return pr, update, None
 
 
-async def github_stack_cleanup_blocker(
+def github_stack_cleanup_blocker(
     *,
-    github_client: GithubClient,
     pr_number: int,
+    stacks: tuple[GithubStack, ...] | CliError,
 ) -> CleanupAction | None:
     """Fail closed when current stack membership still needs a PR branch."""
 
-    try:
-        await GithubStackSelection(github_client, (pr_number,)).require_unstacked()
-    except CliError as error:
-        return CleanupAction(kind="remote branch", body=str(error), status="blocked")
-    return None
+    if isinstance(stacks, CliError):
+        reason = str(stacks)
+    else:
+        stack = next((item for item in stacks if pr_number in item.active_pr_numbers), None)
+        if stack is None:
+            return None
+        reason = (
+            f"GitHub stack #{stack.number} blocks this jj-stack operation. "
+            f"Run jj-stack unstack --stack {stack.number} and retry."
+        )
+    return CleanupAction(kind="remote branch", body=reason, status="blocked")
 
 
 def apply_remote_branch_cleanup(

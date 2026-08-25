@@ -23,29 +23,29 @@ import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext, bootstrap_context
 from jj_stack.commands._cleanup_actions import (
-    OverviewCommentLookup,
     apply_overview_comment_cleanup,
     apply_remote_branch_cleanup,
     check_tracked_pr,
     emit_action_row,
-    find_overview_comment,
     github_stack_cleanup_blocker,
     plan_pr_cleanup,
 )
-from jj_stack.errors import AmbiguousSelectionError, UsageError
+from jj_stack.errors import AmbiguousSelectionError, CliError, UsageError
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
 from jj_stack.github.error_messages import github_target_unavailable_messages
-from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_LABEL
+from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_MARKER
 from jj_stack.github.resolution import (
     GithubTarget,
     resolve_github_target,
 )
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import PRRefUpdate
-from jj_stack.models.tracking import PRIdentity, TrackingState
+from jj_stack.models.github import GithubIssueComment, GithubStack
+from jj_stack.models.tracking import TrackingState
 from jj_stack.stack.change_status import enumerate_orphaned_records
 from jj_stack.stack.pr_facts import (
     RepoFacts,
+    observe_github_stacks,
     observe_prs,
 )
 from jj_stack.stack.repo import observe_repo_paths
@@ -68,6 +68,7 @@ from .stale import (
 )
 
 HELP = "Remove PR data that no active pull request needs"
+type CleanupPreflight = tuple[str | None, PRRefUpdate | None, CleanupAction | None]
 
 
 def _build_action_streamer(*, header: str) -> Callable[[CleanupAction], None]:
@@ -406,78 +407,90 @@ async def _run_tracked_pr_cleanup_pass(
         include_open_head_prs=True,
         remote_name=remote_name,
     )
+    preflights: dict[str, CleanupPreflight] = {}
+    eligible_pr_numbers: list[int] = []
+    for change in prepared_changes:
+        candidate = change.candidate
+        preflight = _preflight_tracked_pr_cleanup(
+            initial_observation=observation,
+            prepared_change=change,
+            prepared_cleanup=prepared_cleanup,
+            preview_detached_dependents=preview_detached_dependents,
+        )
+        preflights[candidate.change_id] = preflight
+        if preflight[0] is not None:
+            eligible_pr_numbers.append(candidate.pr_identity.pr_number)
+    stacks, overview_comments = await _observe_cleanup_secondary_facts(
+        github_client=github_client,
+        pr_numbers=eligible_pr_numbers,
+    )
     for prepared_change in prepared_changes:
         stop_after_failure = await _cleanup_tracked_pr(
             github_client=github_client,
-            initial_observation=observation,
+            preflight=preflights[prepared_change.candidate.change_id],
             prepared_change=prepared_change,
             prepared_cleanup=prepared_cleanup,
-            preview_detached_dependents=preview_detached_dependents,
             record_action=record_action,
             remote_name=remote_name,
+            stacks=stacks,
+            overview_comments=overview_comments,
         )
         if stop_after_failure:
             break
 
 
+async def _observe_cleanup_secondary_facts(
+    *,
+    github_client: GithubClient,
+    pr_numbers: list[int],
+) -> tuple[tuple[GithubStack, ...] | CliError, dict[int, GithubIssueComment | None]]:
+    """Join the two shared secondary observations with stack errors taking precedence."""
+
+    if not pr_numbers:
+        return (), {}
+    stacks_task = asyncio.create_task(observe_github_stacks(github=github_client))
+    comments_task = asyncio.create_task(
+        github_client.find_issue_comments_by_body_marker(
+            body_marker=STACK_OVERVIEW_COMMENT_MARKER,
+            pr_numbers=pr_numbers,
+        )
+    )
+    await asyncio.gather(stacks_task, comments_task, return_exceptions=True)
+    try:
+        stacks = await stacks_task
+    except CliError as error:
+        return error, {}
+    return stacks, await comments_task
+
+
 async def _cleanup_tracked_pr(
     *,
     github_client: GithubClient,
-    initial_observation: RepoFacts,
+    preflight: CleanupPreflight,
     prepared_change: PreparedCleanupChange,
     prepared_cleanup: PreparedCleanup,
-    preview_detached_dependents: frozenset[int],
     record_action: Callable[[CleanupAction], None],
     remote_name: str,
+    stacks: tuple[GithubStack, ...] | CliError,
+    overview_comments: dict[int, GithubIssueComment | None],
 ) -> bool:
-    """Plan and apply one cleanup, returning whether a partial failure must stop the pass."""
+    """Apply one planned cleanup, returning whether a partial failure must stop the pass."""
 
     candidate = prepared_change.candidate
     identity = candidate.pr_identity
-    pr_state, update, blocker_action = _pr_cleanup_update(
-        close_open_prs=prepared_cleanup.close_open_prs,
-        observation=initial_observation,
-        prepared_change=prepared_change,
-        preview_detached_dependents=preview_detached_dependents,
-    )
-    if blocker_action is not None:
-        record_action(blocker_action)
+    pr_state, update, early_action = preflight
+    if pr_state is None:
+        if early_action is not None:
+            record_action(early_action)
         return False
-    if pr_state == "open" and not prepared_cleanup.close_open_prs:
-        if prepared_change.stale_reason is not None:
-            record_action(
-                CleanupAction(
-                    kind="tracking",
-                    status="skipped",
-                    body=t"preserve open orphan PR #{identity.pr_number}",
-                )
-            )
-        return False
-    if pr_state == "merged" and prepared_change.has_mutable_copy:
-        record_action(
-            CleanupAction(
-                kind="tracking",
-                status="skipped",
-                body=t"preserve merged PR #{identity.pr_number} for "
-                t"{ui.change_id(candidate.change_id)}; run "
-                t"{ui.cmd(f'sync {candidate.change_id}')} before cleanup",
-            )
-        )
-        return False
-    stack_blocker = await github_stack_cleanup_blocker(
-        github_client=github_client,
+    stack_blocker = github_stack_cleanup_blocker(
         pr_number=identity.pr_number,
+        stacks=stacks,
     )
     if stack_blocker is not None:
         record_action(stack_blocker)
         return False
-    overview_lookup = await _preflight_cleanup_overview_comment(
-        github_client=github_client,
-        identity=identity,
-        record_action=record_action,
-    )
-    if overview_lookup is None:
-        return False
+    overview_comment = overview_comments[identity.pr_number]
     if pr_state == "open":
         close_action = CleanupAction(
             kind="pull request",
@@ -499,7 +512,7 @@ async def _cleanup_tracked_pr(
         record_action(close_action)
     return await _apply_tracked_pr_cleanup(
         branch_update=update,
-        overview_lookup=overview_lookup,
+        overview_comment=overview_comment,
         github_client=github_client,
         prepared_change=prepared_change,
         prepared_cleanup=prepared_cleanup,
@@ -508,68 +521,63 @@ async def _cleanup_tracked_pr(
     )
 
 
-def _pr_cleanup_update(
+def _preflight_tracked_pr_cleanup(
     *,
-    close_open_prs: bool,
-    observation: RepoFacts,
+    initial_observation: RepoFacts,
     prepared_change: PreparedCleanupChange,
-    preview_detached_dependents: frozenset[int] = frozenset(),
-) -> tuple[str, PRRefUpdate | None, CleanupAction | None]:
-    """Check the exact PR and derive its remote branch deletion."""
-
+    prepared_cleanup: PreparedCleanup,
+    preview_detached_dependents: frozenset[int],
+) -> CleanupPreflight:
     candidate = prepared_change.candidate
+    identity = candidate.pr_identity
     pr, blocker = check_tracked_pr(
         allowed_states=frozenset({"open", "closed", "merged"}),
         candidate=candidate,
-        observation=observation,
+        observation=initial_observation,
     )
     if blocker is not None:
-        return "blocked", None, blocker
+        return None, None, blocker
     if pr is None:
         raise AssertionError("Exact cleanup lookup must return a pull request.")
-    if pr.state == "open" and not close_open_prs:
-        return "open", None, None
+    if pr.state == "open" and not prepared_cleanup.close_open_prs:
+        action = (
+            CleanupAction(
+                kind="tracking",
+                status="skipped",
+                body=t"preserve open orphan PR #{identity.pr_number}",
+            )
+            if prepared_change.stale_reason is not None
+            else None
+        )
+        return None, None, action
     _pr, update, blocker = plan_pr_cleanup(
         allowed_states=(
             frozenset({"open", "closed", "merged"})
-            if close_open_prs
+            if prepared_cleanup.close_open_prs
             else frozenset({"closed", "merged"})
         ),
         candidate=candidate,
-        observation=observation,
+        observation=initial_observation,
         preview_detached_dependents=preview_detached_dependents,
     )
-    return pr.state, update, blocker
-
-
-async def _preflight_cleanup_overview_comment(
-    *,
-    github_client: GithubClient,
-    identity: PRIdentity,
-    record_action: Callable[[CleanupAction], None],
-) -> OverviewCommentLookup | None:
-    """Resolve the overview comment, recording and stopping on an ambiguous lookup."""
-
-    lookup = await find_overview_comment(
-        github_client=github_client,
-        pr_number=identity.pr_number,
-    )
-    if lookup.blocked_reason is not None:
-        record_action(
-            CleanupAction(
-                kind=STACK_OVERVIEW_COMMENT_LABEL,
-                status="blocked",
-                body=lookup.blocked_reason,
-            )
+    if blocker is not None:
+        return None, update, blocker
+    if pr.state == "merged" and prepared_change.has_mutable_copy:
+        action = CleanupAction(
+            kind="tracking",
+            status="skipped",
+            body=t"preserve merged PR #{identity.pr_number} for "
+            t"{ui.change_id(candidate.change_id)}; run "
+            t"{ui.cmd(f'sync {candidate.change_id}')} before cleanup",
         )
-        return None
-    return lookup
+        return None, None, action
+    return pr.state, update, None
 
 
 async def _apply_tracked_pr_cleanup(
     *,
     branch_update: PRRefUpdate | None,
-    overview_lookup: OverviewCommentLookup,
+    overview_comment: GithubIssueComment | None,
     github_client: GithubClient,
     prepared_change: PreparedCleanupChange,
     prepared_cleanup: PreparedCleanup,
@@ -580,7 +588,7 @@ async def _apply_tracked_pr_cleanup(
 
     candidate = prepared_change.candidate
     mutation_started = not prepared_cleanup.dry_run and (
-        branch_update is not None or overview_lookup.comment is not None
+        branch_update is not None or overview_comment is not None
     )
     apply_remote_branch_cleanup(
         dry_run=prepared_cleanup.dry_run,
@@ -590,9 +598,9 @@ async def _apply_tracked_pr_cleanup(
         update=branch_update,
     )
     comment_actions, comments_current = await apply_overview_comment_cleanup(
+        comment=overview_comment,
         dry_run=prepared_cleanup.dry_run,
         github_client=github_client,
-        lookup=overview_lookup,
         pr_number=candidate.pr_identity.pr_number,
     )
     for action in comment_actions:

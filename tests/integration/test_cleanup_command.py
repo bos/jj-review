@@ -182,6 +182,7 @@ def test_cleanup_blocks_closed_pr_still_claimed_by_github_stack(
     assert preview_exit_code == 1
     assert "Planned cleanup actions:" in preview.out
     assert "GitHub stack #7 blocks this jj-stack operation" in normalized_preview
+    assert "jj-stack unstack --stack 7" in normalized_preview
     assert all(
         f"remote branch: delete {bookmark}@origin" not in normalized_preview
         for bookmark in bookmarks
