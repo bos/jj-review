@@ -5,10 +5,7 @@ import pytest
 import jj_stack.cli as cli_module
 from jj_stack.cli import _extract_config_overrides, main
 
-
-@pytest.fixture(autouse=True)
-def no_configured_color(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli_module, "_load_configured_jj_color", lambda **kwargs: None)
+pytestmark = pytest.mark.usefixtures("no_configured_color")
 
 
 def test_main_preserves_partial_handler_output_on_keyboard_interrupt(

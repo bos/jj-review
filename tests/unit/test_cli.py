@@ -9,10 +9,7 @@ from jj_stack.commands.view import ViewSelector
 from jj_stack.errors import EXIT_USAGE, CliError
 from tests.support.output_assertions import assert_output_contains, assert_output_in_order
 
-
-@pytest.fixture(autouse=True)
-def no_configured_color(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("jj_stack.cli._load_configured_jj_color", lambda **kwargs: None)
+pytestmark = pytest.mark.usefixtures("no_configured_color")
 
 
 def test_main_reports_missing_repo_without_traceback(
