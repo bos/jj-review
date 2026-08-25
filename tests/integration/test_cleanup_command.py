@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from jj_stack.errors import CliError
-from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_MARKER
 from jj_stack.state.store import TrackingStore
 
@@ -244,50 +243,6 @@ def test_cleanup_preserves_closed_pr_branch_used_by_open_pr(
     assert state_store.load() == state
     assert issue_comments(fake_repo, identity.pr_number) == comments_before
     assert f"refs/heads/{identity.head_ref}" in remote_refs(fake_repo.git_dir)
-
-
-def test_cleanup_isolates_malformed_pr_facts(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    stack = selected_stack(repo)
-    failed_change_id, cleaned_change_id = (change.change_id for change in stack.changes)
-    state_store = TrackingStore.for_repo(repo)
-    initial_state = state_store.load()
-    fake_repo.github_stacks = {}
-    failed_identity = initial_state.pr_identities[failed_change_id]
-    cleaned_identity = initial_state.pr_identities[cleaned_change_id]
-    fake_repo.prs[failed_identity.pr_number].state = "closed"
-    fake_repo.prs[cleaned_identity.pr_number].state = "closed"
-    original_lookup = GithubClient.get_prs_by_numbers
-
-    async def reject_malformed_pr(self, *, pr_numbers):
-        numbers = tuple(pr_numbers)
-        if failed_identity.pr_number in numbers:
-            raise GithubClientError("malformed pull request result")
-        return await original_lookup(self, pr_numbers=numbers)
-
-    monkeypatch.setattr(
-        GithubClient,
-        "get_prs_by_numbers",
-        reject_malformed_pr,
-    )
-
-    exit_code = run_main(repo, config_path, "cleanup")
-    captured = capsys.readouterr()
-    refreshed_state = state_store.load()
-
-    assert exit_code == 1
-    assert f"cannot inspect saved PR #{failed_identity.pr_number}" in " ".join(
-        captured.out.split()
-    )
-    assert failed_change_id in refreshed_state.pr_identities
-    assert cleaned_change_id not in refreshed_state.pr_identities
-    assert f"refs/heads/{failed_identity.head_ref}" in remote_refs(fake_repo.git_dir)
-    assert f"refs/heads/{cleaned_identity.head_ref}" not in remote_refs(fake_repo.git_dir)
 
 
 def test_cleanup_stops_later_prs_after_partial_mutation_failure(

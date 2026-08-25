@@ -398,27 +398,15 @@ async def _run_tracked_pr_cleanup_pass(
     if remote is None:
         raise AssertionError("Tracked PR cleanup requires a configured remote.")
     remote_name = remote.name
-    observations = await _observe_cleanup_prs(
+    observation = await observe_prs(
         change_ids=tuple(change.candidate.change_id for change in prepared_changes),
         context=prepared_cleanup.context,
         github_client=github_client,
+        include_open_dependents=True,
+        include_open_head_prs=True,
         remote_name=remote_name,
     )
     for prepared_change in prepared_changes:
-        candidate = prepared_change.candidate
-        observation = observations[candidate.change_id]
-        if isinstance(observation, GithubClientError):
-            record_action(
-                CleanupAction(
-                    kind="tracking",
-                    status="blocked",
-                    body=t"cannot inspect saved PR "
-                    t"#{candidate.pr_identity.pr_number} for "
-                    t"{ui.change_id(candidate.change_id)}; fix GitHub access, then rerun "
-                    t"{ui.cmd('cleanup')}",
-                )
-            )
-            continue
         stop_after_failure = await _cleanup_tracked_pr(
             github_client=github_client,
             initial_observation=observation,
@@ -430,44 +418,6 @@ async def _run_tracked_pr_cleanup_pass(
         )
         if stop_after_failure:
             break
-
-
-async def _observe_cleanup_prs(
-    *,
-    change_ids: tuple[str, ...],
-    context: CommandContext,
-    github_client: GithubClient,
-    remote_name: str,
-) -> dict[str, RepoFacts | GithubClientError]:
-    """Batch first, then isolate only records that GitHub cannot decode."""
-
-    async def observe_one(change_id: str) -> RepoFacts | GithubClientError:
-        try:
-            return await observe_prs(
-                change_ids=(change_id,),
-                context=context,
-                github_client=github_client,
-                include_open_dependents=True,
-                include_open_head_prs=True,
-                remote_name=remote_name,
-            )
-        except GithubClientError as error:
-            return error
-
-    try:
-        observation = await observe_prs(
-            change_ids=change_ids,
-            context=context,
-            github_client=github_client,
-            include_open_dependents=True,
-            include_open_head_prs=True,
-            remote_name=remote_name,
-        )
-    except GithubClientError:
-        values = [await observe_one(change_id) for change_id in change_ids]
-    else:
-        values = (observation,) * len(change_ids)
-    return dict(zip(change_ids, values, strict=True))
 
 
 async def _cleanup_tracked_pr(
