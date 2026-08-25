@@ -298,20 +298,6 @@ def _install_submit_retry_fault(
                 raise GithubClientError("Simulated pull request update failure", status_code=500)
             return pr
 
-        async def add_labels(self, *, issue_number, labels):
-            nonlocal failed
-            await super().add_labels(
-                issue_number=issue_number,
-                labels=labels,
-            )
-            if (
-                not failed
-                and scenario.failure_point == "pr_metadata"
-                and fake_repo.prs[issue_number].title == target_title
-            ):
-                failed = True
-                raise GithubClientError("Simulated label sync failure", status_code=500)
-
     patch_github_client_builders(
         monkeypatch,
         app=app,

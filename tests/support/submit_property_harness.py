@@ -372,7 +372,7 @@ def _replay_failed_first_submit(
     discard_output()
 
     retry_submit = submit
-    if scenario.failure_point in {"create_pr", "pr_metadata"}:
+    if scenario.failure_point == "create_pr":
         assert submit(None) != 0
         discard_output()
         failed_change_id = labels_to_change_ids[scenario.failure_label]
@@ -1002,19 +1002,6 @@ def _apply_drift_operation(
             state="closed",
         )
         return None
-    if drift.kind == "pr_replaced":
-        old_pr = fake_repo.prs[submitted.pr_number]
-        fake_repo.update_pr_state(
-            old_pr,
-            state="closed",
-        )
-        fake_repo.create_pr(
-            base_ref=old_pr.base_ref,
-            body="recreated outside jj-stack",
-            head_ref=old_pr.head_ref,
-            title=f"recreated {subject_for_label(label)}",
-        )
-        return None
     if drift.kind == "pr_base_retargeted":
         fake_repo.update_pr_base(
             fake_repo.prs[submitted.pr_number],
@@ -1023,14 +1010,6 @@ def _apply_drift_operation(
         return None
     if drift.kind == "pr_draft_toggled":
         fake_repo.prs[submitted.pr_number].is_draft = True
-        return None
-    if drift.kind == "remote_branch_drift":
-        drift_target = next(
-            candidate.remote_target
-            for candidate_label, candidate in reversed(baseline.items())
-            if candidate_label != label
-        )
-        update_remote_ref(fake_repo, branch=submitted.branch, target=drift_target)
         return None
     if drift.kind == "remote_branch_deleted":
         # GitHub closes a pull request when its head branch is deleted, so the

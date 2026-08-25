@@ -14,14 +14,15 @@ from .stack_edit_scenarios import (
     move_before_candidates,
 )
 
+# Drift kinds whose fail-closed rule a deterministic integration test already proves (a
+# remote branch moved off the saved commit, a duplicate PR on one head branch) stay out of
+# this pool; generated cycles go to drifts with no counterpart outside the harness.
 DriftKind = Literal[
     "closed_pr",
     "foreign_branch_fetched",
     "pr_base_retargeted",
     "pr_draft_toggled",
-    "pr_replaced",
     "remote_branch_deleted",
-    "remote_branch_drift",
     "trunk_advanced",
 ]
 DriftOutcome = Literal["fail_closed", "success"]
@@ -29,7 +30,6 @@ SubmitRetryFailurePoint = Literal[
     "after_remote_push",
     "create_pr",
     "update_pr",
-    "pr_metadata",
 ]
 DEFAULT_STACK_EDIT_SCENARIO_SEED = 8675309
 MAX_STACK_EDIT_ATTEMPTS_MULTIPLIER = 80
@@ -84,18 +84,15 @@ def generate_lifecycle_scenarios(*, count: int, seed: int) -> tuple[LifecycleSce
     if count <= len(LIFECYCLE_SCENARIOS):
         return LIFECYCLE_SCENARIOS[:count]
 
+    # Whole-stack merges (merged_prefix == stack_size) restate the parametrized pre-merge
+    # retirement integration test, so generated rows keep survivors and exercise the
+    # reparenting that only this family covers.
     fixed_direct = LIFECYCLE_SCENARIOS[-1]
-    whole_stack = LifecycleScenario(
-        "direct-squash-four-of-four",
-        "direct_merge",
-        4,
-        4,
-        "squash",
+    duplicate = (
+        fixed_direct.stack_size,
+        fixed_direct.merged_prefix,
+        fixed_direct.merge_method,
     )
-    excluded = {
-        (fixed_direct.stack_size, fixed_direct.merged_prefix, fixed_direct.merge_method),
-        (whole_stack.stack_size, whole_stack.merged_prefix, whole_stack.merge_method),
-    }
     generated = [
         LifecycleScenario(
             f"direct-{method}-{prefix}-of-{size}",
@@ -104,13 +101,13 @@ def generate_lifecycle_scenarios(*, count: int, seed: int) -> tuple[LifecycleSce
             prefix,
             method,
         )
-        for size in range(1, 6)
-        for prefix in range(1, size + 1)
+        for size in range(2, 6)
+        for prefix in range(1, size)
         for method in ("rebase", "squash")
-        if (size, prefix, method) not in excluded
+        if (size, prefix, method) != duplicate
     ]
     random.Random(seed + 6).shuffle(generated)
-    return (*LIFECYCLE_SCENARIOS, whole_stack, *generated)[:count]
+    return (*LIFECYCLE_SCENARIOS, *generated)[:count]
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,22 +207,10 @@ DRIFT_KIND_SPECS: dict[DriftKind, DriftKindSpec] = {
         failures=(),
         needs_label=True,
     ),
-    "pr_replaced": DriftKindSpec(
-        boundary="github_prs",
-        expected_outcome="fail_closed",
-        failures=((1, "pr_ambiguous"),),
-        needs_label=True,
-    ),
     "remote_branch_deleted": DriftKindSpec(
         boundary="remote_refs",
         expected_outcome="fail_closed",
         failures=((1, "remote_branch_missing"),),
-        needs_label=True,
-    ),
-    "remote_branch_drift": DriftKindSpec(
-        boundary="remote_refs",
-        expected_outcome="fail_closed",
-        failures=((1, "remote_branch_moved"),),
         needs_label=True,
     ),
     "trunk_advanced": DriftKindSpec(
@@ -600,7 +585,19 @@ def generate_stack_join_scenarios(
 
     scenarios: list[StackJoinScenario] = []
     seen: set[tuple[str, ...]] = set()
-    for scenario in _fixed_stack_join_scenarios():
+    # Both join directions always run: the fixed representative joins the second stack
+    # onto the first, and this row rebases the first onto the second. It lives here
+    # rather than in _fixed_stack_join_scenarios so unconfigured runs keep one join
+    # case and stay within the fixed-property budget.
+    for scenario in (
+        *_fixed_stack_join_scenarios(),
+        _stack_join_scenario(
+            first_size=2,
+            first_then_second=False,
+            name="join-first-after-second",
+            second_size=2,
+        ),
+    ):
         scenarios.append(scenario)
         seen.add(scenario.canonical_key)
         if len(scenarios) >= count:
@@ -653,7 +650,6 @@ def generate_submit_retry_scenarios(
         "after_remote_push",
         "create_pr",
         "update_pr",
-        "pr_metadata",
     )
     while len(scenarios) < count and attempts < max_attempts:
         attempts += 1

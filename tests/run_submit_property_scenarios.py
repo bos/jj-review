@@ -58,7 +58,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=_non_negative_int,
         help=(
             "Number of generated two-stack join scenarios to run "
-            "(default: max(4, scenarios // 10))."
+            "(default: 2, one row per join direction)."
         ),
     )
     parser.add_argument(
@@ -120,7 +120,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     env["JJ_STACK_SUBMIT_PROPERTY_SCENARIOS"] = str(args.scenarios)
     stack_join_scenarios = args.stack_join_scenarios
     if stack_join_scenarios is None:
-        stack_join_scenarios = max(4, args.scenarios // 10)
+        stack_join_scenarios = 2
     env["JJ_STACK_SUBMIT_PROPERTY_STACK_JOIN_SCENARIOS"] = str(stack_join_scenarios)
     stack_move_scenarios = args.stack_move_scenarios
     if stack_move_scenarios is None:
