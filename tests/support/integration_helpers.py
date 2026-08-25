@@ -9,6 +9,7 @@ import pickle
 import shutil
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -190,10 +191,9 @@ def set_shared_template_root(root: Path) -> None:
 def _template_dir(name: str, build: Callable[[Path], None]) -> Path:
     """Return a cached template directory, building it at most once per session.
 
-    With a shared root configured, workers coordinate through the filesystem:
-    a template is built in a process-private directory and atomically renamed
-    into place, so concurrent builders waste at most one redundant build and
-    readers only ever observe complete templates.
+    With a shared root configured, workers coordinate through an atomic lock
+    directory. One worker builds and atomically publishes the template while
+    the others wait, so readers only ever observe a complete template.
     """
 
     cached = _TEMPLATE_MEMO.get(name)
@@ -208,14 +208,30 @@ def _template_dir(name: str, build: Callable[[Path], None]) -> Path:
         return template_root
     root.mkdir(parents=True, exist_ok=True)
     target = root / name
-    if not (target / ".template-ready").is_file():
-        build_dir = root / f"{name}.build-{os.getpid()}"
-        build(build_dir)
-        (build_dir / ".template-ready").touch()
+    ready = target / ".template-ready"
+    lock = root / f".{name}.lock"
+    deadline = time.monotonic() + 120
+    while not ready.is_file():
         try:
-            os.rename(build_dir, target)
-        except OSError:
+            lock.mkdir()
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"Timed out waiting for integration template {name!r}."
+                ) from None
+            time.sleep(0.01)
+            continue
+        build_dir = root / f".{name}.build"
+        try:
+            if ready.is_file():
+                break
             shutil.rmtree(build_dir, ignore_errors=True)
+            build(build_dir)
+            (build_dir / ".template-ready").touch()
+            os.rename(build_dir, target)
+        finally:
+            shutil.rmtree(build_dir, ignore_errors=True)
+            lock.rmdir()
     _TEMPLATE_MEMO[name] = target
     return target
 

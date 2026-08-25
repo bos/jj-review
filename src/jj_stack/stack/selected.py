@@ -106,10 +106,20 @@ def select_stack_path_containing_change(
     nonempty_descendants = f"((({linked_selector}) ~ {trunk_path}):: ~ {trunk_path}) ~ empty()"
     selected_empty_change = f"({linked_selector}) & empty()"
     containing_heads = f"heads(({nonempty_descendants}) | ({selected_empty_change}))"
+    # Bind the derived heads before embedding the selector throughout the path scan. Repeating
+    # this expression in every membership predicate makes jj recursively reevaluate it.
+    observed_heads = jj_client.query_commits(containing_heads)
+    bound_heads = (
+        " | ".join(f"present({json.dumps(head.commit_id)})" for head in observed_heads)
+        if observed_heads
+        else "none()"
+    )
+    if observed_heads:
+        bound_heads = f"visible() & ({bound_heads})"
     rows = _observe_path_rows(
         jj_client=jj_client,
         linked_selector=linked_selector,
-        selector=containing_heads,
+        selector=bound_heads,
         selected_revset=change_id,
     )
     selected_change_path = _project_rows(
