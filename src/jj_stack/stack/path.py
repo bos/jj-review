@@ -34,7 +34,6 @@ class SelectedStackPath:
 class RepoStackPath:
     """One repo path annotated by existing tracking."""
 
-    is_maximal: bool
     stack: LocalStack
     tracked_change_ids: frozenset[str]
 
@@ -140,7 +139,6 @@ def project_repo_paths(
         path_change_ids = frozenset(change.change_id for change in changes)
         paths.append(
             RepoStackPath(
-                is_maximal=True,
                 stack=LocalStack(
                     base_parent=current,
                     head=head,

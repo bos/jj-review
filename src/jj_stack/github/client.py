@@ -60,7 +60,6 @@ class GithubClientError(SummarizedError):
             "GitHub pull request base lookup failed: ",
             "GitHub pull request head lookup failed: ",
             "GitHub pull request batch lookup failed: ",
-            "GitHub pull request review decision lookup failed: ",
         ):
             if message.startswith(prefix):
                 return message.removeprefix(prefix).strip()

@@ -76,7 +76,6 @@ def build_selected_convergence_plan(
         selected=selected,
         state=state,
         trunk_branch=trunk_branch,
-        trunk_commit_id=prepared_status.prepared.stack.trunk.commit_id,
     )
     history = effect.history if isinstance(effect, _GithubStackMerge) else ()
     adopted = effect.adopted if not isinstance(effect, _NoGithubStack) else ()
@@ -132,7 +131,7 @@ def build_selected_convergence_plan(
         )
 
     _require_no_unpublished_edits(tuple(on_trunk))
-    _require_no_checked_out_merged_changes(tuple(on_trunk), context=context)
+    _require_no_checked_out_merged_changes(tuple(on_trunk))
     submitted = _submitted_survivors(
         survivors=tuple(survivors),
         state=state,
@@ -262,7 +261,6 @@ def _classify_github_stack(
     selected: tuple[LocalCommit, ...],
     state: TrackingState,
     trunk_branch: str,
-    trunk_commit_id: str,
 ) -> _GithubStackEffect:
     selected_by_id = {change.change_id: change for change in selected}
     by_pr = {
@@ -480,8 +478,6 @@ def _finish_plan(
 
 def _require_no_checked_out_merged_changes(
     changes: tuple[OnTrunkChange, ...],
-    *,
-    context: CommandContext,
 ) -> None:
     for item in changes:
         change = item.change

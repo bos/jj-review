@@ -45,7 +45,7 @@ dev = [
   "pytest-randomly>=4.1.0,<5",
   "pytest-xdist>=3.8.0,<4",
   "pytest>=9.1.1,<10",
-  "ruff>=0.16.0,<0.17",
+  "ruff>=0.16.4,<0.17",
 ]
 
 [tool.pytest.ini_options]
@@ -70,7 +70,10 @@ src = ["src", "tests", "tools"]
 target-version = "py314"
 
 [tool.ruff.lint]
-select = ["B", "E", "F", "I", "UP"]
+select = ["ARG", "ASYNC", "B", "E", "F", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ARG"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

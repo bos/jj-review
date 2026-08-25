@@ -81,7 +81,6 @@ def select_stack_path(
         selected_revset=selected_revset,
         select_mutable_copy=select_mutable_copy,
         selector_commits=tuple(row.commit for row in rows if row.is_selector),
-        state=state,
         use_default=revset is None,
         inspection_mode=inspection_mode,
     )
@@ -118,7 +117,6 @@ def select_stack_path_containing_change(
         selected_revset=change_id,
         select_mutable_copy=True,
         selector_commits=tuple(row.commit for row in rows if row.is_linked_selector),
-        state=state,
         use_default=False,
         inspection_mode=inspection_mode,
     )
@@ -135,7 +133,6 @@ def select_stack_path_containing_change(
         selected_revset=selected_revset,
         select_mutable_copy=False,
         selector_commits=tuple(row.commit for row in rows if row.is_selector),
-        state=state,
         use_default=False,
         inspection_mode=inspection_mode,
     )
@@ -227,7 +224,6 @@ def _project_rows(
     selected_revset: str,
     select_mutable_copy: bool,
     selector_commits: tuple[LocalCommit, ...],
-    state: TrackingState,
     use_default: bool,
 ) -> SelectedStackPath:
     trunks = tuple(row.commit for row in rows if row.is_trunk)

@@ -467,7 +467,6 @@ def _submit_remote_branch_queries(
 
 async def _apply_planned_submit(
     *,
-    context: CommandContext,
     github_client: GithubClient,
     github_stack_plan: GithubStackPlan,
     prepared_inputs: PreparedSubmitInputs,
@@ -822,7 +821,6 @@ async def run_submit_async(
         )
 
         submitted_changes = await _apply_planned_submit(
-            context=context,
             github_client=github_client,
             github_stack_plan=github_stack_plan,
             prepared_inputs=prepared_inputs,

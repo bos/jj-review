@@ -26,7 +26,6 @@ class MergeResult:
 
     actions: tuple[MergeAction, ...]
     enqueued: bool
-    selected_revset: str
     trunk_branch: str
     trunk_subject: str
     final_trunk_commit_id: str | None = None
@@ -71,7 +70,6 @@ class MergeExecutionInputs:
             actions=actions,
             enqueued=enqueued,
             final_trunk_commit_id=final_trunk_commit_id,
-            selected_revset=self.selected_revset,
             trunk_branch=self.trunk_branch,
             trunk_subject=self.trunk_subject,
         )
@@ -85,7 +83,6 @@ class MergeChange:
     change_id: str
     commit_id: str
     identity: PRIdentity
-    subject: str
 
 
 @dataclass(frozen=True, slots=True)

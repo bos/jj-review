@@ -98,7 +98,6 @@ def _merge_change(
         change_id=change.change_id,
         commit_id=change.commit_id,
         identity=candidate.pr_identity,
-        subject=change.subject,
     )
 
 

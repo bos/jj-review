@@ -40,8 +40,6 @@ from jj_stack.ui import Message
 
 logger = logging.getLogger(__name__)
 
-HELP = "Check one or more `jj` stacks and their pull requests"
-
 PRLookupState = Literal["ambiguous", "closed", "error", "missing", "open"]
 PRLookupSource = Literal["head", "remembered"]
 
@@ -311,7 +309,6 @@ async def stream_status_async(
     try:
         async for change in _iter_status_changes_with_github(
             github_repo=github_repo,
-            prepared=prepared,
             prepared_changes=prepared_changes_for_github,
         ):
             changes.append(change)
@@ -417,7 +414,6 @@ def _status_is_incomplete(changes: tuple[StackStatusChange, ...]) -> bool:
 async def _iter_status_changes_with_github(
     *,
     github_repo: GithubRepoAddress,
-    prepared: PreparedStack,
     prepared_changes: tuple[PreparedChange, ...],
 ) -> AsyncIterator[StackStatusChange]:
     ordered_prepared_changes = tuple(reversed(prepared_changes))

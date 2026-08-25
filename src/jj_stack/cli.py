@@ -162,7 +162,7 @@ class _TopLevelArgumentParser(ArgumentParser):
 class _TitleCaseHelpFormatter(HelpFormatter):
     """Help formatter that title-cases the usage heading."""
 
-    def add_usage(self, usage, actions, groups, prefix=None):
+    def add_usage(self, usage, actions, groups, prefix=None):  # noqa: ARG002
         return super().add_usage(usage, actions, groups, prefix="Usage: ")
 
 
