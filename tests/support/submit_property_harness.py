@@ -63,7 +63,7 @@ def replay_lifecycle(
     fake_repo: FakeGithubRepo,
     repo: Path,
     run_cli: CliRunner,
-    read_output: OutputDiscarder,
+    discard_output: OutputDiscarder,
     scenario: LifecycleScenario,
 ) -> None:
     jj = JjClient(repo)
@@ -75,7 +75,7 @@ def replay_lifecycle(
     _approve_initial_prs(fake_repo, baseline)
     head_id = labels[initial_label(stack_size)]
     state_store = TrackingStore.for_repo(repo)
-    read_output()
+    discard_output()
     if scenario.template == "closed_restart":
         old = baseline["c1"]
         old_pr = fake_repo.prs[old.pr_number]
@@ -124,7 +124,7 @@ def replay_lifecycle(
         state_before, refs_before = state_store.load(), _remote_refs(fake_repo.git_dir)
         fake_repo.pr_events.clear()
         assert run_cli(("cleanup", head_id)) == 0
-        output = " ".join(" ".join(read_output()).split())
+        output = " ".join(" ".join(discard_output()).split())
         assert f"sync {head_id}" in output, output
         assert state_store.load() == state_before
         assert _remote_refs(fake_repo.git_dir) == refs_before

@@ -1049,7 +1049,7 @@ def initial_label(index: int) -> str:
     return f"c{index}"
 
 
-def inserted_label(index: int) -> str:
+def _inserted_label(index: int) -> str:
     return f"i{index}"
 
 
@@ -1153,7 +1153,7 @@ def _available_operations(
             StackEditOperation(
                 kind="insert_after",
                 label=after_label,
-                new_label=inserted_label(model.next_insert_index),
+                new_label=_inserted_label(model.next_insert_index),
             )
         )
         before_label = rng.choice(model.live_labels)
@@ -1161,7 +1161,7 @@ def _available_operations(
             StackEditOperation(
                 kind="insert_before",
                 label=before_label,
-                new_label=inserted_label(model.next_insert_index),
+                new_label=_inserted_label(model.next_insert_index),
             )
         )
 
