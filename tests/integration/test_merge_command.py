@@ -14,6 +14,7 @@ from ..support.integration_helpers import (
     commit_file,
     init_fake_github_repo_with_submitted_feature,
     init_fake_github_repo_with_submitted_stack,
+    patch_github_client_builders,
     run_command,
     selected_stack,
 )
@@ -21,7 +22,6 @@ from ..support.submit_property_harness import advance_remote_trunk, update_remot
 from .submit_command_helpers import (
     configure_submit_environment,
     issue_comments,
-    patch_github_client_builders,
     read_remote_ref,
     remote_refs,
     run_main,

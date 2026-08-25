@@ -3,16 +3,17 @@ from __future__ import annotations
 import json
 
 from jj_stack.errors import EXIT_INCOMPLETE
-from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.jj.client import JjClient
 from jj_stack.state.store import TrackingStore
 
 from ..support.fake_github import FakeGithubState, create_app
 from ..support.integration_helpers import (
+    OfflineGithubClient,
     commit_file,
     init_fake_github_repo,
     init_fake_github_repo_with_submitted_feature,
     init_fake_github_repo_with_submitted_stack,
+    patch_github_client_builders,
     run_command,
     selected_stack,
     write_file,
@@ -21,7 +22,6 @@ from ..support.json_schema import assert_json_output_matches_schema
 from ..support.output_assertions import assert_output_contains
 from .submit_command_helpers import (
     configure_submit_environment,
-    patch_github_client_builders,
     run_main,
 )
 
@@ -379,10 +379,6 @@ def test_list_falls_back_when_github_unavailable(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
 
     app = create_app(FakeGithubState.single_repo(fake_repo))
-
-    class OfflineGithubClient(GithubClient):
-        async def get_open_prs_by_head_refs(self, *, head_refs):
-            raise GithubClientError("Connection refused")
 
     patch_github_client_builders(
         monkeypatch,

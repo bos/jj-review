@@ -21,6 +21,7 @@ from ..support.integration_helpers import (
     init_fake_github_repo,
     init_fake_github_repo_with_submitted_feature,
     init_fake_github_repo_with_submitted_stack,
+    patch_github_client_builders,
     run_command,
     selected_stack,
     write_fake_github_config,
@@ -30,7 +31,6 @@ from ..support.submit_property_harness import update_remote_ref
 from .submit_command_helpers import (
     configure_submit_environment,
     issue_comments,
-    patch_github_client_builders,
     read_remote_ref,
     remote_refs,
     run_main,

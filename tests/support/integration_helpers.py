@@ -14,7 +14,7 @@ from pathlib import Path
 
 import httpxyz
 
-from jj_stack.github.client import GithubClient
+from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.identifiers import short_change_id
 from jj_stack.jj.client import JjClient, PRRefUpdate
@@ -47,6 +47,73 @@ _SUBMIT_CONFIG_MODULES = (
 )
 
 
+def fake_github_client_wiring(
+    fake_repo: FakeGithubRepo,
+    app,
+    *,
+    client_type: type[GithubClient] = GithubClient,
+) -> tuple[Callable[..., GithubClient], Callable[..., GithubRepoAddress]]:
+    """Return the client builder and repo-address stubs for a fake server.
+
+    Every wiring site patches `build_github_client`, `parse_github_repo`,
+    and `require_github_repo` with these two callables over the same
+    in-process fake GitHub app.
+    """
+
+    def build_github_client(*, repo: GithubRepoAddress) -> GithubClient:
+        return client_type(
+            httpxyz.AsyncClient(
+                base_url="https://api.github.test",
+                transport=httpxyz.ASGITransport(app=app),
+            ),
+            repo=repo,
+        )
+
+    def parse_github_repo(*_args, **_kwargs) -> GithubRepoAddress:
+        return GithubRepoAddress(
+            owner=fake_repo.owner,
+            repo=fake_repo.name,
+        )
+
+    return build_github_client, parse_github_repo
+
+
+def patch_github_client_builders(
+    monkeypatch,
+    *,
+    app,
+    fake_repo: FakeGithubRepo,
+    modules: tuple[str, ...],
+    client_type: type[GithubClient] = GithubClient,
+) -> None:
+    build_github_client, parse_github_repo = fake_github_client_wiring(
+        fake_repo,
+        app,
+        client_type=client_type,
+    )
+    resolution_module = importlib.import_module("jj_stack.github.resolution")
+    monkeypatch.setattr(resolution_module, "parse_github_repo", parse_github_repo)
+    for module in modules:
+        module_object = importlib.import_module(module)
+        monkeypatch.setattr(
+            module_object,
+            "build_github_client",
+            build_github_client,
+            raising=False,
+        )
+        monkeypatch.setattr(module_object, "parse_github_repo", parse_github_repo, raising=False)
+        monkeypatch.setattr(
+            module_object, "require_github_repo", parse_github_repo, raising=False
+        )
+
+
+class OfflineGithubClient(GithubClient):
+    """Fail open-PR lookups like a client with no connection to GitHub."""
+
+    async def get_open_prs_by_head_refs(self, *, head_refs):
+        raise GithubClientError("Connection refused")
+
+
 def configure_fake_github_environment(
     *,
     command_modules: tuple[str, ...],
@@ -61,36 +128,12 @@ def configure_fake_github_environment(
         extra_lines=extra_config_lines,
     )
     app = create_app(FakeGithubState.single_repo(fake_repo))
-
-    def build_github_client(*, repo: GithubRepoAddress) -> GithubClient:
-        return GithubClient(
-            httpxyz.AsyncClient(
-                base_url="https://api.github.test",
-                transport=httpxyz.ASGITransport(app=app),
-            ),
-            repo=repo,
-        )
-
-    def parse_github_repo(*_args, **_kwargs) -> GithubRepoAddress:
-        return GithubRepoAddress(
-            owner=fake_repo.owner,
-            repo=fake_repo.name,
-        )
-
-    resolution_module = importlib.import_module("jj_stack.github.resolution")
-    monkeypatch.setattr(resolution_module, "parse_github_repo", parse_github_repo)
-    for module in command_modules:
-        module_object = importlib.import_module(module)
-        monkeypatch.setattr(
-            module_object,
-            "build_github_client",
-            build_github_client,
-            raising=False,
-        )
-        monkeypatch.setattr(module_object, "parse_github_repo", parse_github_repo, raising=False)
-        monkeypatch.setattr(
-            module_object, "require_github_repo", parse_github_repo, raising=False
-        )
+    patch_github_client_builders(
+        monkeypatch,
+        app=app,
+        fake_repo=fake_repo,
+        modules=command_modules,
+    )
     return config_path
 
 
@@ -210,18 +253,7 @@ def _build_submitted_stack_template(template_root: Path, size: int) -> None:
             commit_file(repo, f"feature {index}", f"feature-{index}.txt")
 
         app = create_app(FakeGithubState.single_repo(fake_repo))
-
-        def build_github_client(*, repo: GithubRepoAddress) -> GithubClient:
-            return GithubClient(
-                httpxyz.AsyncClient(
-                    base_url="https://api.github.test",
-                    transport=httpxyz.ASGITransport(app=app),
-                ),
-                repo=repo,
-            )
-
-        def parse_github_repo(*_args, **_kwargs) -> GithubRepoAddress:
-            return GithubRepoAddress(owner=fake_repo.owner, repo=fake_repo.name)
+        build_github_client, parse_github_repo = fake_github_client_wiring(fake_repo, app)
 
         for mod_name in _SUBMIT_CONFIG_MODULES:
             mod = importlib.import_module(mod_name)

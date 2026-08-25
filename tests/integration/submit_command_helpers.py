@@ -1,14 +1,9 @@
 from __future__ import annotations
 
-import importlib
 import subprocess
 from pathlib import Path
 
-import httpxyz
-
 from jj_stack.cli import main
-from jj_stack.github.client import GithubClient
-from jj_stack.github.resolution import GithubRepoAddress
 
 from ..support.fake_github import FakeGithubRepo
 from ..support.integration_helpers import (
@@ -79,39 +74,3 @@ def run_main(repo: Path, config_path: Path, command: str, *command_args: str) ->
     argv = ["--config-file", str(config_path), "--repository", str(repo), command]
     argv.extend(command_args)
     return main(argv)
-
-
-def patch_github_client_builders(
-    monkeypatch,
-    *,
-    app,
-    fake_repo: FakeGithubRepo,
-    modules: tuple[str, ...],
-    client_type: type[GithubClient] = GithubClient,
-) -> None:
-    def build_github_client(*, repo: GithubRepoAddress) -> GithubClient:
-        return client_type(
-            httpxyz.AsyncClient(
-                base_url="https://api.github.test",
-                transport=httpxyz.ASGITransport(app=app),
-            ),
-            repo=repo,
-        )
-
-    def parse_github_repo(*_args, **_kwargs) -> GithubRepoAddress:
-        return GithubRepoAddress(owner=fake_repo.owner, repo=fake_repo.name)
-
-    resolution_module = importlib.import_module("jj_stack.github.resolution")
-    monkeypatch.setattr(resolution_module, "parse_github_repo", parse_github_repo)
-    for module in modules:
-        module_object = importlib.import_module(module)
-        monkeypatch.setattr(
-            module_object,
-            "build_github_client",
-            build_github_client,
-            raising=False,
-        )
-        monkeypatch.setattr(module_object, "parse_github_repo", parse_github_repo, raising=False)
-        monkeypatch.setattr(
-            module_object, "require_github_repo", parse_github_repo, raising=False
-        )

@@ -7,11 +7,13 @@ from pathlib import Path
 import pytest
 from tests.integration.submit_command_helpers import (
     configure_submit_environment,
-    patch_github_client_builders,
     run_main,
 )
 from tests.support.fake_github import FakeGithubState, create_app
-from tests.support.integration_helpers import init_fake_github_repo
+from tests.support.integration_helpers import (
+    init_fake_github_repo,
+    patch_github_client_builders,
+)
 from tests.support.submit_property_harness import (
     replay_external_drift_scenario,
     replay_failed_submit_retry_scenario,

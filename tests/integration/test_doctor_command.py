@@ -2,17 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import httpxyz
-
 import jj_stack.commands.doctor as doctor_mod
 from jj_stack.github.client import GithubClient
-from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.jj.client import JjClient
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace
 
 from ..support.fake_github import FakeGithubState, create_app
 from ..support.integration_helpers import (
     init_fake_github_repo,
+    patch_github_client_builders,
     run_command,
     write_fake_github_config,
 )
@@ -35,22 +33,12 @@ def _configure_doctor_environment(
     # Provide a fake token so the auth check passes without a real gh CLI or env var.
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token-for-tests")
 
-    app = create_app(FakeGithubState.single_repo(fake_repo))
-
-    def build_github_client(*, repo: GithubRepoAddress) -> GithubClient:
-        return client_type(
-            httpxyz.AsyncClient(
-                base_url="https://api.github.test",
-                transport=httpxyz.ASGITransport(app=app),
-            ),
-            repo=repo,
-        )
-
-    monkeypatch.setattr(doctor_mod, "build_github_client", build_github_client)
-    monkeypatch.setattr(
-        doctor_mod,
-        "parse_github_repo",
-        lambda remote: GithubRepoAddress(owner=fake_repo.owner, repo=fake_repo.name),
+    patch_github_client_builders(
+        monkeypatch,
+        app=create_app(FakeGithubState.single_repo(fake_repo)),
+        fake_repo=fake_repo,
+        modules=("jj_stack.commands.doctor",),
+        client_type=client_type,
     )
 
     return write_fake_github_config(tmp_path)

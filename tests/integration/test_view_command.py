@@ -10,10 +10,12 @@ from jj_stack.state.store import TrackingStore, resolve_state_path
 
 from ..support.fake_github import FakeGithubState, create_app
 from ..support.integration_helpers import (
+    OfflineGithubClient,
     commit_file,
     init_fake_github_repo,
     init_fake_github_repo_with_submitted_feature,
     init_fake_github_repo_with_submitted_stack,
+    patch_github_client_builders,
     run_command,
     selected_stack,
     write_file,
@@ -22,7 +24,6 @@ from ..support.json_schema import assert_json_output_matches_schema
 from ..support.output_assertions import assert_output_contains
 from .submit_command_helpers import (
     configure_submit_environment,
-    patch_github_client_builders,
     run_main,
 )
 
@@ -422,10 +423,6 @@ def test_view_stays_local_when_github_is_unavailable_and_no_cache_exists(
     commit_file(repo, "feature 1", "feature-1.txt")
 
     app = create_app(FakeGithubState.single_repo(fake_repo))
-
-    class OfflineGithubClient(GithubClient):
-        async def get_open_prs_by_head_refs(self, *, head_refs):
-            raise GithubClientError("Connection refused")
 
     patch_github_client_builders(
         monkeypatch,

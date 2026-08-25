@@ -9,11 +9,11 @@ from ..support.fake_github import FakeGithubState, create_app
 from ..support.integration_helpers import (
     init_fake_github_repo_with_submitted_feature,
     init_fake_github_repo_with_submitted_stack,
+    patch_github_client_builders,
     selected_stack,
 )
 from .submit_command_helpers import (
     configure_submit_environment,
-    patch_github_client_builders,
     read_remote_ref,
     run_main,
 )
