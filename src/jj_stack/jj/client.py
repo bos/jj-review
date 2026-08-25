@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import shlex
@@ -918,6 +919,20 @@ class JjClient:
             patterns=patterns,
         )
 
+    async def list_remote_branches_async(
+        self,
+        *,
+        remote: str,
+        patterns: Sequence[str],
+    ) -> dict[str, str]:
+        """List matching remote heads without blocking signal-aware async commands."""
+
+        if not patterns:
+            return {}
+        fetch_url = self._git_remote(remote).fetch_url
+        stdout = await self._run_git_async(("ls-remote", "--refs", fetch_url, *patterns))
+        return _parse_remote_branches(stdout)
+
     def _list_remote_branches_at_url(
         self,
         *,
@@ -927,18 +942,7 @@ class JjClient:
         """List matching remote heads from one already-resolved fetch URL."""
 
         stdout = self._run_git(("ls-remote", "--refs", fetch_url, *patterns))
-        branches: dict[str, str] = {}
-        for line in stdout.splitlines():
-            stripped = line.strip()
-            if not stripped:
-                continue
-            commit_id, separator, ref = stripped.partition("\t")
-            if not separator or not commit_id or not ref.startswith("refs/heads/"):
-                raise JjCommandError(
-                    t"{ui.cmd('git ls-remote')} output has unexpected format: {line!r}"
-                )
-            branches[ref.removeprefix("refs/heads/")] = commit_id
-        return branches
+        return _parse_remote_branches(stdout)
 
     def mutate_remote_pr_branch_refs(
         self,
@@ -1159,6 +1163,41 @@ class JjClient:
             allowed_returncodes=allowed_returncodes,
         )
 
+    async def _run_git_async(self, args: Sequence[str]) -> str:
+        command = ["git", "--git-dir", str(self._backing_git_root()), *args]
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *command,
+                cwd=self._repo_root,
+                stderr=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError as error:
+            raise JjCommandError(
+                t"{ui.cmd('git')} is not installed or is not on PATH."
+            ) from error
+
+        try:
+            stdout_bytes, stderr_bytes = await process.communicate()
+        except asyncio.CancelledError:
+            if process.returncode is None:
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=1)
+                except TimeoutError:
+                    process.kill()
+                    await process.wait()
+            raise
+
+        stdout = stdout_bytes.decode(errors="replace")
+        if process.returncode != 0:
+            stderr = stderr_bytes.decode(errors="replace")
+            message = stderr.strip() or stdout.strip() or "unknown error"
+            displayed_command = _redact_http_url_userinfo(shlex.join(command))
+            displayed_message = _redact_http_url_userinfo(message)
+            raise JjCommandError(t"{ui.cmd(displayed_command)} failed: {displayed_message}")
+        return stdout
+
     def _backing_git_root(self) -> Path:
         """Resolve the exact Git object store used by this jj repo."""
 
@@ -1275,6 +1314,21 @@ class JjClient:
             displayed_message = _redact_http_url_userinfo(message)
             raise JjCommandError(t"{ui.cmd(displayed_command)} failed: {displayed_message}")
         return completed.stderr if return_stderr else completed.stdout
+
+
+def _parse_remote_branches(stdout: str) -> dict[str, str]:
+    branches: dict[str, str] = {}
+    for line in stdout.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        commit_id, separator, ref = stripped.partition("\t")
+        if not separator or not commit_id or not ref.startswith("refs/heads/"):
+            raise JjCommandError(
+                t"{ui.cmd('git ls-remote')} output has unexpected format: {line!r}"
+            )
+        branches[ref.removeprefix("refs/heads/")] = commit_id
+    return branches
 
 
 _HTTP_URL_AUTHORITY_PATTERN = re.compile(

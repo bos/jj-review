@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import subprocess
 from collections.abc import Sequence
@@ -280,6 +281,75 @@ def test_list_remote_branches_resolves_jj_remote_name_to_fetch_url(
             "refs/heads/jj-stack/feat",
         ),
     ]
+
+
+def test_async_remote_branch_read_terminates_its_process_when_cancelled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def runner(command: Sequence[str], **_kwargs) -> subprocess.CompletedProcess[str]:
+        invocation = tuple(command)
+        if invocation == ("jj", "--ignore-working-copy", "git", "remote", "list"):
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout="origin ssh://git@github.test/octo-org/repo.git\n",
+                stderr="",
+            )
+        if invocation == ("jj", "--ignore-working-copy", "git", "root"):
+            return subprocess.CompletedProcess(command, 0, stdout="/repo/.git\n", stderr="")
+        raise AssertionError(f"unexpected command: {invocation!r}")
+
+    monkeypatch.setattr(subprocess, "run", runner)
+
+    async def run_case() -> bool:
+        communication_started = asyncio.Event()
+
+        class Process:
+            returncode: int | None = None
+            terminated = False
+
+            async def communicate(self) -> tuple[bytes, bytes]:
+                communication_started.set()
+                await asyncio.Event().wait()
+                raise AssertionError("unreachable")
+
+            def terminate(self) -> None:
+                self.terminated = True
+                self.returncode = -15
+
+            async def wait(self) -> int:
+                assert self.returncode is not None
+                return self.returncode
+
+        process = Process()
+
+        async def create_subprocess(*command: str, **kwargs) -> Process:
+            assert command == (
+                "git",
+                "--git-dir",
+                _REPO_GIT_DIR,
+                "ls-remote",
+                "--refs",
+                "ssh://git@github.test/octo-org/repo.git",
+                "refs/heads/jj-stack/feat",
+            )
+            assert Path(kwargs["cwd"]) == Path("/repo")
+            return process
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subprocess)
+        task = asyncio.create_task(
+            JjClient(Path("/repo")).list_remote_branches_async(
+                remote="origin",
+                patterns=("refs/heads/jj-stack/feat",),
+            )
+        )
+        await communication_started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        return process.terminated
+
+    assert asyncio.run(run_case())
 
 
 def test_list_remote_branches_rejects_an_unconfigured_remote(

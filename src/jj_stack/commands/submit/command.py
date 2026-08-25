@@ -362,6 +362,7 @@ def _recover_interrupted_first_submissions(
     *,
     client: JjClient,
     remote: GitRemote,
+    remote_targets: Mapping[str, str],
     resolutions: tuple[ResolvedPRBranch, ...],
     state_identities: Mapping[str, PRIdentity],
 ) -> tuple[ResolvedPRBranch, ...]:
@@ -373,16 +374,10 @@ def _recover_interrupted_first_submissions(
     )
     if not unresolved:
         return resolutions
-    namespace = current_pr_branch_namespace()
-    patterns = tuple(
-        f"refs/heads/{namespace.branch_glob}-{short_change_id(resolution.change_id)}"
-        for resolution in unresolved
-    )
-    remote_candidates = client.list_remote_branches(remote=remote.name, patterns=patterns)
     for resolution in unresolved:
         candidates_by_change[resolution.change_id] = {
             branch: target
-            for branch, target in remote_candidates.items()
+            for branch, target in remote_targets.items()
             if pr_branch_matches_change(branch, resolution.change_id)
         }
 
@@ -428,6 +423,46 @@ def _recover_interrupted_first_submissions(
     )
     ensure_unique_pr_branches(recovered)
     return recovered
+
+
+def _submit_pr_branches(
+    *,
+    base_branch: str | None,
+    resolutions: tuple[ResolvedPRBranch, ...],
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            (
+                *(resolution.branch for resolution in resolutions),
+                *((base_branch,) if base_branch is not None else ()),
+            )
+        )
+    )
+
+
+def _submit_remote_branch_patterns(
+    *,
+    base_branch: str | None,
+    resolutions: tuple[ResolvedPRBranch, ...],
+    state_identities: Mapping[str, PRIdentity],
+) -> tuple[str, ...]:
+    namespace = current_pr_branch_namespace()
+    return tuple(
+        dict.fromkeys(
+            (
+                *(
+                    (
+                        f"refs/heads/{resolution.branch}"
+                        if resolution.change_id in state_identities
+                        else f"refs/heads/{namespace.branch_glob}-"
+                        f"{short_change_id(resolution.change_id)}"
+                    )
+                    for resolution in resolutions
+                ),
+                *((f"refs/heads/{base_branch}",) if base_branch is not None else ()),
+            )
+        )
+    )
 
 
 async def _apply_planned_submit(
@@ -532,84 +567,88 @@ async def run_submit_async(
         )
 
     github_repo = require_github_repo(remote)
-    branch_resolutions = _recover_interrupted_first_submissions(
-        client=client,
-        remote=remote,
-        resolutions=prepared_inputs.branch_resolutions,
-        state_identities=state.pr_identities,
-    )
-    ensure_new_pr_branches_unclaimed(
-        branch_resolutions,
-        state.pr_identities,
-        github_repo.repo_key,
-    )
+    branch_resolutions = prepared_inputs.branch_resolutions
     visible_bookmarks = client.visible_pr_bookmark_targets()
-    collisions = tuple(
-        resolution.branch
-        for resolution in branch_resolutions
-        if resolution.change_id not in state.pr_identities
-        and resolution.recovered_target is None
-        and resolution.branch in visible_bookmarks
+    initial_pr_branches = _submit_pr_branches(
+        base_branch=base_branch,
+        resolutions=branch_resolutions,
     )
-    if collisions:
-        raise CliError(
-            t"Cannot claim visible bookmark {ui.join(ui.bookmark, collisions)} for a new PR.",
-            hint=t"Move work you need to keep outside the reserved namespace, or forget a stale "
-            t"bookmark, then retry.",
-        )
-    pr_branches = tuple(
-        dict.fromkeys(
-            (
-                *(resolution.branch for resolution in branch_resolutions),
-                *((base_branch,) if base_branch is not None else ()),
-            )
-        )
-    )
-    remote_targets = client.list_remote_branches(
-        remote=remote.name,
-        patterns=tuple(f"refs/heads/{branch}" for branch in pr_branches),
-    )
-    prepared_changes = prepare_submit_changes(
-        branch_resolutions=branch_resolutions,
-        remote_targets=remote_targets,
-        remote=remote,
-        stack=stack,
-        state=state,
-    )
-    if not dry_run:
-        state_store.require_writable()
-    mutation_run = SubmitMutationRun(
-        dry_run=dry_run,
-        state=state,
-        state_store=state_store,
+    remote_branch_patterns = _submit_remote_branch_patterns(
+        base_branch=base_branch,
+        resolutions=branch_resolutions,
+        state_identities=state.pr_identities,
     )
     tracked_prs = {
         identity.head_ref: identity.pr_number
-        for prepared in prepared_changes
-        if (identity := state.pr_identities.get(prepared.change.change_id)) is not None
+        for resolution in branch_resolutions
+        if (identity := state.pr_identities.get(resolution.change_id)) is not None
     }
     if tracked_base is not None:
         tracked_prs[tracked_base.pr_identity.head_ref] = tracked_base.pr_identity.pr_number
     submitted_changes: tuple[SubmittedChange, ...] = ()
     async with build_github_client(repo=github_repo) as github_client:
         generated_descriptions = prepared_inputs.generated_pr_descriptions
-        with console.spinner(description="Inspecting GitHub"):
+        with console.spinner(description="Inspecting remotes"):
             (
+                remote_targets_result,
                 github_repo_result,
                 discovered_prs_result,
                 observed_stacks_result,
                 branches_at_trunk_result,
             ) = await asyncio.gather(
+                client.list_remote_branches_async(
+                    remote=remote.name,
+                    patterns=remote_branch_patterns,
+                ),
                 github_client.get_repo(),
                 discover_prs_by_branch(
                     github_client=github_client,
-                    branches=pr_branches,
+                    branches=initial_pr_branches,
                     tracked_prs=tracked_prs,
                 ),
                 github_client.list_stacks(),
                 github_client.list_branches_for_head_commit(commit_sha=stack.trunk.commit_id),
                 return_exceptions=True,
             )
+            if isinstance(remote_targets_result, BaseException):
+                raise remote_targets_result
+            remote_targets = cast(dict[str, str], remote_targets_result)
+            branch_resolutions = _recover_interrupted_first_submissions(
+                client=client,
+                remote=remote,
+                remote_targets=remote_targets,
+                resolutions=branch_resolutions,
+                state_identities=state.pr_identities,
+            )
+            ensure_new_pr_branches_unclaimed(
+                branch_resolutions,
+                state.pr_identities,
+                github_repo.repo_key,
+            )
+            collisions = tuple(
+                resolution.branch
+                for resolution in branch_resolutions
+                if resolution.change_id not in state.pr_identities
+                and resolution.recovered_target is None
+                and resolution.branch in visible_bookmarks
+            )
+            if collisions:
+                raise CliError(
+                    t"Cannot claim visible bookmark "
+                    t"{ui.join(ui.bookmark, collisions)} for a new PR.",
+                    hint=t"Move work you need to keep outside the reserved namespace, or "
+                    t"forget a stale bookmark, then retry.",
+                )
+            pr_branches = _submit_pr_branches(
+                base_branch=base_branch,
+                resolutions=branch_resolutions,
+            )
+            if pr_branches != initial_pr_branches:
+                discovered_prs_result = await discover_prs_by_branch(
+                    github_client=github_client,
+                    branches=pr_branches,
+                    tracked_prs=tracked_prs,
+                )
             github_repo_state, discovered_prs, observed_stacks = _github_inspection_results(
                 discovered=discovered_prs_result,
                 repo=github_repo_result,
@@ -624,6 +663,20 @@ async def run_submit_async(
                 remote=remote,
                 trunk_commit_id=stack.trunk.commit_id,
             )
+        prepared_changes = prepare_submit_changes(
+            branch_resolutions=branch_resolutions,
+            remote_targets=remote_targets,
+            remote=remote,
+            stack=stack,
+            state=state,
+        )
+        if not dry_run:
+            state_store.require_writable()
+        mutation_run = SubmitMutationRun(
+            dry_run=dry_run,
+            state=state,
+            state_store=state_store,
+        )
         bottom_base_branch = trunk_branch
         if explicit_base is not None and tracked_base is not None and base_branch is not None:
             expected_base_commit = tracked_base.submitted_baseline.commit_id
