@@ -58,6 +58,14 @@ RETRY_CONFIG_LINES = [
 ]
 
 
+def _submit_runner(repo: Path, config_path: Path):
+    def submit(revset: str | None) -> int:
+        args = () if revset is None else (revset,)
+        return run_main(repo, config_path, "submit", *args)
+
+    return submit
+
+
 @pytest.mark.parametrize("scenario", LIFECYCLE_SCENARIOS, ids=lambda scenario: scenario.name)
 def test_lifecycles(tmp_path, monkeypatch, capsys, scenario: LifecycleScenario) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
@@ -82,10 +90,7 @@ def test_submit_property_stack_edits_preserve_pr_identity(
 ) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    def submit(revset: str | None) -> int:
-        args = () if revset is None else (revset,)
-        return run_main(repo, config_path, "submit", *args)
+    submit = _submit_runner(repo, config_path)
 
     replay_successful_stack_edit_scenario(
         discard_output=capsys.readouterr,
@@ -109,10 +114,7 @@ def test_submit_property_stack_join_preserves_pr_identity(
 ) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    def submit(revset: str | None) -> int:
-        args = () if revset is None else (revset,)
-        return run_main(repo, config_path, "submit", *args)
+    submit = _submit_runner(repo, config_path)
 
     replay_stack_join_scenario(
         discard_output=capsys.readouterr,
@@ -136,10 +138,7 @@ def test_submit_property_stack_move_refreshes_both_paths(
 ) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    def submit(revset: str | None) -> int:
-        args = () if revset is None else (revset,)
-        return run_main(repo, config_path, "submit", *args)
+    submit = _submit_runner(repo, config_path)
 
     replay_stack_move_scenario(
         discard_output=capsys.readouterr,
@@ -213,9 +212,7 @@ def test_submit_property_failed_submit_retry_converges(
         scenario=scenario,
     )
 
-    def submit(revset: str | None) -> int:
-        args = () if revset is None else (revset,)
-        return run_main(repo, config_path, "submit", *args)
+    submit = _submit_runner(repo, config_path)
 
     def relink(pr_number: int, change_id: str) -> int:
         return run_main(
