@@ -14,7 +14,6 @@ from ..support.fake_github import FakeGithubRepo
 from ..support.integration_helpers import (
     configure_fake_github_environment,
     run_command,
-    write_fake_github_config,
 )
 
 
@@ -41,15 +40,6 @@ def configure_submit_environment(
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
     )
-
-
-def approve_prs(fake_repo: FakeGithubRepo, *pr_numbers: int) -> None:
-    for pr_number in pr_numbers:
-        fake_repo.create_pr_review(
-            pr_number=pr_number,
-            reviewer_login=f"reviewer-{pr_number}",
-            state="APPROVED",
-        )
 
 
 def issue_comments(fake_repo: FakeGithubRepo, issue_number: int):
@@ -125,9 +115,3 @@ def patch_github_client_builders(
         monkeypatch.setattr(
             module_object, "require_github_repo", parse_github_repo, raising=False
         )
-
-
-def write_config(
-    tmp_path: Path, fake_repo: FakeGithubRepo, *, extra_lines: list[str] | None = None
-) -> Path:
-    return write_fake_github_config(tmp_path, fake_repo, extra_lines=extra_lines)

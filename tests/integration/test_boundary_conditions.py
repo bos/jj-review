@@ -73,14 +73,6 @@ def test_stack_commands_reject_merge_commits_without_traceback(
     _assert_no_traceback(captured)
 
 
-def _init_empty_repo(tmp_path: Path) -> Path:
-    repo = tmp_path / "repo"
-    run_command(["jj", "git", "init", str(repo)], tmp_path)
-    run_command(["jj", "config", "set", "--repo", "user.name", "Test User"], repo)
-    run_command(["jj", "config", "set", "--repo", "user.email", "test@example.com"], repo)
-    return repo
-
-
 def _init_disconnected_root_repo(tmp_path: Path) -> Path:
     repo = init_repo(tmp_path, configure_trunk=False)
     run_command(["jj", "bookmark", "create", "main", "-r", "@-"], repo)

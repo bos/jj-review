@@ -58,7 +58,6 @@ def configure_fake_github_environment(
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
     config_path = write_fake_github_config(
         tmp_path,
-        fake_repo,
         extra_lines=extra_config_lines,
     )
     app = create_app(FakeGithubState.single_repo(fake_repo))
@@ -235,7 +234,7 @@ def _build_submitted_stack_template(template_root: Path, size: int) -> None:
                     saved_attrs.append((mod, attr, getattr(mod, attr)))
                     setattr(mod, attr, new)
 
-        config_path = write_fake_github_config(template_root, fake_repo)
+        config_path = write_fake_github_config(template_root)
         # The template is built lazily inside the first test that calls the
         # helper, so pytest's capsys is active. Any output produced here would
         # remain in that test's buffer and be asserted against. Future templates
@@ -389,9 +388,7 @@ def init_repo(
     return repo
 
 
-def write_fake_github_config(
-    tmp_path: Path, _fake_repo: FakeGithubRepo, *, extra_lines: list[str] | None = None
-) -> Path:
+def write_fake_github_config(tmp_path: Path, *, extra_lines: list[str] | None = None) -> Path:
     config_path = tmp_path / "jj-stack-config.toml"
     config_path.parent.mkdir(parents=True, exist_ok=True)
     lines = ["[jj-stack]"]

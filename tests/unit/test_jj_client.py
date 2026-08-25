@@ -19,7 +19,6 @@ from jj_stack.jj.client import (
     JjCommandError,
     PRRefUpdate,
     StaleWorkspaceError,
-    _membership_scan_template,
 )
 from jj_stack.models.stack import LocalCommit
 from tests.support.change_helpers import make_change
@@ -691,65 +690,6 @@ def test_temp_ref_cleanup_removes_raw_ref_when_forgetting_bookmark_fails(
 
 def _template() -> str:
     return _COMMIT_TEMPLATE
-
-
-def _trunk_scan_template() -> str:
-    return _membership_scan_template(("trunk()",))
-
-
-def _selection_scan_template(selection_revset: str) -> str:
-    return _membership_scan_template(("trunk()", selection_revset))
-
-
-def _commit_with_flag_line(commit_line: str, *, is_trunk: bool) -> str:
-    return (
-        json.dumps(
-            {"commit": json.loads(commit_line), "membership": [is_trunk]},
-            separators=(",", ":"),
-        )
-        + "\n"
-    )
-
-
-def _commit_with_two_flags_line(
-    commit_line: str,
-    *,
-    is_trunk: bool,
-    is_selected: bool,
-) -> str:
-    return (
-        json.dumps(
-            {
-                "commit": json.loads(commit_line),
-                "membership": [is_trunk, is_selected],
-            },
-            separators=(",", ":"),
-        )
-        + "\n"
-    )
-
-
-def _selection_scan_command(selection_revset: str) -> tuple[str, ...]:
-    return (
-        "jj",
-        "log",
-        "--no-graph",
-        "-r",
-        f"trunk() | ({selection_revset})",
-        "-T",
-        _selection_scan_template(selection_revset),
-    )
-
-
-def _selection_scan_response(*entries: tuple[str, bool, bool]) -> str:
-    return "".join(
-        _commit_with_two_flags_line(
-            commit_line,
-            is_trunk=is_trunk,
-            is_selected=is_selected,
-        )
-        for commit_line, is_trunk, is_selected in entries
-    )
 
 
 def _runner(responses: dict[tuple[str, ...], str]):

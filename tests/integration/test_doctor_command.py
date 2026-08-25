@@ -53,7 +53,7 @@ def _configure_doctor_environment(
         lambda remote: GithubRepoAddress(owner=fake_repo.owner, repo=fake_repo.name),
     )
 
-    return write_fake_github_config(tmp_path, fake_repo)
+    return write_fake_github_config(tmp_path)
 
 
 def test_doctor_exits_zero_for_healthy_repo(

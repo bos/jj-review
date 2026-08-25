@@ -20,7 +20,6 @@ from ..support.integration_helpers import (
 from ..support.json_schema import assert_json_output_matches_schema
 from ..support.output_assertions import assert_output_contains
 from .submit_command_helpers import (
-    approve_prs,
     configure_submit_environment,
     patch_github_client_builders,
     run_main,
@@ -288,7 +287,11 @@ def test_list_reports_partial_approval_for_ready_prefix_only(
     repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
 
-    approve_prs(fake_repo, 1)
+    fake_repo.create_pr_review(
+        pr_number=1,
+        reviewer_login="reviewer-1",
+        state="APPROVED",
+    )
 
     exit_code = run_main(repo, config_path, "list")
     captured = capsys.readouterr()

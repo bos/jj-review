@@ -23,6 +23,7 @@ from ..support.integration_helpers import (
     init_fake_github_repo_with_submitted_stack,
     run_command,
     selected_stack,
+    write_fake_github_config,
     write_file,
 )
 from ..support.submit_property_harness import update_remote_ref
@@ -33,7 +34,6 @@ from .submit_command_helpers import (
     read_remote_ref,
     remote_refs,
     run_main,
-    write_config,
 )
 
 
@@ -2024,9 +2024,8 @@ def test_submit_rerun_converges_pr_metadata_after_partial_create_failure(
 ) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    config_path = write_config(
+    config_path = write_fake_github_config(
         tmp_path,
-        fake_repo,
         extra_lines=[
             'labels = ["needs-review"]',
             'reviewers = ["alice"]',
@@ -2097,9 +2096,8 @@ def test_submit_unchanged_rerun_skips_pr_metadata_writes(
 ) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    config_path = write_config(
+    config_path = write_fake_github_config(
         tmp_path,
-        fake_repo,
         extra_lines=[
             'labels = ["needs-review"]',
             'reviewers = ["alice"]',
@@ -2157,7 +2155,7 @@ def test_submit_explicit_reviewers_apply_to_unchanged_pr(
 ) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    config_path = write_config(tmp_path, fake_repo)
+    config_path = write_fake_github_config(tmp_path)
     commit_file(repo, "feature 1", "feature-1.txt")
     app = create_app(FakeGithubState.single_repo(fake_repo))
 
@@ -2197,7 +2195,7 @@ def test_submit_explicit_label_applies_to_unchanged_pr(
 ) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    config_path = write_config(tmp_path, fake_repo)
+    config_path = write_fake_github_config(tmp_path)
     commit_file(repo, "feature 1", "feature-1.txt")
     app = create_app(FakeGithubState.single_repo(fake_repo))
 
@@ -2224,9 +2222,8 @@ def test_submit_re_request_observes_reviews_before_mutation_and_retries(
 ) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    config_path = write_config(
+    config_path = write_fake_github_config(
         tmp_path,
-        fake_repo,
         extra_lines=[
             'reviewers = ["pending-reviewer"]',
         ],
