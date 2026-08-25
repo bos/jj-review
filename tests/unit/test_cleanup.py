@@ -10,7 +10,6 @@ from jj_stack.jj.client import JjClient, PRRefUpdate
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubBranchRef, GithubPR
 from jj_stack.models.tracking import (
-    PRIdentity,
     SubmittedBaseline,
     TrackedPR,
 )
@@ -22,6 +21,7 @@ from jj_stack.stack.pr_facts import (
 from jj_stack.ui import plain_text
 from tests.support.change_helpers import make_change
 from tests.support.contexts import fake_command_context
+from tests.support.tracking import make_pr_identity
 
 CHANGE_ID = "aaaaaaaaabcdefgh"
 BRANCH = "jj-stack/feature-aaaaaaaa"
@@ -35,7 +35,7 @@ _REPO = GithubRepoAddress(
 
 
 def test_duplicate_claim_facts_are_scoped_to_one_repo() -> None:
-    identity = _identity()
+    identity = make_pr_identity(head_ref=BRANCH)
     other = identity.model_copy(update={"repo_name": "another-repository"})
 
     assert duplicate_pr_claim_change_ids({"saved": identity, "other": other}) == frozenset()
@@ -139,20 +139,10 @@ def test_cleanup_preserves_a_head_branch_shared_by_another_open_pr() -> None:
     assert "another open pull request" in plain_text(blocker.body)
 
 
-def _identity() -> PRIdentity:
-    return PRIdentity(
-        repo_owner="octo-org",
-        repo_name="stacked-prs",
-        pr_number=1,
-        head_owner="octo-org",
-        head_ref=BRANCH,
-    )
-
-
 def _candidate() -> TrackedPR:
     return TrackedPR(
         change_id=CHANGE_ID,
-        pr_identity=_identity(),
+        pr_identity=make_pr_identity(head_ref=BRANCH),
         submitted_baseline=_BASELINE,
     )
 
@@ -177,7 +167,7 @@ def _observation(
     open_head_prs: tuple[GithubPR, ...] = (),
     remote_target: str | None = _BASELINE.commit_id,
 ) -> RepoFacts:
-    identity = _identity()
+    identity = make_pr_identity(head_ref=BRANCH)
     pr = _pr()
     return RepoFacts(
         configured_repo=_REPO,

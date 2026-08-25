@@ -10,7 +10,7 @@ from jj_stack.jj.client import JjClient
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR
 from jj_stack.models.stack import LocalCommit, LocalStack
-from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
+from jj_stack.models.tracking import SubmittedBaseline, TrackingState
 from jj_stack.stack import status as status_module
 from jj_stack.stack.status import (
     PreparedChange,
@@ -20,6 +20,7 @@ from jj_stack.stack.status import (
 )
 from tests.support.change_helpers import make_change
 from tests.support.contexts import fake_command_context
+from tests.support.tracking import make_pr_identity
 
 
 def test_untracked_status_omits_branch_and_skips_github_discovery(
@@ -71,7 +72,7 @@ def test_stream_status_falls_back_to_local_data_after_github_abort(monkeypatch) 
     )
     state = TrackingState(
         pr_identities={
-            change.change_id: _identity(
+            change.change_id: make_pr_identity(
                 head_ref="jj-stack/feature-1-aaaaaaaa",
                 pr_number=1,
             )
@@ -154,7 +155,7 @@ def test_pr_lookup_falls_back_to_exact_remembered_pr_number() -> None:
             commit_id="old-commit",
             description="feature 7\n",
         ),
-        pr_identity=_identity(
+        pr_identity=make_pr_identity(
             head_ref="jj-stack/old-branch",
             pr_number=7,
         ),
@@ -210,20 +211,6 @@ def _github_target() -> GithubTarget:
             owner="octo-org",
             repo="stacked-prs",
         ),
-    )
-
-
-def _identity(
-    *,
-    head_ref: str = "jj-stack/change",
-    pr_number: int = 1,
-) -> PRIdentity:
-    return PRIdentity(
-        repo_owner="octo-org",
-        repo_name="stacked-prs",
-        pr_number=pr_number,
-        head_owner="octo-org",
-        head_ref=head_ref,
     )
 
 

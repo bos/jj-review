@@ -6,6 +6,9 @@ from jj_stack.stack.change_status import (
     enumerate_orphaned_records,
     submitted_state_disagreement,
 )
+from tests.support.tracking import make_pr_identity
+
+_EXAMPLE_HEAD_REF = "jj-stack/example-changeaa"
 
 
 def _change(change_id: str, *, parents: tuple[str, ...] = ("parent-commit",)) -> LocalCommit:
@@ -36,27 +39,14 @@ def _stack(
     )
 
 
-def _identity(
-    *,
-    pr_number: int = 1,
-) -> PRIdentity:
-    return PRIdentity(
-        repo_owner="octo-org",
-        repo_name="stacked-prs",
-        pr_number=pr_number,
-        head_owner="octo-org",
-        head_ref="jj-stack/example-changeaa",
-    )
-
-
 def test_submitted_state_disagreement_returns_empty_when_saved_state_matches() -> None:
     a = _change("change-a")
     b = _change("change-b")
     stack = _stack(a, b)
     state = TrackingState(
         pr_identities={
-            "change-a": _identity(pr_number=1),
-            "change-b": _identity(pr_number=2),
+            "change-a": make_pr_identity(head_ref=_EXAMPLE_HEAD_REF, pr_number=1),
+            "change-b": make_pr_identity(head_ref=_EXAMPLE_HEAD_REF, pr_number=2),
         },
         submitted_baselines={
             "change-a": SubmittedBaseline(commit_id=a.commit_id),
@@ -71,7 +61,7 @@ def test_submitted_state_disagreement_flags_rewritten_commit() -> None:
     a = _change("change-a")
     stack = _stack(a)
     state = TrackingState(
-        pr_identities={"change-a": _identity()},
+        pr_identities={"change-a": make_pr_identity(head_ref=_EXAMPLE_HEAD_REF)},
         submitted_baselines={"change-a": SubmittedBaseline(commit_id="old-commit-change-a")},
     )
 
@@ -82,7 +72,7 @@ def _orphan_record(
     *,
     pr_number: int = 42,
 ) -> PRIdentity:
-    return _identity(pr_number=pr_number)
+    return make_pr_identity(head_ref=_EXAMPLE_HEAD_REF, pr_number=pr_number)
 
 
 def test_enumerate_orphans_returns_tracked_record_with_open_pr_and_no_live_change() -> None:
@@ -90,7 +80,7 @@ def test_enumerate_orphans_returns_tracked_record_with_open_pr_and_no_live_chang
     stack = _stack(a)
     state = TrackingState(
         pr_identities={
-            "change-live": _identity(pr_number=1),
+            "change-live": make_pr_identity(head_ref=_EXAMPLE_HEAD_REF, pr_number=1),
             "change-orphan": _orphan_record(),
         },
         submitted_baselines={
@@ -111,8 +101,8 @@ def test_submitted_state_disagreement_inspects_each_stack_independently() -> Non
     stack_two = _stack(b)
     state = TrackingState(
         pr_identities={
-            "change-a": _identity(pr_number=1),
-            "change-b": _identity(pr_number=2),
+            "change-a": make_pr_identity(head_ref=_EXAMPLE_HEAD_REF, pr_number=1),
+            "change-b": make_pr_identity(head_ref=_EXAMPLE_HEAD_REF, pr_number=2),
         },
         submitted_baselines={
             "change-a": SubmittedBaseline(commit_id=a.commit_id),

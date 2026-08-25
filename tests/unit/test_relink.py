@@ -12,7 +12,8 @@ from jj_stack.commands.relink import (
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient
 from jj_stack.models.github import GithubBranchRef, GithubPR
-from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
+from jj_stack.models.tracking import SubmittedBaseline, TrackingState
+from tests.support.tracking import make_pr_identity
 
 
 @pytest.mark.parametrize(
@@ -42,10 +43,16 @@ def test_relink_requires_open_same_repo_pr(
 
 
 def test_relink_rejects_duplicate_saved_pr_or_branch_claim_in_same_repo() -> None:
-    identity = _identity(pr_number=1)
+    identity = make_pr_identity(
+        head_ref="jj-stack/manual-feature-feature1",
+        pr_number=1,
+    )
     state = TrackingState(
         pr_identities={
-            "other-change": _identity(pr_number=2),
+            "other-change": make_pr_identity(
+                head_ref="jj-stack/manual-feature-feature1",
+                pr_number=2,
+            ),
         },
         submitted_baselines={"other-change": SubmittedBaseline(commit_id="other-commit")},
     )
@@ -80,14 +87,4 @@ def _pr(*, head_owner: str, state: str) -> GithubPR:
         number=1,
         state=state,
         title="manual title",
-    )
-
-
-def _identity(*, pr_number: int) -> PRIdentity:
-    return PRIdentity(
-        repo_owner="octo-org",
-        repo_name="stacked-prs",
-        pr_number=pr_number,
-        head_owner="octo-org",
-        head_ref="jj-stack/manual-feature-feature1",
     )

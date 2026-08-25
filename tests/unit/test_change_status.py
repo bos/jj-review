@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from jj_stack.models.github import GithubBranchRef, GithubPR
-from jj_stack.models.tracking import PRIdentity
 from jj_stack.stack.change_status import (
     classify_change_status,
 )
 from jj_stack.stack.status import PRLookup
+from tests.support.tracking import make_pr_identity
 
 
 def _pr(*, draft: bool = False, state: str = "open") -> GithubPR:
@@ -22,16 +22,6 @@ def _pr(*, draft: bool = False, state: str = "open") -> GithubPR:
     ).normalize_state()
 
 
-def _identity(*, pr_number: int = 1) -> PRIdentity:
-    return PRIdentity(
-        repo_owner="octo-org",
-        repo_name="stacked-prs",
-        pr_number=pr_number,
-        head_owner="octo-org",
-        head_ref="jj-stack/change",
-    )
-
-
 def test_classifier_keeps_draft_and_review_decision_as_separate_axes() -> None:
     status = classify_change_status(
         local="present",
@@ -42,7 +32,7 @@ def test_classifier_keeps_draft_and_review_decision_as_separate_axes() -> None:
             review_decision_error=None,
             state="open",
         ),
-        pr_identity=_identity(),
+        pr_identity=make_pr_identity(head_ref="jj-stack/change"),
     )
 
     assert status.pr_lifecycle == "open"
@@ -60,7 +50,7 @@ def test_classifier_marks_missing_lookup_with_saved_pr_identity_as_stale_link() 
             review_decision_error=None,
             state="missing",
         ),
-        pr_identity=_identity(),
+        pr_identity=make_pr_identity(head_ref="jj-stack/change"),
     )
 
     assert status.pr_lifecycle == "missing"
@@ -71,7 +61,7 @@ def test_classifier_reports_saved_pr_identity() -> None:
     status = classify_change_status(
         local="present",
         pr_lookup=None,
-        pr_identity=_identity(),
+        pr_identity=make_pr_identity(head_ref="jj-stack/change"),
     )
 
     assert status.saved_pr_identity is True
@@ -87,7 +77,7 @@ def test_classifier_reports_unknown_review_decision_when_lookup_errors() -> None
             review_decision_error="GitHub returned 502",
             state="open",
         ),
-        pr_identity=_identity(),
+        pr_identity=make_pr_identity(head_ref="jj-stack/change"),
     )
 
     assert status.pr_lifecycle == "open"

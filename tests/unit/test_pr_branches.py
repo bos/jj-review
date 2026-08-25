@@ -6,7 +6,6 @@ import pytest
 
 from jj_stack.errors import CliError
 from jj_stack.models.stack import LocalCommit
-from jj_stack.models.tracking import PRIdentity
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_matches_change
 from jj_stack.stack.pr_branches import (
     ResolvedPRBranch,
@@ -14,6 +13,7 @@ from jj_stack.stack.pr_branches import (
     ensure_unique_pr_branches,
     resolve_pr_branches,
 )
+from tests.support.tracking import make_pr_identity
 
 
 def test_generate_pr_branch_normalizes_subject() -> None:
@@ -56,7 +56,7 @@ def test_pr_branch_matcher_ties_a_branch_to_one_change(
 
 def test_pr_branch_resolution_keeps_saved_branch_stable_after_subject_change() -> None:
     identities = {
-        "zvlywqkxtmnpqrstu": _identity(head_ref="jj-stack/fix-cache-invalidation-zvlywqkx")
+        "zvlywqkxtmnpqrstu": make_pr_identity(head_ref="jj-stack/fix-cache-invalidation-zvlywqkx")
     }
     renamed_change = _change(
         change_id="zvlywqkxtmnpqrstu",
@@ -92,7 +92,7 @@ def test_pr_branch_resolution_rejects_new_branch_claimed_by_another_stack() -> N
     new_change_id = "abcdefgh-two"
     branch = "jj-stack/shared-abcdefgh"
 
-    identities = {existing_change_id: _identity(head_ref=branch)}
+    identities = {existing_change_id: make_pr_identity(head_ref=branch)}
     resolutions = resolve_pr_branches(
         changes=(_change(change_id=new_change_id, description="shared"),),
         pr_identities=identities,
@@ -113,16 +113,6 @@ def test_pr_branch_resolution_rejects_new_branch_claimed_by_another_stack() -> N
             )
         },
         ("octo-org", "stacked-prs"),
-    )
-
-
-def _identity(*, head_ref: str) -> PRIdentity:
-    return PRIdentity(
-        repo_owner="octo-org",
-        repo_name="stacked-prs",
-        pr_number=1,
-        head_owner="octo-org",
-        head_ref=head_ref,
     )
 
 

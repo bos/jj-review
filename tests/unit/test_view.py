@@ -20,6 +20,7 @@ from jj_stack.stack.status import (
     StatusResult,
 )
 from tests.support.change_helpers import make_change
+from tests.support.tracking import make_pr_identity
 
 
 def _pr(*, base_ref: str = "main", number: int, state: str) -> GithubPR:
@@ -90,16 +91,6 @@ def _status_change(
         pr_identity=pr_identity,
         submitted_baseline=submitted_baseline,
         subject=subject,
-    )
-
-
-def _identity(*, branch: str, pr_number: int) -> PRIdentity:
-    return PRIdentity(
-        repo_owner="octo-org",
-        repo_name="repo",
-        pr_number=pr_number,
-        head_owner="octo-org",
-        head_ref=branch,
     )
 
 
@@ -184,9 +175,10 @@ def test_view_closed_pr_advisory_guides_reopen_relink_or_cleanup() -> None:
 
 def test_view_missing_pr_advisory_guides_fetch_relink_or_cleanup() -> None:
     change = _status_change(
-        pr_identity=_identity(
-            branch="jj-stack/feature-8-abcdefgh",
+        pr_identity=make_pr_identity(
+            head_ref="jj-stack/feature-8-abcdefgh",
             pr_number=42,
+            repo_name="repo",
         ),
         change_id="abcdefgh1234",
         pr_lookup=_lookup(
@@ -213,9 +205,10 @@ def test_view_missing_pr_advisory_guides_fetch_relink_or_cleanup() -> None:
 def test_view_summary_does_not_call_tracked_missing_pr_not_submitted() -> None:
     change = _status_change(
         branch="jj-stack/feature-8-abcdefgh",
-        pr_identity=_identity(
-            branch="jj-stack/feature-8-abcdefgh",
+        pr_identity=make_pr_identity(
+            head_ref="jj-stack/feature-8-abcdefgh",
             pr_number=8,
+            repo_name="repo",
         ),
         change_id="abcdefgh1234",
         commit_id="1234567890abcdef",
@@ -283,9 +276,10 @@ def test_view_joins_summary_to_base_without_a_dangling_graph_edge() -> None:
 def test_view_summary_omits_review_decision_when_live_decision_lookup_fails() -> None:
     change = _status_change(
         branch="jj-stack/feature-7-abcdefgh",
-        pr_identity=_identity(
-            branch="jj-stack/feature-7-abcdefgh",
+        pr_identity=make_pr_identity(
+            head_ref="jj-stack/feature-7-abcdefgh",
             pr_number=7,
+            repo_name="repo",
         ),
         change_id="abcdefgh1234",
         commit_id="1234567890abcdef",
@@ -322,9 +316,10 @@ def test_view_summary_omits_review_decision_when_live_decision_lookup_fails() ->
 def test_view_summary_labels_row_when_pr_lookup_fails() -> None:
     change = _status_change(
         branch="jj-stack/feature-1-abcdefgh",
-        pr_identity=_identity(
-            branch="jj-stack/feature-1-abcdefgh",
+        pr_identity=make_pr_identity(
+            head_ref="jj-stack/feature-1-abcdefgh",
             pr_number=1,
+            repo_name="repo",
         ),
         change_id="abcdefgh1234",
         commit_id="1234567890abcdef",
