@@ -27,6 +27,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from rich.text import Text
+
 import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext, bootstrap_context
@@ -570,8 +572,6 @@ def render_status_summary_lines(
         if lines:
             lines.append("")
         lines.extend(submitted_lines)
-    if lines:
-        lines.append("")
     return tuple(lines)
 
 
@@ -583,13 +583,22 @@ def render_trunk_status_lines(
     """Render the trunk footer with the user's `jj log` formatting."""
 
     trunk = prepared.stack.base_parent
-    return render_commit_lines(
+    lines = render_commit_lines(
         client=prepared.client,
         change=trunk,
         prerendered_lines=(
             prerendered_blocks.get(trunk.commit_id) if prerendered_blocks else None
         ),
     )
+    if len(lines) > 1 and _plain_terminal_text(lines[-1]) in {"|", "│", "┃"}:
+        return lines[:-1]
+    return lines
+
+
+def _plain_terminal_text(line: str) -> str:
+    """Return visible text from one ANSI-styled `jj log` line."""
+
+    return Text.from_ansi(line).plain.strip()
 
 
 def render_empty_status_lines(

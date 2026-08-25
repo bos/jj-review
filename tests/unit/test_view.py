@@ -10,6 +10,7 @@ import jj_stack.ui as ui_module
 from jj_stack.models.github import GithubPR
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline
 from jj_stack.stack.status import (
+    PreparedStack,
     PRLookup,
     PRLookupSource,
     PRLookupState,
@@ -241,8 +242,28 @@ def test_view_summary_does_not_call_tracked_missing_pr_not_submitted() -> None:
         "Submitted stack:",
         "○  abcdefgh 12345678: saved PR #8, no PR found for branch",
         "│  feature 8",
-        "",
     )
+
+
+def test_view_joins_summary_to_base_without_a_dangling_graph_edge() -> None:
+    base = SimpleNamespace(commit_id="base-commit")
+    lines = view_module.render_trunk_status_lines(
+        prepared=cast(
+            PreparedStack,
+            SimpleNamespace(
+                client=SimpleNamespace(),
+                stack=SimpleNamespace(base_parent=base),
+            ),
+        ),
+        prerendered_blocks={
+            base.commit_id: (
+                "◆  base",
+                "\033[38;5;8m│\033[39m",
+            )
+        },
+    )
+
+    assert lines == ("◆  base",)
 
 
 def test_view_summary_omits_review_decision_when_live_decision_lookup_fails() -> None:
@@ -363,5 +384,4 @@ def test_view_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
         "body for feature 2",
         "feature 1 [11111111]",
         "body for feature 1",
-        "",
     )
