@@ -31,6 +31,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://www.serpentine.com/software/jj-stack/"
 Documentation = "https://www.serpentine.com/software/jj-stack/"
+Changelog = "https://github.com/bos/jj-stack/releases"
 Repository = "https://github.com/bos/jj-stack"
 Issues = "https://github.com/bos/jj-stack/issues"
 
