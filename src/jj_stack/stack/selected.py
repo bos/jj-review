@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 
 import jj_stack.ui as ui
@@ -12,6 +11,7 @@ from jj_stack.jj.client import (
     JjCommandError,
     UnsupportedStackError,
     divergent_change_id_from_error,
+    quote_revset_symbol,
 )
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackingState
@@ -110,7 +110,7 @@ def select_stack_path_containing_change(
     # this expression in every membership predicate makes jj recursively reevaluate it.
     observed_heads = jj_client.query_commits(containing_heads)
     bound_heads = (
-        " | ".join(f"present({json.dumps(head.commit_id)})" for head in observed_heads)
+        " | ".join(f"present({quote_revset_symbol(head.commit_id)})" for head in observed_heads)
         if observed_heads
         else "none()"
     )
@@ -349,7 +349,7 @@ def _replace_selected_revset(
 
 
 def _change_id_revset(change_id: str) -> str:
-    return f"change_id({json.dumps(change_id)})"
+    return f"change_id({quote_revset_symbol(change_id)})"
 
 
 def _is_full_change_id(value: str) -> bool:

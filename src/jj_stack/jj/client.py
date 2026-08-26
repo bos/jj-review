@@ -360,7 +360,7 @@ class JjClient:
             try:
                 commits = self._query_commits_with_membership(
                     _present_symbols_revset(chunk),
-                    membership_revsets=(f"::{_quote_revset_symbol(descendant_commit_id)}",),
+                    membership_revsets=(f"::{quote_revset_symbol(descendant_commit_id)}",),
                 )
             except JjCommandError:
                 continue
@@ -404,7 +404,7 @@ class JjClient:
             return set()
 
         terms = " | ".join(
-            f"({_quote_revset_symbol(subject)} & ::present({_quote_revset_symbol(target)}))"
+            f"({quote_revset_symbol(subject)} & ::present({quote_revset_symbol(target)}))"
             for subject, target in deduped_pairs
         )
         commits = self._query_commits(terms)
@@ -487,7 +487,7 @@ class JjClient:
                 color_when,
                 "log",
                 "-r",
-                _quote_revset_symbol(change.commit_id),
+                quote_revset_symbol(change.commit_id),
                 "--limit",
                 "1",
             )
@@ -574,7 +574,7 @@ class JjClient:
             return ()
         if private_commits_revset == "none()":
             return ()
-        commit_ids_revset = " | ".join(_quote_revset_symbol(r.commit_id) for r in changes)
+        commit_ids_revset = " | ".join(quote_revset_symbol(r.commit_id) for r in changes)
         combined_revset = f"({private_commits_revset}) & ({commit_ids_revset})"
         return tuple(self.query_commits(combined_revset))
 
@@ -726,7 +726,8 @@ class JjClient:
                     untracked.append((row.name, target))
                     target_counts[target] = target_counts.get(target, 0) + 1
         selectors = " | ".join(
-            f"(remote_bookmarks(exact:{json.dumps(name)}) & {_quote_revset_symbol(commit_id)})"
+            f"(remote_bookmarks(exact:{quote_revset_symbol(name)}) & "
+            f"{quote_revset_symbol(commit_id)})"
             for name, _change_id, commit_id in sorted(bookmarks)
             if (name, commit_id) in untracked and target_counts[commit_id] == 1
         )
@@ -836,7 +837,7 @@ class JjClient:
                         )
                     expected_parent = target
             self._run_jj(("git", "import"))
-            change = self.resolve_commit(_quote_revset_symbol(_PR_BRANCH_TEMP_BOOKMARK))
+            change = self.resolve_commit(quote_revset_symbol(_PR_BRANCH_TEMP_BOOKMARK))
             if change.commit_id != expected_target:
                 raise JjCommandError(
                     t"{ui.cmd('jj git import')} did not import the exact temporary PR branch ref."
@@ -1369,7 +1370,9 @@ def _short_change_id_render_template() -> str:
     ).strip()
 
 
-def _quote_revset_symbol(symbol: str) -> str:
+def quote_revset_symbol(symbol: str) -> str:
+    """Quote one symbol as a jj revset string literal, escaping when needed."""
+
     if "'" not in symbol and all(ord(character) >= 32 for character in symbol):
         return f"'{symbol}'"
     escaped: list[str] = []
@@ -1387,7 +1390,7 @@ def _present_symbols_revset(symbols: Sequence[str]) -> str:
     """Union symbols as `present(...)` terms so unavailable ones do not fail the query."""
 
     return _union_revset_symbols(
-        tuple(f"present({_quote_revset_symbol(symbol)})" for symbol in symbols),
+        tuple(f"present({quote_revset_symbol(symbol)})" for symbol in symbols),
         quote=False,
     )
 
@@ -1401,7 +1404,7 @@ def _change_ids_revset(change_ids: Sequence[str]) -> str:
     """
 
     return _union_revset_symbols(
-        tuple(f"change_id({_quote_revset_symbol(change_id)})" for change_id in change_ids),
+        tuple(f"change_id({quote_revset_symbol(change_id)})" for change_id in change_ids),
         quote=False,
     )
 
@@ -1415,7 +1418,7 @@ def _expected_git_change_id_matches(
 
 
 def _union_revset_symbols(symbols: Sequence[str], *, quote: bool = True) -> str:
-    parts = [_quote_revset_symbol(symbol) if quote else symbol for symbol in symbols]
+    parts = [quote_revset_symbol(symbol) if quote else symbol for symbol in symbols]
     if not parts:
         raise ValueError("Expected at least one revset symbol.")
     if len(parts) == 1:

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError
-from jj_stack.jj.client import JjClient, UnsupportedStackError
+from jj_stack.jj.client import JjClient, UnsupportedStackError, quote_revset_symbol
 from jj_stack.models.tracking import TrackingState
 from jj_stack.stack.path import (
     RepoPathObservation,
@@ -34,7 +33,7 @@ def observe_repo_paths(
     trunk_path = "first_ancestors(trunk())"
     visible_scope = "visible()"
     if descendant_of:
-        anchors = " | ".join(json.dumps(commit_id) for commit_id in descendant_of)
+        anchors = " | ".join(quote_revset_symbol(commit_id) for commit_id in descendant_of)
         descendants = f"({anchors})::"
         if exclude_trunk_descendants:
             descendants += " ~ trunk()::"
@@ -42,7 +41,8 @@ def observe_repo_paths(
     candidates = f"(({visible_scope}) ~ {trunk_path} ~ working_copies())"
     if state.pr_identities:
         tracked = " | ".join(
-            f"change_id({json.dumps(change_id)})" for change_id in sorted(state.pr_identities)
+            f"change_id({quote_revset_symbol(change_id)})"
+            for change_id in sorted(state.pr_identities)
         )
         candidates = f"({candidates} | ({visible_scope} & working_copies() & ({tracked})))"
     if include_working_copies:
