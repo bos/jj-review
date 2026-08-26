@@ -77,8 +77,9 @@ command they use before any direct GitHub mutation.
 **Collaboration writes are fine when the user asks**: comments, reviews,
 labels, assignees, milestones, reviewer requests, draft/ready state, and
 title or body edits (a later `submit` may overwrite generated title/body
-text). Never edit or delete comments containing `<!-- jj-stack-overview -->`;
-jj-stack manages those.
+text). The user may also ask you to edit a comment containing
+`<!-- jj-stack-overview -->`; preserve that marker so `jj-stack` can keep managing and moving the
+overview. Never delete the marker or the managed comment by hand.
 
 **Closing and reopening known pull requests is supported when the user asks.**
 Inspect the stack first, use explicit PR numbers, and leave jj-stack's saved
@@ -114,8 +115,9 @@ confirms after you explain that risk.
    GitHub decides approvals, checks, conflicts, and repo policy. A completed direct merge
    updates the local stack automatically; it never pushes trunk. After a queued merge, run
    `sync <head-change-id>` once GitHub finishes.
-6. If `trunk()` merely advanced, use plain `jj rebase`. `sync` is for
-   ancestors already merged on GitHub under exact or rewritten commit IDs.
+6. If `trunk()` merely advanced and GitHub left the PR branches alone, use plain `jj rebase`.
+   Use `sync` after ancestors merge under exact or rewritten commit IDs, or after GitHub's
+   **Rebase stack** action rewrites the PR branches.
 
 ## Closing and cleanup
 

@@ -518,8 +518,8 @@ def build_parser() -> ArgumentParser:
         "--all",
         action="store_true",
         help=(
-            "Finish merged PRs across all stacks when their submitted commits are already on "
-            "trunk and remove their saved links; never rebases or rewrites local changes"
+            "Run sync for every stack affected by a completed merge; may rewrite local "
+            "changes and clean up merged pull requests whose local changes are gone"
         ),
     )
 

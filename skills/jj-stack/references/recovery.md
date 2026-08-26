@@ -21,11 +21,14 @@ the default selection. Preview the chosen mutation with `--dry-run` when support
 Do not resume a remembered plan. Every retry must use current `jj`, tracking, remote, and GitHub
 observations. Use `jj op log` and `jj undo` for local recovery, never destructive Git commands.
 
-## Reconcile completed merges
+## Reconcile GitHub changes
 
 - After a queued or external merge finishes, run `sync --dry-run <head-change-id>`, then
   `sync <head-change-id>`. It fetches, proves what reached trunk, removes merged ancestors,
   rebases selected survivors, and updates only their existing PRs.
+- After GitHub's **Rebase stack** action finishes, use the same selected `sync` sequence. It
+  verifies the rewritten PR branches and contents, rebases the original local changes, and
+  restores their change IDs.
 - Use the full head change ID when a rewritten survivor has several visible commits. Let the
   selected `sync` prove which commit GitHub produced; do not choose a `/0` or `/1` copy or
   abandon a copy before that dry run.
@@ -36,14 +39,15 @@ observations. Use `jj op log` and `jj undo` for local recovery, never destructiv
   explicit selected `sync` printed by the command.
 - If a queued PR is still waiting, do not submit or sync that stack. Independent stacks remain
   usable.
-- If trunk merely advanced and none of the stack merged, use a bounded plain `jj rebase`; `sync`
-  is not a general trunk-refresh command.
+- If trunk merely advanced, none of the stack merged, and GitHub left every PR branch alone, use
+  a bounded plain `jj rebase`; `sync` is not a general trunk-refresh command.
 
-Use `sync --all --dry-run`, then `sync --all`, only for repo-wide reconciliation. It checks
-every tracked PR and may retarget or close PRs and remove saved links when their exact submitted
-commits are already on trunk. It never rebases local changes or submits a stack. When GitHub
-produced rewritten merge commits, it leaves tracking in place and prints a selected
-`sync <head-change-id>` for each affected stack.
+Use `sync --all --dry-run`, then `sync --all`, only for repo-wide reconciliation. It finds each
+local stack affected by a completed merge and applies the same selected `sync` workflow in turn.
+It may therefore rebase surviving changes and their descendants, update or close pull requests,
+delete unused PR branches and overview comments, and remove saved links. It never creates a pull
+request. A blocked stack does not prevent independent stacks from continuing; inspect its
+diagnostic before retrying it with an explicit selector.
 
 ## Recover an interrupted or rejected operation
 
