@@ -9,7 +9,6 @@ weight: 10
 ## Requirements
 
 - Python 3.14 or newer
-- [`uv`](https://docs.astral.sh/uv/)
 - `jj` 0.44.0 or newer
 - a GitHub repo you can push to, and GitHub authentication
 
@@ -19,13 +18,26 @@ require no repo or organization setup.
 
 ## Install
 
-Install `jj-stack` from PyPI:
+Install `jj-stack` from PyPI with [`uv`](https://docs.astral.sh/uv/) in an isolated tool
+environment (recommended):
 
 ```console
 uv tool install jj-stack
 ```
 
-To upgrade later, rerun the command with `--force`.
+[`pipx`](https://pipx.pypa.io/) provides another isolated installation:
+
+```console
+pipx install jj-stack
+```
+
+You can also use `pip` inside an activated virtual environment:
+
+```console
+python -m pip install jj-stack
+```
+
+To upgrade an installation made with `uv`, rerun its command with `--force`.
 
 ## Prepare the repo
 

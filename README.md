@@ -9,20 +9,31 @@ matching PRs.
 ### Requirements
 
 - Python 3.14 or newer
-- `uv`
 - `jj` 0.44.0 or newer
 - GitHub authentication
 
 ### Install
 
-Install `jj-stack` from PyPI:
+Install `jj-stack` from PyPI with `uv` in an isolated tool environment (recommended):
 
 ```bash
 uv tool install jj-stack
 ```
 
-To upgrade, rerun that command with `--force`. If the command is not on your shell `PATH`, run
-`uv tool update-shell`.
+`pipx` provides another isolated installation:
+
+```bash
+pipx install jj-stack
+```
+
+You can also use `pip` inside an activated virtual environment:
+
+```bash
+python -m pip install jj-stack
+```
+
+To upgrade an installation made with `uv`, rerun its command with `--force`. If the command is
+not on your shell `PATH`, run `uv tool update-shell`.
 
 For tab completion, add the output of `jj-stack completion` to your shell startup file:
 
