@@ -39,6 +39,25 @@ python -m pip install jj-stack
 
 To upgrade an installation made with `uv`, rerun its command with `--force`.
 
+## Invoke it as `jj stack`
+
+Add a command alias to your user configuration with `jj config edit --user`:
+
+```toml
+[aliases]
+stack = ["util", "exec", "--", "jj-stack"]
+```
+
+For tab completion of both `jj-stack` and `jj stack`, add the output of `jj-stack completion` to
+your shell startup file:
+
+```console
+eval "$(jj-stack completion zsh --jj-alias stack)"
+```
+
+`bash` and `fish` work the same way. See [configuration](reference/configuration.md) for more
+setup options.
+
 ## Prepare the repo
 
 Inside your `jj` repo, prepare it for use:

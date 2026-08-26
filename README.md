@@ -35,16 +35,25 @@ python -m pip install jj-stack
 To upgrade an installation made with `uv`, rerun its command with `--force`. If the command is
 not on your shell `PATH`, run `uv tool update-shell`.
 
-For tab completion, add the output of `jj-stack completion` to your shell startup file:
+### Invoke it as `jj stack`
 
-```bash
-eval "$(jj-stack completion zsh)"
+Add a command alias to your user configuration with `jj config edit --user`:
+
+```toml
+[aliases]
+stack = ["util", "exec", "--", "jj-stack"]
 ```
 
-`bash` and `fish` work the same way.
+For tab completion of both `jj-stack` and `jj stack`, add the output of `jj-stack completion` to
+your shell startup file:
 
-To invoke it as `jj stack` and complete that alias too, see
-[Configuration](https://www.serpentine.com/software/jj-stack/reference/configuration/).
+```bash
+eval "$(jj-stack completion zsh --jj-alias stack)"
+```
+
+`bash` and `fish` work the same way. See
+[Configuration](https://www.serpentine.com/software/jj-stack/reference/configuration/) for more
+setup options.
 
 ### Submit your first stack
 
