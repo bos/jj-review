@@ -515,7 +515,7 @@ def render_status_summary_lines(
     result,
     verbose: bool,
     prerendered_blocks: dict[str, tuple[str, ...]] | None = None,
-) -> tuple[str, ...]:
+) -> tuple[ui.Renderable, ...]:
     """Render capped submitted and unsubmitted summaries before the trunk row."""
 
     classified_changes = tuple(
@@ -536,7 +536,7 @@ def render_status_summary_lines(
         if _classify_change_for_summary(classified) == "submitted"
     )
 
-    lines: list[str] = []
+    lines: list[ui.Renderable] = []
     unsubmitted_lines = _render_summary_section(
         "Unsubmitted stack",
         include_leading_separator=leading_separator,
@@ -579,7 +579,7 @@ def render_trunk_status_lines(
     *,
     prepared: PreparedStack,
     prerendered_blocks: dict[str, tuple[str, ...]] | None = None,
-) -> tuple[str, ...]:
+) -> tuple[ui.Renderable, ...]:
     """Render the trunk footer with the user's `jj log` formatting."""
 
     trunk = prepared.stack.base_parent
@@ -595,16 +595,18 @@ def render_trunk_status_lines(
     return lines
 
 
-def _plain_terminal_text(line: str) -> str:
+def _plain_terminal_text(line: ui.Renderable) -> str:
     """Return visible text from one ANSI-styled `jj log` line."""
 
+    if not isinstance(line, str):
+        raise AssertionError("Expected a plain `jj log` line without a status suffix.")
     return Text.from_ansi(line).plain.strip()
 
 
 def render_empty_status_lines(
     *,
     prepared_status: PreparedStatus,
-) -> tuple[ui.Message, ...]:
+) -> tuple[ui.Renderable, ...]:
     """Render the empty-stack footer and explanation."""
 
     return (
@@ -634,19 +636,20 @@ def _prefetch_commit_log_blocks(
 
 
 def _render_summary_section(
-    title: str,
+    title: ui.Message,
     *,
     include_leading_separator: bool,
     changes: tuple,
     renderer,
     verbose: bool,
-) -> tuple[str, ...]:
+) -> tuple[ui.Renderable, ...]:
     """Render one capped summary section."""
 
     if not changes and not verbose:
         return ()
 
-    lines = [f"{title}:"]
+    heading: ui.Message = f"{title}:" if isinstance(title, str) else t"{title}:"
+    lines: list[ui.Renderable] = [heading]
     if include_leading_separator:
         lines.insert(0, "")
     if not changes:
@@ -668,19 +671,18 @@ def _render_summary_section(
     return tuple(lines)
 
 
-def _render_submitted_section_title(changes: tuple) -> str:
+def _render_submitted_section_title(changes: tuple) -> ui.Message:
     """Render the submitted-section heading, linking the newest submitted PR when possible."""
 
     if changes:
         _lookup = changes[0].pr_lookup
-        top_pr_url = (
-            _lookup.pr.html_url if _lookup is not None and _lookup.pr is not None else None
-        )
+        top_pr = _lookup.pr if _lookup is not None else None
     else:
-        top_pr_url = None
-    if top_pr_url is None:
+        top_pr = None
+    if top_pr is None:
         return "Submitted stack"
-    return f"Submitted stack ({top_pr_url})"
+    label = format_pr_label(top_pr.number, url=top_pr.html_url)
+    return t"Submitted stack ({label})"
 
 
 def render_status_advisory_lines(
@@ -979,7 +981,7 @@ def _render_summary_change_lines(
     github_available: bool,
     show_status: bool,
     prerendered_blocks: dict[str, tuple[str, ...]] | None = None,
-) -> tuple[str, ...]:
+) -> tuple[ui.Renderable, ...]:
     """Render one change inside a submitted or unsubmitted summary section."""
 
     change = classified.change
@@ -1013,13 +1015,13 @@ def _format_status_summary(
     classified: _ClassifiedStatusChange,
     *,
     github_available: bool,
-) -> str:
+) -> ui.Message:
     change = classified.change
     lookup = change.pr_lookup
     pr_identity = change.pr_identity
     saved_label = _format_saved_pr_label(pr_identity)
     change_status = classified.status
-    summary: str
+    summary: ui.Message
     if change_status.pr_lifecycle == "none" and not change_status.pr_lookup_error:
         if saved_label is not None:
             summary = saved_label
@@ -1041,18 +1043,18 @@ def _format_status_summary(
         if review_decision == "unknown" and lookup.review_decision_error is not None:
             review_decision = "none"
         if change_status.pr_queued is True:
-            summary = f"{summary} queued"
+            summary = t"{summary} queued"
         elif change_status.pr_draft is True:
             pass
         elif review_decision == "approved":
-            summary = f"{summary} approved"
+            summary = t"{summary} approved"
         elif review_decision == "changes_requested":
-            summary = f"{summary} changes requested"
+            summary = t"{summary} changes requested"
         if change_status.pr_check_rollup_status is not None:
-            summary = f"{summary}, checks {change_status.pr_check_rollup_status}"
+            summary = t"{summary}, checks {change_status.pr_check_rollup_status}"
     elif change_status.pr_lifecycle == "missing":
         if saved_label is not None:
-            summary = f"{saved_label}, no PR found for branch"
+            summary = t"{saved_label}, no PR found for branch"
         else:
             summary = "not submitted"
     elif change_status.pr_lifecycle in {"closed", "merged"}:
@@ -1066,9 +1068,9 @@ def _format_status_summary(
             is_draft=False,
         )
         if change_status.pr_lifecycle == "merged":
-            summary = f"{pr_label} merged into {lookup.pr.base.ref}, cleanup needed"
+            summary = t"{pr_label} merged into {lookup.pr.base.ref}, cleanup needed"
         else:
-            summary = f"{pr_label} closed"
+            summary = t"{pr_label} closed"
     else:
         message = (
             ui.plain_text(lookup.message)
@@ -1076,12 +1078,12 @@ def _format_status_summary(
             else "GitHub lookup failed"
         )
         if saved_label is not None:
-            summary = f"{saved_label}, {message}"
+            summary = t"{saved_label}, {message}"
         else:
             summary = message
 
     if change_status.local == "divergent" and change_status.pr_lifecycle != "merged":
-        summary = f"{summary}, multiple visible commits"
+        summary = t"{summary}, multiple visible commits"
 
     return summary
 
@@ -1091,12 +1093,13 @@ def _format_live_pr_label(
     lookup: PRLookup,
     pr_number: int,
     is_draft: bool,
-) -> str:
+) -> ui.Message:
     prefix = "remembered " if lookup.source == "remembered" else ""
     return format_pr_label(
         pr_number,
         is_draft=is_draft,
         prefix=prefix,
+        url=lookup.pr.html_url if lookup.pr is not None else None,
     )
 
 
@@ -1107,7 +1110,7 @@ def _emit_lines(
         emitter(line, soft_wrap=soft_wrap)
 
 
-def _format_saved_pr_label(pr_identity: PRIdentity | None) -> str | None:
+def _format_saved_pr_label(pr_identity: PRIdentity | None) -> ui.Message | None:
     if pr_identity is None:
         return None
     # Identity-only tracking has no lifecycle to show; --fetch reports it live.
@@ -1150,13 +1153,13 @@ def _describe_link_advisory(classified: _ClassifiedStatusChange) -> ui.Message:
         saved_label = _format_saved_pr_label(pr_identity)
         if saved_label is None:
             return "GitHub did not report a pull request for this branch"
-        return f"GitHub did not report {saved_label} for this branch"
+        return t"GitHub did not report {saved_label} for this branch"
     if change_status.pr_lifecycle == "closed":
         pr = lookup.pr
         if pr is None:
             raise AssertionError("Closed pull request advisory requires a pull request.")
+        pr_label = format_pr_label(pr.number, url=pr.html_url)
         return (
-            f"PR #{pr.number} is {pr.state}; submit will not reuse a "
-            "closed pull request automatically"
+            t"{pr_label} is {pr.state}; submit will not reuse a closed pull request automatically"
         )
     raise AssertionError(f"Unexpected link advisory state: {change_status.pr_lifecycle}")

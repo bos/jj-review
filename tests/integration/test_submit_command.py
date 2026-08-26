@@ -2023,6 +2023,8 @@ def test_submit_accepts_stack_forked_from_trunk_ancestor(
 
     assert exit_code == 0
     assert "Submitted changes:" in captured.out
+    assert "Top of stack: PR #1" in captured.out
+    assert "https://github.test/octo-org/stacked-prs/pull/1" not in captured.out
     assert stack.changes[-1].subject in captured.out
     assert len(fake_repo.prs) == 1
     assert fake_repo.prs[1].base_ref == "main"

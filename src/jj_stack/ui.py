@@ -14,6 +14,7 @@ class SemanticText:
 
     text: str
     labels: tuple[str, ...]
+    link: str | None = None
 
     def __str__(self) -> str:
         return self.text
@@ -38,6 +39,14 @@ class PrefixedLine:
     body: Message | StatusBadge
     message_labels: tuple[str, ...] | None = None
     prefix_labels: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SuffixedLine:
+    """An ANSI-rendered line followed by a semantic message."""
+
+    body: str
+    suffix: Message
 
 
 type TableCell = Message | StatusBadge | PrefixedLine
@@ -67,13 +76,19 @@ class DataTable:
     show_header: bool = True
 
 
-type Renderable = TableCell | DataTable
+type Renderable = TableCell | DataTable | SuffixedLine
 
 
 def semantic_text(text: str, *labels: str) -> SemanticText:
     """Wrap text with semantic labels for later rendering."""
 
     return SemanticText(text=text, labels=labels)
+
+
+def hyperlink(text: str, url: str) -> SemanticText:
+    """Wrap compact text with a terminal hyperlink target."""
+
+    return SemanticText(text=text, labels=(), link=url)
 
 
 def bookmark(name: str) -> SemanticText:
@@ -165,6 +180,12 @@ def prefixed_line(
     )
 
 
+def suffixed_line(body: str, suffix: Message) -> SuffixedLine:
+    """Append semantic content to a line rendered by `jj log`."""
+
+    return SuffixedLine(body=body, suffix=suffix)
+
+
 def plain_text(content: Message) -> str:
     """Render semantic template content into plain text."""
 
@@ -205,6 +226,7 @@ def resolve_interpolation(interpolation: Interpolation) -> Message:
             return SemanticText(
                 text=format(value.text, interpolation.format_spec),
                 labels=value.labels,
+                link=value.link,
             )
         return value
     if isinstance(value, Template):

@@ -88,6 +88,30 @@ def test_machine_output_bypasses_terminal_formatting() -> None:
     assert output.getvalue() == f"{payload}\n"
 
 
+def test_hyperlink_uses_terminal_styling_only_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TERM", "xterm-256color")
+    url = "https://github.test/octo-org/repo/pull/42"
+    label = ui_module.hyperlink("PR #42", url)
+
+    def render(color_mode: console_module.ColorMode) -> str:
+        output = StringIO()
+        with console_module.configured_console(
+            stdout=output,
+            stderr=StringIO(),
+            color_mode=color_mode,
+        ):
+            console_module.output(label)
+        return output.getvalue()
+
+    linked = render("always")
+    assert url in linked
+    assert "PR #42" in linked
+    assert render("auto") == "PR #42\n"
+    assert render("never") == "PR #42\n"
+
+
 def test_semantic_style_uses_machine_readable_jj_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

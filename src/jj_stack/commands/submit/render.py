@@ -58,9 +58,14 @@ def print_submit_result(result: SubmitResult) -> None:
     ):
         console.output(line, soft_wrap=True)
     if not result.dry_run:
-        top_pr_url = result.changes[-1].pr_url
-        if top_pr_url is not None:
-            console.output(ui.prefixed_line("Top of stack: ", top_pr_url))
+        top = result.changes[-1]
+        if top.pr_number is not None and top.pr_url is not None:
+            console.output(
+                ui.prefixed_line(
+                    "Top of stack: ",
+                    format_pr_label(top.pr_number, url=top.pr_url),
+                )
+            )
 
 
 def print_selected_line(
@@ -83,7 +88,7 @@ def _render_submit_change_lines(
     prerendered_lines: tuple[str, ...] | None = None,
     change: SubmittedChange,
 ) -> tuple[ui.Renderable, ...]:
-    parts: list[str] = []
+    parts: list[ui.Message] = []
     if change.pr_action != "created":
         if change.prepared.remote_action == "up to date":
             parts.append("already pushed")
@@ -101,13 +106,14 @@ def _render_submit_change_lines(
         label = format_pr_label(
             change.pr_number,
             is_draft=bool(change.pr_is_draft),
+            url=change.pr_url,
         )
         if change.pr_action == "created":
             parts.append(label)
         else:
-            parts.append(f"{label} {change.pr_action}")
+            parts.append(t"{label} {change.pr_action}")
 
-    summary = ", ".join(parts)
+    summary = ui.join(lambda part: part, parts)
     return render_commit_lines(
         client=client,
         prerendered_lines=prerendered_lines,

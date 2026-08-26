@@ -477,6 +477,11 @@ def _coerce_renderable(value: ConsoleObject) -> RenderableType:
         return _render_status_badge(value)
     if isinstance(value, ui.PrefixedLine):
         return _render_prefixed_line(value)
+    if isinstance(value, ui.SuffixedLine):
+        rendered = Text.from_ansi(value.body)
+        rendered.append(": ")
+        rendered.append_text(rich_text(value.suffix))
+        return rendered
     if isinstance(value, ui.DataTable):
         return _render_data_table(value)
     if isinstance(value, str | Template | ui.SemanticText | tuple):
@@ -604,9 +609,12 @@ def _append_rich_text(
                 )
         return
     if isinstance(content, ui.SemanticText):
+        semantic = semantic_style(*content.labels)
+        if content.link is not None and _ACTIVE_COLOR_MODE != "never":
+            semantic = _combine_styles(semantic, Style(link=content.link))
         rendered.append(
             content.text,
-            style=_combine_styles(base_style, semantic_style(*content.labels)),
+            style=_combine_styles(base_style, semantic),
         )
         return
     if isinstance(content, Text):

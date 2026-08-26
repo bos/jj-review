@@ -219,18 +219,20 @@ def test_view_summary_does_not_call_tracked_missing_pr_not_submitted() -> None:
         subject="feature 8",
     )
 
-    lines = view_module.render_status_summary_lines(
-        client=SimpleNamespace(
-            resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
-            render_commit_log_lines=lambda current_change, *, color_when: (
-                f"○  {current_change.change_id[:8]} {current_change.commit_id[:8]}",
-                f"│  {current_change.subject}",
+    lines = _render_lines(
+        *view_module.render_status_summary_lines(
+            client=SimpleNamespace(
+                resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
+                render_commit_log_lines=lambda current_change, *, color_when: (
+                    f"○  {current_change.change_id[:8]} {current_change.commit_id[:8]}",
+                    f"│  {current_change.subject}",
+                ),
             ),
-        ),
-        github_available=True,
-        leading_separator=False,
-        result=_status_result(changes=(change,)),
-        verbose=False,
+            github_available=True,
+            leading_separator=False,
+            result=_status_result(changes=(change,)),
+            verbose=False,
+        )
     )
 
     assert lines == (
@@ -292,21 +294,25 @@ def test_view_summary_omits_review_decision_when_live_decision_lookup_fails() ->
         subject="feature 7",
     )
 
-    lines = view_module.render_status_summary_lines(
-        client=SimpleNamespace(
-            resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
-            render_commit_log_lines=lambda current_change, *, color_when: (
-                f"○  {current_change.change_id[:8]} {current_change.commit_id[:8]}",
-                f"│  {current_change.subject}",
+    lines = _render_lines(
+        *view_module.render_status_summary_lines(
+            client=SimpleNamespace(
+                resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
+                render_commit_log_lines=lambda current_change, *, color_when: (
+                    f"○  {current_change.change_id[:8]} {current_change.commit_id[:8]}",
+                    f"│  {current_change.subject}",
+                ),
             ),
-        ),
-        github_available=True,
-        leading_separator=False,
-        result=_status_result(changes=(change,)),
-        verbose=False,
+            github_available=True,
+            leading_separator=False,
+            result=_status_result(changes=(change,)),
+            verbose=False,
+        )
     )
 
     normalized_lines = " ".join(lines)
+    assert "Submitted stack (PR #7):" in normalized_lines
+    assert "https://" not in normalized_lines
     # Identity-only tracking has no saved decision to fall back on; a failed
     # live lookup must not claim one.
     assert "PR #7" in normalized_lines
@@ -331,18 +337,20 @@ def test_view_summary_labels_row_when_pr_lookup_fails() -> None:
         subject="feature 1",
     )
 
-    lines = view_module.render_status_summary_lines(
-        client=SimpleNamespace(
-            resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
-            render_commit_log_lines=lambda current_change, *, color_when: (
-                f"○  {current_change.change_id[:8]} {current_change.commit_id[:8]}",
-                f"│  {current_change.subject}",
+    lines = _render_lines(
+        *view_module.render_status_summary_lines(
+            client=SimpleNamespace(
+                resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
+                render_commit_log_lines=lambda current_change, *, color_when: (
+                    f"○  {current_change.change_id[:8]} {current_change.commit_id[:8]}",
+                    f"│  {current_change.subject}",
+                ),
             ),
-        ),
-        github_available=True,
-        leading_separator=False,
-        result=_status_result(changes=(change,)),
-        verbose=False,
+            github_available=True,
+            leading_separator=False,
+            result=_status_result(changes=(change,)),
+            verbose=False,
+        )
     )
 
     normalized_lines = " ".join(lines)
@@ -359,18 +367,20 @@ def test_view_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
         for index in range(8, 0, -1)
     )
 
-    lines = view_module.render_status_summary_lines(
-        client=SimpleNamespace(
-            resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
-            render_commit_log_lines=lambda change, *, color_when: (
-                f"{change.subject} [{change.change_id[:8]}]",
-                f"body for {change.subject}",
+    lines = _render_lines(
+        *view_module.render_status_summary_lines(
+            client=SimpleNamespace(
+                resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
+                render_commit_log_lines=lambda change, *, color_when: (
+                    f"{change.subject} [{change.change_id[:8]}]",
+                    f"body for {change.subject}",
+                ),
             ),
-        ),
-        github_available=True,
-        leading_separator=False,
-        result=_status_result(changes=changes),
-        verbose=False,
+            github_available=True,
+            leading_separator=False,
+            result=_status_result(changes=changes),
+            verbose=False,
+        )
     )
 
     assert lines == (

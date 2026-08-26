@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from typing import Literal, Protocol
 
+import jj_stack.ui as ui
 from jj_stack.console import RequestedColorMode, requested_color_mode
 
 
@@ -45,22 +46,24 @@ def format_pr_label(
     *,
     is_draft: bool = False,
     prefix: str = "",
-) -> str:
+    url: str | None = None,
+) -> ui.Message:
     """Render a pull request label for CLI output."""
 
-    label = f"PR #{pr_number}"
+    text = f"PR #{pr_number}"
+    label: ui.Message = ui.hyperlink(text, url) if url is not None else text
     if is_draft:
-        label = f"draft {label}"
-    return f"{prefix}{label}"
+        label = ("draft ", label)
+    return (prefix, label) if prefix else label
 
 
 def render_commit_lines(
     *,
     client: CommitRenderClient,
     change: RenderableCommit,
-    suffix: str | None = None,
+    suffix: ui.Message | None = None,
     prerendered_lines: tuple[str, ...] | None = None,
-) -> tuple[str, ...]:
+) -> tuple[ui.Renderable, ...]:
     """Render one change using the active CLI/UI color policy."""
 
     if prerendered_lines is None:
@@ -71,11 +74,14 @@ def render_commit_lines(
         raw_lines = client.render_commit_log_lines(change, color_when=color_when)
     else:
         raw_lines = prerendered_lines
-    lines = list(raw_lines)
+    lines: list[ui.Renderable] = list(raw_lines)
     if not lines:
         raise AssertionError("Expected `jj log` to render at least one line for a change.")
     if suffix is not None:
-        lines[0] = f"{lines[0]}: {suffix}"
+        first_line = lines[0]
+        if not isinstance(first_line, str):
+            raise AssertionError("Expected the first `jj log` line to be text.")
+        lines[0] = ui.suffixed_line(first_line, suffix)
     return tuple(lines)
 
 
