@@ -97,6 +97,7 @@ def test_github_stack_plan_classifies_selected_membership(
         desired=desired,
         is_maximal_path=is_maximal_path,
         observed_stacks=observed,
+        orphaned_pr_snapshots=frozenset(),
         pr_numbers_requiring_base_update=base_updates,
     )
 
@@ -105,7 +106,13 @@ def test_github_stack_plan_classifies_selected_membership(
 
 
 @pytest.mark.parametrize(
-    ("desired", "is_maximal_path", "observed", "message_parts", "hint_parts"),
+    (
+        "desired",
+        "is_maximal_path",
+        "observed",
+        "message_parts",
+        "hint_parts",
+    ),
     (
         ((1, 1), True, (), ("same pull request",), ()),
         (
@@ -119,8 +126,8 @@ def test_github_stack_plan_classifies_selected_membership(
             (1, 2),
             False,
             (_stack(7, 1, 2, 9),),
-            ("stops before its local head",),
-            ("complete local path",),
+            ("stops before its local head", "PR #9", "GitHub stack #7"),
+            ("local path containing PR #9",),
         ),
         (
             (3, 2),
@@ -143,6 +150,7 @@ def test_github_stack_plan_rejects_ambiguous_selected_membership(
             desired=desired,
             is_maximal_path=is_maximal_path,
             observed_stacks=observed,
+            orphaned_pr_snapshots=frozenset(),
             pr_numbers_requiring_base_update=frozenset(),
         )
 
@@ -150,3 +158,27 @@ def test_github_stack_plan_rejects_ambiguous_selected_membership(
     hint = plain_text(error_hint(caught.value) or "")
     assert all(part in message for part in message_parts)
     assert all(part in hint for part in hint_parts)
+
+
+def test_nonmaximal_path_can_replace_stack_when_only_omitted_pr_is_orphaned() -> None:
+    plan = plan_github_stack(
+        desired=(1, 2),
+        is_maximal_path=False,
+        observed_stacks=(_stack(7, 1, 9, 2),),
+        orphaned_pr_snapshots=frozenset({(9, "jj-stack/pull-9", "head-9")}),
+        pr_numbers_requiring_base_update=frozenset(),
+    )
+
+    assert plan.action == "replace"
+    assert tuple(stack.number for stack in plan.affected_stacks) == (7,)
+
+
+def test_nonmaximal_path_rejects_stale_orphan_snapshot() -> None:
+    with pytest.raises(CliError, match="stops before its local head"):
+        plan_github_stack(
+            desired=(1, 2),
+            is_maximal_path=False,
+            observed_stacks=(_stack(7, 1, 9, 2),),
+            orphaned_pr_snapshots=frozenset({(9, "jj-stack/pull-9", "previous-head-9")}),
+            pr_numbers_requiring_base_update=frozenset(),
+        )

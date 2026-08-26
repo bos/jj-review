@@ -939,6 +939,31 @@ def test_submit_explicit_nonmaximal_prefix_does_not_truncate_github_stack(
     assert remote_refs(fake_repo.git_dir) == refs_before
 
 
+def test_submit_nonmaximal_path_dissolves_grouping_around_orphan(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    bottom, abandoned = selected_stack(repo).changes
+    state_before = TrackingStore.for_repo(repo).load()
+    abandoned_identity = state_before.pr_identities[abandoned.change_id]
+
+    run_command(["jj", "abandon", abandoned.change_id], repo)
+    commit_file(repo, "unsubmitted child", "unsubmitted-child.txt")
+
+    exit_code = run_main(repo, config_path, "submit", bottom.change_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == 0, captured.err
+    assert fake_repo.github_stacks == {}
+    assert tuple(fake_repo.prs) == (1, 2)
+    assert fake_repo.prs[abandoned_identity.pr_number].state == "open"
+    refreshed_state = TrackingStore.for_repo(repo).load()
+    assert refreshed_state.pr_identities[abandoned.change_id] == abandoned_identity
+
+
 def test_submit_cross_stack_move_rejects_destination_first_without_mutation(
     tmp_path: Path,
     monkeypatch,

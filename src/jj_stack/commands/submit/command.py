@@ -86,9 +86,10 @@ from .descriptions import edit_prs_in_editor, preserve_external_pr_text
 from .github_stack import (
     GithubStackPlan,
     apply_github_stack_plan,
+    omitted_active_stack_prs,
     plan_github_stack,
 )
-from .inputs import prepare_submit_inputs
+from .inputs import confirm_orphaned_pr_snapshots, prepare_submit_inputs
 from .models import (
     GeneratedDescription,
     PreparedSubmitChange,
@@ -817,13 +818,28 @@ async def run_submit_async(
             if pushes_pr_branches
             else ()
         )
+        desired_pr_numbers = tuple(
+            plan.discovered_pr.number if plan.discovered_pr is not None else None
+            for plan in pr_plans
+        )
+        omitted_stack_prs = (
+            omitted_active_stack_prs(
+                desired=desired_pr_numbers,
+                observed_stacks=observed_stacks,
+            )
+            if not prepared_inputs.is_maximal_path
+            else ()
+        )
+        orphaned_pr_snapshots = confirm_orphaned_pr_snapshots(
+            candidates=omitted_stack_prs,
+            jj_client=client,
+            state=state,
+        )
         github_stack_plan = plan_github_stack(
-            desired=tuple(
-                plan.discovered_pr.number if plan.discovered_pr is not None else None
-                for plan in pr_plans
-            ),
+            desired=desired_pr_numbers,
             is_maximal_path=prepared_inputs.is_maximal_path,
             observed_stacks=observed_stacks,
+            orphaned_pr_snapshots=orphaned_pr_snapshots,
             pr_numbers_requiring_base_update={
                 pr.number
                 for plan in pr_plans

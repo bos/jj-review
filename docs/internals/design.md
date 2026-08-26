@@ -678,6 +678,10 @@ deletes a branch needed by an active GitHub stack member.
 GitHub stacks whose active members are all selected. It may also dissolve one partially selected
 GitHub stack when the selection is a maximal local path and touches no other GitHub stack. A
 non-maximal selection could silently truncate a still-valid stack, so it stops before mutation.
+An unselected active member does not trigger that guard when its observed PR number, branch, and
+head still match the saved PR number, branch, and submitted baseline, and its tracked change has
+no visible off-trunk copy. That change cannot be on an extension of the selected path. Rebuilding
+the grouping leaves the orphaned pull request open and retains its tracking.
 Likewise, a selection that partly overlaps one GitHub stack while including any previously
 submitted PR outside that resource stops; the user submits the source path first, then the
 destination path.

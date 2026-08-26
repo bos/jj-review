@@ -7,12 +7,14 @@ from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError, ConflictedStackError, UsageError
 from jj_stack.github.resolution import select_submit_remote
 from jj_stack.jj.client import JjClient
+from jj_stack.models.github import GithubStackPR
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import TrackingState
 from jj_stack.stack.pr_branches import resolve_pr_branches
 from jj_stack.stack.selected import require_submittable_changes, select_stack_path
 
 from .descriptions import resolve_generated_descriptions
+from .github_stack import GithubStackPRSnapshot, github_stack_pr_snapshot
 from .models import (
     PreparedSubmitInputs,
     PrivateCommitFinder,
@@ -94,6 +96,45 @@ def prepare_submit_inputs(
         stack=stack,
         state=state,
         submitted_commits={change.change_id: change for change in submitted_commits},
+    )
+
+
+def confirm_orphaned_pr_snapshots(
+    *,
+    candidates: tuple[GithubStackPR, ...],
+    jj_client: JjClient,
+    state: TrackingState,
+) -> frozenset[GithubStackPRSnapshot]:
+    """Confirm exact saved PR snapshots whose changes have no off-trunk copy."""
+
+    candidate_snapshots = {github_stack_pr_snapshot(candidate) for candidate in candidates}
+    change_ids_by_snapshot: dict[GithubStackPRSnapshot, list[str]] = {}
+    for tracked in state.tracked_prs():
+        # Deliberately do not compare the saved repo identity here. The candidates were
+        # observed through the GitHub client already scoped to the configured repository;
+        # PR number, branch, and submitted commit are the complete proof for this decision.
+        snapshot = (
+            tracked.pr_identity.pr_number,
+            tracked.pr_identity.head_ref,
+            tracked.submitted_baseline.commit_id,
+        )
+        if snapshot in candidate_snapshots:
+            change_ids_by_snapshot.setdefault(snapshot, []).append(tracked.change_id)
+    if not change_ids_by_snapshot:
+        return frozenset()
+
+    change_ids = tuple(
+        change_id
+        for matching_change_ids in change_ids_by_snapshot.values()
+        for change_id in matching_change_ids
+    )
+    _all_copies, off_trunk_copies = jj_client.query_commits_by_change_ids_with_off_trunk(
+        change_ids
+    )
+    return frozenset(
+        snapshot
+        for snapshot, matching_change_ids in change_ids_by_snapshot.items()
+        if all(not off_trunk_copies[change_id] for change_id in matching_change_ids)
     )
 
 

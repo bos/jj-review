@@ -7,7 +7,9 @@ from typing import Literal
 import jj_stack.ui as ui
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError
-from jj_stack.models.github import GithubStack
+from jj_stack.models.github import GithubStack, GithubStackPR
+
+type GithubStackPRSnapshot = tuple[int, str, str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +37,7 @@ def plan_github_stack(
     desired: tuple[int | None, ...],
     is_maximal_path: bool,
     observed_stacks: Sequence[GithubStack],
+    orphaned_pr_snapshots: Set[GithubStackPRSnapshot],
     pr_numbers_requiring_base_update: Set[int],
 ) -> GithubStackPlan:
     known_desired = tuple(number for number in desired if number is not None)
@@ -65,10 +68,21 @@ def plan_github_stack(
                 hint=t"Submit the other local path containing the remaining pull requests in "
                 t"GitHub stack #{stack.number}, then retry.",
             )
-        if not is_maximal_path:
+        unselected = tuple(
+            pr for pr in stack.prs if not pr.is_historical and pr.number not in selected
+        )
+        unconfirmed = tuple(
+            pr.number
+            for pr in unselected
+            if github_stack_pr_snapshot(pr) not in orphaned_pr_snapshots
+        )
+        if not is_maximal_path and unconfirmed:
             raise CliError(
-                "The selected path stops before its local head.",
-                hint="Submit the complete local path before refreshing GitHub stack membership.",
+                t"The selected path stops before its local head and omits "
+                t"{ui.join(lambda number: f'PR #{number}', unconfirmed)} from "
+                t"GitHub stack #{stack.number}.",
+                hint=t"Submit the local path containing "
+                t"{ui.join(lambda number: f'PR #{number}', unconfirmed)} first, then retry.",
             )
         return GithubStackPlan("replace", affected)
     if not affected:
@@ -109,6 +123,7 @@ async def apply_github_stack_plan(
             desired=pr_numbers,
             is_maximal_path=True,
             observed_stacks=await github_client.list_stacks(),
+            orphaned_pr_snapshots=frozenset(),
             pr_numbers_requiring_base_update=frozenset(),
         )
         if current_plan.membership_key != plan.membership_key:
@@ -137,3 +152,26 @@ async def apply_github_stack_plan(
             "Could not update the GitHub stack",
             hint=t"Resolve GitHub's reported error, then rerun {ui.cmd('jj-stack submit')}.",
         ) from error
+
+
+def github_stack_pr_snapshot(pr: GithubStackPR) -> GithubStackPRSnapshot:
+    """Return the exact stack-member identity and head observed from GitHub."""
+
+    return pr.number, pr.head.ref, pr.head.sha
+
+
+def omitted_active_stack_prs(
+    *,
+    desired: tuple[int | None, ...],
+    observed_stacks: Sequence[GithubStack],
+) -> tuple[GithubStackPR, ...]:
+    """Return active unselected members of GitHub stacks touched by the selection."""
+
+    selected = {number for number in desired if number is not None}
+    return tuple(
+        pr
+        for stack in observed_stacks
+        if not selected.isdisjoint(stack.active_pr_numbers)
+        for pr in stack.prs
+        if not pr.is_historical and pr.number not in selected
+    )
