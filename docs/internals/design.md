@@ -262,8 +262,9 @@ Three sources answer questions about a tracked PR, each for a different domain:
 
 1. The **`jj` DAG** determines which local changes exist, how they are related, and what they
    contain.
-2. **GitHub** reports PR existence, lifecycle, reviews, GitHub stack membership, and merge
-   results. Whether work actually reached trunk is proven separately by ancestry from it.
+2. **GitHub** reports PR existence, lifecycle, reviews, check rollups, GitHub stack membership,
+   and merge results. Whether work actually reached trunk is proven separately by ancestry from
+   it.
 3. **Local tracking** records only the PR identity and submitted baseline of each change. It
    prevents mutation of the wrong PR but cannot make a mutation safe on its own.
 

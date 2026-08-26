@@ -5,7 +5,11 @@ import pytest
 from jj_stack.models.github import GithubPR, GithubStack
 
 
-def _graphql_pr_payload(review_decision: object) -> dict[str, object]:
+def _graphql_pr_payload(
+    review_decision: object,
+    *,
+    check_rollup_state: object = None,
+) -> dict[str, object]:
     return {
         "autoMergeRequest": None,
         "baseRefName": "main",
@@ -16,20 +20,38 @@ def _graphql_pr_payload(review_decision: object) -> dict[str, object]:
         "number": 1,
         "reviewDecision": review_decision,
         "state": "OPEN",
+        "statusCheckRollup": (
+            None if check_rollup_state is None else {"state": check_rollup_state}
+        ),
         "title": "feature 1",
         "url": "https://github.test/octo-org/stacked-prs/pull/1",
     }
 
 
-def test_graphql_review_decision_normalizes_known_states_and_drops_unknown() -> None:
-    approved = GithubPR.model_validate(_graphql_pr_payload("APPROVED"))
-    changes = GithubPR.model_validate(_graphql_pr_payload("CHANGES_REQUESTED"))
-    unknown = GithubPR.model_validate(_graphql_pr_payload("REVIEW_REQUIRED"))
+def test_graphql_pr_statuses_normalize_known_states_and_drop_unknown() -> None:
+    approved = GithubPR.model_validate(
+        _graphql_pr_payload("APPROVED", check_rollup_state="SUCCESS")
+    )
+    changes = GithubPR.model_validate(
+        _graphql_pr_payload("CHANGES_REQUESTED", check_rollup_state="FAILURE")
+    )
+    errored = GithubPR.model_validate(_graphql_pr_payload(None, check_rollup_state="ERROR"))
+    pending = GithubPR.model_validate(_graphql_pr_payload(None, check_rollup_state="PENDING"))
+    expected = GithubPR.model_validate(_graphql_pr_payload(None, check_rollup_state="EXPECTED"))
+    unknown = GithubPR.model_validate(
+        _graphql_pr_payload("REVIEW_REQUIRED", check_rollup_state="FUTURE_STATE")
+    )
 
     assert approved.review_decision == "approved"
+    assert approved.check_rollup_status == "passed"
     assert approved.head.sha == "head-commit-id"
     assert changes.review_decision == "changes_requested"
+    assert changes.check_rollup_status == "failed"
+    assert errored.check_rollup_status == "failed"
+    assert pending.check_rollup_status == "pending"
+    assert expected.check_rollup_status == "pending"
     assert unknown.review_decision is None
+    assert unknown.check_rollup_status is None
 
 
 def test_github_stack_splits_history_and_rejects_nonprefix_history() -> None:

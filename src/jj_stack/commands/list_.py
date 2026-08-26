@@ -538,6 +538,20 @@ def _status_fragments(
     if open_neutral:
         label = "open" if open_neutral == 1 else f"{open_neutral} open"
         fragments.append(label)
+
+    check_rollup_statuses = {
+        status.pr_check_rollup_status
+        for status in statuses
+        if status.pr_check_rollup_status is not None
+    }
+    for rollup_status, labels in (
+        ("failed", ("warning", "heading")),
+        ("pending", ("hint", "heading")),
+        ("passed", ("hint", "heading")),
+    ):
+        if rollup_status in check_rollup_statuses:
+            fragments.append(ui.semantic_text(f"checks {rollup_status}", *labels))
+            break
     return tuple(fragments)
 
 

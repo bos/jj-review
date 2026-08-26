@@ -41,6 +41,7 @@ class FakeGithubPR:
     number: int
     title: str
     auto_merge_enabled: bool = False
+    check_rollup_state: str | None = None
     is_queued: bool = False
     labels: list[str] = field(default_factory=list)
     requested_reviewers: list[str] = field(default_factory=list)
@@ -99,6 +100,9 @@ class FakeGithubPR:
             "mergedAt": self.merged_at,
             "number": self.number,
             "state": self.graphql_state.upper(),
+            "statusCheckRollup": (
+                None if self.check_rollup_state is None else {"state": self.check_rollup_state}
+            ),
             "title": self.title,
             "url": f"{web_origin}/{repo.full_name}/pull/{self.number}",
         }

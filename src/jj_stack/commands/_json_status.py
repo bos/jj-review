@@ -40,6 +40,7 @@ def pr_json(
         pr = lookup.pr
         return _json_object(
             {
+                "checks": pr.check_rollup_status,
                 "number": pr.number,
                 "url": pr.html_url,
             }

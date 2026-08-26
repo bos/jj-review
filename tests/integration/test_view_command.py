@@ -36,6 +36,7 @@ def test_view_json_reports_public_stack_status(
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     change_id = selected_stack(repo).head.change_id
+    fake_repo.prs[1].check_rollup_state = "SUCCESS"
 
     exit_code = run_main(repo, config_path, "view", "--json")
     captured = capsys.readouterr()
@@ -69,11 +70,12 @@ def test_view_json_reports_public_stack_status(
     assert change["status"] == "open"
     assert change["subject"] == "feature 1"
     assert change["pr"]["number"] == 1
+    assert change["pr"]["checks"] == "passed"
     assert "remote_branch" not in change
     assert "saved_pr" not in change
 
 
-def test_view_and_list_show_queued_prs(
+def test_view_and_list_show_queued_prs_with_checks(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -81,14 +83,15 @@ def test_view_and_list_show_queued_prs(
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     fake_repo.prs[1].is_queued = True
+    fake_repo.prs[1].check_rollup_state = "PENDING"
 
     assert run_main(repo, config_path, "view") == 0
     viewed = capsys.readouterr()
-    assert "PR #1 queued" in viewed.out
+    assert "PR #1 queued, checks pending" in viewed.out
 
     assert run_main(repo, config_path, "list") == 0
     listed = capsys.readouterr()
-    assert "queued" in listed.out
+    assert "queued, checks pending" in listed.out
 
 
 def test_view_warns_and_reports_empty_working_copy_from_another_workspace(

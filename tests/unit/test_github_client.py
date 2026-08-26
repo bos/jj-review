@@ -259,6 +259,7 @@ def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
             assert "pr_11: pullRequest(number: 11)" in payload["query"]
             assert "autoMergeRequest" not in payload["query"]
             assert "mergeQueueEntry" in payload["query"]
+            assert "statusCheckRollup" in payload["query"]
         return httpxyz.Response(
             200,
             json={
@@ -274,6 +275,7 @@ def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
                             "mergedAt": None,
                             "number": 7,
                             "state": "OPEN",
+                            "statusCheckRollup": {"state": "SUCCESS"},
                             "title": "seven",
                             "url": "https://github.test/octo-org/stacked-prs/pull/7",
                         },
@@ -297,7 +299,7 @@ def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
             request=request,
         )
 
-    async def run_test() -> tuple[str, str, str | None, bool, bool]:
+    async def run_test() -> tuple[str, str, str | None, bool, str | None, bool]:
         async with _github_client(handler) as client:
             prs = await client.get_prs_by_numbers(
                 pr_numbers=(7, 9, 11, *range(100, 124)),
@@ -311,6 +313,7 @@ def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
             pr_9.state,
             pr_7.head.label,
             pr_7.is_queued,
+            pr_7.check_rollup_status,
             prs[11] is None,
         )
 
@@ -319,6 +322,7 @@ def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
         "closed",
         "octo-org:jj-stack/seven",
         True,
+        "passed",
         True,
     )
     assert request_sizes == [25, 2]

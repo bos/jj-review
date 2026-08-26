@@ -5,6 +5,8 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+CheckRollupStatus = Literal["failed", "passed", "pending"]
+
 
 class GithubRepo(BaseModel):
     """Subset of repo fields used by the client."""
@@ -127,6 +129,7 @@ class GithubPR(BaseModel):
 
     base: GithubBranchRef
     body: str | None = None
+    check_rollup_status: CheckRollupStatus | None = None
     head: GithubBranchRef
     html_url: str
     is_draft: bool = Field(default=False, alias="draft")
@@ -153,6 +156,9 @@ class GithubPR(BaseModel):
         payload: dict[str, object] = {
             "base": {"ref": value.get("baseRefName")},
             "body": value.get("body"),
+            "check_rollup_status": _normalize_graphql_check_rollup(
+                value.get("statusCheckRollup")
+            ),
             "draft": value.get("isDraft", False),
             "head": {
                 "label": _graphql_head_label(value),
@@ -240,4 +246,26 @@ def _normalize_graphql_review_decision(value: object) -> str | None:
         return "approved"
     if normalized == "CHANGES_REQUESTED":
         return "changes_requested"
+    return None
+
+
+class _GraphqlCheckRollup(BaseModel):
+    state: str
+
+
+def _normalize_graphql_check_rollup(value: object) -> CheckRollupStatus | None:
+    if value is None:
+        return None
+    try:
+        rollup = _GraphqlCheckRollup.model_validate(value)
+    except ValidationError as error:
+        message = "GitHub pull request GraphQL response had invalid check data."
+        raise ValueError(message) from error
+    normalized = rollup.state.upper()
+    if normalized == "SUCCESS":
+        return "passed"
+    if normalized in {"ERROR", "FAILURE"}:
+        return "failed"
+    if normalized in {"EXPECTED", "PENDING"}:
+        return "pending"
     return None

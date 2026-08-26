@@ -132,6 +132,14 @@
         }
       ],
       "properties": {
+        "checks": {
+          "type": "string",
+          "enum": [
+            "passed",
+            "failed",
+            "pending"
+          ]
+        },
         "number": {
           "type": "integer",
           "minimum": 1

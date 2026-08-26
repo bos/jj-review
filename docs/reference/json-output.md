@@ -31,6 +31,7 @@ Stack changes use this shape:
   "subject": "add json output",
   "status": "open",
   "pr": {
+    "checks": "passed",
     "number": 12,
     "url": "https://github.com/octo-org/example/pull/12"
   }
@@ -45,12 +46,15 @@ An unsubmitted change has no `branch` field; `jj-stack` does not generate a spec
 for status output. An orphan row always has one, because saved tracking is the only thing that
 identifies it.
 
-`pr` is present when `jj-stack` knows the matching PR identity. It contains PR identity, not a
-duplicate status summary; use the change's `status` field for PR state.
+`pr` is present when `jj-stack` knows the matching PR identity. It contains PR identity and any
+check rollup GitHub reported; use the change's `status` field for PR lifecycle and review state.
 
 Within `pr`, `number` is always present. `url` appears only when GitHub reported the PR, so a
 change whose status is `submitted` — and every orphan row, which is identified from saved
 tracking alone — carries `number` by itself.
+
+`checks` appears only when GitHub reported a check rollup. Its value is `passed`, `failed`, or
+`pending`; `pending` includes checks that GitHub reports as expected but not started.
 
 Known change statuses are:
 
@@ -84,6 +88,7 @@ Known change statuses are:
           "subject": "add json output",
           "status": "open",
           "pr": {
+            "checks": "passed",
             "number": 12,
             "url": "https://github.com/octo-org/example/pull/12"
           }
@@ -110,7 +115,7 @@ the `changes` array.
       "type": "stack",
       "current": true,
       "subject": "add json output",
-      "status": "1 approved, open",
+      "status": "1 approved, open, checks pending",
       "changes": [
         {
           "change_id": "rlvmnowlqpsu...",
@@ -118,6 +123,7 @@ the `changes` array.
           "subject": "add the model",
           "status": "approved",
           "pr": {
+            "checks": "passed",
             "number": 11,
             "url": "https://github.com/octo-org/example/pull/11"
           }
@@ -128,6 +134,7 @@ the `changes` array.
           "subject": "add json output",
           "status": "open",
           "pr": {
+            "checks": "pending",
             "number": 12,
             "url": "https://github.com/octo-org/example/pull/12"
           }
@@ -152,7 +159,7 @@ the `changes` array.
 that stack. It is omitted for other stack rows.
 
 A stack row's `status` is a human-readable summary of the changes below it, as in the
-`1 approved, open` above. Its wording is not a stable machine-readable vocabulary, and for a
-single-change stack it can look exactly like a change status. Scripts should inspect the `changes`
-array and use each change's documented `status` value instead. An orphan row always uses
-`"status": "orphan"`.
+`1 approved, open, checks pending` above. Its wording is not a stable machine-readable vocabulary,
+and for a single-change stack it can look exactly like a change status. Scripts should inspect the
+`changes` array and use each change's documented `status` value instead. An orphan row always
+uses `"status": "orphan"`.

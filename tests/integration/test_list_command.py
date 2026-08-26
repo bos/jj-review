@@ -34,6 +34,7 @@ def test_list_json_reports_public_stack_rows(
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     change_id = selected_stack(repo).head.change_id
+    fake_repo.prs[1].check_rollup_state = "PENDING"
 
     exit_code = run_main(repo, config_path, "list", "--json")
     captured = capsys.readouterr()
@@ -45,7 +46,7 @@ def test_list_json_reports_public_stack_rows(
 
     row = payload["rows"][0]
     assert row["type"] == "stack"
-    assert row["status"] == "open"
+    assert row["status"] == "open, checks pending"
     assert row["subject"] == "feature 1"
     assert len(row["changes"]) == 1
 
@@ -53,6 +54,7 @@ def test_list_json_reports_public_stack_rows(
     assert change["change_id"] == change_id
     assert change["branch"].startswith("jj-stack/feature-1-")
     assert change["pr"]["number"] == 1
+    assert change["pr"]["checks"] == "pending"
     assert change["status"] == "open"
     assert "head_change_id" not in row
     assert "review" not in row
@@ -292,6 +294,8 @@ def test_list_reports_partial_approval_for_ready_prefix_only(
         reviewer_login="reviewer-1",
         state="APPROVED",
     )
+    fake_repo.prs[1].check_rollup_state = "SUCCESS"
+    fake_repo.prs[2].check_rollup_state = "FAILURE"
 
     exit_code = run_main(repo, config_path, "list")
     captured = capsys.readouterr()
@@ -299,6 +303,7 @@ def test_list_reports_partial_approval_for_ready_prefix_only(
     assert exit_code == 0
     assert "1 approved" in captured.out
     assert "1 approved, open" in captured.out
+    assert "1 approved, open, checks failed" in captured.out
 
 
 def test_list_reports_no_stacks_when_state_is_empty(

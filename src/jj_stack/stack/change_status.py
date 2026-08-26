@@ -11,6 +11,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+from jj_stack.models.github import CheckRollupStatus
 from jj_stack.models.stack import LocalStack
 from jj_stack.models.tracking import PRIdentity, TrackingState
 
@@ -43,6 +44,7 @@ class ChangeStatus:
     pr_lifecycle: PRLifecycle
     pr_draft: bool | None
     pr_queued: bool | None
+    pr_check_rollup_status: CheckRollupStatus | None
     pr_review_decision: PRReviewDecision
     pr_lookup_error: bool = False
     pr_review_decision_error: str | None = None
@@ -115,6 +117,11 @@ def classify_change_status(
         ),
         pr_queued=(
             pr_lookup.pr.is_queued
+            if lifecycle == "open" and pr_lookup is not None and pr_lookup.pr is not None
+            else None
+        ),
+        pr_check_rollup_status=(
+            pr_lookup.pr.check_rollup_status
             if lifecycle == "open" and pr_lookup is not None and pr_lookup.pr is not None
             else None
         ),

@@ -1144,6 +1144,9 @@ def _pr_fields_fragment() -> str:
           }
           mergedAt
           reviewDecision
+          statusCheckRollup {
+            state
+          }
           url
           title
           body

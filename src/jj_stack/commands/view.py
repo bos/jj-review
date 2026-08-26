@@ -1048,6 +1048,8 @@ def _format_status_summary(
             summary = f"{summary} approved"
         elif review_decision == "changes_requested":
             summary = f"{summary} changes requested"
+        if change_status.pr_check_rollup_status is not None:
+            summary = f"{summary}, checks {change_status.pr_check_rollup_status}"
     elif change_status.pr_lifecycle == "missing":
         if saved_label is not None:
             summary = f"{saved_label}, no PR found for branch"
