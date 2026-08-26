@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from dataclasses import asdict
 from pathlib import Path
 
@@ -2370,17 +2371,44 @@ def test_submit_re_request_observes_reviews_before_mutation_and_retries(
     ):
         fake_repo.create_pr_review(pr_number=1, reviewer_login=reviewer, state=state)
     commit_file(repo, "feature 2", "feature-2.txt")
+    editor_command = _write_edit_editor(
+        tmp_path,
+        "edit-feature-title.py",
+        [
+            "from pathlib import Path",
+            "import sys",
+            "",
+            "path = Path(sys.argv[-1])",
+            "text = path.read_text(encoding='utf-8')",
+            "path.write_text(",
+            "    text.replace('feature 2', 'feature 2 [edited]'),",
+            "    encoding='utf-8',",
+            ")",
+        ],
+    )
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.setenv("EDITOR", editor_command)
 
-    assert run_main(repo, config_path, "submit", "--re-request") == EXIT_GITHUB
+    assert run_main(repo, config_path, "submit", "--re-request", "--edit") == EXIT_GITHUB
+    failed = capsys.readouterr()
     assert remote_refs(fake_repo.git_dir) == submitted_remote_refs
+    match = re.search(r"Recovery copy: (\S+) \(removed", failed.out)
+    assert match is not None
+    edit_path = Path(match.group(1))
+    assert edit_path.is_file()
+    assert "feature 2 [edited]" in edit_path.read_text(encoding="utf-8")
 
-    assert run_main(repo, config_path, "submit", "--re-request") == 0
+    monkeypatch.setenv("EDITOR", _write_edit_editor(tmp_path, "leave-edit.py", ["pass"]))
+    assert run_main(repo, config_path, "submit", "--re-request", "--edit", str(edit_path)) == 0
     capsys.readouterr()
 
     assert fake_repo.prs[1].requested_reviewers == [
         "pending-reviewer",
         "erin",
     ]
+    assert fake_repo.prs[2].title == "feature 2 [edited]"
+    assert edit_path.is_file()
+    edit_path.unlink()
 
 
 def _write_edit_editor(tmp_path: Path, name: str, body_lines: list[str]) -> str:
@@ -2427,6 +2455,10 @@ def test_submit_edit_malformed_document_aborts_before_mutation(
 
     assert exit_code == 1
     assert "missing change" in captured.err
+    assert "Reopen the saved editor file with --edit" in captured.err
+    saved_edit = re.search(r"--edit (\S+\.md)", captured.err)
+    assert saved_edit is not None
+    Path(saved_edit.group(1)).unlink()
     empty_state = TrackingStore.for_repo(repo).load()
     assert empty_state.pr_identities == {}
     assert empty_state.submitted_baselines == {}
@@ -2462,7 +2494,10 @@ def test_submit_edit_sets_each_pr_draft_state(
     monkeypatch.setenv("EDITOR", editor_command)
 
     assert run_main(repo, config_path, "submit", "--draft", "--edit") == 0
-    capsys.readouterr()
+    submitted = capsys.readouterr()
+    recovery_copy = re.search(r"Recovery copy: (\S+) \(removed", submitted.out)
+    assert recovery_copy is not None
+    assert not Path(recovery_copy.group(1)).exists()
 
     assert fake_repo.prs[1].is_draft
     assert not fake_repo.prs[2].is_draft

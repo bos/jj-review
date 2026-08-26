@@ -256,10 +256,14 @@ def build_parser() -> ArgumentParser:
     add_help_argument(
         submit_parser,
         "--edit",
-        action="store_true",
+        nargs="?",
+        const=True,
+        default=False,
+        metavar="FILE",
+        type=Path,
         help=(
             "Open planned pull request titles, bodies, and draft states in your editor before "
-            "submitting"
+            "submitting; pass a saved editor file to reopen it"
         ),
     )
     submit_draft_mode = submit_parser.add_mutually_exclusive_group()

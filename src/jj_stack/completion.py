@@ -7,7 +7,7 @@ from argparse import SUPPRESS, Action, ArgumentParser, _SubParsersAction
 from dataclasses import dataclass
 
 _DIRECTORY_OPTION_DESTS = frozenset({"repo"})
-_FILE_OPTION_DESTS = frozenset({"config"})
+_FILE_OPTION_DESTS = frozenset({"config", "edit"})
 _JJ_ALIAS_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*")
 
 

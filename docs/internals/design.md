@@ -708,7 +708,10 @@ no overview comment. New PRs are created in the requested draft state.
 Existing PRs become draft only with `--draft=all` and become ready only with `--open`; plain
 `submit --draft` never unpublishes an existing PR. With `--edit`, GitHub's current state and those
 command-wide defaults populate one editable draft choice per change. The validated document then
-determines each selected PR's draft state without adding local state.
+determines each selected PR's draft state without adding local state. A newly generated editor
+file remains until the entire submit succeeds. If the command stops, the user can pass that file
+back to `--edit`; the retry re-observes the local stack and GitHub, and accepts the file only when
+it names exactly the currently selected changes. The file carries no submit plan or phase.
 
 `--reviewers` and `--team-reviewers` request the named reviewers even when a PR is otherwise
 unchanged and never remove omitted reviewers. `--re-request` acts on an otherwise unchanged PR,

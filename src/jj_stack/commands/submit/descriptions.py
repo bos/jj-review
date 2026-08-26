@@ -336,35 +336,76 @@ def edit_prs_in_editor(
     drafts: dict[str, bool],
     jj_client: JjClient,
     changes: tuple[LocalCommit, ...],
-) -> tuple[dict[str, GeneratedDescription], dict[str, bool]]:
+    document_path: Path | None = None,
+) -> tuple[dict[str, GeneratedDescription], dict[str, bool], Path]:
     editor_command = _resolve_editor_command(jj_client)
-    document = render_description_edit_document(
-        descriptions=descriptions,
-        drafts=drafts,
-        changes=changes,
-    )
-    with tempfile.TemporaryDirectory(prefix="jj-stack-edit-") as tempdir:
-        document_path = Path(tempdir) / "pull-request-descriptions.md"
-        document_path.write_text(document, encoding="utf-8")
+    if document_path is None:
+        document = render_description_edit_document(
+            descriptions=descriptions,
+            drafts=drafts,
+            changes=changes,
+        )
         try:
-            completed = subprocess.run(
-                [*editor_command, str(document_path)],
-                check=False,
-                cwd=jj_client.repo_root,
-            )
-        except FileNotFoundError as error:
-            raise CliError(t"Editor {ui.cmd(editor_command[0])} was not found.") from error
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                encoding="utf-8",
+                mode="w",
+                prefix="jj-stack-edit-",
+                suffix=".md",
+            ) as draft_file:
+                draft_file.write(document)
+                document_path = Path(draft_file.name)
         except OSError as error:
+            raise CliError(t"Could not create an editor document: {error}") from error
+    else:
+        document_path = document_path.expanduser().resolve()
+        try:
+            document_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as error:
             raise CliError(
-                t"Could not run editor {ui.cmd(editor_command[0])}: {error}"
+                t"Could not read edited pull request descriptions "
+                t"{ui.code(str(document_path))}: {error}"
             ) from error
-        if completed.returncode != 0:
-            raise CliError(
-                t"Editor {ui.cmd(editor_command[0])} exited with status "
-                t"{completed.returncode}; submit aborted."
-            )
+
+    retry = f"--edit {shlex.quote(str(document_path))}"
+    recovery_hint = t"Reopen the saved editor file with {ui.cmd(retry)}."
+    try:
+        completed = subprocess.run(
+            [*editor_command, str(document_path)],
+            check=False,
+            cwd=jj_client.repo_root,
+        )
+    except FileNotFoundError as error:
+        raise CliError(
+            t"Editor {ui.cmd(editor_command[0])} was not found.",
+            hint=recovery_hint,
+        ) from error
+    except OSError as error:
+        raise CliError(
+            t"Could not run editor {ui.cmd(editor_command[0])}: {error}",
+            hint=recovery_hint,
+        ) from error
+    if completed.returncode != 0:
+        raise CliError(
+            t"Editor {ui.cmd(editor_command[0])} exited with status "
+            t"{completed.returncode}; submit aborted.",
+            hint=recovery_hint,
+        )
+    try:
         edited_document = document_path.read_text(encoding="utf-8")
-    return parse_description_edit_document(edited_document, changes=changes)
+        edited_descriptions, edited_drafts = parse_description_edit_document(
+            edited_document,
+            changes=changes,
+        )
+    except (OSError, UnicodeDecodeError) as error:
+        raise CliError(
+            t"Could not read edited pull request descriptions "
+            t"{ui.code(str(document_path))}: {error}",
+            hint=recovery_hint,
+        ) from error
+    except CliError as error:
+        raise CliError(error.message, hint=recovery_hint) from error
+    return edited_descriptions, edited_drafts, document_path
 
 
 def _resolve_description_files(

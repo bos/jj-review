@@ -54,6 +54,17 @@ jj-stack submit --edit
 The editor opens once with every planned title, body, and draft choice. If the edited document is
 invalid or the editor exits with an error, nothing is changed locally or on GitHub.
 
+jj-stack keeps the editor file until the whole submit succeeds and prints its path before
+continuing. If submit fails, pass that file back to `--edit` when you retry:
+
+```console
+jj-stack submit --edit /path/to/jj-stack-edit-….md
+```
+
+The retry inspects the local stack and GitHub again. The saved file supplies only the titles,
+bodies, and draft choices, and must still name exactly the selected changes. A file passed to
+`--edit` is not removed automatically.
+
 The editor comes from jj's `ui.editor`, then `$VISUAL`, then `$EDITOR`.
 
 ## Delegate to a helper

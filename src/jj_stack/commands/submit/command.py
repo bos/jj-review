@@ -18,8 +18,11 @@ and bodies.
 Use `--edit` to review and edit the planned pull request titles, bodies, and draft states in your
 editor before anything is pushed. Each `JJ: Draft:` field accepts `yes` or `no`, with `y` and `n`
 as short forms. Saving the document continues the command; a malformed document or a non-zero
-editor exit aborts it before any change is made. `jj-stack` uses the editor selected by `jj`'s
-`ui.editor` setting. `--edit` cannot be combined with `--describe-with`.
+editor exit aborts it before any change is made. The editor file remains available if submit
+fails; pass its path to `--edit` to reopen it. A reopened document supplies only the titles,
+bodies, and draft states; the command inspects the stack and GitHub again. `jj-stack` uses the
+editor selected by `jj`'s `ui.editor` setting. `--edit` cannot be combined with
+`--describe-with`.
 
 The `--label`, `--reviewers`, and `--team-reviewers` flags accept comma-separated values and may
 be repeated. When passed, they override the corresponding configured defaults for this run.
@@ -133,7 +136,7 @@ def submit(
     draft: bool,
     draft_all: bool,
     dry_run: bool,
-    edit: bool,
+    edit: bool | Path,
     labels: Sequence[str] | None,
     open_: bool,
     re_request: bool,
@@ -204,7 +207,7 @@ def _submit_options_from_cli(
     draft: bool,
     draft_all: bool,
     dry_run: bool,
-    edit: bool,
+    edit: bool | Path,
     labels: Sequence[str] | None,
     open_: bool,
     re_request: bool,
@@ -591,6 +594,7 @@ async def run_submit_async(
     if tracked_base is not None:
         tracked_prs[tracked_base.pr_identity.head_ref] = tracked_base.pr_identity.pr_number
     submitted_changes: tuple[SubmittedChange, ...] = ()
+    generated_edit_path: Path | None = None
     async with build_github_client(repo=github_repo) as github_client:
         generated_descriptions = prepared_inputs.generated_pr_descriptions
         with console.spinner(description="Inspecting remotes"):
@@ -752,12 +756,19 @@ async def run_submit_async(
             submitted_commits=prepared_inputs.submitted_commits,
         )
         if options.edit:
-            generated_descriptions, drafts = edit_prs_in_editor(
+            generated_descriptions, drafts, edit_path = edit_prs_in_editor(
                 descriptions=generated_descriptions,
                 drafts=drafts,
                 jj_client=client,
                 changes=stack.changes,
+                document_path=options.edit if isinstance(options.edit, Path) else None,
             )
+            if not isinstance(options.edit, Path):
+                generated_edit_path = edit_path
+                console.note(
+                    t"Recovery copy: {ui.code(str(edit_path))} (removed after submit succeeds).",
+                    soft_wrap=True,
+                )
         re_request_reviewers = (
             await load_re_request_reviewers(
                 github_client=github_client,
@@ -845,6 +856,11 @@ async def run_submit_async(
             stacks_to_dissolve=stacks_to_dissolve,
             trunk_branch=trunk_branch,
         )
+    if generated_edit_path is not None:
+        try:
+            generated_edit_path.unlink(missing_ok=True)
+        except OSError:
+            pass
     return _build_submit_result(
         client=client,
         dry_run=dry_run,

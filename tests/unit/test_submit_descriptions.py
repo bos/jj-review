@@ -239,7 +239,7 @@ def test_edit_applies_editor_output_to_descriptions(monkeypatch, tmp_path: Path)
         changes=_two_change_stack(),
         selected_revset="@-",
     )
-    descriptions, drafts = edit_prs_in_editor(
+    descriptions, drafts, document_path = edit_prs_in_editor(
         descriptions=descriptions,
         drafts={"bottomchange": True, "topchange": False},
         jj_client=JjClient(tmp_path),
@@ -251,6 +251,8 @@ def test_edit_applies_editor_output_to_descriptions(monkeypatch, tmp_path: Path)
     assert descriptions["topchange"].title == "feature 2 [edited]"
     assert descriptions["bottomchange"].title == "feature 1"
     assert descriptions["bottomchange"].body == "Bottom body."
+    assert document_path.is_file()
+    document_path.unlink()
 
 
 def test_edit_aborts_when_editor_exits_nonzero(monkeypatch, tmp_path: Path) -> None:
@@ -258,8 +260,20 @@ def test_edit_aborts_when_editor_exits_nonzero(monkeypatch, tmp_path: Path) -> N
     editor = tmp_path / "editor.py"
     editor.write_text("raise SystemExit(3)\n", encoding="utf-8")
     monkeypatch.setenv("EDITOR", f"{sys.executable} {editor}")
+    document_path = tmp_path / "saved-edit.md"
+    document_path.write_text(
+        render_description_edit_document(
+            descriptions={
+                "bottomchange": GeneratedDescription(body="Bottom body.", title="feature 1"),
+                "topchange": GeneratedDescription(body="", title="feature 2"),
+            },
+            drafts={"bottomchange": False, "topchange": False},
+            changes=_two_change_stack(),
+        ),
+        encoding="utf-8",
+    )
 
-    with pytest.raises(CliError, match="exited with status 3"):
+    with pytest.raises(CliError, match="exited with status 3") as caught:
         edit_prs_in_editor(
             descriptions={
                 "bottomchange": GeneratedDescription(body="Bottom body.", title="feature 1"),
@@ -268,4 +282,7 @@ def test_edit_aborts_when_editor_exits_nonzero(monkeypatch, tmp_path: Path) -> N
             drafts={"bottomchange": False, "topchange": False},
             jj_client=JjClient(tmp_path),
             changes=_two_change_stack(),
+            document_path=document_path,
         )
+
+    assert f"--edit {document_path}" in str(caught.value)

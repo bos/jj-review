@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, NamedTuple, Protocol
 
 from jj_stack.jj.client import JjClient
@@ -28,7 +29,7 @@ class SubmitOptions:
     describe_with: str | None
     draft_mode: SubmitDraftMode
     dry_run: bool
-    edit: bool
+    edit: bool | Path
     existing_only: bool
     labels: list[str] | None
     re_request: bool
