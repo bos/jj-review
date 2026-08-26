@@ -194,6 +194,7 @@ version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "httpxyz" },
+    { name = "markdown-it-py" },
     { name = "pydantic" },
     { name = "rich" },
 ]
@@ -213,6 +214,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "httpxyz", specifier = ">=0.31.0,<0.32" },
+    { name = "markdown-it-py", specifier = ">=4.0.0,<5" },
     { name = "pydantic", specifier = ">=2.13.3,<3" },
     { name = "rich", specifier = ">=15.0.0,<16" },
 ]

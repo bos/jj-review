@@ -19,6 +19,7 @@ from jj_stack.errors import CliError, UsageError
 from jj_stack.jj.client import JjClient, JjCommandError
 from jj_stack.models.stack import LocalCommit
 
+from .default_pr_text import default_pr_body
 from .models import GeneratedDescription
 
 _DESCRIBE_WITH_STACK_INPUT_ENV = "JJ_STACK_INPUT_FILE"
@@ -93,7 +94,7 @@ def _default_pr_descriptions(
 ) -> dict[str, GeneratedDescription]:
     return {
         change.change_id: GeneratedDescription(
-            body=_pr_body(change.description, template=template),
+            body=default_pr_body(change.description, template=template),
             title=change.subject,
         )
         for change in changes
@@ -556,15 +557,3 @@ def _run_description_command(
         )
 
     return GeneratedDescription(body=body, title=title)
-
-
-def _pr_body(description: str, *, template: str) -> str:
-    lines = description.splitlines()
-    if not lines:
-        return template
-    body = "\n".join(lines[1:]).strip()
-    if body:
-        return body
-    if template:
-        return template
-    return lines[0].strip()

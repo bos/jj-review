@@ -15,6 +15,9 @@ For each change, the subject becomes the pull request title and the remainder be
 the description has no body, jj-stack tries the repo's pull request template and then falls
 back to the subject.
 
+When the body comes from the change description, jj-stack removes line wrapping inside Markdown
+paragraphs while preserving lists, quotes, tables, code blocks, and explicit line breaks.
+
 ## Supply Markdown
 
 Replace one pull request body while keeping its title from the change subject:

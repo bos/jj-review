@@ -713,6 +713,9 @@ adds requests and never cancels a pending one. An explicit `--label` request app
 PR is otherwise unchanged; configured labels alone do not turn a no-op submit into a metadata
 update. Labels are also additive; omitted labels are never removed.
 
+Default PR bodies derived from change descriptions unfold Markdown soft line breaks into spaces.
+Markdown block boundaries, code, tables, and explicit hard line breaks remain unchanged.
+
 ### Unstack and cleanup
 
 `unstack` removes one exact GitHub stack grouping and leaves every pull request, PR branch,

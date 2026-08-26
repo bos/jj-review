@@ -23,6 +23,7 @@ classifiers = [
 ]
 dependencies = [
   "httpxyz>=0.31.0,<0.32",
+  "markdown-it-py>=4.0.0,<5",
   "pydantic>=2.13.3,<3",
   "rich>=15.0.0,<16",
 ]
