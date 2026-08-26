@@ -25,13 +25,6 @@ jj-stack doctor --fix
 `doctor` checks your repo, trunk, Git remote, GitHub access, and Stacks API availability.
 It does not change anything on GitHub.
 
-### The repo works, but GitHub stacks are unavailable
-
-If `doctor` can reach the repo but says stacked pull requests are unavailable, follow its
-availability link and rerun `doctor`. For another `GitHub stacks` failure, follow the specific
-access or request error it prints. `submit` stops before pushing any PR branch while this
-check fails.
-
 ## A PR branch moved outside jj-stack
 
 **How this can happen:** someone force-pushed, renamed, or deleted a `jj-stack/` branch, or
