@@ -34,7 +34,6 @@ def test_relink_requires_open_same_repo_pr(
     with pytest.raises(CliError, match=message):
         asyncio.run(
             _load_exact_relink_pr(
-                change_id="feature1change",
                 github_client=cast(GithubClient, client),
                 pr_number=1,
                 repo_owner="octo-org",

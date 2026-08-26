@@ -125,7 +125,7 @@ def test_relink_reports_missing_pr_without_traceback(
     assert "Traceback" not in captured.err
 
 
-def test_relink_rejects_pr_branch_for_a_different_change(
+def test_relink_explains_recovery_after_change_id_replacement(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -133,18 +133,25 @@ def test_relink_rejects_pr_branch_for_a_different_change(
     repo, fake_repo = init_fake_github_repo_with_manual_pr(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
 
-    # The template leaves the PR branch on `feature 1`; stack a new `feature 2`
-    # on top so the relink target is a different change.
-    commit_file(repo, "feature 2", "feature-2.txt")
-    stack = selected_stack(repo)
-    top_change_id = stack.changes[-1].change_id
+    original_change_id = selected_stack(repo).changes[-1].change_id
+    run_command(
+        ["jj", "new", f"{original_change_id}-", "-m", "replacement feature 1"],
+        repo,
+    )
+    run_command(["jj", "restore", "--from", original_change_id], repo)
+    replacement_change_id = selected_stack(repo).changes[-1].change_id
+    run_command(["jj", "abandon", original_change_id], repo)
 
-    exit_code = run_main(repo, config_path, "relink", "1", top_change_id)
+    exit_code = run_main(repo, config_path, "relink", "1", replacement_change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "does not match change" in captured.err
-    assert top_change_id not in TrackingStore.for_repo(repo).load().pr_identities
+    assert (
+        f"belongs to change {original_change_id[:8]}, not selected change "
+        f"{replacement_change_id[:8]}" in captured.err
+    )
+    assert "jj-stack checkout --pull-request 1" in captured.err
+    assert replacement_change_id not in TrackingStore.for_repo(repo).load().pr_identities
 
 
 def test_relink_rejects_pr_with_missing_remote_head_branch(

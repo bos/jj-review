@@ -13,6 +13,7 @@ from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
 from jj_stack.github.pr_refs import parse_repo_pr_reference
 from jj_stack.github.resolution import require_github_repo, select_submit_remote
+from jj_stack.identifiers import short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.models.github import GithubPR
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
@@ -95,7 +96,6 @@ async def _run_relink_async(
     )
     async with build_github_client(repo=repo) as github_client:
         pr, head_sha = await _load_exact_relink_pr(
-            change_id=change.change_id,
             github_client=github_client,
             pr_number=pr_number,
             repo_owner=repo.owner,
@@ -111,16 +111,33 @@ async def _run_relink_async(
             t"Pull request #{pr_number} and remote branch {ui.bookmark(branch)} "
             t"no longer identify the same commit."
         )
-    if (
-        client.read_remote_git_change_id(
-            remote=remote.name,
-            commit_id=head_sha,
-        )
-        != change.change_id
-    ):
+    remote_change_id = client.read_remote_git_change_id(
+        remote=remote.name,
+        commit_id=head_sha,
+    )
+    if remote_change_id != change.change_id:
+        if remote_change_id is not None and pr_branch_matches_change(branch, remote_change_id):
+            raise CliError(
+                t"Pull request #{pr_number} belongs to change "
+                t"{ui.change_id(remote_change_id)}, not selected change "
+                t"{ui.change_id(change.change_id)}.",
+                hint=t"If {ui.change_id(remote_change_id)} still exists locally, run "
+                t"{ui.cmd(f'jj-stack relink {pr_number} {short_change_id(remote_change_id)}')} "
+                t"instead. If stack surgery replaced it with "
+                t"{ui.change_id(change.change_id)}, recover the original change with "
+                t"{ui.cmd(f'jj-stack checkout --pull-request {pr_number}')}, then move the "
+                t"intended content onto it; relink cannot assign an existing pull request to "
+                t"a replacement change ID.",
+            )
         raise CliError(
             t"Remote branch {ui.bookmark(branch)} does not contain change "
             t"{ui.change_id(change.change_id)}."
+        )
+    namespace = current_pr_branch_namespace()
+    if not pr_branch_matches_change(branch, change.change_id):
+        raise CliError(
+            t"Pull request #{pr_number} head {ui.bookmark(branch)} does not match "
+            t"change {ui.change_id(change.change_id)} under {ui.bookmark(namespace.branch_glob)}."
         )
     identity = PRIdentity(
         repo_owner=repo.owner,
@@ -149,7 +166,6 @@ async def _run_relink_async(
 
 async def _load_exact_relink_pr(
     *,
-    change_id: str,
     github_client: GithubClient,
     pr_number: int,
     repo_owner: str,
@@ -172,13 +188,10 @@ async def _load_exact_relink_pr(
             t"configured repo."
         )
     namespace = current_pr_branch_namespace()
-    if not namespace.contains(branch) or not pr_branch_matches_change(
-        branch,
-        change_id,
-    ):
+    if not namespace.contains(branch):
         raise CliError(
-            t"Pull request #{pr_number} head {ui.bookmark(branch)} does not match "
-            t"change {ui.change_id(change_id)} under {ui.bookmark(namespace.branch_glob)}."
+            t"Pull request #{pr_number} head {ui.bookmark(branch)} is not under "
+            t"{ui.bookmark(namespace.branch_glob)}."
         )
     head_sha = pr.head.sha
     if head_sha is None:
