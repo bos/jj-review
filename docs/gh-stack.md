@@ -6,8 +6,30 @@ navGroup: Look things up
 weight: 115
 ---
 
-Both tools create native GitHub stacks: one pull request per change, based on the one
-below it. They differ in what defines the stack locally.
+## jj-stack is opinionated
+
+On GitHub, a pull request is the head of a DAG of changes. A GitHub stack builds on this: a
+stack is composed of PRs. This makes a stack a bizarre creature, because it's a (forced linear)
+graph composed of other subgraphs.
+
+`jj-stack` takes a simpler approach: it requires each PR in a stack to be a single change. While
+I could easily have supported the GitHub stack concept of a linear stack of DAGs, that extra
+complexity has no intrinsic merits and is just weirdly complicated for backwards compatibility
+reasons.
+
+This is also why `jj-stack` manages the refs that keep the PRs in a stack alive. They're not
+valuable, they're merely `git` plumbing getting in your way.
+
+However, while these opinions make for a much nicer default experience, they close some doors:
+if you genuinely want to produce weird stacks-of-DAGs that `gh stack` would handle, `jj-stack`
+may prevent that. If you think naming your PR branches is a good use of your time, `jj-stack`
+will get in your way! I can imagine a world in which these opinions are too narrow and should be
+revised, so if there's enough pressure to rethink them, I may do so.
+
+## Conceptual differences
+
+Both `gh stack` and `jj-stack` tools create native GitHub stacks. They differ in what defines
+the stack locally.
 
 | Topic | `jj-stack` | `gh stack` |
 |---|---|---|
@@ -56,24 +78,21 @@ and the phase of the moon.
 
 ## Which should I use?
 
-- In a `jj` repo, use `jj-stack` and author the stack as mutable changes.
-- In a Git repo, `gh stack` manages the stack as an explicit branch chain.
+As hinted at earlier, the two tools overlap but aren't all that compatible.
 
-`gh stack link` is useful when another tool already manages one stable branch per pull request and
-you only need to tell GitHub that the pull requests form a stack. In a `jj` workflow, `jj-stack`
-also remembers which change belongs to each pull request.
+- In a `jj` repo, use `jj-stack` and author your stack as mutable changes.
+- In a Git repo, `gh stack` manages the stack as an explicit branch chain.
 
 Do not use both tools to update the same pull requests or PR branches. They organize local work
 differently, and `jj-stack` will stop if another tool moves one of its branches unexpectedly.
 
-The GitHub review and merge experience is the same. After merging on GitHub or in another client,
-update the local `jj` stack with:
+The review and merge experience on `github.com` is the same across both tools. After merging on
+GitHub or in another client, update your local `jj` stack with:
 
 ```console
 jj-stack sync <head-change-id>
 ```
 
-
-The implementation details above were checked on August 24, 2026 against `gh stack` [commit
-`4f9188e`](https://github.com/github/gh-stack/commit/4f9188e). If `gh stack` changes later, some
+The implementation details above were correct on August 24, 2026, against `gh stack` [commit
+`4f9188e`](https://github.com/github/gh-stack/commit/4f9188e). As both tools evolve, some
 details may no longer match.
