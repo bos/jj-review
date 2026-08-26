@@ -1123,7 +1123,7 @@ def test_submit_blocks_unresolved_conflicted_rebase_without_mutation(
     assert fake_repo.prs == {}
 
 
-def test_submit_describe_reads_pr_and_stack_bodies_from_files(
+def test_submit_describe_reads_files_and_preserves_stack_overview(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1163,6 +1163,37 @@ def test_submit_describe_reads_pr_and_stack_bodies_from_files(
     assert len(_overview_comments(fake_repo, 2)) == 1
     assert STACK_OVERVIEW_COMMENT_MARKER in _overview_comments(fake_repo, 2)[0].body
     assert "Stack overview body\n\n- from file" in _overview_comments(fake_repo, 2)[0].body
+
+    edited_overview = f"{STACK_OVERVIEW_COMMENT_MARKER}\nStack overview edited on GitHub"
+    _overview_comments(fake_repo, 2)[0].body = edited_overview
+    commit_file(repo, "feature 3", "feature-3.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    refreshed_stack = selected_stack(repo)
+    refreshed_state = TrackingStore.for_repo(repo).load()
+    top_pr_number = refreshed_state.pr_identities[refreshed_stack.head.change_id].pr_number
+
+    assert _overview_comments(fake_repo, 2) == []
+    assert _overview_comments(fake_repo, top_pr_number)[0].body == edited_overview
+
+    write_file(stack_description, "Replacement stack overview\n")
+
+    assert (
+        run_main(
+            repo,
+            config_path,
+            "submit",
+            "--describe",
+            f"stack={stack_description}",
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    replacement = _overview_comments(fake_repo, top_pr_number)[0].body
+    assert "Replacement stack overview" in replacement
+    assert "edited on GitHub" not in replacement
 
 
 def test_submit_describe_rejects_target_outside_selected_stack_before_mutation(

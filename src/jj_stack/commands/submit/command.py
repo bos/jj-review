@@ -98,7 +98,7 @@ from .models import (
     SubmitResult,
     SubmittedChange,
 )
-from .overview_comments import stack_overview_comment_bodies, sync_stack_overview_comments
+from .overview_comments import sync_stack_overview_comments
 from .prs import (
     discover_prs_by_branch,
     ensure_pr_link_is_consistent,
@@ -525,11 +525,9 @@ async def _apply_planned_submit(
         )
         await sync_stack_overview_comments(
             concurrency=DEFAULT_BOUNDED_CONCURRENCY,
+            generated_stack_description=prepared_inputs.generated_stack_description,
             github_client=github_client,
-            overview_bodies=stack_overview_comment_bodies(
-                generated_stack_description=prepared_inputs.generated_stack_description,
-                changes=submitted,
-            ),
+            pr_numbers=pr_numbers,
         )
     return submitted
 

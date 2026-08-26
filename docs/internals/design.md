@@ -701,9 +701,9 @@ description. Otherwise it is preserved; explicitly supplied text still takes eff
 not stored locally and never determines topology; see
 [pull request descriptions](../reference/descriptions.md).
 
-The stack overview is regenerated on every submit. Its managed comment is the first comment whose
-body contains its marker; its ID is never stored. A lone PR has no overview comment. New PRs are
-created in the requested draft state.
+When a submit supplies no stack overview, the existing overview text is preserved and moves to
+the current head PR if the stack grows. An explicitly supplied overview replaces it. A lone PR has
+no overview comment. New PRs are created in the requested draft state.
 Existing PRs become draft only with `--draft=all` and become ready only with `--open`; plain
 `submit --draft` never unpublishes an existing PR. With `--edit`, GitHub's current state and those
 command-wide defaults populate one editable draft choice per change. The validated document then

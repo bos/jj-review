@@ -13,41 +13,18 @@ from jj_stack.github.overview_comments import (
 )
 from jj_stack.models.github import GithubIssueComment
 
-from .models import GeneratedDescription, SubmittedChange
-
-
-def stack_overview_comment_bodies(
-    *,
-    generated_stack_description: GeneratedDescription | None,
-    changes: tuple[SubmittedChange, ...],
-) -> dict[int, str | None]:
-    """Return desired stack-overview bodies keyed by pull request."""
-
-    if not changes:
-        return {}
-    description_lines = _render_generated_stack_description(generated_stack_description)
-    overview_body = (
-        "\n".join([STACK_OVERVIEW_COMMENT_MARKER, *description_lines])
-        if len(changes) > 1 and description_lines
-        else None
-    )
-    head_change_id = changes[-1].change_id
-    return {
-        change.pr_number: (overview_body if change.change_id == head_change_id else None)
-        for change in changes
-        if change.pr_number is not None
-    }
+from .models import GeneratedDescription
 
 
 async def sync_stack_overview_comments(
     *,
     concurrency: int,
+    generated_stack_description: GeneratedDescription | None,
     github_client: GithubClient,
-    overview_bodies: dict[int, str | None],
+    pr_numbers: tuple[int, ...],
 ) -> None:
     """Synchronize the supplied stack-overview responsibilities."""
 
-    pr_numbers = tuple(overview_bodies)
     if not pr_numbers:
         return
     with console.spinner(description="Loading stack overview comments"):
@@ -59,13 +36,26 @@ async def sync_stack_overview_comments(
         except GithubClientError as error:
             raise CliError("Could not list stack overview comments") from error
 
+    overview_bodies = _stack_overview_comment_bodies(
+        comments_by_pr_number=comments_by_pr_number,
+        generated_stack_description=generated_stack_description,
+        pr_numbers=pr_numbers,
+    )
+    head_pr_number = pr_numbers[-1]
     with console.progress(
         description="Syncing stack overview comments",
         total=len(pr_numbers),
     ) as progress:
+        await _sync_overview_comment(
+            comment_body=overview_bodies[head_pr_number],
+            existing_comment=comments_by_pr_number[head_pr_number],
+            github_client=github_client,
+            pr_number=head_pr_number,
+        )
+        progress.advance()
         await run_bounded_tasks(
             concurrency=concurrency,
-            items=pr_numbers,
+            items=pr_numbers[:-1],
             run_item=lambda pr_number: _sync_overview_comment(
                 comment_body=overview_bodies[pr_number],
                 existing_comment=comments_by_pr_number[pr_number],
@@ -74,6 +64,57 @@ async def sync_stack_overview_comments(
             ),
             on_success=lambda _index, _result: progress.advance(),
         )
+
+
+def _stack_overview_comment_bodies(
+    *,
+    comments_by_pr_number: dict[int, GithubIssueComment | None],
+    generated_stack_description: GeneratedDescription | None,
+    pr_numbers: tuple[int, ...],
+) -> dict[int, str | None]:
+    head_pr_number = pr_numbers[-1]
+    overview_body = _stack_overview_body(
+        comments_by_pr_number=comments_by_pr_number,
+        generated_stack_description=generated_stack_description,
+        head_pr_number=head_pr_number,
+        stack_size=len(pr_numbers),
+    )
+    return {
+        pr_number: overview_body if pr_number == head_pr_number else None
+        for pr_number in pr_numbers
+    }
+
+
+def _stack_overview_body(
+    *,
+    comments_by_pr_number: dict[int, GithubIssueComment | None],
+    generated_stack_description: GeneratedDescription | None,
+    head_pr_number: int,
+    stack_size: int,
+) -> str | None:
+    if stack_size <= 1:
+        return None
+    if generated_stack_description is not None:
+        description_lines = _render_generated_stack_description(generated_stack_description)
+        return (
+            "\n".join([STACK_OVERVIEW_COMMENT_MARKER, *description_lines])
+            if description_lines
+            else None
+        )
+
+    head_comment = comments_by_pr_number[head_pr_number]
+    if head_comment is not None:
+        return head_comment.body
+
+    existing_bodies = {
+        comment.body for comment in comments_by_pr_number.values() if comment is not None
+    }
+    if len(existing_bodies) > 1:
+        raise CliError(
+            "Could not preserve the stack overview because the selected pull requests "
+            "have different managed comments."
+        )
+    return next(iter(existing_bodies), None)
 
 
 async def _sync_overview_comment(

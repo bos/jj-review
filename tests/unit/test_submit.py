@@ -23,7 +23,7 @@ from jj_stack.commands.submit.prs import (
 )
 from jj_stack.config import AppConfig
 from jj_stack.errors import CliError
-from jj_stack.github.client import GithubClient
+from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import (
     GithubBranchRef,
@@ -66,12 +66,61 @@ def test_overview_comment_sync_batches_comment_reads() -> None:
     asyncio.run(
         sync_stack_overview_comments(
             concurrency=2,
+            generated_stack_description=None,
             github_client=client,
-            overview_bodies={1: None, 2: None},
+            pr_numbers=(1, 2),
         )
     )
 
     assert client.comment_batches == [(1, 2)]
+
+
+def test_overview_comment_move_keeps_source_when_head_creation_fails() -> None:
+    source_comment = GithubIssueComment(
+        body="<!-- jj-stack-overview -->\nEdited",
+        databaseId=7,
+    )
+
+    class CommentClientStub(GithubClient):
+        def __init__(self) -> None:
+            self.deleted_comment_ids: list[int] = []
+
+        async def find_issue_comments_by_body_marker(
+            self,
+            *,
+            body_marker: str,
+            pr_numbers: Sequence[int],
+        ) -> dict[int, GithubIssueComment | None]:
+            assert body_marker == "<!-- jj-stack-overview -->"
+            assert tuple(pr_numbers) == (1, 2)
+            return {1: source_comment, 2: None}
+
+        async def create_issue_comment(
+            self,
+            *,
+            issue_number: int,
+            body: str,
+        ) -> GithubIssueComment:
+            assert issue_number == 2
+            assert body == source_comment.body
+            raise GithubClientError("create failed")
+
+        async def delete_issue_comment(self, *, comment_id: int) -> None:
+            self.deleted_comment_ids.append(comment_id)
+
+    client = CommentClientStub()
+
+    with pytest.raises(CliError, match="Could not create a stack overview comment"):
+        asyncio.run(
+            sync_stack_overview_comments(
+                concurrency=2,
+                generated_stack_description=None,
+                github_client=client,
+                pr_numbers=(1, 2),
+            )
+        )
+
+    assert client.deleted_comment_ids == []
 
 
 def test_prepare_submit_changes_rejects_saved_remote_branch_drift() -> None:

@@ -40,6 +40,9 @@ Add a stack overview to the head pull request:
 jj-stack submit --describe stack=overview.md
 ```
 
+Later submits preserve that overview, including edits made on GitHub, until you supply another
+stack description. If the stack grows, jj-stack moves the overview to the new head pull request.
+
 Relative paths resolve from the directory in which you invoke jj-stack.
 
 ## Edit every PR at once
