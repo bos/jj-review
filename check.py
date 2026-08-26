@@ -18,6 +18,7 @@ VENV_PYTHON = (
     REPO_ROOT / ".venv" / (Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python"))
 )
 PytestJobs = int | Literal["auto"]
+_PYREFLY_TARGETS = ("src", "tests", "tools", "check.py")
 _FRAGILE_TEST_OUTPUT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "use output assertion helpers instead of exact captured output equality",
@@ -77,10 +78,17 @@ def _build_checks(
     return (
         ("ruff", ("-m", "ruff", "check")),
         ("ruff-format", ("-m", "ruff", "format", "--check")),
-        ("pyrefly", ("-m", "pyrefly", "check")),
+        ("pyrefly", ("-m", "pyrefly", "check", *_PYREFLY_TARGETS)),
         (
             "pyrefly-windows",
-            ("-m", "pyrefly", "check", "--python-platform", "win32"),
+            (
+                "-m",
+                "pyrefly",
+                "check",
+                "--python-platform",
+                "win32",
+                *_PYREFLY_TARGETS,
+            ),
         ),
         ("pytest", pytest_command),
     )
