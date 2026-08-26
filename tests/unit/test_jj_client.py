@@ -461,9 +461,9 @@ def test_imported_pr_bookmark_scan_reports_every_reserved_namespace_ref(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = (
-        json.dumps({"name": "jj-stack/not-managed", "target": ["one"]})
+        json.dumps({"name": "jj-stack/not-managed", "target": ["one"], "tracked": False})
         + "\n"
-        + json.dumps({"name": "jj-stack/feature-abcdefgh", "target": ["two"]})
+        + json.dumps({"name": "jj-stack/feature-abcdefgh", "target": ["two"], "tracked": False})
         + "\n"
     )
 
@@ -645,7 +645,13 @@ def test_temp_ref_cleanup_removes_raw_ref_when_forgetting_bookmark_fails(
             "list",
             "-T",
         ):
-            payload = json.dumps({"name": "jj-stack-tmp/checkout", "target": [commit_id]})
+            payload = json.dumps(
+                {
+                    "name": "jj-stack-tmp/checkout",
+                    "target": [commit_id],
+                    "tracked": False,
+                }
+            )
             return subprocess.CompletedProcess(command, 0, stdout=f"{payload}\n", stderr="")
         if invocation == (
             "jj",

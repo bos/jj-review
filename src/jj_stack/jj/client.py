@@ -47,7 +47,14 @@ _CHANGE_JSON_FIELDS = dedent(
     """
 ).strip()
 _COMMIT_TEMPLATE = rf'"{{" ++ {_CHANGE_JSON_FIELDS} ++ "}}\n"'
-_BOOKMARK_TEMPLATE = r'json(self) ++ "\n"'
+_BOOKMARK_TEMPLATE = dedent(
+    r"""
+    "{\"name\":" ++ json(self.name()) ++
+    ",\"target\":" ++ json(self.added_targets().map(|commit| commit.commit_id())) ++
+    ",\"remote\":" ++ json(self.remote()) ++
+    ",\"tracked\":" ++ json(self.tracked()) ++ "}\n"
+    """
+).strip()
 _PR_BRANCH_TEMP_BOOKMARK = "jj-stack-tmp/checkout"
 _PR_BRANCH_TEMP_REF = f"refs/heads/{_PR_BRANCH_TEMP_BOOKMARK}"
 _CONFIG_ORIGIN_TEMPLATE = r'json(self) ++ "\n"'
@@ -119,7 +126,7 @@ class _BookmarkRow(BaseModel):
     name: str
     target: tuple[str, ...]
     remote: str | None = None
-    tracking_target: tuple[str, ...] | None = None
+    tracked: bool
 
 
 class _CommitScan(BaseModel):
@@ -714,7 +721,7 @@ class JjClient:
         untracked: list[tuple[str, str]] = []
         target_counts: dict[str, int] = {}
         for row in self._bookmark_rows():
-            if row.remote is not None and row.tracking_target is None:
+            if row.remote is not None and not row.tracked:
                 for target in row.target:
                     untracked.append((row.name, target))
                     target_counts[target] = target_counts.get(target, 0) + 1

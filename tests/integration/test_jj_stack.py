@@ -111,6 +111,39 @@ def test_list_git_remotes_preserves_distinct_fetch_and_push_urls(tmp_path: Path)
     assert remote.push_url == "git@github.test:octo-org/stacked-prs.git"
 
 
+def test_deleted_tracked_bookmark_does_not_block_stack_observation(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    remote = tmp_path / "remote.git"
+    run_command(["git", "init", "--bare", str(remote)], tmp_path)
+    run_command(["jj", "git", "remote", "add", "origin", str(remote)], repo)
+    run_command(["jj", "bookmark", "create", "unrelated", "-r", "main"], repo)
+    run_command(["jj", "git", "push", "--remote", "origin", "--bookmark", "unrelated"], repo)
+    run_command(["jj", "bookmark", "delete", "unrelated"], repo)
+
+    path = select_stack_path(jj_client=JjClient(repo), state=TrackingState())
+
+    assert path.stack.changes == ()
+
+
+def test_visible_pr_bookmark_targets_exclude_removed_conflict_terms(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    commit_file(repo, "left", "left.txt")
+    left = _commit_id(repo, "@-")
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "right", "right.txt")
+    right = _commit_id(repo, "@-")
+    branch = "jj-stack/conflicted"
+    run_command(["jj", "bookmark", "create", branch, "-r", "main"], repo)
+    base_operation = run_command(
+        ["jj", "op", "log", "--no-graph", "-n", "1", "-T", 'id ++ "\\n"'],
+        repo,
+    ).stdout.strip()
+    run_command(["jj", "bookmark", "set", branch, "-r", left], repo)
+    run_command(["jj", f"--at-op={base_operation}", "bookmark", "set", branch, "-r", right], repo)
+
+    assert JjClient(repo).visible_pr_bookmark_targets() == {branch: frozenset({left, right})}
+
+
 @pytest.mark.parametrize(
     ("layout_flag", "exposure"),
     (("--no-colocate", "import"), ("--colocate", "fetch")),
