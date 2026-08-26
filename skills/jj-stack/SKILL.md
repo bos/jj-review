@@ -30,6 +30,15 @@ repo, confirm it with `--help`, and reuse it for the whole conversation:
 If nothing resolves, do not conclude jj-stack is absent; ask the user which
 command they use before any direct GitHub mutation.
 
+## User documentation
+
+For exact syntax and installed-version behavior, use the resolved command's `--help`; the bundled
+references below govern lifecycle safety and recovery. For installation, configuration, shell
+completion, automation, JSON output, or conceptual guidance not covered here, use the most
+relevant content-only Markdown page listed at
+`https://www.serpentine.com/software/jj-stack/llms.txt`. Treat the website as supplemental because
+it may describe a different release, and do not fetch it for routine stack operations.
+
 ## Rules
 
 1. **Edit the stack with `jj`; talk to GitHub with `jj-stack`.** Never use
