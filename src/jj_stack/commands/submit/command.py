@@ -3,10 +3,17 @@
 This pushes or updates the PR branches for that stack, then opens or refreshes one pull
 request per change from bottom to top. The selected changes must have no unresolved conflicts.
 
-Pull request titles come from each change's subject line, and bodies come from the rest of the
-description. When a description has no body, `jj-stack` uses the repo's pull request
-template (`.github/PULL_REQUEST_TEMPLATE.md`, `PULL_REQUEST_TEMPLATE.md`, or
+A pull request title comes from a change's subject line, and its body from the rest of the
+description. When a description has no body, `jj-stack` uses the repo's pull request template
+(`.github/PULL_REQUEST_TEMPLATE.md`, `PULL_REQUEST_TEMPLATE.md`, or
 `docs/PULL_REQUEST_TEMPLATE.md`), or repeats the subject line if no template exists.
+
+On a subsequent submit, if the PR description still matches the last automated PR description,
+`jj-stack` will refresh it from the current change description. Otherwise, `jj-stack` will leave
+it untouched.
+
+Use `--describe` to replace one body deliberately, or use `--describe-with` or `--edit` for titles
+and bodies.
 
 Use `--edit` to review and edit the planned pull request titles, bodies, and draft states in your
 editor before anything is pushed. Each `JJ: Draft:` field accepts `yes` or `no`, with `y` and `n`
@@ -27,6 +34,7 @@ Common examples:
 
 - `jj-stack submit --base <parent-change-id> <child-head-change-id>` submits only the changes
   after an open parent pull request. Repeat `--base` whenever you refresh the child stack.
+
 """
 
 from __future__ import annotations
@@ -71,7 +79,7 @@ from jj_stack.state.operation_lock import acquire_operation_lock
 from . import auto_close
 from .auto_close import retarget_pr_bases_before_branch_push
 from .changes import prepare_submit_changes
-from .descriptions import edit_prs_in_editor
+from .descriptions import edit_prs_in_editor, preserve_external_pr_text
 from .github_stack import (
     GithubStackPlan,
     apply_github_stack_plan,
@@ -736,6 +744,14 @@ async def run_submit_async(
             prepared_changes=prepared_changes,
             repo_key=github_repo.repo_key,
             state=mutation_run.state,
+        )
+        generated_descriptions = preserve_external_pr_text(
+            descriptions=generated_descriptions,
+            prs={
+                prepared.change.change_id: discovered_prs[prepared.branch]
+                for prepared in prepared_changes
+            },
+            submitted_commits=prepared_inputs.submitted_commits,
         )
         if options.edit:
             generated_descriptions, drafts = edit_prs_in_editor(

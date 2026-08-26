@@ -77,6 +77,13 @@ def prepare_submit_inputs(
         selected_revset=stack.selected_revset,
         changes=stack.changes,
     )
+    submitted_commits = client.query_commits_by_ids(
+        tuple(
+            state.submitted_baselines[change.change_id].commit_id
+            for change in stack.changes
+            if change.change_id in state.submitted_baselines
+        )
+    )
     return PreparedSubmitInputs(
         branch_resolutions=branch_resolutions,
         client=client,
@@ -86,6 +93,7 @@ def prepare_submit_inputs(
         remote=remote,
         stack=stack,
         state=state,
+        submitted_commits={change.change_id: change for change in submitted_commits},
     )
 
 

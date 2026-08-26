@@ -11,12 +11,14 @@ import tempfile
 import tomllib
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError, UsageError
 from jj_stack.jj.client import JjClient, JjCommandError
+from jj_stack.models.github import GithubPR
 from jj_stack.models.stack import LocalCommit
 
 from .default_pr_text import default_pr_body
@@ -99,6 +101,44 @@ def _default_pr_descriptions(
         )
         for change in changes
     }
+
+
+def preserve_external_pr_text(
+    *,
+    descriptions: dict[str, GeneratedDescription],
+    prs: dict[str, GithubPR | None],
+    submitted_commits: dict[str, LocalCommit],
+) -> dict[str, GeneratedDescription]:
+    """Preserve a live PR pair unless its text still matches the submitted description."""
+
+    preserved: dict[str, GeneratedDescription] = {}
+    for change_id, description in descriptions.items():
+        pr = prs[change_id]
+        submitted = submitted_commits.get(change_id)
+        if pr is None:
+            preserved[change_id] = description
+            continue
+
+        live_body = pr.body or ""
+        follows_submitted_description = submitted is not None and (
+            pr.title == submitted.subject
+            and live_body == _pr_body(submitted.description, template="")
+        )
+        preserve_existing = not follows_submitted_description
+        preserved[change_id] = replace(
+            description,
+            body=(
+                live_body
+                if preserve_existing and "body" not in description.explicit_fields
+                else description.body
+            ),
+            title=(
+                pr.title
+                if preserve_existing and "title" not in description.explicit_fields
+                else description.title
+            ),
+        )
+    return preserved
 
 
 _PR_TEMPLATE_DIRECTORIES = (".github", "", "docs")
@@ -348,6 +388,7 @@ def _resolve_description_files(
                 raise UsageError(t"{ui.cmd('--describe')} specified the stack more than once.")
             generated_stack_description = GeneratedDescription(
                 body=_read_description_file(path_text),
+                explicit_fields=frozenset(("body",)),
                 title="",
             )
             continue
@@ -364,6 +405,7 @@ def _resolve_description_files(
             )
         generated_descriptions[change.change_id] = GeneratedDescription(
             body=_read_description_file(path_text),
+            explicit_fields=frozenset(("body",)),
             title=change.subject,
         )
     return generated_descriptions, generated_stack_description
@@ -556,4 +598,20 @@ def _run_description_command(
             t"{ui.cmd(f'--{kind}')} {ui.revset(revset)}."
         )
 
-    return GeneratedDescription(body=body, title=title)
+    return GeneratedDescription(
+        body=body,
+        explicit_fields=frozenset(("body", "title")),
+        title=title,
+    )
+
+
+def _pr_body(description: str, *, template: str) -> str:
+    lines = description.splitlines()
+    if not lines:
+        return template
+    body = "\n".join(lines[1:]).strip()
+    if body:
+        return body
+    if template:
+        return template
+    return lines[0].strip()

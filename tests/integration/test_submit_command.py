@@ -1607,22 +1607,40 @@ def test_submit_reports_up_to_date_when_remote_branch_and_pr_already_match(
     assert {number: pr.title for number, pr in fake_repo.prs.items()} == first_prs
 
 
-def test_submit_updates_existing_remote_pr_branch(
+def test_submit_refreshes_unchanged_pr_text_and_preserves_github_edits(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
 
     stack = selected_stack(repo)
     change_id = stack.changes[-1].change_id
     identity = TrackingStore.for_repo(repo).load().pr_identities[change_id]
     bookmark = identity.head_ref
     pr_number = identity.pr_number
+    assert fake_repo.prs[pr_number].title == "feature 1"
+    assert fake_repo.prs[pr_number].body == "feature 1"
 
+    fake_repo.prs[pr_number].body = "Current template"
+    run_command(["jj", "edit", change_id], repo)
+    template = repo / ".github" / "PULL_REQUEST_TEMPLATE.md"
+    write_file(template, "Current template\n")
     run_command(
-        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 renamed"],
+        [
+            "jj",
+            "describe",
+            "--ignore-immutable",
+            "-r",
+            change_id,
+            "-m",
+            "feature 1 renamed\n\nManaged body",
+        ],
         repo,
     )
 
@@ -1633,8 +1651,66 @@ def test_submit_updates_existing_remote_pr_branch(
     assert exit_code == 0
     assert "pushed" in captured.out
     assert read_remote_ref(fake_repo.git_dir, bookmark) == rewritten_stack.changes[-1].commit_id
-    assert fake_repo.prs[pr_number].title == "feature 1 renamed"
-    assert fake_repo.prs[pr_number].body == "feature 1 renamed"
+    assert fake_repo.prs[pr_number].title == "feature 1"
+    assert fake_repo.prs[pr_number].body == "Current template"
+
+    fake_repo.prs[pr_number].title = "feature 1 renamed"
+    fake_repo.prs[pr_number].body = "Managed body"
+    run_command(
+        [
+            "jj",
+            "describe",
+            "--ignore-immutable",
+            "-r",
+            change_id,
+            "-m",
+            "feature 1 revised again\n\nNew local body",
+        ],
+        repo,
+    )
+
+    assert run_main(repo, config_path, "submit", change_id) == 0
+    capsys.readouterr()
+    rewritten_stack = selected_stack(repo, change_id)
+
+    assert read_remote_ref(fake_repo.git_dir, bookmark) == rewritten_stack.head.commit_id
+    assert fake_repo.prs[pr_number].title == "feature 1 revised again"
+    assert fake_repo.prs[pr_number].body == "New local body"
+
+    fake_repo.prs[pr_number].title = "Title edited on GitHub"
+    explicit_body = tmp_path / "pr-body.md"
+    write_file(explicit_body, "Explicit body\n")
+
+    assert (
+        run_main(
+            repo,
+            config_path,
+            "submit",
+            "--describe",
+            f"{change_id}={explicit_body}",
+            change_id,
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    assert fake_repo.prs[pr_number].title == "Title edited on GitHub"
+    assert fake_repo.prs[pr_number].body == "Explicit body"
+
+    helper = tmp_path / "describe.py"
+    helper.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "print(json.dumps({'title': 'Explicit title', 'body': 'Helper body'}))\n",
+        encoding="utf-8",
+    )
+    helper.chmod(0o755)
+
+    assert run_main(repo, config_path, "submit", "--describe-with", str(helper), change_id) == 0
+    capsys.readouterr()
+
+    assert fake_repo.prs[pr_number].title == "Explicit title"
+    assert fake_repo.prs[pr_number].body == "Helper body"
 
 
 def test_submit_rerun_recovers_after_lost_remote_update_response(

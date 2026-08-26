@@ -76,10 +76,11 @@ class SubmitResult:
 
 @dataclass(frozen=True, slots=True)
 class GeneratedDescription:
-    """Generated title/body pair for a pull request or stack summary."""
+    """Resolved text and the fields explicitly supplied for this submit."""
 
     body: str
     title: str
+    explicit_fields: frozenset[Literal["body", "title"]] = frozenset()
 
 
 class PRMetadataAction(NamedTuple):
@@ -150,6 +151,7 @@ class PreparedSubmitInputs:
     remote: GitRemote
     stack: LocalStack
     state: TrackingState
+    submitted_commits: dict[str, LocalCommit]
 
 
 @dataclass(slots=True)

@@ -25,28 +25,31 @@ edits and GitHub's rewritten contents disagree, `sync` stops instead of choosing
 ## What the next submit replaces
 
 `jj-stack submit` makes GitHub's stack match your local stack. It pushes each change in your stack
-to its PR branch, sets each pull request's base from the local parent order, refreshes titles and
-bodies from `jj` descriptions or supplied description files, and updates native stack membership.
+to its PR branch, sets each pull request's base from the local parent order, and updates native
+stack membership.
+
+By default, `submit` will generate a pull request description from the `jj` change. On a
+subsequent submit, if the PR description still matches the last automated PR description,
+`submit` will refresh it from the current change description. Otherwise, `submit` will leave it
+untouched.
+
+Use `--describe` to replace one body deliberately (or `--describe-with` or `--edit` for titles and
+bodies).
+
 `--draft` affects new pull requests. `--draft=all`, `--open`, and the choices made through
 `--edit` can change existing draft states. Labels and reviewer requests that submit applies are
-additive;
-unrelated existing labels and reviewers are not removed.
-
-Edits made directly to a pull request title or body are therefore temporary unless you copy them
-back into the change description or pass them again on the next submit.
+additive; unrelated existing labels and reviewers are not removed.
 
 ## Changes to avoid on GitHub
 
-Do not force-push, rename, or delete `jj-stack/` PR branches. Do not manually retarget pull
-request bases, reorder members, or add pull requests to the native stack when you intend the
-local stack order to remain authoritative. A later submit may replace grouping and bases; an
-unexpected branch move instead causes jj-stack to stop so it does not overwrite someone else's
-work.
+Do not force-push, rename, or delete `jj-stack/` PR branches. If a branch moves unexpectedly,
+jj-stack stops instead of overwriting it. See [troubleshooting](../troubleshooting.md) for the
+recovery steps.
 
-If an external edit was intentional, inspect the result before deciding whether to restore the
-GitHub state, reproduce the change with `jj` and submit it, or remove the GitHub grouping with
-`jj-stack unstack --stack <number>`. See [troubleshooting](../troubleshooting.md) for specific
-recovery paths.
+Do not change pull request bases or GitHub stack membership by hand. `jj-stack submit` derives
+both from the local `jj` history. To keep a different base or order, make that change locally and
+submit again. To leave the pull requests open but remove their GitHub stack grouping, run
+`jj-stack unstack --stack <number>`.
 
 For reviewer and repo configuration guidance, see
 [review and operate a stack](review-a-stack.md).

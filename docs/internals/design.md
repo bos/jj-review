@@ -696,11 +696,14 @@ they do not block the mutation because they are no longer active.
 
 ### Derived artifacts
 
-PR titles, bodies, and the stack overview comment are derived on every submit and never determine
-topology; see [pull request descriptions](../reference/descriptions.md).
+A subsequent submit refreshes a PR description only if it still matches the last automated PR
+description. Otherwise it is preserved; explicitly supplied text still takes effect. PR text is
+not stored locally and never determines topology; see
+[pull request descriptions](../reference/descriptions.md).
 
-The managed overview comment is the first comment whose body contains its marker; its ID is never
-stored. A lone PR has no overview comment. New PRs are created in the requested draft state.
+The stack overview is regenerated on every submit. Its managed comment is the first comment whose
+body contains its marker; its ID is never stored. A lone PR has no overview comment. New PRs are
+created in the requested draft state.
 Existing PRs become draft only with `--draft=all` and become ready only with `--open`; plain
 `submit --draft` never unpublishes an existing PR. With `--edit`, GitHub's current state and those
 command-wide defaults populate one editable draft choice per change. The validated document then

@@ -6,8 +6,16 @@ navGroup: Look things up
 weight: 100
 ---
 
-Every submit builds the pull request text again from the change description. If you override that
-text, supply the override again on later submits that should keep it.
+By default, `submit` will generate a pull request description from the `jj` change. On a
+subsequent submit, if the PR description still matches the last automated PR description,
+`submit` will refresh it from the current change description. Otherwise, `submit` will leave it
+untouched.
+
+For example, suppose a submit creates the title `Add caching`. You rename it on GitHub to
+`Cache API requests`, then change the local description. The next submit keeps the GitHub text.
+
+To replace text that jj-stack would otherwise leave alone, use `--describe` for a body, or use
+`--describe-with` or `--edit` for titles and bodies.
 
 ## Default text
 
@@ -20,7 +28,7 @@ paragraphs while preserving lists, quotes, tables, code blocks, and explicit lin
 
 ## Supply Markdown
 
-Replace one pull request body while keeping its title from the change subject:
+Set one pull request body explicitly. The title still follows the normal update rule:
 
 ```console
 jj-stack submit --describe <change-id>=body.md
