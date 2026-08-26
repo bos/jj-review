@@ -331,12 +331,17 @@ def test_github_client_observes_exact_and_suffix_matched_branch_targets() -> Non
         assert request.url.path == "/graphql"
         payload = json.loads(request.content.decode("utf-8"))
         query = payload["query"]
-        assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-prs"}
         if "BranchTargetsBySuffix" in query:
             suffix_queries.append(query)
-            assert 'query: "-aaaaaaaa"' in query
-            assert 'refPrefix: "refs/heads/jj-stack/"' in query
-            if 'after: "page-1"' in query:
+            variables = payload["variables"]
+            assert variables["owner"] == "octo-org"
+            assert variables["repo"] == "stacked-prs"
+            assert variables["suffix_0"] == "-aaaaaaaa"
+            assert variables["ref_prefix"] == "refs/heads/jj-stack/"
+            assert "query: $suffix_0" in query
+            assert "refPrefix: $ref_prefix" in query
+            if "after: $cursor_0" in query:
+                assert variables["cursor_0"] == "page-1"
                 nodes = [
                     {
                         "name": "old-slug-aaaaaaaa",
@@ -361,8 +366,14 @@ def test_github_client_observes_exact_and_suffix_matched_branch_targets() -> Non
                 }
             }
         else:
-            assert 'ref(qualifiedName: "refs/heads/jj-stack/current")' in query
-            assert 'ref(qualifiedName: "refs/heads/jj-stack/missing")' in query
+            assert payload["variables"] == {
+                "owner": "octo-org",
+                "repo": "stacked-prs",
+                "qualified_0": "refs/heads/jj-stack/current",
+                "qualified_1": "refs/heads/jj-stack/missing",
+            }
+            assert "ref(qualifiedName: $qualified_0)" in query
+            assert "ref(qualifiedName: $qualified_1)" in query
             repo = {
                 "branch_0": {
                     "name": "jj-stack/current",
@@ -472,9 +483,14 @@ def test_github_client_batches_open_pr_lookup_by_head_ref_with_graphql() -> None
     def handler(request: httpxyz.Request) -> httpxyz.Response:
         assert request.url.path == "/graphql"
         payload = json.loads(request.content.decode("utf-8"))
-        assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-prs"}
-        assert 'headRefName: "jj-stack/seven"' in payload["query"]
-        assert 'headRefName: "jj-stack/nine"' in payload["query"]
+        assert payload["variables"] == {
+            "owner": "octo-org",
+            "repo": "stacked-prs",
+            "ref_0": "jj-stack/nine",
+            "ref_1": "jj-stack/seven",
+        }
+        assert "headRefName: $ref_0" in payload["query"]
+        assert "headRefName: $ref_1" in payload["query"]
         assert "headRepositoryOwner" in payload["query"]
         assert "reviewDecision" in payload["query"]
         assert "states: [OPEN]" in payload["query"]
@@ -549,10 +565,14 @@ def test_github_client_paginates_issue_comments_with_graphql() -> None:
         assert request.url.path == "/graphql"
         payload = json.loads(request.content.decode("utf-8"))
         queries.append(payload["query"])
-        assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-prs"}
+        variables = payload["variables"]
+        assert variables["owner"] == "octo-org"
+        assert variables["repo"] == "stacked-prs"
         assert "pr_7: pullRequest(number: 7)" in payload["query"]
         assert "comments(first: 100" in payload["query"]
-        next_page = 'after: "comments-1"' in payload["query"]
+        next_page = "after: $cursor_7" in payload["query"]
+        if next_page:
+            assert variables["cursor_7"] == "comments-1"
         return httpxyz.Response(
             200,
             json={
@@ -597,7 +617,11 @@ def test_github_client_paginates_issue_comments_with_graphql() -> None:
 def test_github_client_filters_batched_head_lookup_results_to_repo_owner() -> None:
     def handler(request: httpxyz.Request) -> httpxyz.Response:
         payload = json.loads(request.content.decode("utf-8"))
-        assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-prs"}
+        assert payload["variables"] == {
+            "owner": "octo-org",
+            "repo": "stacked-prs",
+            "ref_0": "jj-stack/seven",
+        }
         return httpxyz.Response(
             200,
             json={

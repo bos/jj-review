@@ -196,9 +196,10 @@ class GithubClient:
         ordered = tuple(dict.fromkeys(branches))
         targets: dict[str, str] = {}
         for chunk in _chunked(ordered, size=_GRAPHQL_PR_BATCH_SIZE):
+            query, branch_variables = _branch_targets_query(chunk)
             payload = await self._graphql_query(
-                _branch_targets_query(chunk),
-                variables=self._repo_variables,
+                query,
+                variables={**self._repo_variables, **branch_variables},
                 response_name="branch target lookup",
             )
             repo = _graphql_repo_payload(payload, response_name="branch target lookup")
@@ -232,13 +233,14 @@ class GithubClient:
                 (suffix, None) for suffix in chunk
             )
             while pending:
+                query, suffix_variables = _branch_targets_by_suffix_query(
+                    after_cursors=tuple(cursor for _suffix, cursor in pending),
+                    branch_prefix=branch_prefix,
+                    suffixes=tuple(suffix for suffix, _cursor in pending),
+                )
                 payload = await self._graphql_query(
-                    _branch_targets_by_suffix_query(
-                        after_cursors=tuple(cursor for _suffix, cursor in pending),
-                        branch_prefix=branch_prefix,
-                        suffixes=tuple(suffix for suffix, _cursor in pending),
-                    ),
-                    variables=self._repo_variables,
+                    query,
+                    variables={**self._repo_variables, **suffix_variables},
                     response_name="branch suffix lookup",
                 )
                 repo = _graphql_repo_payload(payload, response_name="branch suffix lookup")
@@ -400,10 +402,10 @@ class GithubClient:
         results: dict[str, tuple[GithubPR, ...]] = {}
         for chunk in _chunked(refs, size=_GRAPHQL_PR_BATCH_SIZE):
             aliases = {f"{kind}_{index}": ref for index, ref in enumerate(chunk)}
-            query = _open_prs_by_ref_query(aliases, base=base)
+            query, ref_variables = _open_prs_by_ref_query(aliases, base=base)
             payload = await self._graphql_query(
                 query,
-                variables=self._repo_variables,
+                variables={**self._repo_variables, **ref_variables},
                 response_name=response_name,
             )
             repo = _graphql_repo_payload(
@@ -468,9 +470,10 @@ class GithubClient:
                 (number, None) for number in chunk
             )
             while pending:
+                query, cursor_variables = _pr_issue_comments_query(pending)
                 payload = await self._graphql_query(
-                    _pr_issue_comments_query(pending),
-                    variables=self._repo_variables,
+                    query,
+                    variables={**self._repo_variables, **cursor_variables},
                     response_name="pull request issue comment lookup",
                 )
                 repo = _graphql_repo_payload(
@@ -935,24 +938,32 @@ def _prs_by_number_query(numbers: Sequence[int]) -> str:
     )
 
 
-def _branch_targets_query(branches: Sequence[str]) -> str:
-    selections = "\n\n".join(
-        _graphql_document(
-            f"""
-            branch_{index}: ref(qualifiedName: {json.dumps(f"refs/heads/{branch}")}) {{
-              name
-              prefix
-              target {{
-                oid
-              }}
-            }}
-            """
-        ).strip()
-        for index, branch in enumerate(branches)
-    )
-    return _repo_graphql_query(
-        operation_name="BranchTargets",
-        selections=selections,
+def _branch_targets_query(branches: Sequence[str]) -> tuple[str, dict[str, str]]:
+    variables: dict[str, str] = {}
+    selections: list[str] = []
+    for index, branch in enumerate(branches):
+        name = f"qualified_{index}"
+        variables[name] = f"refs/heads/{branch}"
+        selections.append(
+            _graphql_document(
+                f"""
+                branch_{index}: ref(qualifiedName: ${name}) {{
+                  name
+                  prefix
+                  target {{
+                    oid
+                  }}
+                }}
+                """
+            ).strip()
+        )
+    return (
+        _repo_graphql_query(
+            operation_name="BranchTargets",
+            selections="\n\n".join(selections),
+            string_variables=tuple(variables),
+        ),
+        variables,
     )
 
 
@@ -961,71 +972,102 @@ def _branch_targets_by_suffix_query(
     after_cursors: Sequence[str | None],
     branch_prefix: str,
     suffixes: Sequence[str],
-) -> str:
-    ref_prefix = f"refs/heads/{branch_prefix}"
-    selections = "\n\n".join(
-        _graphql_document(
-            f"""
-            suffix_{index}: refs(
-              {f"after: {json.dumps(cursor)}," if cursor is not None else ""}
-              first: 100,
-              query: {json.dumps(suffix)},
-              refPrefix: {json.dumps(ref_prefix)}
-            ) {{
-              nodes {{
-                name
-                prefix
-                target {{
-                  oid
+) -> tuple[str, dict[str, str]]:
+    variables: dict[str, str] = {"ref_prefix": f"refs/heads/{branch_prefix}"}
+    selections: list[str] = []
+    for index, (suffix, cursor) in enumerate(zip(suffixes, after_cursors, strict=True)):
+        suffix_name = f"suffix_{index}"
+        after = ""
+        if cursor is not None:
+            cursor_name = f"cursor_{index}"
+            variables[cursor_name] = cursor
+            after = f"after: ${cursor_name},"
+        variables[suffix_name] = suffix
+        selections.append(
+            _graphql_document(
+                f"""
+                suffix_{index}: refs(
+                  {after}
+                  first: 100,
+                  query: ${suffix_name},
+                  refPrefix: $ref_prefix
+                ) {{
+                  nodes {{
+                    name
+                    prefix
+                    target {{
+                      oid
+                    }}
+                  }}
+                  pageInfo {{
+                    endCursor
+                    hasNextPage
+                  }}
                 }}
-              }}
-              pageInfo {{
-                endCursor
-                hasNextPage
-              }}
-            }}
-            """
-        ).strip()
-        for index, (suffix, cursor) in enumerate(zip(suffixes, after_cursors, strict=True))
-    )
-    return _repo_graphql_query(
-        operation_name="BranchTargetsBySuffix",
-        selections=selections,
+                """
+            ).strip()
+        )
+    return (
+        _repo_graphql_query(
+            operation_name="BranchTargetsBySuffix",
+            selections="\n\n".join(selections),
+            string_variables=tuple(variables),
+        ),
+        variables,
     )
 
 
-def _open_prs_by_ref_query(aliases: dict[str, str], *, base: bool) -> str:
+def _open_prs_by_ref_query(
+    aliases: dict[str, str],
+    *,
+    base: bool,
+) -> tuple[str, dict[str, str]]:
     first = 100 if base else 2
     operation_name = "OpenPullRequestsByBaseRef" if base else "OpenPullRequestsByHeadRef"
     ref_argument = "baseRefName" if base else "headRefName"
-    selections = "\n\n".join(
-        _graphql_document(
-            f"""
-            {alias}: pullRequests(
-              first: {first},
-              states: [OPEN],
-              {ref_argument}: {json.dumps(ref)}
-            ) {{
-              nodes {{
-                ...PullRequestFields
-              }}
-            }}
-            """
-        ).strip()
-        for alias, ref in aliases.items()
-    )
-    return _with_pr_fields_fragment(
-        _repo_graphql_query(
-            operation_name=operation_name,
-            selections=selections,
+    variables: dict[str, str] = {}
+    selections: list[str] = []
+    for index, (alias, ref) in enumerate(aliases.items()):
+        name = f"ref_{index}"
+        variables[name] = ref
+        selections.append(
+            _graphql_document(
+                f"""
+                {alias}: pullRequests(
+                  first: {first},
+                  states: [OPEN],
+                  {ref_argument}: ${name}
+                ) {{
+                  nodes {{
+                    ...PullRequestFields
+                  }}
+                }}
+                """
+            ).strip()
         )
+    return (
+        _with_pr_fields_fragment(
+            _repo_graphql_query(
+                operation_name=operation_name,
+                selections="\n\n".join(selections),
+                string_variables=tuple(variables),
+            )
+        ),
+        variables,
     )
 
 
-def _pr_issue_comments_query(requests: Sequence[tuple[int, str | None]]) -> str:
+def _pr_issue_comments_query(
+    requests: Sequence[tuple[int, str | None]],
+) -> tuple[str, dict[str, str]]:
+    variables: dict[str, str] = {}
     selections: list[str] = []
     for number, cursor in requests:
-        after = f", after: {json.dumps(cursor)}" if cursor is not None else ""
+        after = ""
+        if cursor is not None:
+            name = f"cursor_{number}"
+            variables[name] = cursor
+            after = f", after: ${name}"
         selections.append(
             _graphql_document(
                 f"""
@@ -1044,9 +1086,13 @@ def _pr_issue_comments_query(requests: Sequence[tuple[int, str | None]]) -> str:
             """
             ).strip()
         )
-    return _repo_graphql_query(
-        operation_name="PullRequestIssueComments",
-        selections="\n\n".join(selections),
+    return (
+        _repo_graphql_query(
+            operation_name="PullRequestIssueComments",
+            selections="\n\n".join(selections),
+            string_variables=tuple(variables),
+        ),
+        variables,
     )
 
 
@@ -1138,10 +1184,22 @@ def _base_branch_merge_queue_query() -> str:
     )
 
 
-def _repo_graphql_query(*, operation_name: str, selections: str) -> str:
+def _repo_graphql_query(
+    *,
+    operation_name: str,
+    selections: str,
+    string_variables: Sequence[str] = (),
+) -> str:
+    declarations = ", ".join(
+        (
+            "$owner: String!",
+            "$repo: String!",
+            *(f"${name}: String!" for name in string_variables),
+        )
+    )
     return "\n".join(
         [
-            f"query {operation_name}($owner: String!, $repo: String!) {{",
+            f"query {operation_name}({declarations}) {{",
             "  repository(owner: $owner, name: $repo) {",
             indent(selections.rstrip(), "    "),
             "  }",

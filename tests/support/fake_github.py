@@ -997,6 +997,7 @@ def _register_graphql_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
                 "repository": _graphql_repo_payload(
                     query=query,
                     repo=repo,
+                    variables=raw_variables,
                     web_origin=fake_state.web_origin,
                 )
             }
@@ -1553,10 +1554,19 @@ def _require_graphql_variable(payload: dict[str, object], key: str) -> str:
     raise HTTPException(status_code=422, detail=f"Expected GraphQL variable {key!r}.")
 
 
+def _resolve_graphql_string(token: str, variables: dict[str, object]) -> str:
+    """Resolve one GraphQL string argument, either a $variable or a JSON literal."""
+
+    if token.startswith("$"):
+        return _require_graphql_variable(variables, token[1:])
+    return json.loads(token)
+
+
 def _graphql_repo_payload(
     *,
     query: str,
     repo: FakeGithubRepo,
+    variables: dict[str, object],
     web_origin: str,
 ) -> dict[str, object]:
     if "BaseBranchMergeQueue" in query:
@@ -1569,9 +1579,9 @@ def _graphql_repo_payload(
             },
         }
     if "BranchTargetsBySuffix" in query:
-        return _graphql_branch_targets_by_suffix(query=query, repo=repo)
+        return _graphql_branch_targets_by_suffix(query=query, repo=repo, variables=variables)
     if "BranchTargets" in query:
-        return _graphql_branch_targets(query=query, repo=repo)
+        return _graphql_branch_targets(query=query, repo=repo, variables=variables)
     lines = query.splitlines()
     ref_queries: list[tuple[str, str, str, int, frozenset[str]]] = []
     for index, line in enumerate(lines):
@@ -1597,10 +1607,16 @@ def _graphql_repo_payload(
                 )
             elif stripped_argument.startswith("headRefName:"):
                 ref_kind = "head"
-                ref_value = json.loads(stripped_argument.removeprefix("headRefName:").strip())
+                ref_value = _resolve_graphql_string(
+                    stripped_argument.removeprefix("headRefName:").strip(),
+                    variables,
+                )
             elif stripped_argument.startswith("baseRefName:"):
                 ref_kind = "base"
-                ref_value = json.loads(stripped_argument.removeprefix("baseRefName:").strip())
+                ref_value = _resolve_graphql_string(
+                    stripped_argument.removeprefix("baseRefName:").strip(),
+                    variables,
+                )
         if ref_kind is not None and ref_value is not None:
             ref_queries.append((alias, ref_kind, ref_value, first, states))
 
@@ -1677,15 +1693,20 @@ def _graphql_repo_payload(
     return payload
 
 
-def _graphql_branch_targets(*, query: str, repo: FakeGithubRepo) -> dict[str, object]:
+def _graphql_branch_targets(
+    *,
+    query: str,
+    repo: FakeGithubRepo,
+    variables: dict[str, object],
+) -> dict[str, object]:
     payload: dict[str, object] = {}
     pattern = re.compile(
-        r'^\s*(branch_\d+): ref\(qualifiedName: ("(?:[^"\\]|\\.)*")\)',
+        r'^\s*(branch_\d+): ref\(qualifiedName: (\$.+?|"(?:[^"\\]|\\.)*")\)',
         re.MULTILINE,
     )
     for match in pattern.finditer(query):
         alias, encoded_ref = match.groups()
-        qualified_ref = json.loads(encoded_ref)
+        qualified_ref = _resolve_graphql_string(encoded_ref, variables)
         branch = qualified_ref.removeprefix("refs/heads/")
         target = repo.ref_target(branch)
         payload[alias] = (
@@ -1704,18 +1725,19 @@ def _graphql_branch_targets_by_suffix(
     *,
     query: str,
     repo: FakeGithubRepo,
+    variables: dict[str, object],
 ) -> dict[str, object]:
     payload: dict[str, object] = {}
     pattern = re.compile(
-        r"^\s*(suffix_\d+): refs\(\s*first: 100,\s*query: "
-        r'("(?:[^"\\]|\\.)*"),\s*refPrefix: ("(?:[^"\\]|\\.)*")\s*\)',
+        r"^\s*(suffix_\d+): refs\(\s*(?:after: \$.+?,\s*)?first: 100,\s*query: "
+        r'(\$.+?|"(?:[^"\\]|\\.)*"),\s*refPrefix: (\$.+?|"(?:[^"\\]|\\.)*")\s*\)',
         re.MULTILINE,
     )
     heads = repo.branch_heads()
     for match in pattern.finditer(query):
         alias, encoded_query, encoded_prefix = match.groups()
-        name_query = json.loads(encoded_query)
-        ref_prefix = json.loads(encoded_prefix)
+        name_query = _resolve_graphql_string(encoded_query, variables)
+        ref_prefix = _resolve_graphql_string(encoded_prefix, variables)
         nodes = [
             {
                 "name": qualified.removeprefix(ref_prefix),
