@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: Set repo defaults, authentication, PR branch names, and shell completion.
+description: Set repo defaults, Git remote selection, authentication, and shell completion.
 navGroup: Look things up
 weight: 90
 ---
@@ -39,6 +39,15 @@ Set a different prefix before the first submit:
 ```console
 jj config set --repo jj-stack.branch_prefix my-prs
 ```
+
+## Git remote
+
+jj-stack uses the `origin` remote when it exists, or the repo's only Git remote otherwise. The
+remote's fetch and push URLs must contain the same `owner/repo` path.
+
+jj-stack intentionally does not check the remote URL's hostname. This allows SSH hostname aliases
+such as `git@github-work:owner/repo.git`. Configure any such alias to connect to `github.com`:
+jj-stack always uses GitHub's public API for the `owner/repo` path from the remote URL.
 
 ## Authentication
 

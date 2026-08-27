@@ -120,7 +120,7 @@ merge queues, cleanup, and working with multiple stacks.
 - [Configuration](https://www.serpentine.com/software/jj-stack/reference/configuration/)
 - [Writing PR descriptions](https://www.serpentine.com/software/jj-stack/reference/descriptions/)
 - [Troubleshooting](https://www.serpentine.com/software/jj-stack/troubleshooting/)
-- [`jj-stack` and `gh stack`](https://www.serpentine.com/software/jj-stack/gh-stack/)
+- [Tool comparison](https://www.serpentine.com/software/jj-stack/tool-comparison/)
 - [JSON output](https://www.serpentine.com/software/jj-stack/reference/json-output/)
 - [Automation and exit codes](https://www.serpentine.com/software/jj-stack/reference/automation/)
 

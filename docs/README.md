@@ -28,7 +28,7 @@ web navigation and presentation.
 - [Automation and agents](reference/automation.md)
 - [JSON output](reference/json-output.md)
 - [Troubleshooting](troubleshooting.md)
-- [`jj-stack` and `gh stack`](gh-stack.md)
+- [Compare `jj-stack` with other tools](tool-comparison.md)
 
 The built-in help is the exact flag and alias reference:
 
