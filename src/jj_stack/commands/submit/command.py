@@ -527,11 +527,19 @@ async def _apply_planned_submit(
             plan=github_stack_plan,
             pr_numbers=pr_numbers,
         )
+        submitted_force_pushes_by_pr = {
+            pr_number: (expected_target, change.prepared.change.commit_id)
+            for change, pr_number in zip(submitted, pr_numbers, strict=True)
+            if change.pr_action != "created"
+            and change.prepared.remote_action == "pushed"
+            and (expected_target := change.prepared.expected_remote_target) is not None
+        }
         await sync_submit_comments(
             concurrency=DEFAULT_BOUNDED_CONCURRENCY,
             generated_stack_description=prepared_inputs.generated_stack_description,
             github_client=github_client,
             pr_numbers=pr_numbers,
+            submitted_force_pushes_by_pr=submitted_force_pushes_by_pr,
         )
     return submitted
 

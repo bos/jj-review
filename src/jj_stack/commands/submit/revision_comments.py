@@ -12,6 +12,7 @@ from jj_stack.models.github import GithubIssueComment, GithubPRRevision
 REVISION_HISTORY_COMMENT_LABEL = "revision history comment"
 REVISION_HISTORY_COMMENT_MARKER = "<!-- jj-stack-revision-history -->"
 REVISION_HISTORY_VERSION_LIMIT = 20
+type SubmittedForcePush = tuple[str, str]
 
 
 async def sync_revision_history_comments(
@@ -21,6 +22,7 @@ async def sync_revision_history_comments(
     revisions_by_pr: dict[int, tuple[GithubPRRevision, ...]],
     github_client: GithubClient,
     pr_numbers: tuple[int, ...],
+    submitted_force_pushes_by_pr: dict[int, SubmittedForcePush],
 ) -> None:
     """Rebuild each selected PR's managed revision history from GitHub's timeline."""
 
@@ -33,9 +35,12 @@ async def sync_revision_history_comments(
             items=pr_numbers,
             run_item=lambda pr_number: _sync_revision_history_comment(
                 existing_comment=comments_by_pr_number[pr_number],
-                revisions=revisions_by_pr[pr_number],
                 github_client=github_client,
                 pr_number=pr_number,
+                revisions=_include_submitted_force_push(
+                    revisions_by_pr[pr_number],
+                    submitted_force_pushes_by_pr.get(pr_number),
+                ),
             ),
             on_success=lambda _index, _result: progress.advance(),
         )
@@ -72,6 +77,36 @@ async def _sync_revision_history_comment(
         raise CliError(
             t"Could not {action} a {REVISION_HISTORY_COMMENT_LABEL} for pull request {pr_label}"
         ) from error
+
+
+def _include_submitted_force_push(
+    revisions: tuple[GithubPRRevision, ...],
+    submitted_force_push: SubmittedForcePush | None,
+) -> tuple[GithubPRRevision, ...]:
+    """Fill a just-pushed revision that GitHub has not indexed yet."""
+
+    if submitted_force_push is None:
+        return revisions
+    before_commit_id, commit_id = submitted_force_push
+    if any(
+        revision.before_commit_id == before_commit_id and revision.commit_id == commit_id
+        for revision in revisions
+    ):
+        return revisions
+    if revisions and revisions[-1].commit_id != before_commit_id:
+        return revisions
+    prior_revisions = tuple(
+        revision.model_copy(update={"is_current": False}) for revision in revisions
+    )
+    return (
+        *prior_revisions,
+        GithubPRRevision(
+            before_commit_id=before_commit_id,
+            commit_id=commit_id,
+            is_current=True,
+            version=revisions[-1].version + 1 if revisions else 2,
+        ),
+    )
 
 
 def _revision_history_body(

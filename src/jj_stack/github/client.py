@@ -136,8 +136,8 @@ class _GraphqlForcePushEvent(BaseModel):
 class _GraphqlTimelineItemConnection(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    filtered_count: int = Field(alias="filteredCount")
     nodes: tuple[_GraphqlForcePushEvent | None, ...] | None = None
-    total_count: int = Field(alias="totalCount")
 
 
 class _GraphqlPRHistory(BaseModel):
@@ -1176,13 +1176,13 @@ def _pr_history_query(
                       last: {revision_limit},
                       itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]
                     ) {{
+                      filteredCount
                       nodes {{
                         ... on HeadRefForcePushedEvent {{
                           afterCommit {{ oid }}
                           beforeCommit {{ oid }}
                         }}
                       }}
-                      totalCount
                     }}
                     """
                 ).strip()
@@ -1443,7 +1443,7 @@ def _revisions_from_graphql(
             before_commit_id=event.before_commit.oid,
             commit_id=event.after_commit.oid,
             is_current=index == len(nodes) - 1,
-            version=timeline.total_count - len(nodes) + index + 2,
+            version=timeline.filtered_count - len(nodes) + index + 2,
         )
         for index, event in enumerate(nodes)
         if event is not None

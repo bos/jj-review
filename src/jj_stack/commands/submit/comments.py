@@ -12,6 +12,7 @@ from .overview_comments import sync_stack_overview_comments
 from .revision_comments import (
     REVISION_HISTORY_COMMENT_MARKER,
     REVISION_HISTORY_VERSION_LIMIT,
+    SubmittedForcePush,
     sync_revision_history_comments,
 )
 
@@ -22,6 +23,7 @@ async def sync_submit_comments(
     generated_stack_description: GeneratedDescription | None,
     github_client: GithubClient,
     pr_numbers: tuple[int, ...],
+    submitted_force_pushes_by_pr: dict[int, SubmittedForcePush],
 ) -> None:
     """Observe both comment kinds in one batch, then synchronize them."""
 
@@ -53,7 +55,8 @@ async def sync_submit_comments(
     await sync_revision_history_comments(
         comments_by_pr_number=comments_by_marker[REVISION_HISTORY_COMMENT_MARKER],
         concurrency=concurrency,
-        revisions_by_pr=revisions_by_pr,
         github_client=github_client,
         pr_numbers=pr_numbers,
+        revisions_by_pr=revisions_by_pr,
+        submitted_force_pushes_by_pr=submitted_force_pushes_by_pr,
     )

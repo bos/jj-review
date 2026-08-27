@@ -580,6 +580,8 @@ def test_github_client_paginates_comments_and_skips_unavailable_revisions() -> N
             assert "timelineItems(" not in payload["query"]
         else:
             assert "itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]" in payload["query"]
+            assert "filteredCount" in payload["query"]
+            assert "totalCount" not in payload["query"]
         pr_payload: dict[str, object] = {
             "comments": {
                 "nodes": [
@@ -598,6 +600,7 @@ def test_github_client_paginates_comments_and_skips_unavailable_revisions() -> N
         }
         if not next_page:
             pr_payload["timelineItems"] = {
+                "filteredCount": 4,
                 "nodes": [
                     {
                         "afterCommit": {"oid": "22222222"},
@@ -616,7 +619,6 @@ def test_github_client_paginates_comments_and_skips_unavailable_revisions() -> N
                         "beforeCommit": {"oid": "44444444"},
                     },
                 ],
-                "totalCount": 4,
             }
         return httpxyz.Response(
             200,

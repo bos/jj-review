@@ -1601,7 +1601,7 @@ def test_submit_single_change_clears_stale_stack_overview_comment(
     assert issue_comments(fake_repo, 1) == []
 
 
-def test_submit_creates_and_updates_one_revision_history_comment_after_rewrites(
+def test_submit_revision_history_uses_submitted_push_while_github_timeline_lags(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1624,6 +1624,7 @@ def test_submit_creates_and_updates_one_revision_history_comment_after_rewrites(
     assert "| 2 (current) |" in first_body
     assert f"/compare/{first_commit}..{second_commit}" in first_body
 
+    fake_repo.pr_force_push_history_lag.add(1)
     run_command(["jj", "describe", "-r", change_id, "-m", "feature revision 3"], repo)
     assert run_main(repo, config_path, "submit", change_id) == 0
     capsys.readouterr()
