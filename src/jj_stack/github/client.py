@@ -20,6 +20,7 @@ from jj_stack.models.github import (
     GithubIssueComment,
     GithubPR,
     GithubPRReview,
+    GithubPRRevision,
     GithubRepo,
     GithubStack,
     GithubStackMerge,
@@ -125,8 +126,28 @@ class _GraphqlIssueCommentConnection(BaseModel):
     page_info: _GraphqlPageInfo = Field(alias="pageInfo")
 
 
-class _GraphqlIssueCommentsPR(BaseModel):
+class _GraphqlForcePushEvent(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    after_commit: _GraphqlGitObject | None = Field(default=None, alias="afterCommit")
+    before_commit: _GraphqlGitObject | None = Field(default=None, alias="beforeCommit")
+
+
+class _GraphqlTimelineItemConnection(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    nodes: tuple[_GraphqlForcePushEvent | None, ...] | None = None
+    total_count: int = Field(alias="totalCount")
+
+
+class _GraphqlPRHistory(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     comments: _GraphqlIssueCommentConnection | None = None
+    timeline_items: _GraphqlTimelineItemConnection | None = Field(
+        default=None,
+        alias="timelineItems",
+    )
 
 
 class GithubClient:
@@ -460,44 +481,99 @@ class GithubClient:
         body_marker: str,
         pr_numbers: Sequence[int],
     ) -> dict[int, GithubIssueComment | None]:
-        numbers = sorted(set(pr_numbers))
-        if not numbers:
-            return {}
+        comments_by_marker, _revisions = await self._get_pr_history(
+            body_markers=(body_marker,),
+            pr_numbers=pr_numbers,
+            revision_limit=None,
+        )
+        return comments_by_marker[body_marker]
 
-        results: dict[int, GithubIssueComment | None] = {number: None for number in numbers}
+    async def find_issue_comments_and_revisions(
+        self,
+        *,
+        body_markers: Sequence[str],
+        pr_numbers: Sequence[int],
+        revision_limit: int,
+    ) -> tuple[
+        dict[str, dict[int, GithubIssueComment | None]],
+        dict[int, tuple[GithubPRRevision, ...]],
+    ]:
+        """Batch managed-comment lookups with recent PR revisions."""
+
+        return await self._get_pr_history(
+            body_markers=body_markers,
+            pr_numbers=pr_numbers,
+            revision_limit=revision_limit,
+        )
+
+    async def _get_pr_history(
+        self,
+        *,
+        body_markers: Sequence[str],
+        pr_numbers: Sequence[int],
+        revision_limit: int | None,
+    ) -> tuple[
+        dict[str, dict[int, GithubIssueComment | None]],
+        dict[int, tuple[GithubPRRevision, ...]],
+    ]:
+        numbers = sorted(set(pr_numbers))
+        markers = tuple(dict.fromkeys(body_markers))
+        comments_by_marker: dict[str, dict[int, GithubIssueComment | None]] = {
+            marker: {number: None for number in numbers} for marker in markers
+        }
+        revisions_by_pr: dict[int, tuple[GithubPRRevision, ...]] = {
+            number: () for number in numbers
+        }
         for chunk in _chunked(numbers, size=_GRAPHQL_PR_BATCH_SIZE):
-            pending: tuple[tuple[int, str | None], ...] = tuple(
-                (number, None) for number in chunk
+            pending_comments: dict[int, str | None] = (
+                {number: None for number in chunk} if markers else {}
             )
-            while pending:
-                query, cursor_variables = _pr_issue_comments_query(pending)
+            pending_revisions = set(chunk) if revision_limit is not None else set()
+            while pending_comments or pending_revisions:
+                request_numbers = sorted(pending_comments.keys() | pending_revisions)
+                query, cursor_variables = _pr_history_query(
+                    comments_cursors=pending_comments,
+                    revision_limit=revision_limit,
+                    revision_pr_numbers=pending_revisions,
+                )
                 payload = await self._graphql_query(
                     query,
                     variables={**self._repo_variables, **cursor_variables},
-                    response_name="pull request issue comment lookup",
+                    response_name="pull request history lookup",
                 )
                 repo = _graphql_repo_payload(
                     payload,
-                    response_name="pull request issue comment lookup",
+                    response_name="pull request history lookup",
                 )
-                next_page: list[tuple[int, str]] = []
-                for number, _cursor in pending:
-                    comments, cursor = _issue_comments_from_graphql(
-                        alias=f"pr_{number}",
-                        raw_pr=repo.get(f"pr_{number}"),
-                        response_name="pull request issue comment lookup",
-                    )
-                    results[number] = next(
-                        (comment for comment in comments if body_marker in comment.body),
-                        None,
-                    )
-                    # Racing commands could create duplicate marker comments. The first match is
-                    # authoritative; detecting that harmless, improbable race is not worth
-                    # scanning later pages.
-                    if results[number] is None and cursor is not None:
-                        next_page.append((number, cursor))
-                pending = tuple(next_page)
-        return results
+                for number in request_numbers:
+                    alias = f"pr_{number}"
+                    raw_pr = repo.get(alias)
+                    if number in pending_comments:
+                        comments, cursor = _issue_comments_from_graphql(
+                            alias=alias,
+                            raw_pr=raw_pr,
+                            response_name="pull request history lookup",
+                        )
+                        for marker in markers:
+                            if comments_by_marker[marker][number] is None:
+                                comments_by_marker[marker][number] = next(
+                                    (comment for comment in comments if marker in comment.body),
+                                    None,
+                                )
+                        if cursor is None or all(
+                            comments_by_marker[marker][number] is not None for marker in markers
+                        ):
+                            pending_comments.pop(number)
+                        else:
+                            pending_comments[number] = cursor
+                    if number in pending_revisions:
+                        revisions_by_pr[number] = _revisions_from_graphql(
+                            alias=alias,
+                            raw_pr=raw_pr,
+                            response_name="pull request history lookup",
+                        )
+                        pending_revisions.remove(number)
+        return comments_by_marker, revisions_by_pr
 
     async def create_issue_comment(
         self,
@@ -1057,38 +1133,72 @@ def _open_prs_by_ref_query(
     )
 
 
-def _pr_issue_comments_query(
-    requests: Sequence[tuple[int, str | None]],
+def _pr_history_query(
+    *,
+    comments_cursors: dict[int, str | None],
+    revision_limit: int | None,
+    revision_pr_numbers: set[int],
 ) -> tuple[str, dict[str, str]]:
     variables: dict[str, str] = {}
     selections: list[str] = []
-    for number, cursor in requests:
-        after = ""
-        if cursor is not None:
-            name = f"cursor_{number}"
-            variables[name] = cursor
-            after = f", after: ${name}"
+    numbers = sorted(comments_cursors.keys() | revision_pr_numbers)
+    for number in numbers:
+        fields: list[str] = []
+        if number in comments_cursors:
+            comments_after = ""
+            if (comments_cursor := comments_cursors[number]) is not None:
+                name = f"comments_cursor_{number}"
+                variables[name] = comments_cursor
+                comments_after = f", after: ${name}"
+            fields.append(
+                _graphql_document(
+                    f"""
+                    comments(first: 100{comments_after}) {{
+                      nodes {{
+                        databaseId
+                        body
+                      }}
+                      pageInfo {{
+                        endCursor
+                        hasNextPage
+                      }}
+                    }}
+                    """
+                ).strip()
+            )
+        if number in revision_pr_numbers:
+            if revision_limit is None:
+                raise AssertionError("Revision requests require a revision limit.")
+            fields.append(
+                _graphql_document(
+                    f"""
+                    timelineItems(
+                      last: {revision_limit},
+                      itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]
+                    ) {{
+                      nodes {{
+                        ... on HeadRefForcePushedEvent {{
+                          afterCommit {{ oid }}
+                          beforeCommit {{ oid }}
+                        }}
+                      }}
+                      totalCount
+                    }}
+                    """
+                ).strip()
+            )
         selections.append(
-            _graphql_document(
-                f"""
-            pr_{number}: pullRequest(number: {number}) {{
-              comments(first: 100{after}) {{
-                nodes {{
-                  databaseId
-                  body
-                }}
-                pageInfo {{
-                  endCursor
-                  hasNextPage
-                }}
-              }}
-            }}
-            """
-            ).strip()
+            "\n".join(
+                (
+                    f"pr_{number}: pullRequest(number: {number}) {{",
+                    indent("\n".join(fields), "  "),
+                    "}",
+                )
+            )
         )
     return (
         _repo_graphql_query(
-            operation_name="PullRequestIssueComments",
+            operation_name="PullRequestHistory",
             selections="\n\n".join(selections),
             string_variables=tuple(variables),
         ),
@@ -1290,7 +1400,7 @@ def _issue_comments_from_graphql(
         return (), None
     parsed = _validate_graphql_model(
         raw_pr,
-        model=_GraphqlIssueCommentsPR,
+        model=_GraphqlPRHistory,
         error_message=(
             f"GitHub {response_name} response had invalid pull request payload for {alias}."
         ),
@@ -1307,6 +1417,39 @@ def _issue_comments_from_graphql(
             f"GitHub {response_name} response had no page cursor for {alias}."
         )
     return valid_comments, cursor
+
+
+def _revisions_from_graphql(
+    *,
+    alias: str,
+    raw_pr: object,
+    response_name: str,
+) -> tuple[GithubPRRevision, ...]:
+    if raw_pr is None:
+        return ()
+    parsed = _validate_graphql_model(
+        raw_pr,
+        model=_GraphqlPRHistory,
+        error_message=(
+            f"GitHub {response_name} response had invalid pull request payload for {alias}."
+        ),
+    )
+    timeline = parsed.timeline_items
+    if timeline is None:
+        return ()
+    nodes = timeline.nodes or ()
+    return tuple(
+        GithubPRRevision(
+            before_commit_id=event.before_commit.oid,
+            commit_id=event.after_commit.oid,
+            is_current=index == len(nodes) - 1,
+            version=timeline.total_count - len(nodes) + index + 2,
+        )
+        for index, event in enumerate(nodes)
+        if event is not None
+        and event.before_commit is not None
+        and event.after_commit is not None
+    )
 
 
 def _validate_stack_payload(payload: object, *, response_name: str) -> GithubStack:

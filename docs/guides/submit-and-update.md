@@ -78,6 +78,12 @@ previously approved or asked for changes (i.e. revoking the approved state of yo
 jj-stack submit --re-request
 ```
 
+## PR history
+
+To make it easier for a reader to understand how a pull request has changed over time, when you
+run `submit` to update a PR that you have submitted before, `jj-stack` will keep a comment up to
+date on the PR that shows its most recent versions, with a link to the diff for each update.
+
 ## What the `submit` command changes
 
 | Surface | Effect |
@@ -86,6 +92,7 @@ jj-stack submit --re-request
 | PR branches | Created or updated |
 | Pull requests | Created or updated |
 | Pull request order | Updated to match the local change order |
+| Pull request comments | Revision history maintained |
 | Other local stacks | Not changed |
 
 With `jj`, you can easily move your changes between existing stacks. However, GitHub allows each

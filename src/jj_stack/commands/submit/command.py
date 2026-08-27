@@ -82,6 +82,7 @@ from jj_stack.state.operation_lock import acquire_operation_lock
 from . import auto_close
 from .auto_close import retarget_pr_bases_before_branch_push
 from .changes import prepare_submit_changes
+from .comments import sync_submit_comments
 from .descriptions import edit_prs_in_editor, preserve_external_pr_text
 from .github_stack import (
     GithubStackPlan,
@@ -102,7 +103,6 @@ from .models import (
     SubmitResult,
     SubmittedChange,
 )
-from .overview_comments import sync_stack_overview_comments
 from .prs import (
     discover_prs_by_branch,
     ensure_pr_link_is_consistent,
@@ -527,7 +527,7 @@ async def _apply_planned_submit(
             plan=github_stack_plan,
             pr_numbers=pr_numbers,
         )
-        await sync_stack_overview_comments(
+        await sync_submit_comments(
             concurrency=DEFAULT_BOUNDED_CONCURRENCY,
             generated_stack_description=prepared_inputs.generated_stack_description,
             github_client=github_client,

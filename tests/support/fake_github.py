@@ -109,6 +109,13 @@ class FakeGithubPR:
 
     def _refresh_head_sha(self, repo: FakeGithubRepo) -> None:
         if current_head := repo.ref_target(self.head_ref):
+            if current_head != self.head_sha and not repo.is_ancestor(
+                self.head_sha,
+                current_head,
+            ):
+                repo.pr_force_pushes.setdefault(self.number, []).append(
+                    (self.head_sha, current_head)
+                )
             self.head_sha = current_head
 
 
@@ -200,6 +207,7 @@ class FakeGithubRepo:
     issue_comments: dict[int, list[FakeGithubIssueComment]] = field(default_factory=dict)
     github_stacks: dict[int, tuple[int, ...]] = field(default_factory=dict)
     pr_events: list[FakeGithubPREvent] = field(default_factory=list)
+    pr_force_pushes: dict[int, list[tuple[str, str]]] = field(default_factory=dict)
     prs: dict[int, FakeGithubPR] = field(default_factory=dict)
     pr_reviews: dict[int, list[FakeGithubPRReview]] = field(default_factory=dict)
     # Test hook: PR numbers GitHub should report as not mergeable (pending
@@ -1692,6 +1700,17 @@ def _graphql_repo_payload(
                     )
                 ],
                 "pageInfo": {"hasNextPage": False},
+            }
+        if "timelineItems(" in query:
+            graphql_payload["timelineItems"] = {
+                "nodes": [
+                    {
+                        "afterCommit": {"oid": after},
+                        "beforeCommit": {"oid": before},
+                    }
+                    for before, after in repo.pr_force_pushes.get(pr_number, ())
+                ],
+                "totalCount": len(repo.pr_force_pushes.get(pr_number, ())),
             }
         payload[alias] = graphql_payload
     return payload

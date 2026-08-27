@@ -212,6 +212,15 @@ class GithubIssueComment(BaseModel):
     id: int = Field(alias="databaseId")
 
 
+class GithubPRRevision(BaseModel):
+    """One available pull request revision observed from a force push."""
+
+    before_commit_id: str
+    commit_id: str
+    is_current: bool
+    version: int
+
+
 def _graphql_head_label(raw_pr: Mapping[str, object]) -> str | None:
     try:
         parts = _GraphqlHeadLabelParts.model_validate(raw_pr)

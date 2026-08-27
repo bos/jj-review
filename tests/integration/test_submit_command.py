@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from jj_stack.commands.submit.revision_comments import REVISION_HISTORY_COMMENT_MARKER
 from jj_stack.errors import EXIT_CONFLICTS, EXIT_GITHUB, EXIT_INCOMPLETE, EXIT_USAGE
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_MARKER
@@ -43,6 +44,14 @@ def _overview_comments(fake_repo, issue_number: int):
         comment
         for comment in issue_comments(fake_repo, issue_number)
         if STACK_OVERVIEW_COMMENT_MARKER in comment.body
+    ]
+
+
+def _revision_history_comments(fake_repo, issue_number: int):
+    return [
+        comment
+        for comment in issue_comments(fake_repo, issue_number)
+        if REVISION_HISTORY_COMMENT_MARKER in comment.body
     ]
 
 
@@ -1590,6 +1599,45 @@ def test_submit_single_change_clears_stale_stack_overview_comment(
     capsys.readouterr()
 
     assert issue_comments(fake_repo, 1) == []
+
+
+def test_submit_creates_and_updates_one_revision_history_comment_after_rewrites(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    state = TrackingStore.for_repo(repo).load()
+    change_id = next(iter(state.pr_identities))
+    first_commit = state.submitted_baselines[change_id].commit_id
+    assert _revision_history_comments(fake_repo, 1) == []
+
+    run_command(["jj", "describe", "-r", change_id, "-m", "feature revision 2"], repo)
+    assert run_main(repo, config_path, "submit", change_id) == 0
+    capsys.readouterr()
+    second_commit = TrackingStore.for_repo(repo).load().submitted_baselines[change_id].commit_id
+    first_comments = _revision_history_comments(fake_repo, 1)
+    assert len(first_comments) == 1
+    first_comment = first_comments[0]
+    first_body = first_comment.body
+    assert "| 2 (current) |" in first_body
+    assert f"/compare/{first_commit}..{second_commit}" in first_body
+
+    run_command(["jj", "describe", "-r", change_id, "-m", "feature revision 3"], repo)
+    assert run_main(repo, config_path, "submit", change_id) == 0
+    capsys.readouterr()
+    third_commit = TrackingStore.for_repo(repo).load().submitted_baselines[change_id].commit_id
+    comments = _revision_history_comments(fake_repo, 1)
+
+    assert len(comments) == 1
+    assert comments[0].id == first_comment.id
+    body = comments[0].body
+    assert body != first_body
+    assert body.index("| 3 (current) |") < body.index("| 2 |") < body.index("| 1 |")
+    assert f"/compare/{second_commit}..{third_commit}" in body
+    assert f"/compare/{first_commit}..{second_commit}" in body
+    assert f"/commit/{third_commit}" in body
 
 
 def test_submit_reports_stack_overview_comment_update_failures_without_traceback(

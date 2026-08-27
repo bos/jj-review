@@ -18,23 +18,13 @@ from .models import GeneratedDescription
 
 async def sync_stack_overview_comments(
     *,
+    comments_by_pr_number: dict[int, GithubIssueComment | None],
     concurrency: int,
     generated_stack_description: GeneratedDescription | None,
     github_client: GithubClient,
     pr_numbers: tuple[int, ...],
 ) -> None:
     """Synchronize the supplied stack-overview responsibilities."""
-
-    if not pr_numbers:
-        return
-    with console.spinner(description="Loading stack overview comments"):
-        try:
-            comments_by_pr_number = await github_client.find_issue_comments_by_body_marker(
-                body_marker=STACK_OVERVIEW_COMMENT_MARKER,
-                pr_numbers=pr_numbers,
-            )
-        except GithubClientError as error:
-            raise CliError("Could not list stack overview comments") from error
 
     overview_bodies = _stack_overview_comment_bodies(
         comments_by_pr_number=comments_by_pr_number,

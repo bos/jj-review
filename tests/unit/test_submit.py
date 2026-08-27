@@ -46,35 +46,6 @@ _REMOTE_URL = "https://github.test/octo-org/repo.git"
 _REMOTE = GitRemote(name="origin", fetch_url=_REMOTE_URL, push_url=_REMOTE_URL)
 
 
-def test_overview_comment_sync_batches_comment_reads() -> None:
-    class CommentClientStub(GithubClient):
-        def __init__(self) -> None:
-            self.comment_batches: list[tuple[int, ...]] = []
-
-        async def find_issue_comments_by_body_marker(
-            self,
-            *,
-            body_marker: str,
-            pr_numbers: Sequence[int],
-        ) -> dict[int, GithubIssueComment | None]:
-            assert body_marker == "<!-- jj-stack-overview -->"
-            self.comment_batches.append(tuple(pr_numbers))
-            return {number: None for number in pr_numbers}
-
-    client = CommentClientStub()
-
-    asyncio.run(
-        sync_stack_overview_comments(
-            concurrency=2,
-            generated_stack_description=None,
-            github_client=client,
-            pr_numbers=(1, 2),
-        )
-    )
-
-    assert client.comment_batches == [(1, 2)]
-
-
 def test_overview_comment_move_keeps_source_when_head_creation_fails() -> None:
     source_comment = GithubIssueComment(
         body="<!-- jj-stack-overview -->\nEdited",
@@ -113,6 +84,7 @@ def test_overview_comment_move_keeps_source_when_head_creation_fails() -> None:
     with pytest.raises(CliError, match="Could not create a stack overview comment"):
         asyncio.run(
             sync_stack_overview_comments(
+                comments_by_pr_number={1: source_comment, 2: None},
                 concurrency=2,
                 generated_stack_description=None,
                 github_client=client,

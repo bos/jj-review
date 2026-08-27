@@ -562,7 +562,7 @@ def test_github_client_batches_open_pr_lookup_by_head_ref_with_graphql() -> None
     )
 
 
-def test_github_client_paginates_issue_comments_with_graphql() -> None:
+def test_github_client_paginates_comments_and_skips_unavailable_revisions() -> None:
     queries: list[str] = []
 
     def handler(request: httpxyz.Request) -> httpxyz.Response:
@@ -574,47 +574,90 @@ def test_github_client_paginates_issue_comments_with_graphql() -> None:
         assert variables["repo"] == "stacked-prs"
         assert "pr_7: pullRequest(number: 7)" in payload["query"]
         assert "comments(first: 100" in payload["query"]
-        next_page = "after: $cursor_7" in payload["query"]
+        next_page = "after: $comments_cursor_7" in payload["query"]
         if next_page:
-            assert variables["cursor_7"] == "comments-1"
+            assert variables["comments_cursor_7"] == "comments-1"
+            assert "timelineItems(" not in payload["query"]
+        else:
+            assert "itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]" in payload["query"]
+        pr_payload: dict[str, object] = {
+            "comments": {
+                "nodes": [
+                    {
+                        "body": (
+                            "<!-- jj-stack-overview -->" if next_page else "ordinary comment"
+                        ),
+                        "databaseId": 71 if next_page else 70,
+                    }
+                ],
+                "pageInfo": {
+                    "endCursor": None if next_page else "comments-1",
+                    "hasNextPage": not next_page,
+                },
+            }
+        }
+        if not next_page:
+            pr_payload["timelineItems"] = {
+                "nodes": [
+                    {
+                        "afterCommit": {"oid": "22222222"},
+                        "beforeCommit": {"oid": "11111111"},
+                    },
+                    {
+                        "afterCommit": {"oid": "33333333"},
+                        "beforeCommit": None,
+                    },
+                    {
+                        "afterCommit": None,
+                        "beforeCommit": {"oid": "33333333"},
+                    },
+                    {
+                        "afterCommit": {"oid": "55555555"},
+                        "beforeCommit": {"oid": "44444444"},
+                    },
+                ],
+                "totalCount": 4,
+            }
         return httpxyz.Response(
             200,
             json={
                 "data": {
                     "repository": {
-                        "pr_7": {
-                            "comments": {
-                                "nodes": [
-                                    {
-                                        "body": (
-                                            "<!-- jj-stack-overview -->"
-                                            if next_page
-                                            else "ordinary comment"
-                                        ),
-                                        "databaseId": 71 if next_page else 70,
-                                    }
-                                ],
-                                "pageInfo": {
-                                    "endCursor": None if next_page else "comments-1",
-                                    "hasNextPage": not next_page,
-                                },
-                            }
-                        },
+                        "pr_7": pr_payload,
                     }
                 }
             },
             request=request,
         )
 
-    async def run_test() -> int | None:
+    async def run_test() -> tuple[int | None, list[tuple[int, str, str, bool]]]:
         async with _github_client(handler) as client:
-            comments = await client.find_issue_comments_by_body_marker(
-                body_marker="<!-- jj-stack-overview -->",
+            comments, revisions = await client.find_issue_comments_and_revisions(
+                body_markers=("<!-- jj-stack-overview -->",),
                 pr_numbers=(7,),
+                revision_limit=7,
             )
-        return comments[7].id if comments[7] is not None else None
+        comment = comments["<!-- jj-stack-overview -->"][7]
+        return (
+            comment.id if comment is not None else None,
+            [
+                (
+                    revision.version,
+                    revision.before_commit_id,
+                    revision.commit_id,
+                    revision.is_current,
+                )
+                for revision in revisions[7]
+            ],
+        )
 
-    assert asyncio.run(run_test()) == 71
+    assert asyncio.run(run_test()) == (
+        71,
+        [
+            (2, "11111111", "22222222", False),
+            (5, "44444444", "55555555", True),
+        ],
+    )
     assert len(queries) == 2
 
 
