@@ -13,7 +13,6 @@ from typing import Literal
 
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
-from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubPR
 from jj_stack.models.tracking import TrackedPR
 from jj_stack.ui import Message
@@ -79,7 +78,6 @@ def classify_exact_snapshot(
     ancestry: CommitAncestry,
     candidate: TrackedPR,
     pr: GithubPR,
-    repo: GithubRepoAddress,
 ) -> TrunkEvidence:
     """Classify the repo-wide exact-snapshot gate without lifecycle policy."""
 
@@ -87,7 +85,7 @@ def classify_exact_snapshot(
         return TrunkEvidence.unproven(
             _ancestry_reason(ancestry, candidate.submitted_baseline.commit_id)
         )
-    mismatch = _snapshot_mismatch(candidate, pr, repo)
+    mismatch = _snapshot_mismatch(candidate, pr)
     if mismatch is not None:
         return TrunkEvidence.unproven(mismatch, pr_mismatch=True)
     return TrunkEvidence.proven()
@@ -98,11 +96,10 @@ def classify_rewritten_result(
     candidate: TrackedPR,
     merge_result_ancestry: CommitAncestry | None,
     pr: GithubPR,
-    repo: GithubRepoAddress,
 ) -> TrunkEvidence:
     """Classify merge-result evidence for one currently selected pull request."""
 
-    mismatch = _snapshot_mismatch(candidate, pr, repo)
+    mismatch = _snapshot_mismatch(candidate, pr)
     if mismatch is not None:
         return TrunkEvidence.unproven(mismatch, pr_mismatch=True)
     lifecycle = pr.normalize_state().state
@@ -129,7 +126,6 @@ def classify_proven_kind(
     ancestries: Mapping[str, CommitAncestry],
     candidate: TrackedPR,
     pr: GithubPR,
-    repo: GithubRepoAddress,
 ) -> tuple[TrunkEvidenceKind | None, Message]:
     """Classify both proof routes from one previously batched ancestry observation."""
 
@@ -137,13 +133,11 @@ def classify_proven_kind(
         ancestry=ancestries[candidate.submitted_baseline.commit_id],
         candidate=candidate,
         pr=pr,
-        repo=repo,
     )
     rewritten = classify_rewritten_result(
         candidate=candidate,
         merge_result_ancestry=ancestries.get(pr.merge_commit_sha or ""),
         pr=pr,
-        repo=repo,
     )
     if exact.on_trunk:
         return "exact", ""
@@ -161,12 +155,11 @@ def _ancestry_reason(ancestry: CommitAncestry, commit_id: str) -> Message:
 def _snapshot_mismatch(
     candidate: TrackedPR,
     pr: GithubPR,
-    repo: GithubRepoAddress,
 ) -> Message | None:
-    if candidate.matches_snapshot(pr, repo_key=repo.repo_key):
+    if candidate.matches_snapshot(pr):
         return None
     identity = candidate.pr_identity
-    if identity.repo_key != repo.repo_key or not identity.matches_pr(pr):
+    if not identity.matches_pr(pr):
         return (
             t"PR #{pr.number} no longer matches the pull request recorded for "
             t"{ui.change_id(candidate.change_id)}"

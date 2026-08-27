@@ -102,18 +102,7 @@ def test_pr_branch_resolution_rejects_new_branch_claimed_by_another_stack() -> N
         ensure_new_pr_branches_unclaimed(
             resolutions,
             identities,
-            ("octo-org", "stacked-prs"),
         )
-
-    ensure_new_pr_branches_unclaimed(
-        resolutions,
-        {
-            existing_change_id: identities[existing_change_id].model_copy(
-                update={"repo_name": "another-repository"}
-            )
-        },
-        ("octo-org", "stacked-prs"),
-    )
 
 
 def _change(*, change_id: str, description: str) -> LocalCommit:

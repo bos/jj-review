@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 
-from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubBranchRef, GithubPR
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
@@ -13,10 +12,7 @@ def _candidate() -> TrackedPR:
     return TrackedPR(
         change_id="change-1",
         pr_identity=PRIdentity(
-            repo_owner="octo-org",
-            repo_name="stacked-prs",
             pr_number=1,
-            head_owner="octo-org",
             head_ref="jj-stack/change-1",
         ),
         submitted_baseline=SubmittedBaseline(commit_id="submitted-1"),
@@ -43,17 +39,15 @@ def _pr(**updates: object) -> GithubPR:
 @pytest.mark.merge_recovery
 def test_exact_snapshot_evidence_is_identity_and_ancestry_bound() -> None:
     rows = (
-        ("on_trunk", _pr(), "octo-org", True, False),
-        ("not_on_trunk", _pr(), "octo-org", False, False),
-        ("unresolved", _pr(), "octo-org", False, False),
+        ("on_trunk", _pr(), True, False),
+        ("not_on_trunk", _pr(), False, False),
+        ("unresolved", _pr(), False, False),
         (
             "on_trunk",
             _pr(head=GithubBranchRef(ref="other", sha="submitted-1")),
-            "octo-org",
             False,
             True,
         ),
-        ("on_trunk", _pr(), "other-org", False, True),
         (
             "on_trunk",
             _pr(
@@ -63,21 +57,16 @@ def test_exact_snapshot_evidence_is_identity_and_ancestry_bound() -> None:
                     sha="other",
                 )
             ),
-            "octo-org",
             False,
             True,
         ),
     )
 
-    for ancestry, pr, owner, on_trunk, pr_mismatch in rows:
+    for ancestry, pr, on_trunk, pr_mismatch in rows:
         result = classify_exact_snapshot(
             ancestry=ancestry,
             candidate=_candidate(),
             pr=pr,
-            repo=GithubRepoAddress(
-                owner=owner,
-                repo="stacked-prs",
-            ),
         )
 
         assert result.on_trunk is on_trunk
@@ -145,10 +134,6 @@ def test_rewritten_result_requires_a_reachable_concrete_merge_result() -> None:
             candidate=_candidate(),
             merge_result_ancestry=ancestry,
             pr=pr,
-            repo=GithubRepoAddress(
-                owner="octo-org",
-                repo="stacked-prs",
-            ),
         )
 
         assert result.on_trunk is on_trunk

@@ -210,21 +210,6 @@ def test_pr_link_rejects_missing_discovered_pr() -> None:
             change_id="abcdefghijk",
             discovered_pr=None,
             expected_remote_target="commit-17",
-            repo_key=("octo-org", "stacked-prs"),
-            tracked_pr=_tracked_pr(identity),
-        )
-
-
-def test_pr_link_rejects_a_saved_pr_from_another_repo() -> None:
-    identity = make_pr_identity(head_ref="jj-stack/foo-abcdefgh", pr_number=17)
-
-    with pytest.raises(CliError, match="belongs to a different GitHub repo"):
-        ensure_pr_link_is_consistent(
-            branch=identity.head_ref,
-            change_id="abcdefghijk",
-            discovered_pr=None,
-            expected_remote_target="commit-17",
-            repo_key=("octo-org", "other-repo"),
             tracked_pr=_tracked_pr(identity),
         )
 
@@ -243,7 +228,6 @@ def test_pr_link_rejects_remote_and_pr_head_mismatch() -> None:
             change_id="abcdefghijk",
             discovered_pr=pr,
             expected_remote_target="remote-commit",
-            repo_key=("octo-org", "stacked-prs"),
             tracked_pr=_tracked_pr(identity, commit_id="remote-commit"),
         )
 

@@ -6,7 +6,6 @@ from dataclasses import replace
 
 from jj_stack.bootstrap import CommandContext
 from jj_stack.github.client import GithubClient
-from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubStack
 from jj_stack.models.stack import LocalCommit
 from jj_stack.stack.pr_facts import (
@@ -23,7 +22,6 @@ async def complete_sync_observation(
     github: GithubClient,
     initial: RepoFacts,
     remote_name: str,
-    repo: GithubRepoAddress,
     selected: tuple[LocalCommit, ...],
     stacks: tuple[GithubStack, ...],
 ) -> tuple[RepoFacts, tuple[GithubStack, ...], bool]:
@@ -35,11 +33,7 @@ async def complete_sync_observation(
     }
     affected = tuple(stack for stack in stacks if not selected_prs.isdisjoint(stack.pr_numbers))
     resource_prs = {number for stack in affected for number in stack.pr_numbers}
-    tracked_prs = {
-        identity.pr_number
-        for identity in state.pr_identities.values()
-        if identity.repo_key == repo.repo_key
-    }
+    tracked_prs = {identity.pr_number for identity in state.pr_identities.values()}
     if not any(
         _pr_changed(observed, include_remote_target=False)
         for change in selected
@@ -49,9 +43,7 @@ async def complete_sync_observation(
     change_ids = tuple(
         change_id
         for change_id, identity in state.pr_identities.items()
-        if identity.repo_key == repo.repo_key
-        and identity.pr_number in resource_prs
-        and change_id in state.submitted_baselines
+        if identity.pr_number in resource_prs and change_id in state.submitted_baselines
     )
     missing_ids = tuple(change_id for change_id in change_ids if change_id not in initial.prs)
     missing = (

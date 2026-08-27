@@ -240,7 +240,6 @@ async def _checkout_pr_stack(
             context=context,
             prs=prs,
             remote_targets=remote_targets,
-            repo=repo,
             stack=stack,
             state=state,
         )
@@ -371,7 +370,6 @@ def _save_checkout_tracking(
     context: CommandContext,
     prs: tuple[GithubPR, ...],
     remote_targets: dict[str, str],
-    repo: GithubRepoAddress,
     stack: LocalStack,
     state: TrackingState,
 ) -> int:
@@ -399,10 +397,7 @@ def _save_checkout_tracking(
             )
         replacements[change.change_id] = (
             PRIdentity(
-                repo_owner=repo.owner,
-                repo_name=repo.repo,
                 pr_number=pr.number,
-                head_owner=repo.owner,
                 head_ref=pr.head.ref,
             ),
             SubmittedBaseline(commit_id=head_sha),
@@ -582,7 +577,6 @@ def _picker_choices(
     saved_by_pr = {
         identity.pr_number: (change_id, identity)
         for change_id, identity in state.pr_identities.items()
-        if identity.repo_key == repo.repo_key
     }
     choices: list[CheckoutPickerChoice] = []
     listed_pr_numbers: set[int] = set()

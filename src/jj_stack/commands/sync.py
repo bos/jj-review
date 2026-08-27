@@ -197,7 +197,6 @@ async def _run_global_plan(
             state = context.state_store.load()
             plan = build_global_convergence_plan(
                 facts=facts,
-                repo=target.repo,
                 state=state,
             )
         for candidate, reason in plan.blocked:
@@ -325,7 +324,6 @@ async def _run_selected_convergence(
                     github=github,
                     initial=observation,
                     remote_name=target.remote.name,
-                    repo=target.repo,
                     selected=selected,
                     stacks=observed_stacks,
                 )
@@ -356,7 +354,6 @@ async def _run_selected_convergence(
                     github_stacks=github_stacks,
                     observation=observation,
                     prepared_status=prepared_status,
-                    repo=target.repo,
                     trunk_branch=trunk_branch,
                 )
         if queued:

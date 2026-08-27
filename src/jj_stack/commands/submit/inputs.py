@@ -110,9 +110,9 @@ def confirm_orphaned_pr_snapshots(
     candidate_snapshots = {github_stack_pr_snapshot(candidate) for candidate in candidates}
     change_ids_by_snapshot: dict[GithubStackPRSnapshot, list[str]] = {}
     for tracked in state.tracked_prs():
-        # Deliberately do not compare the saved repo identity here. The candidates were
-        # observed through the GitHub client already scoped to the configured repository;
-        # PR number, branch, and submitted commit are the complete proof for this decision.
+        # Do not add repository identity to this match. jj-stack operates on one configured
+        # repository, and these candidates were observed through its GitHub client. PR number,
+        # branch, and submitted commit are the complete proof for this decision.
         snapshot = (
             tracked.pr_identity.pr_number,
             tracked.pr_identity.head_ref,

@@ -70,12 +70,9 @@ def resolve_pr_branches(
 def ensure_new_pr_branches_unclaimed(
     resolutions: tuple[ResolvedPRBranch, ...],
     pr_identities: Mapping[str, PRIdentity],
-    repo_key: tuple[str, str],
 ) -> None:
     saved_by_branch = {
-        identity.head_ref: change_id
-        for change_id, identity in pr_identities.items()
-        if identity.repo_key == repo_key
+        identity.head_ref: change_id for change_id, identity in pr_identities.items()
     }
     collisions = tuple(
         resolution.branch

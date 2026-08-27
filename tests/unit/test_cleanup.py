@@ -34,14 +34,17 @@ _REPO = GithubRepoAddress(
 )
 
 
-def test_duplicate_claim_facts_are_scoped_to_one_repo() -> None:
+def test_duplicate_claim_facts_reject_shared_prs_and_branches() -> None:
     identity = make_pr_identity(head_ref=BRANCH)
-    other = identity.model_copy(update={"repo_name": "another-repository"})
+    same_pr = identity.model_copy(update={"head_ref": "jj-stack/other-bbbbbbbb"})
+    same_branch = identity.model_copy(update={"pr_number": 2})
 
-    assert duplicate_pr_claim_change_ids({"saved": identity, "other": other}) == frozenset()
-    assert duplicate_pr_claim_change_ids({"saved": identity, "duplicate": identity}) == frozenset(
-        {"saved", "duplicate"}
+    assert duplicate_pr_claim_change_ids({"saved": identity, "same-pr": same_pr}) == frozenset(
+        {"saved", "same-pr"}
     )
+    assert duplicate_pr_claim_change_ids(
+        {"saved": identity, "same-branch": same_branch}
+    ) == frozenset({"saved", "same-branch"})
 
 
 def test_local_cleanup_observations_flag_changes_outside_current_stacks(

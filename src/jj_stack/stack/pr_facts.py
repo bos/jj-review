@@ -61,15 +61,12 @@ def duplicate_pr_claim_change_ids(
     """Return every change participating in a duplicate PR or head claim."""
 
     values = identities.values()
-    pr_claims = Counter((item.repo_key, item.pr_number) for item in values)
-    head_claims = Counter(
-        (item.repo_key, item.head_owner.casefold(), item.head_ref) for item in values
-    )
+    pr_claims = Counter(item.pr_number for item in values)
+    head_claims = Counter(item.head_ref for item in values)
     return frozenset(
         change_id
         for change_id, item in identities.items()
-        if pr_claims[(item.repo_key, item.pr_number)] > 1
-        or head_claims[(item.repo_key, item.head_owner.casefold(), item.head_ref)] > 1
+        if pr_claims[item.pr_number] > 1 or head_claims[item.head_ref] > 1
     )
 
 

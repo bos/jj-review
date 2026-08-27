@@ -642,7 +642,6 @@ async def run_submit_async(
             ensure_new_pr_branches_unclaimed(
                 branch_resolutions,
                 state.pr_identities,
-                github_repo.repo_key,
             )
             collisions = tuple(
                 resolution.branch
@@ -724,7 +723,6 @@ async def run_submit_async(
                 change_id=explicit_base.change_id,
                 discovered_pr=discovered_prs[base_branch],
                 expected_remote_target=expected_base_commit,
-                repo_key=github_repo.repo_key,
                 tracked_pr=tracked_base,
                 merged_hint=(
                     t"Sync the parent PR first, rebase only the child stack with "
@@ -745,7 +743,6 @@ async def run_submit_async(
             discovered_prs=discovered_prs,
             existing_only=options.existing_only,
             prepared_changes=prepared_changes,
-            repo_key=github_repo.repo_key,
             state=mutation_run.state,
         )
         generated_descriptions = preserve_external_pr_text(

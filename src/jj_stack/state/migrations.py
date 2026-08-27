@@ -46,4 +46,18 @@ def _migrate_v5_to_v6(raw: dict[str, object]) -> dict[str, object]:
     return migrated
 
 
-_MIGRATIONS = {5: _migrate_v5_to_v6}
+def _migrate_v6_to_v7(raw: dict[str, object]) -> dict[str, object]:
+    migrated = deepcopy(raw)
+    identities = migrated.get("pr_identities")
+    if not isinstance(identities, dict):
+        raise ValueError("versioned tracking records must be an object")
+    for identity in identities.values():
+        if not isinstance(identity, dict):
+            raise ValueError("persisted tracking record must be an object")
+        for field in ("repo_owner", "repo_name", "head_owner"):
+            identity.pop(field, None)
+    migrated["version"] = 7
+    return migrated
+
+
+_MIGRATIONS = {5: _migrate_v5_to_v6, 6: _migrate_v6_to_v7}

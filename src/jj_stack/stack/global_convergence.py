@@ -6,7 +6,6 @@ import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-import jj_stack.github.resolution as github_resolution
 from jj_stack.bootstrap import CommandContext
 from jj_stack.github.client import GithubClient
 from jj_stack.models.github import GithubPR, GithubStack
@@ -111,22 +110,16 @@ async def observe_global_sync(
 def build_global_convergence_plan(
     *,
     facts: GlobalSyncFacts,
-    repo: github_resolution.GithubRepoAddress,
     state: TrackingState,
 ) -> GlobalConvergencePlan:
     blocked: list[tuple[TrackedPR, Message]] = []
     finishes: list[PRFinishPlan] = []
     heads: list[str] = []
-    tracked_prs = frozenset(
-        identity.pr_number
-        for identity in state.pr_identities.values()
-        if identity.repo_key == repo.repo_key
-    )
+    tracked_prs = frozenset(identity.pr_number for identity in state.pr_identities.values())
     for candidate in state.tracked_prs():
         reason, finish, candidate_heads = _classify_global_candidate(
             candidate=candidate,
             facts=facts,
-            repo=repo,
             tracked_pr_numbers=tracked_prs,
         )
         heads.extend(candidate_heads)
@@ -145,7 +138,6 @@ def _classify_global_candidate(
     *,
     candidate: TrackedPR,
     facts: GlobalSyncFacts,
-    repo: github_resolution.GithubRepoAddress,
     tracked_pr_numbers: frozenset[int],
 ) -> tuple[Message | None, PRFinishPlan | None, tuple[str, ...]]:
     ancestry = facts.ancestries[candidate.submitted_baseline.commit_id]
@@ -157,7 +149,6 @@ def _classify_global_candidate(
             ancestries=facts.ancestries,
             candidate=candidate,
             pr=pr,
-            repo=repo,
         )
     heads = _candidate_path_heads(candidate, facts=facts)
     affected = ancestry == "on_trunk" or evidence == "rewritten"

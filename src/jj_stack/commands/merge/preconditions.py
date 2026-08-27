@@ -34,7 +34,6 @@ def merge_precondition_error(
         return "GitHub no longer reports the planned trunk branch as its default"
     for change in changes:
         error = _merge_change_precondition_error(
-            expected_repo=expected_repo,
             observed=observation.prs[change.change_id],
             planned=change,
             inactive_allowed=change.change_id in inactive_allowed,
@@ -81,13 +80,11 @@ def explain_precondition(reason: str, *, change_id: str, sync_target: str) -> Me
 
 def _merge_change_precondition_error(
     *,
-    expected_repo: GithubRepoAddress,
     observed: PRFacts,
     planned: MergeChange,
     inactive_allowed: bool,
 ) -> str | None:
     return _local_precondition_error(
-        expected_repo=expected_repo,
         observed=observed,
         planned=planned,
     ) or _github_pr_precondition_error(
@@ -99,7 +96,6 @@ def _merge_change_precondition_error(
 
 def _local_precondition_error(
     *,
-    expected_repo: GithubRepoAddress,
     observed: PRFacts,
     planned: MergeChange,
 ) -> str | None:
@@ -108,11 +104,7 @@ def _local_precondition_error(
     identity = observed.identity
     local_commits = observed.local_commits
     label = short_change_id(planned.change_id)
-    if (
-        identity != planned.identity
-        or identity is None
-        or identity.repo_key != expected_repo.repo_key
-    ):
+    if identity != planned.identity or identity is None:
         return f"saved PR tracking for {label} changed"
     if not local_commits:
         return f"{label} is no longer visible locally"

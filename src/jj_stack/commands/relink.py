@@ -140,10 +140,7 @@ async def _run_relink_async(
             t"change {ui.change_id(change.change_id)} under {ui.bookmark(namespace.branch_glob)}."
         )
     identity = PRIdentity(
-        repo_owner=repo.owner,
-        repo_name=repo.repo,
         pr_number=pr_number,
-        head_owner=repo.owner,
         head_ref=branch,
     )
     _ensure_relinkable_cached_link(

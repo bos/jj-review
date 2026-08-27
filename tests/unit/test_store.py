@@ -20,15 +20,12 @@ def _identity(
     pr_number: int = 17,
 ) -> PRIdentity:
     return PRIdentity(
-        repo_owner="octocat",
-        repo_name="example",
         pr_number=pr_number,
-        head_owner="octocat",
         head_ref=f"jj-stack/change-{change_id[:8]}",
     )
 
 
-def test_store_persists_schema_six_without_nested_versions(tmp_path: Path) -> None:
+def test_store_persists_schema_seven_without_nested_versions(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     store = TrackingStore(state_path)
     identity = _identity()
@@ -40,16 +37,16 @@ def test_store_persists_schema_six_without_nested_versions(tmp_path: Path) -> No
     assert persisted.pr_identities == {CHANGE_ID: identity}
     assert persisted.submitted_baselines == {CHANGE_ID: baseline}
     rendered = json.loads(state_path.read_text(encoding="utf-8"))
-    assert rendered["version"] == 6
+    assert rendered["version"] == 7
     assert "version" not in rendered["pr_identities"][CHANGE_ID]
     assert "version" not in rendered["submitted_baselines"][CHANGE_ID]
 
 
-def test_store_returns_schema_six_defaults_when_file_is_missing(tmp_path: Path) -> None:
+def test_store_returns_schema_seven_defaults_when_file_is_missing(tmp_path: Path) -> None:
     state = TrackingStore(tmp_path / "missing" / "state.json").load()
 
     assert state == TrackingState()
-    assert state.version == 6
+    assert state.version == 7
 
 
 def test_store_migrates_schema_five_in_memory_and_persists_on_mutation(
@@ -61,7 +58,13 @@ def test_store_migrates_schema_five_in_memory_and_persists_on_mutation(
     schema_five = {
         "version": 5,
         "pr_identities": {
-            CHANGE_ID: identity.model_dump(mode="json") | {"version": 3},
+            CHANGE_ID: identity.model_dump(mode="json")
+            | {
+                "version": 3,
+                "repo_owner": "octocat",
+                "repo_name": "example",
+                "head_owner": "octocat",
+            },
         },
         "submitted_baselines": {
             CHANGE_ID: baseline.model_dump(mode="json") | {"version": 1},
@@ -84,7 +87,7 @@ def test_store_migrates_schema_five_in_memory_and_persists_on_mutation(
     )
 
     rendered = json.loads(state_path.read_text(encoding="utf-8"))
-    assert rendered["version"] == 6
+    assert rendered["version"] == 7
     assert "version" not in rendered["pr_identities"][CHANGE_ID]
     assert "version" not in rendered["submitted_baselines"][CHANGE_ID]
 
@@ -107,10 +110,7 @@ def test_atomic_relink_failure_preserves_original_pair(
         store.relink_pr(
             CHANGE_ID,
             identity=PRIdentity(
-                repo_owner=identity.repo_owner,
-                repo_name=identity.repo_name,
                 pr_number=18,
-                head_owner=identity.head_owner,
                 head_ref="jj-stack/renamed-change-abcdefgh",
             ),
             baseline=SubmittedBaseline(commit_id="def456"),
@@ -132,7 +132,7 @@ def test_atomic_relink_failure_preserves_original_pair(
 def test_store_rejects_invalid_complete_file(tmp_path: Path, mutate) -> None:
     state_path = tmp_path / "state.json"
     state = {
-        "version": 6,
+        "version": 7,
         "pr_identities": {CHANGE_ID: _identity().model_dump(mode="json")},
         "submitted_baselines": {
             CHANGE_ID: SubmittedBaseline(commit_id="abc123").model_dump(mode="json")
@@ -154,7 +154,13 @@ def test_store_rejects_invalid_schema_five_without_rewriting(tmp_path: Path) -> 
         {
             "version": 5,
             "pr_identities": {
-                CHANGE_ID: _identity().model_dump(mode="json") | {"version": 2},
+                CHANGE_ID: _identity().model_dump(mode="json")
+                | {
+                    "version": 2,
+                    "repo_owner": "octocat",
+                    "repo_name": "example",
+                    "head_owner": "octocat",
+                },
             },
             "submitted_baselines": {
                 CHANGE_ID: SubmittedBaseline(commit_id="abc123").model_dump(mode="json")
@@ -172,10 +178,10 @@ def test_store_rejects_invalid_schema_five_without_rewriting(tmp_path: Path) -> 
 
 def test_store_rejects_newer_schema_with_upgrade_guidance(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
-    rendered = '{"version": 7}\n'
+    rendered = '{"version": 8}\n'
     state_path.write_text(rendered, encoding="utf-8")
 
-    with pytest.raises(TrackingStateError, match="newer than supported version 6") as caught:
+    with pytest.raises(TrackingStateError, match="newer than supported version 7") as caught:
         TrackingStore(state_path).load()
 
     assert caught.value.hint is not None

@@ -96,7 +96,6 @@ def ensure_pr_syncs_are_safe(
     discovered_prs: Mapping[str, GithubPR | None],
     existing_only: bool,
     prepared_changes: Sequence[PreparedSubmitChange],
-    repo_key: tuple[str, str],
     state: TrackingState,
 ) -> None:
     """Verify every planned PR sync before any mutation.
@@ -126,7 +125,6 @@ def ensure_pr_syncs_are_safe(
             change_id=change_id,
             discovered_pr=pr,
             expected_remote_target=prepared_change.expected_remote_target,
-            repo_key=repo_key,
             tracked_pr=tracked_pr,
         )
         if existing_only and (tracked_pr is None or pr is None):
@@ -236,7 +234,6 @@ async def _sync_pr(
     if pr is not None:
         next_identity = _submitted_identity(
             branch=branch,
-            github_client=github_client,
             pr=pr,
             pr_identity=pr_identity,
         )
@@ -335,7 +332,6 @@ def ensure_pr_link_is_consistent(
     change_id: str,
     discovered_pr: GithubPR | None,
     expected_remote_target: str | None,
-    repo_key: tuple[str, str],
     tracked_pr: TrackedPR | None,
     merged_hint: Message | None = None,
 ) -> None:
@@ -349,16 +345,6 @@ def ensure_pr_link_is_consistent(
             )
         return
     pr_identity = tracked_pr.pr_identity
-    if pr_identity.repo_key != repo_key:
-        raise DriftError(
-            t"Saved PR tracking for {ui.change_id(change_id)} belongs to a different GitHub "
-            t"repo than the one this remote resolves to.",
-            condition="saved_pr_mismatch",
-            hint=(
-                t"Point the remote back at that repo, or reattach the change with "
-                t"{ui.cmd('relink')} before submitting again."
-            ),
-        )
     if pr_identity.head_ref != branch:
         raise DriftError(
             t"Saved PR tracking for {ui.change_id(change_id)} names branch "
@@ -387,13 +373,6 @@ def ensure_pr_link_is_consistent(
                 t"Inspect the PR link with {ui.cmd('view')} and repair it "
                 t"with {ui.cmd('relink')} before submitting again."
             ),
-        )
-    if not pr_identity.matches_pr(discovered_pr):
-        raise DriftError(
-            t"Saved pull request #{pr_identity.pr_number} no longer has the exact "
-            t"saved head owner and branch.",
-            condition="saved_pr_mismatch",
-            hint=t"Inspect it, then repair the intended PR with {ui.cmd('relink')}.",
         )
     if discovered_pr.state != "open":
         hint = (
@@ -446,16 +425,12 @@ async def _sync_pr_metadata(
 def _submitted_identity(
     *,
     branch: str,
-    github_client: GithubClient,
     pr: GithubPR,
     pr_identity: PRIdentity | None,
 ) -> PRIdentity:
     if pr_identity is None:
         return PRIdentity(
-            repo_owner=github_client.repo.owner,
-            repo_name=github_client.repo.repo,
             pr_number=pr.number,
-            head_owner=github_client.repo.owner,
             head_ref=branch,
         )
     return pr_identity

@@ -205,10 +205,7 @@ def test_visible_pr_bookmark_does_not_block_broad_operations(
     state = TrackingState(
         pr_identities={
             change_id: PRIdentity(
-                repo_owner="octo-org",
-                repo_name="stacked-prs",
                 pr_number=1,
-                head_owner="octo-org",
                 head_ref=branch,
             )
         },

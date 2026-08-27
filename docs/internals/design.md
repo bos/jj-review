@@ -306,15 +306,16 @@ These facts are re-derived and never need tool-owned durable state:
 
 Tracking stores one pair, keyed by full `change_id`:
 
-- `PRIdentity`: GitHub repo owner/name, PR number, and one canonical head owner/ref
+- `PRIdentity`: the PR number and its one canonical head ref
 - `SubmittedBaseline`: the exact `commit_id` last successfully submitted for that identity
 
 Both records are created, replaced, and removed together. Partial pairs are invalid.
+The configured GitHub repo is command context, not per-change tracking; `jj-stack` does not carry
+tracking across repos.
 
 Two named checks recur throughout the policies:
 
-- **identity match**: the live PR's repo, number, and head owner/ref equal the saved
-  `PRIdentity`
+- **identity match**: the live PR's number and head ref equal the saved `PRIdentity`
 - **snapshot match**: an identity match whose live PR head SHA also equals
   `SubmittedBaseline.commit_id`
 

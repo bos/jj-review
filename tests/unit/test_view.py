@@ -178,7 +178,6 @@ def test_view_missing_pr_advisory_guides_fetch_relink_or_cleanup() -> None:
         pr_identity=make_pr_identity(
             head_ref="jj-stack/feature-8-abcdefgh",
             pr_number=42,
-            repo_name="repo",
         ),
         change_id="abcdefgh1234",
         pr_lookup=_lookup(
@@ -208,7 +207,6 @@ def test_view_summary_does_not_call_tracked_missing_pr_not_submitted() -> None:
         pr_identity=make_pr_identity(
             head_ref="jj-stack/feature-8-abcdefgh",
             pr_number=8,
-            repo_name="repo",
         ),
         change_id="abcdefgh1234",
         commit_id="1234567890abcdef",
@@ -281,7 +279,6 @@ def test_view_summary_omits_review_decision_when_live_decision_lookup_fails() ->
         pr_identity=make_pr_identity(
             head_ref="jj-stack/feature-7-abcdefgh",
             pr_number=7,
-            repo_name="repo",
         ),
         change_id="abcdefgh1234",
         commit_id="1234567890abcdef",
@@ -325,7 +322,6 @@ def test_view_summary_labels_row_when_pr_lookup_fails() -> None:
         pr_identity=make_pr_identity(
             head_ref="jj-stack/feature-1-abcdefgh",
             pr_number=1,
-            repo_name="repo",
         ),
         change_id="abcdefgh1234",
         commit_id="1234567890abcdef",

@@ -15,26 +15,13 @@ class PRIdentity(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    repo_owner: str
-    repo_name: str
     pr_number: int
-    head_owner: str
     head_ref: str
-
-    @property
-    def repo_key(self) -> tuple[str, str]:
-        """Return the case-insensitive nominal repo identity."""
-
-        return self.repo_owner.casefold(), self.repo_name.casefold()
 
     def matches_pr(self, pr: GithubPR) -> bool:
         """Whether live GitHub data is the exact pull request saved by this identity."""
 
-        return (
-            pr.number == self.pr_number
-            and pr.head.ref == self.head_ref
-            and pr.head.label == f"{self.head_owner}:{self.head_ref}"
-        )
+        return pr.number == self.pr_number and pr.head.ref == self.head_ref
 
 
 class SubmittedBaseline(BaseModel):
@@ -50,7 +37,7 @@ class TrackingState(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    version: Literal[6] = 6
+    version: Literal[7] = 7
     pr_identities: dict[str, PRIdentity] = Field(default_factory=dict)
     submitted_baselines: dict[str, SubmittedBaseline] = Field(default_factory=dict)
 
@@ -98,11 +85,9 @@ class TrackedPR(BaseModel):
     pr_identity: PRIdentity
     submitted_baseline: SubmittedBaseline
 
-    def matches_snapshot(self, pr: GithubPR, *, repo_key: tuple[str, str]) -> bool:
+    def matches_snapshot(self, pr: GithubPR) -> bool:
         """Whether live GitHub data matches this exact saved pull request snapshot."""
 
         return (
-            self.pr_identity.repo_key == repo_key
-            and self.pr_identity.matches_pr(pr)
-            and pr.head.sha == self.submitted_baseline.commit_id
+            self.pr_identity.matches_pr(pr) and pr.head.sha == self.submitted_baseline.commit_id
         )

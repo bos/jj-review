@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError
-from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubPR, GithubStack, GithubStackPR
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackedPR, TrackingState
@@ -63,7 +62,6 @@ def build_selected_convergence_plan(
     github_stacks: tuple[GithubStack, ...],
     observation: RepoFacts,
     prepared_status: PreparedStatus,
-    repo: GithubRepoAddress,
     trunk_branch: str,
 ) -> SelectedConvergencePlan:
     selected = prepared_status.prepared.stack.changes
@@ -72,7 +70,6 @@ def build_selected_convergence_plan(
         ancestries=ancestries,
         github_stacks=github_stacks,
         observation=observation,
-        repo=repo,
         selected=selected,
         state=state,
         trunk_branch=trunk_branch,
@@ -92,7 +89,6 @@ def build_selected_convergence_plan(
                 ancestries=ancestries,
                 candidate=candidate,
                 observation=observation,
-                repo=repo,
             )
         )
         if candidate is None or evidence_kind is None:
@@ -136,7 +132,6 @@ def build_selected_convergence_plan(
         survivors=tuple(survivors),
         state=state,
         observation=observation,
-        repo=repo,
     )
     local_head = selected[-1]
     working_copy_children = tuple(
@@ -163,7 +158,6 @@ def _submitted_survivors(
     survivors: tuple[LocalCommit, ...],
     state: TrackingState,
     observation: RepoFacts,
-    repo: GithubRepoAddress,
 ) -> tuple[LocalCommit, ...]:
     submitted: list[LocalCommit] = []
     saw_unsubmitted = False
@@ -180,7 +174,7 @@ def _submitted_survivors(
             )
         pr = observation.prs[change.change_id].pr
         identity = candidate.pr_identity
-        if pr is None or identity.repo_key != repo.repo_key or not identity.matches_pr(pr):
+        if pr is None or not identity.matches_pr(pr):
             raise CliError(
                 t"The pull request no longer matches saved tracking for "
                 t"{ui.change_id(candidate.change_id)}.",
@@ -205,7 +199,6 @@ def _trunk_evidence_kind_for(
     ancestries: dict[str, CommitAncestry],
     candidate: TrackedPR,
     observation: RepoFacts,
-    repo: GithubRepoAddress,
 ) -> TrunkEvidenceKind | None:
     observed = observation.prs[candidate.change_id]
     if observed.identity != candidate.pr_identity:
@@ -226,7 +219,6 @@ def _trunk_evidence_kind_for(
         ancestries=ancestries,
         candidate=candidate,
         pr=pr,
-        repo=repo,
     )
     if evidence_kind is None and pr.normalize_state().state in {"closed", "merged"}:
         raise CliError(
@@ -257,17 +249,12 @@ def _classify_github_stack(
     ancestries: dict[str, CommitAncestry],
     github_stacks: tuple[GithubStack, ...],
     observation: RepoFacts,
-    repo: GithubRepoAddress,
     selected: tuple[LocalCommit, ...],
     state: TrackingState,
     trunk_branch: str,
 ) -> _GithubStackEffect:
     selected_by_id = {change.change_id: change for change in selected}
-    by_pr = {
-        candidate.pr_identity.pr_number: candidate
-        for candidate in state.tracked_prs()
-        if candidate.pr_identity.repo_key == repo.repo_key
-    }
+    by_pr = {candidate.pr_identity.pr_number: candidate for candidate in state.tracked_prs()}
     candidates = tuple(
         candidate
         for change in selected
@@ -310,7 +297,6 @@ def _classify_github_stack(
                 ancestries=ancestries,
                 candidate=candidate,
                 pr=pr,
-                repo=repo,
             )
             if kind is None:
                 raise CliError(

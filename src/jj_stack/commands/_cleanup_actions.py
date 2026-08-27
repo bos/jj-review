@@ -39,7 +39,6 @@ def check_tracked_pr(
     submitted_baseline = candidate.submitted_baseline
     observed = observation.prs[change_id]
     pr_number = pr_identity.pr_number
-    repo_key = observation.repo.repo_key
     pr = observed.pr
     kind = "pull request"
     reason: Message | None = None
@@ -48,12 +47,6 @@ def check_tracked_pr(
         reason = (
             t"tracking for {ui.change_id(change_id)} changed while this command ran; "
             t"rerun the same command"
-        )
-    elif pr_identity.repo_key != repo_key:
-        reason = (
-            t"cannot inspect saved PR #{pr_number} because it belongs to a "
-            t"different GitHub repo; point the remote back at it, or reattach the "
-            t"change with {ui.cmd('jj-stack relink')}"
         )
     elif pr is None:
         reason = (
@@ -70,7 +63,7 @@ def check_tracked_pr(
                 t"cannot inspect saved PR #{pr_number} because its live PR no longer "
                 t"matches {ui.bookmark(pr_identity.head_ref)}"
             )
-        elif not candidate.matches_snapshot(pr, repo_key=repo_key):
+        elif not candidate.matches_snapshot(pr):
             reason = (
                 t"cannot mutate saved PR #{pr_number} because its head no longer "
                 t"matches the saved submitted commit"
@@ -238,7 +231,7 @@ def plan_pr_cleanup(
     if (
         observation.remote is None
         or configured_repo is None
-        or configured_repo.repo_key != pr_identity.repo_key
+        or configured_repo != observation.repo
     ):
         return (
             pr,

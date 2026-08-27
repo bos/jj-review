@@ -33,10 +33,7 @@ def test_in_use_tracks_presence_of_valid_local_state(
     store.create_pr(
         CHANGE_ID,
         identity=PRIdentity(
-            repo_owner="octocat",
-            repo_name="example",
             pr_number=17,
-            head_owner="octocat",
             head_ref="jj-stack/change-abcdefgh",
         ),
         baseline=SubmittedBaseline(commit_id="abc123"),
