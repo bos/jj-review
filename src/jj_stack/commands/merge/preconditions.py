@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jj_stack.ui as ui
 from jj_stack.commands.merge.models import MergeChange
+from jj_stack.formatting import format_pr_number
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.identifiers import short_change_id
 from jj_stack.stack.pr_facts import PRFacts, RepoFacts
@@ -18,7 +19,7 @@ def merge_precondition_error(
     remote_name: str,
     changes: tuple[MergeChange, ...],
     inactive_allowed: frozenset[str] = frozenset(),
-) -> str | None:
+) -> Message | None:
     """Explain why fresh facts do not permit the next mutation."""
 
     remote = observation.remote
@@ -43,7 +44,7 @@ def merge_precondition_error(
     return None
 
 
-def explain_precondition(reason: str, *, change_id: str, sync_target: str) -> Message:
+def explain_precondition(reason: Message, *, change_id: str, sync_target: str) -> Message:
     """Restate a precondition reason so it names the command that resolves it.
 
     Planning and execution both stop on these reasons, so they share one wording rather than each
@@ -51,26 +52,27 @@ def explain_precondition(reason: str, *, change_id: str, sync_target: str) -> Me
     """
 
     # Every boundary already names the change, so these do not repeat its ID.
+    plain_reason = ui.plain_text(reason)
     submit = ui.cmd(f"jj-stack submit {short_change_id(change_id)}")
-    if "unresolved conflicts" in reason:
+    if "unresolved conflicts" in plain_reason:
         return t"it has unresolved conflicts; resolve them with jj, then run {submit}"
-    if "more than one visible commit" in reason:
+    if "more than one visible commit" in plain_reason:
         return (
             t"it has more than one visible commit; reconcile them, for example with "
             t"{ui.cmd('jj log -r')} {ui.revset(f'change_id({short_change_id(change_id)})')}, "
             t"then run {submit}"
         )
-    if "no longer visible locally" in reason:
+    if "no longer visible locally" in plain_reason:
         return (
             t"it is no longer visible locally; run {ui.cmd('jj-stack view')} to find where it "
             t"went, or {ui.cmd(f'jj-stack sync {sync_target}')} if it already merged"
         )
-    if "last submitted commit" in reason:
+    if "last submitted commit" in plain_reason:
         return (
             t"the local change, the commit last submitted for it, and its PR branch do not "
             t"all name the same commit; run {submit}"
         )
-    if "is already merged" in reason:
+    if "is already merged" in plain_reason:
         return (
             t"{reason}, so this stack still holds a local copy of work already on trunk; run "
             t"{ui.cmd(f'jj-stack sync {sync_target}')}"
@@ -83,7 +85,7 @@ def _merge_change_precondition_error(
     observed: PRFacts,
     planned: MergeChange,
     inactive_allowed: bool,
-) -> str | None:
+) -> Message | None:
     return _local_precondition_error(
         observed=observed,
         planned=planned,
@@ -98,7 +100,7 @@ def _local_precondition_error(
     *,
     observed: PRFacts,
     planned: MergeChange,
-) -> str | None:
+) -> Message | None:
     """Explain why the local change and its PR branch do not match the plan."""
 
     identity = observed.identity
@@ -132,7 +134,7 @@ def _github_pr_precondition_error(
     observed: PRFacts,
     planned: MergeChange,
     inactive_allowed: bool,
-) -> str | None:
+) -> Message | None:
     """Explain why GitHub's view of the pull request does not match the plan."""
 
     pr = observed.pr
@@ -145,10 +147,11 @@ def _github_pr_precondition_error(
     # do; the PR branch is still compared against the submitted baseline above.
     if not planned.identity.matches_pr(pr):
         return f"the pull request linked to {label} changed"
+    pr_number = format_pr_number(pr.number, url=pr.html_url)
     if pr.state == "merged" and not inactive_allowed:
-        return f"pull request #{pr.number} is already merged"
+        return t"pull request {pr_number} is already merged"
     if pr.state != "open" and not inactive_allowed:
-        return f"pull request #{pr.number} state or base branch changed"
+        return t"pull request {pr_number} state or base branch changed"
     if pr.is_draft and not inactive_allowed:
-        return f"pull request #{pr.number} is now a draft"
+        return t"pull request {pr_number} is now a draft"
     return None

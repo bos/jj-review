@@ -18,6 +18,7 @@ import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext, bootstrap_context
 from jj_stack.commands._cleanup_actions import check_tracked_pr
 from jj_stack.errors import CliError, UsageError
+from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
 from jj_stack.github.error_messages import github_target_unavailable_messages
 from jj_stack.github.resolution import GithubTarget, resolve_github_target
@@ -149,10 +150,7 @@ async def _run_github_unstack(
             )
             selection = GithubStackSelection(github_client, pr_numbers)
             observed = await selection.active_stacks()
-            github_stack = selected_github_stack(
-                selected_pr_numbers=pr_numbers,
-                stacks=observed,
-            )
+            github_stack = selected_github_stack(github_target.repo, pr_numbers, observed)
 
         if github_stack is not None and not dry_run:
             await dissolve_github_stack(github_client=github_client, stack=github_stack)
@@ -288,12 +286,14 @@ def _resolve_local_revset(
     revset: str | None,
 ) -> str | None:
     if pr is not None:
-        pr_number, resolved_revset = resolve_linked_change_for_pr(
+        pr_number, resolved_revset, repo = resolve_linked_change_for_pr(
             jj_client=context.jj_client,
             pr_reference=pr,
             revset=revset,
         )
-        console.note(t"Using PR #{pr_number} -> {ui.revset(resolved_revset)}")
+        console.note(
+            t"Using {format_pr_label(pr_number, repo=repo)} -> {ui.revset(resolved_revset)}"
+        )
         return resolved_revset
     return resolve_selected_revset(
         command_label=action_name,

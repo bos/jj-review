@@ -24,6 +24,7 @@ from jj_stack.commands.submit.prs import (
 from jj_stack.config import AppConfig
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError
+from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import (
     GithubBranchRef,
@@ -55,6 +56,7 @@ def test_overview_comment_move_keeps_source_when_head_creation_fails() -> None:
     class CommentClientStub(GithubClient):
         def __init__(self) -> None:
             self.deleted_comment_ids: list[int] = []
+            self._repo = GithubRepoAddress(owner="octo-org", repo="stacked-prs")
 
         async def find_issue_comments_by_body_marker(
             self,

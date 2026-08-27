@@ -45,6 +45,7 @@ from jj_stack.github.error_messages import (
     github_unavailable_message,
     remote_unavailable_message,
 )
+from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import (
     JjCommandError,
@@ -265,13 +266,13 @@ def _resolve_status_selector(
     selector: ViewSelector,
 ) -> _ResolvedViewSelector:
     if selector.kind == "pr":
-        pr_number, resolved_revset = resolve_linked_change_for_pr(
+        pr_number, resolved_revset, repo = resolve_linked_change_for_pr(
             jj_client=context.jj_client,
             pr_reference=selector.value,
             revset=None,
         )
         return _ResolvedViewSelector(
-            note=t"Using PR #{pr_number} -> {ui.revset(resolved_revset)}",
+            note=t"Using {format_pr_label(pr_number, repo=repo)} -> {ui.revset(resolved_revset)}",
             revset=None,
             containing_change_id=resolved_revset,
         )
@@ -546,6 +547,7 @@ def render_status_summary_lines(
             classified=classified,
             client=client,
             github_available=github_available,
+            repo=result.github_repo,
             show_status=False,
             prerendered_blocks=prerendered_blocks,
         ),
@@ -564,6 +566,7 @@ def render_status_summary_lines(
             classified=classified,
             client=client,
             github_available=github_available,
+            repo=result.github_repo,
             show_status=True,
             prerendered_blocks=prerendered_blocks,
         ),
@@ -725,10 +728,11 @@ def render_status_advisory_lines(
         base_ref = pr.base.ref
         if not namespace.contains(base_ref):
             continue
+        pr_label = format_pr_label(pr.number, url=pr.html_url)
         policy_warning_rows.append(
             (
                 "Repo policy",
-                t"Repo policy warning: PR #{pr.number} merged into "
+                t"Repo policy warning: {pr_label} merged into "
                 t"{ui.bookmark(base_ref)}; configure GitHub to block merges of PRs "
                 t"targeting {ui.bookmark(namespace.branch_glob)}",
             )
@@ -809,8 +813,10 @@ def render_status_advisory_lines(
             )
         )
         for change in cleanup_changes:
-            pr_number = change.change.pr_number()
-            pr_label = f"PR #{pr_number}" if pr_number is not None else "merged PR"
+            pr = change.change.pr()
+            pr_label: ui.Message = (
+                format_pr_label(pr.number, url=pr.html_url) if pr is not None else "merged PR"
+            )
             rows.append(
                 (
                     ui.change_id(change.change.change_id),
@@ -832,7 +838,7 @@ def render_status_advisory_lines(
             rows.append(
                 (
                     ui.change_id(change.change.change_id),
-                    _describe_link_advisory(change),
+                    _describe_link_advisory(change, repo=result.github_repo),
                 )
             )
 
@@ -979,13 +985,18 @@ def _render_summary_change_lines(
     classified: _ClassifiedStatusChange,
     client,
     github_available: bool,
+    repo: GithubRepoAddress | None,
     show_status: bool,
     prerendered_blocks: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[ui.Renderable, ...]:
     """Render one change inside a submitted or unsubmitted summary section."""
 
     change = classified.change
-    summary = _format_status_summary(classified, github_available=github_available)
+    summary = _format_status_summary(
+        classified,
+        github_available=github_available,
+        repo=repo,
+    )
     if not show_status and summary == "not submitted":
         summary = None
     return render_commit_lines(
@@ -1015,11 +1026,12 @@ def _format_status_summary(
     classified: _ClassifiedStatusChange,
     *,
     github_available: bool,
+    repo: GithubRepoAddress | None,
 ) -> ui.Message:
     change = classified.change
     lookup = change.pr_lookup
     pr_identity = change.pr_identity
-    saved_label = _format_saved_pr_label(pr_identity)
+    saved_label = _format_saved_pr_label(pr_identity, repo=repo)
     change_status = classified.status
     summary: ui.Message
     if change_status.pr_lifecycle == "none" and not change_status.pr_lookup_error:
@@ -1110,11 +1122,15 @@ def _emit_lines(
         emitter(line, soft_wrap=soft_wrap)
 
 
-def _format_saved_pr_label(pr_identity: PRIdentity | None) -> ui.Message | None:
+def _format_saved_pr_label(
+    pr_identity: PRIdentity | None,
+    *,
+    repo: GithubRepoAddress | None,
+) -> ui.Message | None:
     if pr_identity is None:
         return None
     # Identity-only tracking has no lifecycle to show; --fetch reports it live.
-    return format_pr_label(pr_identity.pr_number, prefix="saved ")
+    return format_pr_label(pr_identity.pr_number, prefix="saved ", repo=repo)
 
 
 def _classified_change_has_link_advisory(
@@ -1136,7 +1152,11 @@ def _classified_change_has_link_advisory(
     return False
 
 
-def _describe_link_advisory(classified: _ClassifiedStatusChange) -> ui.Message:
+def _describe_link_advisory(
+    classified: _ClassifiedStatusChange,
+    *,
+    repo: GithubRepoAddress | None,
+) -> ui.Message:
     change = classified.change
     lookup = change.pr_lookup
     if lookup is None:
@@ -1148,12 +1168,14 @@ def _describe_link_advisory(classified: _ClassifiedStatusChange) -> ui.Message:
         return lookup.message or "GitHub reports more than one matching pull request"
     if change_status.pr_lifecycle == "missing":
         pr_identity = change.pr_identity
-        if pr_identity is not None:
-            return f"GitHub did not report remembered PR #{pr_identity.pr_number} for this branch"
-        saved_label = _format_saved_pr_label(pr_identity)
-        if saved_label is None:
+        if pr_identity is None:
             return "GitHub did not report a pull request for this branch"
-        return t"GitHub did not report {saved_label} for this branch"
+        remembered_label = format_pr_label(
+            pr_identity.pr_number,
+            prefix="remembered ",
+            repo=repo,
+        )
+        return t"GitHub did not report {remembered_label} for this branch"
     if change_status.pr_lifecycle == "closed":
         pr = lookup.pr
         if pr is None:

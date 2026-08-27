@@ -33,6 +33,7 @@ from jj_stack.bootstrap import CommandContext, bootstrap_context
 from jj_stack.commands.sync import run_stack_convergence
 from jj_stack.config import MergeMethod
 from jj_stack.errors import CliError
+from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
 from jj_stack.github.resolution import resolve_trunk_branch
 from jj_stack.jj.cli_args import JjCliArgs
@@ -150,12 +151,14 @@ def _resolve_merge_target(
     revset: str | None,
 ) -> tuple[str | None, str | None]:
     if pr is not None:
-        pr_number, resolved_revset = resolve_linked_change_for_pr(
+        pr_number, resolved_revset, repo = resolve_linked_change_for_pr(
             jj_client=context.jj_client,
             pr_reference=pr,
             revset=revset,
         )
-        console.note(t"Using PR #{pr_number} -> {ui.change_id(resolved_revset)}")
+        console.note(
+            t"Using {format_pr_label(pr_number, repo=repo)} -> {ui.change_id(resolved_revset)}"
+        )
         return None, resolved_revset
     return (
         resolve_selected_revset(
@@ -292,9 +295,12 @@ async def _stream_merge_async(
             trunk_branch=trunk_branch,
         )
         stacks = await stacks_task
-        async_merge = build_async_merge_plan(plan, stacks, prepared_merge.target_change_id)
+        async_merge = build_async_merge_plan(
+            plan, stacks, prepared_merge.target_change_id, github_client.repo
+        )
         execution = MergeExecutionInputs(
             remote_name=remote.name,
+            repo=github_client.repo,
             selected_revset=prepared.stack.selected_revset,
             trunk_branch=trunk_branch,
             trunk_subject=prepared.stack.trunk.subject,
@@ -311,6 +317,7 @@ async def _stream_merge_async(
                 action = async_merge.action(
                     merge_action=merge_action,
                     method=resolved_merge_method,
+                    repo=execution.repo,
                     trunk_branch=trunk_branch,
                 )
                 actions = (

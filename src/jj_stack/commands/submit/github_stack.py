@@ -6,7 +6,9 @@ from typing import Literal
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError
+from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError
+from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubStack, GithubStackPR
 
 type GithubStackPRSnapshot = tuple[int, str, str]
@@ -39,6 +41,7 @@ def plan_github_stack(
     observed_stacks: Sequence[GithubStack],
     orphaned_pr_snapshots: Set[GithubStackPRSnapshot],
     pr_numbers_requiring_base_update: Set[int],
+    repo: GithubRepoAddress | None = None,
 ) -> GithubStackPlan:
     known_desired = tuple(number for number in desired if number is not None)
     if len(set(known_desired)) != len(known_desired):
@@ -79,10 +82,11 @@ def plan_github_stack(
         if not is_maximal_path and unconfirmed:
             raise CliError(
                 t"The selected path stops before its local head and omits "
-                t"{ui.join(lambda number: f'PR #{number}', unconfirmed)} from "
+                t"{ui.join(lambda number: format_pr_label(number, repo=repo), unconfirmed)} from "
                 t"GitHub stack #{stack.number}.",
                 hint=t"Submit the local path containing "
-                t"{ui.join(lambda number: f'PR #{number}', unconfirmed)} first, then retry.",
+                t"{ui.join(lambda number: format_pr_label(number, repo=repo), unconfirmed)} "
+                t"first, then retry.",
             )
         return GithubStackPlan("replace", affected)
     if not affected:
@@ -125,6 +129,7 @@ async def apply_github_stack_plan(
             observed_stacks=await github_client.list_stacks(),
             orphaned_pr_snapshots=frozenset(),
             pr_numbers_requiring_base_update=frozenset(),
+            repo=github_client.repo,
         )
         if current_plan.membership_key != plan.membership_key:
             raise _membership_error("GitHub stack membership changed during submit.")

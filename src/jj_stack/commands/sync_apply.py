@@ -14,6 +14,7 @@ from jj_stack.commands.submit.command import run_submit_async
 from jj_stack.commands.submit.models import SubmitOptions
 from jj_stack.commands.submit.render import print_submit_result
 from jj_stack.errors import CliError, ConflictedStackError
+from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubTarget
 from jj_stack.jj.client import PRRefUpdate
@@ -70,9 +71,11 @@ async def apply_pr_finishes(
                     t"{result.skip_reason}"
                 )
             else:
-                console.output(
-                    t"  {marker} finish merged PR #{result.candidate.pr_identity.pr_number}"
+                pr_label = format_pr_label(
+                    result.candidate.pr_identity.pr_number,
+                    repo=github.repo,
                 )
+                console.output(t"  {marker} finish merged {pr_label}")
     return tuple(results)
 
 
@@ -84,7 +87,8 @@ async def _apply_pr_finish(
         return PRFinishResult(candidate, "already_terminal")
     if dry_run:
         return PRFinishResult(candidate, "finished")
-    console.output(t"Finishing PR #{plan.pr.number} for {candidate.change_id}...")
+    pr_label = format_pr_label(plan.pr.number, url=plan.pr.html_url)
+    console.output(t"Finishing {pr_label} for {candidate.change_id}...")
     current = plan.pr
     try:
         if current.base.ref != trunk_branch:
@@ -92,13 +96,15 @@ async def _apply_pr_finish(
                 await github.update_pr(pr_number=current.number, base=trunk_branch)
             ).normalize_state()
         if current.state == "open" and current.base.ref != trunk_branch:
-            reason: Message | None = t"PR #{current.number} did not stay retargeted to trunk"
+            current_label = format_pr_label(current.number, url=current.html_url)
+            reason: Message | None = t"{current_label} did not stay retargeted to trunk"
         else:
             if current.state == "open":
                 await github.close_pr(pr_number=current.number)
             reason = None
     except GithubClientError as error:
-        reason = t"could not finish cleanup for PR #{current.number}: {error}"
+        current_label = format_pr_label(current.number, url=current.html_url)
+        reason = t"could not finish cleanup for {current_label}: {error}"
     return (
         PRFinishResult(candidate, "skipped", reason)
         if reason
@@ -408,8 +414,12 @@ async def _cleanup_reconciled_prs(
             recovery = (
                 t"run {ui.join(lambda r: ui.cmd(f'jj-stack sync {r.change_id[:8]}'), heads)}"
             )
+            pr_label = format_pr_label(
+                result.candidate.pr_identity.pr_number,
+                repo=target.repo,
+            )
             console.output(
-                t"  ! kept PR #{result.candidate.pr_identity.pr_number} and its PR "
+                t"  ! kept {pr_label} and its PR "
                 t"branch for {ui.change_id(result.candidate.change_id)}: another local stack "
                 t"still uses this merged change; {recovery}"
             )

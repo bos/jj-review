@@ -9,6 +9,7 @@ import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.commands.cleanup.shared import CleanupAction
 from jj_stack.errors import CliError
+from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient
 from jj_stack.github.overview_comments import (
     STACK_OVERVIEW_COMMENT_LABEL,
@@ -40,6 +41,7 @@ def check_tracked_pr(
     observed = observation.prs[change_id]
     pr_number = pr_identity.pr_number
     pr = observed.pr
+    pr_label = format_pr_label(pr_number, repo=observation.repo)
     kind = "pull request"
     reason: Message | None = None
     if (observed.identity, observed.baseline) != (pr_identity, submitted_baseline):
@@ -50,28 +52,28 @@ def check_tracked_pr(
         )
     elif pr is None:
         reason = (
-            t"PR #{pr_number} is no longer on GitHub; attach a replacement with "
+            t"{pr_label} is no longer on GitHub; attach a replacement with "
             t"{ui.cmd('jj-stack relink')}, or drop the tracking with "
             t"{ui.cmd('jj-stack unstack --local')}"
         )
     else:
         pr = pr.normalize_state()
+        pr_label = format_pr_label(pr.number, url=pr.html_url)
     if reason is None:
         assert pr is not None
         if not pr_identity.matches_pr(pr):
             reason = (
-                t"cannot inspect saved PR #{pr_number} because its live PR no longer "
+                t"cannot inspect saved {pr_label} because its live PR no longer "
                 t"matches {ui.bookmark(pr_identity.head_ref)}"
             )
         elif not candidate.matches_snapshot(pr):
             reason = (
-                t"cannot mutate saved PR #{pr_number} because its head no longer "
+                t"cannot mutate saved {pr_label} because its head no longer "
                 t"matches the saved submitted commit"
             )
         elif pr.state not in allowed_states:
             reason = (
-                t"cannot mutate saved PR #{pr_number} because GitHub now reports "
-                t"state {pr.state!r}"
+                t"cannot mutate saved {pr_label} because GitHub now reports state {pr.state!r}"
             )
     check_dependents = (reason is None, require_no_open_dependents) == (True, True)
     if check_dependents:
@@ -89,10 +91,11 @@ def check_tracked_pr(
         if blockers:
             kind = "remote branch"
             dependent = blockers[0]
+            dependent_label = format_pr_label(dependent.number, url=dependent.html_url)
             reason = (
-                t"preserve PR #{pr_number}'s branch and tracking because open "
-                t"PR #{dependent.number} still uses {ui.bookmark(pr_identity.head_ref)} "
-                t"as its base; close or retarget PR #{dependent.number}, then rerun "
+                t"preserve {pr_label}'s branch and tracking because open "
+                t"{dependent_label} still uses {ui.bookmark(pr_identity.head_ref)} "
+                t"as its base; close or retarget {dependent_label}, then rerun "
                 t"{ui.cmd('cleanup')}"
             )
     return (
@@ -127,10 +130,11 @@ async def apply_overview_comment_cleanup(
                     status="blocked",
                 ),
             ), False
-    action_body = f"delete {STACK_OVERVIEW_COMMENT_LABEL} #{comment.id} from PR #{pr_number}"
+    pr_label = format_pr_label(pr_number, repo=github_client.repo)
+    action_body: Message = t"delete {STACK_OVERVIEW_COMMENT_LABEL} #{comment.id} from {pr_label}"
     if not dry_run and not deleted:
         action_body = (
-            f"{STACK_OVERVIEW_COMMENT_LABEL} #{comment.id} already absent from PR #{pr_number}"
+            t"{STACK_OVERVIEW_COMMENT_LABEL} #{comment.id} already absent from {pr_label}"
         )
     return (
         CleanupAction(
@@ -233,13 +237,13 @@ def plan_pr_cleanup(
         or configured_repo is None
         or configured_repo != observation.repo
     ):
+        pr_label = format_pr_label(pr_identity.pr_number, repo=observation.repo)
         return (
             pr,
             None,
             CleanupAction(
                 kind="remote branch",
-                body=t"cannot resolve the configured remote for saved PR "
-                t"#{pr_identity.pr_number}",
+                body=t"cannot resolve the configured remote for saved {pr_label}",
                 status="blocked",
             ),
         )

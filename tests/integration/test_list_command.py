@@ -26,7 +26,7 @@ from .submit_command_helpers import (
 )
 
 
-def test_list_json_reports_public_stack_rows(
+def test_list_reports_public_stack_rows_and_links_live_pr(
     tmp_path,
     monkeypatch,
     capsys,
@@ -59,6 +59,11 @@ def test_list_json_reports_public_stack_rows(
     assert "head_change_id" not in row
     assert "review" not in row
     assert "size" not in row
+
+    assert run_main(repo, config_path, "list", "--color=always") == 0
+    terminal_output = capsys.readouterr().out
+    assert "PR 1" in terminal_output
+    assert "https://github.test/octo-org/stacked-prs/pull/1" in terminal_output
 
 
 def test_list_surfaces_orphaned_pr_after_change_is_abandoned(

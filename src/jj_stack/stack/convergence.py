@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError
+from jj_stack.formatting import format_pr_label
 from jj_stack.models.github import GithubPR, GithubStack, GithubStackPR
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackedPR, TrackingState
@@ -184,8 +185,9 @@ def _submitted_survivors(
             )
         lifecycle = pr.normalize_state().state
         if lifecycle != "open":
+            pr_label = format_pr_label(pr.number, url=pr.html_url)
             raise CliError(
-                t"PR #{pr.number} for {ui.change_id(candidate.change_id)} is "
+                t"{pr_label} for {ui.change_id(candidate.change_id)} is "
                 t"{lifecycle}, so sync cannot update that PR.",
                 hint=t"Reopen it on GitHub, or run {ui.cmd('jj-stack cleanup')} before "
                 t"submitting again.",
@@ -209,8 +211,9 @@ def _trunk_evidence_kind_for(
         )
     pr = observed.pr
     if pr is None:
+        pr_label = format_pr_label(candidate.pr_identity.pr_number, repo=observation.repo)
         raise CliError(
-            t"GitHub no longer reports PR #{candidate.pr_identity.pr_number}.",
+            t"GitHub no longer reports {pr_label}.",
             hint=t"Confirm it with {ui.cmd('jj-stack view')}, then reattach an open "
             t"replacement with {ui.cmd('jj-stack relink')}, or forget the missing link with "
             t"{ui.cmd('jj-stack unstack --local')} before submitting again.",
@@ -261,7 +264,7 @@ def _classify_github_stack(
         if (candidate := state.tracked_pr(change.change_id)) is not None
     )
     prs = {candidate.pr_identity.pr_number for candidate in candidates}
-    stack = selected_github_stack(selected_pr_numbers=prs, stacks=github_stacks)
+    stack = selected_github_stack(observation.repo, prs, github_stacks)
     if stack is None:
         return _NoGithubStack()
     ordered = tuple(number for number in stack.pr_numbers if number in prs)
@@ -299,9 +302,9 @@ def _classify_github_stack(
                 pr=pr,
             )
             if kind is None:
+                pr_label = format_pr_label(pr.number, url=pr.html_url)
                 raise CliError(
-                    t"Cannot remove the saved link for stack member PR #{member.number}: "
-                    t"{reason}.",
+                    t"Cannot remove the saved link for stack member {pr_label}: {reason}.",
                     hint="Make GitHub's merge result reachable from trunk, then rerun sync.",
                 )
             history.append(
@@ -361,6 +364,7 @@ def _validated_member(
     observed = observation.prs.get(candidate.change_id)
     pr = observed.pr if observed is not None else None
     identity = candidate.pr_identity
+    pr_label = format_pr_label(member.number, repo=observation.repo)
     if (
         observed is None
         or observed.identity != identity
@@ -369,7 +373,7 @@ def _validated_member(
         or pr.head.ref != member.head.ref
     ):
         raise CliError(
-            t"Stack member PR #{member.number} no longer matches its saved PR identity.",
+            t"Stack member {pr_label} no longer matches its saved PR identity.",
             hint=t"Reattach it with {ui.cmd('jj-stack relink')}, or forget the incorrect link "
             t"with {ui.cmd('jj-stack unstack --local')} before submitting again.",
         )
@@ -388,6 +392,7 @@ def _validate_active_member(
     stack: GithubStack,
 ) -> None:
     observed = observation.prs[candidate.change_id]
+    pr_label = format_pr_label(pr.number, url=pr.html_url)
     expected = {selected_change.commit_id, member.head.sha}
     if any(
         not item.immutable and item.commit_id not in expected for item in observed.local_commits
@@ -399,7 +404,7 @@ def _validate_active_member(
         )
     if selected_change.immutable and selected_change.commit_id != member.head.sha:
         raise CliError(
-            t"GitHub still lists PR #{member.number} as active in stack #{stack.number}, but "
+            t"GitHub still lists {pr_label} as active in stack #{stack.number}, but "
             t"{ui.change_id(candidate.change_id)} is already immutable here, so this repo "
             t"cannot tell what GitHub did with it.",
             hint=t"Check GitHub's result with {ui.cmd('jj-stack view')}, then rerun sync once it "
@@ -415,12 +420,12 @@ def _validate_active_member(
         )
     if pr.head.sha != member.head.sha or observed.remote_pr_branch_target != member.head.sha:
         raise CliError(
-            t"Active stack member PR #{member.number} does not match its PR branch.",
+            t"Active stack member {pr_label} does not match its PR branch.",
             hint=t"Republish the PR with {ui.cmd('jj-stack submit')}, then rerun sync.",
         )
     if not merge_mode and pr.base.ref != expected_base:
         raise CliError(
-            t"PR #{member.number} no longer has the base expected for this stack.",
+            t"{pr_label} no longer has the base expected for this stack.",
             hint=t"Restore the stack on GitHub, or run "
             t"{ui.cmd(f'jj-stack unstack --stack {stack.number}')} and resubmit it.",
         )

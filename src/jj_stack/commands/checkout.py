@@ -23,6 +23,7 @@ import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext, bootstrap_context
 from jj_stack.errors import CliError, UsageError
+from jj_stack.formatting import format_pr_label, format_pr_number
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
 from jj_stack.github.pr_refs import parse_repo_pr_reference
 from jj_stack.github.resolution import (
@@ -60,8 +61,8 @@ class CheckoutResult:
 class CheckoutPickerChoice:
     """One local or GitHub stack offered by the interactive picker."""
 
-    details: tuple[str, ...]
-    heading: str
+    details: tuple[ui.Message, ...]
+    heading: ui.Message
     pr: str | None = None
     revset: str | None = None
 
@@ -190,8 +191,9 @@ async def _checkout_pr_stack(
         )
         observed_top = observed_top_targets.get(top_pr.head.ref)
         if observed_top != top_head_sha:
+            pr_label = format_pr_label(top_pr.number, url=top_pr.html_url)
             raise CliError(
-                t"PR #{pr_number} and remote branch "
+                t"{pr_label} and remote branch "
                 t"{ui.bookmark(top_pr.head.ref)} no longer identify the same commit."
             )
 
@@ -199,7 +201,7 @@ async def _checkout_pr_stack(
             _reject_locally_rewritten_change(
                 client=client,
                 head_sha=_require_pr_head_sha(pr),
-                pr_number=pr.number,
+                pr=pr,
                 remote_name=remote.name,
             )
         matches = client.query_commits_by_ids((top_head_sha,))
@@ -254,7 +256,7 @@ def _reject_locally_rewritten_change(
     *,
     client: JjClient,
     head_sha: str,
-    pr_number: int,
+    pr: GithubPR,
     remote_name: str,
 ) -> None:
     """Reject a submitted snapshot that disagrees with a visible local change.
@@ -276,19 +278,20 @@ def _reject_locally_rewritten_change(
     local_commits = client.query_commits(f"change_id({change_id})")
     if not any(commit.commit_id != head_sha for commit in local_commits):
         return
+    pr_label = format_pr_label(pr.number, url=pr.html_url)
     if len(local_commits) > 1:
         raise CliError(
             t"Change {ui.change_id(change_id)} already has more than one visible commit "
-            t"here, so PR #{pr_number} cannot be attached to one of them.",
+            t"here, so {pr_label} cannot be attached to one of them.",
             hint=t"Inspect them with {ui.cmd('jj log -r')} "
             t"{ui.revset(f'change_id({change_id})')}, abandon the copies you do not want, "
             t"then retry.",
         )
     raise CliError(
         t"Change {ui.change_id(change_id)} is already here at a different commit than "
-        t"PR #{pr_number}'s head, so checkout cannot choose between them.",
+        t"{pr_label}'s head, so checkout cannot choose between them.",
         hint=t"Attach the pull request to the local change with "
-        t"{ui.cmd(f'jj-stack relink {pr_number} {change_id}')}.",
+        t"{ui.cmd(f'jj-stack relink {pr.number} {change_id}')}.",
     )
 
 
@@ -318,7 +321,8 @@ async def _load_pr(
     try:
         return await github_client.get_pr(pr_number=pr_number)
     except GithubClientError as error:
-        raise CliError(f"Could not load pull request #{pr_number}") from error
+        pr_number_label = format_pr_number(pr_number, repo=github_client.repo)
+        raise CliError(t"Could not load pull request {pr_number_label}") from error
 
 
 async def _load_pr_chain(
@@ -391,8 +395,9 @@ def _save_checkout_tracking(
     ):
         _require_branch_matches_change(branch=pr.head.ref, change=change)
         if remote_targets.get(pr.head.ref) != head_sha:
+            pr_label = format_pr_label(pr.number, url=pr.html_url)
             raise CliError(
-                t"PR #{pr.number} and branch "
+                t"{pr_label} and branch "
                 t"{ui.bookmark(pr.head.ref)} no longer identify the same commit."
             )
         replacements[change.change_id] = (
@@ -445,15 +450,16 @@ def _validate_same_repo_managed_pr(
 ) -> None:
     namespace = current_pr_branch_namespace()
     expected_label = f"{repo.owner}:{pr.head.ref}"
+    pr_number_label = format_pr_number(pr.number, url=pr.html_url)
     if pr.head.label != expected_label:
         raise CliError(
-            t"Pull request #{pr.number} head "
+            t"Pull request {pr_number_label} head "
             t"{ui.bookmark(pr.head.label or pr.head.ref)} does not "
             t"belong to {repo.full_name}."
         )
     if not namespace.contains(pr.head.ref):
         raise CliError(
-            t"Pull request #{pr.number} head "
+            t"Pull request {pr_number_label} head "
             t"{ui.bookmark(pr.head.ref)} is not in the reserved "
             t"{ui.bookmark(namespace.branch_prefix)} namespace."
         )
@@ -462,8 +468,9 @@ def _validate_same_repo_managed_pr(
 def _require_pr_head_sha(pr: GithubPR) -> str:
     head_sha = pr.head.sha
     if head_sha is None:
+        pr_label = format_pr_label(pr.number, url=pr.html_url)
         raise CliError(
-            t"GitHub did not report a head commit for PR #{pr.number}.",
+            t"GitHub did not report a head commit for {pr_label}.",
             hint="Refresh the pull request on GitHub, then retry.",
         )
     return head_sha
@@ -552,9 +559,9 @@ def _prompt_picker_choice(
         )
     console.output("Available stacks:")
     for index, choice in enumerate(choices, start=1):
-        console.output(f"  [{index}] {choice.heading}")
+        console.output((f"  [{index}] ", choice.heading))
         for detail in choice.details:
-            console.output(f"      {detail}")
+            console.output(("      ", detail))
     console.output(t"Pick a stack [1-{len(choices)}]: ")
     selection = sys.stdin.readline().strip()
     if not selection.isdigit() or not 1 <= int(selection) <= len(choices):
@@ -590,7 +597,8 @@ def _picker_choices(
             missing = next(
                 number for number, member in zip(numbers, members, strict=True) if member is None
             )
-            raise CliError(f"GitHub stack #{stack.number} refers to missing PR #{missing}.")
+            pr_label = format_pr_label(missing, repo=repo)
+            raise CliError(t"GitHub stack #{stack.number} refers to missing {pr_label}.")
         resolved = tuple(member for member in members if member is not None)
         if not all(_picker_pr_is_adoptable(member, repo) for member in resolved):
             continue
@@ -619,7 +627,7 @@ def _picker_choices(
             CheckoutPickerChoice(
                 heading=f"GitHub stack #{stack.number} ({locality})",
                 details=(
-                    f"Top: PR #{top.number} {top.title}",
+                    t"Top: {format_pr_label(top.number, url=top.html_url)} {top.title}",
                     f"Base: {bottom.base.ref}",
                     f"Size: {len(numbers)} {noun}",
                     f"Status: {status}",

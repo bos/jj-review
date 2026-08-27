@@ -29,7 +29,9 @@ from jj_stack.commands._json_status import (
 )
 from jj_stack.console import requested_color_mode
 from jj_stack.errors import EXIT_INCOMPLETE, CliError, ErrorMessage, error_message
+from jj_stack.formatting import format_pr_label
 from jj_stack.github.resolution import (
+    GithubRepoAddress,
     GithubTarget,
     UnresolvedGithubTarget,
     resolve_github_target,
@@ -65,7 +67,7 @@ class StackRow:
     current_change_ids: frozenset[str]
     head_change_id: str
     incomplete: bool
-    prs: str
+    prs: ui.Message
     size: int
     state: ui.Message
     subject: str
@@ -78,7 +80,7 @@ class OrphanRow:
     branch: str
     change_id: str
     pr: dict[str, object] | None
-    pr_label: str
+    pr_label: ui.Message
     state: ui.Message
     subject: str
 
@@ -127,6 +129,11 @@ def _run_list(
         discovered = ()
         current_tracked_commit_id = None
 
+    github_target = (
+        resolve_github_target(context.jj_client.list_git_remotes())
+        if state.pr_identities
+        else UnresolvedGithubTarget()
+    )
     ordered = _order_discovered_stacks(
         discovered,
         current_tracked_commit_id=current_tracked_commit_id,
@@ -139,7 +146,11 @@ def _run_list(
     )
     duplicate_branch_names = frozenset(duplicate_branches)
     orphan_rows = tuple(
-        _build_orphan_row(orphan) for orphan in enumerate_orphaned_records(state, ordered)
+        _build_orphan_row(
+            orphan,
+            repo=github_target.repo if isinstance(github_target, GithubTarget) else None,
+        )
+        for orphan in enumerate_orphaned_records(state, ordered)
     )
     if not ordered:
         if as_json:
@@ -171,7 +182,6 @@ def _run_list(
         )
         _emit_orphan_hint(orphan_rows)
         return 0
-    github_target = resolve_github_target(context.jj_client.list_git_remotes())
     prepared_discovered = tuple(
         _PreparedDiscoveredStack(
             current=_stack_contains_commit_id(
@@ -202,6 +212,7 @@ def _run_list(
     rows = tuple(
         _build_row(
             github_error=github_target.github_repo_error or github_error,
+            github_repo=(github_target.repo if isinstance(github_target, GithubTarget) else None),
             is_current=item.current,
             prepared_stack=item.prepared,
             pr_lookups=pr_lookups,
@@ -241,13 +252,17 @@ def _run_list(
     return EXIT_INCOMPLETE if incomplete else 0
 
 
-def _build_orphan_row(orphan: OrphanedRecord) -> OrphanRow:
+def _build_orphan_row(
+    orphan: OrphanedRecord,
+    *,
+    repo: GithubRepoAddress | None,
+) -> OrphanRow:
     pr_number = orphan.pr_identity.pr_number
     return OrphanRow(
         branch=orphan.pr_identity.head_ref,
         change_id=orphan.change_id,
         pr=saved_pr_json(orphan.pr_identity),
-        pr_label=f"PR #{pr_number}",
+        pr_label=format_pr_label(pr_number, repo=repo),
         state=ui.semantic_text("orphan", "warning", "heading"),
         subject="local change missing",
     )
@@ -379,6 +394,7 @@ def _stack_contains_commit_id(
 def _build_row(
     *,
     github_error: ErrorMessage | None,
+    github_repo: GithubRepoAddress | None,
     is_current: bool,
     prepared_stack: PreparedStack,
     pr_lookups: dict[str, PRLookup],
@@ -389,8 +405,7 @@ def _build_row(
         pr_lookups=pr_lookups,
     )
     statuses = tuple(classify_stack_status_change(change) for change in changes)
-    pr_numbers = _pr_numbers_from_changes(changes)
-    prs = _format_pr_summary(pr_numbers)
+    prs = _format_pr_summary(changes, repo=github_repo)
     local_fragments: list[ui.Message] = []
     if any(change.divergent for change in stack.changes):
         local_fragments.append(ui.semantic_text("divergent", "error", "heading"))
@@ -566,19 +581,19 @@ def _status_is_incomplete(
     return any(status.makes_report_incomplete for status in statuses)
 
 
-def _pr_numbers_from_changes(
+def _pr_references_from_changes(
     changes: tuple[StackStatusChange, ...],
-) -> tuple[int, ...]:
-    numbers: list[int] = []
+) -> tuple[tuple[int, str | None], ...]:
+    references: dict[int, str | None] = {}
     for change in changes:
         lookup = change.pr_lookup
         if lookup is not None and lookup.pr is not None:
-            numbers.append(lookup.pr.number)
+            references[lookup.pr.number] = lookup.pr.html_url
             continue
         pr_identity = change.pr_identity
         if pr_identity is not None:
-            numbers.append(pr_identity.pr_number)
-    return tuple(sorted(dict.fromkeys(numbers)))
+            references.setdefault(pr_identity.pr_number, None)
+    return tuple(sorted(references.items()))
 
 
 def _load_pr_lookups(
@@ -616,12 +631,23 @@ def _load_pr_lookups(
         return {}, error_message(error)
 
 
-def _format_pr_summary(numbers: tuple[int, ...]) -> str:
-    if not numbers:
+def _format_pr_summary(
+    changes: tuple[StackStatusChange, ...],
+    *,
+    repo: GithubRepoAddress | None,
+) -> ui.Message:
+    references = _pr_references_from_changes(changes)
+    if not references:
         return ""
-    if len(numbers) == 1:
-        return f"PR {numbers[0]}"
-    return f"{len(numbers)} PRs"
+    if len(references) == 1:
+        number, url = references[0]
+        return format_pr_label(
+            number,
+            include_hash=False,
+            repo=repo,
+            url=url,
+        )
+    return f"{len(references)} PRs"
 
 
 def _stack_table(

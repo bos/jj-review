@@ -723,6 +723,7 @@ async def run_submit_async(
                 change_id=explicit_base.change_id,
                 discovered_pr=discovered_prs[base_branch],
                 expected_remote_target=expected_base_commit,
+                repo=github_repo,
                 tracked_pr=tracked_base,
                 merged_hint=(
                     t"Sync the parent PR first, rebase only the child stack with "
@@ -743,6 +744,7 @@ async def run_submit_async(
             discovered_prs=discovered_prs,
             existing_only=options.existing_only,
             prepared_changes=prepared_changes,
+            repo=github_client.repo,
             state=mutation_run.state,
         )
         generated_descriptions = preserve_external_pr_text(
@@ -843,6 +845,7 @@ async def run_submit_async(
                 if (pr := plan.discovered_pr) is not None
                 and (pr.base.ref != plan.base_branch or plan in retarget_plans)
             },
+            repo=github_client.repo,
         )
         stacks_to_dissolve = (
             github_stack_plan.affected_stacks if github_stack_plan.action == "replace" else ()

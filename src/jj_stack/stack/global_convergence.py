@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from jj_stack.bootstrap import CommandContext
+from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient
 from jj_stack.models.github import GithubPR, GithubStack
 from jj_stack.models.stack import LocalCommit
@@ -163,7 +164,8 @@ def _classify_global_candidate(
             tracked_prs=tracked_pr_numbers,
         )
     if pr is None:
-        return t"GitHub no longer reports PR #{candidate.pr_identity.pr_number}", None, ()
+        pr_label = format_pr_label(candidate.pr_identity.pr_number, repo=facts.pr_facts.repo)
+        return t"GitHub no longer reports {pr_label}", None, ()
     if ancestry == "unresolved":
         return "the submitted commit is unavailable locally", None, ()
     if reason and (
@@ -188,12 +190,13 @@ def _affected_candidate_plan(
     if heads:
         return None, None, heads
     if pr is None:
-        return t"GitHub no longer reports PR #{candidate.pr_identity.pr_number}", None, ()
+        pr_label = format_pr_label(candidate.pr_identity.pr_number, repo=facts.pr_facts.repo)
+        return t"GitHub no longer reports {pr_label}", None, ()
     if evidence is None:
         return reason, None, ()
     stack_reason, historical = _detached_stack_blocker(
         candidate=candidate,
-        stacks=facts.stacks,
+        facts=facts,
         tracked_pr_numbers=tracked_prs,
     )
     if stack_reason is not None:
@@ -223,25 +226,26 @@ def _candidate_path_heads(
 def _detached_stack_blocker(
     *,
     candidate: TrackedPR,
-    stacks: tuple[GithubStack, ...],
+    facts: GlobalSyncFacts,
     tracked_pr_numbers: frozenset[int],
 ) -> tuple[Message | None, bool]:
     number = candidate.pr_identity.pr_number
     matching = tuple(
-        member for stack in stacks for member in stack.prs if member.number == number
+        member for stack in facts.stacks for member in stack.prs if member.number == number
     )
     if not matching:
         return None, False
+    pr_label = format_pr_label(number, repo=facts.pr_facts.repo)
     if not matching[0].is_historical:
-        return t"GitHub still lists PR #{number} as an active member of its stack", False
+        return t"GitHub still lists {pr_label} as an active member of its stack", False
     blocked = any(
         number in stack.pr_numbers
         and not set(stack.active_pr_numbers).isdisjoint(tracked_pr_numbers)
-        for stack in stacks
+        for stack in facts.stacks
     )
     return (
         (
-            t"PR #{number} is in a GitHub stack that still has active members tracked here"
+            t"{pr_label} is in a GitHub stack that still has active members tracked here"
             if blocked
             else None
         ),

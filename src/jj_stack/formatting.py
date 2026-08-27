@@ -41,16 +41,49 @@ class CommitRenderClient(Protocol):
     ) -> dict[str, tuple[str, ...]]: ...
 
 
+class GithubRepoRenderTarget(Protocol):
+    """GitHub repo coordinates needed to render a pull request URL."""
+
+    @property
+    def full_name(self) -> str: ...
+
+
+def _pr_url(
+    pr_number: int,
+    *,
+    repo: GithubRepoRenderTarget | None,
+    url: str | None,
+) -> str | None:
+    return url or (f"https://github.com/{repo.full_name}/pull/{pr_number}" if repo else None)
+
+
+def format_pr_number(
+    pr_number: int,
+    *,
+    include_hash: bool = True,
+    repo: GithubRepoRenderTarget | None = None,
+    url: str | None = None,
+) -> ui.Message:
+    """Render a pull request number, linking it when its repo or URL is known."""
+
+    url = _pr_url(pr_number, repo=repo, url=url)
+    text = f"{'#' if include_hash else ''}{pr_number}"
+    return ui.hyperlink(text, url) if url is not None else text
+
+
 def format_pr_label(
     pr_number: int,
     *,
+    include_hash: bool = True,
     is_draft: bool = False,
     prefix: str = "",
+    repo: GithubRepoRenderTarget | None = None,
     url: str | None = None,
 ) -> ui.Message:
     """Render a pull request label for CLI output."""
 
-    text = f"PR #{pr_number}"
+    url = _pr_url(pr_number, repo=repo, url=url)
+    text = f"PR {'#' if include_hash else ''}{pr_number}"
     label: ui.Message = ui.hyperlink(text, url) if url is not None else text
     if is_draft:
         label = ("draft ", label)

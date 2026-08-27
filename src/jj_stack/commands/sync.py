@@ -60,8 +60,14 @@ from jj_stack.errors import (
     error_message,
     resolve_exit_code,
 )
+from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClientError, build_github_client
-from jj_stack.github.resolution import GithubTarget, resolve_github_target, resolve_trunk_branch
+from jj_stack.github.resolution import (
+    GithubRepoAddress,
+    GithubTarget,
+    resolve_github_target,
+    resolve_trunk_branch,
+)
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import UnsupportedStackError
 from jj_stack.models.github import GithubStack
@@ -200,9 +206,9 @@ async def _run_global_plan(
                 state=state,
             )
         for candidate, reason in plan.blocked:
+            pr_label = format_pr_label(candidate.pr_identity.pr_number, repo=facts.pr_facts.repo)
             console.warning(
-                t"Skipped PR #{candidate.pr_identity.pr_number} for "
-                t"{ui.change_id(candidate.change_id)}: {reason}."
+                t"Skipped {pr_label} for {ui.change_id(candidate.change_id)}: {reason}."
             )
         required = bool(plan.finishes or plan.sync_change_ids)
         trunk_branch = None
@@ -357,7 +363,7 @@ async def _run_selected_convergence(
                     trunk_branch=trunk_branch,
                 )
         if queued:
-            _render_queued_sync(queued)
+            _render_queued_sync(queued, repo=observation.repo)
             return 0
         if not complete:
             console.output("No merged changes in this stack need rebasing.")
@@ -378,10 +384,10 @@ async def _run_selected_convergence(
         )
 
 
-def _render_queued_sync(pr_numbers: tuple[int, ...]) -> None:
+def _render_queued_sync(pr_numbers: tuple[int, ...], *, repo: GithubRepoAddress) -> None:
+    labels = ui.join(lambda number: format_pr_label(number, repo=repo), pr_numbers)
     console.output(
-        t"Nothing to sync while the selected pull request is in the merge queue "
-        t"({ui.join(lambda number: f'PR #{number}', pr_numbers)})."
+        t"Nothing to sync while the selected pull request is in the merge queue ({labels})."
     )
 
 

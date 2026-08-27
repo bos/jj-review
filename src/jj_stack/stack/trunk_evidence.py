@@ -13,6 +13,7 @@ from typing import Literal
 
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
+from jj_stack.formatting import format_pr_label
 from jj_stack.models.github import GithubPR
 from jj_stack.models.tracking import TrackedPR
 from jj_stack.ui import Message
@@ -103,12 +104,13 @@ def classify_rewritten_result(
     if mismatch is not None:
         return TrunkEvidence.unproven(mismatch, pr_mismatch=True)
     lifecycle = pr.normalize_state().state
+    pr_label = format_pr_label(pr.number, url=pr.html_url)
     if lifecycle != "merged":
-        return TrunkEvidence.unproven(t"PR #{pr.number} is {lifecycle} without a result on trunk")
+        return TrunkEvidence.unproven(t"{pr_label} is {lifecycle} without a result on trunk")
     merge_commit_id = pr.merge_commit_sha
     if merge_commit_id is None:
         return TrunkEvidence.unproven(
-            t"GitHub did not report the merge-result commit for PR #{pr.number}"
+            t"GitHub did not report the merge-result commit for {pr_label}"
         )
     if merge_result_ancestry == "unresolved":
         return TrunkEvidence.unproven(
@@ -159,9 +161,10 @@ def _snapshot_mismatch(
     if candidate.matches_snapshot(pr):
         return None
     identity = candidate.pr_identity
+    pr_label = format_pr_label(pr.number, url=pr.html_url)
     if not identity.matches_pr(pr):
         return (
-            t"PR #{pr.number} no longer matches the pull request recorded for "
+            t"{pr_label} no longer matches the pull request recorded for "
             t"{ui.change_id(candidate.change_id)}"
         )
-    return t"PR #{pr.number} no longer reports the submitted head"
+    return t"{pr_label} no longer reports the submitted head"

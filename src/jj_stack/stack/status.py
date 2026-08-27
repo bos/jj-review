@@ -11,6 +11,7 @@ from typing import Literal
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError, ErrorMessage, error_message
+from jj_stack.formatting import format_pr_label, format_pr_number
 from jj_stack.github.client import (
     GithubClient,
     GithubClientError,
@@ -596,10 +597,17 @@ def _pr_lookup_from_discovered(
             state="missing",
         )
     if len(prs) > 1:
-        numbers = ", ".join(str(pr.number) for pr in prs)
+        labels = ui.join(
+            lambda pr: format_pr_number(
+                pr.number,
+                include_hash=False,
+                url=pr.html_url,
+            ),
+            prs,
+        )
         return PRLookup(
             message=(
-                t"GitHub reports multiple pull requests for head branch {head_label}: {numbers}."
+                t"GitHub reports multiple pull requests for head branch {head_label}: {labels}."
             ),
             pr=None,
             state="ambiguous",
@@ -609,8 +617,9 @@ def _pr_lookup_from_discovered(
     effective_pr = pr.normalize_state()
     message = None
     if effective_pr.state != "open":
+        pr_number = format_pr_number(effective_pr.number, url=effective_pr.html_url)
         message = (
-            t"GitHub reports pull request #{effective_pr.number} "
+            t"GitHub reports pull request {pr_number} "
             t"for head branch {head_label} in state {effective_pr.state}."
         )
     return _single_pr_lookup(
@@ -627,8 +636,9 @@ def _pr_lookup_from_remembered(
     effective_pr = pr.normalize_state()
     message: ErrorMessage | None = None
     if effective_pr.head.ref != branch:
+        pr_label = format_pr_label(effective_pr.number, url=effective_pr.html_url)
         message = (
-            t"Remembered PR #{effective_pr.number} now uses head branch "
+            t"Remembered {pr_label} now uses head branch "
             t"{ui.bookmark(effective_pr.head.ref)}, not "
             t"{ui.bookmark(branch)}."
         )

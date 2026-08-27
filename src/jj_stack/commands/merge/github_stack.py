@@ -7,7 +7,9 @@ from dataclasses import dataclass, replace
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError
+from jj_stack.formatting import format_pr_label, format_pr_number
 from jj_stack.github.client import GithubClient, GithubClientError
+from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubStack, GithubStackMerge
 from jj_stack.stack.github_stack_safety import selected_github_stack
 from jj_stack.stack.pr_facts import RepoFacts
@@ -42,10 +44,14 @@ class AsyncMergePlan:
         enqueued: bool = False,
         merge_action: str,
         method: str | None,
+        repo: GithubRepoAddress,
         trunk_branch: str,
     ) -> MergeAction:
-        number_list = ", ".join(f"#{change.identity.pr_number}" for change in self.planned)
-        prs = f"PR {number_list}" if len(self.planned) == 1 else f"PRs {number_list}"
+        numbers = ui.join(
+            lambda change: format_pr_number(change.identity.pr_number, repo=repo),
+            self.planned,
+        )
+        prs: Message = ("PR " if len(self.planned) == 1 else "PRs ", numbers)
         if merge_action == "merge_queue" and enqueued:
             body = t"{prs} are queued for {ui.bookmark(trunk_branch)} through "
         elif merge_action == "merge_queue":
@@ -66,9 +72,10 @@ def build_async_merge_plan(
     merge_plan: MergePlan,
     stacks: tuple[GithubStack, ...],
     target_change_id: str | None,
+    repo: GithubRepoAddress,
 ) -> AsyncMergePlan:
     by_pr = {change.identity.pr_number: change for change in merge_plan.linked_changes}
-    resource = selected_github_stack(selected_pr_numbers=tuple(by_pr), stacks=stacks)
+    resource = selected_github_stack(repo, tuple(by_pr), stacks)
     if resource is None:
         if len(by_pr) > 1 and merge_plan.planned_changes:
             raise CliError(
@@ -126,9 +133,12 @@ async def execute_async_merge(
                 base=execution.trunk_branch,
             )
         except GithubClientError as error:
+            pr_label = format_pr_label(
+                merge.target.identity.pr_number,
+                repo=github.repo,
+            )
             raise CliError(
-                t"Could not retarget PR #{merge.target.identity.pr_number} to "
-                t"{ui.bookmark(execution.trunk_branch)}",
+                t"Could not retarget {pr_label} to {ui.bookmark(execution.trunk_branch)}",
                 hint="Resolve the GitHub error above, then rerun merge.",
             ) from error
     try:
@@ -146,8 +156,12 @@ async def execute_async_merge(
                 reason=t"the PR head changed on GitHub; run "
                 t"{ui.cmd(f'jj-stack submit {execution.selected_revset}')} and merge again",
             )
+        pr_label = format_pr_label(
+            merge.target.identity.pr_number,
+            repo=github.repo,
+        )
         raise CliError(
-            t"Could not request GitHub merge through PR #{merge.target.identity.pr_number}.",
+            t"Could not request GitHub merge through {pr_label}.",
             hint="Resolve the GitHub error above, then rerun merge.",
         ) from error
     if submission.already_pending:
@@ -275,7 +289,10 @@ def _blocked_result(
     location = (
         t"GitHub stack #{merge.resource.number}"
         if merge.resource is not None
-        else t"PR #{merge.target.identity.pr_number}"
+        else format_pr_label(
+            merge.target.identity.pr_number,
+            repo=execution.repo,
+        )
     )
     return execution.result(
         actions=(
@@ -300,6 +317,7 @@ def _applied_result(
         merge.action(
             merge_action=merge_action,
             method=merge_method,
+            repo=execution.repo,
             trunk_branch=execution.trunk_branch,
         ),
         status="applied",
@@ -322,6 +340,7 @@ def _enqueued_result(
             enqueued=True,
             merge_action=merge_action,
             method=None,
+            repo=execution.repo,
             trunk_branch=execution.trunk_branch,
         ),
         status="applied",

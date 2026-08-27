@@ -5,6 +5,7 @@ from __future__ import annotations
 import jj_stack.ui as ui
 from jj_stack.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_stack.errors import CliError
+from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.jj.client import JjClient
 
@@ -102,7 +103,8 @@ async def _retarget_pr_base_before_branch_push(
             base=trunk_branch,
         )
     except GithubClientError as error:
+        pr_label = format_pr_label(pr.number, url=pr.html_url)
         raise CliError(
-            t"Could not retarget PR #{pr.number} to "
+            t"Could not retarget {pr_label} to "
             t"{ui.bookmark(trunk_branch)} before pushing PR branches"
         ) from error

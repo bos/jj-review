@@ -7,13 +7,15 @@ from dataclasses import dataclass
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError
+from jj_stack.formatting import format_pr_number
 from jj_stack.github.client import GithubClient, GithubClientError
+from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubStack
 from jj_stack.stack.pr_facts import observe_github_stacks
 
 
 def selected_github_stack(
-    *,
+    repo: GithubRepoAddress,
     selected_pr_numbers: Collection[int],
     stacks: Sequence[GithubStack],
 ) -> GithubStack | None:
@@ -56,7 +58,8 @@ def selected_github_stack(
     if unselected:
         raise CliError(
             t"GitHub stack #{stack.number} keeps "
-            t"{ui.join(lambda number: f'#{number}', unselected)} active outside the selected "
+            t"{ui.join(lambda number: format_pr_number(number, repo=repo), unselected)} "
+            t"active outside the selected "
             t"stack.",
             hint=t"Select the complete stack, or run "
             t"{ui.cmd(f'jj-stack unstack --stack {stack.number}')}, then retry.",
@@ -82,7 +85,10 @@ async def dissolve_github_stack(
             ) from None
         raise CliError(t"Could not remove GitHub stack grouping #{stack.number}.") from error
     if remaining is not None and remaining.active_pr_numbers:
-        members = ", ".join(f"#{number}" for number in remaining.active_pr_numbers)
+        members = ui.join(
+            lambda number: format_pr_number(number, repo=github_client.repo),
+            remaining.active_pr_numbers,
+        )
         raise CliError(
             t"GitHub stack #{stack.number} still contains {members}.",
             hint=t"Resolve its locked pull requests, then retry "

@@ -31,6 +31,7 @@ from jj_stack.commands._cleanup_actions import (
     plan_pr_cleanup,
 )
 from jj_stack.errors import AmbiguousSelectionError, CliError, UsageError
+from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
 from jj_stack.github.error_messages import github_target_unavailable_messages
 from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_MARKER
@@ -40,7 +41,7 @@ from jj_stack.github.resolution import (
 )
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import PRRefUpdate
-from jj_stack.models.github import GithubIssueComment, GithubStack
+from jj_stack.models.github import GithubIssueComment, GithubPR, GithubStack
 from jj_stack.models.tracking import TrackingState
 from jj_stack.stack.change_status import enumerate_orphaned_records
 from jj_stack.stack.pr_facts import (
@@ -50,7 +51,7 @@ from jj_stack.stack.pr_facts import (
 )
 from jj_stack.stack.repo import observe_repo_paths
 from jj_stack.stack.selected import select_stack_path
-from jj_stack.stack.selection import resolve_pr_number
+from jj_stack.stack.selection import resolve_pr_reference
 from jj_stack.state.operation_lock import (
     acquire_operation_lock,
 )
@@ -68,7 +69,7 @@ from .stale import (
 )
 
 HELP = "Remove PR data that no active pull request needs"
-type CleanupPreflight = tuple[str | None, PRRefUpdate | None, CleanupAction | None]
+type CleanupPreflight = tuple[GithubPR | None, PRRefUpdate | None, CleanupAction | None]
 
 
 def _build_action_streamer(*, header: str) -> Callable[[CleanupAction], None]:
@@ -270,7 +271,7 @@ def _resolve_cleanup_change_ids(
             orphan.change_id for orphan in enumerate_orphaned_records(state, tracked_stacks)
         )
     if pr is not None:
-        pr_number = resolve_pr_number(
+        pr_number, repo = resolve_pr_reference(
             jj_client=context.jj_client,
             pr_reference=pr,
         )
@@ -280,8 +281,9 @@ def _resolve_cleanup_change_ids(
             if identity.pr_number == pr_number
         )
         if len(matches) > 1:
+            pr_label = format_pr_label(pr_number, repo=repo)
             raise AmbiguousSelectionError(
-                t"Multiple saved links claim PR #{pr_number}.",
+                t"Multiple saved links claim {pr_label}.",
                 hint=t"Run {ui.cmd('list')} to inspect them and repair the incorrect link.",
             )
         return matches
@@ -478,11 +480,12 @@ async def _cleanup_tracked_pr(
 
     candidate = prepared_change.candidate
     identity = candidate.pr_identity
-    pr_state, update, early_action = preflight
-    if pr_state is None:
+    pr, update, early_action = preflight
+    if pr is None:
         if early_action is not None:
             record_action(early_action)
         return False
+    pr_label = format_pr_label(pr.number, url=pr.html_url)
     stack_blocker = github_stack_cleanup_blocker(
         pr_number=identity.pr_number,
         stacks=stacks,
@@ -491,11 +494,11 @@ async def _cleanup_tracked_pr(
         record_action(stack_blocker)
         return False
     overview_comment = overview_comments[identity.pr_number]
-    if pr_state == "open":
+    if pr.state == "open":
         close_action = CleanupAction(
             kind="pull request",
             status="planned" if prepared_cleanup.dry_run else "applied",
-            body=t"close PR #{identity.pr_number}",
+            body=t"close {pr_label}",
         )
         if not prepared_cleanup.dry_run:
             try:
@@ -505,7 +508,7 @@ async def _cleanup_tracked_pr(
                     CleanupAction(
                         kind="pull request",
                         status="blocked",
-                        body=t"cannot close PR #{identity.pr_number}: {error}",
+                        body=t"cannot close {pr_label}: {error}",
                     )
                 )
                 return True
@@ -514,6 +517,7 @@ async def _cleanup_tracked_pr(
         branch_update=update,
         overview_comment=overview_comment,
         github_client=github_client,
+        pr=pr,
         prepared_change=prepared_change,
         prepared_cleanup=prepared_cleanup,
         record_action=record_action,
@@ -529,7 +533,6 @@ def _preflight_tracked_pr_cleanup(
     preview_detached_dependents: frozenset[int],
 ) -> CleanupPreflight:
     candidate = prepared_change.candidate
-    identity = candidate.pr_identity
     pr, blocker = check_tracked_pr(
         allowed_states=frozenset({"open", "closed", "merged"}),
         candidate=candidate,
@@ -540,11 +543,12 @@ def _preflight_tracked_pr_cleanup(
     if pr is None:
         raise AssertionError("Exact cleanup lookup must return a pull request.")
     if pr.state == "open" and not prepared_cleanup.close_open_prs:
+        pr_label = format_pr_label(pr.number, url=pr.html_url)
         action = (
             CleanupAction(
                 kind="tracking",
                 status="skipped",
-                body=t"preserve open orphan PR #{identity.pr_number}",
+                body=t"preserve open orphan {pr_label}",
             )
             if prepared_change.stale_reason is not None
             else None
@@ -563,15 +567,16 @@ def _preflight_tracked_pr_cleanup(
     if blocker is not None:
         return None, update, blocker
     if pr.state == "merged" and prepared_change.has_mutable_copy:
+        pr_label = format_pr_label(pr.number, url=pr.html_url)
         action = CleanupAction(
             kind="tracking",
             status="skipped",
-            body=t"preserve merged PR #{identity.pr_number} for "
+            body=t"preserve merged {pr_label} for "
             t"{ui.change_id(candidate.change_id)}; run "
             t"{ui.cmd(f'sync {candidate.change_id}')} before cleanup",
         )
         return None, None, action
-    return pr.state, update, None
+    return pr, update, None
 
 
 async def _apply_tracked_pr_cleanup(
@@ -579,6 +584,7 @@ async def _apply_tracked_pr_cleanup(
     branch_update: PRRefUpdate | None,
     overview_comment: GithubIssueComment | None,
     github_client: GithubClient,
+    pr: GithubPR,
     prepared_change: PreparedCleanupChange,
     prepared_cleanup: PreparedCleanup,
     record_action: Callable[[CleanupAction], None],
@@ -613,7 +619,7 @@ async def _apply_tracked_pr_cleanup(
     action = CleanupAction(
         kind="tracking",
         status="planned" if prepared_cleanup.dry_run else "applied",
-        body=t"forget PR #{candidate.pr_identity.pr_number} for "
+        body=t"forget {format_pr_label(pr.number, url=pr.html_url)} for "
         t"{ui.change_id(candidate.change_id)}{reason}",
     )
     if prepared_cleanup.dry_run:

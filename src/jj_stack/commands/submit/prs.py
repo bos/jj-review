@@ -8,7 +8,9 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 import jj_stack.ui as ui
 from jj_stack.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_stack.errors import CliError, DriftError
+from jj_stack.formatting import format_pr_label, format_pr_number
 from jj_stack.github.client import GithubClient, GithubClientError
+from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubPR, GithubPRReview
 from jj_stack.models.tracking import (
     PRIdentity,
@@ -82,7 +84,8 @@ async def load_re_request_reviewers(
         items=prs,
         run_item=lambda pr: _github_request(
             github_client.list_pr_reviews(pr_number=pr.number),
-            error_message=f"Could not load reviews for pull request #{pr.number}",
+            error_message=t"Could not load reviews for pull request "
+            t"{format_pr_number(pr.number, url=pr.html_url)}",
         ),
     )
     return {
@@ -96,6 +99,7 @@ def ensure_pr_syncs_are_safe(
     discovered_prs: Mapping[str, GithubPR | None],
     existing_only: bool,
     prepared_changes: Sequence[PreparedSubmitChange],
+    repo: GithubRepoAddress,
     state: TrackingState,
 ) -> None:
     """Verify every planned PR sync before any mutation.
@@ -112,8 +116,9 @@ def ensure_pr_syncs_are_safe(
         pr = discovered_prs[prepared_change.branch]
         if pr is not None and pr.is_queued:
             head_change_id = prepared_changes[-1].change.change_id
+            pr_label = format_pr_label(pr.number, url=pr.html_url)
             raise CliError(
-                t"PR #{pr.number} for {ui.change_id(change_id)} is in the merge "
+                t"{pr_label} for {ui.change_id(change_id)} is in the merge "
                 t"queue, so submit made no changes. Any new changes above it remain "
                 t"unsubmitted.",
                 hint=t"Wait for the queued PRs to merge, then run "
@@ -125,6 +130,7 @@ def ensure_pr_syncs_are_safe(
             change_id=change_id,
             discovered_pr=pr,
             expected_remote_target=prepared_change.expected_remote_target,
+            repo=repo,
             tracked_pr=tracked_pr,
         )
         if existing_only and (tracked_pr is None or pr is None):
@@ -203,6 +209,7 @@ async def _sync_pr(
         and not run.dry_run
     ):
         assert pr is not None
+        pr_number = format_pr_number(pr.number, url=pr.html_url)
         pr = await _github_request(
             github_client.update_pr(
                 pr_number=pr.number,
@@ -210,7 +217,7 @@ async def _sync_pr(
                 body=body_update,
                 title=title_update,
             ),
-            error_message=f"Could not update pull request #{pr.number}",
+            error_message=t"Could not update pull request {pr_number}",
         )
 
     if pr is not None and not run.dry_run:
@@ -259,14 +266,15 @@ async def _apply_draft_action(
 ) -> GithubPR:
     if action is None:
         return pr
+    pr_number = format_pr_number(pr.number, url=pr.html_url)
     message = (
-        f"Could not return pull request #{pr.number} to draft for {github_client.repo.full_name}"
+        t"Could not return pull request {pr_number} to draft for {github_client.repo.full_name}"
         if action == "draft"
-        else f"Could not mark draft pull request #{pr.number} ready for review for "
-        f"{github_client.repo.full_name}"
+        else t"Could not mark draft pull request {pr_number} ready for review for "
+        t"{github_client.repo.full_name}"
     )
     if pr.node_id is None:
-        raise CliError(f"{message}: GitHub did not return a node ID.")
+        raise CliError((message, ": GitHub did not return a node ID."))
     request = (
         github_client.convert_pr_to_draft(pr_id=pr.node_id)
         if action == "draft"
@@ -332,14 +340,15 @@ def ensure_pr_link_is_consistent(
     change_id: str,
     discovered_pr: GithubPR | None,
     expected_remote_target: str | None,
+    repo: GithubRepoAddress | None = None,
     tracked_pr: TrackedPR | None,
     merged_hint: Message | None = None,
 ) -> None:
     if tracked_pr is None:
         if discovered_pr is not None:
+            pr_label = format_pr_label(discovered_pr.number, url=discovered_pr.html_url)
             raise DriftError(
-                t"GitHub already reports PR #{discovered_pr.number} for "
-                t"untracked branch {ui.bookmark(branch)}.",
+                t"GitHub already reports {pr_label} for untracked branch {ui.bookmark(branch)}.",
                 condition="saved_pr_missing",
                 hint=t"Adopt that PR explicitly with {ui.cmd('relink')} before submitting.",
             )
@@ -363,11 +372,14 @@ def ensure_pr_link_is_consistent(
             ),
         )
     discovered_pr = discovered_pr.normalize_state()
+    discovered_number = format_pr_number(discovered_pr.number, url=discovered_pr.html_url)
+    discovered_label = format_pr_label(discovered_pr.number, url=discovered_pr.html_url)
     if pr_identity.pr_number != discovered_pr.number:
+        saved_label = format_pr_number(pr_identity.pr_number, repo=repo)
         raise DriftError(
-            t"Saved pull request #{pr_identity.pr_number} does not match the PR "
+            t"Saved pull request {saved_label} does not match the PR "
             t"GitHub reports for branch {ui.bookmark(branch)} "
-            t"(#{discovered_pr.number}).",
+            t"({discovered_number}).",
             condition="saved_pr_mismatch",
             hint=(
                 t"Inspect the PR link with {ui.cmd('view')} and repair it "
@@ -384,14 +396,14 @@ def ensure_pr_link_is_consistent(
             t"submitting a new PR."
         )
         raise DriftError(
-            t"PR #{discovered_pr.number} for {ui.change_id(change_id)} is "
+            t"{discovered_label} for {ui.change_id(change_id)} is "
             t"{discovered_pr.state} and cannot be updated.",
             condition="pr_not_open",
             hint=hint,
         )
     if expected_remote_target is None or discovered_pr.head.sha != expected_remote_target:
         raise DriftError(
-            t"Pull request #{pr_identity.pr_number} and its remote branch no longer "
+            t"Pull request {discovered_number} and its remote branch no longer "
             t"identify the same commit.",
             condition="remote_branch_moved",
             hint=t"Inspect it with {ui.cmd('view')} before submitting again.",
@@ -419,7 +431,8 @@ async def _sync_pr_metadata(
                 labels=labels,
             )
     except GithubClientError as error:
-        raise CliError(f"Could not synchronize metadata for pull request #{pr_number}") from error
+        pr_label = format_pr_number(pr_number, repo=github_client.repo)
+        raise CliError(t"Could not synchronize metadata for pull request {pr_label}") from error
 
 
 def _submitted_identity(

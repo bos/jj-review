@@ -10,6 +10,7 @@ import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext, bootstrap_context
 from jj_stack.errors import CliError
+from jj_stack.formatting import format_pr_label, format_pr_number
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
 from jj_stack.github.pr_refs import parse_repo_pr_reference
 from jj_stack.github.resolution import require_github_repo, select_submit_remote
@@ -33,6 +34,7 @@ class RelinkResult:
     branch: str
     change_id: str
     pr_number: int
+    pr_url: str
     subject: str
 
 
@@ -55,8 +57,9 @@ def relink(
                 revset=revset,
             )
         )
+    pr_label = format_pr_label(result.pr_number, url=result.pr_url)
     console.output(
-        t"Relinked PR #{result.pr_number} for {result.subject} "
+        t"Relinked {pr_label} for {result.subject} "
         t"({ui.change_id(result.change_id)}) -> {ui.bookmark(result.branch)}"
     )
     return 0
@@ -102,13 +105,15 @@ async def _run_relink_async(
         )
         branch = pr.head.ref
         remote_target = (await github_client.get_branch_targets(branches=(branch,))).get(branch)
+    pr_number_label = format_pr_number(pr_number, url=pr.html_url)
     if remote_target is None:
         raise CliError(
-            t"Remote branch {ui.bookmark(branch)} for pull request #{pr_number} does not exist."
+            t"Remote branch {ui.bookmark(branch)} for pull request "
+            t"{pr_number_label} does not exist."
         )
     if remote_target != head_sha:
         raise CliError(
-            t"Pull request #{pr_number} and remote branch {ui.bookmark(branch)} "
+            t"Pull request {pr_number_label} and remote branch {ui.bookmark(branch)} "
             t"no longer identify the same commit."
         )
     remote_change_id = client.read_remote_git_change_id(
@@ -118,7 +123,7 @@ async def _run_relink_async(
     if remote_change_id != change.change_id:
         if remote_change_id is not None and pr_branch_matches_change(branch, remote_change_id):
             raise CliError(
-                t"Pull request #{pr_number} belongs to change "
+                t"Pull request {pr_number_label} belongs to change "
                 t"{ui.change_id(remote_change_id)}, not selected change "
                 t"{ui.change_id(change.change_id)}.",
                 hint=t"If {ui.change_id(remote_change_id)} still exists locally, run "
@@ -136,7 +141,7 @@ async def _run_relink_async(
     namespace = current_pr_branch_namespace()
     if not pr_branch_matches_change(branch, change.change_id):
         raise CliError(
-            t"Pull request #{pr_number} head {ui.bookmark(branch)} does not match "
+            t"Pull request {pr_number_label} head {ui.bookmark(branch)} does not match "
             t"change {ui.change_id(change.change_id)} under {ui.bookmark(namespace.branch_glob)}."
         )
     identity = PRIdentity(
@@ -146,6 +151,7 @@ async def _run_relink_async(
     _ensure_relinkable_cached_link(
         change_id=change.change_id,
         identity=identity,
+        pr_url=pr.html_url,
         state=state,
     )
     context.state_store.relink_pr(
@@ -157,6 +163,7 @@ async def _run_relink_async(
         branch=branch,
         change_id=change.change_id,
         pr_number=pr_number,
+        pr_url=pr.html_url,
         subject=change.subject,
     )
 
@@ -170,30 +177,32 @@ async def _load_exact_relink_pr(
     try:
         pr = await github_client.get_pr(pr_number=pr_number)
     except GithubClientError as error:
-        raise CliError(f"Could not load pull request #{pr_number}") from error
+        pr_number_label = format_pr_number(pr_number, repo=github_client.repo)
+        raise CliError(t"Could not load pull request {pr_number_label}") from error
+    pr_number_label = format_pr_number(pr.number, url=pr.html_url)
     if pr.state != "open":
         raise CliError(
-            f"Pull request #{pr_number} is not open; cannot relink {pr.state} PRs.",
+            t"Pull request {pr_number_label} is not open; cannot relink {pr.state} PRs.",
             hint=t"Reopen it on GitHub to keep reviewing it, or drop the stale tracking with "
             t"{ui.cmd('jj-stack unstack --local')} and submit again.",
         )
     branch = pr.head.ref
     if pr.head.label != f"{repo_owner}:{branch}":
         raise CliError(
-            t"Pull request #{pr_number} head "
+            t"Pull request {pr_number_label} head "
             t"{ui.bookmark(pr.head.label or branch)} does not belong to the "
             t"configured repo."
         )
     namespace = current_pr_branch_namespace()
     if not namespace.contains(branch):
         raise CliError(
-            t"Pull request #{pr_number} head {ui.bookmark(branch)} is not under "
+            t"Pull request {pr_number_label} head {ui.bookmark(branch)} is not under "
             t"{ui.bookmark(namespace.branch_glob)}."
         )
     head_sha = pr.head.sha
     if head_sha is None:
         raise CliError(
-            t"GitHub did not report a head commit for PR #{pr_number}.",
+            t"GitHub did not report a head commit for PR {pr_number_label}.",
             hint="Refresh the pull request on GitHub, then retry.",
         )
     return pr, head_sha
@@ -203,13 +212,15 @@ def _ensure_relinkable_cached_link(
     *,
     change_id: str,
     identity: PRIdentity,
+    pr_url: str | None = None,
     state: TrackingState,
 ) -> None:
     identities = dict(state.pr_identities)
     identities[change_id] = identity
     if change_id in duplicate_pr_claim_change_ids(identities):
+        pr_label = format_pr_label(identity.pr_number, url=pr_url)
         raise CliError(
-            t"PR #{identity.pr_number} or branch {ui.bookmark(identity.head_ref)} is already "
+            t"{pr_label} or branch {ui.bookmark(identity.head_ref)} is already "
             t"linked to another local change.",
             hint=t"Run {ui.cmd('jj-stack list')} to find the claiming change, then drop its "
             t"tracking with {ui.cmd('jj-stack unstack --local')} or clean it up with "

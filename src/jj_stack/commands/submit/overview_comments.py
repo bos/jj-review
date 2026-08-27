@@ -5,6 +5,7 @@ from __future__ import annotations
 import jj_stack.console as console
 from jj_stack.concurrency import run_bounded_tasks
 from jj_stack.errors import CliError
+from jj_stack.formatting import format_pr_number
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.overview_comments import (
     STACK_OVERVIEW_COMMENT_LABEL,
@@ -149,8 +150,9 @@ async def _create_stack_overview_comment(
             body=comment_body,
         )
     except GithubClientError as error:
+        pr_label = format_pr_number(pr_number, repo=github_client.repo)
         raise CliError(
-            f"Could not create a {STACK_OVERVIEW_COMMENT_LABEL} for pull request #{pr_number}"
+            t"Could not create a {STACK_OVERVIEW_COMMENT_LABEL} for pull request {pr_label}"
         ) from error
 
 
