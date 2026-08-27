@@ -132,6 +132,12 @@ jj-stack <command> --help
 jj-stack help --all
 ```
 
+## Development
+
+Contributor workflows live in the [`justfile`](justfile). With `uv`, `jj`, and `just` installed,
+run `just` to list the setup, formatting, focused test, verification, documentation, and release
+recipes.
+
 ## Coding agent integration
 
 Install the bundled skill to teach coding agents to work with local `jj` stacks and refresh their

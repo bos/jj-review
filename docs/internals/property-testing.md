@@ -39,10 +39,10 @@ hash-order dependence. Every pytest worker must collect the same cases. If gener
 the requested number of unique cases within its attempt limit, it returns the cases found instead
 of looping indefinitely.
 
-`./check.py` runs a small fixed set. Larger deterministic pools are opt-in:
+`just check` runs a small fixed set. Larger deterministic pools are opt-in:
 
 ```console
-$ tests/run_submit_property_scenarios.py 500
+$ just property 500
 ```
 
 The runner prints a complete reproduction command with the resolved seed, family counts, worker

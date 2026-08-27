@@ -8,10 +8,9 @@
   external mutation to the identity and version observed while planning when the platform
   supports a conditional write or lease. Re-observe only when an earlier mutation invalidates a
   precondition or when an observed trigger or platform contract requires it.
-- Apply the cumulative complexity budgets after every code slice. CI runs
-  `uv run tools/check_complexity.py`; run it locally when the pinned `tokei` is installed. A
-  budget increase is a design stop that requires explicit review, not routine maintenance of the
-  budget file.
+- Apply the cumulative complexity budgets after every code slice. Run `just complexity` locally
+  when the pinned `tokei` is installed; CI invokes the underlying checker. A budget increase is a
+  design stop that requires explicit review, not routine maintenance of the budget file.
 - If the same subsystem needs a third consecutive hardening change, stop patching it and
   re-derive the design from the core invariants.
 
@@ -20,8 +19,8 @@
 - This is a `jj` repo. Do not use `git` to work on the repo itself.
 - Do not use git worktree-based agent isolation in this repo. For isolated parallel work, use
   `jj workspace` instead.
-- Run the CLI locally with `uv run jj-stack ...` instead of invoking the module or virtualenv
-  path directly.
+- Run the CLI locally with `just run ...` instead of invoking the module or virtualenv path
+  directly.
 - Hard-wrap code and markdown files at 98 columns unless a file uses a different convention.
 
 # Commit messages
@@ -33,7 +32,7 @@
 - Hard-wrap commit message bodies at 72 columns.
 - The body should explain the motivation for the change, the intended behavior or design outcome,
   and any important scope or design constraints.
-- Do not use the body to narrate the code or to record routine validation such as `./check.py`.
+- Do not use the body to narrate the code or to record routine validation such as `just check`.
 - Prefer explaining why the commit exists and what rule or user-visible behavior it is enforcing.
 
 # Documentation
@@ -42,9 +41,10 @@
   rules and the public/internal split. Built-in `--help` text is held to the same standard as
   the user docs: assume jj/git familiarity, avoid `jj-stack` internal design jargon.
 - The web version of the user docs normally lives in the sibling jj repository at
-  `$(jj root)/../website`. When user-facing docs change here, inspect and update the corresponding
-  web docs there too when needed. If the change here is committed, commit the corresponding
-  website update in that repository as well; preserve unrelated work in either working copy.
+  `$(jj root)/../website`. When user-facing docs change here, run `just website`, inspect the
+  corresponding website changes, and update them as needed. If the change here is committed,
+  commit the corresponding website update in that repository as well; preserve unrelated work in
+  either working copy.
 - Active internal docs use ordinary technical language too. Introduce a project-specific term
   only when it names a real type, field, or enduring rule, define it at first use, and prefer
   describing concrete inputs and effects.
@@ -71,13 +71,9 @@
 
 # Testing
 
-- Run `./check.py` before finishing a code change. Docs-only edits under `docs/` do not require
-  a test run.
-- Run `./check.py` for the default local Ruff, type-check, and test pass before finishing a
-  code change.
-- For focused test runs, do not use plain `uv run pytest ...`; it can miss the repo's package
-  path in this project layout. First run `uv sync --locked`, then invoke pytest through the repo
-  virtualenv, for example `.venv/bin/python -m pytest tests/unit/test_jj_client.py`.
+- Run `just check` for the default local Ruff, type-check, and test pass before finishing a code
+  change. Docs-only edits under `docs/` do not require a test run.
+- Run focused tests with `just test`, for example `just test tests/unit/test_jj_client.py`.
 - Before adding, modifying, removing, or reviewing tests, fixtures, helpers, or property
   scenarios, read and follow
   [docs/internals/testing-philosophy.md](docs/internals/testing-philosophy.md). Add or retain

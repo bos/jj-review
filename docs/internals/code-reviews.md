@@ -54,8 +54,8 @@ wrong PR or ref, guessed linkage, then inconsistencies in reconstructible metada
 an elaborate recovery system to protect data that can be observed again.
 
 The limits in `complexity-budget.toml` are design constraints. Review changes to the limits,
-governed paths, and test markers as carefully as production code. CI runs
-`uv run tools/check_complexity.py`; run it locally when the pinned `tokei` version is installed.
+governed paths, and test markers as carefully as production code. Run `just complexity` locally
+when the pinned `tokei` version is installed; CI invokes the underlying checker.
 Moving the same logic into a helper or neighboring module is not a reduction in complexity.
 
 ## Review the user experience

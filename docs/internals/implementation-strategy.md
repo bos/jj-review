@@ -89,6 +89,15 @@ it does not add site navigation or styling. The website invokes that renderer fr
 jj-stack checkout whose canonical user guides it snapshots, then owns the generated page's front
 matter, CSS, and publication.
 
+## Development workflows
+
+The root `justfile` is the contributor entry point for setup, local CLI execution, formatting,
+focused tests, standard checks, complexity checks, generated scenarios, live GitHub qualification,
+website documentation synchronization, and release artifacts. Recipes delegate substantive
+behavior to existing scripts, including the website-owned documentation sync and the check scripts
+shared with CI; they do not reimplement them. The README points contributors to `just` instead of
+duplicating the underlying commands.
+
 ## Test boundaries
 
 The local integration environment uses real `jj` and Git repos with a purpose-built

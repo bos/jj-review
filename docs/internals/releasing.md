@@ -34,9 +34,7 @@ Set the intended version in `pyproject.toml`, finish the release changes and rel
 run the release gates:
 
 ```console
-./check.py
-uv run tools/check_complexity.py
-uv run python tests/run_live_github.py
+just release-check
 ```
 
 The live test requires a `gh` login that can create and delete a private repo, push to it, and
@@ -45,14 +43,14 @@ manage its pull requests.
 Check the website snapshot and production build:
 
 ```console
+just website-check
 cd ../website
-JJ_STACK_SOURCE=../jj-stack scripts/sync-jj-stack-docs.py --check
 just check
 ```
 
-If the snapshot is out of date, run `scripts/sync-jj-stack-docs.py`, review and commit the website
-change, then rerun the checks. Push the release changes to `main` before creating the tag. A
-manual run of the release workflow is the optional TestPyPI smoke test.
+If the snapshot is out of date, run `just website` from the jj-stack checkout, review and commit
+the website change, then rerun the checks. Push the release changes to `main` before creating the
+tag. A manual run of the release workflow is the optional TestPyPI smoke test.
 
 ## Publish the tag
 
