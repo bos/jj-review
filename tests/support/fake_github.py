@@ -23,6 +23,8 @@ _FAKE_GITHUB_GIT_ENV = {
     "GIT_COMMITTER_EMAIL": "fake-github@example.com",
     "GIT_COMMITTER_NAME": "Fake GitHub",
 }
+_GRAPHQL_VARIABLE_PATTERN = r"\$[_A-Za-z][_0-9A-Za-z]*"
+_GRAPHQL_STRING_ARGUMENT_PATTERN = rf'(?:{_GRAPHQL_VARIABLE_PATTERN}|"(?:[^"\\]|\\.)*")'
 
 
 @dataclass(slots=True)
@@ -1724,7 +1726,7 @@ def _graphql_branch_targets(
 ) -> dict[str, object]:
     payload: dict[str, object] = {}
     pattern = re.compile(
-        r'^\s*(branch_\d+): ref\(qualifiedName: (\$.+?|"(?:[^"\\]|\\.)*")\)',
+        rf"^\s*(branch_\d+): ref\(qualifiedName: ({_GRAPHQL_STRING_ARGUMENT_PATTERN})\)",
         re.MULTILINE,
     )
     for match in pattern.finditer(query):
@@ -1752,8 +1754,9 @@ def _graphql_branch_targets_by_suffix(
 ) -> dict[str, object]:
     payload: dict[str, object] = {}
     pattern = re.compile(
-        r"^\s*(suffix_\d+): refs\(\s*(?:after: \$.+?,\s*)?first: 100,\s*query: "
-        r'(\$.+?|"(?:[^"\\]|\\.)*"),\s*refPrefix: (\$.+?|"(?:[^"\\]|\\.)*")\s*\)',
+        rf"^\s*(suffix_\d+): refs\(\s*(?:after: {_GRAPHQL_VARIABLE_PATTERN},\s*)?"
+        rf"first: 100,\s*query: ({_GRAPHQL_STRING_ARGUMENT_PATTERN}),\s*"
+        rf"refPrefix: ({_GRAPHQL_STRING_ARGUMENT_PATTERN})\s*\)",
         re.MULTILINE,
     )
     heads = repo.branch_heads()
