@@ -12,7 +12,7 @@ weight: 110
 The bundled skill teaches coding agents how to use `jj-stack` without bypassing it with GitHub
 or Git branch commands:
 
-```console
+```bash
 gh skill install bos/jj-stack jj-stack
 ```
 

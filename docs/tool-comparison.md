@@ -60,7 +60,7 @@ into one commit on trunk.
 This is a genuine append-only history. A reviewer can use GitHub's commit list to inspect each
 submitted version and the difference from the version before it. However, it's very complicated
 to maintain (requiring an entire parallel history with synthetic commits), and it means that
-your stack's history on GitHub is different from your local history.
+your stack's history on GitHub is potentially very different from your local history.
 
 `jj-stack` keeps the PR branch simpler: it updates the branch to the current snapshot of your
 change. GitHub records those updates as force-push events. For reviewers who want to understand
@@ -70,6 +70,11 @@ difference from the preceding version.
 That comment approximates the useful part of `jj-spr`'s model, at much lower cost in complexity.
 Reviewers still get versions and direct comparison links. `jj-stack` does not need to maintain a
 second append-only commit graph or ask the author for an update-commit message.
+
+However, `jj-stack`'s simpler approach does mean that the GitHub "Changes since your last
+review" feature is always empty, and a reviewer has to rely on its PR history comment instead.
+This is a frustrating shortcoming of GitHub, but I haven't found a way to enable it short of
+copying `jj-spr`'s complexity.
 
 ### Dependent and independent changes
 

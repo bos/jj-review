@@ -23,6 +23,7 @@ web navigation and presentation.
 ## Reference and troubleshooting
 
 - [Command reference](reference/commands.md)
+- [Bookmarks and stack selection](reference/bookmarks-and-selection.md)
 - [Configuration](reference/configuration.md)
 - [Pull request descriptions](reference/descriptions.md)
 - [Automation and agents](reference/automation.md)

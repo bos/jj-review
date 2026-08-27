@@ -64,3 +64,6 @@ intended stack. Commands that accept pull request selection spell it explicitly 
 
 After a failed or interrupted command, use the head change ID printed by `view`. It still selects
 the same stack if the working copy later moves.
+
+See [Bookmarks and stack selection](bookmarks-and-selection.md) for how bookmark names, change
+IDs, and other revision expressions choose a stack.
