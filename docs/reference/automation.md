@@ -17,8 +17,8 @@ gh skill install bos/jj-stack jj-stack
 ```
 
 Installing the skill makes it available to the agent, but an agent might not know when to use
-the skill. To have an agent use it automatically in repos that already use jj-stack, add this to
-your personal agent instructions or the repo's agent instructions:
+the skill. To have an agent use it automatically in repos that already use jj-stack, add
+something like this to your personal agent instructions or the repo's agent instructions:
 
 ```markdown
 ## jj-stack
