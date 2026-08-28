@@ -403,6 +403,7 @@ def test_list_falls_back_when_github_unavailable(
 
     assert exit_code == EXIT_INCOMPLETE
     assert "GitHub unavailable" in captured.out
+    assert "GitHub unavailable" in captured.err
     assert "feature 1" in captured.out
 
 

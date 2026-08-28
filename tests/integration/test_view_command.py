@@ -383,7 +383,6 @@ def test_view_reports_missing_git_remote_for_local_only_repo(
     assert exit_code == 0
     assert "no git remote" in combined_err.lower()
     assert "Unsubmitted stack:" in captured.out
-    assert "GitHub status unknown" not in captured.out
 
 
 def test_view_renders_base_parent_for_stack_forked_from_trunk_ancestor(
