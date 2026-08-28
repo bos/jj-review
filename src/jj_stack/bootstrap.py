@@ -103,8 +103,8 @@ def configure_logging(*, debug: bool, configured_level: str) -> None:
         handler.setFormatter(formatter)
     app_level = logging.DEBUG if debug else root_level
     logging.getLogger("jj_stack").setLevel(app_level)
-    logging.getLogger("httpxyz").setLevel(logging.WARNING)
-    logging.getLogger("httpcorexyz").setLevel(logging.WARNING)
+    logging.getLogger("httpx2").setLevel(logging.WARNING)
+    logging.getLogger("httpcore2").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
 
 

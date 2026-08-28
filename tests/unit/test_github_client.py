@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-import httpxyz
+import httpx2
 import pytest
 
 from jj_stack.github.client import GithubClient, GithubClientError
@@ -12,9 +12,9 @@ from jj_stack.github.resolution import GithubRepoAddress
 
 def _github_client(handler, *, client_type=GithubClient) -> GithubClient:
     return client_type(
-        httpxyz.AsyncClient(
+        httpx2.AsyncClient(
             base_url="https://api.github.test",
-            transport=httpxyz.MockTransport(handler),
+            transport=httpx2.MockTransport(handler),
         ),
         repo=GithubRepoAddress(
             owner="octo-org",
@@ -26,17 +26,17 @@ def _github_client(handler, *, client_type=GithubClient) -> GithubClient:
 def test_github_client_retries_429_responses_with_retry_after() -> None:
     attempts = 0
 
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
-            return httpxyz.Response(
+            return httpx2.Response(
                 429,
                 headers={"Retry-After": "0"},
                 json={"message": "slow down"},
                 request=request,
             )
-        return httpxyz.Response(
+        return httpx2.Response(
             200,
             json={
                 "default_branch": "main",
@@ -57,17 +57,17 @@ def test_github_client_retries_429_responses_with_retry_after() -> None:
 def test_github_client_retries_secondary_rate_limits_without_retry_after() -> None:
     attempts = 0
 
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         nonlocal attempts
         attempts += 1
         if attempts == 1:
-            return httpxyz.Response(
+            return httpx2.Response(
                 403,
                 headers={"X-RateLimit-Reset": "0"},
                 json={"message": "You have exceeded a secondary rate limit."},
                 request=request,
             )
-        return httpxyz.Response(
+        return httpx2.Response(
             200,
             json={
                 "default_branch": "main",
@@ -88,10 +88,10 @@ def test_github_client_retries_secondary_rate_limits_without_retry_after() -> No
 def test_github_client_does_not_retry_non_rate_limited_errors() -> None:
     attempts = 0
 
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         nonlocal attempts
         attempts += 1
-        return httpxyz.Response(404, json={"message": "Not Found"}, request=request)
+        return httpx2.Response(404, json={"message": "Not Found"}, request=request)
 
     async def run_test() -> None:
         async with _github_client(handler) as client:
@@ -104,12 +104,12 @@ def test_github_client_does_not_retry_non_rate_limited_errors() -> None:
 
 
 def test_github_client_treats_an_unknown_head_commit_as_no_matching_branches() -> None:
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         assert request.method == "GET"
         assert request.url.path == (
             "/repos/octo-org/stacked-prs/commits/trunk123/branches-where-head"
         )
-        return httpxyz.Response(
+        return httpx2.Response(
             422,
             json={"message": "No commit found for SHA: trunk123"},
             request=request,
@@ -136,9 +136,9 @@ def test_github_client_sends_only_supplied_pr_updates(
     title: str | None,
     expected_payload: dict[str, str],
 ) -> None:
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         assert json.loads(request.content.decode("utf-8")) == expected_payload
-        return httpxyz.Response(
+        return httpx2.Response(
             200,
             json={
                 "base": {"ref": base or "old-base"},
@@ -167,14 +167,14 @@ def test_github_client_sends_only_supplied_pr_updates(
 def test_github_client_distinguishes_dissolved_and_locked_stack() -> None:
     attempts = 0
 
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         nonlocal attempts
         attempts += 1
         assert request.method == "POST"
         assert request.url.path == "/repos/octo-org/stacked-prs/stacks/3/unstack"
         if attempts == 1:
-            return httpxyz.Response(204, request=request)
-        return httpxyz.Response(
+            return httpx2.Response(204, request=request)
+        return httpx2.Response(
             200,
             json={
                 "number": 3,
@@ -222,11 +222,11 @@ def test_github_client_paginates_stack_list() -> None:
             ],
         }
 
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         assert request.url.path == "/repos/octo-org/stacked-prs/stacks"
         if request.url.params.get("page") == "2":
-            return httpxyz.Response(200, json=[_stack(2, 20, 21)], request=request)
-        return httpxyz.Response(
+            return httpx2.Response(200, json=[_stack(2, 20, 21)], request=request)
+        return httpx2.Response(
             200,
             headers={
                 "Link": (
@@ -248,7 +248,7 @@ def test_github_client_paginates_stack_list() -> None:
 def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
     request_sizes: list[int] = []
 
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         assert request.url.path == "/graphql"
         payload = json.loads(request.content.decode("utf-8"))
         assert payload["variables"] == {"owner": "octo-org", "repo": "stacked-prs"}
@@ -260,7 +260,7 @@ def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
             assert "autoMergeRequest" not in payload["query"]
             assert "mergeQueueEntry" in payload["query"]
             assert "statusCheckRollup" in payload["query"]
-        return httpxyz.Response(
+        return httpx2.Response(
             200,
             json={
                 "data": {
@@ -331,7 +331,7 @@ def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
 def test_github_client_observes_exact_and_suffix_matched_branch_targets() -> None:
     suffix_queries: list[str] = []
 
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         assert request.url.path == "/graphql"
         payload = json.loads(request.content.decode("utf-8"))
         query = payload["query"]
@@ -386,7 +386,7 @@ def test_github_client_observes_exact_and_suffix_matched_branch_targets() -> Non
                 },
                 "branch_1": None,
             }
-        return httpxyz.Response(
+        return httpx2.Response(
             200,
             json={"data": {"repository": repo}},
             request=request,
@@ -411,7 +411,7 @@ def test_github_client_observes_exact_and_suffix_matched_branch_targets() -> Non
 
 
 def test_github_client_detects_merge_queue_branch_rule() -> None:
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         payload = json.loads(request.content.decode("utf-8"))
         assert payload["variables"] == {
             "owner": "octo-org",
@@ -419,7 +419,7 @@ def test_github_client_detects_merge_queue_branch_rule() -> None:
             "branch": "main",
             "qualified": "refs/heads/main",
         }
-        return httpxyz.Response(
+        return httpx2.Response(
             200,
             json={
                 "data": {
@@ -440,9 +440,9 @@ def test_github_client_detects_merge_queue_branch_rule() -> None:
 
 
 def test_github_client_rejects_graphql_payload_missing_repo_data() -> None:
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         assert request.url.path == "/graphql"
-        return httpxyz.Response(
+        return httpx2.Response(
             200,
             json={"data": {}},
             request=request,
@@ -465,9 +465,9 @@ def test_github_client_rejects_graphql_payload_missing_repo_data() -> None:
 def test_github_client_rejects_incomplete_pr_connection(
     repo_payload: dict[str, object],
 ) -> None:
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         assert request.url.path == "/graphql"
-        return httpxyz.Response(
+        return httpx2.Response(
             200,
             json={"data": {"repository": repo_payload}},
             request=request,
@@ -484,7 +484,7 @@ def test_github_client_rejects_incomplete_pr_connection(
 
 
 def test_github_client_batches_open_pr_lookup_by_head_ref_with_graphql() -> None:
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         assert request.url.path == "/graphql"
         payload = json.loads(request.content.decode("utf-8"))
         assert payload["variables"] == {
@@ -498,7 +498,7 @@ def test_github_client_batches_open_pr_lookup_by_head_ref_with_graphql() -> None
         assert "headRepositoryOwner" in payload["query"]
         assert "reviewDecision" in payload["query"]
         assert "states: [OPEN]" in payload["query"]
-        return httpxyz.Response(
+        return httpx2.Response(
             200,
             json={
                 "data": {
@@ -565,7 +565,7 @@ def test_github_client_batches_open_pr_lookup_by_head_ref_with_graphql() -> None
 def test_github_client_paginates_comments_and_skips_unavailable_revisions() -> None:
     queries: list[str] = []
 
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         assert request.url.path == "/graphql"
         payload = json.loads(request.content.decode("utf-8"))
         queries.append(payload["query"])
@@ -620,7 +620,7 @@ def test_github_client_paginates_comments_and_skips_unavailable_revisions() -> N
                     },
                 ],
             }
-        return httpxyz.Response(
+        return httpx2.Response(
             200,
             json={
                 "data": {
@@ -664,14 +664,14 @@ def test_github_client_paginates_comments_and_skips_unavailable_revisions() -> N
 
 
 def test_github_client_filters_batched_head_lookup_results_to_repo_owner() -> None:
-    def handler(request: httpxyz.Request) -> httpxyz.Response:
+    def handler(request: httpx2.Request) -> httpx2.Response:
         payload = json.loads(request.content.decode("utf-8"))
         assert payload["variables"] == {
             "owner": "octo-org",
             "repo": "stacked-prs",
             "ref_0": "jj-stack/seven",
         }
-        return httpxyz.Response(
+        return httpx2.Response(
             200,
             json={
                 "data": {

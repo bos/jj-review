@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from email.utils import parsedate_to_datetime
 from textwrap import dedent, indent
 
-import httpxyz
+import httpx2
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jj_stack.errors import EXIT_GITHUB, SummarizedError
@@ -153,7 +153,7 @@ class _GraphqlPRHistory(BaseModel):
 class GithubClient:
     """Thin async wrapper around the GitHub API, bound to one repo."""
 
-    def __init__(self, client: httpxyz.AsyncClient, *, repo: GithubRepoAddress) -> None:
+    def __init__(self, client: httpx2.AsyncClient, *, repo: GithubRepoAddress) -> None:
         self._client = client
         self._repo = repo
         self._repo_path = f"/repos/{repo.owner}/{repo.repo}"
@@ -778,7 +778,7 @@ class GithubClient:
         *,
         json: dict[str, object] | None = None,
         params: dict[str, str] | None = None,
-    ) -> httpxyz.Response:
+    ) -> httpx2.Response:
         for attempt in range(_DEFAULT_RATE_LIMIT_RETRIES + 1):
             try:
                 response = await self._client.request(
@@ -787,7 +787,7 @@ class GithubClient:
                     json=json,
                     params=params,
                 )
-            except httpxyz.RequestError as error:
+            except httpx2.RequestError as error:
                 raise GithubClientError(f"GitHub request failed: {error}") from error
 
             retry_after_seconds = self._retry_after_seconds(
@@ -855,10 +855,10 @@ class GithubClient:
             raise GithubClientError(f"GitHub {response_name} response was missing `data`.")
         return data
 
-    def _expect_success(self, response: httpxyz.Response) -> object:
+    def _expect_success(self, response: httpx2.Response) -> object:
         try:
             response.raise_for_status()
-        except httpxyz.HTTPStatusError as error:
+        except httpx2.HTTPStatusError as error:
             raise GithubClientError(
                 f"GitHub request failed: {error.response.status_code} {error.response.text}",
                 retry_after_seconds=_parse_retry_after_header(
@@ -868,10 +868,10 @@ class GithubClient:
             ) from error
         return response.json()
 
-    def _expect_no_content(self, response: httpxyz.Response) -> None:
+    def _expect_no_content(self, response: httpx2.Response) -> None:
         try:
             response.raise_for_status()
-        except httpxyz.HTTPStatusError as error:
+        except httpx2.HTTPStatusError as error:
             raise GithubClientError(
                 f"GitHub request failed: {error.response.status_code} {error.response.text}",
                 retry_after_seconds=_parse_retry_after_header(
@@ -882,7 +882,7 @@ class GithubClient:
 
     def _expect_json_payload(
         self,
-        response: httpxyz.Response,
+        response: httpx2.Response,
         *,
         response_name: str,
     ) -> object:
@@ -897,7 +897,7 @@ class GithubClient:
         self,
         *,
         attempt: int,
-        response: httpxyz.Response,
+        response: httpx2.Response,
     ) -> float | None:
         if not _is_retryable_rate_limit(response):
             return None
@@ -918,7 +918,7 @@ class GithubClient:
         return min(backoff_seconds, _DEFAULT_MAX_RATE_LIMIT_BACKOFF_SECONDS)
 
 
-def _is_retryable_rate_limit(response: httpxyz.Response) -> bool:
+def _is_retryable_rate_limit(response: httpx2.Response) -> bool:
     if response.status_code == 429:
         return True
     if response.status_code != 403:
@@ -1381,7 +1381,7 @@ def build_github_client(*, repo: GithubRepoAddress) -> GithubClient:
         headers["Authorization"] = f"Bearer {token}"
 
     return GithubClient(
-        httpxyz.AsyncClient(
+        httpx2.AsyncClient(
             base_url=GITHUB_API_BASE_URL,
             headers=headers,
             timeout=30.0,

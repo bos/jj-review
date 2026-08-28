@@ -22,7 +22,7 @@ classifiers = [
   "Topic :: Software Development :: Version Control :: Git",
 ]
 dependencies = [
-  "httpxyz>=0.31.0,<0.32",
+  "httpx2>=2.12.0,<3",
   "markdown-it-py>=4.0.0,<5",
   "pydantic>=2.13.3,<3",
   "rich>=15.0.0,<16",
@@ -91,5 +91,5 @@ packages = ["src/jj_stack"]
 
 [tool.uv]
 exclude-newer = "7 days"
-exclude-newer-package = { fastapi = false, httpcorexyz = false, httpxyz = false, ruff = false }
+exclude-newer-package = { fastapi = false, ruff = false }
 default-groups = ["dev"]

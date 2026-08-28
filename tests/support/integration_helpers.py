@@ -13,7 +13,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-import httpxyz
+import httpx2
 
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
@@ -63,9 +63,9 @@ def fake_github_client_wiring(
 
     def build_github_client(*, repo: GithubRepoAddress) -> GithubClient:
         return client_type(
-            httpxyz.AsyncClient(
+            httpx2.AsyncClient(
                 base_url="https://api.github.test",
-                transport=httpxyz.ASGITransport(app=app),
+                transport=httpx2.ASGITransport(app=app),
             ),
             repo=repo,
         )
