@@ -156,11 +156,10 @@ def _required_branch(change: PreparedChange) -> str:
 def status_preparation_cli_error(error: UnsupportedStackError) -> CliError:
     """Translate stack-shape preparation failures into a user-facing CLI error."""
 
-    if error.reason == "trunk_resolved_to_root":
-        return CliError(
-            "No trunk bookmark is configured for this repo.",
-            hint=error.hint,
-        )
+    if error.hint is not None:
+        # An error that names its own recovery step already explains itself; prefixing it with
+        # a shape summary would bury the hint inside the message.
+        return CliError(error_message(error), hint=error.hint)
     return CliError(t"Local history does not form a linear stack. {error}")
 
 

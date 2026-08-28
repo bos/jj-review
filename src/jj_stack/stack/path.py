@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import jj_stack.ui as ui
 from jj_stack.errors import AmbiguousSelectionError, CliError
+from jj_stack.jj.client import UnsupportedStackError
 from jj_stack.models.stack import LocalCommit, LocalStack
 
 
@@ -226,7 +228,10 @@ def _select_commit(observation: SelectedPathObservation) -> LocalCommit:
             # A stack merge side parent is immutable to jj but remains outside
             # the fetched trunk's first-parent path until sync retires it.
             return off_trunk[0]
-        raise CliError("This change is already on trunk, so it is not part of a local stack.")
+        raise UnsupportedStackError(
+            "This change is already on trunk, so it is not part of a local stack.",
+            hint=t"Reconcile every stack against trunk with {ui.cmd('jj-stack sync --all')}.",
+        )
 
     if len(candidates) != 1:
         raise AmbiguousSelectionError("The selector resolved to more than one commit.")

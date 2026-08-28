@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from jj_stack.errors import AmbiguousSelectionError, CliError
+from jj_stack.errors import EXIT_NO_STACK, AmbiguousSelectionError, CliError
 from jj_stack.models.stack import LocalCommit
 from jj_stack.stack.path import (
     RepoPathObservation,
@@ -10,6 +10,7 @@ from jj_stack.stack.path import (
     project_repo_paths,
     project_selected_path,
 )
+from jj_stack.ui import plain_text
 
 
 def test_selected_path_is_order_independent() -> None:
@@ -103,7 +104,7 @@ def test_only_explicit_change_selection_can_project_a_sole_trunk_copy() -> None:
     )
 
     assert explicit.stack.changes == ()
-    with pytest.raises(CliError, match="already on trunk"):
+    with pytest.raises(CliError, match="already on trunk") as raised:
         project_selected_path(
             _observation(
                 head=trunk_copy,
@@ -113,6 +114,10 @@ def test_only_explicit_change_selection_can_project_a_sole_trunk_copy() -> None:
                 trunk=trunk_copy,
             )
         )
+
+    # The selection does not form a supported local stack, and `sync --all` reconciles it.
+    assert raised.value.exit_code == EXIT_NO_STACK
+    assert "sync --all" in plain_text(raised.value.hint)
 
 
 def test_selected_overlap_follows_only_the_explicit_head_parent_path() -> None:
