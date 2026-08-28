@@ -790,6 +790,19 @@ def test_github_client_paginates_comments_and_skips_unavailable_revisions() -> N
 
 
 def test_github_client_filters_batched_head_lookup_results_to_repo_owner() -> None:
+    def _node(number: int, owner: str) -> dict[str, object]:
+        return {
+            "baseRefName": "main",
+            "body": "body",
+            "headRefName": "jj-stack/seven",
+            "headRepositoryOwner": {"login": owner},
+            "mergedAt": None,
+            "number": number,
+            "state": "OPEN",
+            "title": f"pr {number}",
+            "url": f"https://github.test/octo-org/stacked-prs/pull/{number}",
+        }
+
     def handler(request: httpx2.Request) -> httpx2.Response:
         payload = json.loads(request.content.decode("utf-8"))
         assert payload["variables"] == {
@@ -797,40 +810,17 @@ def test_github_client_filters_batched_head_lookup_results_to_repo_owner() -> No
             "repo": "stacked-prs",
             "ref_0": "jj-stack/seven",
         }
+        # GitHub returns fork pull requests on a same-named branch too, oldest first, and
+        # truncates the page to `first` before jj-stack can filter by head owner.
+        first = int(payload["query"].partition("first:")[2].partition(",")[0])
+        nodes = [
+            _node(5, "fork-user"),
+            _node(6, "other-fork-user"),
+            _node(7, "octo-org"),
+        ]
         return httpx2.Response(
             200,
-            json={
-                "data": {
-                    "repository": {
-                        "head_0": {
-                            "nodes": [
-                                {
-                                    "baseRefName": "main",
-                                    "body": "forked",
-                                    "headRefName": "jj-stack/seven",
-                                    "headRepositoryOwner": {"login": "fork-user"},
-                                    "mergedAt": None,
-                                    "number": 6,
-                                    "state": "OPEN",
-                                    "title": "forked",
-                                    "url": "https://github.test/octo-org/stacked-prs/pull/6",
-                                },
-                                {
-                                    "baseRefName": "main",
-                                    "body": "local",
-                                    "headRefName": "jj-stack/seven",
-                                    "headRepositoryOwner": {"login": "octo-org"},
-                                    "mergedAt": None,
-                                    "number": 7,
-                                    "state": "OPEN",
-                                    "title": "local",
-                                    "url": "https://github.test/octo-org/stacked-prs/pull/7",
-                                },
-                            ]
-                        }
-                    }
-                }
-            },
+            json={"data": {"repository": {"head_0": {"nodes": nodes[:first]}}}},
             request=request,
         )
 

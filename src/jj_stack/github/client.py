@@ -1179,7 +1179,10 @@ def _open_prs_by_ref_query(
     *,
     base: bool,
 ) -> tuple[str, dict[str, str]]:
-    first = 100 if base else 2
+    # `pullRequests(headRefName:)` also returns fork pull requests whose head branch has the
+    # same name, oldest first, and the head-label filter discards those only after GitHub has
+    # already truncated the page. Ask for a full page either way so foreign heads cannot push
+    # this repo's own pull request out of view and make submit create a duplicate.
     operation_name = "OpenPullRequestsByBaseRef" if base else "OpenPullRequestsByHeadRef"
     ref_argument = "baseRefName" if base else "headRefName"
     variables: dict[str, str] = {}
@@ -1191,7 +1194,7 @@ def _open_prs_by_ref_query(
             _graphql_document(
                 f"""
                 {alias}: pullRequests(
-                  first: {first},
+                  first: 100,
                   states: [OPEN],
                   {ref_argument}: ${name}
                 ) {{
