@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from jj_stack.errors import CliError
 from jj_stack.jj.client import JjClient, JjCommandError
+from jj_stack.stack.selection import parse_comma_separated_flag_values
 
 CONFIG_SECTION = "jj-stack"
 DEFAULT_BRANCH_PREFIX = "jj-stack"
@@ -32,6 +33,11 @@ class RepoConfig(BaseModel):
     merge_method: MergeMethod | None = None
     reviewers: list[str] = Field(default_factory=list)
     team_reviewers: list[str] = Field(default_factory=list)
+
+    @field_validator("labels", "reviewers", "team_reviewers")
+    @classmethod
+    def _normalize_requested_names(cls, value: list[str]) -> list[str]:
+        return parse_comma_separated_flag_values(value) or []
 
     @field_validator("branch_prefix")
     @classmethod

@@ -42,15 +42,15 @@ def test_load_config_returns_defaults_when_no_keys_set(
     assert config.team_reviewers == []
 
 
-def test_load_config_parses_resolved_jj_stack_section(
+def test_load_config_parses_and_normalizes_the_resolved_jj_stack_section(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     stdout = "\n".join(
         [
             'jj-stack.branch_prefix = "Team/prs_v2"',
-            'jj-stack.reviewers = ["octocat"]',
-            'jj-stack.team_reviewers = ["platform"]',
-            'jj-stack.labels = ["needs-review"]',
+            'jj-stack.reviewers = ["", "octocat", "octocat"]',
+            'jj-stack.team_reviewers = ["platform", ""]',
+            'jj-stack.labels = ["", "needs-review", "needs-review"]',
             'jj-stack.logging.level = "info"',
             "",
         ]
