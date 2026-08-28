@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 
 import httpx2
 import pytest
@@ -878,6 +879,37 @@ def test_user_facing_reason_reports_auth_failure_for_401() -> None:
     error = GithubClientError("GitHub request failed: 401", status_code=401)
 
     assert error.user_facing_reason() == "auth failed - check GITHUB_TOKEN"
+
+
+def test_github_client_reports_an_exhausted_rate_limit_as_a_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_sleep(seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            403,
+            headers={
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Reset": str(int(time.time()) + 3600),
+            },
+            json={"message": "API rate limit exceeded for user ID 1."},
+            request=request,
+        )
+
+    async def run_test() -> None:
+        async with _github_client(handler) as client:
+            await client.get_repo()
+
+    with pytest.raises(GithubClientError) as raised:
+        asyncio.run(run_test())
+
+    assert raised.value.user_facing_reason() == (
+        "GitHub primary rate limit reached, resets in about 60 min - rerun later"
+    )
 
 
 def test_user_facing_reason_reports_access_denied_for_403() -> None:

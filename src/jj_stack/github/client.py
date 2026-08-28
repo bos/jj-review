@@ -8,6 +8,7 @@ import logging
 import time
 from collections.abc import Sequence
 from email.utils import parsedate_to_datetime
+from math import ceil
 from textwrap import dedent, indent, shorten
 
 import httpx2
@@ -46,10 +47,12 @@ class GithubClientError(SummarizedError):
         self,
         message: str,
         *,
+        rate_limit_reset_seconds: float | None = None,
         retry_after_seconds: float | None = None,
         status_code: int | None = None,
     ) -> None:
         super().__init__(message)
+        self.rate_limit_reset_seconds = rate_limit_reset_seconds
         self.retry_after_seconds = retry_after_seconds
         self.status_code = status_code
 
@@ -114,6 +117,15 @@ class GithubClientError(SummarizedError):
         if self.status_code == 401:
             return "auth failed - check GITHUB_TOKEN"
         if self.status_code == 403:
+            # GitHub refuses a rate-limited request with the same status as a token problem,
+            # and the retries above give up long before a primary limit resets.
+            detail = self.detail().lower()
+            if "rate limit" in detail:
+                wait = self.retry_after_seconds or self.rate_limit_reset_seconds
+                minutes = None if wait is None else max(1, ceil(wait / 60))
+                resets = "" if minutes is None else f", resets in about {minutes} min"
+                limit = "secondary" if "secondary" in detail else "primary"
+                return f"GitHub {limit} rate limit reached{resets} - rerun later"
             return "access denied - check GITHUB_TOKEN and repo access"
         if self.is_repo_not_found():
             message = "repo not found or inaccessible"
@@ -929,6 +941,9 @@ class GithubClient:
         except httpx2.HTTPStatusError as error:
             raise GithubClientError(
                 f"GitHub request failed: {error.response.status_code} {error.response.text}",
+                rate_limit_reset_seconds=_seconds_until_rate_limit_reset(
+                    error.response.headers.get("X-RateLimit-Reset")
+                ),
                 retry_after_seconds=_parse_retry_after_header(
                     error.response.headers.get("Retry-After")
                 ),

@@ -61,6 +61,7 @@ Known change statuses are:
 - `unsubmitted`: no PR has been submitted for this change
 - `submitted`: submitted before, but live GitHub status is unavailable
 - `open`: open, non-draft PR with no review decision to report
+- `queued`: open PR waiting in GitHub's merge queue
 - `draft`: open draft PR
 - `approved`: open PR whose latest review decision is approved
 - `changes_requested`: open PR with requested changes
