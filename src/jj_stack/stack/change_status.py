@@ -31,7 +31,6 @@ PRReviewDecision = Literal[
     "none",
     "approved",
     "changes_requested",
-    "commented",
     "unknown",
 ]
 
@@ -222,6 +221,6 @@ def _pr_review_decision(
     decision = pr_lookup.review_decision
     if decision is None:
         return "none"
-    if decision in {"approved", "changes_requested", "commented"}:
+    if decision in {"approved", "changes_requested"}:
         return decision
     return "unknown"

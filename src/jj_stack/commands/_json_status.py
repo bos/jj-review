@@ -73,8 +73,6 @@ def _change_status(status: ChangeStatus) -> str:
             return "approved"
         if status.pr_review_decision == "changes_requested":
             return "changes_requested"
-        if status.pr_review_decision == "commented":
-            return "commented"
         return "open"
     if status.saved_pr_identity:
         return "submitted"
