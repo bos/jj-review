@@ -8,7 +8,13 @@ from pathlib import Path
 import pytest
 
 from jj_stack.commands.submit.revision_comments import REVISION_HISTORY_COMMENT_MARKER
-from jj_stack.errors import EXIT_CONFLICTS, EXIT_GITHUB, EXIT_INCOMPLETE, EXIT_USAGE
+from jj_stack.errors import (
+    EXIT_CONFLICTS,
+    EXIT_GITHUB,
+    EXIT_INCOMPLETE,
+    EXIT_NO_STACK,
+    EXIT_USAGE,
+)
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_MARKER
 from jj_stack.jj.client import JjClient
@@ -1122,6 +1128,31 @@ def test_submit_defaults_to_a_described_nonempty_working_copy(
     assert set(state.pr_identities) == {shared.change_id, selected.change_id}
     assert committed_path.change_id not in state.pr_identities
     assert len(fake_repo.prs) == 2
+
+
+def test_submit_refuses_an_undescribed_change_below_the_selected_head(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """An undescribed change anywhere in the stack must not reach GitHub as a PR."""
+
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    write_file(repo / "wip.txt", "wip\n")
+    run_command(["jj", "status"], repo)
+    undescribed = JjClient(repo).resolve_commit("@")
+    run_command(["jj", "new"], repo)
+    commit_file(repo, "feature 2", "feature-2.txt")
+
+    exit_code = run_main(repo, config_path, "submit")
+    captured = capsys.readouterr()
+
+    assert exit_code == EXIT_NO_STACK
+    assert undescribed.change_id[:8] in captured.err
+    assert f"jj describe {undescribed.change_id}" in " ".join(captured.err.split())
+    assert fake_repo.prs == {}
+    assert TrackingStore.for_repo(repo).load().pr_identities == {}
 
 
 def test_submit_blocks_unresolved_conflicted_rebase_without_mutation(

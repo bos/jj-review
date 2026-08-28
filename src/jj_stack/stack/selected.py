@@ -164,6 +164,13 @@ def require_submittable_changes(changes: tuple[LocalCommit, ...]) -> None:
                 "divergent changes are not supported.",
                 reason="divergent_change",
             )
+        if not change.description.strip():
+            raise UnsupportedStackError.stack_shape(
+                change.change_id,
+                t"describe it with {ui.cmd(f'jj describe {change.change_id}')} before "
+                t"submitting it.",
+                reason="undescribed_working_copy",
+            )
 
 
 def _observe_path_rows(
