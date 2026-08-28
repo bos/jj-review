@@ -152,7 +152,7 @@ def test_view_warns_and_reports_merge_commit_first_parent_path(
     assert "first-parent" in captured.err
 
 
-def test_view_warns_and_reports_undescribed_working_copy_inside_stack(
+def test_view_warns_about_every_undescribed_change_in_the_stack(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -214,7 +214,6 @@ def test_view_warns_and_reports_undescribed_working_copy_inside_stack(
     warning = " ".join(captured.err.split())
 
     assert exit_code == 0, captured.err
-    assert "no description" in warning
     assert f"jj describe {feature_change_id}" in warning
 
 

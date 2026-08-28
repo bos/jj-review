@@ -88,32 +88,41 @@ def test_machine_output_bypasses_terminal_formatting() -> None:
     assert output.getvalue() == f"{payload}\n"
 
 
-def test_output_neutralizes_terminal_escapes_from_change_descriptions() -> None:
+def test_output_neutralizes_terminal_escapes_from_change_descriptions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """No change description can carry an escape introducer to the terminal.
 
     A `jj log` line arrives as a bare string and keeps its own colour codes, decoded into
     styles. A subject interpolated into a message or a tuple has no colours to keep, and an
     ANSI decoder would leave a bare `ESC c` terminal reset in place, so it is stripped.
+    Stripping interpolated content is only safe while the paths that do carry jj's colours
+    keep them, so those are asserted here too.
     """
 
+    monkeypatch.setenv("TERM", "xterm-256color")
     subject = "feat \x1b]0;PWNED\x07 x"
     reset = "feat \x1bc x"
+    coloured = "\x1b[1;36mcoloured\x1b[0m"
 
-    def render(*objects) -> str:
+    def render(*objects, color_mode: console_module.ColorMode = "never") -> str:
         output = StringIO()
         with console_module.configured_console(
             stdout=output,
             stderr=StringIO(),
-            color_mode="never",
+            color_mode=color_mode,
         ):
             console_module.output(*objects, soft_wrap=True)
         return output.getvalue()
 
     assert render("osc \x1b]0;PWNED\x07 tail") == "osc 0;PWNED tail\n"
-    assert render("\x1b[1;36mcoloured\x1b[0m") == "coloured\n"
+    assert render(coloured) == "coloured\n"
     assert render(("subject ", subject, " tail")) == "subject feat ]0;PWNED x tail\n"
     assert "\x1b" not in render(t"Working copy now edits ({subject}).")
     assert "\x1b" not in render(t"Working copy now edits ({reset}).")
+    assert render(coloured, color_mode="always") == f"{coloured}\n"
+    suffixed = ui_module.suffixed_line(coloured, "not submitted")
+    assert render(suffixed, color_mode="always") == f"{coloured}: not submitted\n"
 
 
 def test_hyperlink_uses_terminal_styling_only_when_enabled(
