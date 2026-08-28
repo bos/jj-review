@@ -2621,7 +2621,7 @@ def test_submit_re_request_observes_reviews_before_mutation_and_retries(
     assert "feature 2 [edited]" in edit_path.read_text(encoding="utf-8")
 
     monkeypatch.setenv("EDITOR", _write_edit_editor(tmp_path, "leave-edit.py", ["pass"]))
-    assert run_main(repo, config_path, "submit", "--re-request", "--edit", str(edit_path)) == 0
+    assert run_main(repo, config_path, "submit", "--re-request", f"--edit={edit_path}") == 0
     capsys.readouterr()
 
     assert fake_repo.prs[1].requested_reviewers == [

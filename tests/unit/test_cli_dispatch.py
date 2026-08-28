@@ -3,7 +3,12 @@ from pathlib import Path
 import pytest
 
 import jj_stack.cli as cli_module
-from jj_stack.cli import _extract_config_overrides, main
+from jj_stack.cli import (
+    _extract_config_overrides,
+    _normalize_cli_args,
+    build_parser,
+    main,
+)
 from jj_stack.errors import EXIT_INTERRUPTED
 
 pytestmark = pytest.mark.usefixtures("no_configured_color")
@@ -112,3 +117,17 @@ def test_main_exits_130_when_interrupted_before_the_console_is_configured(
     monkeypatch.setattr(cli_module, "_load_configured_jj_color", interrupt)
 
     assert main(["view"]) == EXIT_INTERRUPTED
+
+
+def test_submit_edit_never_consumes_the_selected_revset() -> None:
+    for argv in (
+        ["submit", "--edit", "kwxsqkvomnrr"],
+        ["submit", "--edit", "--dry-run", "kwxsqkvomnrr"],
+        ["submit", "kwxsqkvomnrr", "--edit"],
+    ):
+        args = build_parser().parse_args(_normalize_cli_args(argv))
+        assert (args.revset, args.edit) == ("kwxsqkvomnrr", True), argv
+
+    saved = build_parser().parse_args(_normalize_cli_args(["submit", "--edit=saved-edit.md"]))
+
+    assert (saved.revset, saved.edit) == (None, Path("saved-edit.md"))

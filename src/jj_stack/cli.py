@@ -253,18 +253,23 @@ def build_parser() -> ArgumentParser:
             t"{ui.metavar('HELPER')}"
         ),
     )
+    submit_edit_mode = submit_parser.add_mutually_exclusive_group()
     add_help_argument(
-        submit_parser,
+        submit_edit_mode,
         "--edit",
-        nargs="?",
-        const=True,
+        action="store_true",
         default=False,
-        metavar="FILE",
-        type=Path,
         help=(
-            "Open planned pull request titles, bodies, and draft states in your editor before "
-            "submitting; pass a saved editor file to reopen it"
+            t"Open planned pull request titles, bodies, and draft states in your editor "
+            t"before submitting; use {ui.option('--edit=FILE')} to reopen a saved editor file"
         ),
+    )
+    submit_edit_mode.add_argument(
+        "--edit-file",
+        dest="edit",
+        default=False,
+        type=Path,
+        help=SUPPRESS,
     )
     submit_draft_mode = submit_parser.add_mutually_exclusive_group()
     add_help_argument(
@@ -1243,6 +1248,9 @@ def _time_output(*, enabled: bool):
 def _normalize_cli_args(argv: Sequence[str]) -> list[str]:
     normalized = list(argv)
     for index, arg in enumerate(normalized):
+        if arg.startswith("--edit="):
+            normalized[index] = f"--edit-file={arg.removeprefix('--edit=')}"
+            continue
         if not arg.startswith("--draft="):
             continue
         draft_mode = arg.removeprefix("--draft=")
