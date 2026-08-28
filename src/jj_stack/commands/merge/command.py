@@ -357,12 +357,13 @@ def _resolve_merge_method(
         "rebase": repo_state.allow_rebase_merge,
         "squash": repo_state.allow_squash_merge,
     }
+    chosen = merge_method or configured
     if any(allowed is None for allowed in settings.values()):
-        if merge_method is not None:
-            return merge_method
+        if chosen is not None:
+            return chosen
         raise CliError(
             "GitHub did not report which merge methods this repo allows.",
-            hint=t"Pass {ui.cmd('--method')} explicitly.",
+            hint=t"Pass {ui.cmd('--method')} or set {ui.code('jj-stack.merge_method')}.",
         )
     allowed_methods = sorted(method for method, allowed in settings.items() if allowed)
     if not allowed_methods:
@@ -370,7 +371,6 @@ def _resolve_merge_method(
             "This repo does not allow any pull request merge method.",
             hint="Fix the repo merge settings on GitHub before merging.",
         )
-    chosen = merge_method or configured
     if chosen is not None:
         if chosen not in allowed_methods:
             source = ui.cmd("--method") if merge_method else ui.code("jj-stack.merge_method")

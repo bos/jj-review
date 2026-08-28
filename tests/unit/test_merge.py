@@ -115,6 +115,16 @@ def test_resolve_merge_method_prefers_the_flag_over_configuration() -> None:
         _resolve_merge_method(configured="squash", merge_method="merge", repo_state=repo)
         == "merge"
     )
+    # A repo whose allowed methods GitHub does not report is still configured.
+    unreported = _repo(
+        allow_merge_commit=None,
+        allow_rebase_merge=None,
+        allow_squash_merge=None,
+    )
+    assert (
+        _resolve_merge_method(configured="squash", merge_method=None, repo_state=unreported)
+        == "squash"
+    )
 
 
 @pytest.mark.merge_recovery
