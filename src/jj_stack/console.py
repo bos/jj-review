@@ -632,7 +632,11 @@ def _append_rich_text(
             appended.stylize(base_style, 0, len(appended.plain))
         rendered.append_text(appended)
         return
-    rendered.append(content, style=base_style)
+    # Interpolated content can be an untrusted change description, and styling here comes from
+    # `base_style`, never from escape bytes in the content. Drop every escape introducer rather
+    # than leaving one for an ANSI decoder: `Text.from_ansi` consumes only the introducers it
+    # recognises and passes `ESC c` (terminal reset) and friends straight through.
+    rendered.append(content.replace("\x1b", ""), style=base_style)
 
 
 def _combine_styles(
