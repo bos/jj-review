@@ -144,7 +144,7 @@ UnsupportedStackReason = Literal[
     "merge_commit",
     "reached_root_before_trunk",
     "trunk_resolved_to_root",
-    "undescribed_working_copy",
+    "undescribed_change",
 ]
 
 

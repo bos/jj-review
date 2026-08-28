@@ -173,9 +173,8 @@ def require_submittable_changes(changes: tuple[LocalCommit, ...]) -> None:
         if not change.description.strip():
             raise UnsupportedStackError.stack_shape(
                 change.change_id,
-                t"describe it with {ui.cmd(f'jj describe {change.change_id}')} before "
-                t"submitting it.",
-                reason="undescribed_working_copy",
+                t"describe it with {ui.cmd(f'jj describe {change.change_id}')} and retry.",
+                reason="undescribed_change",
             )
 
 
@@ -351,8 +350,8 @@ def _validate_selected_path(
         if change.is_working_copy and not change.description.strip():
             raise UnsupportedStackError.stack_shape(
                 change.change_id,
-                t"describe it with {ui.cmd('jj describe')} before submitting it.",
-                reason="undescribed_working_copy",
+                t"describe it with {ui.cmd(f'jj describe {change.change_id}')} and retry.",
+                reason="undescribed_change",
             )
 
 

@@ -1214,8 +1214,8 @@ def _register_pr_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
         pr = repo.prs.get(pr_number)
         if pr is None:
             raise HTTPException(status_code=404, detail="Not Found")
-        requested = _requested_names(payload, "reviewers", kind="reviewer")
-        requested_teams = _requested_names(payload, "team_reviewers", kind="team")
+        requested = _requested_names(payload, "reviewers")
+        requested_teams = _requested_names(payload, "team_reviewers")
         # Real GitHub rejects the whole batch and requests nobody when it names the PR author.
         # An unknown login is accepted and silently requests nobody, so stay permissive there.
         if pr.author_login in requested:
@@ -1241,9 +1241,7 @@ def _register_pr_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
         if pr is None:
             raise HTTPException(status_code=404, detail="Not Found")
         # Real GitHub adds to the issue's existing labels and ignores duplicates.
-        pr.labels = list(
-            dict.fromkeys((*pr.labels, *_requested_names(payload, "labels", kind="label")))
-        )
+        pr.labels = list(dict.fromkeys((*pr.labels, *_requested_names(payload, "labels"))))
         return [{"name": label} for label in pr.labels]
 
     @app.get("/repos/{owner}/{repo_name}/pulls/{pr_number}/reviews")
@@ -1563,13 +1561,13 @@ def _require_branch(repo: FakeGithubRepo, branch: str) -> None:
     raise HTTPException(status_code=422, detail=f"Branch {branch!r} does not exist.")
 
 
-def _requested_names(payload: dict[str, object], key: str, *, kind: str) -> list[str]:
+def _requested_names(payload: dict[str, object], key: str) -> list[str]:
     """Read one name list, rejecting the blank names real GitHub refuses with a 422."""
 
     values = payload.get(key, [])
     names = [str(value) for value in values] if isinstance(values, list) else []
     if any(not name for name in names):
-        raise HTTPException(status_code=422, detail=f"Invalid {kind} name.")
+        raise HTTPException(status_code=422, detail=f"Invalid {key} value.")
     return names
 
 
