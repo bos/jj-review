@@ -291,13 +291,24 @@ class GithubClient:
         return targets
 
     async def list_stacks(self) -> tuple[GithubStack, ...]:
+        """List the GitHub stacks in this repo that jj-stack can interpret.
+
+        Listing covers every stack in the repo, including stacks jj-stack did not create, so
+        one unusable resource must not hide all the others. A command that needs the unusable
+        stack asks for it by number and fails there.
+        """
+
         payload = await self._get_paginated_json_array(
             f"{self._repo_path}/stacks",
             response_name="stack list",
         )
-        return tuple(
-            _validate_stack_payload(item, response_name="stack list") for item in payload
-        )
+        stacks: list[GithubStack] = []
+        for item in payload:
+            try:
+                stacks.append(_validate_stack_payload(item, response_name="stack list"))
+            except GithubClientError as error:
+                logger.warning("%s Ignoring that stack.", error)
+        return tuple(stacks)
 
     async def get_stack(self, *, stack_number: int) -> GithubStack:
         response = await self._request("GET", f"{self._repo_path}/stacks/{stack_number}")
@@ -1476,8 +1487,13 @@ def _validate_stack_payload(payload: object, *, response_name: str) -> GithubSta
     try:
         return GithubStack.model_validate(payload)
     except ValidationError as error:
+        number = payload.get("number") if isinstance(payload, dict) else None
+        named = f"stack #{number}" if isinstance(number, int) else "one stack"
+        reasons = "; ".join(
+            str(detail.get("msg", "")).removeprefix("Value error, ") for detail in error.errors()
+        )
         raise GithubClientError(
-            f"GitHub {response_name} response had invalid stack data."
+            f"GitHub {response_name} response had unusable data for {named}: {reasons}."
         ) from error
 
 

@@ -84,7 +84,7 @@ class GithubStack(BaseModel):
             if not pr.is_historical:
                 active_seen = True
             elif active_seen:
-                raise ValueError("Merged GitHub stack members must form a bottom prefix.")
+                raise ValueError("merged pull requests must be at the bottom of the stack")
         return self
 
 

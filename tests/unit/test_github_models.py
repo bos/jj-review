@@ -70,7 +70,7 @@ def test_github_stack_splits_history_and_rejects_nonprefix_history() -> None:
 
     assert stack.historical_pr_numbers == (1,)
     assert stack.active_pr_numbers == (2,)
-    with pytest.raises(ValueError, match="bottom prefix"):
+    with pytest.raises(ValueError, match="must be at the bottom of the stack"):
         GithubStack.model_validate({"number": 7, "pull_requests": [active, historical]})
 
 
