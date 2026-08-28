@@ -1013,16 +1013,32 @@ def _register_graphql_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
         owner = _require_graphql_variable(raw_variables, "owner")
         repo_name = _require_graphql_variable(raw_variables, "repo")
         repo = _get_repo(fake_state, owner, repo_name)
-        return {
-            "data": {
-                "repository": _graphql_repo_payload(
-                    query=query,
-                    repo=repo,
-                    variables=raw_variables,
-                    web_origin=fake_state.web_origin,
-                )
-            }
-        }
+        repository = _graphql_repo_payload(
+            query=query,
+            repo=repo,
+            variables=raw_variables,
+            web_origin=fake_state.web_origin,
+        )
+        result: dict[str, object] = {"data": {"repository": repository}}
+        # GitHub reports an unresolvable `pullRequest(number:)` alias as `null` in `data` *and*
+        # a NOT_FOUND error naming that alias, so clients have to read both to tell a missing
+        # pull request from a failed query. A missing `ref(qualifiedName:)` gets no such error.
+        if "pullRequest(number:" in query:
+            errors = [
+                {
+                    "type": "NOT_FOUND",
+                    "path": ["repository", alias],
+                    "message": (
+                        "Could not resolve to a PullRequest with the number of "
+                        f"{alias.removeprefix('pr_')}."
+                    ),
+                }
+                for alias, value in repository.items()
+                if value is None
+            ]
+            if errors:
+                result["errors"] = errors
+        return result
 
 
 def _register_pr_routes(app: FastAPI, fake_state: FakeGithubState) -> None:

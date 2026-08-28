@@ -294,7 +294,15 @@ def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
                         },
                         "pr_11": None,
                     }
-                }
+                },
+                # GitHub reports an unresolvable alias as `null` in `data` *and* an error.
+                "errors": [
+                    {
+                        "type": "NOT_FOUND",
+                        "path": ["repository", "pr_11"],
+                        "message": "Could not resolve to a PullRequest with the number of 11.",
+                    }
+                ],
             },
             request=request,
         )
@@ -437,6 +445,36 @@ def test_github_client_detects_merge_queue_branch_rule() -> None:
             return await client.base_branch_uses_merge_queue(branch="main")
 
     assert asyncio.run(run_test())
+
+
+def test_github_client_fails_closed_on_graphql_errors_that_are_not_a_missing_alias() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            json={
+                "data": {"repository": None},
+                "errors": [
+                    {
+                        "type": "NOT_FOUND",
+                        "path": ["repository"],
+                        "message": (
+                            "Could not resolve to a Repository with the name "
+                            "'octo-org/stacked-prs'."
+                        ),
+                    }
+                ],
+            },
+            request=request,
+        )
+
+    async def run_test() -> None:
+        async with _github_client(handler) as client:
+            await client.get_prs_by_numbers(pr_numbers=(7,))
+
+    with pytest.raises(GithubClientError) as raised:
+        asyncio.run(run_test())
+
+    assert raised.value.is_repo_not_found()
 
 
 def test_github_client_rejects_graphql_payload_missing_repo_data() -> None:

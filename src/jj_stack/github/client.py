@@ -848,7 +848,7 @@ class GithubClient:
         if not isinstance(payload, dict):
             raise GithubClientError(f"GitHub {response_name} response was not a JSON object.")
         errors = payload.get("errors")
-        if errors:
+        if errors and not _only_unresolvable_aliases(errors):
             raise GithubClientError(f"GitHub {response_name} failed: {errors}")
         data = payload.get("data")
         if not isinstance(data, dict):
@@ -951,6 +951,26 @@ def _seconds_until_rate_limit_reset(value: str | None) -> float | None:
         return max(float(value) - time.time(), 0.0)
     except ValueError:
         return None
+
+
+def _only_unresolvable_aliases(errors: object) -> bool:
+    """Whether every GraphQL error only says one selection inside the repo is missing.
+
+    GitHub answers an unresolvable `pullRequest(number:)` alias with `null` in `data` plus a
+    `NOT_FOUND` error naming that alias, which callers read as "no such pull request". A
+    `NOT_FOUND` for the repository itself, and every other error, stays fatal.
+    """
+
+    if not isinstance(errors, list):
+        return False
+    return all(
+        isinstance(error, dict)
+        and error.get("type") == "NOT_FOUND"
+        and isinstance(path := error.get("path"), list)
+        and len(path) == 2
+        and path[0] == "repository"
+        for error in errors
+    )
 
 
 def _graphql_repo_payload(
