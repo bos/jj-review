@@ -362,16 +362,17 @@ class FakeGithubRepo:
     def apply_squash_merge(self, pr: FakeGithubPR) -> str:
         """Squash-merge the PR's head into its base on the backing Git repo.
 
-        Real GitHub computes a three-way merge before squashing. Using the head
-        commit's tree matches that result whenever the base has not diverged
-        beyond the PR's merge base, which holds for the merge scenarios these
-        tests construct.
+        Real GitHub computes a three-way merge before squashing, so the squash keeps whatever
+        else the base gained since the PR's merge base. Copying the head commit's tree instead
+        would silently revert an unrelated merge that landed first.
         """
 
         heads = self.branch_heads()
         head_commit = heads[pr.head_ref]
         base_commit = heads[pr.base_ref]
-        tree = self._run_backing_git("rev-parse", f"{head_commit}^{{tree}}")
+        tree = self._run_backing_git(
+            "merge-tree", "--write-tree", base_commit, head_commit
+        ).splitlines()[0]
         squash_commit = self._run_backing_git(
             "commit-tree",
             tree,
