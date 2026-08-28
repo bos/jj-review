@@ -27,7 +27,7 @@ from jj_stack.commands._cleanup_actions import (
     apply_remote_branch_cleanup,
     check_tracked_pr,
     emit_action_row,
-    github_stack_cleanup_blocker,
+    github_stack_cleanup_blockers,
     plan_pr_cleanup,
 )
 from jj_stack.errors import AmbiguousSelectionError, CliError, UsageError
@@ -426,6 +426,10 @@ async def _run_tracked_pr_cleanup_pass(
         github_client=github_client,
         pr_numbers=eligible_pr_numbers,
     )
+    stack_blockers = github_stack_cleanup_blockers(
+        pr_numbers=tuple(eligible_pr_numbers),
+        stacks=stacks,
+    )
     for prepared_change in prepared_changes:
         stop_after_failure = await _cleanup_tracked_pr(
             github_client=github_client,
@@ -434,7 +438,7 @@ async def _run_tracked_pr_cleanup_pass(
             prepared_cleanup=prepared_cleanup,
             record_action=record_action,
             remote_name=remote_name,
-            stacks=stacks,
+            stack_blocker=stack_blockers.get(prepared_change.candidate.pr_identity.pr_number),
             overview_comments=overview_comments,
         )
         if stop_after_failure:
@@ -473,7 +477,7 @@ async def _cleanup_tracked_pr(
     prepared_cleanup: PreparedCleanup,
     record_action: Callable[[CleanupAction], None],
     remote_name: str,
-    stacks: tuple[GithubStack, ...] | CliError,
+    stack_blocker: CleanupAction | None,
     overview_comments: dict[int, GithubIssueComment | None],
 ) -> bool:
     """Apply one planned cleanup, returning whether a partial failure must stop the pass."""
@@ -486,10 +490,6 @@ async def _cleanup_tracked_pr(
             record_action(early_action)
         return False
     pr_label = format_pr_label(pr.number, url=pr.html_url)
-    stack_blocker = github_stack_cleanup_blocker(
-        pr_number=identity.pr_number,
-        stacks=stacks,
-    )
     if stack_blocker is not None:
         record_action(stack_blocker)
         return False

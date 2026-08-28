@@ -283,24 +283,37 @@ def plan_pr_cleanup(
     return pr, update, None
 
 
-def github_stack_cleanup_blocker(
+def github_stack_cleanup_blockers(
     *,
-    pr_number: int,
+    pr_numbers: tuple[int, ...],
     stacks: tuple[GithubStack, ...] | CliError,
-) -> CleanupAction | None:
-    """Fail closed when current stack membership still needs a PR branch."""
+) -> dict[int, CleanupAction]:
+    """Fail closed for every selected PR a stack with an active member still groups.
+
+    A merged member's branch is the base of the member above it, so a stack that still holds
+    an active member needs every branch it groups, not only the active ones.
+    """
 
     if isinstance(stacks, CliError):
-        reason = str(stacks)
-    else:
-        stack = next((item for item in stacks if pr_number in item.active_pr_numbers), None)
-        if stack is None:
-            return None
-        reason = (
-            f"GitHub stack #{stack.number} blocks this jj-stack operation. "
-            f"Run jj-stack unstack --stack {stack.number} and retry."
+        return dict.fromkeys(
+            pr_numbers,
+            CleanupAction(kind="remote branch", body=str(stacks), status="blocked"),
         )
-    return CleanupAction(kind="remote branch", body=reason, status="blocked")
+    selected = set(pr_numbers)
+    blockers: dict[int, CleanupAction] = {}
+    for stack in stacks:
+        if selected.isdisjoint(stack.active_pr_numbers):
+            continue
+        action = CleanupAction(
+            kind="remote branch",
+            body=(
+                f"GitHub stack #{stack.number} blocks this jj-stack operation. "
+                f"Run jj-stack unstack --stack {stack.number} and retry."
+            ),
+            status="blocked",
+        )
+        blockers.update({number: action for number in stack.pr_numbers if number in selected})
+    return blockers
 
 
 def apply_remote_branch_cleanup(
