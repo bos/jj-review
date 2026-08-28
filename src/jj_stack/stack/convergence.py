@@ -445,9 +445,9 @@ def _unproven_rewrite_error(stack: GithubStack) -> CliError:
 def _require_no_unpublished_edits(changes: tuple[OnTrunkChange, ...], jj: JjClient) -> None:
     for item in changes:
         local, baseline = item.change, item.candidate.submitted_baseline.commit_id
-        # An empty change holds nothing its parent does not, and an ordinary jj rewrite moves a
-        # commit ID without touching content. Neither is an edit, and identity cannot see that.
-        if local is None or local.empty or not local.holds_unpublished_edit((baseline,)):
+        # An empty change holds nothing its parent does not, and the comparison below already
+        # answers identity: an unrewritten copy has the baseline's tree.
+        if local is None or local.empty:
             continue
         trees = jj.git_tree_ids((local.commit_id, baseline))
         if trees[local.commit_id] == trees[baseline]:
