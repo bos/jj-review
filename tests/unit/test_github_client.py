@@ -638,7 +638,7 @@ def test_github_client_rejects_incomplete_pr_connection(
 
     async def run_test() -> None:
         async with _github_client(handler) as client:
-            await client.get_open_prs_by_base_refs(
+            await client.get_prs_by_base_refs(
                 base_refs=("jj-stack/seven",),
             )
 

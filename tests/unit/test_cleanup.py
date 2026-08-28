@@ -175,7 +175,7 @@ def _observation(
     return RepoFacts(
         configured_repo=_REPO,
         github_repo=None,
-        open_prs_by_base={BRANCH: ()},
+        prs_by_base={BRANCH: ()},
         remote=_REMOTE,
         repo=_REPO,
         prs={

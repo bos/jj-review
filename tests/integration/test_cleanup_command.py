@@ -191,7 +191,7 @@ def test_cleanup_close_finishes_open_and_terminal_orphans(
     assert all(fake_repo.prs[identity.pr_number].state == "closed" for identity in identities)
 
 
-def test_cleanup_blocks_closed_pr_still_claimed_by_github_stack(
+def test_cleanup_preserves_a_branch_its_closed_dependent_still_names(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -221,7 +221,7 @@ def test_cleanup_blocks_closed_pr_still_claimed_by_github_stack(
     selected = capsys.readouterr()
 
     assert selected_exit_code == 1
-    assert f"keeps #{identities[1].pr_number} active outside the selected stack" in " ".join(
+    assert f"PR #{identities[1].pr_number} still uses" in " ".join(
         (selected.out + " " + selected.err).split()
     )
     assert state_store.load() == state_before
@@ -256,22 +256,33 @@ def test_cleanup_blocks_closed_pr_still_claimed_by_github_stack(
         f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir) for bookmark in bookmarks
     )
 
+    # Dissolving the GitHub grouping does not release the base branch. The closed member above
+    # still names it, so cleaning up the one it does not block leaves the other refused.
     assert run_main(repo, config_path, "unstack", "--stack", "7") == 0
     capsys.readouterr()
+    partial_exit_code = run_main(repo, config_path, "cleanup")
+    partial = capsys.readouterr()
+    normalized_partial = " ".join(partial.out.split())
+
+    assert partial_exit_code == 1
+    assert f"remote branch: delete {bookmarks[1]}@origin" in normalized_partial
+    assert f"PR #{identities[1].pr_number} still uses" in normalized_partial
+    assert f"refs/heads/{bookmarks[0]}" in remote_refs(fake_repo.git_dir)
+
+    # Retargeting the dependent is the only move that frees the branch: GitHub refuses to
+    # reopen a pull request whose base branch is gone, and refuses to retarget a closed one,
+    # so deleting first would strand it for good.
+    fake_repo.prs[identities[1].pr_number].base_ref = "main"
     apply_exit_code = run_main(repo, config_path, "cleanup")
     applied = capsys.readouterr()
     normalized_applied = " ".join(applied.out.split())
 
     assert apply_exit_code == 0
-    assert "Applied cleanup actions:" in applied.out
-    assert all(
-        f"remote branch: delete {bookmark}@origin" in normalized_applied for bookmark in bookmarks
-    )
+    assert f"remote branch: delete {bookmarks[0]}@origin" in normalized_applied
     assert all(change_id not in state_store.load().pr_identities for change_id in change_ids)
     assert all(
         f"refs/heads/{bookmark}" not in remote_refs(fake_repo.git_dir) for bookmark in bookmarks
     )
-    assert fake_repo.github_stacks == {7: (identities[0].pr_number,)}
 
 
 def test_cleanup_preserves_closed_pr_branch_used_by_open_pr(
@@ -293,7 +304,7 @@ def test_cleanup_preserves_closed_pr_branch_used_by_open_pr(
     output = " ".join(captured.out.split())
 
     assert exit_code == 1
-    assert "open PR #2 still" in output
+    assert "PR #2 still uses" in output
     assert "rerun cleanup" in output
     assert state_store.load() == state
     assert issue_comments(fake_repo, identity.pr_number) == comments_before
@@ -352,6 +363,9 @@ def test_cleanup_stops_later_prs_after_partial_mutation_failure(
     fake_repo.github_stacks = {}
     fake_repo.prs[blocking_identity.pr_number].state = "closed"
     fake_repo.prs[later_identity.pr_number].state = "closed"
+    # This case is about stopping after a failed mutation, not about base-branch dependencies.
+    # Retarget the later PR so cleanup reaches the mutation it is here to fail.
+    fake_repo.prs[later_identity.pr_number].base_ref = "main"
     fake_repo.create_issue_comment(
         body=f"{STACK_OVERVIEW_COMMENT_MARKER}\nstack overview",
         issue_number=blocking_identity.pr_number,

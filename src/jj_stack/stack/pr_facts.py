@@ -39,7 +39,7 @@ class RepoFacts:
 
     configured_repo: github_resolution.GithubRepoAddress | None
     github_repo: GithubRepo | None
-    open_prs_by_base: Mapping[str, tuple[GithubPR, ...]] | None
+    prs_by_base: Mapping[str, tuple[GithubPR, ...]] | None
     remote: GitRemote | None
     repo: github_resolution.GithubRepoAddress
     prs: Mapping[str, PRFacts]
@@ -76,7 +76,7 @@ async def observe_prs(
     context: CommandContext,
     github_client: GithubClient,
     remote_name: str,
-    include_open_dependents: bool = False,
+    include_dependents: bool = False,
     include_open_head_prs: bool = False,
     include_remote_targets: bool = True,
     github_repo_snapshot: GithubRepo | None = None,
@@ -116,8 +116,8 @@ async def observe_prs(
             github_client.get_prs_by_numbers(pr_numbers=pr_numbers),
             open_heads_request,
             (
-                github_client.get_open_prs_by_base_refs(base_refs=head_refs)
-                if include_open_dependents
+                github_client.get_prs_by_base_refs(base_refs=head_refs)
+                if include_dependents
                 else asyncio.sleep(0, result=None)
             ),
             (
@@ -150,7 +150,7 @@ async def observe_prs(
     return RepoFacts(
         configured_repo=github_resolution.parse_github_repo(remote) if remote else None,
         github_repo=github_repo,
-        open_prs_by_base=by_base,
+        prs_by_base=by_base,
         remote=remote,
         repo=repo,
         prs=prs,

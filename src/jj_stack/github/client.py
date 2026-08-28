@@ -463,16 +463,16 @@ class GithubClient:
         *,
         head_refs: Sequence[str],
     ) -> dict[str, tuple[GithubPR, ...]]:
-        return await self._get_open_prs_by_refs(refs=head_refs, base=False)
+        return await self._get_prs_by_refs(refs=head_refs, base=False)
 
-    async def get_open_prs_by_base_refs(
+    async def get_prs_by_base_refs(
         self,
         *,
         base_refs: Sequence[str],
     ) -> dict[str, tuple[GithubPR, ...]]:
-        return await self._get_open_prs_by_refs(refs=base_refs, base=True)
+        return await self._get_prs_by_refs(refs=base_refs, base=True)
 
-    async def _get_open_prs_by_refs(
+    async def _get_prs_by_refs(
         self,
         *,
         base: bool,
@@ -487,7 +487,7 @@ class GithubClient:
         results: dict[str, tuple[GithubPR, ...]] = {}
         for chunk in _chunked(refs, size=_GRAPHQL_PR_BATCH_SIZE):
             aliases = {f"{kind}_{index}": ref for index, ref in enumerate(chunk)}
-            query, ref_variables = _open_prs_by_ref_query(aliases, base=base)
+            query, ref_variables = _prs_by_ref_query(aliases, base=base)
             payload = await self._graphql_query(
                 query,
                 variables={**self._repo_variables, **ref_variables},
@@ -1233,7 +1233,7 @@ def _branch_targets_by_suffix_query(
     )
 
 
-def _open_prs_by_ref_query(
+def _prs_by_ref_query(
     aliases: dict[str, str],
     *,
     base: bool,
@@ -1242,8 +1242,13 @@ def _open_prs_by_ref_query(
     # same name, oldest first, and the head-label filter discards those only after GitHub has
     # already truncated the page. Ask for a full page either way so foreign heads cannot push
     # this repo's own pull request out of view and make submit create a duplicate.
-    operation_name = "OpenPullRequestsByBaseRef" if base else "OpenPullRequestsByHeadRef"
+    # A base-ref lookup decides whether deleting a branch would strand a pull request that
+    # names it. GitHub refuses to reopen a pull request whose base branch is gone, and refuses
+    # to retarget a closed one at all, so a closed dependent is stranded exactly as permanently
+    # as an open one. A merged dependent's state can never change, so its base branch is free.
+    operation_name = "PullRequestsByBaseRef" if base else "OpenPullRequestsByHeadRef"
     ref_argument = "baseRefName" if base else "headRefName"
+    states = "[OPEN, CLOSED]" if base else "[OPEN]"
     variables: dict[str, str] = {}
     selections: list[str] = []
     for index, (alias, ref) in enumerate(aliases.items()):
@@ -1254,7 +1259,7 @@ def _open_prs_by_ref_query(
                 f"""
                 {alias}: pullRequests(
                   first: 100,
-                  states: [OPEN],
+                  states: {states},
                   {ref_argument}: ${name}
                 ) {{
                   nodes {{

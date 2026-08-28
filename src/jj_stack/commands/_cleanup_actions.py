@@ -31,7 +31,7 @@ def check_tracked_pr(
     candidate: TrackedPR,
     observation: RepoFacts,
     preview_detached_dependents: frozenset[int] = frozenset(),
-    require_no_open_dependents: bool = False,
+    require_no_dependents: bool = False,
 ) -> tuple[GithubPR | None, CleanupAction | None]:
     """Check one exact unchanged PR against shared facts."""
 
@@ -75,11 +75,11 @@ def check_tracked_pr(
             reason = (
                 t"cannot mutate saved {pr_label} because GitHub now reports state {pr.state!r}"
             )
-    check_dependents = (reason is None, require_no_open_dependents) == (True, True)
+    check_dependents = (reason is None, require_no_dependents) == (True, True)
     if check_dependents:
-        open_prs_by_base = observation.open_prs_by_base
-        assert open_prs_by_base is not None
-        observed_dependents = open_prs_by_base.get(pr_identity.head_ref, ())
+        prs_by_base = observation.prs_by_base
+        assert prs_by_base is not None
+        observed_dependents = prs_by_base.get(pr_identity.head_ref, ())
         dependents = tuple(
             filter(
                 lambda item: item.number not in preview_detached_dependents,
@@ -93,10 +93,11 @@ def check_tracked_pr(
             dependent = blockers[0]
             dependent_label = format_pr_label(dependent.number, url=dependent.html_url)
             reason = (
-                t"preserve {pr_label}'s branch and tracking because open "
+                t"preserve {pr_label}'s branch and tracking because "
                 t"{dependent_label} still uses {ui.bookmark(pr_identity.head_ref)} "
-                t"as its base; close or retarget {dependent_label}, then rerun "
-                t"{ui.cmd('cleanup')}"
+                t"as its base, and deleting it would leave {dependent_label} closed "
+                t"with no way to reopen it; retarget {dependent_label}, reopening it "
+                t"first if it is closed, then rerun {ui.cmd('cleanup')}"
             )
     return (
         pr,
@@ -209,7 +210,7 @@ def plan_pr_cleanup(
         candidate=candidate,
         observation=observation,
         preview_detached_dependents=preview_detached_dependents,
-        require_no_open_dependents=True,
+        require_no_dependents=True,
     )
     if blocker is not None or pr is None:
         return pr, None, blocker

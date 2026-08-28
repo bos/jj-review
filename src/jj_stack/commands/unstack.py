@@ -227,7 +227,7 @@ async def _check_selected_prs(
             change_ids=change_ids,
             context=context,
             github_client=github_client,
-            include_open_dependents=False,
+            include_dependents=False,
             remote_name=remote_name,
         )
     except GithubClientError as error:

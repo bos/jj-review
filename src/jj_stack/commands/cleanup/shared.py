@@ -45,9 +45,6 @@ class PreparedCleanup:
     dry_run: bool
     selected_change_ids: tuple[str, ...] | None
     state: TrackingState
-    # True only for an explicit `--pull-request <number>`, whose one pull request can be a
-    # member of a GitHub stack the selection does not cover.
-    explicit_pr_selection: bool = False
 
     @property
     def remote(self) -> GitRemote | None:

@@ -155,7 +155,7 @@ def test_merge_preconditions_reject_repo_drift() -> None:
             allow_rebase_merge=False,
             allow_squash_merge=True,
         ),
-        open_prs_by_base=None,
+        prs_by_base=None,
         remote=GitRemote(
             name="origin",
             fetch_url="https://github.test/acme/widgets.git",

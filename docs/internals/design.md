@@ -769,11 +769,15 @@ A pair is eligible only when:
 
 - GitHub reports the exact saved PR closed or merged
 - for a merged PR, no visible mutable local copy still needs `sync`
-- no open PR in the same repo uses the saved head ref as its base
+- no PR in the same repo, open or closed, uses the saved head ref as its base
 - no active member of a GitHub stack still needs the branch
 
-Local descendants do not substitute for the open-PR base check. A visible mutable copy of merged
-work is evidence for `sync`, not deletion of a GitHub branch or tracking.
+A closed PR counts because GitHub refuses to reopen a PR whose base branch is gone, and refuses
+to retarget a closed PR at all, so deleting the branch first strands it permanently. A merged PR
+does not count: its state can never change, so nothing is lost.
+
+Local descendants do not substitute for the base check. A visible mutable copy of merged work is
+evidence for `sync`, not deletion of a GitHub branch or tracking.
 
 Identity and baseline are removed only after artifact cleanup succeeds. A PR that cannot be
 inspected is skipped. Once mutation starts, a failure stops cleanup and leaves later records for
