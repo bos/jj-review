@@ -2372,7 +2372,7 @@ def test_submit_explicit_reviewers_apply_to_unchanged_pr(
     assert pr.requested_team_reviewers == ["platform"]
 
 
-def test_submit_explicit_label_applies_to_unchanged_pr(
+def test_submit_explicit_labels_accumulate_on_an_unchanged_pr(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -2395,8 +2395,10 @@ def test_submit_explicit_label_applies_to_unchanged_pr(
 
     assert run_main(repo, config_path, "submit", "--label", "needs-review") == 0
     capsys.readouterr()
+    assert run_main(repo, config_path, "submit", "--label", "needs-docs") == 0
+    capsys.readouterr()
 
-    assert fake_repo.prs[1].labels == ["needs-review"]
+    assert fake_repo.prs[1].labels == ["needs-review", "needs-docs"]
 
 
 def test_submit_re_request_observes_reviews_before_mutation_and_retries(

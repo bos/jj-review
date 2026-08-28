@@ -42,6 +42,9 @@ class FakeGithubPR:
     node_id: str
     number: int
     title: str
+    # Real GitHub's PR author is the authenticated user that opened it, and it refuses to
+    # request a review from that login.
+    author_login: str = "octo-author"
     auto_merge_enabled: bool = False
     check_rollup_state: str | None = None
     is_queued: bool = False
@@ -92,7 +95,9 @@ class FakeGithubPR:
             "body": self.body,
             "headRefName": self.head_ref,
             "headRefOid": self.head_sha,
-            "headRepositoryOwner": {"login": repo.owner},
+            # Real GitHub reports the head repository's owner, which is a fork owner for a
+            # PR opened from a fork. Head-ref lookups return those nodes too.
+            "headRepositoryOwner": {"login": self.head_label.partition(":")[0]},
             "id": self.node_id,
             "isDraft": self.is_draft,
             "mergeQueueEntry": {"id": "queue-entry"} if self.is_queued else None,
@@ -1209,18 +1214,19 @@ def _register_pr_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
         pr = repo.prs.get(pr_number)
         if pr is None:
             raise HTTPException(status_code=404, detail="Not Found")
-        reviewers = payload.get("reviewers", [])
-        team_reviewers = payload.get("team_reviewers", [])
-        if isinstance(reviewers, list):
-            for reviewer in reviewers:
-                normalized = str(reviewer)
-                if normalized not in pr.requested_reviewers:
-                    pr.requested_reviewers.append(normalized)
-        if isinstance(team_reviewers, list):
-            for team_reviewer in team_reviewers:
-                normalized = str(team_reviewer)
-                if normalized not in pr.requested_team_reviewers:
-                    pr.requested_team_reviewers.append(normalized)
+        requested = _requested_names(payload, "reviewers", kind="reviewer")
+        requested_teams = _requested_names(payload, "team_reviewers", kind="team")
+        # Real GitHub rejects the whole batch and requests nobody when it names the PR author.
+        # An unknown login is accepted and silently requests nobody, so stay permissive there.
+        if pr.author_login in requested:
+            raise HTTPException(
+                status_code=422,
+                detail="Review cannot be requested from pull request author.",
+            )
+        pr.requested_reviewers = list(dict.fromkeys((*pr.requested_reviewers, *requested)))
+        pr.requested_team_reviewers = list(
+            dict.fromkeys((*pr.requested_team_reviewers, *requested_teams))
+        )
         return pr.to_payload(repo=repo, web_origin=fake_state.web_origin)
 
     @app.post("/repos/{owner}/{repo_name}/issues/{issue_number}/labels")
@@ -1234,9 +1240,10 @@ def _register_pr_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
         pr = repo.prs.get(issue_number)
         if pr is None:
             raise HTTPException(status_code=404, detail="Not Found")
-        labels = payload.get("labels", [])
-        if isinstance(labels, list):
-            pr.labels = [str(label) for label in labels]
+        # Real GitHub adds to the issue's existing labels and ignores duplicates.
+        pr.labels = list(
+            dict.fromkeys((*pr.labels, *_requested_names(payload, "labels", kind="label")))
+        )
         return [{"name": label} for label in pr.labels]
 
     @app.get("/repos/{owner}/{repo_name}/pulls/{pr_number}/reviews")
@@ -1554,6 +1561,16 @@ def _require_branch(repo: FakeGithubRepo, branch: str) -> None:
     if completed.returncode == 0:
         return
     raise HTTPException(status_code=422, detail=f"Branch {branch!r} does not exist.")
+
+
+def _requested_names(payload: dict[str, object], key: str, *, kind: str) -> list[str]:
+    """Read one name list, rejecting the blank names real GitHub refuses with a 422."""
+
+    values = payload.get(key, [])
+    names = [str(value) for value in values] if isinstance(values, list) else []
+    if any(not name for name in names):
+        raise HTTPException(status_code=422, detail=f"Invalid {kind} name.")
+    return names
 
 
 def _require_string(payload: dict[str, object], key: str) -> str:
