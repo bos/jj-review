@@ -215,6 +215,20 @@ def test_cleanup_blocks_closed_pr_still_claimed_by_github_stack(
     fake_repo.github_stacks = {7: (1, 2)}
     state_before = state_store.load()
 
+    selected_exit_code = run_main(
+        repo, config_path, "cleanup", "--pull-request", str(identities[0].pr_number)
+    )
+    selected = capsys.readouterr()
+
+    assert selected_exit_code == 1
+    assert f"keeps #{identities[1].pr_number} active outside the selected stack" in " ".join(
+        (selected.out + " " + selected.err).split()
+    )
+    assert state_store.load() == state_before
+    assert all(
+        f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir) for bookmark in bookmarks
+    )
+
     preview_exit_code = run_main(repo, config_path, "cleanup", "--dry-run")
     preview = capsys.readouterr()
     normalized_preview = " ".join(preview.out.split())

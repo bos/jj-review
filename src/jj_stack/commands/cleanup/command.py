@@ -45,6 +45,7 @@ from jj_stack.jj.client import PRRefUpdate
 from jj_stack.models.github import GithubIssueComment, GithubPR, GithubStack
 from jj_stack.models.tracking import TrackingState
 from jj_stack.stack.change_status import enumerate_orphaned_records
+from jj_stack.stack.github_stack_safety import selected_github_stack
 from jj_stack.stack.pr_facts import (
     RepoFacts,
     observe_github_stacks,
@@ -251,6 +252,7 @@ def _prepare_cleanup(
     return PreparedCleanup(
         close_open_prs=close,
         context=context,
+        explicit_pr_selection=pr is not None and pr != "orphans",
         github_target=None,
         dry_run=dry_run,
         selected_change_ids=selected_change_ids,
@@ -439,6 +441,11 @@ async def _run_tracked_pr_cleanup_pass(
         github_client=github_client,
         pr_numbers=eligible_pr_numbers,
     )
+    if prepared_cleanup.explicit_pr_selection and not isinstance(stacks, CliError):
+        # One explicitly named pull request can be the merged member of a stack whose
+        # active members still need its branch, and no blocker below sees that, so apply
+        # the same completeness refusal unstack and sync use.
+        selected_github_stack(github_client.repo, tuple(eligible_pr_numbers), stacks)
     stack_blockers = github_stack_cleanup_blockers(
         pr_numbers=tuple(eligible_pr_numbers),
         stacks=stacks,
