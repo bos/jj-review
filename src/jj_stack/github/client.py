@@ -47,11 +47,13 @@ class GithubClientError(SummarizedError):
         self,
         message: str,
         *,
+        is_rate_limited: bool = False,
         rate_limit_reset_seconds: float | None = None,
         retry_after_seconds: float | None = None,
         status_code: int | None = None,
     ) -> None:
         super().__init__(message)
+        self.is_rate_limited = is_rate_limited
         self.rate_limit_reset_seconds = rate_limit_reset_seconds
         self.retry_after_seconds = retry_after_seconds
         self.status_code = status_code
@@ -105,11 +107,16 @@ class GithubClientError(SummarizedError):
         entries = payload.get("errors")
         if isinstance(entries, list):
             reasons.extend(entry.get("message") for entry in entries if isinstance(entry, dict))
-        return shorten(
-            ": ".join(reason for reason in reasons if isinstance(reason, str) and reason.strip()),
-            width=200,
-            placeholder=" ...",
+        quoted = ": ".join(
+            reason for reason in reasons if isinstance(reason, str) and reason.strip()
         )
+        # The body is remote input on its way to a terminal, so drop anything unprintable
+        # rather than forwarding an escape sequence.
+        printable = "".join(character if character.isprintable() else " " for character in quoted)
+        shortened = shorten(printable, width=200, placeholder=" ...")
+        # A single oversized token shortens to nothing but the placeholder, which says less
+        # than the bare status does.
+        return "" if shortened.strip() == "..." else shortened
 
     def user_facing_reason(self) -> str:
         """Render a concise failure reason suitable after an action prefix."""
@@ -118,13 +125,16 @@ class GithubClientError(SummarizedError):
             return "auth failed - check GITHUB_TOKEN"
         if self.status_code == 403:
             # GitHub refuses a rate-limited request with the same status as a token problem,
-            # and the retries above give up long before a primary limit resets.
-            detail = self.detail().lower()
-            if "rate limit" in detail:
-                wait = self.retry_after_seconds or self.rate_limit_reset_seconds
+            # and the retries give up long before a primary limit resets. `is_rate_limited`
+            # is the retry loop's own verdict, so the wait and the message cannot disagree.
+            if self.is_rate_limited:
+                # Only a secondary limit sends `Retry-After`; a primary limit reports its
+                # reset through `X-RateLimit-Reset`.
+                secondary = self.retry_after_seconds is not None
+                wait = self.retry_after_seconds if secondary else self.rate_limit_reset_seconds
                 minutes = None if wait is None else max(1, ceil(wait / 60))
                 resets = "" if minutes is None else f", resets in about {minutes} min"
-                limit = "secondary" if "secondary" in detail else "primary"
+                limit = "secondary" if secondary else "primary"
                 return f"GitHub {limit} rate limit reached{resets} - rerun later"
             return "access denied - check GITHUB_TOKEN and repo access"
         if self.is_repo_not_found():
@@ -349,6 +359,8 @@ class GithubClient:
             try:
                 stacks.append(_validate_stack_payload(item, response_name="stack list"))
             except GithubClientError as error:
+                if not _is_member_ordering_failure(error):
+                    raise
                 logger.warning("%s Ignoring that stack.", error)
         return tuple(stacks)
 
@@ -426,8 +438,9 @@ class GithubClient:
             query = _prs_by_number_query(chunk)
             payload = await self._graphql_query(
                 query,
-                variables=self._repo_variables,
                 response_name="pull request batch lookup",
+                tolerate_missing_selections=True,
+                variables=self._repo_variables,
             )
             repo = _graphql_repo_payload(
                 payload,
@@ -595,8 +608,9 @@ class GithubClient:
                 )
                 payload = await self._graphql_query(
                     query,
-                    variables={**self._repo_variables, **cursor_variables},
                     response_name="pull request history lookup",
+                    tolerate_missing_selections=True,
+                    variables={**self._repo_variables, **cursor_variables},
                 )
                 repo = _graphql_repo_payload(
                     payload,
@@ -912,6 +926,7 @@ class GithubClient:
         query: str,
         *,
         response_name: str,
+        tolerate_missing_selections: bool = False,
         variables: dict[str, object] | None = None,
     ) -> dict[str, object]:
         response = await self._request(
@@ -926,7 +941,7 @@ class GithubClient:
         if not isinstance(payload, dict):
             raise GithubClientError(f"GitHub {response_name} response was not a JSON object.")
         errors = payload.get("errors")
-        if errors and not _only_unresolvable_aliases(errors):
+        if errors and not (tolerate_missing_selections and _only_unresolvable_aliases(errors)):
             raise GithubClientError(f"GitHub {response_name} failed: {errors}")
         data = payload.get("data")
         if not isinstance(data, dict):
@@ -941,6 +956,7 @@ class GithubClient:
         except httpx2.HTTPStatusError as error:
             raise GithubClientError(
                 f"GitHub request failed: {error.response.status_code} {error.response.text}",
+                is_rate_limited=_is_retryable_rate_limit(error.response),
                 rate_limit_reset_seconds=_seconds_until_rate_limit_reset(
                     error.response.headers.get("X-RateLimit-Reset")
                 ),
@@ -958,8 +974,10 @@ class GithubClient:
     ) -> object:
         """Read a successful response's JSON body, or fail closed if it has none.
 
-        A proxy or maintenance page can answer 200 with an HTML body, so every body read
-        goes through this guard rather than calling `response.json()` on its own.
+        A proxy or maintenance page can answer 200 with an HTML body, so a body read goes
+        through this guard rather than calling `response.json()` on its own. The two reads
+        that deliberately inspect a *failed* response instead - the 422 branch-at-commit
+        probe and the 409 already-pending merge - carry their own guards.
         """
 
         self._expect_success(response)
@@ -1033,8 +1051,10 @@ def _only_unresolvable_aliases(errors: object) -> bool:
     """Whether every GraphQL error only says one selection inside the repo is missing.
 
     GitHub answers an unresolvable `pullRequest(number:)` alias with `null` in `data` plus a
-    `NOT_FOUND` error naming that alias, which callers read as "no such pull request". A
-    `NOT_FOUND` for the repository itself, and every other error, stays fatal.
+    `NOT_FOUND` error naming that alias, which the pull request lookups read as "no such pull
+    request". A `NOT_FOUND` for the repository itself, and every other error, stays fatal;
+    only those lookups opt in, because a caller that reads a dropped selection as an absent
+    branch or an absent merge queue must not silently lose one.
     """
 
     if not isinstance(errors, list):
@@ -1551,6 +1571,23 @@ def _revisions_from_graphql(
     )
 
 
+def _is_member_ordering_failure(error: GithubClientError) -> bool:
+    """Whether a stack payload failed only the rule that merged members sit at the bottom.
+
+    That rule is the one `model_validator(mode="after")` on `GithubStack`, so it is the only
+    failure pydantic reports as a `value_error` against the model as a whole. A change in
+    GitHub's response shape reports a field error instead, and must stay fatal for the whole
+    listing rather than emptying it.
+    """
+
+    cause = error.__cause__
+    if not isinstance(cause, ValidationError):
+        return False
+    return all(
+        detail["type"] == "value_error" and detail["loc"] == () for detail in cause.errors()
+    )
+
+
 def _validate_stack_payload(payload: object, *, response_name: str) -> GithubStack:
     try:
         return GithubStack.model_validate(payload)
@@ -1558,7 +1595,7 @@ def _validate_stack_payload(payload: object, *, response_name: str) -> GithubSta
         number = payload.get("number") if isinstance(payload, dict) else None
         named = f"stack #{number}" if isinstance(number, int) else "one stack"
         reasons = "; ".join(
-            str(detail.get("msg", "")).removeprefix("Value error, ") for detail in error.errors()
+            detail["msg"].removeprefix("Value error, ") for detail in error.errors()
         )
         raise GithubClientError(
             f"GitHub {response_name} response had unusable data for {named}: {reasons}."

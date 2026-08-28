@@ -334,6 +334,24 @@ def test_github_client_lists_the_stacks_it_can_interpret_around_one_it_cannot() 
     assert asyncio.run(run_test()) == (3,)
 
 
+def test_github_client_fails_the_whole_stack_listing_on_an_unexpected_payload() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(
+            200,
+            json=[{"number": 3, "pull_requests": [{"number": "not-a-number"}]}],
+            request=request,
+        )
+
+    async def run_test() -> None:
+        async with _github_client(handler) as client:
+            await client.list_stacks()
+
+    # Only the rule about where merged members sit is survivable; a shape jj-stack does not
+    # recognize must not quietly empty the listing.
+    with pytest.raises(GithubClientError, match="unusable data for stack #3"):
+        asyncio.run(run_test())
+
+
 def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
     request_sizes: list[int] = []
 
@@ -536,23 +554,39 @@ def test_github_client_detects_merge_queue_branch_rule() -> None:
     assert asyncio.run(run_test())
 
 
-def test_github_client_fails_closed_on_graphql_errors_that_are_not_a_missing_alias() -> None:
+@pytest.mark.parametrize(
+    ("error_entry", "expected_detail"),
+    (
+        pytest.param(
+            {
+                "type": "NOT_FOUND",
+                "path": ["repository"],
+                "message": (
+                    "Could not resolve to a Repository with the name 'octo-org/stacked-prs'."
+                ),
+            },
+            "Could not resolve to a Repository",
+            id="not-found-for-the-repository-itself",
+        ),
+        pytest.param(
+            {
+                "type": "FORBIDDEN",
+                "path": ["repository", "pr_7"],
+                "message": "Resource not accessible by personal access token.",
+            },
+            "Resource not accessible",
+            id="another-error-type-on-a-tolerated-path",
+        ),
+    ),
+)
+def test_github_client_fails_closed_on_graphql_errors_that_are_not_a_missing_alias(
+    error_entry: dict[str, object],
+    expected_detail: str,
+) -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(
             200,
-            json={
-                "data": {"repository": None},
-                "errors": [
-                    {
-                        "type": "NOT_FOUND",
-                        "path": ["repository"],
-                        "message": (
-                            "Could not resolve to a Repository with the name "
-                            "'octo-org/stacked-prs'."
-                        ),
-                    }
-                ],
-            },
+            json={"data": {"repository": None}, "errors": [error_entry]},
             request=request,
         )
 
@@ -563,7 +597,9 @@ def test_github_client_fails_closed_on_graphql_errors_that_are_not_a_missing_ali
     with pytest.raises(GithubClientError) as raised:
         asyncio.run(run_test())
 
-    assert raised.value.is_repo_not_found()
+    assert expected_detail in str(raised.value)
+    # `is_repo_not_found` keys on the repository message, so only the first row reports it.
+    assert raised.value.is_repo_not_found() == (error_entry["type"] == "NOT_FOUND")
 
 
 def test_github_client_rejects_graphql_payload_missing_repo_data() -> None:
@@ -854,25 +890,58 @@ def test_user_facing_reason_reports_repo_not_found_for_404_without_raw_detail(
     assert "network" not in reason
 
 
-def test_user_facing_reason_quotes_githubs_own_explanation_for_a_refusal() -> None:
-    refused = GithubClientError(
-        'GitHub request failed: 422 {"message":"Validation Failed",'
-        '"errors":[{"resource":"PullRequest","code":"custom",'
-        '"message":"A pull request already exists for octo-org:jj-stack/x."}]}',
-        status_code=422,
-    )
-    html_page = GithubClientError(
-        "GitHub request failed: 422 <html><body>Blocked by proxy</body></html>",
-        status_code=422,
-    )
+@pytest.mark.parametrize(
+    ("body", "expected_reason"),
+    (
+        pytest.param(
+            {
+                "message": "Validation Failed",
+                "errors": [
+                    {
+                        "resource": "PullRequest",
+                        "code": "custom",
+                        "message": "A pull request already exists for octo-org:jj-stack/x.",
+                    }
+                ],
+            },
+            "request failed (GitHub 422: Validation Failed: A pull request already exists for "
+            "octo-org:jj-stack/x.)",
+            id="quotes-githubs-json-explanation",
+        ),
+        pytest.param(
+            "<html><body>Blocked by proxy</body></html>",
+            "request failed (GitHub 422)",
+            id="ignores-a-body-that-is-not-githubs-json",
+        ),
+        pytest.param(
+            {"message": "x" * 400},
+            "request failed (GitHub 422)",
+            id="ignores-a-body-too-long-to-shorten",
+        ),
+        pytest.param(
+            {"message": "Refused \x1b[31mred\x1b[0m"},
+            "request failed (GitHub 422: Refused [31mred [0m)",
+            id="strips-escapes-from-the-quoted-body",
+        ),
+    ),
+)
+def test_github_client_quotes_githubs_own_explanation_for_a_refusal(
+    body: dict[str, object] | str,
+    expected_reason: str,
+) -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        if isinstance(body, str):
+            return httpx2.Response(422, request=request, text=body)
+        return httpx2.Response(422, request=request, json=body)
 
-    assert refused.user_facing_reason() == (
-        "request failed (GitHub 422: Validation Failed: A pull request already exists for "
-        "octo-org:jj-stack/x.)"
-    )
-    # A body that is not GitHub's JSON has no explanation to quote, and must not be pasted
-    # into the diagnostic.
-    assert html_page.user_facing_reason() == "request failed (GitHub 422)"
+    async def run_test() -> None:
+        async with _github_client(handler) as client:
+            await client.create_pr(base="main", body="", head="jj-stack/x", title="x")
+
+    with pytest.raises(GithubClientError) as raised:
+        asyncio.run(run_test())
+
+    assert raised.value.user_facing_reason() == expected_reason
 
 
 def test_user_facing_reason_reports_auth_failure_for_401() -> None:
@@ -881,22 +950,42 @@ def test_user_facing_reason_reports_auth_failure_for_401() -> None:
     assert error.user_facing_reason() == "auth failed - check GITHUB_TOKEN"
 
 
+@pytest.mark.parametrize(
+    ("headers", "expected_reason"),
+    (
+        pytest.param(
+            {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "+3600"},
+            "GitHub primary rate limit reached, resets in about 60 min - rerun later",
+            id="primary-limit-from-the-remaining-header",
+        ),
+        pytest.param(
+            {"Retry-After": "60"},
+            "GitHub secondary rate limit reached, resets in about 1 min - rerun later",
+            id="secondary-limit-from-retry-after",
+        ),
+    ),
+)
 def test_github_client_reports_an_exhausted_rate_limit_as_a_rate_limit(
     monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str],
+    expected_reason: str,
 ) -> None:
     async def fake_sleep(seconds: float) -> None:
         return None
 
     monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    resolved = {
+        name: (str(int(time.time()) + int(value[1:])) if value.startswith("+") else value)
+        for name, value in headers.items()
+    }
 
     def handler(request: httpx2.Request) -> httpx2.Response:
+        # A body that says nothing about rate limits: the retry loop reads the headers, so
+        # the diagnostic has to read the same verdict rather than the prose.
         return httpx2.Response(
             403,
-            headers={
-                "X-RateLimit-Remaining": "0",
-                "X-RateLimit-Reset": str(int(time.time()) + 3600),
-            },
-            json={"message": "API rate limit exceeded for user ID 1."},
+            headers=resolved,
+            json={"message": "Forbidden"},
             request=request,
         )
 
@@ -907,9 +996,7 @@ def test_github_client_reports_an_exhausted_rate_limit_as_a_rate_limit(
     with pytest.raises(GithubClientError) as raised:
         asyncio.run(run_test())
 
-    assert raised.value.user_facing_reason() == (
-        "GitHub primary rate limit reached, resets in about 60 min - rerun later"
-    )
+    assert raised.value.user_facing_reason() == expected_reason
 
 
 def test_user_facing_reason_reports_access_denied_for_403() -> None:
