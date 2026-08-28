@@ -476,7 +476,6 @@ def _render_prepared_status(
         )
         return 0
 
-    github_available = result.github_repo is not None and result.github_error is None
     with console.spinner(description="Rendering jj log"):
         prerendered_blocks = _prefetch_commit_log_blocks(
             client=prepared_status.prepared.client,
@@ -487,7 +486,6 @@ def _render_prepared_status(
         render_status_summary_lines(
             client=prepared_status.prepared.client,
             result=result,
-            github_available=github_available,
             leading_separator=bool(selection_lines or github_lines),
             verbose=verbose,
             prerendered_blocks=prerendered_blocks,
@@ -511,7 +509,6 @@ def _render_prepared_status(
 def render_status_summary_lines(
     *,
     client,
-    github_available: bool,
     leading_separator: bool,
     result,
     verbose: bool,
@@ -546,7 +543,6 @@ def render_status_summary_lines(
         renderer=lambda classified: _render_summary_change_lines(
             classified=classified,
             client=client,
-            github_available=github_available,
             repo=result.github_repo,
             show_status=False,
             prerendered_blocks=prerendered_blocks,
@@ -565,7 +561,6 @@ def render_status_summary_lines(
         renderer=lambda classified: _render_summary_change_lines(
             classified=classified,
             client=client,
-            github_available=github_available,
             repo=result.github_repo,
             show_status=True,
             prerendered_blocks=prerendered_blocks,
@@ -984,7 +979,6 @@ def _render_summary_change_lines(
     *,
     classified: _ClassifiedStatusChange,
     client,
-    github_available: bool,
     repo: GithubRepoAddress | None,
     show_status: bool,
     prerendered_blocks: dict[str, tuple[str, ...]] | None = None,
@@ -994,7 +988,6 @@ def _render_summary_change_lines(
     change = classified.change
     summary = _format_status_summary(
         classified,
-        github_available=github_available,
         repo=repo,
     )
     if not show_status and summary == "not submitted":
@@ -1025,7 +1018,6 @@ def _classify_change_for_summary(
 def _format_status_summary(
     classified: _ClassifiedStatusChange,
     *,
-    github_available: bool,
     repo: GithubRepoAddress | None,
 ) -> ui.Message:
     change = classified.change
@@ -1035,12 +1027,9 @@ def _format_status_summary(
     change_status = classified.status
     summary: ui.Message
     if change_status.pr_lifecycle == "none" and not change_status.pr_lookup_error:
-        if saved_label is not None:
-            summary = saved_label
-        elif github_available:
-            summary = "not submitted"
-        else:
-            summary = "GitHub status unknown"
+        # A change with no saved pull request has nothing on GitHub to be unknown about,
+        # whether or not GitHub could be reached.
+        summary = saved_label if saved_label is not None else "not submitted"
     elif change_status.pr_lifecycle == "open":
         if lookup is None:
             raise AssertionError("Open pull request status requires a pull request lookup.")

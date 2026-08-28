@@ -364,10 +364,12 @@ def test_view_reports_missing_git_remote_for_local_only_repo(
     captured = capsys.readouterr()
     combined_err = " ".join(captured.err.split())
 
-    assert exit_code == EXIT_INCOMPLETE
+    # A never-submitted change has nothing on GitHub to be unknown about, so the report is
+    # complete and `list` agrees; the missing remote is still explained on stderr.
+    assert exit_code == 0
     assert "no git remote" in combined_err.lower()
     assert "Unsubmitted stack:" in captured.out
-    assert "GitHub status unknown" in captured.out
+    assert "GitHub status unknown" not in captured.out
 
 
 def test_view_renders_base_parent_for_stack_forked_from_trunk_ancestor(

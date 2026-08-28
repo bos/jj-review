@@ -55,6 +55,7 @@ from jj_stack.stack.status import (
     build_status_changes_for_prepared_stack,
     lookup_pr_lookups,
     prepare_stack_for_status,
+    status_is_incomplete,
 )
 
 HELP = "List the stacks `jj-stack` is tracking in this repo"
@@ -425,11 +426,7 @@ def _build_row(
             change.change_id for change in stack.changes if change.current_working_copy
         ),
         head_change_id=stack.head.change_id,
-        incomplete=_status_is_incomplete(
-            github_error=github_error,
-            remote_error=prepared_stack.remote_error,
-            statuses=statuses,
-        ),
+        incomplete=status_is_incomplete(changes),
         prs=prs,
         size=len(stack.changes),
         state=state,
@@ -568,17 +565,6 @@ def _status_fragments(
             fragments.append(ui.semantic_text(f"checks {rollup_status}", *labels))
             break
     return tuple(fragments)
-
-
-def _status_is_incomplete(
-    *,
-    github_error: ErrorMessage | None,
-    remote_error: ErrorMessage | None,
-    statuses: tuple[ChangeStatus, ...],
-) -> bool:
-    if github_error is not None or remote_error is not None:
-        return True
-    return any(status.makes_report_incomplete for status in statuses)
 
 
 def _pr_references_from_changes(
