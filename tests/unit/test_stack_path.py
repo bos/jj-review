@@ -117,7 +117,9 @@ def test_only_explicit_change_selection_can_project_a_sole_trunk_copy() -> None:
 
     # The selection does not form a supported local stack, and `sync --all` reconciles it.
     assert raised.value.exit_code == EXIT_NO_STACK
-    assert "sync --all" in plain_text(raised.value.hint)
+    hint = raised.value.hint
+    assert hint is not None
+    assert "sync --all" in plain_text(hint)
 
 
 def test_selected_overlap_follows_only_the_explicit_head_parent_path() -> None:
