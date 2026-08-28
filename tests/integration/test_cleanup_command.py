@@ -119,7 +119,7 @@ def test_cleanup_pr_selects_a_saved_orphan_and_rejects_an_unlinked_pr(
     )
     unlinked = capsys.readouterr()
 
-    assert unlinked_exit_code != 0
+    assert unlinked_exit_code == 1
     assert f"PR #{outside.number} is not linked to any local change" in unlinked.err
     assert fake_repo.prs[outside.number].state == "open"
 
@@ -202,12 +202,15 @@ def test_cleanup_blocks_closed_pr_still_claimed_by_github_stack(
     stack = selected_stack(repo)
     change_ids = tuple(change.change_id for change in stack.changes)
     state_store = TrackingStore.for_repo(repo)
-    bookmarks = tuple(
-        state_store.load().pr_identities[change_id].head_ref for change_id in change_ids
-    )
+    identities = tuple(state_store.load().pr_identities[change_id] for change_id in change_ids)
+    bookmarks = tuple(identity.head_ref for identity in identities)
 
     for pr in fake_repo.prs.values():
         pr.state = "closed"
+    # GitHub keeps a merged member in the stack forever, and the closed member above it
+    # still names the merged member's branch as its base.
+    fake_repo.prs[identities[0].pr_number].merged_at = "2026-08-13T12:00:00Z"
+    assert fake_repo.prs[identities[1].pr_number].base_ref == bookmarks[0]
     run_command(["jj", "abandon", *change_ids], repo)
     fake_repo.github_stacks = {7: (1, 2)}
     state_before = state_store.load()
@@ -254,7 +257,7 @@ def test_cleanup_blocks_closed_pr_still_claimed_by_github_stack(
     assert all(
         f"refs/heads/{bookmark}" not in remote_refs(fake_repo.git_dir) for bookmark in bookmarks
     )
-    assert fake_repo.github_stacks == {}
+    assert fake_repo.github_stacks == {7: (identities[0].pr_number,)}
 
 
 def test_cleanup_preserves_closed_pr_branch_used_by_open_pr(

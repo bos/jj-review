@@ -10,6 +10,7 @@ pull requests, delete PR branches, or modify local changes.
 from __future__ import annotations
 
 import asyncio
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -85,10 +86,15 @@ def unstack(
         debug=debug,
     )
     command = "unstack --local" if local else "unstack"
-    with acquire_operation_lock(
-        context.state_store.require_writable(),
-        command=command,
-    ):
+    operation = (
+        nullcontext()
+        if dry_run
+        else acquire_operation_lock(
+            context.state_store.require_writable(),
+            command=command,
+        )
+    )
+    with operation:
         if local:
             result = _run_local_unstack(
                 context=context,

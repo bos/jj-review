@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from jj_stack.github.client import GithubClient
-from jj_stack.state.store import TrackingStore
+from jj_stack.state.store import TrackingStore, resolve_state_path
 
 from ..support.fake_github import FakeGithubState, create_app
 from ..support.integration_helpers import (
+    init_fake_github_repo,
     init_fake_github_repo_with_submitted_feature,
     init_fake_github_repo_with_submitted_stack,
     patch_github_client_builders,
@@ -102,6 +103,22 @@ def test_unstack_by_number_reports_a_grouping_github_keeps_because_it_is_merged(
     assert "only merged pull requests" in " ".join(captured.out.split())
     assert "Removed GitHub stack grouping" not in captured.out
     assert fake_repo.github_stacks == {7: (1, 2)}
+
+
+def test_unstack_dry_run_leaves_an_unadopted_repo_untouched(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    capsys.readouterr()
+
+    exit_code = run_main(repo, config_path, "unstack", "--stack", "1", "--dry-run")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0, _combined_output(captured)
+    assert not resolve_state_path(repo).parent.exists()
 
 
 def test_unstack_locked_grouping_stops_without_closing_or_forgetting(

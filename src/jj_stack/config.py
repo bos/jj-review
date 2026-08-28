@@ -17,7 +17,7 @@ from jj_stack.stack.selection import parse_comma_separated_flag_values
 CONFIG_SECTION = "jj-stack"
 DEFAULT_BRANCH_PREFIX = "jj-stack"
 _TYPO_CUTOFF = 0.75
-_REJECTED_REF_CHARS = frozenset(" ~^:?*[\\\x7f") | frozenset(map(chr, range(32)))
+_REJECTED_REF_CHARS = frozenset(" ~^:?*[\\|\x7f") | frozenset(map(chr, range(32)))
 
 
 MergeMethod = Literal["merge", "rebase", "squash"]
@@ -44,9 +44,10 @@ class RepoConfig(BaseModel):
     def _validate_branch_prefix(cls, value: str) -> str:
         if not _is_git_branch_path(value):
             raise ValueError(
-                f"Invalid PR branch prefix {value!r}. Expected a Git branch path such as "
-                f"{DEFAULT_BRANCH_PREFIX!r}: no leading, trailing, or repeated slash, and "
-                "no character Git rejects in a branch name"
+                f"Invalid PR branch prefix {value!r}. Expected a name that "
+                f"`git check-ref-format --branch {value}` accepts, with no leading, "
+                "trailing, or repeated slash, and no '|', which jj reads as a separator "
+                "in a name pattern"
             )
         return value
 

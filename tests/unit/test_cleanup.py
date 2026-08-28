@@ -4,14 +4,11 @@ from types import SimpleNamespace
 from typing import cast
 
 import jj_stack.commands.cleanup.stale as stale_module
-from jj_stack.commands._cleanup_actions import (
-    github_stack_cleanup_blockers,
-    plan_pr_cleanup,
-)
+from jj_stack.commands._cleanup_actions import plan_pr_cleanup
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.jj.client import JjClient, PRRefUpdate
 from jj_stack.models.git import GitRemote
-from jj_stack.models.github import GithubBranchRef, GithubPR, GithubStack
+from jj_stack.models.github import GithubBranchRef, GithubPR
 from jj_stack.models.tracking import (
     SubmittedBaseline,
     TrackedPR,
@@ -143,27 +140,6 @@ def test_cleanup_preserves_a_head_branch_shared_by_another_open_pr() -> None:
     assert blocker is not None
     assert blocker.kind == "remote branch"
     assert "another open pull request" in plain_text(blocker.body)
-
-
-def test_live_github_stack_blocks_cleanup_of_its_merged_members_too() -> None:
-    stack = GithubStack.model_validate(
-        {
-            "number": 4,
-            "pull_requests": [
-                {
-                    "head": {"ref": BRANCH, "sha": _BASELINE.commit_id},
-                    "merged_at": "2026-01-01T00:00:00Z",
-                    "number": 1,
-                },
-                {"head": {"ref": "jj-stack/other-bbbbbbbb", "sha": "other"}, "number": 2},
-            ],
-        }
-    )
-
-    blockers = github_stack_cleanup_blockers(pr_numbers=(1, 2), stacks=(stack,))
-
-    assert set(blockers) == {1, 2}
-    assert "jj-stack unstack --stack 4" in plain_text(blockers[1].body)
 
 
 def _candidate() -> TrackedPR:
