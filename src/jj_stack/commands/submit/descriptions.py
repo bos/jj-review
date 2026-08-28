@@ -17,7 +17,7 @@ from typing import Literal
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError, UsageError
-from jj_stack.jj.client import JjClient, JjCommandError
+from jj_stack.jj.client import JjClient, JjCommandError, quote_revset_symbol
 from jj_stack.models.github import GithubPR
 from jj_stack.models.stack import LocalCommit
 
@@ -532,32 +532,26 @@ def _describe_with_diffstats(
         return {}
     if len(changes) == 1:
         change = changes[0]
-        return {
-            change.change_id: _describe_with_diffstat(
-                jj_client=jj_client,
-                revset=change.change_id,
-            )
-        }
+        return {change.change_id: _describe_with_diffstat(jj_client=jj_client, change=change)}
 
     def describe_change(change: LocalCommit) -> tuple[str, str]:
         return (
             change.change_id,
-            _describe_with_diffstat(
-                jj_client=jj_client,
-                revset=change.change_id,
-            ),
+            _describe_with_diffstat(jj_client=jj_client, change=change),
         )
 
     with ThreadPoolExecutor(max_workers=min(len(changes), 10)) as pool:
         return dict(pool.map(describe_change, changes))
 
 
-def _describe_with_diffstat(*, jj_client: JjClient, revset: str) -> str:
+def _describe_with_diffstat(*, jj_client: JjClient, change: LocalCommit) -> str:
+    # A change with a visible PR bookmark has two visible commits, and jj rejects a bare
+    # change-ID symbol for it, so name the exact commit this submit is describing.
     try:
-        stdout = jj_client.show_with_stat(revset)
+        stdout = jj_client.show_with_stat(quote_revset_symbol(change.commit_id))
     except JjCommandError as error:
         raise CliError(
-            t"Could not collect diffstat for --stack {ui.revset(revset)}: {error}"
+            t"Could not collect diffstat for {ui.change_id(change.change_id)}: {error}"
         ) from error
 
     lines = stdout.rstrip().splitlines()

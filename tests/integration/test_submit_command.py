@@ -1436,6 +1436,18 @@ def test_submit_describe_with_generates_pr_and_stack_metadata(
         "feature-1.txt" in _overview_comments(fake_repo, 2)[0].body
     )
 
+    # A visible PR bookmark leaves two visible commits for the same change, which jj
+    # refuses to resolve from a bare change ID.
+    run_command(
+        ["jj", "describe", "-r", stack.changes[0].change_id, "-m", "feature 1 rewritten"],
+        repo,
+    )
+    run_command(["jj", "git", "fetch", "--remote", "origin", "--branch", "*"], repo)
+
+    assert run_main(repo, config_path, "submit", "--describe-with", str(helper)) == 0, (
+        capsys.readouterr().err
+    )
+
 
 def test_submit_describe_with_failure_aborts_before_mutation(
     tmp_path: Path,
