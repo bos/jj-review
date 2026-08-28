@@ -71,12 +71,28 @@ def test_parse_github_repo_parses_scp_style_remote_without_user() -> None:
     assert repo.repo == "stacked-prs"
 
 
-def test_parse_github_repo_returns_none_for_unparseable_remote() -> None:
-    remote = GitRemote(
-        name="origin",
-        fetch_url="/tmp/remote.git",
-        push_url="/tmp/remote.git",
+def test_parse_github_repo_normalizes_a_trailing_slash_before_the_git_suffix() -> None:
+    repo = parse_github_repo(
+        GitRemote(
+            name="origin",
+            fetch_url="https://github.com/octo-org/stacked-prs.git/",
+            push_url="https://github.com/octo-org/stacked-prs.git/",
+        ),
     )
+
+    assert repo is not None
+    assert repo.full_name == "octo-org/stacked-prs"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("/tmp/remote.git", id="local-path"),
+        pytest.param("file:///srv/repo.git", id="file-url-without-a-host"),
+    ],
+)
+def test_parse_github_repo_returns_none_for_unparseable_remote(url: str) -> None:
+    remote = GitRemote(name="origin", fetch_url=url, push_url=url)
 
     assert parse_github_repo(remote) is None
 

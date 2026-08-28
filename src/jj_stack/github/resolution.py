@@ -95,7 +95,9 @@ def _parse_github_url(remote_url: str) -> GithubRepoAddress | None:
     else:
         return None
 
-    normalized_path = raw_path.lstrip("/").removesuffix(".git")
+    # A trailing slash has to go before `.git` does, or `repo.git/` keeps the suffix and
+    # every request 404s against `<owner>/<repo>.git`.
+    normalized_path = raw_path.strip("/").removesuffix(".git")
     parts = [part for part in normalized_path.split("/") if part]
     if len(parts) != 2:
         return None
@@ -108,6 +110,11 @@ def _looks_like_scp_remote(url: str) -> bool:
 
     prefix, separator, suffix = url.partition(":")
     if not separator or not prefix or not suffix:
+        return False
+    # `scheme://…` is a URL, not scp-style `host:path`. urlparse already handled the schemes
+    # that carry a GitHub host; one with no host at all, like `file:///srv/repo.git`, names
+    # no GitHub repo and must not be read as `srv/repo`.
+    if suffix.startswith("//"):
         return False
     if "/" in prefix or "\\" in prefix:
         return False
