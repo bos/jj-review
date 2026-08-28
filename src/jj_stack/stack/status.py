@@ -195,6 +195,12 @@ def prepare_status(
             revset=revset,
             state=state,
         )
+    if selected_path.stack.head.hidden:
+        # An exact commit ID resolves a hidden predecessor, while `change_id()` does not. Only
+        # visible changes are stack members, so refuse both selector forms alike. `checkout`
+        # selects its own path because it re-materializes a hidden imported snapshot on purpose.
+        revset = ui.revset(selected_path.stack.selected_revset)
+        raise CliError(t"Revset {revset} did not resolve to a visible commit.")
     prepared = prepare_stack_for_status(
         context=context,
         remote=github_target.remote,

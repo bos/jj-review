@@ -311,6 +311,26 @@ def test_view_pr_selector_requires_a_linked_local_change(
     assert "PR #1 is not linked to any local change." in combined_output
 
 
+def test_view_refuses_an_abandoned_change_selected_by_commit_id(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """Only visible changes are stack members, whichever selector form names them."""
+
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    change = selected_stack(repo).head
+    run_command(["jj", "abandon", "-r", change.change_id], repo)
+
+    exit_code = run_main(repo, config_path, "view", change.commit_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == EXIT_FAILURE
+    assert "did not resolve to a visible commit" in captured.err
+
+
 def test_view_reports_missing_trunk_bookmark_in_empty_repo(
     tmp_path: Path,
     capsys,
