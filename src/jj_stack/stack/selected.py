@@ -152,6 +152,12 @@ def require_submittable_changes(changes: tuple[LocalCommit, ...]) -> None:
     """Require the ordinary mutable changes accepted for publishing or relinking."""
 
     for change in changes:
+        if change.hidden:
+            raise UnsupportedStackError.stack_shape(
+                change.change_id,
+                "hidden changes are not submittable.",
+                reason="hidden_commit",
+            )
         if change.immutable:
             raise UnsupportedStackError.stack_shape(
                 change.change_id,

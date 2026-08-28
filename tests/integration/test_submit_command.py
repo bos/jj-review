@@ -1104,6 +1104,28 @@ def test_submit_invalid_revset_reports_clean_error_without_mutation(
     assert fake_repo.prs == {}
 
 
+def test_submit_refuses_an_abandoned_change_selected_by_commit_id(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """An abandoned change is a hidden commit, which is outside the submittable scope."""
+
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    abandoned = selected_stack(repo).head
+    run_command(["jj", "abandon", abandoned.change_id], repo)
+
+    exit_code = run_main(repo, config_path, "submit", abandoned.commit_id)
+    captured = capsys.readouterr()
+
+    assert exit_code == EXIT_NO_STACK
+    assert abandoned.change_id[:8] in captured.err
+    assert fake_repo.prs == {}
+    assert TrackingStore.for_repo(repo).load().pr_identities == {}
+
+
 def test_submit_defaults_to_a_described_nonempty_working_copy(
     tmp_path: Path,
     monkeypatch,
