@@ -35,6 +35,19 @@ def test_generate_pr_branch_falls_back_for_blank_subject() -> None:
     assert branch == "jj-stack/change-abcdefgh"
 
 
+def test_generate_pr_branch_truncates_a_subject_git_cannot_store() -> None:
+    change = _change(
+        change_id="zvlywqkxtmnpqrstu",
+        description=" ".join(["refactor the transport layer"] * 12) + "\n",
+    )
+
+    branch = current_pr_branch_namespace().generate_branch(change)
+
+    assert len(f"refs/heads/{branch}".encode()) <= 255
+    assert branch.startswith("jj-stack/refactor-the-transport-layer")
+    assert branch.endswith("-zvlywqkx")
+
+
 @pytest.mark.parametrize(
     ("branch", "matches"),
     (

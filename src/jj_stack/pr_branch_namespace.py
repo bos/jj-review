@@ -10,6 +10,8 @@ from jj_stack.models.stack import LocalCommit
 
 _DEFAULT_SLUG = "change"
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+# Git refuses a ref longer than 255 bytes, counting the "refs/heads/" prefix it stores.
+_MAX_BRANCH_BYTES = 255 - len("refs/heads/")
 _current_namespace: PRBranchNamespace | None = None
 
 
@@ -42,7 +44,12 @@ class PRBranchNamespace:
 
         first_line = change.description.splitlines()[0] if change.description else ""
         slug = _NON_ALNUM_RE.sub("-", first_line.lower()).strip("-") or _DEFAULT_SLUG
-        return f"{self.branch_prefix}{slug}-{short_change_id(change.change_id)}"
+        suffix = f"-{short_change_id(change.change_id)}"
+        # The slug is the only variable-length part, and it is ASCII, so truncating it by
+        # characters keeps a long subject inside Git's limit without disturbing the suffix
+        # that ties the branch to its change.
+        slug_budget = max(_MAX_BRANCH_BYTES - len(self.branch_prefix) - len(suffix), 0)
+        return f"{self.branch_prefix}{slug[:slug_budget].rstrip('-')}{suffix}"
 
     def contains(self, branch: str) -> bool:
         """Return whether a branch belongs to this namespace."""
