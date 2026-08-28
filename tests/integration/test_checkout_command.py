@@ -171,6 +171,46 @@ def test_checkout_edits_a_lower_pr_with_the_whole_namespace_fetched(
     assert JjClient(repo).resolve_commit("@").change_id == bottom_change_id
 
 
+def test_checkout_explains_an_immutable_pr_commit_instead_of_dumping_jj_output(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
+    config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
+    bottom_commit_id = selected_stack(repo).changes[0].commit_id
+    run_command(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "update-ref",
+            "refs/heads/colleague-branch",
+            bottom_commit_id,
+        ],
+        repo,
+    )
+    resolve_state_path(repo).unlink()
+    run_command(
+        [
+            "git",
+            "config",
+            "--replace-all",
+            "remote.origin.fetch",
+            "+refs/heads/*:refs/remotes/origin/*",
+        ],
+        repo,
+    )
+    run_command(["jj", "git", "fetch", "--remote", "origin"], repo)
+    capsys.readouterr()
+
+    assert _main(repo, config_path, "checkout", "--pull-request", "1") != 0
+
+    unwrapped = " ".join(capsys.readouterr().err.split())
+    assert "builtin_immutable_heads" not in unwrapped
+    assert "jj bookmark list --all-remotes" in unwrapped
+
+
 def test_checkout_rejects_a_locally_rewritten_pr_before_importing(
     tmp_path: Path,
     monkeypatch,

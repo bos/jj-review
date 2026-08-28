@@ -719,8 +719,9 @@ class JjClient:
         adoption, where no saved tracking exists yet and a fresh clone has imported the whole
         namespace; a divergent target stays immutable so a fetched GitHub rewrite is still
         distinguishable from a local copy. Either way the override narrows only jj's built-in
-        untracked-remote rule: trunk, tags, another untracked bookmark pointing at the same
-        commit, and additions in the user's `immutable_heads()` still apply.
+        untracked-remote rule: trunk, tags, and additions in the user's `immutable_heads()`
+        still apply, and neither exception covers a commit that a second untracked bookmark
+        also claims.
         """
 
         self._published_pr_snapshots = {}
@@ -736,20 +737,21 @@ class JjClient:
             f"(remote_bookmarks(exact:{quote_revset_symbol(name)}) & "
             f"{quote_revset_symbol(commit_id)})"
             for name, _change_id, commit_id in sorted(bookmarks)
-            if (name, commit_id) in untracked and target_counts[commit_id] == 1
+            if (name, commit_id) in untracked
         ]
         if any(namespace.contains(name) for name, _target in untracked):
-            shared = " | ".join(
-                quote_revset_symbol(commit_id)
-                for commit_id, count in sorted(target_counts.items())
-                if count > 1
+            accepted.append(
+                f"(untracked_remote_bookmarks(glob:{quote_revset_symbol(namespace.branch_glob)})"
+                " ~ divergent())"
             )
-            adopted = (
-                f"untracked_remote_bookmarks(glob:{quote_revset_symbol(namespace.branch_glob)})"
-                " ~ divergent()"
-            )
-            accepted.append(f"({adopted} ~ ({shared}))" if shared else f"({adopted})")
+        shared = " | ".join(
+            quote_revset_symbol(commit_id)
+            for commit_id, count in sorted(target_counts.items())
+            if count > 1
+        )
         selectors = " | ".join(accepted)
+        if selectors and shared:
+            selectors = f"({selectors}) ~ ({shared})"
         self._cli_args = self._base_cli_args
         if selectors:
             immutable_heads = f"trunk() | tags() | (untracked_remote_bookmarks() ~ ({selectors}))"
@@ -1270,6 +1272,15 @@ class JjClient:
                     "The current workspace is stale.",
                     hint=t"Run {ui.cmd('jj workspace update-stale')} and retry.",
                 )
+            immutable_commit = _immutable_commit_id(message)
+            if immutable_commit is not None:
+                raise JjCommandError(
+                    t"jj will not rewrite commit {ui.commit_id(immutable_commit)} because it "
+                    t"is immutable here.",
+                    hint=t"Run {ui.cmd('jj bookmark list --all-remotes')} to see whether a "
+                    t"remote bookmark points at it, then handle that bookmark with jj and "
+                    t"retry.",
+                )
             displayed_command = _redact_http_url_userinfo(shlex.join(command))
             displayed_message = _redact_http_url_userinfo(message)
             raise JjCommandError(t"{ui.cmd(displayed_command)} failed: {displayed_message}")
@@ -1280,6 +1291,13 @@ _HTTP_URL_AUTHORITY_PATTERN = re.compile(
     r"(?P<scheme>https?://)(?P<authority>[^/\s'\"<>]+)",
     re.IGNORECASE,
 )
+
+
+def _immutable_commit_id(message: str) -> str | None:
+    """Return the commit jj named as immutable, matching jj's own diagnostic vocabulary."""
+
+    match = re.search(r"^Error: Commit ([0-9a-f]+) is immutable$", message, re.MULTILINE)
+    return match.group(1) if match is not None else None
 
 
 def _is_missing_commit_error(message: str) -> bool:
