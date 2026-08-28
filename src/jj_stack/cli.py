@@ -768,28 +768,37 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command in _VIEW_COMMANDS:
         args.view_selectors = () if view_args is None else view_args.selectors
     effective_color = "never" if args.command == "in-use" else args.color
-    if effective_color is None:
-        effective_color = _load_configured_jj_color(
-            repo=args.repo,
+    try:
+        if effective_color is None:
+            effective_color = _load_configured_jj_color(
+                repo=args.repo,
+                cli_args=cli_args,
+            )
+        with configured_console(
             cli_args=cli_args,
-        )
-    with configured_console(
-        cli_args=cli_args,
-        color_mode=rich_color_mode(effective_color),
-        repo=args.repo,
-        requested_color_mode=args.color,
-        time_output=args.time_output,
-    ):
-        with _time_output(enabled=args.time_output):
-            handler = args.handler
-            try:
-                return handler(args)
-            except CliError as error:
-                _print_cli_error(error)
-                return resolve_exit_code(error)
-            except KeyboardInterrupt:
-                console.stderr_output("Interrupted.")
-                return EXIT_INTERRUPTED
+            color_mode=rich_color_mode(effective_color),
+            repo=args.repo,
+            requested_color_mode=args.color,
+            time_output=args.time_output,
+        ):
+            with _time_output(enabled=args.time_output):
+                handler = args.handler
+                try:
+                    return handler(args)
+                except CliError as error:
+                    _print_cli_error(error)
+                    return resolve_exit_code(error)
+                except KeyboardInterrupt:
+                    return _report_interrupt()
+    except KeyboardInterrupt:
+        return _report_interrupt()
+
+
+def _report_interrupt() -> int:
+    """Report an interrupt on whichever stderr console is installed."""
+
+    console.stderr_output("Interrupted.")
+    return EXIT_INTERRUPTED
 
 
 def _default_view_handler(args: Namespace) -> int:
