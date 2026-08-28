@@ -24,6 +24,10 @@ Write for someone deciding whether to upgrade, not for someone reconstructing th
   internal type names, or an automatically generated pull request list.
 - End with a comparison link from the previous tag to the new tag, labeled `Full changelog`.
 
+Do not word-wrap release-note prose. Keep each paragraph and list item on one physical line, even
+when it exceeds the repository's usual 98-column limit. GitHub preserves those source line breaks
+in Release bodies, which makes hard-wrapped notes render awkwardly.
+
 Keep the notes self-contained even when they link to a pull request or issue. Proofread the
 rendered Markdown and check every command and link before tagging. A release with no breaking
 changes does not need a `Breaking changes` heading.

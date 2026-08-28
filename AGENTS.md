@@ -22,6 +22,7 @@
 - Run the CLI locally with `just run ...` instead of invoking the module or virtualenv path
   directly.
 - Hard-wrap code and markdown files at 98 columns unless a file uses a different convention.
+  Release-note prose follows `docs/internals/releasing.md` and is intentionally unwrapped.
 
 # Commit messages
 
