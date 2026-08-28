@@ -86,6 +86,18 @@ def test_load_config_rejects_likely_top_level_typo(
         load_config(jj_client=JjClient(tmp_path))
 
 
+def test_load_config_rejects_a_branch_prefix_git_cannot_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for prefix in ("my-prs/", "", "my prs", "prs.lock"):
+        _patch_config_output(monkeypatch, tmp_path, f'jj-stack.branch_prefix = "{prefix}"\n')
+
+        with pytest.raises(CliError, match=r"\[jj-stack\]\.branch_prefix") as caught:
+            load_config(jj_client=JjClient(tmp_path))
+
+        assert "Invalid PR branch prefix" in str(caught.value), prefix
+
+
 def test_load_config_rejects_invalid_logging_level(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

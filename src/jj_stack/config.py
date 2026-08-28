@@ -16,6 +16,7 @@ from jj_stack.jj.client import JjClient, JjCommandError
 CONFIG_SECTION = "jj-stack"
 DEFAULT_BRANCH_PREFIX = "jj-stack"
 _TYPO_CUTOFF = 0.75
+_REJECTED_REF_CHARS = frozenset(" ~^:?*[\\\x7f") | frozenset(map(chr, range(32)))
 
 
 MergeMethod = Literal["merge", "rebase", "squash"]
@@ -31,6 +32,32 @@ class RepoConfig(BaseModel):
     merge_method: MergeMethod | None = None
     reviewers: list[str] = Field(default_factory=list)
     team_reviewers: list[str] = Field(default_factory=list)
+
+    @field_validator("branch_prefix")
+    @classmethod
+    def _validate_branch_prefix(cls, value: str) -> str:
+        if not _is_git_branch_path(value):
+            raise ValueError(
+                f"Invalid PR branch prefix {value!r}. Expected a Git branch path such as "
+                f"{DEFAULT_BRANCH_PREFIX!r}: no leading, trailing, or repeated slash, and "
+                "no character Git rejects in a branch name"
+            )
+        return value
+
+
+def _is_git_branch_path(value: str) -> bool:
+    """Whether a value can lead a Git branch name, per `git check-ref-format`."""
+
+    return bool(value) and all(
+        segment
+        and segment != "@"
+        and not segment.startswith(".")
+        and not segment.endswith((".", ".lock"))
+        and ".." not in segment
+        and "@{" not in segment
+        and _REJECTED_REF_CHARS.isdisjoint(segment)
+        for segment in value.split("/")
+    )
 
 
 class LoggingConfig(BaseModel):
