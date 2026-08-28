@@ -72,7 +72,7 @@ def explain_precondition(reason: Message, *, change_id: str, sync_target: str) -
             t"the local change, the commit last submitted for it, and its PR branch do not "
             t"all name the same commit; run {submit}"
         )
-    if "is already merged" in plain_reason:
+    if "is merged" in plain_reason:
         return (
             t"{reason}, so this stack still holds a local copy of work already on trunk; run "
             t"{ui.cmd(f'jj-stack sync {sync_target}')}"
@@ -148,10 +148,8 @@ def _github_pr_precondition_error(
     if not planned.identity.matches_pr(pr):
         return f"the pull request linked to {label} changed"
     pr_number = format_pr_number(pr.number, url=pr.html_url)
-    if pr.state == "merged" and not inactive_allowed:
-        return t"pull request {pr_number} is already merged"
     if pr.state != "open" and not inactive_allowed:
-        return t"pull request {pr_number} state or base branch changed"
+        return t"pull request {pr_number} is {pr.state}"
     if pr.is_draft and not inactive_allowed:
         return t"pull request {pr_number} is now a draft"
     return None
