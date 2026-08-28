@@ -86,6 +86,7 @@ def test_overview_comment_move_keeps_source_when_head_creation_fails() -> None:
     with pytest.raises(CliError, match="Could not create a stack overview comment"):
         asyncio.run(
             sync_stack_overview_comments(
+                base_is_another_pr=False,
                 comments_by_pr_number={1: source_comment, 2: None},
                 concurrency=2,
                 generated_stack_description=None,

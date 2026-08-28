@@ -1288,6 +1288,49 @@ def test_submit_describe_reads_files_and_preserves_stack_overview(
     assert "Replacement stack overview" in replacement
     assert "edited on GitHub" not in replacement
 
+    # A one-change --base refresh of the stack head still selects a stacked PR, so the
+    # overview it owns must survive.
+    parent_change_id = refreshed_stack.changes[-2].change_id
+    assert (
+        run_main(
+            repo,
+            config_path,
+            "submit",
+            "--base",
+            parent_change_id,
+            refreshed_stack.head.change_id,
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    preserved = _overview_comments(fake_repo, top_pr_number)
+    assert len(preserved) == 1, "the stack overview comment was deleted"
+    assert preserved[0].body == replacement
+
+
+def test_submit_base_at_trunk_says_to_drop_the_flag(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """--base naming the trunk must not be reported as an unsubmitted parent change."""
+
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    head_change_id = selected_stack(repo).head.change_id
+
+    exit_code = run_main(repo, config_path, "submit", "--base", "main", head_change_id)
+    captured = capsys.readouterr()
+    rendered = " ".join((captured.out + captured.err).split())
+
+    assert exit_code == 1
+    assert "Base main is the trunk commit" in rendered
+    assert f"Run jj-stack submit {head_change_id} without --base" in rendered
+    assert "has no submitted PR" not in rendered
+    assert fake_repo.prs == {}
+
 
 def test_submit_describe_rejects_target_outside_selected_stack_before_mutation(
     tmp_path: Path,

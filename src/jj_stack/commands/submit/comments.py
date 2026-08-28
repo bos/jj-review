@@ -19,6 +19,7 @@ from .revision_comments import (
 
 async def sync_submit_comments(
     *,
+    base_is_another_pr: bool,
     concurrency: int,
     generated_stack_description: GeneratedDescription | None,
     github_client: GithubClient,
@@ -46,6 +47,7 @@ async def sync_submit_comments(
             raise CliError("Could not load pull request comments") from error
 
     await sync_stack_overview_comments(
+        base_is_another_pr=base_is_another_pr,
         comments_by_pr_number=comments_by_marker[STACK_OVERVIEW_COMMENT_MARKER],
         concurrency=concurrency,
         generated_stack_description=generated_stack_description,

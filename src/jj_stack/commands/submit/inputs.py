@@ -45,6 +45,13 @@ def prepare_submit_inputs(
     )
     if options.base_revset is not None:
         base = stack.base_parent
+        if base.commit_id == stack.trunk.commit_id:
+            raise CliError(
+                t"Base {ui.revset(options.base_revset)} is the trunk commit, which submit "
+                t"already uses as the base of the whole stack.",
+                hint=t"Run {ui.cmd(f'jj-stack submit {stack.head.change_id}')} without "
+                t"{ui.cmd('--base')}.",
+            )
         retry = ui.cmd(f"jj-stack submit --base {base.change_id} {stack.head.change_id}")
         tracked_base = state.tracked_pr(base.change_id)
         if tracked_base is None:

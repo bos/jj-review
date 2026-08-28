@@ -19,6 +19,7 @@ from .models import GeneratedDescription
 
 async def sync_stack_overview_comments(
     *,
+    base_is_another_pr: bool,
     comments_by_pr_number: dict[int, GithubIssueComment | None],
     concurrency: int,
     generated_stack_description: GeneratedDescription | None,
@@ -28,6 +29,7 @@ async def sync_stack_overview_comments(
     """Synchronize the supplied stack-overview responsibilities."""
 
     overview_bodies = _stack_overview_comment_bodies(
+        base_is_another_pr=base_is_another_pr,
         comments_by_pr_number=comments_by_pr_number,
         generated_stack_description=generated_stack_description,
         pr_numbers=pr_numbers,
@@ -59,6 +61,7 @@ async def sync_stack_overview_comments(
 
 def _stack_overview_comment_bodies(
     *,
+    base_is_another_pr: bool,
     comments_by_pr_number: dict[int, GithubIssueComment | None],
     generated_stack_description: GeneratedDescription | None,
     pr_numbers: tuple[int, ...],
@@ -68,7 +71,9 @@ def _stack_overview_comment_bodies(
         comments_by_pr_number=comments_by_pr_number,
         generated_stack_description=generated_stack_description,
         head_pr_number=head_pr_number,
-        stack_size=len(pr_numbers),
+        # Only the selected pull requests are synchronized, so a single selected PR
+        # stacked on another PR is still part of a larger stack.
+        is_lone_pr=len(pr_numbers) <= 1 and not base_is_another_pr,
     )
     return {
         pr_number: overview_body if pr_number == head_pr_number else None
@@ -81,9 +86,9 @@ def _stack_overview_body(
     comments_by_pr_number: dict[int, GithubIssueComment | None],
     generated_stack_description: GeneratedDescription | None,
     head_pr_number: int,
-    stack_size: int,
+    is_lone_pr: bool,
 ) -> str | None:
-    if stack_size <= 1:
+    if is_lone_pr:
         return None
     if generated_stack_description is not None:
         description_lines = _render_generated_stack_description(generated_stack_description)

@@ -535,6 +535,7 @@ async def _apply_planned_submit(
             and (expected_target := change.prepared.expected_remote_target) is not None
         }
         await sync_submit_comments(
+            base_is_another_pr=pr_plans[0].base_branch != trunk_branch,
             concurrency=DEFAULT_BOUNDED_CONCURRENCY,
             generated_stack_description=prepared_inputs.generated_stack_description,
             github_client=github_client,
