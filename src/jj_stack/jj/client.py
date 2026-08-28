@@ -901,9 +901,14 @@ class JjClient:
         self,
         commit_id: str,
     ) -> tuple[str | None, tuple[str, ...]]:
-        """Read one backing-Git commit's full change ID and ordered parents."""
+        """Read one backing-Git commit's full change ID and ordered parents.
 
-        raw_commit = self._run_git(("cat-file", "commit", commit_id))
+        A Git commit object is a byte string, so a legacy encoding in its author, committer,
+        or message is legal. Only the ASCII `change-id` and `parent` headers are read here, so
+        undecodable bytes are replaced instead of aborting the command that needed them.
+        """
+
+        raw_commit = self._run_git(("cat-file", "commit", commit_id), lossy_text=True)
         headers, _, _message = raw_commit.partition("\n\n")
         entries = tuple(line.partition(" ") for line in headers.splitlines())
         change_ids = [
@@ -1141,12 +1146,14 @@ class JjClient:
         args: Sequence[str],
         *,
         allowed_returncodes: frozenset[int] = frozenset({0}),
+        lossy_text: bool = False,
     ) -> str:
         return self._run_command(
             ["git", "--git-dir", str(self._backing_git_root()), *args],
             missing_tool_message=t"{ui.cmd('git')} is not installed or is not on PATH.",
             detect_stale_workspace=False,
             allowed_returncodes=allowed_returncodes,
+            lossy_text=lossy_text,
         )
 
     def _backing_git_root(self) -> Path:
@@ -1241,6 +1248,7 @@ class JjClient:
         missing_tool_message: ErrorMessage,
         detect_stale_workspace: bool,
         allowed_returncodes: frozenset[int] = frozenset({0}),
+        lossy_text: bool = False,
         return_stderr: bool = False,
     ) -> str:
         try:
@@ -1249,6 +1257,7 @@ class JjClient:
                 capture_output=True,
                 check=False,
                 cwd=self._repo_root,
+                errors="replace" if lossy_text else None,
                 text=True,
             )
         except FileNotFoundError as error:

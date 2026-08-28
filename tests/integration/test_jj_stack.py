@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -109,6 +110,37 @@ def test_list_git_remotes_preserves_distinct_fetch_and_push_urls(tmp_path: Path)
     assert remote.name == "origin"
     assert remote.fetch_url == "https://github.test/octo-org/stacked-prs.git"
     assert remote.push_url == "git@github.test:octo-org/stacked-prs.git"
+
+
+def test_change_id_of_a_non_utf8_git_commit_object_is_still_readable(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    run_command(["jj", "git", "remote", "add", "origin", str(tmp_path / "remote.git")], repo)
+    git_dir = run_command(["jj", "git", "root"], repo).stdout.strip()
+    tree = run_command(
+        ["git", "--git-dir", git_dir, "rev-parse", f"{_commit_id(repo, '@-')}^{{tree}}"],
+        repo,
+    ).stdout.strip()
+    commit_id = (
+        subprocess.run(
+            ["git", "--git-dir", git_dir, "hash-object", "-t", "commit", "-w", "--stdin"],
+            capture_output=True,
+            check=True,
+            cwd=repo,
+            input=(
+                f"tree {tree}\n".encode()
+                + b"author Jos\xe9 <j@e.com> 1700000000 +0000\n"
+                + b"committer Jos\xe9 <j@e.com> 1700000000 +0000\n"
+                + b"change-id qpvuntsmwlqtpsluzzsnyyzlmlwvmwzz\n"
+                + b"\ncaf\xe9 subject\n"
+            ),
+        )
+        .stdout.decode()
+        .strip()
+    )
+
+    change_id = JjClient(repo).read_remote_git_change_id(remote="origin", commit_id=commit_id)
+
+    assert change_id == "qpvuntsmwlqtpsluzzsnyyzlmlwvmwzz"
 
 
 def test_deleted_tracked_bookmark_does_not_block_stack_observation(tmp_path: Path) -> None:
