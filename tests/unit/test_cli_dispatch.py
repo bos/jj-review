@@ -132,5 +132,7 @@ def test_submit_edit_never_consumes_the_selected_revset() -> None:
 
     assert (saved.revset, saved.edit) == (None, Path("saved-edit.md"))
 
-    with pytest.raises(UsageError, match="--edit=FILE"):
+    with pytest.raises(UsageError, match="--edit=FILE") as rejected:
         _normalize_cli_args(["submit", "--edit", "saved-edit.md"])
+
+    assert "<revset> --edit" in str(rejected.value)

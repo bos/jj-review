@@ -1254,7 +1254,8 @@ def _normalize_cli_args(argv: Sequence[str]) -> list[str]:
         if arg == "--edit" and "".join(normalized[index + 1 : index + 2]).endswith(".md"):
             raise UsageError(
                 t"{ui.cmd('--edit')} takes no separate file argument. Reopen a saved "
-                t"editor file with {ui.cmd('--edit=FILE')}."
+                t"editor file with {ui.cmd('--edit=FILE')}, or select a revset spelled "
+                t"that way with {ui.cmd('submit <revset> --edit')}."
             )
         if not arg.startswith("--draft="):
             continue
