@@ -88,6 +88,20 @@ def test_machine_output_bypasses_terminal_formatting() -> None:
     assert output.getvalue() == f"{payload}\n"
 
 
+def test_output_terminates_terminal_escapes_from_change_descriptions() -> None:
+    """An OSC escape in a `jj log` line must not reach the terminal unterminated."""
+
+    output = StringIO()
+    with console_module.configured_console(
+        stdout=output,
+        stderr=StringIO(),
+        color_mode="never",
+    ):
+        console_module.output("osc \x1b]0;PWNED\x07 tail", soft_wrap=True)
+
+    assert output.getvalue() == "osc 0;PWNED tail\n"
+
+
 def test_hyperlink_uses_terminal_styling_only_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

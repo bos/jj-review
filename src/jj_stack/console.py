@@ -476,7 +476,11 @@ def style_time_prefix(text: str) -> str:
 
 
 def _coerce_renderable(value: ConsoleObject) -> RenderableType:
-    if isinstance(value, str) and "\x1b[" in value:
+    # `jj log` output is forwarded verbatim and a change description is untrusted input, so
+    # decode every escape introducer rather than only CSI. `Text.append` drops the C0 control
+    # that terminates an OSC string but keeps the ESC, which would leave the rest of the report
+    # inside an unterminated escape sequence.
+    if isinstance(value, str) and "\x1b" in value:
         return Text.from_ansi(value)
     if isinstance(value, ui.StatusBadge):
         return _render_status_badge(value)
