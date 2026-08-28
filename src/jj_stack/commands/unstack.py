@@ -132,6 +132,12 @@ async def _run_github_unstack(
             if github_stack is None:
                 console.output(t"No GitHub stack grouping #{stack_number} was found.")
                 return 0
+            if not github_stack.active_pr_numbers:
+                console.output(
+                    t"GitHub stack grouping #{stack_number} holds only merged pull "
+                    t"requests, which GitHub keeps; there is nothing to remove."
+                )
+                return 0
         else:
             state, change_ids, pr_numbers = _resolve_local_github_stack(
                 context=context,

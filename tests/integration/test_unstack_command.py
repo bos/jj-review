@@ -82,6 +82,28 @@ def test_unstack_by_number_does_not_require_local_tracking(
     assert "No GitHub stack grouping #7 was found" in retry.out
 
 
+def test_unstack_by_number_reports_a_grouping_github_keeps_because_it_is_merged(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    fake_repo.github_stacks = {7: (1, 2)}
+    for pr in fake_repo.prs.values():
+        pr.state = "closed"
+        pr.merged_at = "2026-08-13T12:00:00Z"
+    capsys.readouterr()
+
+    exit_code = run_main(repo, config_path, "unstack", "--stack", "7")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "only merged pull requests" in " ".join(captured.out.split())
+    assert "Removed GitHub stack grouping" not in captured.out
+    assert fake_repo.github_stacks == {7: (1, 2)}
+
+
 def test_unstack_locked_grouping_stops_without_closing_or_forgetting(
     tmp_path: Path,
     monkeypatch,
