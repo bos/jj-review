@@ -808,9 +808,14 @@ def test_sync_restores_change_ids_after_an_exact_github_stack_rebase(
         contents="not in the submitted stack\n",
     )
 
+    # A dry run has to reach the same verdict; it is the command a user runs first.
+    dry_exit = run_main(repo, config_path, "sync", "--dry-run", original[-1].change_id)
+    dry = capsys.readouterr()
     rejected_exit = run_main(repo, config_path, "sync", original[-1].change_id)
     rejected = capsys.readouterr()
 
+    assert dry_exit == 1, (dry.out, dry.err)
+    assert "does not have the same contents" in dry.err
     assert rejected_exit == 1
     assert "does not have the same contents" in rejected.err
     assert state_store.load() == original_state
@@ -824,6 +829,15 @@ def test_sync_restores_change_ids_after_an_exact_github_stack_rebase(
         branch=fake_repo.prs[2].head_ref,
         target=github_heads[1],
     )
+    provable_dry_exit = run_main(repo, config_path, "sync", "--dry-run", original[-1].change_id)
+    provable_dry = capsys.readouterr()
+
+    assert provable_dry_exit == 0, (provable_dry.out, provable_dry.err)
+    assert tuple(
+        JjClient(repo).resolve_commit(change.change_id).commit_id for change in original
+    ) == tuple(change.commit_id for change in original)
+    assert state_store.load() == original_state
+
     real_relink_prs = TrackingStore.relink_prs
 
     def fail_relink_prs(self, *, replacements):

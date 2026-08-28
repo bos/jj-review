@@ -126,13 +126,13 @@ async def apply_selected_convergence(
 
     actions = plan.actions
     if isinstance(plan, GithubStackRebasePlan):
-        if not dry_run:
-            _apply_github_stack_rebase(
-                context=context,
-                plan=plan,
-                remote_name=target.remote.name,
-                trunk_commit_id=trunk_commit_id,
-            )
+        _apply_github_stack_rebase(
+            context=context,
+            dry_run=dry_run,
+            plan=plan,
+            remote_name=target.remote.name,
+            trunk_commit_id=trunk_commit_id,
+        )
         return 0
     results = await apply_pr_finishes(
         plans=tuple(change.finish for change in actions.on_trunk),
@@ -247,6 +247,7 @@ def _apply_local_convergence(
 def _apply_github_stack_rebase(
     *,
     context: CommandContext,
+    dry_run: bool,
     plan: GithubStackRebasePlan,
     remote_name: str,
     trunk_commit_id: str,
@@ -267,14 +268,15 @@ def _apply_github_stack_rebase(
         ),
         expected_parent_commit_id=trunk_commit_id,
     ):
-        desired, operation_id = _verified_local_rebase(
+        desired_by_change, operation_id = _verified_local_rebase(
             context=context,
             plan=plan,
             trunk_commit_id=trunk_commit_id,
         )
+        if dry_run:
+            return
         if operation_id is not None:
             context.jj_client.integrate_operation(operation_id)
-        desired_by_change = {item.change_id: item for item in desired}
         context.jj_client.mutate_remote_pr_branch_refs(
             remote=remote_name,
             updates=tuple(
@@ -304,7 +306,7 @@ def _verified_local_rebase(
     context: CommandContext,
     plan: GithubStackRebasePlan,
     trunk_commit_id: str,
-) -> tuple[tuple[LocalCommit, ...], str | None]:
+) -> tuple[dict[str, LocalCommit], str | None]:
     adopted = plan.adopted_survivors
     local = plan.actions.survivors
     desired = local
@@ -360,7 +362,7 @@ def _verified_local_rebase(
             hint=t"Inspect the changed PR branches on GitHub before choosing which version "
             t"to keep.",
         )
-    return desired, operation_id
+    return desired_by_change, operation_id
 
 
 async def _refresh_selected_prs(
