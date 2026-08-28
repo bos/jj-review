@@ -268,7 +268,8 @@ def _project_rows(
         # A selector that lands on no visible candidate selects no stack, whether the change is
         # hidden or never existed, so it carries the stack-selection exit code.
         raise UnsupportedStackError(
-            t"Revset {ui.revset(selected_revset)} did not resolve to a visible commit."
+            t"Revset {ui.revset(selected_revset)} did not resolve to a visible commit.",
+            hint=t"List the visible changes with {ui.cmd('jj log')}, then select one of them.",
         )
     current_working_copy_commit_id = (
         next(

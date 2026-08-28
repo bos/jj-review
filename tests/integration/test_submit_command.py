@@ -1117,12 +1117,16 @@ def test_submit_refuses_an_abandoned_change_by_either_selector_form(
     abandoned = selected_stack(repo).head
     run_command(["jj", "abandon", abandoned.change_id], repo)
 
-    for selector in (abandoned.commit_id, abandoned.change_id):
+    for selector, expected_text in (
+        (abandoned.commit_id, "hidden changes are not submittable"),
+        (abandoned.change_id, "jj log"),
+    ):
         exit_code = run_main(repo, config_path, "submit", selector)
         captured = capsys.readouterr()
 
         assert exit_code == EXIT_NO_STACK, (selector, captured.err)
         assert abandoned.change_id[:8] in captured.err
+        assert expected_text in captured.err
     assert fake_repo.prs == {}
     assert TrackingStore.for_repo(repo).load().pr_identities == {}
 
