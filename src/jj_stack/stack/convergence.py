@@ -450,8 +450,9 @@ def _require_no_unpublished_edits(changes: tuple[OnTrunkChange, ...]) -> None:
             t"Cannot remove merged {ui.change_id(item.candidate.change_id)} because its local "
             t"commit differs from what was submitted, so jj-stack treats it as unpublished "
             t"local work.",
-            hint=t"Inspect {ui.cmd(f'jj diff --from {baseline} --to {local.commit_id}')}, move "
-            t"anything still needed to a new change off trunk, then drop this copy with "
+            hint=t"Run {ui.cmd(f"jj rebase -r {local.change_id} -d 'trunk()'")}, after which "
+            t"{ui.cmd(f'jj diff -r {local.change_id}')} shows only what it still holds. Move "
+            t"anything still needed to another change, then drop this copy with "
             t"{ui.cmd(f'jj abandon {local.change_id}')} and rerun sync, or keep it and forget "
             t"its saved link with {ui.cmd(f'jj-stack unstack --local {local.change_id}')}.",
         )
