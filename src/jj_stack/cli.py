@@ -1251,6 +1251,11 @@ def _normalize_cli_args(argv: Sequence[str]) -> list[str]:
         if arg.startswith("--edit="):
             normalized[index] = f"--edit-file={arg.removeprefix('--edit=')}"
             continue
+        if arg == "--edit" and "".join(normalized[index + 1 : index + 2]).endswith(".md"):
+            raise UsageError(
+                t"{ui.cmd('--edit')} takes no separate file argument. Reopen a saved "
+                t"editor file with {ui.cmd('--edit=FILE')}."
+            )
         if not arg.startswith("--draft="):
             continue
         draft_mode = arg.removeprefix("--draft=")
