@@ -58,7 +58,7 @@ jj-stack keeps the editor file until the whole submit succeeds and prints its pa
 continuing. If submit fails, pass that file back to `--edit` when you retry:
 
 ```console
-jj-stack submit --edit /path/to/jj-stack-edit-….md
+jj-stack submit --edit=/path/to/jj-stack-edit-….md
 ```
 
 The retry inspects the local stack and GitHub again. The saved file supplies only the titles,

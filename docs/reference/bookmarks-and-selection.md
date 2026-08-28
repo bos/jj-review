@@ -136,9 +136,13 @@ Use `jj bookmark list --all-remotes` to see whether a remote bookmark points to 
 so, handle that bookmark through your normal `jj` workflow. For example, track it if it is a
 branch you intend to work on, or move your mutable changes onto the intended base with `jj`.
 
-`jj-stack` makes a narrow exception for a visible PR branch that exactly matches the submitted
-version of a pull request it already tracks. That exception lets a (possibly accidentally)
-fetched `jj-stack/` branch coexist with the local change.
+`jj-stack` makes an exception for a fetched `jj-stack/` branch, so one can coexist with your
+local change instead of freezing it. The exception covers a branch that exactly matches the
+submitted version of a pull request `jj-stack` already tracks, and any other `jj-stack/` branch
+whose change has just one visible commit. A branch pointing at a change with several visible
+commits stays immutable, so a rewrite fetched from GitHub is never mistaken for your own copy —
+and so does a commit that some other remote bookmark also points at, which is why the stop above
+can still happen. `jj bookmark list --all-remotes` shows you which bookmark it is.
 
 ## Practical rules
 

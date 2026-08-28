@@ -72,9 +72,9 @@ identity.
 - visible: the commit is in `visible()`, not a hidden predecessor
 - mutable: the commit is in `mutable()`
 
-Such a change is submittable only when it has one visible mutable copy. Two extra eligibility
-rules apply to the working copy: an empty working-copy change is not submittable, and an
-undescribed working-copy change cannot be selected for submission until the user describes it.
+Such a change is submittable only when it has one visible mutable copy and a nonblank
+description. One extra eligibility rule applies to the working copy: an empty
+working-copy change is not submittable.
 
 ### Local stack
 
@@ -171,9 +171,13 @@ untracked remote bookmarks as immutable, so `doctor --fix` excludes the namespac
 fetches. Missing or overridden fetch isolation is advisory; commands use the configured fetch
 selection without changing it and do not stop merely because a PR bookmark is visible.
 
-A visible bookmark receives an immutability exception only when it matches one saved PR and
-its submitted commit. For `jj-stack` subprocesses, that exact bookmark does not make the commit
-immutable; trunk, tags, and other untracked bookmarks still do. If the submitted commit and one
+A visible bookmark in the reserved namespace does not make its commit immutable for `jj-stack`
+subprocesses, so a stack can be adopted from a clone that fetched the namespace. The exception
+applies when the bookmark matches one saved PR and its submitted commit, or when the commit is
+not divergent; a divergent target outside saved tracking stays immutable, so a fetched GitHub
+rewrite is never mistaken for a local copy. Neither proof covers a commit a second
+untracked bookmark also claims. Trunk, tags, and bookmarks outside the namespace
+still do. If the submitted commit and one
 local rewrite are both visible, the submitted commit is treated as the submitted snapshot rather
 than a second local candidate.
 
@@ -326,9 +330,10 @@ tracked PR directs the user to `sync`; other broken links remain untouched for e
 cleanup. Once cleanup removes a closed PR's tracking, `submit` ignores historical closed or
 merged PRs for that branch and creates a fresh PR. An open untracked PR still requires `relink`.
 
-An unreadable, invalid, or unsupported state file blocks commands that load it. The diagnostic
-names the exact path and explains how to move it aside before re-adopting pull requests through
-`checkout` or `relink`.
+An unreadable or invalid state file blocks commands that load it, and the diagnostic names the
+exact path and explains how to move it aside before re-adopting pull requests through `checkout`
+or `relink`. A file written by a newer `jj-stack` blocks them too, and says which version it
+needs.
 
 ### Storage locations
 
@@ -377,8 +382,8 @@ interpreted as a `github.com` owner and repo.
 
 Stack lifecycle commands default to `@` when the working-copy change has a nonblank description
 and contents, and to `@-` otherwise. A command that changes tracking state rejects an explicitly
-selected empty or undescribed working-copy change. `view` includes one on the selected path and
-warns that it cannot be submitted.
+selected empty working-copy change, and rejects any selected change with a blank description.
+`view` includes such a change on the selected path and warns that it cannot be submitted.
 `view` may accept several selectors. An arbitrary revset selects the exact commit
 it resolves to as the stack head. A bare change ID, including a prefix that identifies one
 logical change, or a linked pull request identifies the complete local stack containing that
@@ -827,20 +832,20 @@ Inspection tolerates history exposed by fetch rather than immediately declaring 
 local stack becomes a `cleanup needed` row naming `sync`. Only when no supported
 linear walk remains does `view` stop with a targeted diagnostic.
 
-Local submission eligibility never prevents an otherwise resolvable `view` report. Empty or
-undescribed working-copy changes, divergent changes, conflicts, and merge changes are shown with
-warnings that explain which mutation remains blocked. A merge is projected through its first
-parent, which the warning states explicitly. These warnings do not make an otherwise complete
-report incomplete; divergence and unresolved remote observations retain their existing
+Local submission eligibility never prevents an otherwise resolvable `view` report. Empty
+working-copy changes, undescribed changes, divergent changes, conflicts, and merge changes are
+shown with warnings that explain which mutation remains blocked. A merge is projected through its
+first parent, which the warning states explicitly. These warnings do not make an otherwise
+complete report incomplete; divergence and unresolved remote observations retain their existing
 incomplete-report rules. Mutation commands continue to reject unsupported selections.
 
 A per-change lookup failure marks only that row unresolved and produces an incomplete report. A
 failure before any rows can be built returns its own exit code. `list` includes orphaned PRs as
 separate rows.
 
-`view` and `list` decide most incompleteness from one shared per-change rule: an unmerged
-divergent change, an ambiguous PR, a failed PR lookup, or a saved PR link the branch no longer
-resolves.
+`view` and `list` decide incompleteness from one shared per-change rule: an unmerged divergent
+change, an ambiguous PR, a failed PR lookup, a saved PR link the branch no longer resolves, or a
+saved pull request whose GitHub state was never observed.
 When several local changes claim one saved branch, `list` warns, skips live inspection for that
 branch, and exits 10 rather than assigning its remote or PR state to the wrong change.
 
