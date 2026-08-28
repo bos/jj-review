@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -95,7 +96,16 @@ def test_load_config_rejects_a_branch_prefix_git_cannot_use(
         with pytest.raises(CliError, match=r"\[jj-stack\]\.branch_prefix") as caught:
             load_config(jj_client=JjClient(tmp_path))
 
-        assert "Invalid PR branch prefix" in str(caught.value), prefix
+        message = str(caught.value)
+
+        assert "Invalid PR branch prefix" in message, prefix
+        # The named check has to survive being followed: `my prs` needs shell quoting, and
+        # git accepts `foo|main`, so that rejection must not cite git at all.
+        assert (
+            "check-ref-format" not in message
+            if "|" in prefix
+            else f"--branch {shlex.quote(prefix)}" in message
+        ), message
 
 
 def test_load_config_rejects_invalid_logging_level(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import logging
+import shlex
 import tomllib
 from collections.abc import Mapping
 from typing import Literal
@@ -17,7 +18,7 @@ from jj_stack.stack.selection import parse_comma_separated_flag_values
 CONFIG_SECTION = "jj-stack"
 DEFAULT_BRANCH_PREFIX = "jj-stack"
 _TYPO_CUTOFF = 0.75
-_REJECTED_REF_CHARS = frozenset(" ~^:?*[\\|\x7f") | frozenset(map(chr, range(32)))
+_REJECTED_REF_CHARS = frozenset(" ~^:?*[\\\x7f") | frozenset(map(chr, range(32)))
 
 
 MergeMethod = Literal["merge", "rebase", "squash"]
@@ -42,12 +43,15 @@ class RepoConfig(BaseModel):
     @field_validator("branch_prefix")
     @classmethod
     def _validate_branch_prefix(cls, value: str) -> str:
+        if "|" in value:
+            raise ValueError(
+                f"Invalid PR branch prefix {value!r}. Remove the '|', which jj reads as a "
+                "separator between name patterns"
+            )
         if not _is_git_branch_path(value):
             raise ValueError(
-                f"Invalid PR branch prefix {value!r}. Expected a name that "
-                f"`git check-ref-format --branch {value}` accepts, with no leading, "
-                "trailing, or repeated slash, and no '|', which jj reads as a separator "
-                "in a name pattern"
+                f"Invalid PR branch prefix {value!r}. Git rejects it as a branch name; see "
+                f"`git check-ref-format --branch {shlex.quote(value)}`"
             )
         return value
 
@@ -57,7 +61,6 @@ def _is_git_branch_path(value: str) -> bool:
 
     return bool(value) and all(
         segment
-        and segment != "@"
         and not segment.startswith(".")
         and not segment.endswith((".", ".lock"))
         and ".." not in segment
