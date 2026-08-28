@@ -214,8 +214,8 @@ def test_view_warns_and_reports_undescribed_working_copy_inside_stack(
     warning = " ".join(captured.err.split())
 
     assert exit_code == 0, captured.err
-    assert feature_change_id[:8] in warning
     assert "no description" in warning
+    assert f"jj describe {feature_change_id}" in warning
 
 
 def test_view_warns_and_reports_conflicted_rebase(
