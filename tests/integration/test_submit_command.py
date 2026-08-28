@@ -2382,31 +2382,28 @@ def test_submit_rerun_converges_pr_metadata_after_partial_create_failure(
         monkeypatch,
         app=app,
         fake_repo=fake_repo,
-        modules=("jj_stack.commands.submit.command", "jj_stack.commands.relink"),
+        modules=("jj_stack.commands.submit.command",),
         client_type=FlakyMetadataClient,
     )
 
     assert run_main(repo, config_path, "submit") == EXIT_GITHUB
     capsys.readouterr()
 
+    stack = selected_stack(repo)
+    change_id = stack.changes[0].change_id
     state_after_failure = TrackingStore.for_repo(repo).load()
     assert len(fake_repo.prs) == 1
-    assert state_after_failure.pr_identities == {}
-    assert state_after_failure.submitted_baselines == {}
+    # GitHub acknowledged the pull request, so its link must already be saved. An
+    # untracked PR of submit's own making would need an explicit relink to repair.
+    assert state_after_failure.pr_identities[change_id].pr_number == 1
+    assert change_id in state_after_failure.submitted_baselines
     assert fake_repo.prs[1].requested_reviewers == ["alice"]
     assert fake_repo.prs[1].requested_team_reviewers == ["platform"]
     assert fake_repo.prs[1].labels == []
 
-    stack = selected_stack(repo)
-    change_id = stack.changes[0].change_id
-    assert run_main(repo, config_path, "submit") == 1
-    rejected = capsys.readouterr()
-    assert "Adopt that PR explicitly with relink" in rejected.err
-
-    assert run_main(repo, config_path, "relink", "1", change_id) == 0
-    capsys.readouterr()
     assert run_main(repo, config_path, "submit", "--reviewers", "alice") == 0
-    capsys.readouterr()
+    retried = capsys.readouterr()
+    assert "relink" not in retried.out + retried.err
 
     state_after_rerun = TrackingStore.for_repo(repo).load()
 

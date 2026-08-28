@@ -147,21 +147,7 @@ async def sync_prs(
     run: SubmitMutationRun,
     on_progress: Callable[[], None] | None = None,
 ) -> tuple[SubmittedChange, ...]:
-    def handle_success(
-        _index: int,
-        submitted: tuple[
-            SubmittedChange,
-            PRIdentity | None,
-            SubmittedBaseline | None,
-        ],
-    ) -> None:
-        submitted_change, identity, baseline = submitted
-        if identity is not None and baseline is not None:
-            run.record_submission(
-                baseline=baseline,
-                change_id=submitted_change.change_id,
-                identity=identity,
-            )
+    def handle_success(_index: int, _submitted: SubmittedChange) -> None:
         if on_progress is not None:
             on_progress()
 
@@ -175,7 +161,7 @@ async def sync_prs(
         ),
         on_success=handle_success,
     )
-    return tuple(submitted_change for submitted_change, _, _ in submitted_changes)
+    return tuple(submitted_changes)
 
 
 async def _sync_pr(
@@ -183,7 +169,7 @@ async def _sync_pr(
     github_client: GithubClient,
     plan: PRSyncPlan,
     run: SubmitMutationRun,
-) -> tuple[SubmittedChange, PRIdentity | None, SubmittedBaseline | None]:
+) -> SubmittedChange:
     prepared_change = plan.prepared
     branch = prepared_change.branch
     change_id = prepared_change.change.change_id
@@ -221,40 +207,39 @@ async def _sync_pr(
         )
 
     if pr is not None and not run.dry_run:
+        # Save the PR link as soon as GitHub acknowledges the pull request and the pushed
+        # branch. Draft state, labels and reviewers can be observed and rewritten on a
+        # rerun, but a pull request submit created and never recorded leaves the change
+        # untracked, and every retry then demands an explicit relink.
+        run.record_submission(
+            baseline=SubmittedBaseline(commit_id=prepared_change.change.commit_id),
+            change_id=change_id,
+            identity=_submitted_identity(
+                branch=branch,
+                pr=pr,
+                pr_identity=pr_identity,
+            ),
+        )
         pr = await _apply_draft_action(
             action=plan.draft_action,
             github_client=github_client,
             pr=pr,
         )
+        if plan.metadata is not None:
+            await _sync_pr_metadata(
+                github_client=github_client,
+                labels=plan.metadata.labels,
+                pr_number=pr.number,
+                reviewers=plan.metadata.reviewers,
+                team_reviewers=plan.metadata.team_reviewers,
+            )
 
-    if not run.dry_run and pr is not None and plan.metadata is not None:
-        await _sync_pr_metadata(
-            github_client=github_client,
-            labels=plan.metadata.labels,
-            pr_number=pr.number,
-            reviewers=plan.metadata.reviewers,
-            team_reviewers=plan.metadata.team_reviewers,
-        )
-
-    next_identity: PRIdentity | None = None
-    next_baseline: SubmittedBaseline | None = None
-    if pr is not None:
-        next_identity = _submitted_identity(
-            branch=branch,
-            pr=pr,
-            pr_identity=pr_identity,
-        )
-        next_baseline = SubmittedBaseline(commit_id=prepared_change.change.commit_id)
-    return (
-        SubmittedChange(
-            prepared=prepared_change,
-            pr_action=action,
-            pr_is_draft=(pr.is_draft if pr is not None else None),
-            pr_number=(pr.number if pr is not None else None),
-            pr_url=(pr.html_url if pr is not None else None),
-        ),
-        next_identity,
-        next_baseline,
+    return SubmittedChange(
+        prepared=prepared_change,
+        pr_action=action,
+        pr_is_draft=(pr.is_draft if pr is not None else None),
+        pr_number=(pr.number if pr is not None else None),
+        pr_url=(pr.html_url if pr is not None else None),
     )
 
 
