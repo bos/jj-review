@@ -761,6 +761,7 @@ async def run_submit_async(
                 prepared.change.change_id: discovered_prs[prepared.branch]
                 for prepared in prepared_changes
             },
+            repo_root=client.repo_root,
             submitted_commits=prepared_inputs.submitted_commits,
         )
         if options.edit:

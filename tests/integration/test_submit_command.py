@@ -1791,7 +1791,7 @@ def test_submit_refreshes_unchanged_pr_text_and_preserves_github_edits(
     assert fake_repo.prs[pr_number].title == "feature 1"
     assert fake_repo.prs[pr_number].body == "feature 1"
 
-    fake_repo.prs[pr_number].body = "Current template"
+    fake_repo.prs[pr_number].body = "Body edited on GitHub"
     run_command(["jj", "edit", change_id], repo)
     template = repo / ".github" / "PULL_REQUEST_TEMPLATE.md"
     write_file(template, "Current template\n")
@@ -1816,7 +1816,7 @@ def test_submit_refreshes_unchanged_pr_text_and_preserves_github_edits(
     assert "pushed" in captured.out
     assert read_remote_ref(fake_repo.git_dir, bookmark) == rewritten_stack.changes[-1].commit_id
     assert fake_repo.prs[pr_number].title == "feature 1"
-    assert fake_repo.prs[pr_number].body == "Current template"
+    assert fake_repo.prs[pr_number].body == "Body edited on GitHub"
 
     fake_repo.prs[pr_number].title = "feature 1 renamed"
     fake_repo.prs[pr_number].body = "Managed body"

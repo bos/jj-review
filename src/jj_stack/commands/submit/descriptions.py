@@ -107,10 +107,12 @@ def preserve_external_pr_text(
     *,
     descriptions: dict[str, GeneratedDescription],
     prs: dict[str, GithubPR | None],
+    repo_root: Path,
     submitted_commits: dict[str, LocalCommit],
 ) -> dict[str, GeneratedDescription]:
     """Preserve a live PR pair unless its text still matches the submitted description."""
 
+    template = _read_pr_template(repo_root)
     preserved: dict[str, GeneratedDescription] = {}
     for change_id, description in descriptions.items():
         pr = prs[change_id]
@@ -122,7 +124,7 @@ def preserve_external_pr_text(
         live_body = pr.body or ""
         follows_submitted_description = submitted is not None and (
             pr.title == submitted.subject
-            and live_body == _pr_body(submitted.description, template="")
+            and live_body == default_pr_body(submitted.description, template=template)
         )
         preserve_existing = not follows_submitted_description
         preserved[change_id] = replace(
@@ -649,15 +651,3 @@ def _run_description_command(
         explicit_fields=frozenset(("body", "title")),
         title=title,
     )
-
-
-def _pr_body(description: str, *, template: str) -> str:
-    lines = description.splitlines()
-    if not lines:
-        return template
-    body = "\n".join(lines[1:]).strip()
-    if body:
-        return body
-    if template:
-        return template
-    return lines[0].strip()

@@ -11,12 +11,14 @@ from jj_stack.commands.submit.descriptions import (
     _split_editor_command,
     edit_prs_in_editor,
     parse_description_edit_document,
+    preserve_external_pr_text,
     render_description_edit_document,
     resolve_generated_descriptions,
 )
 from jj_stack.commands.submit.models import GeneratedDescription
 from jj_stack.errors import CliError
 from jj_stack.jj.client import JjClient
+from jj_stack.models.github import GithubBranchRef, GithubPR
 from tests.support.change_helpers import make_change
 
 
@@ -286,3 +288,67 @@ def test_edit_aborts_when_editor_exits_nonzero(monkeypatch, tmp_path: Path) -> N
         )
 
     assert f"--edit {document_path}" in str(caught.value)
+
+
+def _live_pr(*, body: str, title: str) -> GithubPR:
+    branch = "jj-stack/feature-ch1"
+    return GithubPR(
+        base=GithubBranchRef(ref="main"),
+        body=body,
+        head=GithubBranchRef(label=f"octo-org:{branch}", ref=branch, sha="head-commit"),
+        html_url="https://github.test/octo-org/repo/pull/1",
+        number=1,
+        state="open",
+        title=title,
+    )
+
+
+def test_refresh_check_compares_the_body_submit_wrote_not_the_raw_description(
+    tmp_path: Path,
+) -> None:
+    """Unfolded and template bodies are submit's own text; keeping the wrapping is an edit."""
+
+    template_dir = tmp_path / ".github"
+    template_dir.mkdir()
+    (template_dir / "PULL_REQUEST_TEMPLATE.md").write_text("## Checklist\n", encoding="utf-8")
+    wrapped_body = "A paragraph that\nwraps across two source lines."
+    submitted = {
+        "ch1": make_change(
+            commit_id="c1",
+            change_id="ch1",
+            description=f"feature 1\n\n{wrapped_body}\n",
+        ),
+        "ch2": make_change(commit_id="c2", change_id="ch2", description="feature 2\n"),
+        "ch3": make_change(
+            commit_id="c3",
+            change_id="ch3",
+            description=f"feature 3\n\n{wrapped_body}\n",
+        ),
+    }
+
+    preserved = preserve_external_pr_text(
+        descriptions={
+            change_id: GeneratedDescription(
+                body=f"fresh body {change_id}",
+                title=f"fresh title {change_id}",
+            )
+            for change_id in submitted
+        },
+        prs={
+            "ch1": _live_pr(
+                body="A paragraph that wraps across two source lines.",
+                title="feature 1",
+            ),
+            "ch2": _live_pr(body="## Checklist", title="feature 2"),
+            "ch3": _live_pr(body=wrapped_body, title="feature 3"),
+        },
+        repo_root=tmp_path,
+        submitted_commits=submitted,
+    )
+
+    for change_id in ("ch1", "ch2"):
+        assert preserved[change_id] == GeneratedDescription(
+            body=f"fresh body {change_id}",
+            title=f"fresh title {change_id}",
+        )
+    assert preserved["ch3"] == GeneratedDescription(body=wrapped_body, title="feature 3")
