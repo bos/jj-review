@@ -574,7 +574,9 @@ def test_sync_removes_a_merged_change_whose_content_matches_what_was_submitted(
     assert blocked == 1
     assert "jj-stack submit" not in error, error
     assert f"jj diff --from {baseline.commit_id} --to {edited}" in error, error
-    assert f"jj abandon {edited}" in error, error
+    # The change ID survives the rewrite the same sentence tells the user to make; the commit ID
+    # would be hidden by then and `jj abandon` would silently do nothing.
+    assert f"jj abandon {submitted.change_id}" in error, error
     assert "jj-stack unstack --local" in error, error
     assert JjClient(repo).resolve_commit(submitted.change_id).commit_id == edited
 
@@ -583,10 +585,25 @@ def test_sync_removes_a_merged_change_whose_content_matches_what_was_submitted(
     edit.unlink()
     run_command(["jj", "squash", "--into", submitted.change_id], repo)
     rewritten = JjClient(repo).resolve_commit(submitted.change_id).commit_id
+    assert rewritten != baseline.commit_id
+
+    preview_exit = run_main(repo, config_path, "sync", "--dry-run", submitted.change_id)
+    preview = capsys.readouterr()
+
+    assert preview_exit == 0, (preview.out, preview.err)
+    assert JjClient(repo).resolve_commit(submitted.change_id).commit_id == rewritten
+
+    # The ordinary post-merge sequence: someone else lands on trunk and the user rebases onto it.
+    # The change is then empty, and its content is trunk's rather than the commit it submitted.
+    fake_repo.advance_branch("main", path="colleague.txt", contents="not the user's work\n")
+    run_command(["jj", "git", "fetch"], repo)
+    run_command(["jj", "rebase", "-s", submitted.change_id, "-d", "trunk()"], repo)
+    rebased = JjClient(repo).resolve_commit(submitted.change_id)
+    assert rebased.empty and rebased.commit_id != baseline.commit_id
+
     exit_code = run_main(repo, config_path, "sync", submitted.change_id)
     captured = capsys.readouterr()
 
-    assert rewritten != baseline.commit_id
     assert exit_code == 0, (captured.out, captured.err)
     assert submitted.change_id not in TrackingStore.for_repo(repo).load().pr_identities
 

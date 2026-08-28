@@ -445,19 +445,19 @@ def _unproven_rewrite_error(stack: GithubStack) -> CliError:
 def _require_no_unpublished_edits(changes: tuple[OnTrunkChange, ...], jj: JjClient) -> None:
     for item in changes:
         local, baseline = item.change, item.candidate.submitted_baseline.commit_id
-        if local is None or not local.holds_unpublished_edit((baseline,)):
+        # An empty change holds nothing its parent does not, and an ordinary jj rewrite moves a
+        # commit ID without touching content. Neither is an edit, and identity cannot see that.
+        if local is None or local.empty or not local.holds_unpublished_edit((baseline,)):
             continue
-        # An ordinary jj rewrite moves a commit ID without touching content, which commit
-        # identity alone cannot tell apart from an edit.
         trees = jj.git_tree_ids((local.commit_id, baseline))
         if trees[local.commit_id] == trees[baseline]:
             continue
         raise CliError(
-            t"Cannot remove merged {ui.change_id(item.candidate.change_id)} because it holds "
-            t"content that was never submitted, which its merged pull request cannot publish.",
+            t"Cannot remove merged {ui.change_id(item.candidate.change_id)} because its content "
+            t"differs from what was submitted, which its merged pull request cannot publish.",
             hint=t"Inspect {ui.cmd(f'jj diff --from {baseline} --to {local.commit_id}')}, move "
             t"anything still needed to a new change off trunk, then drop this copy with "
-            t"{ui.cmd(f'jj abandon {local.commit_id}')} and rerun sync, or keep it and forget "
+            t"{ui.cmd(f'jj abandon {local.change_id}')} and rerun sync, or keep it and forget "
             t"its saved link with {ui.cmd(f'jj-stack unstack --local {local.change_id}')}.",
         )
 
