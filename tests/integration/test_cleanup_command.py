@@ -71,9 +71,10 @@ def test_cleanup_change_only_removes_leftovers_for_selected_stack(
     assert first_change_id in state.pr_identities
 
 
-def test_cleanup_pr_selects_orphaned_saved_pr(
+def test_cleanup_pr_selects_a_saved_orphan_and_rejects_an_unlinked_pr(
     tmp_path: Path,
     monkeypatch,
+    capsys,
 ) -> None:
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
@@ -85,6 +86,23 @@ def test_cleanup_pr_selects_orphaned_saved_pr(
 
     assert exit_code == 0
     assert change_id not in TrackingStore.for_repo(repo).load().pr_identities
+
+    outside = fake_repo.create_pr(
+        base_ref="main",
+        body="not created by jj-stack",
+        head_ref="main",
+        title="outside pull request",
+    )
+    capsys.readouterr()
+
+    unlinked_exit_code = run_main(
+        repo, config_path, "cleanup", "--pull-request", str(outside.number), "--close"
+    )
+    unlinked = capsys.readouterr()
+
+    assert unlinked_exit_code != 0
+    assert f"PR #{outside.number} is not linked to any local change" in unlinked.err
+    assert fake_repo.prs[outside.number].state == "open"
 
 
 def test_cleanup_close_finishes_open_and_terminal_orphans(

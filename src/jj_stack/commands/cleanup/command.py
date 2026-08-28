@@ -286,6 +286,13 @@ def _resolve_cleanup_change_ids(
                 t"Multiple saved links claim {pr_label}.",
                 hint=t"Run {ui.cmd('list')} to inspect them and repair the incorrect link.",
             )
+        if not matches:
+            pr_label = format_pr_label(pr_number, repo=repo)
+            raise CliError(
+                t"{pr_label} is not linked to any local change.",
+                hint=t"Run {ui.cmd('checkout')} or {ui.cmd('relink')} to link it first, or "
+                t"close it with {ui.cmd(f'gh pr close {pr_number}')}.",
+            )
         return matches
     if revset is None:
         return None
