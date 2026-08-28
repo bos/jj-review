@@ -77,6 +77,10 @@ class GithubStack(BaseModel):
     def active_pr_numbers(self) -> tuple[int, ...]:
         return tuple(pr.number for pr in self.prs if not pr.is_historical)
 
+    # `list_stacks` in github/client.py skips a stack that fails this rule, recognizing it as
+    # the only pydantic error reported against the model as a whole. A second model-level
+    # validator here would be reported identically and silently skipped too; see
+    # test_github_stack_has_exactly_one_model_level_validator.
     @model_validator(mode="after")
     def _validate_historical_prefix(self) -> Self:
         active_seen = False

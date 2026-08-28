@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from email.utils import parsedate_to_datetime
 from math import ceil
 from textwrap import dedent, indent, shorten
+from typing import Literal
 
 import httpx2
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -30,6 +31,8 @@ from jj_stack.models.github import (
 
 logger = logging.getLogger(__name__)
 GITHUB_API_BASE_URL = "https://api.github.com"
+
+type RateLimitKind = Literal["primary", "secondary"]
 _GRAPHQL_PR_BATCH_SIZE = 25
 
 _DEFAULT_RATE_LIMIT_RETRIES = 3
@@ -47,15 +50,13 @@ class GithubClientError(SummarizedError):
         self,
         message: str,
         *,
-        is_rate_limited: bool = False,
+        rate_limit: RateLimitKind | None = None,
         rate_limit_reset_seconds: float | None = None,
-        retry_after_seconds: float | None = None,
         status_code: int | None = None,
     ) -> None:
         super().__init__(message)
-        self.is_rate_limited = is_rate_limited
+        self.rate_limit = rate_limit
         self.rate_limit_reset_seconds = rate_limit_reset_seconds
-        self.retry_after_seconds = retry_after_seconds
         self.status_code = status_code
 
     def detail(self) -> str:
@@ -125,17 +126,12 @@ class GithubClientError(SummarizedError):
             return "auth failed - check GITHUB_TOKEN"
         if self.status_code == 403:
             # GitHub refuses a rate-limited request with the same status as a token problem,
-            # and the retries give up long before a primary limit resets. `is_rate_limited`
-            # is the retry loop's own verdict, so the wait and the message cannot disagree.
-            if self.is_rate_limited:
-                # Only a secondary limit sends `Retry-After`; a primary limit reports its
-                # reset through `X-RateLimit-Reset`.
-                secondary = self.retry_after_seconds is not None
-                wait = self.retry_after_seconds if secondary else self.rate_limit_reset_seconds
-                minutes = None if wait is None else max(1, ceil(wait / 60))
+            # and the retries give up long before a primary limit resets.
+            if self.rate_limit is not None:
+                reset = self.rate_limit_reset_seconds
+                minutes = None if reset is None else max(1, ceil(reset / 60))
                 resets = "" if minutes is None else f", resets in about {minutes} min"
-                limit = "secondary" if secondary else "primary"
-                return f"GitHub {limit} rate limit reached{resets} - rerun later"
+                return f"GitHub {self.rate_limit} rate limit reached{resets} - rerun later"
             return "access denied - check GITHUB_TOKEN and repo access"
         if self.is_repo_not_found():
             message = "repo not found or inaccessible"
@@ -954,15 +950,11 @@ class GithubClient:
         try:
             response.raise_for_status()
         except httpx2.HTTPStatusError as error:
+            rate_limit, reset_seconds = _rate_limit_refusal(error.response)
             raise GithubClientError(
                 f"GitHub request failed: {error.response.status_code} {error.response.text}",
-                is_rate_limited=_is_retryable_rate_limit(error.response),
-                rate_limit_reset_seconds=_seconds_until_rate_limit_reset(
-                    error.response.headers.get("X-RateLimit-Reset")
-                ),
-                retry_after_seconds=_parse_retry_after_header(
-                    error.response.headers.get("Retry-After")
-                ),
+                rate_limit=rate_limit,
+                rate_limit_reset_seconds=reset_seconds,
                 status_code=error.response.status_code,
             ) from error
 
@@ -1013,15 +1005,47 @@ class GithubClient:
 
 
 def _is_retryable_rate_limit(response: httpx2.Response) -> bool:
+    """Whether waiting could clear this response. May over-answer; see `_rate_limit_refusal`.
+
+    `X-RateLimit-Reset` is deliberately not evidence here. GitHub sends it on nearly every
+    REST response, including permissions failures that no amount of waiting fixes.
+    """
+
     if response.status_code == 429:
         return True
     if response.status_code != 403:
         return False
-    if "Retry-After" in response.headers or "X-RateLimit-Reset" in response.headers:
+    if "Retry-After" in response.headers:
         return True
     if response.headers.get("X-RateLimit-Remaining") == "0":
         return True
     return "rate limit" in response.text.lower()
+
+
+def _rate_limit_refusal(
+    response: httpx2.Response,
+) -> tuple[RateLimitKind | None, float | None]:
+    """Which GitHub rate limit refused this request, and how long it says that lasts.
+
+    A primary limit is the quota: it reports `X-RateLimit-Remaining: 0` and lifts at
+    `X-RateLimit-Reset`. A secondary limit is a short burst refusal that says so in the body
+    and may carry `Retry-After`; its quota headers still describe an untouched primary
+    window, so that reset must not be borrowed to describe it.
+
+    This deliberately does not reuse `_is_retryable_rate_limit`. "Should I retry?" is allowed
+    to over-answer because a wasted retry is cheap, but "was this a rate limit?" is not:
+    every 403 carries `X-RateLimit-Reset`, so sharing that predicate reported a permissions
+    or SAML refusal as an hour-long rate limit.
+    """
+
+    if response.status_code not in {403, 429}:
+        return None, None
+    if response.headers.get("X-RateLimit-Remaining") == "0":
+        reset = _seconds_until_rate_limit_reset(response.headers.get("X-RateLimit-Reset"))
+        return "primary", reset
+    if "Retry-After" in response.headers or "rate limit" in response.text.lower():
+        return "secondary", _parse_retry_after_header(response.headers.get("Retry-After"))
+    return None, None
 
 
 def _parse_retry_after_header(value: str | None) -> float | None:

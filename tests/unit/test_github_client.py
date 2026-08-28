@@ -999,7 +999,41 @@ def test_github_client_reports_an_exhausted_rate_limit_as_a_rate_limit(
     assert raised.value.user_facing_reason() == expected_reason
 
 
-def test_user_facing_reason_reports_access_denied_for_403() -> None:
-    error = GithubClientError("GitHub request failed: 403", status_code=403)
+@pytest.mark.parametrize(
+    "message",
+    (
+        pytest.param("Resource not accessible by personal access token", id="token-scope"),
+        pytest.param("Resource protected by organization SAML enforcement", id="saml"),
+    ),
+)
+def test_github_client_reports_a_permissions_403_as_access_denied(message: str) -> None:
+    attempts = 0
 
-    assert error.user_facing_reason() == "access denied - check GITHUB_TOKEN and repo access"
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal attempts
+        attempts += 1
+        # GitHub sends the quota headers on nearly every response, this one included, so a
+        # rate-limit verdict must not be read from their mere presence.
+        return httpx2.Response(
+            403,
+            headers={
+                "X-RateLimit-Limit": "5000",
+                "X-RateLimit-Remaining": "4998",
+                "X-RateLimit-Reset": str(int(time.time()) + 3600),
+            },
+            json={"message": message},
+            request=request,
+        )
+
+    async def run_test() -> None:
+        async with _github_client(handler) as client:
+            await client.get_repo()
+
+    with pytest.raises(GithubClientError) as raised:
+        asyncio.run(run_test())
+
+    assert (
+        raised.value.user_facing_reason() == "access denied - check GITHUB_TOKEN and repo access"
+    )
+    # Waiting cannot fix a permissions failure, so it must not be retried either.
+    assert attempts == 1
