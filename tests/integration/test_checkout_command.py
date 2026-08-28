@@ -152,16 +152,7 @@ def test_checkout_edits_a_lower_pr_with_the_whole_namespace_fetched(
     config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
     bottom_change_id = selected_stack(repo).changes[0].change_id
     resolve_state_path(repo).unlink()
-    run_command(
-        [
-            "git",
-            "config",
-            "--replace-all",
-            "remote.origin.fetch",
-            "+refs/heads/*:refs/remotes/origin/*",
-        ],
-        repo,
-    )
+    _expose_pr_branch_namespace(repo)
     run_command(["jj", "git", "fetch", "--remote", "origin"], repo)
     capsys.readouterr()
 
@@ -191,16 +182,7 @@ def test_checkout_explains_an_immutable_pr_commit_instead_of_dumping_jj_output(
         repo,
     )
     resolve_state_path(repo).unlink()
-    run_command(
-        [
-            "git",
-            "config",
-            "--replace-all",
-            "remote.origin.fetch",
-            "+refs/heads/*:refs/remotes/origin/*",
-        ],
-        repo,
-    )
+    _expose_pr_branch_namespace(repo)
     run_command(["jj", "git", "fetch", "--remote", "origin"], repo)
     capsys.readouterr()
 
@@ -244,16 +226,7 @@ def test_checkout_rejects_a_rewritten_lower_pr_before_importing(
     fake_repo.force_push_pr_head(fake_repo.prs[1])
     resolve_state_path(repo).unlink()
     run_command(["jj", "abandon", stack.head.change_id], repo)
-    run_command(
-        [
-            "git",
-            "config",
-            "--replace-all",
-            "remote.origin.fetch",
-            "+refs/heads/*:refs/remotes/origin/*",
-        ],
-        repo,
-    )
+    _expose_pr_branch_namespace(repo)
     capsys.readouterr()
 
     assert _main(repo, config_path, "checkout", "--pull-request", "2") == 1
@@ -391,6 +364,21 @@ def test_checkout_pick_edits_selected_tracked_stack(
     assert "Local tracking is already up to date for this stack." in captured.out
     assert "Working copy now edits" in captured.out
     assert JjClient(repo).resolve_commit("@").change_id == feature_1_change_id
+
+
+def _expose_pr_branch_namespace(repo: Path) -> None:
+    """Undo the reserved-namespace fetch exclusion, as a plain clone leaves it."""
+
+    run_command(
+        [
+            "git",
+            "config",
+            "--replace-all",
+            "remote.origin.fetch",
+            "+refs/heads/*:refs/remotes/origin/*",
+        ],
+        repo,
+    )
 
 
 def _configure_checkout_environment(
