@@ -51,7 +51,8 @@ def test_commands_report_non_github_remote_without_traceback(
     assert exit_code == 1
     assert_output_contains(
         captured.out + captured.err,
-        "Ensure its fetch and push URLs identify the same GitHub repo.",
+        "Could not read a GitHub owner and repo from remote origin's URL "
+        "ssh://example.test/not-github.git.",
     )
     _assert_no_traceback(captured)
 

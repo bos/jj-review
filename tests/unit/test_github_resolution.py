@@ -5,11 +5,13 @@ import pytest
 from jj_stack.errors import CliError
 from jj_stack.github.resolution import (
     parse_github_repo,
+    resolve_github_target,
     resolve_trunk_branch,
     select_submit_remote,
 )
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubRepo
+from jj_stack.ui import plain_text
 
 
 def _remote(name: str) -> GitRemote:
@@ -95,6 +97,17 @@ def test_parse_github_repo_returns_none_for_unparseable_remote(url: str) -> None
     remote = GitRemote(name="origin", fetch_url=url, push_url=url)
 
     assert parse_github_repo(remote) is None
+
+
+def test_resolve_github_target_does_not_blame_a_url_mismatch_for_a_single_url() -> None:
+    url = "https://ghe.example.com/org/team/repo.git"
+    target = resolve_github_target((GitRemote(name="origin", fetch_url=url, push_url=url),))
+
+    rendered = plain_text(target.github_repo_error or "")
+
+    assert url in rendered
+    # Nothing can disagree: the remote has one URL.
+    assert "same GitHub repo" not in rendered
 
 
 def test_parse_github_repo_accepts_distinct_ssh_host_aliases() -> None:

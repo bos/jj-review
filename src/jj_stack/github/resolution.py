@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import jj_stack.ui as ui
-from jj_stack.errors import CliError, ErrorMessage, error_message
+from jj_stack.errors import CliError, ErrorHint, ErrorMessage, error_message
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubRepo
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace
@@ -138,15 +138,32 @@ def resolve_github_target(
 
     github_repo = parse_github_repo(remote)
     if github_repo is None:
+        message, hint = _github_repo_failure(remote)
         return UnresolvedGithubTarget(
             remote=remote,
-            github_repo_error=(
-                t"Could not determine the GitHub repo for remote "
-                t"{ui.bookmark(remote.name)}. Its fetch and push URLs must identify "
-                t"the same GitHub repo."
-            ),
+            github_repo_error=(message, " ", hint),
         )
     return GithubTarget(remote=remote, repo=github_repo)
+
+
+def _github_repo_failure(remote: GitRemote) -> tuple[ErrorMessage, ErrorHint]:
+    """Say why a remote does not name one GitHub repo, and what to do about it.
+
+    A remote with a single URL that is not `owner/repo` has nothing to disagree with itself
+    about, so it must not be told its fetch and push URLs disagree.
+    """
+
+    name = ui.bookmark(remote.name)
+    if _parse_github_url(remote.fetch_url) != _parse_github_url(remote.push_url):
+        return (
+            t"Remote {name}'s fetch and push URLs do not name the same GitHub repo.",
+            t"Point both URLs at the same GitHub repo.",
+        )
+    return (
+        t"Could not read a GitHub owner and repo from remote {name}'s URL "
+        t"{ui.code(remote.fetch_url)}.",
+        t"Point {name} at a GitHub URL such as {ui.code('https://github.com/owner/repo.git')}.",
+    )
 
 
 def require_github_repo(remote: GitRemote) -> GithubRepoAddress:
@@ -155,10 +172,8 @@ def require_github_repo(remote: GitRemote) -> GithubRepoAddress:
     github_repo = parse_github_repo(remote)
     if github_repo is not None:
         return github_repo
-    raise CliError(
-        t"Could not determine the GitHub repo for remote {ui.bookmark(remote.name)}.",
-        hint="Ensure its fetch and push URLs identify the same GitHub repo.",
-    )
+    message, hint = _github_repo_failure(remote)
+    raise CliError(message, hint=hint)
 
 
 def resolve_trunk_branch(
