@@ -134,6 +134,7 @@ def test_output_neutralizes_terminal_escapes_from_change_descriptions(
 def test_hyperlink_uses_terminal_styling_only_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     url = "https://github.test/octo-org/repo/pull/42"
     label = ui_module.hyperlink("PR #42", url)
