@@ -357,7 +357,7 @@ def _local_history_warnings(prepared_status: PreparedStatus) -> tuple[ui.Message
                 t"Change {change_id} is an empty working-copy change. Showing it for inspection; "
                 t"it cannot be submitted."
             )
-        elif change.is_working_copy and not change.description.strip():
+        elif not change.description.strip():
             warnings.append(
                 t"Change {change_id} has no description. Showing it for inspection, but it "
                 t"cannot be submitted until it is described with {ui.cmd('jj describe')}."

@@ -205,6 +205,18 @@ def test_view_warns_and_reports_undescribed_working_copy_inside_stack(
     assert undescribed.change_id[:8] in warning
     assert "no description" in warning
 
+    # An interior change that is nobody's working copy is refused by submit for the same
+    # reason, so inspection must preview it too.
+    run_command(["jj", "describe", "-r", feature_change_id, "-m", ""], repo)
+
+    exit_code = run_main(repo, config_path, "view", child_change_id)
+    captured = capsys.readouterr()
+    warning = " ".join(captured.err.split())
+
+    assert exit_code == 0, captured.err
+    assert feature_change_id[:8] in warning
+    assert "no description" in warning
+
 
 def test_view_warns_and_reports_conflicted_rebase(
     tmp_path: Path,
