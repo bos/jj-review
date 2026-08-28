@@ -143,6 +143,34 @@ def test_checkout_accepts_a_matching_visible_pr_bookmark(
     assert set(JjClient(repo).visible_pr_bookmark_targets()) == {identity.head_ref}
 
 
+def test_checkout_edits_a_lower_pr_with_the_whole_namespace_fetched(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
+    config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
+    bottom_change_id = selected_stack(repo).changes[0].change_id
+    resolve_state_path(repo).unlink()
+    run_command(
+        [
+            "git",
+            "config",
+            "--replace-all",
+            "remote.origin.fetch",
+            "+refs/heads/*:refs/remotes/origin/*",
+        ],
+        repo,
+    )
+    run_command(["jj", "git", "fetch", "--remote", "origin"], repo)
+    capsys.readouterr()
+
+    assert _main(repo, config_path, "checkout", "--pull-request", "1") == 0
+
+    assert "is immutable" not in capsys.readouterr().err
+    assert JjClient(repo).resolve_commit("@").change_id == bottom_change_id
+
+
 def test_checkout_rejects_a_locally_rewritten_pr_before_importing(
     tmp_path: Path,
     monkeypatch,

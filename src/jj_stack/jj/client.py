@@ -711,13 +711,20 @@ class JjClient:
         self,
         bookmarks: Sequence[tuple[str, str, str]],
     ) -> None:
-        """Keep exact expected remote bookmarks from making their snapshots immutable.
+        """Keep expected PR bookmarks from making their target commits immutable.
 
-        The override narrows only jj's built-in untracked-remote rule. Trunk, tags, another
-        untracked bookmark, and additions in the user's `immutable_heads()` still apply.
+        Two disjoint cases get an exception. An exact expected bookmark from `bookmarks`
+        covers a published snapshot visible beside its local rewrite. A visible bookmark in
+        the reserved namespace whose target is the only visible commit of its change covers
+        adoption, where no saved tracking exists yet and a fresh clone has imported the whole
+        namespace; a divergent target stays immutable so a fetched GitHub rewrite is still
+        distinguishable from a local copy. Either way the override narrows only jj's built-in
+        untracked-remote rule: trunk, tags, another untracked bookmark pointing at the same
+        commit, and additions in the user's `immutable_heads()` still apply.
         """
 
         self._published_pr_snapshots = {}
+        namespace = current_pr_branch_namespace()
         untracked: list[tuple[str, str]] = []
         target_counts: dict[str, int] = {}
         for row in self._bookmark_rows():
@@ -725,12 +732,24 @@ class JjClient:
                 for target in row.target:
                     untracked.append((row.name, target))
                     target_counts[target] = target_counts.get(target, 0) + 1
-        selectors = " | ".join(
+        accepted = [
             f"(remote_bookmarks(exact:{quote_revset_symbol(name)}) & "
             f"{quote_revset_symbol(commit_id)})"
             for name, _change_id, commit_id in sorted(bookmarks)
             if (name, commit_id) in untracked and target_counts[commit_id] == 1
-        )
+        ]
+        if any(namespace.contains(name) for name, _target in untracked):
+            shared = " | ".join(
+                quote_revset_symbol(commit_id)
+                for commit_id, count in sorted(target_counts.items())
+                if count > 1
+            )
+            adopted = (
+                f"untracked_remote_bookmarks(glob:{quote_revset_symbol(namespace.branch_glob)})"
+                " ~ divergent()"
+            )
+            accepted.append(f"({adopted} ~ ({shared}))" if shared else f"({adopted})")
+        selectors = " | ".join(accepted)
         self._cli_args = self._base_cli_args
         if selectors:
             immutable_heads = f"trunk() | tags() | (untracked_remote_bookmarks() ~ ({selectors}))"
