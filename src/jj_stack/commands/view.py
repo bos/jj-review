@@ -302,6 +302,16 @@ def _change_id_selector(*, context: CommandContext, value: str | None) -> str | 
         if divergent_change_id_from_error(error) == value:
             return value
         raise
+    except CliError as error:
+        # A change-ID selector that matched nothing is a selection that does not form a
+        # supported local stack, which is what the commit-ID form already reports. Only the
+        # base class means that: every subclass `resolve_commit` can raise is a different
+        # answer that keeps its own exit code and hint, including a stale workspace, an
+        # ambiguous prefix and an unparseable revset. No `reason`: this cannot tell a hidden
+        # change from a change ID that never existed.
+        if type(error) is not CliError:
+            raise
+        raise UnsupportedStackError(error.message) from error
     return value if change.change_id.startswith(value) else None
 
 

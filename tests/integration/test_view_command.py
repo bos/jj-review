@@ -322,7 +322,7 @@ def test_view_pr_selector_requires_a_linked_local_change(
     assert "PR #1 is not linked to any local change." in combined_output
 
 
-def test_view_refuses_an_abandoned_change_selected_by_commit_id(
+def test_view_refuses_an_abandoned_change_by_either_selector_form(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -342,6 +342,14 @@ def test_view_refuses_an_abandoned_change_selected_by_commit_id(
     assert exit_code == EXIT_NO_STACK
     assert "did not resolve to a visible commit" in captured.err
     assert f"jj new {change.commit_id}" in " ".join(captured.err.split())
+
+    change_id_exit = run_main(repo, config_path, "view", change.change_id)
+    change_id_captured = capsys.readouterr()
+
+    # The change-ID form stops earlier, in selector resolution, but reports the same
+    # category and the same sentence.
+    assert change_id_exit == EXIT_NO_STACK
+    assert "did not resolve to a visible commit" in change_id_captured.err
 
 
 def test_view_reports_missing_trunk_bookmark_in_empty_repo(

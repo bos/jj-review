@@ -100,9 +100,15 @@ def test_output_neutralizes_terminal_escapes_from_change_descriptions(
     keep them, so those are asserted here too.
     """
 
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setattr(console_module, "load_semantic_styles", lambda **_: None)
     subject = "feat \x1b]0;PWNED\x07 x"
     reset = "feat \x1bc x"
+    # A byte-exact pin needs a 4-bit sequence. Rich re-emits bold plus a 4-bit colour
+    # unchanged under every color system, while a 256-colour fixture such as
+    # `\x1b[38;5;5m` comes back downgraded as `\x1b[35m`. Widening this fixture means
+    # asserting `"\x1b[" in result` instead of equality.
     coloured = "\x1b[1;36mcoloured\x1b[0m"
 
     def render(*objects, color_mode: console_module.ColorMode = "never") -> str:
