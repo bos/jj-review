@@ -38,7 +38,7 @@ class TrackingStore:
         return cls(resolve_state_path(repo_root))
 
     def require_writable(self) -> Path:
-        """Ensure the data directory can be created and written, then return it."""
+        """Create the data directory when absent; the lock and writes prove it is usable."""
 
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)

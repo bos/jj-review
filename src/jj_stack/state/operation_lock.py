@@ -93,7 +93,10 @@ def acquire_operation_lock(
             return lock
         if time.monotonic() >= deadline:
             holder = read_operation_lock_holder(state_dir)
-            raise CliError(_operation_lock_busy_message(holder))
+            raise CliError(
+                _operation_lock_busy_message(state_dir, holder),
+                hint="Wait for that operation to finish, then rerun this command.",
+            )
         sleep_for = min(poll_interval, max(0.0, deadline - time.monotonic()))
         if sleep_for:
             time.sleep(sleep_for)
@@ -106,25 +109,30 @@ def try_acquire_operation_lock(
 ) -> OperationLock | None:
     """Try to acquire the repo operation lock without blocking."""
 
-    state_dir.mkdir(parents=True, exist_ok=True)
     lock_path = state_dir / LOCK_FILENAME
     holder_path = state_dir / HOLDER_FILENAME
-    lock_file = _open_lock_file(lock_path)
-    if not _try_lock_file(lock_file):
-        lock_file.close()
-        return None
-
     try:
-        holder = OperationLockHolder(
-            command=command,
-            pid=os.getpid(),
-            started_at=datetime.now(UTC).isoformat(),
-        )
-        _write_holder(holder_path, holder)
-    except BaseException:
-        _unlock_file(lock_file)
-        lock_file.close()
-        raise
+        state_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = _open_lock_file(lock_path)
+        if not _try_lock_file(lock_file):
+            lock_file.close()
+            return None
+        try:
+            holder = OperationLockHolder(
+                command=command,
+                pid=os.getpid(),
+                started_at=datetime.now(UTC).isoformat(),
+            )
+            _write_holder(holder_path, holder)
+        except BaseException:
+            _unlock_file(lock_file)
+            lock_file.close()
+            raise
+    except OSError as error:
+        raise CliError(
+            f"Could not use jj-stack data directory {state_dir}: {error}",
+            hint="Make the directory writable by your user, then rerun the command.",
+        ) from error
     return OperationLock(file=lock_file, holder=holder, holder_path=holder_path)
 
 
@@ -211,9 +219,9 @@ def _write_holder(holder_path: Path, holder: OperationLockHolder) -> None:
         raise
 
 
-def _operation_lock_busy_message(holder: OperationLockHolder | None) -> str:
+def _operation_lock_busy_message(state_dir: Path, holder: OperationLockHolder | None) -> str:
     if holder is None:
-        return "Another jj-stack operation is already running."
+        return f"Another jj-stack operation already holds {state_dir / LOCK_FILENAME}."
     return (
         f"Another jj-stack {holder.command} operation is already running "
         f"(PID {holder.pid}, started {holder.started_at})."

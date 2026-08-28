@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
+from jj_stack.errors import CliError
 from jj_stack.state import operation_lock as operation_lock_module
 from jj_stack.state.operation_lock import (
     acquire_operation_lock,
@@ -74,6 +76,22 @@ raise SystemExit(9)
     assert completed.returncode == 0
 
 
+def test_operation_lock_reports_a_state_directory_it_cannot_write(tmp_path: Path) -> None:
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    os.chmod(state_dir, 0o500)
+    if os.access(state_dir, os.W_OK):
+        pytest.skip("this user can write a read-only directory")
+    try:
+        with pytest.raises(CliError) as caught:
+            acquire_operation_lock(state_dir, command="cleanup", timeout=0.05)
+    finally:
+        os.chmod(state_dir, 0o700)
+
+    assert str(state_dir) in str(caught.value)
+    assert caught.value.hint is not None
+
+
 def test_operation_lock_releases_file_lock_when_holder_write_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -85,7 +103,7 @@ def test_operation_lock_releases_file_lock_when_holder_write_fails(
 
     monkeypatch.setattr(operation_lock_module, "_write_holder", _explode)
 
-    with pytest.raises(OSError, match="simulated holder write failure"):
+    with pytest.raises(CliError, match="simulated holder write failure"):
         try_acquire_operation_lock(state_dir, command="first")
 
     monkeypatch.undo()
