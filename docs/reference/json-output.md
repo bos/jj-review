@@ -64,7 +64,6 @@ Known change statuses are:
 - `draft`: open draft PR
 - `approved`: open PR whose latest review decision is approved
 - `changes_requested`: open PR with requested changes
-- `commented`: open PR with review comments but no approval or requested changes
 - `merged`: PR is merged and local cleanup may be needed
 - `closed`: PR is closed without being merged
 - `missing`: saved PR identity exists, but GitHub did not report that PR for the branch

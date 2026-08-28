@@ -51,7 +51,6 @@
         "draft",
         "approved",
         "changes_requested",
-        "commented",
         "merged",
         "closed",
         "missing",
