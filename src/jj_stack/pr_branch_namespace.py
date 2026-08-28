@@ -45,10 +45,12 @@ class PRBranchNamespace:
         first_line = change.description.splitlines()[0] if change.description else ""
         slug = _NON_ALNUM_RE.sub("-", first_line.lower()).strip("-") or _DEFAULT_SLUG
         suffix = f"-{short_change_id(change.change_id)}"
-        # The slug is the only variable-length part, and it is ASCII, so truncating it by
-        # characters keeps a long subject inside Git's limit without disturbing the suffix
-        # that ties the branch to its change.
-        slug_budget = max(_MAX_BRANCH_BYTES - len(self.branch_prefix) - len(suffix), 0)
+        # The slug is the only variable-length part, and both it and the suffix are ASCII,
+        # so truncating the slug by characters keeps a long subject inside Git's limit
+        # without disturbing the suffix that ties the branch to its change. The configured
+        # prefix may hold non-ASCII characters, which Git counts as the bytes they encode.
+        prefix_bytes = len(self.branch_prefix.encode())
+        slug_budget = max(_MAX_BRANCH_BYTES - prefix_bytes - len(suffix), 0)
         return f"{self.branch_prefix}{slug[:slug_budget].rstrip('-')}{suffix}"
 
     def contains(self, branch: str) -> bool:

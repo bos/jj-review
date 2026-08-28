@@ -6,7 +6,11 @@ import pytest
 
 from jj_stack.errors import CliError
 from jj_stack.models.stack import LocalCommit
-from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_matches_change
+from jj_stack.pr_branch_namespace import (
+    PRBranchNamespace,
+    current_pr_branch_namespace,
+    pr_branch_matches_change,
+)
 from jj_stack.stack.pr_branches import (
     ResolvedPRBranch,
     ensure_new_pr_branches_unclaimed,
@@ -46,6 +50,10 @@ def test_generate_pr_branch_truncates_a_subject_git_cannot_store() -> None:
     assert len(f"refs/heads/{branch}".encode()) <= 255
     assert branch.startswith("jj-stack/refactor-the-transport-layer")
     assert branch.endswith("-zvlywqkx")
+    assert "--" not in branch
+    # Git counts a ref's bytes, and a configured prefix may hold multibyte characters.
+    non_ascii_prefix = PRBranchNamespace("préfixe").generate_branch(change)
+    assert len(f"refs/heads/{non_ascii_prefix}".encode()) <= 255
 
 
 @pytest.mark.parametrize(
