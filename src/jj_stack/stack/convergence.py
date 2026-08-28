@@ -6,6 +6,7 @@ import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError
 from jj_stack.formatting import format_pr_label
+from jj_stack.jj.client import JjClient
 from jj_stack.models.github import GithubPR, GithubStack, GithubStackPR
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackedPR, TrackingState
@@ -127,7 +128,7 @@ def build_selected_convergence_plan(
             )
         )
 
-    _require_no_unpublished_edits(tuple(on_trunk))
+    _require_no_unpublished_edits(tuple(on_trunk), context.jj_client)
     _require_no_checked_out_merged_changes(tuple(on_trunk))
     submitted = _submitted_survivors(
         survivors=tuple(survivors),
@@ -441,19 +442,24 @@ def _unproven_rewrite_error(stack: GithubStack) -> CliError:
     )
 
 
-def _require_no_unpublished_edits(
-    changes: tuple[OnTrunkChange, ...],
-) -> None:
+def _require_no_unpublished_edits(changes: tuple[OnTrunkChange, ...], jj: JjClient) -> None:
     for item in changes:
-        if item.change is not None and item.change.holds_unpublished_edit(
-            (item.candidate.submitted_baseline.commit_id,)
-        ):
-            raise CliError(
-                t"Cannot remove merged {ui.change_id(item.candidate.change_id)} because it has "
-                t"unpublished local edits since submit.",
-                hint=t"Publish them with {ui.cmd('jj-stack submit')}, or drop them, then rerun "
-                t"sync.",
-            )
+        local, baseline = item.change, item.candidate.submitted_baseline.commit_id
+        if local is None or not local.holds_unpublished_edit((baseline,)):
+            continue
+        # An ordinary jj rewrite moves a commit ID without touching content, which commit
+        # identity alone cannot tell apart from an edit.
+        trees = jj.git_tree_ids((local.commit_id, baseline))
+        if trees[local.commit_id] == trees[baseline]:
+            continue
+        raise CliError(
+            t"Cannot remove merged {ui.change_id(item.candidate.change_id)} because it holds "
+            t"content that was never submitted, which its merged pull request cannot publish.",
+            hint=t"Inspect {ui.cmd(f'jj diff --from {baseline} --to {local.commit_id}')}, move "
+            t"anything still needed to a new change off trunk, then drop this copy with "
+            t"{ui.cmd(f'jj abandon {local.commit_id}')} and rerun sync, or keep it and forget "
+            t"its saved link with {ui.cmd(f'jj-stack unstack --local {local.change_id}')}.",
+        )
 
 
 def _finish_plan(

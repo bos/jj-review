@@ -545,6 +545,52 @@ def test_sync_preserves_unpublished_edits_to_an_active_stack_survivor(
     assert state_store.load() == state_before
 
 
+def test_sync_removes_a_merged_change_whose_content_matches_what_was_submitted(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """Content, not commit identity, decides whether removing a merged change discards work.
+
+    Ordinary `jj` use gives a merged change a new commit ID holding the same content, and
+    `submit` can never publish that difference once GitHub merged the pull request, so deciding
+    on identity left no command that could run. Content that really was never submitted must
+    still stop `sync`, naming commands that work.
+    """
+
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    (submitted,) = selected_stack(repo).changes
+    baseline = TrackingStore.for_repo(repo).load().submitted_baselines[submitted.change_id]
+    edit = repo / "later-local-work.txt"
+    write_file(edit, "never submitted\n")
+    run_command(["jj", "squash", "--into", submitted.change_id], repo)
+    edited = JjClient(repo).resolve_commit(submitted.change_id).commit_id
+    _squash_merge_pr(fake_repo, 1)
+
+    blocked = run_main(repo, config_path, "sync", submitted.change_id)
+    error = " ".join(capsys.readouterr().err.split())
+
+    assert blocked == 1
+    assert "jj-stack submit" not in error, error
+    assert f"jj diff --from {baseline.commit_id} --to {edited}" in error, error
+    assert f"jj abandon {edited}" in error, error
+    assert "jj-stack unstack --local" in error, error
+    assert JjClient(repo).resolve_commit(submitted.change_id).commit_id == edited
+
+    # Undoing the edit restores the submitted content but not the submitted commit ID, which is
+    # the state an ordinary rewrite between submit and merge also leaves behind.
+    edit.unlink()
+    run_command(["jj", "squash", "--into", submitted.change_id], repo)
+    rewritten = JjClient(repo).resolve_commit(submitted.change_id).commit_id
+    exit_code = run_main(repo, config_path, "sync", submitted.change_id)
+    captured = capsys.readouterr()
+
+    assert rewritten != baseline.commit_id
+    assert exit_code == 0, (captured.out, captured.err)
+    assert submitted.change_id not in TrackingStore.for_repo(repo).load().pr_identities
+
+
 def test_sync_rebases_a_conflicted_pr_before_stopping_its_update(
     tmp_path: Path,
     monkeypatch,
