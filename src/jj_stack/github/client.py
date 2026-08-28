@@ -8,7 +8,7 @@ import logging
 import time
 from collections.abc import Sequence
 from email.utils import parsedate_to_datetime
-from textwrap import dedent, indent
+from textwrap import dedent, indent, shorten
 
 import httpx2
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -78,7 +78,34 @@ class GithubClientError(SummarizedError):
 
         if self.status_code is None:
             return self.detail()
+        if reason := self._github_reason():
+            return f"GitHub {self.status_code}: {reason}"
         return f"GitHub {self.status_code}"
+
+    def _github_reason(self) -> str:
+        """Return GitHub's own explanation for the refusal, bounded in length.
+
+        A 422 body carries the only useful part of GitHub's answer: an invalid reviewer, a
+        branch protection refusal, "No commits between", or a pull request that already
+        exists for the head branch. A body that is not GitHub's JSON, such as a proxy's HTML
+        error page, has no explanation to quote.
+        """
+
+        try:
+            payload = json.loads(self.detail().removeprefix(f"{self.status_code} "))
+        except ValueError:
+            return ""
+        if not isinstance(payload, dict):
+            return ""
+        reasons = [payload.get("message")]
+        entries = payload.get("errors")
+        if isinstance(entries, list):
+            reasons.extend(entry.get("message") for entry in entries if isinstance(entry, dict))
+        return shorten(
+            ": ".join(reason for reason in reasons if isinstance(reason, str) and reason.strip()),
+            width=200,
+            placeholder=" ...",
+        )
 
     def user_facing_reason(self) -> str:
         """Render a concise failure reason suitable after an action prefix."""

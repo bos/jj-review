@@ -823,6 +823,27 @@ def test_user_facing_reason_reports_repo_not_found_for_404_without_raw_detail(
     assert "network" not in reason
 
 
+def test_user_facing_reason_quotes_githubs_own_explanation_for_a_refusal() -> None:
+    refused = GithubClientError(
+        'GitHub request failed: 422 {"message":"Validation Failed",'
+        '"errors":[{"resource":"PullRequest","code":"custom",'
+        '"message":"A pull request already exists for octo-org:jj-stack/x."}]}',
+        status_code=422,
+    )
+    html_page = GithubClientError(
+        "GitHub request failed: 422 <html><body>Blocked by proxy</body></html>",
+        status_code=422,
+    )
+
+    assert refused.user_facing_reason() == (
+        "request failed (GitHub 422: Validation Failed: A pull request already exists for "
+        "octo-org:jj-stack/x.)"
+    )
+    # A body that is not GitHub's JSON has no explanation to quote, and must not be pasted
+    # into the diagnostic.
+    assert html_page.user_facing_reason() == "request failed (GitHub 422)"
+
+
 def test_user_facing_reason_reports_auth_failure_for_401() -> None:
     error = GithubClientError("GitHub request failed: 401", status_code=401)
 
