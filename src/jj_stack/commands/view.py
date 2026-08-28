@@ -41,10 +41,7 @@ from jj_stack.formatting import (
     render_commit_blocks,
     render_commit_lines,
 )
-from jj_stack.github.error_messages import (
-    github_unavailable_message,
-    remote_unavailable_message,
-)
+from jj_stack.github.error_messages import remote_and_github_unavailable_messages
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import (
@@ -395,6 +392,7 @@ def _json_prepared_status(
             on_change=lambda _change, _github_available: progress.advance(),
             prepared_status=prepared_status,
         )
+    _warn_about_unavailable_github(result)
     return (
         _json_status_result(
             prepared_status=prepared_status,
@@ -403,6 +401,23 @@ def _json_prepared_status(
         ),
         result.incomplete,
     )
+
+
+def _warn_about_unavailable_github(result: StatusResult) -> tuple[ui.Message, ...]:
+    """Explain an unreachable remote or GitHub target on stderr in every output mode.
+
+    A `--json` caller reads a well-formed payload on stdout, so the reason for a non-zero
+    exit code has nowhere to go but stderr.
+    """
+
+    lines = remote_and_github_unavailable_messages(
+        github_error=result.github_error,
+        github_repo=result.github_repo,
+        remote=result.remote,
+        remote_error=result.remote_error,
+    )
+    _emit_lines(lines, emitter=console.warning, soft_wrap=False)
+    return lines
 
 
 def _view_json_payload(
@@ -443,30 +458,13 @@ def _render_prepared_status(
     prepared_status: PreparedStatus,
     verbose: bool,
 ) -> int:
-    selection_lines = (
-        ()
-        if prepared_status.prepared.remote is not None
-        else (remote_unavailable_message(remote_error=prepared_status.prepared.remote_error),)
-    )
-    if selection_lines:
-        _emit_lines(selection_lines, emitter=console.warning)
-
     progress_total = prepared_status.github_inspection_count()
     with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
         result = stream_status(
             on_change=lambda _change, _github_available: progress.advance(),
             prepared_status=prepared_status,
         )
-
-    github_message = github_unavailable_message(
-        github_error=result.github_error,
-        github_repo=result.github_repo,
-    )
-    github_lines = () if github_message is None else (github_message,)
-    if result.github_error is not None:
-        _emit_lines(github_lines, emitter=console.warning, soft_wrap=False)
-    else:
-        _emit_lines(github_lines)
+    warning_lines = _warn_about_unavailable_github(result)
 
     if not prepared_status.prepared.status_changes:
         _emit_lines(
@@ -486,7 +484,7 @@ def _render_prepared_status(
         render_status_summary_lines(
             client=prepared_status.prepared.client,
             result=result,
-            leading_separator=bool(selection_lines or github_lines),
+            leading_separator=bool(warning_lines),
             verbose=verbose,
             prerendered_blocks=prerendered_blocks,
         )

@@ -30,6 +30,7 @@ from jj_stack.commands._json_status import (
 from jj_stack.console import requested_color_mode
 from jj_stack.errors import EXIT_INCOMPLETE, CliError, ErrorMessage, error_message
 from jj_stack.formatting import format_pr_label
+from jj_stack.github.error_messages import remote_and_github_unavailable_messages
 from jj_stack.github.resolution import (
     GithubRepoAddress,
     GithubTarget,
@@ -135,6 +136,7 @@ def _run_list(
         if state.pr_identities
         else UnresolvedGithubTarget()
     )
+    github_repo = github_target.repo if isinstance(github_target, GithubTarget) else None
     ordered = _order_discovered_stacks(
         discovered,
         current_tracked_commit_id=current_tracked_commit_id,
@@ -147,10 +149,7 @@ def _run_list(
     )
     duplicate_branch_names = frozenset(duplicate_branches)
     orphan_rows = tuple(
-        _build_orphan_row(
-            orphan,
-            repo=github_target.repo if isinstance(github_target, GithubTarget) else None,
-        )
+        _build_orphan_row(orphan, repo=github_repo)
         for orphan in enumerate_orphaned_records(state, ordered)
     )
     if not ordered:
@@ -210,10 +209,18 @@ def _run_list(
         github_target=github_target,
         prepared_discovered=prepared_discovered,
     )
+    github_repo_error = github_target.github_repo_error or github_error
+    for message in remote_and_github_unavailable_messages(
+        github_error=github_repo_error,
+        github_repo=github_repo,
+        remote=github_target.remote,
+        remote_error=github_target.remote_error,
+    ):
+        console.warning(message, soft_wrap=False)
     rows = tuple(
         _build_row(
-            github_error=github_target.github_repo_error or github_error,
-            github_repo=(github_target.repo if isinstance(github_target, GithubTarget) else None),
+            github_error=github_repo_error,
+            github_repo=github_repo,
             is_current=item.current,
             prepared_stack=item.prepared,
             pr_lookups=pr_lookups,

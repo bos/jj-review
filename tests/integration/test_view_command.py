@@ -437,6 +437,15 @@ def test_view_preserves_saved_identity_when_github_lookup_fails(
     assert "documentation_url" not in captured.out
     assert "saved PR #1" in captured.out
 
+    exit_code = run_main(repo, config_path, "view", "--json")
+    captured = capsys.readouterr()
+
+    # `--json` keeps stdout parseable, so stderr is the only place the reason for the
+    # incomplete exit code can go.
+    assert exit_code == EXIT_INCOMPLETE
+    assert_json_output_matches_schema(json.loads(captured.out), "view")
+    assert "GitHub unavailable for octo-org/stacked-prs:" in " ".join(captured.err.split())
+
 
 def test_view_stays_local_when_github_is_unavailable_and_no_cache_exists(
     tmp_path: Path,
