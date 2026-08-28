@@ -374,7 +374,7 @@ def edit_prs_in_editor(
         if os.name == "nt"
         else shlex.quote(str(document_path))
     )
-    retry = f"--edit {quoted_document_path}"
+    retry = f"--edit={quoted_document_path}"
     recovery_hint = t"Reopen the saved editor file with {ui.cmd(retry)}."
     try:
         completed = subprocess.run(

@@ -287,7 +287,7 @@ def test_edit_aborts_when_editor_exits_nonzero(monkeypatch, tmp_path: Path) -> N
             document_path=document_path,
         )
 
-    assert f"--edit {document_path}" in str(caught.value)
+    assert f"--edit={document_path}" in str(caught.value)
 
 
 def _live_pr(*, body: str, title: str) -> GithubPR:

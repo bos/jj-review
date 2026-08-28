@@ -2681,7 +2681,7 @@ def test_submit_edit_malformed_document_aborts_before_mutation(
     assert exit_code == 1
     assert "missing change" in captured.err
     assert "Reopen the saved editor file with --edit" in captured.err
-    saved_edit = re.search(r"--edit (\S+\.md)", captured.err)
+    saved_edit = re.search(r"--edit=(\S+\.md)", captured.err)
     assert saved_edit is not None
     Path(saved_edit.group(1)).unlink()
     empty_state = TrackingStore.for_repo(repo).load()
