@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import httpx2
 import pytest
@@ -52,6 +53,45 @@ def test_github_client_retries_429_responses_with_retry_after() -> None:
 
     assert asyncio.run(run_test()) == "octo-org/stacked-prs"
     assert attempts == 2
+
+
+def test_github_client_caps_and_announces_a_long_rate_limit_wait(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    slept: list[float] = []
+    attempts = 0
+
+    async def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx2.Response(
+                429,
+                headers={"Retry-After": "3600"},
+                json={"message": "API rate limit exceeded"},
+                request=request,
+            )
+        return httpx2.Response(
+            200,
+            json={"default_branch": "main", "full_name": "octo-org/stacked-prs"},
+            request=request,
+        )
+
+    async def run_test() -> str:
+        async with _github_client(handler) as client:
+            return (await client.get_repo()).full_name
+
+    with caplog.at_level(logging.WARNING, logger="jj_stack.github.client"):
+        assert asyncio.run(run_test()) == "octo-org/stacked-prs"
+
+    assert slept == [60.0]
+    assert "GitHub rate limit reached" in caplog.text
 
 
 def test_github_client_retries_secondary_rate_limits_without_retry_after() -> None:

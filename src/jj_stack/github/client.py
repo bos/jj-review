@@ -33,7 +33,8 @@ _GRAPHQL_PR_BATCH_SIZE = 25
 
 _DEFAULT_RATE_LIMIT_RETRIES = 3
 _DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 1.0
-_DEFAULT_MAX_RATE_LIMIT_BACKOFF_SECONDS = 8.0
+_MAX_RATE_LIMIT_WAIT_SECONDS = 60.0
+_RATE_LIMIT_NOTICE_SECONDS = 5.0
 
 
 class GithubClientError(SummarizedError):
@@ -861,6 +862,16 @@ class GithubClient:
                 attempt + 1,
                 retry_after_seconds,
             )
+            if retry_after_seconds >= _RATE_LIMIT_NOTICE_SECONDS:
+                # Without this the user sees nothing but a stalled spinner and cannot tell
+                # a rate-limit wait from a hang.
+                logger.warning(
+                    "GitHub rate limit reached. Waiting %.0fs before retry %d of %d; "
+                    "interrupt and rerun later if the wait is too long.",
+                    retry_after_seconds,
+                    attempt + 1,
+                    _DEFAULT_RATE_LIMIT_RETRIES,
+                )
             await asyncio.sleep(retry_after_seconds)
 
         raise AssertionError("Rate-limit retry loop did not return a response.")
@@ -955,18 +966,17 @@ class GithubClient:
         if attempt >= _DEFAULT_RATE_LIMIT_RETRIES:
             return None
 
-        retry_after_seconds = _parse_retry_after_header(response.headers.get("Retry-After"))
-        if retry_after_seconds is not None:
-            return retry_after_seconds
-
-        reset_after_seconds = _seconds_until_rate_limit_reset(
-            response.headers.get("X-RateLimit-Reset")
-        )
-        if reset_after_seconds is not None:
-            return reset_after_seconds
-
-        backoff_seconds = _DEFAULT_RATE_LIMIT_BACKOFF_SECONDS * (2**attempt)
-        return min(backoff_seconds, _DEFAULT_MAX_RATE_LIMIT_BACKOFF_SECONDS)
+        wait_seconds = _parse_retry_after_header(response.headers.get("Retry-After"))
+        if wait_seconds is None:
+            wait_seconds = _seconds_until_rate_limit_reset(
+                response.headers.get("X-RateLimit-Reset")
+            )
+        if wait_seconds is None:
+            wait_seconds = _DEFAULT_RATE_LIMIT_BACKOFF_SECONDS * (2**attempt)
+        # GitHub's primary limit resets up to an hour out, and it asks to be waited out
+        # verbatim. Honouring that would sleep for hours across the retries, so cap every
+        # wait and let the retries run out instead.
+        return min(wait_seconds, _MAX_RATE_LIMIT_WAIT_SECONDS)
 
 
 def _is_retryable_rate_limit(response: httpx2.Response) -> bool:
