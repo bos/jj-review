@@ -199,7 +199,12 @@ def prepare_status(
         # visible changes are stack members, so refuse both selector forms alike. `checkout`
         # selects its own path because it re-materializes a hidden imported snapshot on purpose.
         selected_revset = ui.revset(selected_path.stack.selected_revset)
-        raise CliError(t"Revset {selected_revset} did not resolve to a visible commit.")
+        restore = ui.cmd(f"jj new {selected_path.stack.head.commit_id}")
+        raise UnsupportedStackError(
+            t"Revset {selected_revset} did not resolve to a visible commit.",
+            hint=t"Restore it with {restore}, or select a visible change.",
+            reason="hidden_commit",
+        )
     prepared = prepare_stack_for_status(
         context=context,
         remote=github_target.remote,

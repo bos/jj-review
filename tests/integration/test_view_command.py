@@ -339,8 +339,10 @@ def test_view_refuses_an_abandoned_change_selected_by_commit_id(
     exit_code = run_main(repo, config_path, "view", change.commit_id)
     captured = capsys.readouterr()
 
-    assert exit_code == EXIT_FAILURE
+    # The same category, and so the same exit code, as the publish gate's refusal.
+    assert exit_code == EXIT_NO_STACK
     assert "did not resolve to a visible commit" in captured.err
+    assert f"jj new {change.commit_id}" in " ".join(captured.err.split())
 
 
 def test_view_reports_missing_trunk_bookmark_in_empty_repo(
