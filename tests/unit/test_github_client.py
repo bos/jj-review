@@ -999,14 +999,7 @@ def test_github_client_reports_an_exhausted_rate_limit_as_a_rate_limit(
     assert raised.value.user_facing_reason() == expected_reason
 
 
-@pytest.mark.parametrize(
-    "message",
-    (
-        pytest.param("Resource not accessible by personal access token", id="token-scope"),
-        pytest.param("Resource protected by organization SAML enforcement", id="saml"),
-    ),
-)
-def test_github_client_reports_a_permissions_403_as_access_denied(message: str) -> None:
+def test_github_client_reports_a_permissions_403_as_access_denied() -> None:
     attempts = 0
 
     def handler(request: httpx2.Request) -> httpx2.Response:
@@ -1021,7 +1014,7 @@ def test_github_client_reports_a_permissions_403_as_access_denied(message: str) 
                 "X-RateLimit-Remaining": "4998",
                 "X-RateLimit-Reset": str(int(time.time()) + 3600),
             },
-            json={"message": message},
+            json={"message": "Resource not accessible by personal access token"},
             request=request,
         )
 

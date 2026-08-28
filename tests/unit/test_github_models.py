@@ -74,17 +74,6 @@ def test_github_stack_splits_history_and_rejects_nonprefix_history() -> None:
         GithubStack.model_validate({"number": 7, "pull_requests": [active, historical]})
 
 
-def test_github_stack_has_exactly_one_model_level_validator() -> None:
-    # The client tells "merged members are out of order" apart from a response-shape change by
-    # the error being reported against the model rather than a field. A second model-level
-    # validator would be indistinguishable, and its failures would be silently skipped.
-    validators = GithubStack.__pydantic_decorators__.model_validators
-
-    assert [(name, entry.info.mode) for name, entry in validators.items()] == [
-        ("_validate_historical_prefix", "after")
-    ]
-
-
 def test_github_stack_defaults_missing_merge_state_to_active() -> None:
     stack = GithubStack.model_validate(
         {

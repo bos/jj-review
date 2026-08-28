@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -39,7 +38,7 @@ from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubRepo
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace
-from jj_stack.state.operation_lock import acquire_operation_lock
+from jj_stack.state.operation_lock import operation_lock_if_mutating
 from jj_stack.ui import Message
 
 HELP = "Check repo setup and GitHub connectivity"
@@ -67,15 +66,14 @@ def doctor(
         cli_args=cli_args,
         debug=debug,
     )
-    operation = (
-        acquire_operation_lock(
-            context.state_store.require_writable(),
+    with (
+        operation_lock_if_mutating(
+            context.state_store,
             command="doctor --fix",
-        )
-        if fix
-        else nullcontext()
-    )
-    with operation, console.spinner(description="Running checks"):
+            mutating=fix,
+        ),
+        console.spinner(description="Running checks"),
+    ):
         results = asyncio.run(_run_checks(context=context, fix=fix))
     console.output(_results_table(results))
     return 1 if any(r.status == "fail" for r in results) else 0

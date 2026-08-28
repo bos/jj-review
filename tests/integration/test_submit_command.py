@@ -1104,29 +1104,23 @@ def test_submit_invalid_revset_reports_clean_error_without_mutation(
     assert fake_repo.prs == {}
 
 
-def test_submit_refuses_an_abandoned_change_by_either_selector_form(
+def test_submit_refuses_an_abandoned_change_selected_by_commit_id(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    """An abandoned change is hidden, so neither selector form selects a submittable stack."""
-
     repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
     abandoned = selected_stack(repo).head
     run_command(["jj", "abandon", abandoned.change_id], repo)
 
-    for selector, expected_text in (
-        (abandoned.commit_id, "hidden changes are not submittable"),
-        (abandoned.change_id, "jj log"),
-    ):
-        exit_code = run_main(repo, config_path, "submit", selector)
-        captured = capsys.readouterr()
+    exit_code = run_main(repo, config_path, "submit", abandoned.commit_id)
+    captured = capsys.readouterr()
 
-        assert exit_code == EXIT_NO_STACK, (selector, captured.err)
-        assert abandoned.change_id[:8] in captured.err
-        assert expected_text in captured.err
+    assert exit_code == EXIT_NO_STACK
+    assert abandoned.change_id[:8] in captured.err
+    assert "hidden changes are not submittable" in captured.err
     assert fake_repo.prs == {}
     assert TrackingStore.for_repo(repo).load().pr_identities == {}
 

@@ -10,7 +10,6 @@ pull requests, delete PR branches, or modify local changes.
 from __future__ import annotations
 
 import asyncio
-from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,7 +36,7 @@ from jj_stack.stack.selection import (
     resolve_linked_change_for_pr,
     resolve_selected_revset,
 )
-from jj_stack.state.operation_lock import acquire_operation_lock
+from jj_stack.state.operation_lock import operation_lock_if_mutating
 from jj_stack.ui import plain_text
 
 HELP = "Separate a GitHub stack while leaving its pull requests open"
@@ -86,15 +85,11 @@ def unstack(
         debug=debug,
     )
     command = "unstack --local" if local else "unstack"
-    operation = (
-        nullcontext()
-        if dry_run
-        else acquire_operation_lock(
-            context.state_store.require_writable(),
-            command=command,
-        )
-    )
-    with operation:
+    with operation_lock_if_mutating(
+        context.state_store,
+        command=command,
+        mutating=not dry_run,
+    ):
         if local:
             result = _run_local_unstack(
                 context=context,

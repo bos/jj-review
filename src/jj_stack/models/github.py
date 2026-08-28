@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic_core import PydanticCustomError
 
 CheckRollupStatus = Literal["failed", "passed", "pending"]
 
@@ -77,10 +78,6 @@ class GithubStack(BaseModel):
     def active_pr_numbers(self) -> tuple[int, ...]:
         return tuple(pr.number for pr in self.prs if not pr.is_historical)
 
-    # `list_stacks` in github/client.py skips a stack that fails this rule, recognizing it as
-    # the only pydantic error reported against the model as a whole. A second model-level
-    # validator here would be reported identically and silently skipped too; see
-    # test_github_stack_has_exactly_one_model_level_validator.
     @model_validator(mode="after")
     def _validate_historical_prefix(self) -> Self:
         active_seen = False
@@ -88,7 +85,10 @@ class GithubStack(BaseModel):
             if not pr.is_historical:
                 active_seen = True
             elif active_seen:
-                raise ValueError("merged pull requests must be at the bottom of the stack")
+                raise PydanticCustomError(
+                    "github_stack_member_order",
+                    "merged pull requests must be at the bottom of the stack",
+                )
         return self
 
 

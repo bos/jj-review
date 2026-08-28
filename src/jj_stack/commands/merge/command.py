@@ -44,7 +44,7 @@ from jj_stack.stack.selection import (
     resolve_selected_revset,
 )
 from jj_stack.stack.status import prepare_status
-from jj_stack.state.operation_lock import acquire_operation_lock
+from jj_stack.state.operation_lock import operation_lock_if_mutating
 
 from .github_stack import (
     build_async_merge_plan,
@@ -73,9 +73,10 @@ def merge(
         cli_args=cli_args,
         debug=debug,
     )
-    with acquire_operation_lock(
-        context.state_store.require_writable(),
+    with operation_lock_if_mutating(
+        context.state_store,
         command="merge",
+        mutating=not dry_run,
     ):
         return _run_merge(
             context=context,

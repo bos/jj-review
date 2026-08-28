@@ -93,7 +93,7 @@ from jj_stack.stack.pr_facts import (
 )
 from jj_stack.stack.status import PreparedStatus, prepare_status, status_preparation_cli_error
 from jj_stack.stack.trunk_evidence import classify_commit_ancestries
-from jj_stack.state.operation_lock import acquire_operation_lock
+from jj_stack.state.operation_lock import operation_lock_if_mutating
 from jj_stack.ui import Message
 
 HELP = "Apply completed GitHub merges locally and refresh the pull requests that remain"
@@ -111,9 +111,10 @@ def sync(
     if all_ and revset is not None:
         raise UsageError(t"Use either {ui.cmd('jj-stack sync --all')} or a revset, not both.")
     context = bootstrap_context(repo=repo, cli_args=cli_args, debug=debug)
-    with acquire_operation_lock(
-        context.state_store.require_writable(),
+    with operation_lock_if_mutating(
+        context.state_store,
         command="sync --all" if all_ else "sync",
+        mutating=not dry_run,
     ):
         if all_:
             return _run_all_convergence(context=context, dry_run=dry_run)

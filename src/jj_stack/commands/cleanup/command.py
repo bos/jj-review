@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 
@@ -54,9 +53,7 @@ from jj_stack.stack.pr_facts import (
 from jj_stack.stack.repo import observe_repo_paths
 from jj_stack.stack.selected import select_stack_path
 from jj_stack.stack.selection import resolve_pr_reference
-from jj_stack.state.operation_lock import (
-    acquire_operation_lock,
-)
+from jj_stack.state.operation_lock import operation_lock_if_mutating
 from jj_stack.ui import plain_text
 
 from .shared import (
@@ -111,15 +108,11 @@ def cleanup(
         cli_args=cli_args,
         debug=debug,
     )
-    operation = (
-        nullcontext()
-        if dry_run
-        else acquire_operation_lock(
-            context.state_store.require_writable(),
-            command="cleanup",
-        )
-    )
-    with operation:
+    with operation_lock_if_mutating(
+        context.state_store,
+        command="cleanup",
+        mutating=not dry_run,
+    ):
         return _run_cleanup_command(
             close=close,
             context=context,

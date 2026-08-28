@@ -1598,17 +1598,16 @@ def _revisions_from_graphql(
 def _is_member_ordering_failure(error: GithubClientError) -> bool:
     """Whether a stack payload failed only the rule that merged members sit at the bottom.
 
-    That rule is the one `model_validator(mode="after")` on `GithubStack`, so it is the only
-    failure pydantic reports as a `value_error` against the model as a whole. A change in
-    GitHub's response shape reports a field error instead, and must stay fatal for the whole
-    listing rather than emptying it.
+    A change in GitHub's response shape reports another error code and must stay fatal for the
+    whole listing rather than emptying it.
     """
 
     cause = error.__cause__
     if not isinstance(cause, ValidationError):
         return False
-    return all(
-        detail["type"] == "value_error" and detail["loc"] == () for detail in cause.errors()
+    errors = cause.errors()
+    return bool(errors) and all(
+        detail["type"] == "github_stack_member_order" for detail in errors
     )
 
 

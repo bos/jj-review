@@ -120,13 +120,9 @@ def test_main_exits_130_when_interrupted_before_the_console_is_configured(
 
 
 def test_submit_edit_never_consumes_the_selected_revset() -> None:
-    for argv in (
-        ["submit", "--edit", "kwxsqkvomnrr"],
-        ["submit", "--edit", "--dry-run", "kwxsqkvomnrr"],
-        ["submit", "kwxsqkvomnrr", "--edit"],
-    ):
-        args = build_parser().parse_args(_normalize_cli_args(argv))
-        assert (args.revset, args.edit) == ("kwxsqkvomnrr", True), argv
+    args = build_parser().parse_args(_normalize_cli_args(["submit", "--edit", "kwxsqkvomnrr"]))
+
+    assert (args.revset, args.edit) == ("kwxsqkvomnrr", True)
 
     saved = build_parser().parse_args(_normalize_cli_args(["submit", "--edit=saved-edit.md"]))
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from jj_stack.errors import CliError
 from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_MARKER
-from jj_stack.state.store import TrackingStore, resolve_state_path
+from jj_stack.state.store import TrackingStore
 
 from ..support.integration_helpers import (
     commit_file,
@@ -62,7 +62,7 @@ def test_cleanup_dry_run_leaves_an_unadopted_repo_untouched(
 
     assert exit_code == 0
     assert "No cleanup actions needed." in captured.out
-    assert not resolve_state_path(repo).parent.exists()
+    assert not TrackingStore.for_repo(repo).is_in_use()
 
 
 def test_cleanup_change_only_removes_leftovers_for_selected_stack(

@@ -8,6 +8,8 @@ import os
 import sys
 import tempfile
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +17,7 @@ from types import TracebackType
 from typing import BinaryIO
 
 from jj_stack.errors import CliError
+from jj_stack.state.store import TrackingStore
 
 LOCK_FILENAME = "operation.lock"
 HOLDER_FILENAME = "operation-lock.json"
@@ -100,6 +103,22 @@ def acquire_operation_lock(
         sleep_for = min(poll_interval, max(0.0, deadline - time.monotonic()))
         if sleep_for:
             time.sleep(sleep_for)
+
+
+@contextmanager
+def operation_lock_if_mutating(
+    state_store: TrackingStore,
+    *,
+    command: str,
+    mutating: bool,
+) -> Iterator[None]:
+    """Serialize a mutating command without creating state for a read-only run."""
+
+    if not mutating:
+        yield
+        return
+    with acquire_operation_lock(state_store.require_writable(), command=command):
+        yield
 
 
 def try_acquire_operation_lock(

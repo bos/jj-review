@@ -77,7 +77,7 @@ from jj_stack.stack.selection import (
     parse_comma_separated_flag_values,
     resolve_selected_revset,
 )
-from jj_stack.state.operation_lock import acquire_operation_lock
+from jj_stack.state.operation_lock import operation_lock_if_mutating
 
 from . import auto_close
 from .auto_close import retarget_pr_bases_before_branch_push
@@ -168,9 +168,10 @@ def submit(
         revset=revset,
         team_reviewers=team_reviewers,
     )
-    with acquire_operation_lock(
-        context.state_store.require_writable(),
+    with operation_lock_if_mutating(
+        context.state_store,
         command="submit",
+        mutating=not dry_run,
     ):
         result = run_submit(
             context=context,

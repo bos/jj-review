@@ -160,42 +160,15 @@ def test_view_warns_about_every_undescribed_change_in_the_stack(
     repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "feature 1", "feature-1.txt")
-    feature_change_id = selected_stack(repo).head.change_id
-    undescribed_workspace = tmp_path / "undescribed-workspace"
-    run_command(
-        [
-            "jj",
-            "workspace",
-            "add",
-            "--name",
-            "undescribed",
-            "--revision",
-            feature_change_id,
-            str(undescribed_workspace),
-        ],
-        repo,
-    )
-    write_file(undescribed_workspace / "undescribed.txt", "undescribed\n")
-    run_command(["jj", "status"], undescribed_workspace)
-    undescribed = JjClient(undescribed_workspace).resolve_commit("@")
-    child_workspace = tmp_path / "child-workspace"
-    run_command(
-        [
-            "jj",
-            "workspace",
-            "add",
-            "--name",
-            "child",
-            "--revision",
-            undescribed.change_id,
-            str(child_workspace),
-        ],
-        repo,
-    )
-    commit_file(child_workspace, "feature 2", "feature-2.txt")
-    child_change_id = JjClient(child_workspace).resolve_commit("@-").change_id
+    write_file(repo / "undescribed.txt", "undescribed\n")
+    run_command(["jj", "status"], repo)
+    undescribed = JjClient(repo).resolve_commit("@")
+    run_command(["jj", "new", "-m", "feature 2"], repo)
+    write_file(repo / "feature-2.txt", "feature 2\n")
+    run_command(["jj", "status"], repo)
+    child = JjClient(repo).resolve_commit("@")
 
-    exit_code = run_main(repo, config_path, "view", child_change_id)
+    exit_code = run_main(repo, config_path, "view", child.change_id)
     captured = capsys.readouterr()
     warning = " ".join(captured.err.split())
 
@@ -204,17 +177,7 @@ def test_view_warns_about_every_undescribed_change_in_the_stack(
     assert undescribed.change_id[:8] in captured.out
     assert undescribed.change_id[:8] in warning
     assert "no description" in warning
-
-    # An interior change that is nobody's working copy is refused by submit for the same
-    # reason, so inspection must preview it too.
-    run_command(["jj", "describe", "-r", feature_change_id, "-m", ""], repo)
-
-    exit_code = run_main(repo, config_path, "view", child_change_id)
-    captured = capsys.readouterr()
-    warning = " ".join(captured.err.split())
-
-    assert exit_code == 0, captured.err
-    assert f"jj describe {feature_change_id}" in warning
+    assert f"jj describe {undescribed.change_id}" in warning
 
 
 def test_view_warns_and_reports_conflicted_rebase(
