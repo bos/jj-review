@@ -293,9 +293,9 @@ def _pr_sync_plans(
     team_reviewers = (
         config.team_reviewers if options.team_reviewers is None else options.team_reviewers
     )
-    explicit_metadata = any(
-        value is not None for value in (options.labels, options.reviewers, options.team_reviewers)
-    )
+    # An explicitly empty override, such as --reviewers '', asks for no reviewers rather
+    # than for the configured labels and team reviewers to be written to an unchanged PR.
+    explicit_metadata = bool(options.labels or options.reviewers or options.team_reviewers)
     base_branches = (
         bottom_base_branch,
         *(change.branch for change in prepared_changes[:-1]),

@@ -2472,6 +2472,10 @@ def test_submit_unchanged_rerun_skips_pr_metadata_writes(
     assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
 
+    # An explicitly empty reviewer override is not a request to write configured metadata.
+    assert run_main(repo, config_path, "submit", "--reviewers", "") == 0
+    capsys.readouterr()
+
     assert metadata_write_calls == []
 
 
