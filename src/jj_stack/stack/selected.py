@@ -265,7 +265,9 @@ def _project_rows(
         if candidate_commit_ids is None or commit.commit_id in candidate_commit_ids
     )
     if not candidates:
-        raise CliError(
+        # A selector that lands on no visible candidate selects no stack, whether the change is
+        # hidden or never existed, so it carries the stack-selection exit code.
+        raise UnsupportedStackError(
             t"Revset {ui.revset(selected_revset)} did not resolve to a visible commit."
         )
     current_working_copy_commit_id = (
