@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 
@@ -109,10 +110,15 @@ def cleanup(
         cli_args=cli_args,
         debug=debug,
     )
-    with acquire_operation_lock(
-        context.state_store.require_writable(),
-        command="cleanup",
-    ):
+    operation = (
+        nullcontext()
+        if dry_run
+        else acquire_operation_lock(
+            context.state_store.require_writable(),
+            command="cleanup",
+        )
+    )
+    with operation:
         return _run_cleanup_command(
             close=close,
             context=context,

@@ -4,10 +4,11 @@ from pathlib import Path
 
 from jj_stack.errors import CliError
 from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_MARKER
-from jj_stack.state.store import TrackingStore
+from jj_stack.state.store import TrackingStore, resolve_state_path
 
 from ..support.integration_helpers import (
     commit_file,
+    init_fake_github_repo,
     init_fake_github_repo_with_submitted_feature,
     init_fake_github_repo_with_submitted_stack,
     run_command,
@@ -44,6 +45,24 @@ def test_cleanup_removes_closed_pr_after_local_change_is_abandoned(
     assert not any(
         ref.startswith("refs/heads/jj-stack/") for ref in remote_refs(fake_repo.git_dir)
     )
+
+
+def test_cleanup_dry_run_leaves_an_unadopted_repo_untouched(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    capsys.readouterr()
+
+    exit_code = run_main(repo, config_path, "cleanup", "--dry-run")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "No cleanup actions needed." in captured.out
+    assert not resolve_state_path(repo).parent.exists()
 
 
 def test_cleanup_change_only_removes_leftovers_for_selected_stack(
