@@ -2105,6 +2105,36 @@ def test_submit_accepts_stack_forked_from_trunk_ancestor(
     assert read_remote_ref(fake_repo.git_dir, bookmark) == stack.changes[-1].commit_id
 
 
+def test_submit_accepts_a_stack_based_on_a_merge_commit_at_trunk(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """GitHub's default merge method leaves a merge commit at the tip of the default branch.
+
+    The trunk change is the stack's base, not a stack member, so its shape must not decide
+    whether the stack above it can be submitted.
+    """
+
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    fake_repo.apply_merge_commit((fake_repo.prs[1],))
+    run_command(["jj", "git", "fetch", "--remote", "origin"], repo)
+    trunk_parents = run_command(
+        ["jj", "log", "--no-graph", "-r", "trunk()", "-T", "parents.len()"],
+        repo,
+    ).stdout.strip()
+    assert trunk_parents == "2"
+    run_command(["jj", "new", "-r", "trunk()"], repo)
+    commit_file(repo, "next feature", "next-feature.txt")
+
+    exit_code = run_main(repo, config_path, "submit")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0, captured.err
+    assert fake_repo.prs[2].base_ref == "main"
+
+
 def test_submit_open_marks_existing_draft_prs_ready_for_review(
     tmp_path: Path,
     monkeypatch,

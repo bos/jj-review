@@ -265,7 +265,12 @@ def _project_rows(
         else None
     )
     path_commits = tuple(row.commit for row in rows if row.is_path)
-    if not inspection_mode and any(len(commit.parents) > 1 for commit in path_commits):
+    # trunk() and its first-parent ancestors are the stack's base rather than stack members, so
+    # the merge commit GitHub's default merge method leaves at the tip of the default branch must
+    # not fail the selected stack's shape rules.
+    if not inspection_mode and any(
+        len(row.commit.parents) > 1 for row in rows if row.is_path and not row.is_trunk_path
+    ):
         raise UnsupportedStackError(
             "Unsupported stack shape: merge changes are not supported.",
             reason="merge_commit",
