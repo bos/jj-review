@@ -179,7 +179,9 @@ class GithubClient:
 
     async def get_repo(self) -> GithubRepo:
         response = await self._request("GET", self._repo_path)
-        return GithubRepo.model_validate(self._expect_success(response))
+        return GithubRepo.model_validate(
+            self._expect_json_payload(response, response_name="repo lookup")
+        )
 
     async def list_branches_for_head_commit(self, *, commit_sha: str) -> tuple[str, ...]:
         """List branches whose head is exactly the given commit."""
@@ -350,7 +352,7 @@ class GithubClient:
             f"{self._repo_path}/stacks/{stack_number}/unstack",
         )
         if response.status_code == 204:
-            self._expect_no_content(response)
+            self._expect_success(response)
             return None
         return _validate_stack_payload(
             self._expect_json_payload(response, response_name="unstack"),
@@ -366,7 +368,9 @@ class GithubClient:
             "GET",
             f"{self._repo_path}/pulls/{pr_number}",
         )
-        return GithubPR.model_validate(self._expect_success(response))
+        return GithubPR.model_validate(
+            self._expect_json_payload(response, response_name="pull request lookup")
+        )
 
     async def get_prs_by_numbers(
         self,
@@ -473,7 +477,9 @@ class GithubClient:
                 "title": title,
             },
         )
-        return GithubPR.model_validate(self._expect_success(response))
+        return GithubPR.model_validate(
+            self._expect_json_payload(response, response_name="pull request creation")
+        )
 
     async def list_pr_reviews(
         self,
@@ -597,7 +603,9 @@ class GithubClient:
             f"{self._repo_path}/issues/{issue_number}/comments",
             json={"body": body},
         )
-        return GithubIssueComment.model_validate(self._expect_success(response))
+        return GithubIssueComment.model_validate(
+            self._expect_json_payload(response, response_name="issue comment creation")
+        )
 
     async def update_issue_comment(
         self,
@@ -610,7 +618,9 @@ class GithubClient:
             f"{self._repo_path}/issues/comments/{comment_id}",
             json={"body": body},
         )
-        return GithubIssueComment.model_validate(self._expect_success(response))
+        return GithubIssueComment.model_validate(
+            self._expect_json_payload(response, response_name="issue comment update")
+        )
 
     async def delete_issue_comment(
         self,
@@ -621,7 +631,7 @@ class GithubClient:
             "DELETE",
             f"{self._repo_path}/issues/comments/{comment_id}",
         )
-        self._expect_no_content(response)
+        self._expect_success(response)
 
     async def request_reviewers(
         self,
@@ -664,7 +674,9 @@ class GithubClient:
             f"{self._repo_path}/pulls/{pr_number}",
             json={name: value for name, value in fields.items() if value is not None},
         )
-        return GithubPR.model_validate(self._expect_success(response))
+        return GithubPR.model_validate(
+            self._expect_json_payload(response, response_name="pull request update")
+        )
 
     async def mark_pr_ready_for_review(
         self,
@@ -752,7 +764,10 @@ class GithubClient:
                     status_code=409,
                 ) from error
         else:
-            payload = self._expect_success(response)
+            payload = self._expect_json_payload(
+                response,
+                response_name="stack merge submission",
+            )
         return GithubStackMergeSubmission(
             already_pending=already_pending,
             result=_validate_stack_merge_payload(payload),
@@ -768,7 +783,9 @@ class GithubClient:
             "GET",
             f"{self._repo_path}/pulls/{pr_number}/merge-async/{operation_uuid}",
         )
-        return _validate_stack_merge_payload(self._expect_success(response))
+        return _validate_stack_merge_payload(
+            self._expect_json_payload(response, response_name="stack merge poll")
+        )
 
     async def close_pr(
         self,
@@ -855,7 +872,7 @@ class GithubClient:
                 "variables": variables or {},
             },
         )
-        payload = self._expect_success(response)
+        payload = self._expect_json_payload(response, response_name=response_name)
         if not isinstance(payload, dict):
             raise GithubClientError(f"GitHub {response_name} response was not a JSON object.")
         errors = payload.get("errors")
@@ -866,20 +883,9 @@ class GithubClient:
             raise GithubClientError(f"GitHub {response_name} response was missing `data`.")
         return data
 
-    def _expect_success(self, response: httpx2.Response) -> object:
-        try:
-            response.raise_for_status()
-        except httpx2.HTTPStatusError as error:
-            raise GithubClientError(
-                f"GitHub request failed: {error.response.status_code} {error.response.text}",
-                retry_after_seconds=_parse_retry_after_header(
-                    error.response.headers.get("Retry-After")
-                ),
-                status_code=error.response.status_code,
-            ) from error
-        return response.json()
+    def _expect_success(self, response: httpx2.Response) -> None:
+        """Fail closed on a failed request, for callers that ignore the response body."""
 
-    def _expect_no_content(self, response: httpx2.Response) -> None:
         try:
             response.raise_for_status()
         except httpx2.HTTPStatusError as error:
@@ -897,8 +903,15 @@ class GithubClient:
         *,
         response_name: str,
     ) -> object:
+        """Read a successful response's JSON body, or fail closed if it has none.
+
+        A proxy or maintenance page can answer 200 with an HTML body, so every body read
+        goes through this guard rather than calling `response.json()` on its own.
+        """
+
+        self._expect_success(response)
         try:
-            return self._expect_success(response)
+            return response.json()
         except json.JSONDecodeError as error:
             raise GithubClientError(
                 f"GitHub {response_name} response was not valid JSON."
