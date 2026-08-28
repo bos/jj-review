@@ -335,7 +335,7 @@ async def stream_status_async(
         return StatusResult(
             github_error=github_error,
             github_repo=github_repo,
-            incomplete=True,
+            incomplete=status_is_incomplete(fallback_changes),
             remote=prepared.remote,
             remote_error=None,
             changes=fallback_changes,
@@ -419,20 +419,9 @@ def _needs_github_inspection(prepared_change: PreparedChange) -> bool:
 
 
 def status_is_incomplete(changes: tuple[StackStatusChange, ...]) -> bool:
-    """Whether any change stops a report from describing the stack completely.
+    """Whether any change stops a report from describing the stack completely."""
 
-    `view` and `list` share this rule so the same repo cannot yield a complete report from
-    one and an incomplete report from the other. A saved pull request that was never
-    inspected counts the same way a failed lookup does: the report shows a link whose GitHub
-    state went unobserved. A change with no saved pull request has nothing on GitHub to be
-    unknown about, so an unreachable GitHub target alone does not make a report incomplete.
-    """
-
-    return any(
-        classify_stack_status_change(change).makes_report_incomplete
-        or (change.pr_identity is not None and change.pr_lookup is None)
-        for change in changes
-    )
+    return any(classify_stack_status_change(change).makes_report_incomplete for change in changes)
 
 
 async def _iter_status_changes_with_github(

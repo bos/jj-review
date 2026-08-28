@@ -67,12 +67,16 @@ class ChangeStatus:
         """Whether this change stops `view` and `list` from reporting it completely.
 
         Both report commands share this rule so the same repo cannot yield a complete
-        report from one and an incomplete report from the other.
+        report from one and an incomplete report from the other. A saved pull request with
+        no lookup at all counts the same way a failed lookup does: the report shows a link
+        whose GitHub state went unobserved. A change with no saved pull request has nothing
+        on GitHub to be unknown about.
         """
 
         return (
             (self.local == "divergent" and self.pr_lifecycle != "merged")
             or self.pr_lifecycle == "ambiguous"
+            or (self.saved_pr_identity and self.pr_lifecycle == "none")
             or self.has_pr_lookup_failure
             or self.has_stale_pr_link
         )
