@@ -3,7 +3,7 @@ production = 20_160
 tests = 21_570
 total = 41_833
 merge = 1_682
-governed = 3_315
+governed = 3_350
 governed_module = 502
 checker = 182
 
@@ -12,8 +12,8 @@ c901 = 16
 governed_c901 = 0
 
 [pytest]
-fixed_property = 8
-merge_recovery = 58
+fixed_property = 9
+merge_recovery = 59
 
 [labels]
 production = "Production"
