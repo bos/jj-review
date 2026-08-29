@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from jj_stack.github.auth import github_token_from_env
 from jj_stack.github.client import GithubClientError
 from jj_stack.github.resolution import (
     GithubRepoAddress,
@@ -13,19 +12,10 @@ from jj_stack.models.git import GitRemote
 from jj_stack.ui import Message, code
 
 
-def summarize_github_lookup_error(*, action: str, error: GithubClientError) -> str:
-    """Render a concise GitHub lookup failure for `status`-style output."""
+def github_action_error_message(*, action: str, error: GithubClientError) -> str:
+    """Prefix the client's canonical GitHub failure reason with its failed action."""
 
-    if error.status_code == 401:
-        return "GitHub authentication failed - check GITHUB_TOKEN"
-    if error.status_code == 403:
-        return "GitHub access was denied - check GITHUB_TOKEN and repo access"
-    if error.is_repo_not_found():
-        message = "GitHub repo not found or inaccessible"
-        if github_token_from_env() is None:
-            return f"{message} - check GITHUB_TOKEN or gh auth"
-        return message
-    return f"{action} failed ({error.request_failure_detail()})"
+    return f"{action}: {error.user_facing_reason()}"
 
 
 def github_unavailable_message(

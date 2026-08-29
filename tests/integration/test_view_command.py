@@ -398,8 +398,10 @@ def test_view_preserves_saved_identity_when_github_lookup_fails(
     class FailingPRLookupClient(GithubClient):
         async def get_open_prs_by_head_refs(self, *, head_refs):
             raise GithubClientError(
-                'GitHub request failed: 404 {"message":"Not Found","documentation_url":"x"}',
-                status_code=404,
+                'GitHub request failed: 403 {"message":"Forbidden"}',
+                rate_limit="primary",
+                rate_limit_reset_seconds=3600,
+                status_code=403,
             )
 
     patch_github_client_builders(
@@ -415,9 +417,11 @@ def test_view_preserves_saved_identity_when_github_lookup_fails(
     normalized_err = " ".join(captured.err.split())
 
     assert exit_code == EXIT_INCOMPLETE
-    assert "GitHub unavailable for octo-org/stacked-prs:" in normalized_err
-    assert "repo not found or inaccessible - check GITHUB_TOKEN or gh auth" in normalized_err
-    assert "documentation_url" not in captured.out
+    assert (
+        "GitHub unavailable for octo-org/stacked-prs: GitHub primary rate limit reached, "
+        "resets in about 60 min - rerun later" in normalized_err
+    )
+    assert "access was denied" not in normalized_err
     assert "saved PR #1" in captured.out
 
     exit_code = run_main(repo, config_path, "view", "--json")

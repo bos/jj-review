@@ -17,9 +17,7 @@ from jj_stack.github.client import (
     GithubClientError,
     build_github_client,
 )
-from jj_stack.github.error_messages import (
-    summarize_github_lookup_error,
-)
+from jj_stack.github.error_messages import github_action_error_message
 from jj_stack.github.resolution import (
     GithubRepoAddress,
     GithubTarget,
@@ -528,10 +526,10 @@ async def _discover_pr_lookups(
         status_code = error.status_code
         if status_code is None or status_code in {401, 403, 404} or status_code >= 500:
             raise CliError(
-                summarize_github_lookup_error(action="pull request lookup", error=error),
+                "",
                 hint=t"Run {ui.cmd('jj-stack doctor')} to check GitHub access.",
             ) from error
-        lookup_error = summarize_github_lookup_error(
+        lookup_error = github_action_error_message(
             action="pull request lookup",
             error=error,
         )
@@ -573,7 +571,7 @@ async def _discover_pr_lookups(
             pr_numbers=tuple(identity.pr_number for identity in remembered.values()),
         )
     except GithubClientError as error:
-        lookup_error = summarize_github_lookup_error(
+        lookup_error = github_action_error_message(
             action="remembered pull request lookup",
             error=error,
         )
