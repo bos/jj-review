@@ -659,7 +659,7 @@ def _stack_table(
             f"{row.size} {'change' if row.size == 1 else 'changes'}",
             row.prs,
             row.state,
-            row.subject,
+            t"{row.subject}",
         )
         for row in rows
     ]
@@ -670,7 +670,7 @@ def _stack_table(
                 "orphan",
                 orphan.pr_label,
                 orphan.state,
-                orphan.subject,
+                t"{orphan.subject}",
             )
         )
     return ui.DataTable(

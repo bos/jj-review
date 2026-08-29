@@ -60,8 +60,11 @@ def test_list_reports_public_stack_rows_and_links_live_pr(
     assert "review" not in row
     assert "size" not in row
 
+    run_command(["jj", "describe", "-r", change_id, "-m", "feature \x1bc"], repo)
     assert run_main(repo, config_path, "list", "--color=always") == 0
     terminal_output = capsys.readouterr().out
+    assert "\x1bc" not in terminal_output
+    assert "feature c" in terminal_output
     assert "PR 1" in terminal_output
     assert "https://github.test/octo-org/stacked-prs/pull/1" in terminal_output
 
