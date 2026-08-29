@@ -12,6 +12,13 @@ pytest_plugins = ["tests.support.pytest_concurrency"]
 
 
 @pytest.fixture(autouse=True)
+def _install_default_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give terminal-rendering tests a deterministic capable terminal."""
+
+    monkeypatch.setenv("TERM", "xterm-256color")
+
+
+@pytest.fixture(autouse=True)
 def _install_default_pr_branch_namespace() -> None:
     """Reset the process-wide PR branch policy before each test."""
 
