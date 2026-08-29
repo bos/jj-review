@@ -30,8 +30,10 @@ def test_completion_suggests_canonical_commands_but_accepts_typed_aliases() -> N
     )
     assert repo_option.value_kind == "directory"
     submit = next(command for command in spec.commands if command.name == "submit")
-    edit = next(option for option in submit.options if "--edit" in option.flags)
-    assert edit.value_kind == "file"
+    submit_options = {flag: option for option in submit.options for flag in option.flags}
+    # --edit shares its dest with the file-valued --resume-edit but takes no value itself.
+    assert submit_options["--edit"].value_kind == "none"
+    assert submit_options["--resume-edit"].value_kind == "file"
     for alias in ("sub", "status", "st", "v", "ls"):
         assert alias not in spec.visible_command_names
         assert alias in spec.all_command_names

@@ -77,7 +77,10 @@ def prepare_submit_inputs(
     preflight_conflicted_changes(stack.changes)
     preflight_private_commits(client, stack.changes)
     if options.edit and options.describe_with is not None:
-        raise UsageError(t"Use either {ui.cmd('--edit')} or {ui.cmd('--describe-with')}.")
+        raise UsageError(
+            t"{ui.cmd('--describe-with')} cannot be combined with {ui.cmd('--edit')} or "
+            t"{ui.cmd('--resume-edit')}."
+        )
     (
         generated_pr_descriptions,
         generated_stack_description,

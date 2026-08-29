@@ -260,16 +260,17 @@ def build_parser() -> ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            t"Open planned pull request titles, bodies, and draft states in your editor "
-            t"before submitting; use {ui.option('--edit=FILE')} to reopen a saved editor file"
+            "Open planned pull request titles, bodies, and draft states in your editor before "
+            "submitting"
         ),
     )
-    submit_edit_mode.add_argument(
-        "--edit-file",
+    add_help_argument(
+        submit_edit_mode,
+        "--resume-edit",
         dest="edit",
-        default=False,
+        metavar="FILE",
         type=Path,
-        help=SUPPRESS,
+        help="Reopen a saved editor file instead of generating a new one",
     )
     submit_draft_mode = submit_parser.add_mutually_exclusive_group()
     add_help_argument(
@@ -1257,15 +1258,6 @@ def _time_output(*, enabled: bool):
 def _normalize_cli_args(argv: Sequence[str]) -> list[str]:
     normalized = list(argv)
     for index, arg in enumerate(normalized):
-        if arg.startswith("--edit="):
-            normalized[index] = f"--edit-file={arg.removeprefix('--edit=')}"
-            continue
-        if arg == "--edit" and "".join(normalized[index + 1 : index + 2]).endswith(".md"):
-            raise UsageError(
-                t"{ui.cmd('--edit')} takes no separate file argument. Reopen a saved "
-                t"editor file with {ui.cmd('--edit=FILE')}, or select a revset spelled "
-                t"that way with {ui.cmd('submit <revset> --edit')}."
-            )
         if not arg.startswith("--draft="):
             continue
         draft_mode = arg.removeprefix("--draft=")

@@ -2753,7 +2753,10 @@ def test_submit_re_request_observes_reviews_before_mutation_and_retries(
     assert "feature 2 [edited]" in edit_path.read_text(encoding="utf-8")
 
     monkeypatch.setenv("EDITOR", _write_edit_editor(tmp_path, "leave-edit.py", ["pass"]))
-    assert run_main(repo, config_path, "submit", "--re-request", f"--edit={edit_path}") == 0
+    exit_code = run_main(
+        repo, config_path, "submit", "--re-request", "--resume-edit", str(edit_path)
+    )
+    assert exit_code == 0
     capsys.readouterr()
 
     assert fake_repo.prs[1].requested_reviewers == [
@@ -2809,8 +2812,8 @@ def test_submit_edit_malformed_document_aborts_before_mutation(
 
     assert exit_code == 1
     assert "missing change" in captured.err
-    assert "Reopen the saved editor file with --edit" in captured.err
-    saved_edit = re.search(r"--edit=(\S+\.md)", captured.err)
+    assert "Reopen the saved editor file with --resume-edit" in captured.err
+    saved_edit = re.search(r"--resume-edit (\S+\.md)", captured.err)
     assert saved_edit is not None
     Path(saved_edit.group(1)).unlink()
     empty_state = TrackingStore.for_repo(repo).load()

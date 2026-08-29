@@ -19,10 +19,10 @@ Use `--edit` to review and edit the planned pull request titles, bodies, and dra
 editor before anything is pushed. Each `JJ: Draft:` field accepts `yes` or `no`, with `y` and `n`
 as short forms. Saving the document continues the command; a malformed document or a non-zero
 editor exit aborts it before any change is made. The editor file remains available if submit
-fails; pass its path as `--edit=<path>` to reopen it. A reopened document supplies only the
+fails; pass its path to `--resume-edit` to reopen it. A reopened document supplies only the
 titles, bodies, and draft states; the command inspects the stack and GitHub again. `jj-stack` uses
-the editor selected by `jj`'s `ui.editor` setting. `--edit` cannot be combined with
-`--describe-with`.
+the editor selected by `jj`'s `ui.editor` setting. Neither `--edit` nor `--resume-edit` can be
+combined with `--describe-with`.
 
 The `--label`, `--reviewers`, and `--team-reviewers` flags accept comma-separated values and may
 be repeated. When passed, they override the corresponding configured defaults for this run.

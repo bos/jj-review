@@ -166,6 +166,8 @@ def _option_takes_value(action: Action) -> bool:
 
 
 def _option_value_kind(action: Action) -> str:
+    if not _option_takes_value(action):
+        return "none"
     if action.dest in _DIRECTORY_OPTION_DESTS:
         return "directory"
     if action.dest in _FILE_OPTION_DESTS:

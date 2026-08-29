@@ -9,7 +9,7 @@ from jj_stack.cli import (
     build_parser,
     main,
 )
-from jj_stack.errors import EXIT_INTERRUPTED, UsageError
+from jj_stack.errors import EXIT_INTERRUPTED
 
 pytestmark = pytest.mark.usefixtures("no_configured_color")
 
@@ -124,11 +124,8 @@ def test_submit_edit_never_consumes_the_selected_revset() -> None:
 
     assert (args.revset, args.edit) == ("kwxsqkvomnrr", True)
 
-    saved = build_parser().parse_args(_normalize_cli_args(["submit", "--edit=saved-edit.md"]))
+    saved = build_parser().parse_args(
+        _normalize_cli_args(["submit", "--resume-edit", "saved-edit.md"])
+    )
 
     assert (saved.revset, saved.edit) == (None, Path("saved-edit.md"))
-
-    with pytest.raises(UsageError, match="--edit=FILE") as rejected:
-        _normalize_cli_args(["submit", "--edit", "saved-edit.md"])
-
-    assert "<revset> --edit" in str(rejected.value)
