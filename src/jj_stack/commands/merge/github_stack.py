@@ -236,7 +236,7 @@ def validate_terminal_retry(
     )
     if error:
         raise CliError(
-            error,
+            error.reason,
             hint=t"Resolve the mismatch, then rerun {ui.cmd('jj-stack merge')}.",
         )
 

@@ -165,13 +165,14 @@ def test_merge_preconditions_reject_repo_drift() -> None:
         prs={},
     )
 
-    assert (
-        merge_precondition_error(
-            expected_repo=expected_repo,
-            expected_trunk_branch="main",
-            observation=observation,
-            remote_name="origin",
-            changes=(),
-        )
-        == "the configured Git remote no longer names the planned GitHub repo"
+    error = merge_precondition_error(
+        expected_repo=expected_repo,
+        expected_trunk_branch="main",
+        observation=observation,
+        remote_name="origin",
+        changes=(),
     )
+
+    assert error is not None
+    assert error.reason == "the configured Git remote no longer names the planned GitHub repo"
+    assert error.recovery == "inspect"
