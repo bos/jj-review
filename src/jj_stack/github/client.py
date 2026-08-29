@@ -339,26 +339,13 @@ class GithubClient:
         return targets
 
     async def list_stacks(self) -> tuple[GithubStack, ...]:
-        """List the GitHub stacks in this repo that jj-stack can interpret.
-
-        Listing covers every stack in the repo, including stacks jj-stack did not create, so
-        one unusable resource must not hide all the others. A command that needs the unusable
-        stack asks for it by number and fails there.
-        """
-
         payload = await self._get_paginated_json_array(
             f"{self._repo_path}/stacks",
             response_name="stack list",
         )
-        stacks: list[GithubStack] = []
-        for item in payload:
-            try:
-                stacks.append(_validate_stack_payload(item, response_name="stack list"))
-            except GithubClientError as error:
-                if not _is_member_ordering_failure(error):
-                    raise
-                logger.warning("%s Ignoring that stack.", error)
-        return tuple(stacks)
+        return tuple(
+            _validate_stack_payload(item, response_name="stack list") for item in payload
+        )
 
     async def get_stack(self, *, stack_number: int) -> GithubStack:
         response = await self._request("GET", f"{self._repo_path}/stacks/{stack_number}")
@@ -1597,22 +1584,6 @@ def _revisions_from_graphql(
         if event is not None
         and event.before_commit is not None
         and event.after_commit is not None
-    )
-
-
-def _is_member_ordering_failure(error: GithubClientError) -> bool:
-    """Whether a stack payload failed only the rule that merged members sit at the bottom.
-
-    A change in GitHub's response shape reports another error code and must stay fatal for the
-    whole listing rather than emptying it.
-    """
-
-    cause = error.__cause__
-    if not isinstance(cause, ValidationError):
-        return False
-    errors = cause.errors()
-    return bool(errors) and all(
-        detail["type"] == "github_stack_member_order" for detail in errors
     )
 
 

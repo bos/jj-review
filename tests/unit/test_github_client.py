@@ -302,38 +302,6 @@ def test_github_client_paginates_stack_list() -> None:
     assert asyncio.run(run_test()) == (1, 2)
 
 
-def test_github_client_lists_the_stacks_it_can_interpret_around_one_it_cannot() -> None:
-    def _member(pr_number: int, *, merged: bool) -> dict[str, object]:
-        return {
-            "head": {"ref": f"jj-stack/{pr_number}", "sha": f"head-{pr_number}"},
-            "merged_at": "2026-07-23T12:00:00Z" if merged else None,
-            "number": pr_number,
-        }
-
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        return httpx2.Response(
-            200,
-            json=[
-                # Someone merged the upper member of stack #2 on their own stack.
-                {
-                    "number": 2,
-                    "pull_requests": [_member(20, merged=False), _member(21, merged=True)],
-                },
-                {
-                    "number": 3,
-                    "pull_requests": [_member(30, merged=True), _member(31, merged=False)],
-                },
-            ],
-            request=request,
-        )
-
-    async def run_test() -> tuple[int, ...]:
-        async with _github_client(handler) as client:
-            return tuple(stack.number for stack in await client.list_stacks())
-
-    assert asyncio.run(run_test()) == (3,)
-
-
 def test_github_client_fails_the_whole_stack_listing_on_an_unexpected_payload() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(
@@ -346,8 +314,6 @@ def test_github_client_fails_the_whole_stack_listing_on_an_unexpected_payload() 
         async with _github_client(handler) as client:
             await client.list_stacks()
 
-    # Only the rule about where merged members sit is survivable; a shape jj-stack does not
-    # recognize must not quietly empty the listing.
     with pytest.raises(GithubClientError, match="unusable data for stack #3"):
         asyncio.run(run_test())
 

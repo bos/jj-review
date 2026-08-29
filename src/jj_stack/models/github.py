@@ -4,7 +4,6 @@ from collections.abc import Mapping
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from pydantic_core import PydanticCustomError
 
 CheckRollupStatus = Literal["failed", "passed", "pending"]
 
@@ -85,10 +84,7 @@ class GithubStack(BaseModel):
             if not pr.is_historical:
                 active_seen = True
             elif active_seen:
-                raise PydanticCustomError(
-                    "github_stack_member_order",
-                    "merged pull requests must be at the bottom of the stack",
-                )
+                raise ValueError("merged pull requests must be at the bottom of the stack")
         return self
 
 
