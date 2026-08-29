@@ -5,13 +5,15 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from jj_stack.identifiers import short_change_id
+from jj_stack.identifiers import SHORT_CHANGE_ID_LENGTH, short_change_id
 from jj_stack.models.stack import LocalCommit
 
 _DEFAULT_SLUG = "change"
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
-# Git refuses a ref longer than 255 bytes, counting the "refs/heads/" prefix it stores.
-_MAX_BRANCH_BYTES = 255 - len("refs/heads/")
+# GitHub refuses a ref longer than 255 bytes, counting the "refs/heads/" prefix. A generated
+# branch is "<prefix>/<slug>-<short change ID>" and the slug may shrink to nothing, so this is
+# the most a configured prefix may take; whatever it leaves unused goes to the slug.
+MAX_BRANCH_PREFIX_BYTES = 255 - len("refs/heads/") - len("/-") - SHORT_CHANGE_ID_LENGTH
 _current_namespace: PRBranchNamespace | None = None
 
 
@@ -46,11 +48,10 @@ class PRBranchNamespace:
         slug = _NON_ALNUM_RE.sub("-", first_line.lower()).strip("-") or _DEFAULT_SLUG
         suffix = f"-{short_change_id(change.change_id)}"
         # The slug is the only variable-length part, and both it and the suffix are ASCII,
-        # so truncating the slug by characters keeps a long subject inside Git's limit
+        # so truncating the slug by characters keeps a long subject inside GitHub's limit
         # without disturbing the suffix that ties the branch to its change. The configured
-        # prefix may hold non-ASCII characters, which Git counts as the bytes they encode.
-        prefix_bytes = len(self.branch_prefix.encode())
-        slug_budget = max(_MAX_BRANCH_BYTES - prefix_bytes - len(suffix), 0)
+        # prefix may hold non-ASCII characters, which GitHub counts as the bytes they encode.
+        slug_budget = MAX_BRANCH_PREFIX_BYTES - len(self.prefix.encode())
         return f"{self.branch_prefix}{slug[:slug_budget].rstrip('-')}{suffix}"
 
     def contains(self, branch: str) -> bool:

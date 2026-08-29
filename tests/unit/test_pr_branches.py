@@ -39,7 +39,7 @@ def test_generate_pr_branch_falls_back_for_blank_subject() -> None:
     assert branch == "jj-stack/change-abcdefgh"
 
 
-def test_generate_pr_branch_truncates_a_subject_git_cannot_store() -> None:
+def test_generate_pr_branch_truncates_a_subject_github_cannot_store() -> None:
     change = _change(
         change_id="zvlywqkxtmnpqrstu",
         description=" ".join(["refactor the transport layer"] * 12) + "\n",
@@ -51,7 +51,7 @@ def test_generate_pr_branch_truncates_a_subject_git_cannot_store() -> None:
     assert branch.startswith("jj-stack/refactor-the-transport-layer")
     assert branch.endswith("-zvlywqkx")
     assert "--" not in branch
-    # Git counts a ref's bytes, and a configured prefix may hold multibyte characters.
+    # GitHub counts a ref's bytes, and a configured prefix may hold multibyte characters.
     non_ascii_prefix = PRBranchNamespace("préfixe").generate_branch(change)
     assert len(f"refs/heads/{non_ascii_prefix}".encode()) <= 255
 

@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from jj_stack.errors import CliError
 from jj_stack.jj.client import JjClient, JjCommandError
+from jj_stack.pr_branch_namespace import MAX_BRANCH_PREFIX_BYTES
 from jj_stack.stack.selection import parse_comma_separated_flag_values
 
 CONFIG_SECTION = "jj-stack"
@@ -54,6 +55,12 @@ class RepoConfig(BaseModel):
             raise ValueError(
                 f"Invalid PR branch prefix {value!r}. Git rejects it as a branch name; see "
                 f"`git check-ref-format --branch {shlex.quote(value)}`"
+            )
+        if len(value.encode()) > MAX_BRANCH_PREFIX_BYTES:
+            raise ValueError(
+                f"Invalid PR branch prefix {value!r}. It is longer than "
+                f"{MAX_BRANCH_PREFIX_BYTES} bytes, so no PR branch name fits GitHub's 255-byte "
+                "limit. Shorten it with `jj config set --repo jj-stack.branch_prefix <prefix>`"
             )
         return value
 
