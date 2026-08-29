@@ -177,7 +177,7 @@ def test_view_warns_about_every_undescribed_change_in_the_stack(
     assert undescribed.change_id[:8] in captured.out
     assert undescribed.change_id[:8] in warning
     assert "no description" in warning
-    assert f"jj describe {undescribed.change_id}" in warning
+    assert f"jj describe {undescribed.change_id[:8]}" in warning
 
 
 def test_view_warns_and_reports_conflicted_rebase(

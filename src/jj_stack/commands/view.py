@@ -43,6 +43,7 @@ from jj_stack.formatting import (
 )
 from jj_stack.github.error_messages import remote_and_github_unavailable_messages
 from jj_stack.github.resolution import GithubRepoAddress
+from jj_stack.identifiers import short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import (
     JjCommandError,
@@ -371,7 +372,7 @@ def _local_history_warnings(prepared_status: PreparedStatus) -> tuple[ui.Message
             warnings.append(
                 t"Change {change_id} has no description. Showing it for inspection, but it "
                 t"cannot be submitted until it is described with "
-                t"{ui.cmd(f'jj describe {change.change_id}')}."
+                t"{ui.cmd(f'jj describe {short_change_id(change.change_id)}')}."
             )
         if change.divergent:
             warnings.append(

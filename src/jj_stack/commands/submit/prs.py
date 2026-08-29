@@ -11,6 +11,7 @@ from jj_stack.errors import CliError, DriftError
 from jj_stack.formatting import format_pr_label, format_pr_number
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
+from jj_stack.identifiers import short_change_id
 from jj_stack.models.github import GithubPR, GithubPRReview
 from jj_stack.models.tracking import (
     PRIdentity,
@@ -122,8 +123,8 @@ def ensure_pr_syncs_are_safe(
                 t"queue, so submit made no changes. Any new changes above it remain "
                 t"unsubmitted.",
                 hint=t"Wait for the queued PRs to merge, then run "
-                t"{ui.cmd(f'jj-stack sync {head_change_id}')} followed by "
-                t"{ui.cmd(f'jj-stack submit {head_change_id}')}.",
+                t"{ui.cmd(f'jj-stack sync {short_change_id(head_change_id)}')} followed by "
+                t"{ui.cmd(f'jj-stack submit {short_change_id(head_change_id)}')}.",
             )
         ensure_pr_link_is_consistent(
             branch=prepared_change.branch,
@@ -372,12 +373,13 @@ def ensure_pr_link_is_consistent(
             ),
         )
     if discovered_pr.state != "open":
+        short = short_change_id(change_id)
         hint = (
             merged_hint
             if discovered_pr.state == "merged" and merged_hint is not None
-            else t"Run {ui.cmd(f'jj-stack sync {change_id}')} to update the local stack."
+            else t"Run {ui.cmd(f'jj-stack sync {short}')} to update the local stack."
             if discovered_pr.state == "merged"
-            else t"Reopen the PR, or run {ui.cmd(f'jj-stack cleanup {change_id}')} before "
+            else t"Reopen the PR, or run {ui.cmd(f'jj-stack cleanup {short}')} before "
             t"submitting a new PR."
         )
         raise DriftError(

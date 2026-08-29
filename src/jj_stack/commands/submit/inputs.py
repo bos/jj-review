@@ -6,6 +6,7 @@ import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError, ConflictedStackError, UsageError
 from jj_stack.github.resolution import select_submit_remote
+from jj_stack.identifiers import short_change_id
 from jj_stack.jj.client import JjClient
 from jj_stack.models.github import GithubStackPR
 from jj_stack.models.stack import LocalCommit, LocalStack
@@ -45,25 +46,26 @@ def prepare_submit_inputs(
     )
     if options.base_revset is not None:
         base = stack.base_parent
+        short_base = short_change_id(base.change_id)
+        short_head = short_change_id(stack.head.change_id)
         if base.commit_id == stack.trunk.commit_id:
             raise CliError(
                 t"Base {ui.revset(options.base_revset)} is the trunk commit, which submit "
                 t"already uses as the base of the whole stack.",
-                hint=t"Run {ui.cmd(f'jj-stack submit {stack.head.change_id}')} without "
-                t"{ui.cmd('--base')}.",
+                hint=t"Run {ui.cmd(f'jj-stack submit {short_head}')} without {ui.cmd('--base')}.",
             )
-        retry = ui.cmd(f"jj-stack submit --base {base.change_id} {stack.head.change_id}")
+        retry = ui.cmd(f"jj-stack submit --base {short_base} {short_head}")
         tracked_base = state.tracked_pr(base.change_id)
         if tracked_base is None:
             raise CliError(
                 t"Base {ui.change_id(base.change_id)} has no submitted PR.",
-                hint=t"Inspect the parent with {ui.cmd(f'jj-stack view {base.change_id}')}, "
+                hint=t"Inspect the parent with {ui.cmd(f'jj-stack view {short_base}')}, "
                 t"submit it using its usual submit command, then run {retry}.",
             )
         if tracked_base.submitted_baseline.commit_id != base.commit_id:
             raise CliError(
                 t"Base {ui.change_id(base.change_id)} has changed since its last submit.",
-                hint=t"Inspect the parent with {ui.cmd(f'jj-stack view {base.change_id}')}, "
+                hint=t"Inspect the parent with {ui.cmd(f'jj-stack view {short_base}')}, "
                 t"refresh it using its usual submit command, "
                 t"then run {retry}.",
             )

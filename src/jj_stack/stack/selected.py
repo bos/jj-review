@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError
+from jj_stack.identifiers import short_change_id
 from jj_stack.jj.client import (
     JjClient,
     JjCommandError,
@@ -173,7 +174,8 @@ def require_submittable_changes(changes: tuple[LocalCommit, ...]) -> None:
         if not change.description.strip():
             raise UnsupportedStackError.stack_shape(
                 change.change_id,
-                t"describe it with {ui.cmd(f'jj describe {change.change_id}')} and retry.",
+                t"describe it with "
+                t"{ui.cmd(f'jj describe {short_change_id(change.change_id)}')} and retry.",
                 reason="undescribed_change",
             )
 
@@ -353,7 +355,8 @@ def _validate_selected_path(
         if change.is_working_copy and not change.description.strip():
             raise UnsupportedStackError.stack_shape(
                 change.change_id,
-                t"describe it with {ui.cmd(f'jj describe {change.change_id}')} and retry.",
+                t"describe it with "
+                t"{ui.cmd(f'jj describe {short_change_id(change.change_id)}')} and retry.",
                 reason="undescribed_change",
             )
 

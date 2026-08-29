@@ -40,6 +40,7 @@ from jj_stack.github.resolution import (
     GithubTarget,
     resolve_github_target,
 )
+from jj_stack.identifiers import short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import PRRefUpdate
 from jj_stack.models.github import GithubIssueComment, GithubPR, GithubStack
@@ -580,7 +581,7 @@ def _preflight_tracked_pr_cleanup(
             status="skipped",
             body=t"preserve merged {pr_label} for "
             t"{ui.change_id(candidate.change_id)}; run "
-            t"{ui.cmd(f'sync {candidate.change_id}')} before cleanup",
+            t"{ui.cmd(f'sync {short_change_id(candidate.change_id)}')} before cleanup",
         )
         return None, None, action
     return pr, update, None

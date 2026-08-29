@@ -496,7 +496,7 @@ def test_submit_explicit_base_requires_an_exact_open_parent_pr(
     assert exit_code == 1
     if drift == "local":
         assert "changed since its last submit" in rendered
-        assert f"jj-stack submit --base {parent.change_id} {child.change_id}" in rendered
+        assert f"jj-stack submit --base {parent.change_id[:8]} {child.change_id[:8]}" in rendered
     elif drift == "remote":
         branch = parent_identity.head_ref
         submitted_target = state_before.submitted_baselines[parent.change_id].commit_id
@@ -505,7 +505,7 @@ def test_submit_explicit_base_requires_an_exact_open_parent_pr(
         assert f"immutable submitted commit ID {submitted_target}" in rendered
         assert "jj-stack left it untouched" in rendered
         assert "cannot repair it automatically" in rendered
-        assert f"jj-stack submit --base {parent.change_id} {child.change_id}" in rendered
+        assert f"jj-stack submit --base {parent.change_id[:8]} {child.change_id[:8]}" in rendered
     else:
         child_id = child.change_id[:8]
         assert "Sync the parent PR first" in rendered
@@ -608,8 +608,8 @@ def test_submit_leaves_new_suffix_unsubmitted_while_an_ancestor_is_queued(
     assert "is in the merge queue" in error
     assert "submit made no changes" in error
     assert "new changes above it remain unsubmitted" in error
-    assert f"jj-stack sync {head_change_id}" in error
-    assert f"jj-stack submit {head_change_id}" in error
+    assert f"jj-stack sync {head_change_id[:8]}" in error
+    assert f"jj-stack submit {head_change_id[:8]}" in error
     assert "remove PR #1 from the queue" not in error
     assert tuple(fake_repo.prs) == (1,)
     assert remote_refs(fake_repo.git_dir) == remote_before
@@ -1171,7 +1171,7 @@ def test_submit_refuses_an_undescribed_change_below_the_selected_head(
 
     assert exit_code == EXIT_NO_STACK
     assert undescribed.change_id[:8] in captured.err
-    assert f"jj describe {undescribed.change_id}" in " ".join(captured.err.split())
+    assert f"jj describe {undescribed.change_id[:8]}" in " ".join(captured.err.split())
     assert fake_repo.prs == {}
     assert TrackingStore.for_repo(repo).load().pr_identities == {}
 
@@ -1321,7 +1321,7 @@ def test_submit_base_at_trunk_says_to_drop_the_flag(
 
     assert exit_code == 1
     assert "Base main is the trunk commit" in rendered
-    assert f"Run jj-stack submit {head_change_id} without --base" in rendered
+    assert f"Run jj-stack submit {head_change_id[:8]} without --base" in rendered
     assert "has no submitted PR" not in rendered
     assert fake_repo.prs == {}
 
@@ -2046,7 +2046,7 @@ def test_submit_names_sync_when_tracked_pr_is_merged(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert f"jj-stack sync {change_id}" in captured.err
+    assert f"jj-stack sync {change_id[:8]}" in captured.err
     assert "relink" not in captured.err
 
 

@@ -125,7 +125,7 @@ def replay_lifecycle(
         fake_repo.pr_events.clear()
         assert run_cli(("cleanup", head_id)) == 0
         output = " ".join(" ".join(discard_output()).split())
-        assert f"sync {head_id}" in output, output
+        assert f"sync {head_id[:8]}" in output, output
         assert state_store.load() == state_before
         assert _remote_refs(fake_repo.git_dir) == refs_before
         assert fake_repo.pr_events == []

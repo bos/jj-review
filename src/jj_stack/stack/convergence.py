@@ -6,6 +6,7 @@ import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError
 from jj_stack.formatting import format_pr_label
+from jj_stack.identifiers import short_change_id
 from jj_stack.models.github import GithubPR, GithubStack, GithubStackPR
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackedPR, TrackingState
@@ -446,15 +447,16 @@ def _require_no_unpublished_edits(changes: tuple[OnTrunkChange, ...]) -> None:
         local, baseline = item.change, item.candidate.submitted_baseline.commit_id
         if local is None or not local.holds_unpublished_edit((baseline,)):
             continue
+        short = short_change_id(local.change_id)
         raise CliError(
             t"Cannot remove merged {ui.change_id(item.candidate.change_id)} because its local "
             t"commit differs from what was submitted, so jj-stack treats it as unpublished "
             t"local work.",
-            hint=t"Run {ui.cmd(f"jj rebase -r {local.change_id} -d 'trunk()'")}, after which "
-            t"{ui.cmd(f'jj diff -r {local.change_id}')} shows only what it still holds. Move "
-            t"anything still needed to another change, then drop this copy with "
-            t"{ui.cmd(f'jj abandon {local.change_id}')} and rerun sync, or keep it and forget "
-            t"its saved link with {ui.cmd(f'jj-stack unstack --local {local.change_id}')}.",
+            hint=t"Run {ui.cmd(f"jj rebase -r {short} -d 'trunk()'")}, after which "
+            t"{ui.cmd(f'jj diff -r {short}')} shows only what it still holds. Move anything "
+            t"still needed to another change, then drop this copy with "
+            t"{ui.cmd(f'jj abandon {short}')} and rerun sync, or keep it and forget its saved "
+            t"link with {ui.cmd(f'jj-stack unstack --local {short}')}.",
         )
 
 

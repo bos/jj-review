@@ -17,6 +17,7 @@ from jj_stack.errors import CliError, ConflictedStackError
 from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubTarget
+from jj_stack.identifiers import short_change_id
 from jj_stack.jj.client import PRRefUpdate
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import SubmittedBaseline, TrackedPR
@@ -371,8 +372,9 @@ async def _refresh_selected_prs(
     if not actions.on_trunk:
         return 0
     if actions.survivors and dry_run:
+        short = short_change_id(actions.survivors[-1].change_id)
         console.output(
-            t"Run {ui.cmd(f'jj-stack sync {actions.survivors[-1].change_id}')} to apply the "
+            t"Run {ui.cmd(f'jj-stack sync {short}')} to apply the "
             t"rebase and then compute updates for the remaining existing PRs."
         )
         return 0
@@ -392,7 +394,7 @@ async def _refresh_selected_prs(
             error.message,
             hint=t"The local rebase is complete. Resolve the conflicts with {ui.cmd('jj')}, "
             t"then update the remaining pull requests with "
-            t"{ui.cmd(f'jj-stack submit {head_change_id}')}",
+            t"{ui.cmd(f'jj-stack submit {short_change_id(head_change_id)}')}",
         ) from error
     print_submit_result(result)
     return 0

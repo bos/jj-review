@@ -711,7 +711,8 @@ async def run_submit_async(
             if remote_targets.get(base_branch) != expected_base_commit:
                 remote_branch = f"{base_branch}@{remote.name}"
                 child_retry = (
-                    f"jj-stack submit --base {explicit_base.change_id} {stack.head.change_id}"
+                    f"jj-stack submit --base {short_change_id(explicit_base.change_id)} "
+                    f"{short_change_id(stack.head.change_id)}"
                 )
                 raise DriftError(
                     t"PR branch {ui.bookmark(remote_branch)} no longer "

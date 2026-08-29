@@ -32,6 +32,7 @@ from jj_stack.github.resolution import (
     select_submit_remote,
 )
 from jj_stack.github.stack_availability import github_stacks_unavailable_error
+from jj_stack.identifiers import short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import JjClient, UnsupportedStackError
 from jj_stack.models.github import GithubPR, GithubStack
@@ -291,7 +292,7 @@ def _reject_locally_rewritten_change(
         t"Change {ui.change_id(change_id)} is already here at a different commit than "
         t"{pr_label}'s head, so checkout cannot choose between them.",
         hint=t"Attach the pull request to the local change with "
-        t"{ui.cmd(f'jj-stack relink {pr.number} {change_id}')}.",
+        t"{ui.cmd(f'jj-stack relink {pr.number} {short_change_id(change_id)}')}.",
     )
 
 
