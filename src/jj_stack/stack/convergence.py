@@ -100,12 +100,12 @@ def build_selected_convergence_plan(
                 t"Cannot sync submitted {ui.change_id(change.change_id)} because these "
                 t"unmerged local changes are its parents: "
                 t"{ui.join(lambda item: ui.change_id(item.change_id), tuple(survivors))}. "
-                t"The submitted change is already on fetched trunk, so sync cannot decide "
+                t"The submitted change is already on trunk, so sync cannot decide "
                 t"whether those local changes belong before or after it.\n"
                 t"Submitted commit: "
                 t"{ui.semantic_text(candidate.submitted_baseline.commit_id, 'commit_id')}\n"
                 t"Local copy commit: {ui.semantic_text(change.commit_id, 'commit_id')}\n"
-                t"Fetched trunk commit: "
+                t"Trunk commit: "
                 t"{
                     ui.semantic_text(prepared_status.prepared.stack.trunk.commit_id, 'commit_id')
                 }",

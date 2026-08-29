@@ -343,7 +343,7 @@ def _verified_local_rebase(
             )
         if change.parents != (expected_parent,):
             raise CliError(
-                "The local stack does not match GitHub's rebase onto fetched trunk.",
+                "The local stack does not match GitHub's rebase onto trunk.",
                 hint=t"Inspect the local and GitHub stacks, then restore or resubmit the "
                 t"intended pull requests.",
             )

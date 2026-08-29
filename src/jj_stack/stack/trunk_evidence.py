@@ -118,7 +118,7 @@ def classify_rewritten_result(
         )
     if merge_result_ancestry != "on_trunk":
         return TrunkEvidence.unproven(
-            t"merge result {ui.commit_id(merge_commit_id)} is not on fetched trunk",
+            t"merge result {ui.commit_id(merge_commit_id)} is not on trunk",
         )
     return TrunkEvidence.proven()
 
@@ -145,13 +145,13 @@ def classify_proven_kind(
         return "exact", ""
     if rewritten.on_trunk:
         return "rewritten", ""
-    return None, rewritten.reason or exact.reason or "no merge result is on fetched trunk"
+    return None, rewritten.reason or exact.reason or "no merge result is on trunk"
 
 
 def _ancestry_reason(ancestry: CommitAncestry, commit_id: str) -> Message:
     if ancestry == "unresolved":
         return t"the submitted commit {ui.commit_id(commit_id)} is unavailable locally"
-    return t"the submitted commit {ui.commit_id(commit_id)} is not on fetched trunk"
+    return t"the submitted commit {ui.commit_id(commit_id)} is not on trunk"
 
 
 def _snapshot_mismatch(

@@ -985,7 +985,7 @@ def test_sync_explains_the_reported_rebase_ordering_stop_without_mutation(
     assert "cannot decide whether those local changes belong before or after it" in unwrapped
     assert f"Submitted commit: {submitted_commit_id}" in unwrapped
     assert f"Local copy commit: {local_submitted.commit_id}" in unwrapped
-    assert f"Fetched trunk commit: {landed_commit_id}" in unwrapped
+    assert f"Trunk commit: {landed_commit_id}" in unwrapped
     assert f"jj log -r 'trunk() | (trunk()..{local_submitted.commit_id})'" in unwrapped
     assert "ask an agent to inspect this repo and these commit IDs" in unwrapped
     assert "jj-stack view" in unwrapped
