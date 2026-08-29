@@ -38,6 +38,8 @@ class RepoConfig(BaseModel):
     @field_validator("labels", "reviewers", "team_reviewers")
     @classmethod
     def _normalize_requested_names(cls, value: list[str]) -> list[str]:
+        # GitHub rejects label names with embedded commas, so splitting configured values cannot
+        # change a valid label name.
         return parse_comma_separated_flag_values(value) or []
 
     @field_validator("branch_prefix")
