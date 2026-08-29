@@ -36,15 +36,12 @@ class LocalCommit(BaseModel):
         return self.current_working_copy or bool(self.working_copy_workspaces)
 
     def holds_unpublished_edit(self, published_commit_ids: tuple[str, ...]) -> bool:
-        """Whether this change's commit is none of those published for it.
+        """Whether this change holds work that was never submitted.
 
-        An immutable change cannot have been edited locally. The published set is the submitted
-        baseline plus the exact commit GitHub reported for the stack member being adopted.
-
-        A false answer proves nothing local is unpublished. A true answer does not prove the
-        reverse, because an ordinary rewrite moves the commit ID without touching content. Only
-        a caller that cannot compare content, such as one adopting a stack head it has not
-        imported, may treat a true answer as unpublished work and stop.
+        Callers check this because acting on a wrong answer destroys local work. An immutable
+        change cannot have been edited locally. The published set is normally just the
+        submitted baseline; adopting a GitHub-stack survivor also counts the exact commit
+        GitHub reported for it.
         """
 
         return not self.immutable and self.commit_id not in published_commit_ids

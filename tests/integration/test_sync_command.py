@@ -545,7 +545,7 @@ def test_sync_preserves_unpublished_edits_to_an_active_stack_survivor(
     assert state_store.load() == state_before
 
 
-def test_sync_uses_content_to_distinguish_a_rewrite_from_unpublished_work(
+def test_sync_preserves_a_conflict_resolution_that_restores_the_submitted_tree(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -553,55 +553,46 @@ def test_sync_uses_content_to_distinguish_a_rewrite_from_unpublished_work(
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     (submitted,) = selected_stack(repo).changes
-    baseline = TrackingStore.for_repo(repo).load().submitted_baselines[submitted.change_id]
-    run_command(
-        ["jj", "describe", "-r", submitted.change_id, "-m", "feature 1 rewritten"],
-        repo,
-    )
-    rewritten = JjClient(repo).resolve_commit(submitted.change_id).commit_id
-    assert rewritten != baseline.commit_id
+    state_store = TrackingStore.for_repo(repo)
+    state_before = state_store.load()
+    baseline = state_before.submitted_baselines[submitted.change_id].commit_id
     _squash_merge_pr(fake_repo, 1)
-
-    preview_exit = run_main(repo, config_path, "sync", "--dry-run", submitted.change_id)
-    preview = capsys.readouterr()
-
-    assert preview_exit == 0, (preview.out, preview.err)
-    assert JjClient(repo).resolve_commit(submitted.change_id).commit_id == rewritten
-
-    # The ordinary post-merge sequence: someone else lands on trunk and the user rebases onto it.
-    # The change is then empty, and its content is trunk's rather than the commit it submitted.
-    fake_repo.advance_branch("main", path="colleague.txt", contents="not the user's work\n")
+    fake_repo.advance_branch(
+        "main",
+        path="feature-1.txt",
+        contents="feature 1 changed on trunk\n",
+    )
     run_command(["jj", "git", "fetch"], repo)
     run_command(["jj", "rebase", "-s", submitted.change_id, "-d", "trunk()"], repo)
-    rebased = JjClient(repo).resolve_commit(submitted.change_id)
-    assert rebased.empty and rebased.commit_id != baseline.commit_id
-
     run_command(["jj", "edit", submitted.change_id], repo)
-    local_work = repo / "still-mine.txt"
-    write_file(local_work, "never submitted\n")
+    write_file(repo / "feature-1.txt", "feature 1\n")
     run_command(["jj", "new"], repo)
-    edited = JjClient(repo).resolve_commit(submitted.change_id).commit_id
+    resolved = JjClient(repo).resolve_commit(submitted.change_id)
+
+    assert not resolved.conflict
+    assert not resolved.empty
+    assert resolved.commit_id != baseline
+    assert (
+        run_command(["jj", "diff", "--from", baseline, "--to", resolved.commit_id], repo).stdout
+        == ""
+    )
+    assert run_command(
+        ["jj", "diff", "--from", resolved.parents[0], "--to", resolved.commit_id], repo
+    ).stdout
 
     blocked = run_main(repo, config_path, "sync", submitted.change_id)
-    error = " ".join(capsys.readouterr().err.split())
-
-    assert blocked == 1
-    assert "jj-stack submit" not in error, error
-    assert f"jj diff --from {baseline.commit_id} --to {edited}" in error, error
-    assert f"jj abandon {submitted.change_id}" in error, error
-    assert "jj-stack unstack --local" in error, error
-    assert (
-        "still-mine.txt"
-        in run_command(["jj", "diff", "--from", baseline.commit_id, "--to", edited], repo).stdout
-    )
-
-    local_work.unlink()
-    run_command(["jj", "squash", "--into", submitted.change_id], repo)
-    exit_code = run_main(repo, config_path, "sync", submitted.change_id)
     captured = capsys.readouterr()
 
-    assert exit_code == 0, (captured.out, captured.err)
-    assert submitted.change_id not in TrackingStore.for_repo(repo).load().pr_identities
+    assert blocked == 1
+    assert "unpublished local work" in captured.err
+    assert JjClient(repo).resolve_commit(submitted.change_id).commit_id == resolved.commit_id
+    assert state_store.load() == state_before
+    assert (
+        read_remote_ref(
+            fake_repo.git_dir, state_before.pr_identities[submitted.change_id].head_ref
+        )
+        == baseline
+    )
 
 
 def test_sync_removes_an_untouched_merge_after_trunk_reworks_its_file(

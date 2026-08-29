@@ -6,7 +6,6 @@ import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError
 from jj_stack.formatting import format_pr_label
-from jj_stack.jj.client import JjClient
 from jj_stack.models.github import GithubPR, GithubStack, GithubStackPR
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackedPR, TrackingState
@@ -128,7 +127,7 @@ def build_selected_convergence_plan(
             )
         )
 
-    _require_no_unpublished_edits(tuple(on_trunk), context.jj_client)
+    _require_no_unpublished_edits(tuple(on_trunk))
     _require_no_checked_out_merged_changes(tuple(on_trunk))
     submitted = _submitted_survivors(
         survivors=tuple(survivors),
@@ -442,19 +441,15 @@ def _unproven_rewrite_error(stack: GithubStack) -> CliError:
     )
 
 
-def _require_no_unpublished_edits(changes: tuple[OnTrunkChange, ...], jj: JjClient) -> None:
+def _require_no_unpublished_edits(changes: tuple[OnTrunkChange, ...]) -> None:
     for item in changes:
         local, baseline = item.change, item.candidate.submitted_baseline.commit_id
-        # An empty change holds nothing its parent does not, and the comparison below already
-        # answers identity: an unrewritten copy has the baseline's tree.
-        if local is None or local.empty:
-            continue
-        trees = jj.git_tree_ids((local.commit_id, baseline))
-        if trees[local.commit_id] == trees[baseline]:
+        if local is None or not local.holds_unpublished_edit((baseline,)):
             continue
         raise CliError(
-            t"Cannot remove merged {ui.change_id(item.candidate.change_id)} because its content "
-            t"differs from what was submitted, which its merged pull request cannot publish.",
+            t"Cannot remove merged {ui.change_id(item.candidate.change_id)} because its local "
+            t"commit differs from what was submitted, so jj-stack treats it as unpublished "
+            t"local work.",
             hint=t"Inspect {ui.cmd(f'jj diff --from {baseline} --to {local.commit_id}')}, move "
             t"anything still needed to a new change off trunk, then drop this copy with "
             t"{ui.cmd(f'jj abandon {local.change_id}')} and rerun sync, or keep it and forget "
