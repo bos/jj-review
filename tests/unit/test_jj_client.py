@@ -14,6 +14,7 @@ from jj_stack.errors import (
     resolve_exit_code,
 )
 from jj_stack.jj.client import (
+    _BOOKMARK_TEMPLATE,
     _COMMIT_TEMPLATE,
     JjClient,
     JjCommandError,
@@ -220,6 +221,30 @@ def test_find_private_commits_returns_matching_changes(monkeypatch: pytest.Monke
 
     assert len(result) == 1
     assert result[0].commit_id == "head"
+
+
+def test_remote_bookmarks_at_commit_include_untracked_remote_bookmarks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`jj bookmark list --revision` filters on local targets, hiding untracked remote rows."""
+
+    rows = (
+        {"name": "main", "target": ["trunk"], "remote": None, "tracked": False},
+        {"name": "main", "target": ["trunk"], "remote": "origin", "tracked": True},
+        {"name": "release", "target": ["trunk"], "remote": "origin", "tracked": False},
+        {"name": "feature", "target": ["other"], "remote": "origin", "tracked": False},
+    )
+    responses: dict[tuple[str, ...], str] = {
+        ("jj", "bookmark", "list", "--remote", "origin", "-T", _BOOKMARK_TEMPLATE): "".join(
+            json.dumps(row) + "\n" for row in rows
+        ),
+    }
+
+    bookmarks = _client(monkeypatch, responses).remote_bookmarks_at_commit(
+        remote="origin", commit_id="trunk"
+    )
+
+    assert bookmarks == ("main", "release")
 
 
 def test_remote_failure_redacts_http_userinfo_without_changing_subprocess_argv(

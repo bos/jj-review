@@ -2212,6 +2212,27 @@ def test_submit_accepts_stack_forked_from_trunk_ancestor(
     assert read_remote_ref(fake_repo.git_dir, bookmark) == stack.changes[-1].commit_id
 
 
+def test_submit_bases_on_the_default_branch_when_local_trunk_is_behind_it(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """A stale local trunk is not a misconfigured trunk, even with another branch at it."""
+
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    stale_trunk = read_remote_ref(fake_repo.git_dir, "main")
+    update_remote_ref(fake_repo, branch="release", target=stale_trunk)
+    fake_repo.advance_branch("main", path="upstream.txt", contents="upstream\n")
+
+    exit_code = run_main(repo, config_path, "submit")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0, captured.err
+    assert fake_repo.prs[1].base_ref == "main"
+
+
 def test_submit_accepts_a_stack_based_on_a_merge_commit_at_trunk(
     tmp_path: Path,
     monkeypatch,

@@ -183,7 +183,11 @@ def resolve_trunk_branch(
     remote: GitRemote,
     trunk_commit_id: str,
 ) -> tuple[str, dict[str, str]]:
-    """Resolve the GitHub base branch used for bottom-of-stack pull requests."""
+    """Resolve the GitHub base branch used for bottom-of-stack pull requests.
+
+    `branches_at_trunk` holds the remote bookmarks jj observes at `trunk()`. A local trunk
+    that is merely behind GitHub still carries the default branch, so it resolves normally.
+    """
 
     namespace = current_pr_branch_namespace()
     matches = tuple(
@@ -192,9 +196,10 @@ def resolve_trunk_branch(
     trunk_targets = {branch: trunk_commit_id for branch in matches}
     default_branch = github_repo_state.default_branch
     if default_branch:
-        # No match at all usually just means trunk() is behind the remote, which is fine.
-        # A match on some *other* branch is positive evidence that GitHub's default branch
-        # is not the branch jj calls trunk, and basing pull requests on it would be wrong.
+        # No match means trunk() is not one of this remote's bookmarks, so the default branch
+        # is the only evidence. A match on some *other* branch alone is positive evidence that
+        # GitHub's default branch is not the branch jj calls trunk, and basing pull requests
+        # on it would be wrong.
         if matches and default_branch not in matches:
             raise CliError(
                 t"GitHub's default branch for {ui.bookmark(remote.name)} is "

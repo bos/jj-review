@@ -160,25 +160,6 @@ def test_github_client_rejects_a_success_response_that_is_not_json() -> None:
         asyncio.run(run_test())
 
 
-def test_github_client_treats_an_unknown_head_commit_as_no_matching_branches() -> None:
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        assert request.method == "GET"
-        assert request.url.path == (
-            "/repos/octo-org/stacked-prs/commits/trunk123/branches-where-head"
-        )
-        return httpx2.Response(
-            422,
-            json={"message": "No commit found for SHA: trunk123"},
-            request=request,
-        )
-
-    async def run_test() -> tuple[str, ...]:
-        async with _github_client(handler) as client:
-            return await client.list_branches_for_head_commit(commit_sha="trunk123")
-
-    assert asyncio.run(run_test()) == ()
-
-
 @pytest.mark.parametrize(
     ("base", "body", "title", "expected_payload"),
     (

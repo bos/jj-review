@@ -602,21 +602,18 @@ class JjClient:
         remote: str,
         commit_id: str,
     ) -> tuple[str, ...]:
-        """Return locally observed remote bookmarks pointing at one commit."""
+        """Return locally observed remote bookmarks pointing at one commit.
 
-        stdout = self._run_jj(
-            (
-                "bookmark",
-                "list",
-                "--remote",
-                remote,
-                "--revision",
-                commit_id,
-                "-T",
-                _BOOKMARK_TEMPLATE,
-            )
+        `jj bookmark list --revision` filters on local targets, which hides untracked remote
+        bookmarks, so the remote rows are filtered by target here instead.
+        """
+
+        stdout = self._run_jj(("bookmark", "list", "--remote", remote, "-T", _BOOKMARK_TEMPLATE))
+        return tuple(
+            row.name
+            for row in _parse_bookmark_rows(stdout)
+            if row.remote == remote and commit_id in row.target
         )
-        return tuple(row.name for row in _parse_bookmark_rows(stdout) if row.remote == remote)
 
     def ensure_pr_branch_fetch_isolation(
         self,

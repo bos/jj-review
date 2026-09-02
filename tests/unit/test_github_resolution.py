@@ -133,12 +133,12 @@ def test_resolve_trunk_branch_prefers_the_default_branch_when_it_is_one_of_the_m
     assert targets == {"main": "trunk123", "stable": "trunk123"}
 
 
-def test_resolve_trunk_branch_accepts_a_default_branch_ahead_of_local_trunk() -> None:
+def test_resolve_trunk_branch_uses_the_default_when_no_remote_bookmark_is_at_trunk() -> None:
     branch, _targets = resolve_trunk_branch(
         branches_at_trunk=(),
         github_repo_state=_github_repo(default_branch="main"),
         remote=_remote("origin"),
-        trunk_commit_id="stale-local-trunk",
+        trunk_commit_id="trunk123",
     )
 
     assert branch == "main"
