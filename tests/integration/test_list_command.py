@@ -329,7 +329,7 @@ def test_list_reports_no_stacks_when_state_is_empty(
     assert "No stacks." in captured.out
 
 
-def test_list_does_not_extend_through_modified_working_copy(
+def test_list_does_not_extend_through_undescribed_working_copy(
     tmp_path,
     monkeypatch,
     capsys,
@@ -349,7 +349,7 @@ def test_list_does_not_extend_through_modified_working_copy(
     assert "1 change" in captured.out
 
 
-def test_list_does_not_extend_through_another_workspaces_working_copy(
+def test_list_extends_through_another_workspaces_described_working_copy(
     tmp_path,
     monkeypatch,
     capsys,
@@ -371,6 +371,9 @@ def test_list_does_not_extend_through_another_workspaces_working_copy(
         ],
         repo,
     )
+    write_file(other_workspace / "other.txt", "other\n")
+    run_command(["jj", "describe", "-m", "other work"], other_workspace)
+    other_change_id = JjClient(other_workspace).resolve_commit("@").change_id
 
     exit_code = run_main(repo, config_path, "list", "--json")
     captured = capsys.readouterr()
@@ -379,7 +382,8 @@ def test_list_does_not_extend_through_another_workspaces_working_copy(
     payload = json.loads(captured.out)
     assert len(payload["rows"]) == 1
     assert [change["change_id"] for change in payload["rows"][0]["changes"]] == [
-        feature_change_id
+        feature_change_id,
+        other_change_id,
     ]
 
 

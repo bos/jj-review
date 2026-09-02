@@ -200,10 +200,7 @@ def _observe_path_rows(
     ancestors = f"first_ancestors({off_trunk})"
     trunk_boundaries = f"parents(({ancestors}) ~ {trunk_path}) & {trunk_path}"
     candidate_neighborhood = f"(visible() & (({selector}) | children({selector})))"
-    candidate_commits = (
-        f"((({candidate_neighborhood}) ~ {trunk_path} ~ working_copies()) "
-        f"| (@ & {candidate_neighborhood}))"
-    )
+    candidate_commits = f"({candidate_neighborhood} ~ {trunk_path})"
     linked_selector_membership = linked_selector or "none()"
     query = " | ".join(
         (

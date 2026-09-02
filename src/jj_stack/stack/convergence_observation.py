@@ -111,7 +111,6 @@ def dependent_path_heads(
     paths = observe_repo_paths(
         jj_client=context.jj_client,
         descendant_of=ancestor_commit_ids,
-        include_working_copies=True,
         state=context.state_store.load(),
     ).paths
     result: dict[str, tuple[LocalCommit, ...]] = {}

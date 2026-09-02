@@ -201,9 +201,9 @@ it; `unstack --stack <number>` still removes it.
 
 ### Workspaces
 
-Several `jj` workspaces can share one repo, and each has its own working-copy commit. Repo-wide
-discovery includes a working-copy commit only when it is tracked, described, and
-nonempty. A stack command defaults to `@` under the same conditions and to `@-` otherwise.
+Several `jj` workspaces can share one repo, and each has its own working-copy commit. Every
+workspace's working-copy commit is an ordinary commit for stack discovery when it is described
+and nonempty.
 
 Configuration and presentation reads do not snapshot the working copy. Repo operations keep
 `jj`'s normal snapshot and checkout behavior.

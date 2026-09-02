@@ -22,7 +22,6 @@ def observe_repo_paths(
     state: TrackingState,
     descendant_of: Sequence[str] = (),
     exclude_trunk_descendants: bool = False,
-    include_working_copies: bool = False,
 ) -> RepoStackPaths:
     """Batch the visible facts for ordinary maximal paths.
 
@@ -38,17 +37,7 @@ def observe_repo_paths(
         if exclude_trunk_descendants:
             descendants += " ~ trunk()::"
         visible_scope = f"(visible() & {descendants})"
-    candidates = f"(({visible_scope}) ~ {trunk_path} ~ working_copies())"
-    if state.pr_identities:
-        tracked = " | ".join(
-            f"change_id({quote_revset_symbol(change_id)})"
-            for change_id in sorted(state.pr_identities)
-        )
-        candidates = f"({candidates} | ({visible_scope} & working_copies() & ({tracked})))"
-    if include_working_copies:
-        if not descendant_of:
-            raise ValueError("Working-copy dependency observation requires an exact ancestor.")
-        candidates = f"({candidates} | (working_copies() & {visible_scope}))"
+    candidates = f"(({visible_scope}) ~ {trunk_path})"
     prepare_visible_pr_snapshots(jj_client=jj_client, state=state)
     rows = jj_client.query_commits_with_membership(
         f"trunk() | ({candidates}) | parents({candidates}) | @",

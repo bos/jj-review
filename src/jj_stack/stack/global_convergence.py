@@ -77,7 +77,6 @@ async def observe_global_sync(
             jj_client=context.jj_client,
             descendant_of=anchors,
             exclude_trunk_descendants=True,
-            include_working_copies=True,
             state=state,
         ).paths
         if anchors

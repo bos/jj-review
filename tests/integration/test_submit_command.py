@@ -749,6 +749,33 @@ def test_submit_retargets_stale_pr_bases_before_pushing_reordered_stack(
     assert fake_repo.prs[1].base_ref == bookmarks_by_subject["feature 4"]
 
 
+def test_submit_partial_path_guard_sees_another_workspaces_working_copy(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """A described, nonempty working copy in another workspace is an ordinary stack head."""
+
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=3)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    stack = selected_stack(repo)
+    run_command(["jj", "edit", stack.changes[2].change_id], repo)
+    other_workspace = tmp_path / "other-workspace"
+    run_command(
+        ["jj", "workspace", "add", "-r", stack.changes[1].change_id, str(other_workspace)],
+        repo,
+    )
+    stacks_before = dict(fake_repo.github_stacks)
+
+    exit_code = run_main(other_workspace, config_path, "submit")
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "stops before its local head" in captured.err
+    assert "#3" in captured.err
+    assert fake_repo.github_stacks == stacks_before
+
+
 def test_submit_stack_preflight_failures_recover_without_persisted_phase(
     tmp_path: Path,
     monkeypatch,
