@@ -170,9 +170,10 @@ stack's head change ID.
 
 ## “Divergent changes are not supported”
 
-**How this can happen:** separate `jj` workspaces modified one of your changes independently,
-leaving multiple local versions of its change ID. `jj-stack` cannot determine which version
-belongs in your stack.
+**How this can happen:** separate `jj` workspaces modified one of your changes independently, or
+`jj-stack checkout --pull-request` brought in a pull request's copy of a change you had also
+edited here, leaving multiple local versions of its change ID. `jj-stack` cannot determine which
+version belongs in your stack.
 
 In this case, two or more of your local commits have the same `jj` change ID. Show both, then
 compare their diffs:

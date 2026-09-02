@@ -14,6 +14,7 @@ on top of the checked-out change, run `jj new` afterward.
 from __future__ import annotations
 
 import asyncio
+import shlex
 import sys
 from collections import Counter
 from dataclasses import dataclass
@@ -56,6 +57,7 @@ class CheckoutResult:
     adopted_count: int
     fetched_tip_commit: str | None
     stack: LocalStack
+    warnings: tuple[ui.Message, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +115,8 @@ def checkout(
             t"Working copy now edits {ui.change_id(result.stack.head.change_id)} "
             t"({result.stack.head.subject})."
         )
+    for warning in result.warnings:
+        console.warning(warning, soft_wrap=True)
     return 0
 
 
@@ -198,38 +202,23 @@ async def _checkout_pr_stack(
                 t"{ui.bookmark(top_pr.head.ref)} no longer identify the same commit."
             )
 
-        for pr in reversed(prs):
-            _reject_locally_rewritten_change(
-                client=client,
-                head_sha=_require_pr_head_sha(pr),
-                pr=pr,
-                remote_name=remote.name,
-            )
-        matches = client.query_commits_by_ids((top_head_sha,))
-        fetched = not matches
+        # A hidden local copy of the head still needs the import so it becomes visible again.
+        fetched = not any(
+            not commit.hidden for commit in client.query_commits_by_ids((top_head_sha,))
+        )
         if fetched:
-            client.fetch_remote(
-                remote=remote.name,
-            )
+            client.fetch_remote(remote=remote.name)
             with client.import_remote_pr_branch_ref(
                 remote=remote.name,
                 branch=top_pr.head.ref,
                 expected_target=top_head_sha,
-            ) as imported:
-                _require_branch_matches_change(
-                    branch=top_pr.head.ref,
-                    change=imported,
-                )
+            ):
                 stack = _discover_checkout_stack(
                     client=client,
-                    commit_id=imported.commit_id,
+                    commit_id=top_head_sha,
                     state=state,
                 )
         else:
-            _require_branch_matches_change(
-                branch=top_pr.head.ref,
-                change=matches[0],
-            )
             stack = _discover_checkout_stack(
                 client=client,
                 commit_id=top_head_sha,
@@ -246,54 +235,87 @@ async def _checkout_pr_stack(
             stack=stack,
             state=state,
         )
+    tracked = stack.changes[: len(prs)]
     return CheckoutResult(
         adopted_count=adopted_count,
         fetched_tip_commit=(top_head_sha if fetched else None),
         stack=stack,
+        warnings=(
+            *_divergent_copy_warnings(client=client, prs=prs, changes=tracked),
+            *_added_commit_warnings(
+                client=client,
+                remote=remote.name,
+                pr=prs[-1],
+                change=tracked[-1],
+                added=stack.changes[len(prs) :],
+            ),
+        ),
     )
 
 
-def _reject_locally_rewritten_change(
+def _divergent_copy_warnings(
     *,
     client: JjClient,
-    head_sha: str,
-    pr: GithubPR,
-    remote_name: str,
-) -> None:
-    """Reject a submitted snapshot that disagrees with a visible local change.
+    prs: tuple[GithubPR, ...],
+    changes: tuple[LocalCommit, ...],
+) -> tuple[ui.Message, ...]:
+    """Report each adopted change that is now visible at more than one commit."""
 
-    The remote commit's change ID is read without creating a ref. On a fresh checkout that costs
-    one extra object fetch; reading the same header inside the import primitive would instead
-    give that shared primitive a second policy path. The check also covers an already visible
-    submitted snapshot, where editing it would silently choose against the rewritten local change.
-    """
-
-    change_id = client.read_remote_git_change_id(
-        remote=remote_name,
-        commit_id=head_sha,
-    )
-    if change_id is None:
-        return
-    # `change_id()` rather than an exact symbol: it tolerates a change that is already
-    # divergent, which is the state this check exists to keep the tool out of.
-    local_commits = client.query_commits(f"change_id({change_id})")
-    if not any(commit.commit_id != head_sha for commit in local_commits):
-        return
-    pr_label = format_pr_label(pr.number, url=pr.html_url)
-    if len(local_commits) > 1:
-        raise CliError(
-            t"Change {ui.change_id(change_id)} already has more than one visible commit "
-            t"here, so {pr_label} cannot be attached to one of them.",
-            hint=t"Inspect them with {ui.cmd('jj log -r')} "
-            t"{ui.revset(f'change_id({change_id})')}, abandon the copies you do not want, "
-            t"then retry.",
+    copies = client.query_commits_by_change_ids(tuple(change.change_id for change in changes))
+    warnings: list[ui.Message] = []
+    for pr, change in zip(prs, changes, strict=True):
+        others = tuple(
+            copy.commit_id
+            for copy in copies.get(change.change_id, ())
+            if copy.commit_id != change.commit_id
         )
-    raise CliError(
-        t"Change {ui.change_id(change_id)} is already here at a different commit than "
-        t"{pr_label}'s head, so checkout cannot choose between them.",
-        hint=t"Attach the pull request to the local change with "
-        t"{ui.cmd(f'jj-stack relink {pr.number} {short_change_id(change_id)}')}.",
+        if not others:
+            continue
+        revset = shlex.quote(f"change_id({short_change_id(change.change_id)})")
+        warnings.append(
+            t"Change {ui.change_id(change.change_id)} now has {len(others) + 1} visible commits: "
+            t"{ui.commit_id(change.commit_id[:8])} (from "
+            t"{format_pr_label(pr.number, url=pr.html_url)}) and "
+            t"{ui.join(lambda commit_id: ui.commit_id(commit_id[:8]), others)}. Compare them "
+            t"with {ui.cmd(f'jj log -r {revset}')} and {ui.cmd('jj diff -r <commit>')}, then "
+            t"abandon the one you do not want with {ui.cmd('jj abandon <commit>')}."
+        )
+    return tuple(warnings)
+
+
+def _added_commit_warnings(
+    *,
+    client: JjClient,
+    remote: str,
+    pr: GithubPR,
+    change: LocalCommit,
+    added: tuple[LocalCommit, ...],
+) -> tuple[ui.Message, ...]:
+    """Report commits on the PR branch above the pull request's own change."""
+
+    if not added:
+        return ()
+    target = short_change_id(change.change_id)
+    source = (
+        short_change_id(added[0].change_id)
+        if len(added) == 1
+        else shlex.quote(
+            f"{short_change_id(added[0].change_id)}::{short_change_id(added[-1].change_id)}"
+        )
     )
+    noun, pronoun = ("change", "it") if len(added) == 1 else ("changes", "them")
+    return (
+        t"PR branch {ui.bookmark(pr.head.ref)} adds {noun} "
+        t"{ui.join(lambda commit: _describe_added_commit(client, remote, commit), added)} on "
+        t"top of change {ui.change_id(change.change_id)}. Fold {pronoun} into "
+        t"{ui.change_id(change.change_id)} with "
+        t"{ui.cmd(f'jj squash --from {source} --into {target}')}.",
+    )
+
+
+def _describe_added_commit(client: JjClient, remote: str, commit: LocalCommit) -> ui.Message:
+    author = client.read_remote_git_commit(remote=remote, commit_id=commit.commit_id).author
+    return t"{ui.change_id(commit.change_id)} ({author}: {commit.subject})"
 
 
 def _discover_checkout_stack(
@@ -379,24 +401,28 @@ def _save_checkout_tracking(
     state: TrackingState,
 ) -> int:
     pr_heads = tuple(_require_pr_head_sha(pr) for pr in prs)
-    if len(prs) != len(stack.changes) or pr_heads != tuple(
-        change.commit_id for change in stack.changes
-    ):
+    changes = stack.changes[: len(prs)]
+    if len(changes) < len(prs):
         raise CliError(
             "The selected pull requests do not describe the stack that was just fetched.",
             hint=t"Run {ui.cmd('jj-stack view')} to compare them, then submit or "
             t"relink the pull requests that should match this history.",
         )
+    # The stack was discovered from the top PR's head, so any changes above the top PR's own
+    # change are additions to its branch. Each lower PR's head must be exactly its change's
+    # commit, and every branch must name the change it is paired with.
     replacements: dict[str, tuple[PRIdentity, SubmittedBaseline]] = {}
-    for pr, head_sha, change in zip(
-        prs,
-        pr_heads,
-        stack.changes,
-        strict=True,
-    ):
+    for pr, head_sha, change in zip(prs, pr_heads, changes, strict=True):
         _require_branch_matches_change(branch=pr.head.ref, change=change)
+        pr_label = format_pr_label(pr.number, url=pr.html_url)
+        if pr is not prs[-1] and head_sha != change.commit_id:
+            raise CliError(
+                t"{pr_label} is at a commit that "
+                t"{format_pr_label(prs[-1].number, url=prs[-1].html_url)} does not build on.",
+                hint=t"Check out that pull request first with "
+                t"{ui.cmd(f'jj-stack checkout --pull-request {pr.number}')}.",
+            )
         if remote_targets.get(pr.head.ref) != head_sha:
-            pr_label = format_pr_label(pr.number, url=pr.html_url)
             raise CliError(
                 t"{pr_label} and branch "
                 t"{ui.bookmark(pr.head.ref)} no longer identify the same commit."

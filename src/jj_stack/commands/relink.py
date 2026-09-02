@@ -116,10 +116,10 @@ async def _run_relink_async(
             t"Pull request {pr_number_label} and remote branch {ui.bookmark(branch)} "
             t"no longer identify the same commit."
         )
-    remote_change_id = client.read_remote_git_change_id(
+    remote_change_id = client.read_remote_git_commit(
         remote=remote.name,
         commit_id=head_sha,
-    )
+    ).change_id
     if remote_change_id != change.change_id:
         if remote_change_id is not None and pr_branch_matches_change(branch, remote_change_id):
             raise CliError(

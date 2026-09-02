@@ -41,17 +41,25 @@ jj new
 
 ## If your change is already here with local edits
 
-`checkout` stops if this repo already contains a different commit for the same change. This
-usually means that you edited it locally after it was last submitted. It will not choose between
-the submitted snapshot and the local rewrite.
-
-Connect your pull request to the local change you want to keep, then update your stack on GitHub:
+If this repo already has a different commit for the same change, usually because you edited it
+after it was last submitted, `checkout` brings in the pull request's commit as a second copy of
+that change and prints both commit IDs. It does not choose between them. Compare the two, then
+abandon the one you do not want by its commit ID:
 
 ```console
-jj-stack relink <pr> <change-id>
+jj log -r 'change_id(<change-id>)'
+jj diff -r <commit-id>
+jj abandon <unwanted-commit-id>
+```
+
+If you kept your own copy, update the pull request:
+
+```console
 jj-stack submit <head-change-id>
 ```
 
-`relink` is a repair command for this specific mismatch. It verifies that your pull request's
-branch belongs to the local change you chose; it cannot attach an unrelated pull request to new
-work.
+## If someone pushed a commit to your PR branch
+
+A commit that someone else pushed to your PR branch, such as a reviewer's suggestion, is not part
+of your change. `checkout` brings it in as a new change on top of yours and prints the
+`jj squash` command that folds it into your change.

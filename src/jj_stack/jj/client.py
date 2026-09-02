@@ -93,6 +93,16 @@ class PRRefUpdate:
 
 
 @dataclass(frozen=True, slots=True)
+class GitCommitMetadata:
+    """Raw headers and subject of one backing-Git commit."""
+
+    change_id: str | None
+    parents: tuple[str, ...]
+    author: str
+    subject: str
+
+
+@dataclass(frozen=True, slots=True)
 class PRTempArtifacts:
     """Observed fixed PR branch import artifacts without applying recovery."""
 
@@ -846,10 +856,10 @@ class JjClient:
             if chain:
                 expected_parent = expected_parent_commit_id
                 for _chain_branch, target, expected_git_change_id in chain:
-                    actual_change_id, parents = self._read_git_commit_metadata(target)
+                    actual = self._read_git_commit_metadata(target)
                     if not _expected_git_change_id_matches(
-                        expected_git_change_id, actual_change_id
-                    ) or parents != (expected_parent,):
+                        expected_git_change_id, actual.change_id
+                    ) or actual.parents != (expected_parent,):
                         raise CliError(
                             "Imported pull request heads no longer form the expected stack."
                         )
@@ -870,55 +880,53 @@ class JjClient:
         finally:
             self._clear_pr_branch_temp_ref()
 
-    def read_remote_git_change_id(
+    def read_remote_git_commit(
         self,
         *,
         remote: str,
         commit_id: str,
-    ) -> str | None:
-        """Fetch and inspect one exact remote Git object without creating a ref."""
+    ) -> GitCommitMetadata:
+        """Inspect one exact remote Git commit, fetching it without a ref when it is absent."""
 
         if re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", commit_id) is None:
             raise ValueError("remote commit ID must be a full SHA-1 or SHA-256 object ID")
-        configured_remote = self._git_remote(remote)
         try:
-            change_id, _parents = self._read_git_commit_metadata(commit_id)
+            return self._read_git_commit_metadata(commit_id)
         except JjCommandError:
             self._run_git(
                 (
                     "fetch",
                     "--no-tags",
                     "--no-write-fetch-head",
-                    configured_remote.fetch_url,
+                    self._git_remote(remote).fetch_url,
                     commit_id,
                 )
             )
-            change_id, _parents = self._read_git_commit_metadata(commit_id)
-        return change_id
+            return self._read_git_commit_metadata(commit_id)
 
-    def _read_git_commit_metadata(
-        self,
-        commit_id: str,
-    ) -> tuple[str | None, tuple[str, ...]]:
-        """Read one backing-Git commit's full change ID and ordered parents.
+    def _read_git_commit_metadata(self, commit_id: str) -> GitCommitMetadata:
+        """Read one backing-Git commit's change ID, ordered parents, author name, and subject.
 
         A Git commit object is a byte string, so a legacy encoding in its author, committer,
-        or message is legal. Only the ASCII `change-id` and `parent` headers are read here, so
-        undecodable bytes are replaced instead of aborting the command that needed them.
+        or message is legal; undecodable bytes are replaced instead of aborting the command
+        that needed them.
         """
 
         raw_commit = self._run_git(("cat-file", "commit", commit_id), lossy_text=True)
-        headers, _, _message = raw_commit.partition("\n\n")
-        entries = tuple(line.partition(" ") for line in headers.splitlines())
-        change_ids = [
-            value
-            for key, separator, value in entries
-            if separator and key == "change-id" and value
-        ]
-        parents = tuple(
-            value for key, separator, value in entries if separator and key == "parent" and value
+        headers, _, message = raw_commit.partition("\n\n")
+        values: dict[str, list[str]] = {}
+        for line in headers.splitlines():
+            key, separator, value = line.partition(" ")
+            if separator and value:
+                values.setdefault(key, []).append(value)
+        change_ids = values.get("change-id", ())
+        author = values.get("author", ("",))[0]
+        return GitCommitMetadata(
+            change_id=change_ids[0] if len(change_ids) == 1 else None,
+            parents=tuple(values.get("parent", ())),
+            author=author.rsplit(" <", 1)[0],
+            subject=message.partition("\n")[0],
         )
-        return (change_ids[0] if len(change_ids) == 1 else None), parents
 
     def fetch_remote(
         self,

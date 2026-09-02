@@ -801,14 +801,14 @@ whether it is already local. Choosing a GitHub-only or partially tracked stack p
 active PR through the same adoption path as `--pull-request`; the picker does not create another
 tracking path.
 
-Before choosing a local or fetched snapshot, `checkout` reads each PR head's change ID. If that
-change ID already exists locally at another commit, it stops and names `relink` rather than
-choosing between the submitted snapshot and the local rewrite. When the selected PR's exact head
-commit is absent locally, it fetches ordinary remote state and imports the selected PR stack
-through a temporary ref. It validates the complete selected stack and saves any new tracking
-before it runs `jj edit` on the exact head commit it observed. If the workspace move fails after
-adoption, a rerun observes the saved tracking and retries the move. The command does not rebase
-changes, restack descendants, or mutate PRs, and it leaves no PR bookmarks behind.
+When the selected PR's exact head commit is not visible locally, `checkout` fetches ordinary
+remote state and imports it through a temporary ref as a visible mutable commit; if that change
+already exists locally at another commit, or the head sits above the PR's own change, `checkout`
+reports the extra copies or commits and does not choose between them. It validates the complete
+selected stack and saves any new tracking before it runs `jj edit` on the exact head commit it
+observed. If the workspace move fails after adoption, a rerun observes the saved tracking and
+retries the move. The command does not rebase changes, restack descendants, or mutate PRs, and
+it leaves no PR bookmarks behind.
 
 `relink` explicitly replaces uncertain tracking for one change. It verifies the known PR and
 same-repo head branch, then saves the identity and exact observed remote target as one pair.

@@ -503,7 +503,14 @@ class FakeGithubRepo:
         pr.head_sha = rewritten
         return rewritten
 
-    def advance_branch(self, branch: str, *, path: str, contents: str) -> str:
+    def advance_branch(
+        self,
+        branch: str,
+        *,
+        path: str,
+        contents: str,
+        message: str = "advance trunk for stack rebase",
+    ) -> str:
         """Add one file in a new commit on a backing branch."""
 
         parent = self.ref_target(branch)
@@ -517,7 +524,7 @@ class FakeGithubRepo:
             "-p",
             parent,
             "-m",
-            "advance trunk for stack rebase",
+            message,
             env=_FAKE_GITHUB_GIT_ENV,
         )
         self._run_backing_git("update-ref", f"refs/heads/{branch}", commit)

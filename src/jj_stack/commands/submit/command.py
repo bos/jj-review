@@ -409,10 +409,7 @@ def _recover_interrupted_first_submissions(
             )
         branch, target = next(iter(candidates.items()))
         if (
-            client.read_remote_git_change_id(
-                remote=remote.name,
-                commit_id=target,
-            )
+            client.read_remote_git_commit(remote=remote.name, commit_id=target).change_id
             != resolution.change_id
         ):
             raise CliError(

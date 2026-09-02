@@ -641,12 +641,13 @@ def test_remote_change_id_inspection_fetches_an_object_without_creating_a_ref(
 
     monkeypatch.setattr(subprocess, "run", runner)
 
-    change_id = JjClient(Path("/repo")).read_remote_git_change_id(
+    commit = JjClient(Path("/repo")).read_remote_git_commit(
         remote="origin",
         commit_id=commit_id,
     )
 
-    assert change_id == "full-change-id"
+    assert commit.change_id == "full-change-id"
+    assert (commit.author, commit.subject) == ("Test", "subject")
     assert not any(
         "update-ref" in command or "git import" in command for command in seen_commands
     )

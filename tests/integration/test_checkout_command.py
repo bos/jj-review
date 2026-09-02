@@ -17,6 +17,7 @@ from ..support.integration_helpers import (
     run_command,
     selected_stack,
 )
+from .submit_command_helpers import read_remote_ref
 
 
 def test_checkout_pick_fetches_github_stack_then_adopts_and_edits_selected_change(
@@ -192,46 +193,113 @@ def test_checkout_explains_an_immutable_pr_commit_instead_of_dumping_jj_output(
     assert "jj bookmark list --all-remotes" in unwrapped
 
 
-def test_checkout_rejects_a_locally_rewritten_pr_before_importing(
+def test_checkout_makes_a_hidden_pr_head_visible_beside_the_local_rewrite(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
+    change = selected_stack(repo).head
+    run_command(["jj", "describe", "-r", change.change_id, "-m", "feature rewritten"], repo)
+
+    assert _main(repo, config_path, "checkout", "--pull-request", "1") == 0
+
+    client = JjClient(repo)
+    assert client.resolve_commit("@").commit_id == change.commit_id
+    assert len(client.query_commits(f"change_id({change.change_id})")) == 2
+
+
+def test_checkout_imports_a_rewritten_pr_head_beside_the_local_copy(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
-    state_store = TrackingStore.for_repo(repo)
-    change_id = next(iter(state_store.load().pr_identities))
-    resolve_state_path(repo).unlink()
-    run_command(["jj", "describe", "-r", change_id, "-m", "feature rewritten"], repo)
+    change = selected_stack(repo).head
+    pr = fake_repo.prs[1]
+    remote_head = fake_repo.force_push_pr_head(pr)
     capsys.readouterr()
 
-    assert _main(repo, config_path, "checkout", "--pull-request", "1") == 1
+    assert _main(repo, config_path, "checkout", "--pull-request", "1") == 0
 
-    captured = capsys.readouterr()
-    unwrapped = " ".join(captured.err.split())
-    assert "checkout cannot choose between them" in unwrapped
-    assert len(JjClient(repo).query_commits(f"change_id({change_id})")) == 1
+    client = JjClient(repo)
+    unwrapped = " ".join(capsys.readouterr().err.split())
+    assert {
+        copy.commit_id for copy in client.query_commits(f"change_id({change.change_id})")
+    } == {change.commit_id, remote_head}
+    assert client.resolve_commit("@").commit_id == remote_head
+    assert f"{remote_head[:8]} (from PR #1) and {change.commit_id[:8]}" in unwrapped
+    assert "jj abandon <commit>" in unwrapped
+    baselines = TrackingStore.for_repo(repo).load().submitted_baselines
+    assert baselines[change.change_id].commit_id == remote_head
+
+    run_command(["jj", "abandon", remote_head], repo)
+
+    assert _main(repo, config_path, "submit", change.change_id) == 0
+    assert read_remote_ref(fake_repo.git_dir, pr.head_ref) == change.commit_id
 
 
-def test_checkout_rejects_a_rewritten_lower_pr_before_importing(
+def test_checkout_imports_a_commit_added_to_the_pr_branch_above_the_change(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
+    change = selected_stack(repo).head
+    pr = fake_repo.prs[1]
+    added = fake_repo.advance_branch(
+        pr.head_ref,
+        path="review.txt",
+        contents="suggested by a reviewer\n",
+        message="Apply suggestions from code review",
+    )
+    capsys.readouterr()
+
+    assert _main(repo, config_path, "checkout", "--pull-request", "1") == 0
+
+    client = JjClient(repo)
+    working_copy = client.resolve_commit("@")
+    unwrapped = " ".join(capsys.readouterr().err.split())
+    squash = f"jj squash --from {working_copy.change_id[:8]} --into {change.change_id[:8]}"
+    assert working_copy.commit_id == added
+    assert (
+        f"{working_copy.change_id[:8]} (Fake GitHub: Apply suggestions from code review)"
+        in unwrapped
+    )
+    assert squash in unwrapped
+    baselines = TrackingStore.for_repo(repo).load().submitted_baselines
+    assert baselines[change.change_id].commit_id == added
+
+    run_command([*squash.split(), "--use-destination-message"], repo)
+
+    assert _main(repo, config_path, "submit", change.change_id) == 0
+    folded = selected_stack(repo, change.change_id).head
+    assert read_remote_ref(fake_repo.git_dir, pr.head_ref) == folded.commit_id
+    assert run_command(["jj", "file", "show", "-r", folded.commit_id, "review.txt"], repo).stdout
+
+
+def test_checkout_stops_when_a_lower_pr_branch_moved_off_its_change(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
     config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
-    stack = selected_stack(repo)
-    bottom_change_id = stack.changes[0].change_id
-    fake_repo.force_push_pr_head(fake_repo.prs[1])
+    fake_repo.advance_branch(
+        fake_repo.prs[1].head_ref,
+        path="review.txt",
+        contents="suggested by a reviewer\n",
+        message="Apply suggestions from code review",
+    )
     resolve_state_path(repo).unlink()
-    run_command(["jj", "abandon", stack.head.change_id], repo)
-    _expose_pr_branch_namespace(repo)
     capsys.readouterr()
 
     assert _main(repo, config_path, "checkout", "--pull-request", "2") == 1
 
-    assert "checkout cannot choose between them" in " ".join(capsys.readouterr().err.split())
-    assert len(JjClient(repo).query_commits(f"change_id({bottom_change_id})")) == 1
+    assert "jj-stack checkout --pull-request 1" in " ".join(capsys.readouterr().err.split())
+    assert TrackingStore.for_repo(repo).load().pr_identities == {}
 
 
 def test_checkout_pr_rejects_cross_repo_head(

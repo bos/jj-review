@@ -138,9 +138,10 @@ def test_change_id_of_a_non_utf8_git_commit_object_is_still_readable(tmp_path: P
         .strip()
     )
 
-    change_id = JjClient(repo).read_remote_git_change_id(remote="origin", commit_id=commit_id)
+    commit = JjClient(repo).read_remote_git_commit(remote="origin", commit_id=commit_id)
 
-    assert change_id == "qpvuntsmwlqtpsluzzsnyyzlmlwvmwzz"
+    assert commit.change_id == "qpvuntsmwlqtpsluzzsnyyzlmlwvmwzz"
+    assert (commit.author, commit.subject) == ("Jos\ufffd", "caf\ufffd subject")
 
 
 def test_deleted_tracked_bookmark_does_not_block_stack_observation(tmp_path: Path) -> None:
@@ -310,10 +311,10 @@ def test_direct_git_pr_branch_ref_operations_use_the_backing_store(
     )
 
     assert (
-        client.read_remote_git_change_id(
+        client.read_remote_git_commit(
             remote="origin",
             commit_id=remote_only_commit,
-        )
+        ).change_id
         == remote_only_change
     )
     assert client.visible_pr_bookmark_targets() == visible_pr_bookmarks
