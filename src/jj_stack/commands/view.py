@@ -363,10 +363,10 @@ def _local_history_warnings(prepared_status: PreparedStatus) -> tuple[ui.Message
                 t"Change {change_id} is a merge change. Showing its first-parent path; "
                 t"commands that change stack state require a linear stack."
             )
-        if change.is_working_copy and change.empty:
+        if change.empty:
             warnings.append(
-                t"Change {change_id} is an empty working-copy change. Showing it for inspection; "
-                t"it cannot be submitted."
+                t"Change {change_id} is empty. Showing it for inspection; it cannot be "
+                t"submitted until it has content."
             )
         elif not change.description.strip():
             warnings.append(

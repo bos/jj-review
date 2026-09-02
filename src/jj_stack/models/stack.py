@@ -53,7 +53,7 @@ class LocalCommit(BaseModel):
             not self.hidden
             and not self.immutable
             and not self.divergent
-            and not (self.is_working_copy and self.empty)
+            and not self.empty
             and len(self.parents) == 1
         )
 

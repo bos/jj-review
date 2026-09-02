@@ -124,7 +124,7 @@ def test_view_warns_and_reports_empty_working_copy_from_another_workspace(
     assert exit_code == 0, captured.err
     assert other_working_copy.change_id[:8] in captured.out
     assert other_working_copy.change_id[:8] in captured.err
-    assert "empty working-copy change" in captured.err
+    assert "is empty" in captured.err
 
 
 def test_view_warns_and_reports_merge_commit_first_parent_path(

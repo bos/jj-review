@@ -171,6 +171,14 @@ def require_submittable_changes(changes: tuple[LocalCommit, ...]) -> None:
                 "divergent changes are not supported.",
                 reason="divergent_change",
             )
+        if change.empty:
+            raise UnsupportedStackError.stack_shape(
+                change.change_id,
+                t"this change is empty; abandon it with "
+                t"{ui.cmd(f'jj abandon {short_change_id(change.change_id)}')} or give it "
+                t"content, then retry.",
+                reason="empty_change",
+            )
         if not change.description.strip():
             raise UnsupportedStackError.stack_shape(
                 change.change_id,
@@ -346,12 +354,6 @@ def _validate_selected_path(
     if inspection_mode:
         return
     for change in path.stack.changes:
-        if change.is_working_copy and change.empty:
-            raise UnsupportedStackError.stack_shape(
-                change.change_id,
-                "empty working-copy changes are not submittable.",
-                reason="empty_working_copy",
-            )
         if change.is_working_copy and not change.description.strip():
             raise UnsupportedStackError.stack_shape(
                 change.change_id,

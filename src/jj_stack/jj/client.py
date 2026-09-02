@@ -138,7 +138,7 @@ class _CommitScan(BaseModel):
 
 UnsupportedStackReason = Literal[
     "divergent_change",
-    "empty_working_copy",
+    "empty_change",
     "hidden_commit",
     "immutable_commit",
     "merge_commit",

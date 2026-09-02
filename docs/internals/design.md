@@ -72,9 +72,8 @@ identity.
 - visible: the commit is in `visible()`, not a hidden predecessor
 - mutable: the commit is in `mutable()`
 
-Such a change is submittable only when it has one visible mutable copy and a nonblank
-description. One extra eligibility rule applies to the working copy: an empty
-working-copy change is not submittable.
+Such a change is submittable only when it has one visible mutable copy, a nonblank
+description, and a nonempty diff.
 
 ### Local stack
 
@@ -383,9 +382,9 @@ Only GitHub's public API is supported. Remote URL hostnames are not validated; t
 interpreted as a `github.com` owner and repo.
 
 Stack lifecycle commands default to `@` when the working-copy change has a nonblank description
-and contents, and to `@-` otherwise. A command that changes tracking state rejects an explicitly
-selected empty working-copy change, and rejects any selected change with a blank description.
-`view` includes such a change on the selected path and warns that it cannot be submitted.
+and contents, and to `@-` otherwise. A command that changes tracking state rejects any selected
+change that is empty or has a blank description. `view` includes such a change on the selected
+path and warns that it cannot be submitted.
 `view` may accept several selectors. An arbitrary revset selects the exact commit
 it resolves to as the stack head. A bare change ID, including a prefix that identifies one
 logical change, or a linked pull request identifies the complete local stack containing that
@@ -839,8 +838,8 @@ local stack becomes a `cleanup needed` row naming `sync`. Only when no supported
 linear walk remains does `view` stop with a targeted diagnostic.
 
 Local submission eligibility never prevents an otherwise resolvable `view` report. Empty
-working-copy changes, undescribed changes, divergent changes, conflicts, and merge changes are
-shown with warnings that explain which mutation remains blocked. A merge is projected through its
+changes, undescribed changes, divergent changes, conflicts, and merge changes are shown with
+warnings that explain which mutation remains blocked. A merge is projected through its
 first parent, which the warning states explicitly. These warnings do not make an otherwise
 complete report incomplete; divergence and unresolved remote observations retain their existing
 incomplete-report rules. Mutation commands continue to reject unsupported selections.

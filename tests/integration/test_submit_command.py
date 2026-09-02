@@ -1182,6 +1182,32 @@ def test_submit_defaults_to_a_described_nonempty_working_copy(
     assert len(fake_repo.prs) == 2
 
 
+def test_submit_refuses_an_empty_change_anywhere_in_the_selected_stack(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """GitHub drops an empty commit when it rebases a stack and auto-closes its PR for good."""
+
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "feature 1", "feature-1.txt")
+    run_command(["jj", "describe", "-m", "marker"], repo)
+    marker = JjClient(repo).resolve_commit("@")
+    run_command(["jj", "new"], repo)
+    commit_file(repo, "feature 2", "feature-2.txt")
+    remote_before = remote_refs(fake_repo.git_dir)
+
+    exit_code = run_main(repo, config_path, "submit")
+    captured = capsys.readouterr()
+
+    assert exit_code == EXIT_NO_STACK
+    assert marker.change_id[:8] in captured.err
+    assert "jj abandon" in captured.err
+    assert not fake_repo.prs
+    assert remote_refs(fake_repo.git_dir) == remote_before
+
+
 def test_submit_refuses_an_undescribed_change_below_the_selected_head(
     tmp_path: Path,
     monkeypatch,
