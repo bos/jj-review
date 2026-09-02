@@ -33,7 +33,7 @@ def check_tracked_pr(
     preview_detached_dependents: frozenset[int] = frozenset(),
     require_no_dependents: bool = False,
 ) -> tuple[GithubPR | None, CleanupAction | None]:
-    """Check one exact unchanged PR against shared facts."""
+    """Check that one saved PR is still the saved one and in an allowed state."""
 
     change_id = candidate.change_id
     pr_identity = candidate.pr_identity
@@ -65,11 +65,6 @@ def check_tracked_pr(
             reason = (
                 t"cannot inspect saved {pr_label} because its live PR no longer "
                 t"matches {ui.bookmark(pr_identity.head_ref)}"
-            )
-        elif not candidate.matches_snapshot(pr):
-            reason = (
-                t"cannot mutate saved {pr_label} because its head no longer "
-                t"matches the saved submitted commit"
             )
         elif pr.state not in allowed_states:
             reason = (
@@ -203,7 +198,7 @@ def plan_pr_cleanup(
     observation: RepoFacts,
     preview_detached_dependents: frozenset[int] = frozenset(),
 ) -> tuple[GithubPR | None, PRRefUpdate | None, CleanupAction | None]:
-    """Check exact cleanup facts and derive at most one leased ref deletion."""
+    """Check cleanup eligibility and lease the PR branch deletion to its observed target."""
 
     pr, blocker = check_tracked_pr(
         allowed_states=allowed_states,
@@ -216,7 +211,6 @@ def plan_pr_cleanup(
         return pr, None, blocker
     change_id = candidate.change_id
     pr_identity = candidate.pr_identity
-    submitted_baseline = candidate.submitted_baseline
     observed = observation.prs[change_id]
     if has_competing_open_pr(
         open_head_prs=observed.open_head_prs,
@@ -260,24 +254,13 @@ def plan_pr_cleanup(
                 status="blocked",
             ),
         )
-    remote_target = observation.prs[change_id].remote_pr_branch_target
-    if remote_target is not None and remote_target != submitted_baseline.commit_id:
-        return (
-            pr,
-            None,
-            CleanupAction(
-                kind="remote branch",
-                body=t"cannot delete {ui.bookmark(branch)} because it "
-                t"already points to a different commit",
-                status="blocked",
-            ),
-        )
+    remote_target = observed.remote_pr_branch_target
     update = (
         None
         if remote_target is None
         else PRRefUpdate(
             branch=branch,
-            expected_target=submitted_baseline.commit_id,
+            expected_target=remote_target,
             desired_target=None,
         )
     )

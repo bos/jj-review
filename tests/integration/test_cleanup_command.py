@@ -446,7 +446,7 @@ def test_cleanup_removes_overview_comment_for_closed_pr(
     assert issue_comments(fake_repo, 2) == []
 
 
-def test_cleanup_blocks_pr_head_drift_observed_during_planning(
+def test_cleanup_removes_a_closed_pr_whose_head_github_moved(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -455,10 +455,10 @@ def test_cleanup_blocks_pr_head_drift_observed_during_planning(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     change_id = selected_stack(repo).head.change_id
     state_store = TrackingStore.for_repo(repo)
-    initial_state = state_store.load()
-    identity = initial_state.pr_identities[change_id]
-    pr = fake_repo.prs[identity.pr_number]
-    pr.state = "closed"
+    identity = state_store.load().pr_identities[change_id]
+    fake_repo.prs[identity.pr_number].state = "closed"
+    # GitHub's "Update branch" button and its stack rebase both move a PR head off the
+    # submitted commit; here the moved head lands on trunk.
     run_command(
         [
             "git",
@@ -474,13 +474,12 @@ def test_cleanup_blocks_pr_head_drift_observed_during_planning(
         body=f"{STACK_OVERVIEW_COMMENT_MARKER}\nstack overview",
         issue_number=identity.pr_number,
     )
-    initial_comments = issue_comments(fake_repo, identity.pr_number)
 
     exit_code = run_main(repo, config_path, "cleanup")
     captured = capsys.readouterr()
 
-    assert exit_code == 1
-    assert "head no longer matches the saved submitted commit" in " ".join(captured.out.split())
-    assert state_store.load() == initial_state
-    assert issue_comments(fake_repo, identity.pr_number) == initial_comments
-    assert f"refs/heads/{identity.head_ref}" in remote_refs(fake_repo.git_dir)
+    assert exit_code == 0
+    assert f"delete {identity.head_ref}@origin" in " ".join(captured.out.split())
+    assert change_id not in state_store.load().pr_identities
+    assert issue_comments(fake_repo, identity.pr_number) == []
+    assert f"refs/heads/{identity.head_ref}" not in remote_refs(fake_repo.git_dir)

@@ -6,7 +6,7 @@ from typing import cast
 import jj_stack.commands.cleanup.stale as stale_module
 from jj_stack.commands._cleanup_actions import plan_pr_cleanup
 from jj_stack.github.resolution import GithubRepoAddress
-from jj_stack.jj.client import JjClient, PRRefUpdate
+from jj_stack.jj.client import JjClient
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubBranchRef, GithubPR
 from jj_stack.models.tracking import (
@@ -89,36 +89,6 @@ def test_local_cleanup_observations_flag_changes_outside_current_stacks(
     stale_observation = observations["stale-change"]
     assert stale_observation.has_mutable_copy
     assert stale_observation.stale_reason is not None
-
-
-def test_cleanup_accepts_only_the_exact_closed_pr_branch_and_lease() -> None:
-    pr, update, blocker = plan_pr_cleanup(
-        allowed_states=frozenset({"closed", "merged"}),
-        candidate=_candidate(),
-        observation=_observation(),
-    )
-
-    assert pr is not None
-    assert pr.number == 1
-    assert update == PRRefUpdate(
-        branch=BRANCH,
-        expected_target=_BASELINE.commit_id,
-        desired_target=None,
-    )
-    assert blocker is None
-
-
-def test_cleanup_blocks_when_the_exact_remote_branch_drifted() -> None:
-    _pr, update, blocker = plan_pr_cleanup(
-        allowed_states=frozenset({"closed", "merged"}),
-        candidate=_candidate(),
-        observation=_observation(remote_target="external-commit"),
-    )
-
-    assert update is None
-    assert blocker is not None
-    assert blocker.kind == "remote branch"
-    assert "different commit" in plain_text(blocker.body)
 
 
 def test_cleanup_preserves_a_head_branch_shared_by_another_open_pr() -> None:

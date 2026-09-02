@@ -429,13 +429,13 @@ The command-specific planning requirements are:
   `SubmittedBaseline.commit_id`, plus a live snapshot match. Tree or diff equivalence is not
   sufficient.
 - `sync --all` requires a snapshot match before retargeting, closing, or cleaning up a PR.
-- cleanup requires a snapshot match before closing a PR, deleting artifacts, or removing saved
+- cleanup requires an identity match before closing a PR, deleting artifacts, or removing saved
   links.
 
 When the platform supports a conditional write or lease, the mutation is bound to the identity
-and version observed while planning. A remote swap, repo retarget, renamed head, moved
-branch, missing PR, or replacement PR found during planning fails closed and names `relink` or
-`unstack --local`, depending on whether the user needs to repair or forget the saved link.
+and version observed while planning. A remote swap, repo retarget, renamed head, missing PR, or
+replacement PR found during planning fails closed and names `relink` or `unstack --local`,
+depending on whether the user needs to repair or forget the saved link.
 
 Only PR creation, `relink`, and `checkout` create or replace identity. `unstack --local`
 deletes it explicitly. Cleanup is the only operation that deletes identity after checking live
@@ -762,14 +762,14 @@ running selected cleanup, and then submitting again.
 
 `cleanup --pull-request <pr> --close` and `cleanup --pull-request orphans --close` combine closure
 and cleanup for an explicit saved selection. The flag is invalid without `--pull-request`.
-Identity, snapshot, PR-branch ownership, open dependents, GitHub stack membership, and the
-managed overview comment are all checked before closing an open PR. A PR already closed or merged
+Identity, PR-branch ownership, open dependents, GitHub stack membership, and the managed
+overview comment are all checked before closing an open PR. A PR already closed or merged
 skips closure and follows ordinary cleanup. A closure failure stops later selected mutations; a
 rerun observes the current PR state.
 
 Cleanup acts only on one complete identity/baseline pair, whether it runs directly or at the end
-of `sync`. It may remove the managed overview comment, the exact saved PR branch ref only while it
-still points to the expected commit, and the two records.
+of `sync`. It may remove the managed overview comment, the saved PR branch ref at the commit
+observed while planning, and the two records.
 
 A pair is eligible only when:
 
