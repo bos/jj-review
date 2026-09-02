@@ -659,7 +659,8 @@ GitHub's native stack rebase instead rewrites every active member and removes `j
 commit headers. With no merged member, those remote commits cannot become the identity of the
 local changes. `sync` recognizes this result only when all of these observations agree:
 
-- the GitHub stack contains exactly the selected tracked PRs, in their local parent order
+- every member of the GitHub stack is among the selected tracked PRs, in their local parent
+  order
 - every PR still uses its saved head branch and the expected base branch
 - every PR head and PR branch moved from its submitted baseline to the same reported commit
 - the reported commits form one first-parent chain rooted at fetched trunk

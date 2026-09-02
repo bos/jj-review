@@ -259,23 +259,23 @@ def _classify_github_stack(
 ) -> _GithubStackEffect:
     selected_by_id = {change.change_id: change for change in selected}
     by_pr = {candidate.pr_identity.pr_number: candidate for candidate in state.tracked_prs()}
-    candidates = tuple(
-        candidate
+    selected_prs = tuple(
+        candidate.pr_identity.pr_number
         for change in selected
         if (candidate := state.tracked_pr(change.change_id)) is not None
     )
-    prs = {candidate.pr_identity.pr_number for candidate in candidates}
-    stack = selected_github_stack(observation.repo, prs, github_stacks)
+    stack = selected_github_stack(observation.repo, selected_prs, github_stacks)
     if stack is None:
         return _NoGithubStack()
-    ordered = tuple(number for number in stack.pr_numbers if number in prs)
-    if tuple(candidate.pr_identity.pr_number for candidate in candidates) != ordered:
+    # A selected PR outside the stack, such as a child submitted with --base, is not compared.
+    members = tuple(number for number in selected_prs if number in stack.pr_numbers)
+    if members != tuple(number for number in stack.pr_numbers if number in members):
         raise CliError(
             t"Selected PRs do not match GitHub stack #{stack.number}'s ordered members.",
             hint=t"Bring them back into line with {ui.cmd('jj-stack submit')}, or remove the "
             t"grouping with {ui.cmd(f'jj-stack unstack --stack {stack.number}')} and resubmit.",
         )
-    merge_mode = _is_stack_merge(stack=stack, by_pr=by_pr, candidates=candidates)
+    merge_mode = _is_stack_merge(stack=stack, by_pr=by_pr)
     history: list[OnTrunkChange] = []
     adopted: list[AdoptedSurvivor] = []
     expected_base = trunk_branch
@@ -341,18 +341,9 @@ def _classify_github_stack(
     return _GithubStackMerge(tuple(history), result)
 
 
-def _is_stack_merge(
-    *,
-    stack: GithubStack,
-    by_pr: dict[int, TrackedPR],
-    candidates: tuple[TrackedPR, ...],
-) -> bool:
+def _is_stack_merge(*, stack: GithubStack, by_pr: dict[int, TrackedPR]) -> bool:
     merge_mode = any(member.number in by_pr for member in stack.historical_prs)
-    if not merge_mode and (
-        stack.historical_prs
-        or stack.active_pr_numbers
-        != tuple(candidate.pr_identity.pr_number for candidate in candidates)
-    ):
+    if stack.historical_prs and not merge_mode:
         raise _unproven_rewrite_error(stack)
     return merge_mode
 

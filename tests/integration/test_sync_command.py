@@ -118,24 +118,41 @@ def test_sync_dry_run_previews_rebase_and_skips_submit_preview(
     assert fake_repo.prs[2].base_ref == original_base_ref
 
 
-def test_sync_finishes_when_whole_stack_merged(
+def test_sync_reconciles_a_fork_child_after_its_whole_parent_stack_merged(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=1)
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    _squash_merge_pr(fake_repo, 1)
+    state_store = TrackingStore.for_repo(repo)
+    first, _second = selected_stack(repo).changes
+    fake_repo.github_stacks = {7: (1, 2)}
+    run_command(["jj", "new", first.change_id], repo)
+    commit_file(repo, "fork work", "fork.txt")
+    fork = selected_stack(repo).head
+    submit_exit = run_main(repo, config_path, "submit", "--base", first.change_id, fork.change_id)
+    assert submit_exit == 0, capsys.readouterr()
+    fake_repo.apply_merge_commit((fake_repo.prs[1], fake_repo.prs[2]))
 
     exit_code = run_main(repo, config_path, "sync")
     captured = capsys.readouterr()
 
     assert exit_code == 0, (captured.out, captured.err)
-    assert JjClient(repo).resolve_commit("@").parents == (
-        read_remote_ref(fake_repo.git_dir, "main"),
+    jj = JjClient(repo)
+    rewritten_fork = jj.resolve_commit(fork.change_id)
+    assert rewritten_fork.parents == (read_remote_ref(fake_repo.git_dir, "main"),)
+    assert jj.resolve_commit("@").parents == (rewritten_fork.commit_id,)
+    state = state_store.load()
+    assert set(state.pr_identities) == {fork.change_id}
+    assert state.submitted_baselines[fork.change_id].commit_id == rewritten_fork.commit_id
+    assert (fake_repo.prs[3].head_sha, fake_repo.prs[3].base_ref) == (
+        rewritten_fork.commit_id,
+        "main",
     )
-    # No replacement pull request was opened for the merged change.
-    assert set(fake_repo.prs) == {1}
+    # No replacement pull request was opened for the merged changes.
+    assert set(fake_repo.prs) == {1, 2, 3}
+    assert fake_repo.github_stacks == {7: (1, 2)}
 
 
 def test_sync_recovers_a_clean_single_pr_rebase_merge(
