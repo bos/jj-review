@@ -70,10 +70,9 @@ def explain_precondition(
             t"{ui.cmd('jj log -r')} {ui.revset(f'change_id({short_change_id(change_id)})')}, "
             t"then run {submit}"
         )
-    if precondition.recovery == "view_or_sync":
+    if precondition.recovery == "view":
         return (
-            t"it is no longer visible locally; run {ui.cmd('jj-stack view')} to find where it "
-            t"went, or {ui.cmd(f'jj-stack sync {sync_target}')} if it already merged"
+            t"it is no longer visible locally; find where it went with {ui.cmd('jj-stack view')}"
         )
     if precondition.recovery == "submit":
         return (
@@ -94,14 +93,32 @@ def _merge_change_precondition_error(
     planned: MergeChange,
     inactive_allowed: bool,
 ) -> MergePrecondition | None:
-    return _local_precondition_error(
-        observed=observed,
-        planned=planned,
-    ) or _github_pr_precondition_error(
-        observed=observed,
-        planned=planned,
-        inactive_allowed=inactive_allowed,
-    )
+    """Explain why the pull request, or the local copy behind it, does not match the plan.
+
+    GitHub's report of the pull request comes first: a merged pull request is a stop by itself,
+    wherever its branch and the local copy have ended up since. Only a candidate that can still
+    merge, or a completed merge being finished, goes on to the commit comparison.
+    """
+
+    pr = observed.pr
+    label = short_change_id(planned.change_id)
+    if pr is None:
+        return MergePrecondition(f"GitHub no longer reports the saved pull request for {label}")
+    pr = pr.normalize_state()
+    if not planned.identity.matches_pr(pr):
+        return MergePrecondition(f"the pull request linked to {label} changed")
+    pr_number = format_pr_number(pr.number, url=pr.html_url)
+    if pr.state != "open" and not inactive_allowed:
+        return MergePrecondition(
+            t"pull request {pr_number} is {pr.state}",
+            recovery="sync" if pr.state == "merged" else "inspect",
+        )
+    if pr.is_draft and not inactive_allowed:
+        return MergePrecondition(t"pull request {pr_number} is now a draft")
+    # The head commit is deliberately not compared here. GitHub is given the expected head with
+    # the merge request and rejects a stale one atomically, which a check made beforehand cannot
+    # do; the PR branch is still compared against the submitted baseline below.
+    return _local_precondition_error(observed=observed, planned=planned)
 
 
 def _local_precondition_error(
@@ -117,7 +134,7 @@ def _local_precondition_error(
     if identity != planned.identity or identity is None:
         return MergePrecondition(f"saved PR tracking for {label} changed")
     if not local_commits:
-        return MergePrecondition(f"{label} is no longer visible locally", recovery="view_or_sync")
+        return MergePrecondition(f"{label} is no longer visible locally", recovery="view")
     # Stack discovery normally rejects a divergent change first; this covers one that diverged
     # after the plan was built.
     if len(local_commits) > 1 or local_commits[0].divergent:
@@ -140,33 +157,4 @@ def _local_precondition_error(
             f"the last submitted commit for {label} changed",
             recovery="submit",
         )
-    return None
-
-
-def _github_pr_precondition_error(
-    *,
-    observed: PRFacts,
-    planned: MergeChange,
-    inactive_allowed: bool,
-) -> MergePrecondition | None:
-    """Explain why GitHub's view of the pull request does not match the plan."""
-
-    pr = observed.pr
-    label = short_change_id(planned.change_id)
-    if pr is None:
-        return MergePrecondition(f"GitHub no longer reports the saved pull request for {label}")
-    pr = pr.normalize_state()
-    # The head commit is deliberately not compared here. GitHub is given the expected head with
-    # the merge request and rejects a stale one atomically, which a check made beforehand cannot
-    # do; the PR branch is still compared against the submitted baseline above.
-    if not planned.identity.matches_pr(pr):
-        return MergePrecondition(f"the pull request linked to {label} changed")
-    pr_number = format_pr_number(pr.number, url=pr.html_url)
-    if pr.state != "open" and not inactive_allowed:
-        return MergePrecondition(
-            t"pull request {pr_number} is {pr.state}",
-            recovery="sync" if pr.state == "merged" else "inspect",
-        )
-    if pr.is_draft and not inactive_allowed:
-        return MergePrecondition(t"pull request {pr_number} is now a draft")
     return None

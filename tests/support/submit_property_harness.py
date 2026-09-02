@@ -1101,6 +1101,22 @@ def update_remote_ref(fake_repo: FakeGithubRepo, *, branch: str, target: str) ->
     )
 
 
+def delete_remote_ref(fake_repo: FakeGithubRepo, *, branch: str) -> None:
+    """Remove a branch on the remote, as GitHub does after merging when configured to."""
+
+    run_command(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "update-ref",
+            "-d",
+            f"refs/heads/{branch}",
+        ],
+        fake_repo.git_dir.parent,
+    )
+
+
 def _github_snapshot(
     fake_repo: FakeGithubRepo,
 ) -> tuple[object, ...]:

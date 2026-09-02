@@ -82,9 +82,7 @@ class MergePrecondition:
     """A failed merge precondition and the recovery it requires."""
 
     reason: Message
-    recovery: Literal["inspect", "reconcile", "resolve", "submit", "sync", "view_or_sync"] = (
-        "inspect"
-    )
+    recovery: Literal["inspect", "reconcile", "resolve", "submit", "sync", "view"] = "inspect"
 
 
 @dataclass(frozen=True, slots=True)

@@ -29,12 +29,6 @@ class AsyncMergePlan:
     planned: tuple[MergeChange, ...]
 
     @property
-    def terminal_retry(self) -> bool:
-        return self.resource is not None and (
-            self.target.identity.pr_number in self.resource.historical_pr_numbers
-        )
-
-    @property
     def target(self) -> MergeChange:
         return self.planned[-1]
 
@@ -72,10 +66,11 @@ def build_async_merge_plan(
     merge_plan: MergePlan,
     stacks: tuple[GithubStack, ...],
     target_change_id: str | None,
-    repo: GithubRepoAddress,
+    execution: MergeExecutionInputs,
+    observation: RepoFacts,
 ) -> AsyncMergePlan:
     by_pr = {change.identity.pr_number: change for change in merge_plan.linked_changes}
-    resource = selected_github_stack(repo, tuple(by_pr), stacks)
+    resource = selected_github_stack(execution.repo, tuple(by_pr), stacks)
     if resource is None:
         if len(by_pr) > 1 and merge_plan.planned_changes:
             raise CliError(
@@ -109,9 +104,20 @@ def build_async_merge_plan(
     stop = len(historical) if target_change_id is None else 0
     if target_change_id in change_ids:
         stop = change_ids.index(target_change_id) + 1
-    if not stop or merge_plan.linked_changes[: len(historical)] != historical:
-        return AsyncMergePlan(resource, merge_plan.boundary_action, ())
-    return AsyncMergePlan(resource, None, historical[:stop])
+    # A merge GitHub already completed is finished from here only while every local copy and PR
+    # branch still names the merged commit; otherwise the plan's own stop stands, naming sync.
+    if stop and merge_plan.linked_changes[: len(historical)] == historical:
+        error = merge_precondition_error(
+            inactive_allowed=frozenset(change_ids[:stop]),
+            expected_repo=execution.repo,
+            expected_trunk_branch=execution.trunk_branch,
+            observation=observation,
+            remote_name=execution.remote_name,
+            changes=historical[:stop],
+        )
+        if error is None:
+            return AsyncMergePlan(resource, None, historical[:stop])
+    return AsyncMergePlan(resource, merge_plan.boundary_action, ())
 
 
 async def execute_async_merge(
@@ -214,31 +220,6 @@ async def execute_async_merge(
         merge_action=merge_action,
         merge_method=merge_method,
     )
-
-
-def validate_terminal_retry(
-    *,
-    execution: MergeExecutionInputs,
-    github: GithubClient,
-    merge: AsyncMergePlan,
-    observation: RepoFacts,
-) -> None:
-    """Validate a completed server operation from the observation that found it."""
-
-    changes = merge.planned
-    error = merge_precondition_error(
-        inactive_allowed=frozenset(change.change_id for change in changes),
-        expected_repo=github.repo,
-        expected_trunk_branch=execution.trunk_branch,
-        observation=observation,
-        remote_name=execution.remote_name,
-        changes=changes,
-    )
-    if error:
-        raise CliError(
-            error.reason,
-            hint=t"Resolve the mismatch, then rerun {ui.cmd('jj-stack merge')}.",
-        )
 
 
 async def _terminal(

@@ -46,11 +46,7 @@ from jj_stack.stack.selection import (
 from jj_stack.stack.status import prepare_status
 from jj_stack.state.operation_lock import operation_lock_if_mutating
 
-from .github_stack import (
-    build_async_merge_plan,
-    execute_async_merge,
-    validate_terminal_retry,
-)
+from .github_stack import build_async_merge_plan, execute_async_merge
 from .models import MergeExecutionInputs, MergeResult, PreparedMerge
 from .plan import build_merge_plan
 from .render import print_merge_result
@@ -294,9 +290,6 @@ async def _stream_merge_async(
             trunk_branch=trunk_branch,
         )
         stacks = await stacks_task
-        async_merge = build_async_merge_plan(
-            plan, stacks, prepared_merge.target_change_id, github_client.repo
-        )
         execution = MergeExecutionInputs(
             remote_name=remote.name,
             repo=github_client.repo,
@@ -304,13 +297,9 @@ async def _stream_merge_async(
             trunk_branch=trunk_branch,
             trunk_subject=prepared.stack.trunk.subject,
         )
-        if async_merge.planned and async_merge.terminal_retry:
-            validate_terminal_retry(
-                execution=execution,
-                github=github_client,
-                merge=async_merge,
-                observation=observation,
-            )
+        async_merge = build_async_merge_plan(
+            plan, stacks, prepared_merge.target_change_id, execution, observation
+        )
         if prepared_merge.dry_run:
             if async_merge.planned:
                 action = async_merge.action(

@@ -18,7 +18,11 @@ from ..support.integration_helpers import (
     run_command,
     selected_stack,
 )
-from ..support.submit_property_harness import advance_remote_trunk, update_remote_ref
+from ..support.submit_property_harness import (
+    advance_remote_trunk,
+    delete_remote_ref,
+    update_remote_ref,
+)
 from .submit_command_helpers import (
     configure_submit_environment,
     issue_comments,
@@ -426,15 +430,27 @@ def test_stack_merge_requires_a_resource_only_when_a_multi_pr_merge_can_proceed(
 
     head_change_id = selected_stack(repo).head.change_id
     fake_repo.apply_squash_merge(fake_repo.prs[1])
+    # GitHub commonly deletes a merged PR's branch, so the merged stop has to come from the pull
+    # request itself, not from finding the branch where the last submit left it.
+    delete_remote_ref(fake_repo, branch=fake_repo.prs[1].head_ref)
 
     retry_exit_code = run_main(repo, config_path, "merge")
     retry = capsys.readouterr()
-    retry_rendered = " ".join(retry.out.split())
+    retry_rendered = " ".join((retry.out + retry.err).split())
 
     assert retry_exit_code == 1
     assert "is merged" in retry_rendered
     assert f"jj-stack sync {head_change_id[:8]}" in retry_rendered
-    assert "Run submit" not in retry.err
+    assert "submit" not in retry_rendered
+    assert fake_repo.stack_merge_requests == []
+
+    # A GitHub stack listing the merged PR cannot finish that merge from here either.
+    fake_repo.github_stacks = {7: (1, 2)}
+    assert run_main(repo, config_path, "merge") == 1
+    listed = capsys.readouterr()
+    listed_rendered = " ".join((listed.out + listed.err).split())
+    assert f"jj-stack sync {head_change_id[:8]}" in listed_rendered
+    assert "submit" not in listed_rendered
     assert fake_repo.stack_merge_requests == []
 
 
