@@ -58,13 +58,6 @@ class PRBranchNamespace:
 
         return branch.startswith(self.branch_prefix)
 
-    def branch_ref(self, branch: str) -> str:
-        """Return the full Git ref for one branch, refusing anything outside."""
-
-        if not self.contains(branch):
-            raise ValueError(f"not a branch in the {self.branch_prefix} namespace: {branch!r}")
-        return f"refs/heads/{branch}"
-
 
 def install_pr_branch_namespace(prefix: str) -> None:
     """Install the configured namespace for the current CLI invocation."""

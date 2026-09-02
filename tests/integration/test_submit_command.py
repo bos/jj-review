@@ -122,6 +122,36 @@ def test_submit_uses_configured_namespace_and_adds_stack_only_when_needed(
     assert all(issue_comments(fake_repo, number) == [] for number in (1, 2))
 
 
+def test_submit_updates_a_tracked_branch_after_the_prefix_is_renamed(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """Saved tracking owns a PR branch; the configured prefix only names new ones."""
+
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(
+        monkeypatch,
+        tmp_path,
+        fake_repo,
+        extra_config_lines=['branch_prefix = "renamed"'],
+    )
+    feature = selected_stack(repo).head
+    head_ref = TrackingStore.for_repo(repo).load().pr_identities[feature.change_id].head_ref
+    run_command(["jj", "edit", feature.change_id], repo)
+    write_file(repo / "feature-1.txt", "feature 1 amended\n")
+
+    exit_code = run_main(repo, config_path, "submit")
+    captured = capsys.readouterr()
+
+    assert exit_code == 0, captured.err
+    assert head_ref.startswith("jj-stack/")
+    assert read_remote_ref(fake_repo.git_dir, head_ref) == selected_stack(repo).head.commit_id
+    assert not any(
+        ref.startswith("refs/heads/renamed/") for ref in remote_refs(fake_repo.git_dir)
+    )
+
+
 @pytest.mark.parametrize(("child_size", "base_index"), ((1, -1), (2, 0)))
 def test_submit_explicit_base_creates_and_updates_only_the_child_stack(
     tmp_path: Path,

@@ -814,7 +814,7 @@ class JjClient:
         tuple accepts any listed ID, including a missing change-ID header represented by `None`.
         """
 
-        ref = current_pr_branch_namespace().branch_ref(branch)
+        ref = f"refs/heads/{branch}"
         chain = tuple(expected_chain)
         if chain and (
             expected_parent_commit_id is None
@@ -942,14 +942,13 @@ class JjClient:
     ) -> None:
         """Atomically apply a complete PR branch update set with exact leases."""
 
-        namespace = current_pr_branch_namespace()
         ordered_updates = tuple(updates)
         if not ordered_updates:
             return
         branches = tuple(update.branch for update in ordered_updates)
         if len(set(branches)) != len(branches):
             raise ValueError("remote PR branch update set contains duplicate branches")
-        refs = tuple(namespace.branch_ref(branch) for branch in branches)
+        refs = tuple(f"refs/heads/{branch}" for branch in branches)
         if any(
             update.expected_target is None and update.desired_target is None
             for update in ordered_updates
