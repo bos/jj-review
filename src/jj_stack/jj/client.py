@@ -976,39 +976,43 @@ class JjClient:
 
         self._run_jj(("edit", commit_id), manage_working_copy=True)
 
-    def rebase_exact_commits(
+    def rebase_changes(
         self,
         *,
-        commit_ids: Sequence[str],
+        change_ids: Sequence[str],
         destination: str,
     ) -> None:
-        """Rebase exactly the named commits onto one destination."""
+        """Rebase the current visible commits of the named changes onto one destination.
 
-        ordered_commit_ids = list(dict.fromkeys(commit_ids))
-        if not ordered_commit_ids:
+        jj rebases a hidden commit ID as readily as a visible one, resurrecting it beside any
+        later rewrite, so the changes are selected by ID after jj's own working-copy snapshot.
+        """
+
+        ordered_change_ids = tuple(dict.fromkeys(change_ids))
+        if not ordered_change_ids:
             return
         self._run_jj(
-            ("rebase", "-r", "|".join(ordered_commit_ids), "-d", destination),
+            ("rebase", "-r", _change_ids_revset(ordered_change_ids), "-d", destination),
             manage_working_copy=True,
         )
 
-    def prepare_rebase_exact_commits(
+    def prepare_rebase_changes(
         self,
         *,
-        commit_ids: Sequence[str],
+        change_ids: Sequence[str],
         destination: str,
     ) -> str:
         """Compute a rebase in an unintegrated operation and return its operation ID."""
 
-        ordered_commit_ids = list(dict.fromkeys(commit_ids))
-        if not ordered_commit_ids:
-            raise ValueError("speculative rebase requires at least one commit")
+        ordered_change_ids = tuple(dict.fromkeys(change_ids))
+        if not ordered_change_ids:
+            raise ValueError("speculative rebase requires at least one change")
         output = self._run_jj(
             (
                 "--no-integrate-operation",
                 "rebase",
                 "-r",
-                "|".join(ordered_commit_ids),
+                _change_ids_revset(ordered_change_ids),
                 "-d",
                 destination,
             ),

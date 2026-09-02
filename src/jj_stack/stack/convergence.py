@@ -138,7 +138,7 @@ def build_selected_convergence_plan(
     )
     local_head = selected[-1]
     working_copy_children = tuple(
-        commit.commit_id
+        commit
         for commit in context.jj_client.query_descendant_commits((local_head.commit_id,))
         if commit.is_working_copy and commit.empty and commit.parents == (local_head.commit_id,)
     )
@@ -248,12 +248,15 @@ def _require_no_divergent_survivors(
     expected_remote_copies = {item.candidate.change_id for item in adopted}
     for change in actions.survivors:
         if change.divergent and change.change_id not in expected_remote_copies:
-            raise CliError(
-                t"Cannot rebase remaining {ui.change_id(change.change_id)} because it has "
-                t"multiple visible commits.",
-                hint=t"Resolve the divergence with {ui.cmd('jj')}, then rerun sync for this "
-                t"stack.",
-            )
+            raise divergent_change_error(change.change_id)
+
+
+def divergent_change_error(change_id: str) -> CliError:
+    return CliError(
+        t"Cannot rebase remaining {ui.change_id(change_id)} because it has multiple visible "
+        t"commits.",
+        hint=t"Resolve the divergence with {ui.cmd('jj')}, then rerun sync for this stack.",
+    )
 
 
 def _classify_github_stack(

@@ -1055,7 +1055,7 @@ def test_sync_converges_selected_path_while_a_sibling_still_needs_the_merged_cha
     assert on_trunk.change_id in TrackingStore.for_repo(repo).load().pr_identities
 
 
-def test_sync_rebases_trailing_local_work_without_creating_a_pr(
+def test_sync_rebases_the_current_commit_of_trailing_local_work_without_creating_a_pr(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1069,6 +1069,16 @@ def test_sync_rebases_trailing_local_work_without_creating_a_pr(
     state_before = TrackingStore.for_repo(repo).load()
     assert trailing.change_id not in state_before.pr_identities
     _squash_merge_pr(fake_repo, 1)
+    real_apply_pr_finishes = sync_apply.apply_pr_finishes
+
+    async def describe_trailing_then_finish(**kwargs):
+        # Another process rewrites a survivor after planning observed its commit.
+        run_command(
+            ["jj", "describe", "-r", trailing.change_id, "-m", "described during sync"], repo
+        )
+        return await real_apply_pr_finishes(**kwargs)
+
+    monkeypatch.setattr(sync_apply, "apply_pr_finishes", describe_trailing_then_finish)
 
     exit_code = run_main(repo, config_path, "sync", trailing.change_id)
     captured = capsys.readouterr()
@@ -1079,6 +1089,8 @@ def test_sync_rebases_trailing_local_work_without_creating_a_pr(
     rewritten_trailing = jj.resolve_commit(trailing.change_id)
     assert rewritten_submitted.parents == (read_remote_ref(fake_repo.git_dir, "main"),)
     assert rewritten_trailing.parents == (rewritten_submitted.commit_id,)
+    assert rewritten_trailing.description.startswith("described during sync")
+    assert jj.resolve_commit("@").parents == (rewritten_trailing.commit_id,)
     assert set(fake_repo.prs) == {1, 2}
     assert trailing.change_id not in TrackingStore.for_repo(repo).load().pr_identities
 

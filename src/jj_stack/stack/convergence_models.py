@@ -37,7 +37,7 @@ class ConvergenceActions:
     on_trunk: tuple[OnTrunkChange, ...]
     submitted_survivors: tuple[LocalCommit, ...]
     survivors: tuple[LocalCommit, ...]
-    working_copy_children: tuple[str, ...]
+    working_copy_children: tuple[LocalCommit, ...]
 
 
 @dataclass(frozen=True, slots=True)

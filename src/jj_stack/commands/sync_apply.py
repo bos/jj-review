@@ -21,6 +21,7 @@ from jj_stack.identifiers import short_change_id
 from jj_stack.jj.client import PRRefUpdate
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import SubmittedBaseline, TrackedPR
+from jj_stack.stack.convergence import divergent_change_error
 from jj_stack.stack.convergence_models import (
     ConvergenceActions,
     GithubStackMergePlan,
@@ -177,9 +178,9 @@ def _apply_local_convergence(
     actions = plan.actions
     adopted = plan.adopted_survivors if isinstance(plan, GithubStackMergePlan) else ()
     adopted_ids = {item.candidate.change_id for item in adopted}
-    commit_ids = (
+    rebased = (
         (
-            *(item.commit_id for item in actions.survivors if item.change_id not in adopted_ids),
+            *(item for item in actions.survivors if item.change_id not in adopted_ids),
             *actions.working_copy_children,
         )
         if actions.on_trunk
@@ -215,9 +216,9 @@ def _apply_local_convergence(
         destination = trunk_commit_id
         attachment = nullcontext()
     with attachment:
-        if commit_ids:
-            context.jj_client.rebase_exact_commits(
-                commit_ids=commit_ids,
+        if rebased:
+            context.jj_client.rebase_changes(
+                change_ids=_single_visible_change_ids(context, rebased),
                 destination=destination,
             )
         if replaced:
@@ -316,10 +317,9 @@ def _verified_local_rebase(
         item.local_change.commit_id == item.candidate.submitted_baseline.commit_id
         for item in adopted
     ):
-        operation_id = context.jj_client.prepare_rebase_exact_commits(
-            commit_ids=(
-                *tuple(item.commit_id for item in local),
-                *plan.actions.working_copy_children,
+        operation_id = context.jj_client.prepare_rebase_changes(
+            change_ids=_single_visible_change_ids(
+                context, (*local, *plan.actions.working_copy_children)
             ),
             destination=trunk_commit_id,
         )
@@ -364,6 +364,23 @@ def _verified_local_rebase(
             t"to keep.",
         )
     return desired_by_change, operation_id
+
+
+def _single_visible_change_ids(
+    context: CommandContext, changes: tuple[LocalCommit, ...]
+) -> tuple[str, ...]:
+    """Require one visible commit per change right before rewriting it.
+
+    Planning observed these changes before the GitHub round-trips; one that became divergent
+    since then must not be rewritten at all.
+    """
+
+    change_ids = tuple(change.change_id for change in changes)
+    visible = context.jj_client.query_commits_by_change_ids(change_ids)
+    for change_id in change_ids:
+        if len(visible[change_id]) != 1:
+            raise divergent_change_error(change_id)
+    return change_ids
 
 
 async def _refresh_selected_prs(
