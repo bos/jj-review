@@ -127,6 +127,9 @@ class GithubPR(BaseModel):
     body: str | None = None
     check_rollup_status: CheckRollupStatus | None = None
     head: GithubBranchRef
+    # GitHub reports a null `headRef` once the head branch is deleted; REST payloads say
+    # nothing, so they keep the safe default.
+    head_branch_exists: bool = True
     html_url: str
     is_draft: bool = Field(default=False, alias="draft")
     is_queued: bool = False
@@ -161,6 +164,7 @@ class GithubPR(BaseModel):
                 "ref": value.get("headRefName"),
                 "sha": value.get("headRefOid"),
             },
+            "head_branch_exists": value.get("headRef", True) is not None,
             "html_url": value.get("url"),
             "is_queued": value.get("mergeQueueEntry") is not None,
             "merge_commit_sha": _graphql_merge_commit_oid(value.get("mergeCommit")),

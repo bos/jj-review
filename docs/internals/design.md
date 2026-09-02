@@ -762,10 +762,11 @@ running selected cleanup, and then submitting again.
 
 `cleanup --pull-request <pr> --close` and `cleanup --pull-request orphans --close` combine closure
 and cleanup for an explicit saved selection. The flag is invalid without `--pull-request`.
-Identity, PR-branch ownership, open dependents, GitHub stack membership, and the managed
-overview comment are all checked before closing an open PR. A PR already closed or merged
-skips closure and follows ordinary cleanup. A closure failure stops later selected mutations; a
-rerun observes the current PR state.
+Identity, PR-branch ownership, open dependents, GitHub stack membership, and the managed overview
+comment are all checked before closing an open PR. Whether `sync` or cleanup closes a PR, it first
+retargets the PR to trunk so that GitHub can still reopen it once its base branch is deleted. A PR
+already closed or merged skips closure and follows ordinary cleanup. A closure failure stops later
+selected mutations; a rerun observes the current PR state.
 
 Cleanup acts only on one complete identity/baseline pair, whether it runs directly or at the end
 of `sync`. It may remove the managed overview comment, the saved PR branch ref at the commit
@@ -775,12 +776,14 @@ A pair is eligible only when:
 
 - GitHub reports the exact saved PR closed or merged
 - for a merged PR, no visible mutable local copy still needs `sync`
-- no PR in the same repo, open or closed, uses the saved head ref as its base
+- no PR in the same repo that is open, or closed but still reopenable, uses the saved head ref
+  as its base
 - no active member of a GitHub stack still needs the branch
 
-A closed PR counts because GitHub refuses to reopen a PR whose base branch is gone, and refuses
-to retarget a closed PR at all, so deleting the branch first strands it permanently. A merged PR
-does not count: its state can never change, so nothing is lost.
+A closed PR counts while its own head branch still exists: GitHub refuses to reopen a PR whose
+base branch is gone, and refuses to retarget a closed PR at all, so deleting the base first would
+strand it permanently. Once its head branch is gone it can never be reopened, so its base
+protects nothing. A merged PR does not count: its state can never change, so nothing is lost.
 
 Local descendants do not substitute for the base check. A visible mutable copy of merged work is
 evidence for `sync`, not deletion of a GitHub branch or tracking.

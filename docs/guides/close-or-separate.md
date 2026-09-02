@@ -53,9 +53,10 @@ links:
 jj-stack cleanup <head-change-id>
 ```
 
-Cleanup leaves a PR branch in place if a pull request still needs it — either an open pull
-request based on it, or one GitHub still groups in a stack. Close or retarget that pull request,
-or `jj-stack unstack` the group, then run the same cleanup command again.
+Cleanup leaves a PR branch in place if a pull request still needs it — either a pull request
+based on it that is open or could still be reopened, or one GitHub still groups in a stack.
+Retarget that pull request (reopening it first if it is closed), let cleanup remove a closed one's
+branch, or `jj-stack unstack` the group, then run the same cleanup command again.
 
 ## Close an orphaned pull request
 
@@ -67,5 +68,5 @@ directly:
 jj-stack cleanup --pull-request <pr> --close
 ```
 
-This closes your pull request if it is open, then removes its unused branch, stack overview
-comment, and saved link.
+If your pull request is open, this retargets it to trunk and closes it. It then removes its unused
+branch, stack overview comment, and saved link.

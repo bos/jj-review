@@ -1206,7 +1206,9 @@ def _prs_by_ref_query(
     # A base-ref lookup decides whether deleting a branch would strand a pull request that
     # names it. GitHub refuses to reopen a pull request whose base branch is gone, and refuses
     # to retarget a closed one at all, so a closed dependent is stranded exactly as permanently
-    # as an open one. A merged dependent's state can never change, so its base branch is free.
+    # as an open one unless its own head branch is already gone (`headRef` is null), in which
+    # case it can never be reopened anyway. A merged dependent's state can never change, so its
+    # base branch is free.
     operation_name = "PullRequestsByBaseRef" if base else "OpenPullRequestsByHeadRef"
     ref_argument = "baseRefName" if base else "headRefName"
     states = "[OPEN, CLOSED]" if base else "[OPEN]"
@@ -1372,6 +1374,9 @@ def _pr_fields_fragment() -> str:
           baseRefName
           headRefName
           headRefOid
+          headRef {
+            name
+          }
           headRepositoryOwner {
             login
           }

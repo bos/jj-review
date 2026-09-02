@@ -10,7 +10,7 @@ import jj_stack.ui as ui
 from jj_stack.commands.cleanup.shared import CleanupAction
 from jj_stack.errors import CliError
 from jj_stack.formatting import format_pr_label
-from jj_stack.github.client import GithubClient
+from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.overview_comments import (
     STACK_OVERVIEW_COMMENT_LABEL,
     delete_stack_overview_comment,
@@ -76,10 +76,11 @@ def check_tracked_pr(
         assert prs_by_base is not None
         observed_dependents = prs_by_base.get(pr_identity.head_ref, ())
         dependents = tuple(
-            filter(
-                lambda item: item.number not in preview_detached_dependents,
-                observed_dependents,
-            )
+            item
+            for item in observed_dependents
+            if item.number not in preview_detached_dependents
+            # GitHub can never reopen a closed PR whose head branch is gone, so its base is free.
+            and (item.state == "open" or item.head_branch_exists)
         )
         # A full 100-result page may hide another dependent, so it also fails closed.
         blockers = dependents[:1] or observed_dependents[99:100]
@@ -87,17 +88,51 @@ def check_tracked_pr(
             kind = "remote branch"
             dependent = blockers[0]
             dependent_label = format_pr_label(dependent.number, url=dependent.html_url)
+            recovery = (
+                t"retarget {dependent_label}"
+                if dependent.state == "open"
+                else t"reopen and retarget {dependent_label}, or delete its head branch"
+            )
             reason = (
                 t"preserve {pr_label}'s branch and tracking because "
                 t"{dependent_label} still uses {ui.bookmark(pr_identity.head_ref)} "
                 t"as its base, and deleting it would leave {dependent_label} closed "
-                t"with no way to reopen it; retarget {dependent_label}, reopening it "
-                t"first if it is closed, then rerun {ui.cmd('cleanup')}"
+                t"with no way to reopen it; {recovery}, then rerun {ui.cmd('cleanup')}"
             )
     return (
         pr,
         None if reason is None else CleanupAction(kind=kind, body=reason, status="blocked"),
     )
+
+
+async def close_pr_on_trunk(
+    *,
+    github_client: GithubClient,
+    pr: GithubPR,
+    trunk_branch: str,
+) -> Message | None:
+    """Retarget one open PR to trunk, then close it, so GitHub can still reopen it later.
+
+    GitHub refuses to retarget a closed PR and to reopen one whose base branch is gone.
+    Returns why the PR is still open, or None once GitHub reports it closed.
+    """
+
+    pr_label = format_pr_label(pr.number, url=pr.html_url)
+    try:
+        if pr.base.ref != trunk_branch:
+            pr = (
+                await github_client.update_pr(pr_number=pr.number, base=trunk_branch)
+            ).normalize_state()
+            if pr.state == "open" and pr.base.ref != trunk_branch:
+                return (
+                    t"cannot close {pr_label} because GitHub did not retarget it to "
+                    t"{ui.bookmark(trunk_branch)}"
+                )
+        if pr.state == "open":
+            await github_client.close_pr(pr_number=pr.number)
+    except GithubClientError as error:
+        return t"cannot close {pr_label}: {error}"
+    return None
 
 
 async def apply_overview_comment_cleanup(

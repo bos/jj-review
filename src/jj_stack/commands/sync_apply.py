@@ -9,13 +9,14 @@ from typing import Literal
 import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
+from jj_stack.commands._cleanup_actions import close_pr_on_trunk
 from jj_stack.commands.cleanup.command import cleanup_tracked_prs
 from jj_stack.commands.submit.command import run_submit_async
 from jj_stack.commands.submit.models import SubmitOptions
 from jj_stack.commands.submit.render import print_submit_result
 from jj_stack.errors import CliError, ConflictedStackError
 from jj_stack.formatting import format_pr_label
-from jj_stack.github.client import GithubClient, GithubClientError
+from jj_stack.github.client import GithubClient
 from jj_stack.github.resolution import GithubTarget
 from jj_stack.identifiers import short_change_id
 from jj_stack.jj.client import PRRefUpdate
@@ -92,22 +93,7 @@ async def _apply_pr_finish(
         return PRFinishResult(candidate, "finished")
     pr_label = format_pr_label(plan.pr.number, url=plan.pr.html_url)
     console.output(t"Finishing {pr_label} for {candidate.change_id}...")
-    current = plan.pr
-    try:
-        if current.base.ref != trunk_branch:
-            current = (
-                await github.update_pr(pr_number=current.number, base=trunk_branch)
-            ).normalize_state()
-        if current.state == "open" and current.base.ref != trunk_branch:
-            current_label = format_pr_label(current.number, url=current.html_url)
-            reason: Message | None = t"{current_label} did not stay retargeted to trunk"
-        else:
-            if current.state == "open":
-                await github.close_pr(pr_number=current.number)
-            reason = None
-    except GithubClientError as error:
-        current_label = format_pr_label(current.number, url=current.html_url)
-        reason = t"could not finish cleanup for {current_label}: {error}"
+    reason = await close_pr_on_trunk(github_client=github, pr=plan.pr, trunk_branch=trunk_branch)
     return (
         PRFinishResult(candidate, "skipped", reason)
         if reason

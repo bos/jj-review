@@ -2,15 +2,16 @@
 
 With no selector, it checks the whole repo. A revset limits cleanup to one local stack;
 `--pull-request` selects one tracked pull request, and `--pull-request orphans` selects every
-tracked pull request whose local change is gone. Add `--close` to close selected open pull
-requests before cleanup.
+tracked pull request whose local change is gone. Add `--close` to retarget selected open pull
+requests to trunk and close them before cleanup.
 
 Without `--close`, open pull requests are left alone. Already closed or merged pull requests do
 not need the flag and are cleaned up normally.
 
 If another pull request still uses a PR branch as its base, that branch stays, because GitHub
 will not reopen a pull request whose base branch is gone. Retarget the pull request named in the
-message, reopening it first if it is closed, then rerun the same cleanup command.
+message; if it is closed, either reopen and retarget it or delete its head branch. Then rerun the
+same cleanup command.
 """
 
 from __future__ import annotations
@@ -27,22 +28,25 @@ from jj_stack.commands._cleanup_actions import (
     apply_overview_comment_cleanup,
     apply_remote_branch_cleanup,
     check_tracked_pr,
+    close_pr_on_trunk,
     emit_action_row,
     github_stack_cleanup_blockers,
     plan_pr_cleanup,
 )
 from jj_stack.errors import AmbiguousSelectionError, CliError, UsageError
 from jj_stack.formatting import format_pr_label
-from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
+from jj_stack.github.client import GithubClient, build_github_client
 from jj_stack.github.error_messages import github_target_unavailable_messages
 from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_MARKER
 from jj_stack.github.resolution import (
     GithubTarget,
     resolve_github_target,
+    resolve_trunk_branch,
 )
 from jj_stack.identifiers import short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
-from jj_stack.jj.client import PRRefUpdate
+from jj_stack.jj.client import JjClient, PRRefUpdate
+from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubIssueComment, GithubPR, GithubStack
 from jj_stack.models.tracking import TrackingState
 from jj_stack.stack.change_status import enumerate_orphaned_records
@@ -430,6 +434,15 @@ async def _run_tracked_pr_cleanup_pass(
         preflights[candidate.change_id] = preflight
         if preflight[0] is not None:
             eligible_pr_numbers.append(candidate.pr_identity.pr_number)
+    trunk_branch = None
+    if any(
+        pr is not None and pr.state == "open" for pr, _update, _blocker in preflights.values()
+    ):
+        trunk_branch = _observe_trunk_branch(
+            jj_client=prepared_cleanup.context.jj_client,
+            observation=observation,
+            remote=remote,
+        )
     stacks, overview_comments = await _observe_cleanup_secondary_facts(
         github_client=github_client,
         pr_numbers=eligible_pr_numbers,
@@ -448,9 +461,33 @@ async def _run_tracked_pr_cleanup_pass(
             remote_name=remote_name,
             stack_blocker=stack_blockers.get(prepared_change.candidate.pr_identity.pr_number),
             overview_comments=overview_comments,
+            trunk_branch=trunk_branch,
         )
         if stop_after_failure:
             break
+
+
+def _observe_trunk_branch(
+    *,
+    jj_client: JjClient,
+    observation: RepoFacts,
+    remote: GitRemote,
+) -> str:
+    """Resolve the branch an open PR is retargeted to before closing, as sync does."""
+
+    trunk_commit_id = jj_client.resolve_commit("trunk()").commit_id
+    if observation.github_repo is None:
+        raise AssertionError("Closing a pull request requires GitHub repo state.")
+    trunk_branch, _targets = resolve_trunk_branch(
+        branches_at_trunk=jj_client.remote_bookmarks_at_commit(
+            remote=remote.name,
+            commit_id=trunk_commit_id,
+        ),
+        github_repo_state=observation.github_repo,
+        remote=remote,
+        trunk_commit_id=trunk_commit_id,
+    )
+    return trunk_branch
 
 
 async def _observe_cleanup_secondary_facts(
@@ -487,6 +524,7 @@ async def _cleanup_tracked_pr(
     remote_name: str,
     stack_blocker: CleanupAction | None,
     overview_comments: dict[int, GithubIssueComment | None],
+    trunk_branch: str | None,
 ) -> bool:
     """Apply one planned cleanup, returning whether a partial failure must stop the pass."""
 
@@ -503,24 +541,27 @@ async def _cleanup_tracked_pr(
         return False
     overview_comment = overview_comments[identity.pr_number]
     if pr.state == "open":
-        close_action = CleanupAction(
-            kind="pull request",
-            status="planned" if prepared_cleanup.dry_run else "applied",
-            body=t"close {pr_label}",
-        )
+        if trunk_branch is None:
+            raise AssertionError("Closing a pull request requires the trunk branch.")
+        body = t"close {pr_label}"
+        if pr.base.ref != trunk_branch:
+            body = t"retarget {pr_label} to {ui.bookmark(trunk_branch)}, then close it"
         if not prepared_cleanup.dry_run:
-            try:
-                await github_client.close_pr(pr_number=identity.pr_number)
-            except GithubClientError as error:
-                record_action(
-                    CleanupAction(
-                        kind="pull request",
-                        status="blocked",
-                        body=t"cannot close {pr_label}: {error}",
-                    )
-                )
+            reason = await close_pr_on_trunk(
+                github_client=github_client,
+                pr=pr,
+                trunk_branch=trunk_branch,
+            )
+            if reason is not None:
+                record_action(CleanupAction(kind="pull request", status="blocked", body=reason))
                 return True
-        record_action(close_action)
+        record_action(
+            CleanupAction(
+                kind="pull request",
+                status="planned" if prepared_cleanup.dry_run else "applied",
+                body=body,
+            )
+        )
     return await _apply_tracked_pr_cleanup(
         branch_update=update,
         overview_comment=overview_comment,

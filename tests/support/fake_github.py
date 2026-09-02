@@ -88,11 +88,12 @@ class FakeGithubPR:
         repo: FakeGithubRepo,
         web_origin: str,
     ) -> dict[str, object]:
-        self._refresh_head_sha(repo)
+        head_target = self._refresh_head_sha(repo)
         return {
             "autoMergeRequest": {"enabledAt": "now"} if self.auto_merge_enabled else None,
             "baseRefName": self.base_ref,
             "body": self.body,
+            "headRef": None if head_target is None else {"name": self.head_ref},
             "headRefName": self.head_ref,
             "headRefOid": self.head_sha,
             # Real GitHub reports the head repository's owner, which is a fork owner for a
@@ -114,8 +115,11 @@ class FakeGithubPR:
             "url": f"{web_origin}/{repo.full_name}/pull/{self.number}",
         }
 
-    def _refresh_head_sha(self, repo: FakeGithubRepo) -> None:
-        if current_head := repo.ref_target(self.head_ref):
+    def _refresh_head_sha(self, repo: FakeGithubRepo) -> str | None:
+        """Track the head branch; like GitHub, keep the last sha once the branch is gone."""
+
+        current_head = repo.ref_target(self.head_ref)
+        if current_head is not None:
             if current_head != self.head_sha and not repo.is_ancestor(
                 self.head_sha,
                 current_head,
@@ -124,6 +128,7 @@ class FakeGithubPR:
                     (self.head_sha, current_head)
                 )
             self.head_sha = current_head
+        return current_head
 
 
 @dataclass(slots=True)

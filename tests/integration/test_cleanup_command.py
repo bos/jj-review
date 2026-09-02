@@ -191,7 +191,7 @@ def test_cleanup_close_finishes_open_and_terminal_orphans(
     assert all(fake_repo.prs[identity.pr_number].state == "closed" for identity in identities)
 
 
-def test_cleanup_preserves_a_branch_its_closed_dependent_still_names(
+def test_cleanup_preserves_a_branch_while_its_closed_dependent_can_be_reopened(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -269,10 +269,9 @@ def test_cleanup_preserves_a_branch_its_closed_dependent_still_names(
     assert f"PR #{identities[1].pr_number} still uses" in normalized_partial
     assert f"refs/heads/{bookmarks[0]}" in remote_refs(fake_repo.git_dir)
 
-    # Retargeting the dependent is the only move that frees the branch: GitHub refuses to
-    # reopen a pull request whose base branch is gone, and refuses to retarget a closed one,
-    # so deleting first would strand it for good.
-    fake_repo.prs[identities[1].pr_number].base_ref = "main"
+    # That run deleted the closed dependent's own head branch, so GitHub can never reopen it
+    # and its base no longer needs preserving; the rerun frees the branch.
+    assert f"refs/heads/{bookmarks[1]}" not in remote_refs(fake_repo.git_dir)
     apply_exit_code = run_main(repo, config_path, "cleanup")
     applied = capsys.readouterr()
     normalized_applied = " ".join(applied.out.split())
@@ -285,17 +284,20 @@ def test_cleanup_preserves_a_branch_its_closed_dependent_still_names(
     )
 
 
-def test_cleanup_preserves_closed_pr_branch_used_by_open_pr(
+def test_cleanup_close_retargets_an_open_dependent_and_frees_its_base_branch(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    bottom_change_id = selected_stack(repo).changes[0].change_id
+    bottom_change_id, top_change_id = (
+        change.change_id for change in selected_stack(repo).changes
+    )
     state_store = TrackingStore.for_repo(repo)
     state = state_store.load()
     identity = state.pr_identities[bottom_change_id]
+    dependent = state.pr_identities[top_change_id]
     comments_before = issue_comments(fake_repo, identity.pr_number)
     fake_repo.prs[identity.pr_number].state = "closed"
 
@@ -304,11 +306,30 @@ def test_cleanup_preserves_closed_pr_branch_used_by_open_pr(
     output = " ".join(captured.out.split())
 
     assert exit_code == 1
-    assert "PR #2 still uses" in output
+    assert f"PR #{dependent.pr_number} still uses" in output
     assert "rerun cleanup" in output
     assert state_store.load() == state
     assert issue_comments(fake_repo, identity.pr_number) == comments_before
     assert f"refs/heads/{identity.head_ref}" in remote_refs(fake_repo.git_dir)
+
+    # Closing the dependent through cleanup retargets it to trunk first, so GitHub could still
+    # reopen it after its base branch goes. The GitHub stack is dissolved first, as cleanup asks.
+    fake_repo.github_stacks = {}
+    close_exit_code = run_main(
+        repo, config_path, "cleanup", "--pull-request", str(dependent.pr_number), "--close"
+    )
+    capsys.readouterr()
+    dependent_pr = fake_repo.prs[dependent.pr_number]
+
+    assert close_exit_code == 0
+    assert (dependent_pr.base_ref, dependent_pr.state) == ("main", "closed")
+    assert top_change_id not in state_store.load().pr_identities
+
+    assert run_main(repo, config_path, "cleanup") == 0
+    assert state_store.load().pr_identities == {}
+    assert not any(
+        ref.startswith("refs/heads/jj-stack/") for ref in remote_refs(fake_repo.git_dir)
+    )
 
 
 def test_cleanup_preserves_closed_pr_branch_used_as_head_by_another_open_pr(
