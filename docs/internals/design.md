@@ -611,8 +611,7 @@ histories. The user chooses the intended order with ordinary `jj`. Afterward the
 remaining local pull requests, sync a remaining mutable submitted head, or run cleanup when no
 submitted local copy remains.
 
-Here unpublished local work means a mutable change whose commit is neither its submitted baseline
-nor an exact GitHub stack head that this run may adopt.
+Here unpublished local work means a mutable change whose commit is not its submitted baseline.
 
 `sync` reconciles the unmerged suffix only when:
 
@@ -651,9 +650,12 @@ merges. A matching full change ID on fetched trunk identifies the successor rath
 an arbitrary visible side copy. When fetched trunk has no matching change ID, `sync` retires the
 old local change without relabeling that commit or storing an alias.
 
-When a GitHub stack merge rewrites active members above the merged prefix, `sync` adopts the exact
-commits GitHub reports rather than replaying equivalent diffs. It accepts those heads and bases
-only while a merged tracked member of the same GitHub stack proves the transition.
+When a GitHub stack merge rewrites active members above the merged prefix, GitHub's rewrite of
+each survivor is that survivor's submitted baseline, moved. If every survivor is still at its
+baseline, `sync` adopts the exact commits GitHub reports rather than replaying equivalent diffs;
+if any survivor has local edits, `sync` adopts none, rebases the survivors onto fetched trunk,
+records GitHub's reported heads as their baselines, and republishes them. It accepts those heads
+and bases only while a merged tracked member of the same GitHub stack proves the transition.
 
 GitHub's native stack rebase instead rewrites every active member and removes `jj`'s change-ID
 commit headers. With no merged member, those remote commits cannot become the identity of the

@@ -23,6 +23,7 @@ from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import SubmittedBaseline, TrackedPR
 from jj_stack.stack.convergence import divergent_change_error
 from jj_stack.stack.convergence_models import (
+    AdoptedSurvivor,
     ConvergenceActions,
     GithubStackMergePlan,
     GithubStackRebasePlan,
@@ -176,8 +177,11 @@ def _apply_local_convergence(
     trunk_commit_id: str,
 ) -> dict[str, tuple[LocalCommit, ...]]:
     actions = plan.actions
-    adopted = plan.adopted_survivors if isinstance(plan, GithubStackMergePlan) else ()
-    adopted_ids = {item.candidate.change_id for item in adopted}
+    rewritten = plan.adopted_survivors if isinstance(plan, GithubStackMergePlan) else ()
+    # GitHub's rewrite of a survivor is its baseline, moved. Adopt those commits only while every
+    # survivor is still at its baseline; otherwise rebase them all and let the refresh republish.
+    adopt = _all_at_baseline(rewritten)
+    adopted_ids = {item.candidate.change_id for item in rewritten} if adopt else set()
     rebased = (
         (
             *(item for item in actions.survivors if item.change_id not in adopted_ids),
@@ -188,11 +192,11 @@ def _apply_local_convergence(
     )
     if dry_run:
         return _observe_removal_dependencies(context=context, actions=actions)
-    if isinstance(plan, GithubStackMergePlan) and adopted:
-        top = adopted[-1]
+    if isinstance(plan, GithubStackMergePlan) and adopt and rewritten:
+        top = rewritten[-1]
         replaced = tuple(
             item.local_change.commit_id
-            for item in adopted
+            for item in rewritten
             if item.local_change.commit_id != item.remote_commit_id
         )
         destination = top.remote_commit_id
@@ -207,7 +211,7 @@ def _apply_local_convergence(
                     item.remote_commit_id,
                     item.candidate.change_id,
                 )
-                for item in adopted
+                for item in rewritten
             ),
             expected_parent_commit_id=plan.expected_parent_commit_id,
         )
@@ -233,14 +237,14 @@ def _apply_local_convergence(
         )
         if abandoned:
             context.jj_client.abandon_changes(abandoned)
-        if adopted:
+        if rewritten:
             context.state_store.relink_prs(
                 replacements={
                     item.candidate.change_id: (
                         item.candidate.pr_identity,
                         SubmittedBaseline(commit_id=item.remote_commit_id),
                     )
-                    for item in adopted
+                    for item in rewritten
                 },
             )
     return dependencies
@@ -313,10 +317,7 @@ def _verified_local_rebase(
     local = plan.actions.survivors
     desired = local
     operation_id: str | None = None
-    if all(
-        item.local_change.commit_id == item.candidate.submitted_baseline.commit_id
-        for item in adopted
-    ):
+    if _all_at_baseline(adopted):
         operation_id = context.jj_client.prepare_rebase_changes(
             change_ids=_single_visible_change_ids(
                 context, (*local, *plan.actions.working_copy_children)
@@ -364,6 +365,13 @@ def _verified_local_rebase(
             t"to keep.",
         )
     return desired_by_change, operation_id
+
+
+def _all_at_baseline(items: tuple[AdoptedSurvivor, ...]) -> bool:
+    return all(
+        item.local_change.commit_id == item.candidate.submitted_baseline.commit_id
+        for item in items
+    )
 
 
 def _single_visible_change_ids(

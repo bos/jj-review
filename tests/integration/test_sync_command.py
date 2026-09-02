@@ -543,7 +543,7 @@ def test_sync_noop_after_partial_merge_does_not_read_pr_branch_targets_or_submit
     assert fake_repo.prs[2] == pr_before
 
 
-def test_sync_preserves_unpublished_edits_to_an_active_stack_survivor(
+def test_sync_republishes_an_amended_survivor_after_an_external_stack_merge(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -552,23 +552,28 @@ def test_sync_preserves_unpublished_edits_to_an_active_stack_survivor(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     state_store = TrackingStore.for_repo(repo)
     on_trunk, survivor = selected_stack(repo).changes
-    _simulate_stack_partial_merge(fake_repo)
-    state_before = state_store.load()
+    remote_survivor = _simulate_stack_partial_merge(fake_repo)
     run_command(["jj", "edit", survivor.change_id], repo)
     write_file(repo / "local-survivor-edit.txt", "keep this edit\n")
     run_command(["jj", "new"], repo)
-    edited_survivor = JjClient(repo).resolve_commit(survivor.change_id)
 
     exit_code = run_main(repo, config_path, "sync", survivor.change_id)
     captured = capsys.readouterr()
 
-    assert exit_code == 1
-    assert "unpublished local edits" in captured.err
-    assert JjClient(repo).resolve_commit(survivor.change_id).commit_id == (
-        edited_survivor.commit_id
+    assert exit_code == 0, (captured.out, captured.err)
+    jj = JjClient(repo)
+    republished = jj.resolve_commit(survivor.change_id)
+    assert republished.parents == (read_remote_ref(fake_repo.git_dir, "main"),)
+    assert republished.commit_id != remote_survivor
+    assert (repo / "local-survivor-edit.txt").read_text() == "keep this edit\n"
+    assert (fake_repo.prs[2].head_sha, fake_repo.prs[2].base_ref) == (
+        republished.commit_id,
+        "main",
     )
-    assert JjClient(repo).resolve_commit(on_trunk.change_id).commit_id == on_trunk.commit_id
-    assert state_store.load() == state_before
+    state = state_store.load()
+    assert on_trunk.change_id not in state.pr_identities
+    assert state.submitted_baselines[survivor.change_id].commit_id == republished.commit_id
+    assert jj.query_commits_by_change_ids((on_trunk.change_id,))[on_trunk.change_id] == ()
 
 
 def test_sync_preserves_a_conflict_resolution_that_restores_the_submitted_tree(

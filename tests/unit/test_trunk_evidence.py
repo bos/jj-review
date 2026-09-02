@@ -165,7 +165,3 @@ def test_unpublished_edit_check_covers_every_shape_its_callers_pass() -> None:
     assert not _change(commit_id="edited-locally", immutable=True).holds_unpublished_edit(
         published
     )
-    # Adopting a GitHub-stack survivor also counts the commit GitHub reported for it.
-    assert not _change(commit_id="github-rewrote-this").holds_unpublished_edit(
-        ("submitted-1", "github-rewrote-this")
-    )

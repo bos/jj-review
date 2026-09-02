@@ -415,14 +415,6 @@ def _validate_active_member(
             hint=t"Check GitHub's result with {ui.cmd('jj-stack view')}, then rerun sync once it "
             t"reports the merge.",
         )
-    if merge_mode and selected_change.holds_unpublished_edit(
-        (candidate.submitted_baseline.commit_id, member.head.sha)
-    ):
-        raise CliError(
-            t"Cannot sync {ui.change_id(candidate.change_id)} because it has unpublished local "
-            t"edits since submit.",
-            hint=t"Publish them with {ui.cmd('jj-stack submit')}, or drop them, then rerun sync.",
-        )
     if pr.head.sha != member.head.sha or observed.remote_pr_branch_target != member.head.sha:
         raise CliError(
             t"Active stack member {pr_label} does not match its PR branch.",

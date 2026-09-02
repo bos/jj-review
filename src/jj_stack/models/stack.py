@@ -39,9 +39,7 @@ class LocalCommit(BaseModel):
         """Whether this change holds work that was never submitted.
 
         Callers check this because acting on a wrong answer destroys local work. An immutable
-        change cannot have been edited locally. The published set is normally just the
-        submitted baseline; adopting a GitHub-stack survivor also counts the exact commit
-        GitHub reported for it.
+        change cannot have been edited locally.
         """
 
         return not self.immutable and self.commit_id not in published_commit_ids
