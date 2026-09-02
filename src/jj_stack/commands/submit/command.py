@@ -263,6 +263,7 @@ def _build_submit_result(
     client: JjClient,
     dry_run: bool,
     changes: tuple[SubmittedChange, ...],
+    github_stack_actions: tuple[str, ...] = (),
     stack: LocalStack,
 ) -> SubmitResult:
     """Render one submit result from the shared stack context."""
@@ -272,6 +273,7 @@ def _build_submit_result(
         dry_run=dry_run,
         changes=changes,
         trunk=stack.trunk,
+        github_stack_actions=github_stack_actions,
     )
 
 
@@ -520,11 +522,16 @@ async def _apply_planned_submit(
         )
         if len(pr_numbers) != len(submitted):
             raise AssertionError("GitHub stack submit requires concrete pull request numbers.")
-        await apply_github_stack_plan(
+        grouped = await apply_github_stack_plan(
             github_client=github_client,
             plan=github_stack_plan,
             pr_numbers=pr_numbers,
         )
+        actions = [f"dissolved GitHub stack #{stack.number}" for stack in stacks_to_dissolve]
+        if grouped is not None:
+            verb = "extended" if github_stack_plan.action == "append" else "created"
+            actions.append(f"{verb} GitHub stack #{grouped.number}")
+        run.github_stack_actions = tuple(actions)
         submitted_force_pushes_by_pr = {
             pr_number: (expected_target, change.prepared.change.commit_id)
             for change, pr_number in zip(submitted, pr_numbers, strict=True)
@@ -889,5 +896,6 @@ async def run_submit_async(
         client=client,
         dry_run=dry_run,
         changes=submitted_changes,
+        github_stack_actions=mutation_run.github_stack_actions,
         stack=stack,
     )

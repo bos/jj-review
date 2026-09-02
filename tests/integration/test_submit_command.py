@@ -761,7 +761,7 @@ def test_submit_retargets_stale_pr_bases_before_pushing_reordered_stack(
     reordered_stack = selected_stack(repo)
 
     assert run_main(repo, config_path, "submit", reordered_stack.head.change_id) == 0
-    capsys.readouterr()
+    assert "Dissolved GitHub stack #1, created GitHub stack #2." in capsys.readouterr().out
 
     refreshed_state = TrackingStore.for_repo(repo).load()
     bookmarks_by_subject = {

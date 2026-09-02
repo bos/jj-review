@@ -73,6 +73,9 @@ class SubmitResult:
     dry_run: bool
     changes: tuple[SubmittedChange, ...]
     trunk: LocalCommit
+    # GitHub stack regrouping this submit performed, as phrases such as "dissolved GitHub
+    # stack #7".
+    github_stack_actions: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +165,7 @@ class SubmitMutationRun:
     dry_run: bool
     state: TrackingState
     state_store: TrackingStore
+    github_stack_actions: tuple[str, ...] = ()
 
     def record_submission(
         self,

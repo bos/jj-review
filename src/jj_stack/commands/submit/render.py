@@ -66,6 +66,9 @@ def print_submit_result(result: SubmitResult) -> None:
                     format_pr_label(top.pr_number, url=top.pr_url),
                 )
             )
+        if result.github_stack_actions:
+            summary = ", ".join(result.github_stack_actions)
+            console.output(f"{summary[0].upper()}{summary[1:]}.")
 
 
 def print_selected_line(

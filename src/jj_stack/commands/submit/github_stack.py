@@ -119,9 +119,11 @@ async def apply_github_stack_plan(
     github_client: GithubClient,
     plan: GithubStackPlan,
     pr_numbers: tuple[int, ...],
-) -> None:
+) -> GithubStack | None:
+    """Apply a create or append plan and return the resulting GitHub stack."""
+
     if plan.action == "none":
-        return
+        return None
     assert plan.action != "replace"
     try:
         current_plan = plan_github_stack(
@@ -153,6 +155,7 @@ async def apply_github_stack_plan(
             expected_members,
         ):
             raise _membership_error("GitHub returned unexpected stack membership.")
+        return updated
     except GithubClientError as error:
         raise CliError(
             "Could not update the GitHub stack",
