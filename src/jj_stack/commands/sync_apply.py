@@ -187,7 +187,7 @@ def _apply_local_convergence(
     )
     if dry_run:
         return _observe_removal_dependencies(context=context, actions=actions)
-    if adopted:
+    if isinstance(plan, GithubStackMergePlan) and adopted:
         top = adopted[-1]
         replaced = tuple(
             item.local_change.commit_id
@@ -208,7 +208,7 @@ def _apply_local_convergence(
                 )
                 for item in adopted
             ),
-            expected_parent_commit_id=trunk_commit_id,
+            expected_parent_commit_id=plan.expected_parent_commit_id,
         )
     else:
         replaced = ()

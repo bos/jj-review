@@ -47,6 +47,7 @@ class _NoGithubStack:
 class _GithubStackMerge:
     history: tuple[OnTrunkChange, ...]
     adopted: tuple[AdoptedSurvivor, ...]
+    merge_result_commit_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,7 +152,14 @@ def build_selected_convergence_plan(
     if isinstance(effect, _GithubStackRebase):
         return GithubStackRebasePlan(actions=actions, adopted_survivors=adopted)
     if isinstance(effect, _GithubStackMerge):
-        return GithubStackMergePlan(actions=actions, adopted_survivors=adopted)
+        return GithubStackMergePlan(
+            actions=actions,
+            adopted_survivors=adopted,
+            # Without a reported merge result, the trunk tip is the only commit left to expect;
+            # the import still verifies the chain against it.
+            expected_parent_commit_id=effect.merge_result_commit_id
+            or prepared_status.prepared.stack.trunk.commit_id,
+        )
     return OrdinaryConvergencePlan(actions=actions)
 
 
@@ -279,6 +287,7 @@ def _classify_github_stack(
     history: list[OnTrunkChange] = []
     adopted: list[AdoptedSurvivor] = []
     expected_base = trunk_branch
+    merge_result: str | None = None
     for member in stack.prs:
         candidate = by_pr.get(member.number)
         if candidate is None:
@@ -308,6 +317,7 @@ def _classify_github_stack(
                     t"Cannot remove the saved link for stack member {pr_label}: {reason}.",
                     hint="Make GitHub's merge result reachable from trunk, then rerun sync.",
                 )
+            merge_result = pr.merge_commit_sha
             history.append(
                 OnTrunkChange(
                     candidate,
@@ -338,7 +348,7 @@ def _classify_github_stack(
         ):
             raise _unproven_rewrite_error(stack)
         return _GithubStackRebase(result)
-    return _GithubStackMerge(tuple(history), result)
+    return _GithubStackMerge(tuple(history), result, merge_result)
 
 
 def _is_stack_merge(*, stack: GithubStack, by_pr: dict[int, TrackedPR]) -> bool:

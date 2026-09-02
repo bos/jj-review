@@ -56,6 +56,8 @@ class OrdinaryConvergencePlan:
 class GithubStackMergePlan:
     actions: ConvergenceActions
     adopted_survivors: tuple[AdoptedSurvivor, ...]
+    # The commit GitHub rooted the rewritten survivors at: the merged prefix's merge result.
+    expected_parent_commit_id: str
 
 
 @dataclass(frozen=True, slots=True)

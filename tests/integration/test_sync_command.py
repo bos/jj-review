@@ -403,6 +403,10 @@ def test_sync_converges_stack_history_and_adopts_rewritten_survivor(
     state_store = TrackingStore.for_repo(repo)
     on_trunk, survivor = selected_stack(repo).changes
     remote_survivor = _simulate_stack_partial_merge(fake_repo)
+    # GitHub rooted the rewritten survivor at the merge result; trunk then moved on.
+    advanced_trunk = fake_repo.advance_branch(
+        "main", path="landed-later.txt", contents="landed after the stack merge\n"
+    )
     survivor_branch = state_store.load().pr_identities[survivor.change_id].head_ref
     run_command(
         ["jj", "git", "fetch", "--remote", "origin", "--branch", survivor_branch],
@@ -422,7 +426,12 @@ def test_sync_converges_stack_history_and_adopts_rewritten_survivor(
     state = state_store.load()
     assert on_trunk.change_id not in state.pr_identities
     rewritten_survivor = JjClient(repo).resolve_commit(survivor.change_id)
-    assert rewritten_survivor.parents == (read_remote_ref(fake_repo.git_dir, "main"),)
+    assert rewritten_survivor.parents == (fake_repo.prs[1].merge_commit_sha,)
+    assert (
+        read_remote_ref(fake_repo.git_dir, "main")
+        == advanced_trunk
+        != rewritten_survivor.parents[0]
+    )
     assert JjClient(repo).resolve_commit("@").parents == (rewritten_survivor.commit_id,)
     pr_branch_temp = JjClient(repo).pr_branch_temp_artifacts()
     assert (pr_branch_temp.ref_target, pr_branch_temp.bookmark_targets) == (None, ())
