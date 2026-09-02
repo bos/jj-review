@@ -523,7 +523,8 @@ def test_sync_noop_after_partial_merge_does_not_read_pr_branch_targets_or_submit
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     _, survivor = selected_stack(repo).changes
     _simulate_stack_partial_merge(fake_repo)
-    first_exit_code = run_main(repo, config_path, "sync", survivor.change_id)
+    # Naming the merged PR selects the complete stack containing it, survivor included.
+    first_exit_code = run_main(repo, config_path, "sync", "--pull-request", "1")
     first = capsys.readouterr()
     assert first_exit_code == 0, (first.out, first.err)
 

@@ -52,6 +52,16 @@ After GitHub merges some or all of your pull requests, `sync` fetches trunk, rem
 changes from your local history if needed, rebases your remaining changes, updates your remaining
 pull requests, and removes your PR branches when they are no longer needed.
 
+Select the stack by its head change ID or by any linked pull request:
+
+```console
+jj-stack sync <head-change-id>
+jj-stack sync --pull-request <pr>
+```
+
+Unlike `merge --pull-request`, which stops at the selected PR, `sync --pull-request` selects the
+complete local stack containing that PR. The selected PR can already be merged.
+
 If none of the pull requests in your stack has merged and GitHub has not rebased the stack,
 `sync` reports that there are no merged changes and leaves the pull requests unchanged. Run
 `submit` explicitly when you want to publish local changes.
@@ -71,11 +81,7 @@ not need to run another cleanup command.
 
 When `merge` uses a merge queue, it returns successfully once GitHub accepts the pull requests
 you asked it to merge. This does not mean trunk has changed. Wait until GitHub reports that your
-stack has merged. Then run `sync` with the head of your stack:
-
-```console
-jj-stack sync <head-change-id>
-```
+stack has merged. Then run `sync` for that stack.
 
 If you run either command while one of those pull requests is queued, `submit` and `sync` leave
 your stack unchanged.
@@ -88,11 +94,7 @@ same `sync` command after GitHub reports that the merge finished.
 ### Rebasing from GitHub
 
 GitHub's **Rebase stack** action rewrites every PR branch onto the latest trunk. After it
-finishes, run:
-
-```console
-jj-stack sync <head-change-id>
-```
+finishes, run `sync` for that stack.
 
 GitHub does not retain jj change IDs in those rewritten commits. `sync` verifies that the PRs,
 branch order, and contents still match your submitted stack, rebases the original local changes,

@@ -510,7 +510,8 @@ def build_parser() -> ArgumentParser:
         handler=_forward_handler(sync_command.sync, all_="all"),
         revset_help=(
             t"Revset selecting the stack to sync; defaults to {ui.revset('@')} when the "
-            t"working-copy change is described and nonempty, otherwise {ui.revset('@-')}"
+            t"working-copy change is described and nonempty, otherwise {ui.revset('@-')}; "
+            t"cannot be combined with {ui.option('--pull-request')}"
         ),
     )
     add_help_argument(
@@ -521,6 +522,13 @@ def build_parser() -> ArgumentParser:
             "Preview the sync without changing pull requests, local changes, PR branches, "
             "or tracking"
         ),
+    )
+    add_help_argument(
+        sync_parser,
+        *_PR_OPTION_STRINGS,
+        dest="pr",
+        metavar="PR",
+        help="Sync the complete local stack containing this pull request number or URL",
     )
     add_help_argument(
         sync_parser,

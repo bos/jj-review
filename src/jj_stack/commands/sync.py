@@ -92,6 +92,7 @@ from jj_stack.stack.pr_facts import (
     observe_github_stacks,
     observe_prs,
 )
+from jj_stack.stack.selection import resolve_linked_change_for_pr
 from jj_stack.stack.status import PreparedStatus, prepare_status, status_preparation_cli_error
 from jj_stack.stack.trunk_evidence import classify_commit_ancestries
 from jj_stack.state.operation_lock import operation_lock_if_mutating
@@ -106,11 +107,12 @@ def sync(
     cli_args: JjCliArgs,
     debug: bool,
     dry_run: bool,
+    pr: str | None,
     repo: Path | None,
     revset: str | None,
 ) -> int:
-    if all_ and revset is not None:
-        raise UsageError(t"Use either {ui.cmd('jj-stack sync --all')} or a revset, not both.")
+    if sum((all_, pr is not None, revset is not None)) > 1:
+        raise UsageError("Use only one of sync --all, --pull-request, or a revset.")
     context = bootstrap_context(repo=repo, cli_args=cli_args, debug=debug)
     with operation_lock_if_mutating(
         context.state_store,
@@ -121,8 +123,14 @@ def sync(
             context.jj_client.clear_pr_branch_temp_artifacts()
         if all_:
             return _run_all_convergence(context=context, dry_run=dry_run)
+        containing_change_id = None
+        if pr is not None:
+            _, containing_change_id, _ = resolve_linked_change_for_pr(
+                jj_client=context.jj_client, pr_reference=pr, revset=None
+            )
         return run_stack_convergence(
             context=context,
+            containing_change_id=containing_change_id,
             dry_run=dry_run,
             print_selected=revset is None,
             revset=revset,
@@ -262,6 +270,7 @@ async def _run_global_plan(
 def run_stack_convergence(
     *,
     context: CommandContext,
+    containing_change_id: str | None = None,
     dry_run: bool,
     fetch_remote_state: bool = True,
     print_selected: bool = False,
@@ -271,6 +280,7 @@ def run_stack_convergence(
     with console.spinner(description="Inspecting local stack"):
         try:
             prepared_status = prepare_status(
+                containing_change_id=containing_change_id,
                 context=context,
                 fetch_remote_state=fetch_remote_state,
                 revset=revset,

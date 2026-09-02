@@ -266,15 +266,21 @@ def test_main_reports_unknown_command_with_short_recovery_hint(
 
 
 @pytest.mark.merge_recovery
-def test_sync_all_rejects_a_change_before_repo_access(
+def test_sync_rejects_incompatible_selectors_before_repo_access(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    exit_code = main(["--repository", str(tmp_path), "sync", "--all", "some-selector"])
-    captured = capsys.readouterr()
+    commands = (
+        ("sync", "--all", "some-selector"),
+        ("sync", "--all", "--pull-request", "17"),
+        ("sync", "--pull-request", "17", "some-selector"),
+    )
+    for command in commands:
+        exit_code = main(["--repository", str(tmp_path), *command])
+        captured = capsys.readouterr()
 
-    assert exit_code == EXIT_USAGE
-    assert "Use either jj-stack sync --all or a revset, not both." in captured.err
+        assert exit_code == EXIT_USAGE
+        assert "Use only one of sync --all, --pull-request, or a revset" in captured.err
 
 
 def _patch_fake_jj_workspace(
