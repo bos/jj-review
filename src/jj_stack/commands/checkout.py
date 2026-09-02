@@ -87,6 +87,7 @@ def checkout(
         pr = choice.pr
         revset = choice.revset
     with acquire_operation_lock(context.state_store.require_writable(), command="checkout"):
+        context.jj_client.clear_pr_branch_temp_artifacts()
         result = asyncio.run(
             _run_checkout_async(
                 context=context,

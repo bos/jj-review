@@ -11,6 +11,7 @@ from ..support.fake_github import FakeGithubRepo
 from ..support.integration_helpers import (
     commit_file,
     configure_fake_github_environment,
+    expose_pr_branch_namespace,
     init_fake_github_repo,
     init_fake_github_repo_with_submitted_feature,
     init_fake_github_repo_with_submitted_stack,
@@ -152,7 +153,7 @@ def test_checkout_edits_a_lower_pr_with_the_whole_namespace_fetched(
     config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
     bottom_change_id = selected_stack(repo).changes[0].change_id
     resolve_state_path(repo).unlink()
-    _expose_pr_branch_namespace(repo)
+    expose_pr_branch_namespace(repo)
     run_command(["jj", "git", "fetch", "--remote", "origin"], repo)
 
     assert _main(repo, config_path, "checkout", "--pull-request", "1") == 0
@@ -180,7 +181,7 @@ def test_checkout_explains_an_immutable_pr_commit_instead_of_dumping_jj_output(
         repo,
     )
     resolve_state_path(repo).unlink()
-    _expose_pr_branch_namespace(repo)
+    expose_pr_branch_namespace(repo)
     run_command(["jj", "git", "fetch", "--remote", "origin"], repo)
     capsys.readouterr()
 
@@ -300,6 +301,20 @@ def test_checkout_stops_when_a_lower_pr_branch_moved_off_its_change(
 
     assert "jj-stack checkout --pull-request 1" in " ".join(capsys.readouterr().err.split())
     assert TrackingStore.for_repo(repo).load().pr_identities == {}
+
+
+def test_checkout_clears_a_leftover_temp_bookmark_without_importing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
+    run_command(["jj", "bookmark", "create", "jj-stack-tmp/checkout", "-r", "@-"], repo)
+
+    assert _main(repo, config_path, "checkout", "--pull-request", "1") == 0
+
+    artifacts = JjClient(repo).pr_branch_temp_artifacts()
+    assert (artifacts.bookmark_targets, artifacts.ref_target) == ((), None)
 
 
 def test_checkout_pr_rejects_cross_repo_head(
@@ -431,21 +446,6 @@ def test_checkout_pick_edits_selected_tracked_stack(
     assert "Local tracking is already up to date for this stack." in captured.out
     assert "Working copy now edits" in captured.out
     assert JjClient(repo).resolve_commit("@").change_id == feature_1_change_id
-
-
-def _expose_pr_branch_namespace(repo: Path) -> None:
-    """Undo the reserved-namespace fetch exclusion, as a plain clone leaves it."""
-
-    run_command(
-        [
-            "git",
-            "config",
-            "--replace-all",
-            "remote.origin.fetch",
-            "+refs/heads/*:refs/remotes/origin/*",
-        ],
-        repo,
-    )
 
 
 def _configure_checkout_environment(

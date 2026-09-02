@@ -117,6 +117,8 @@ def sync(
         command="sync --all" if all_ else "sync",
         mutating=not dry_run,
     ):
+        if not dry_run:
+            context.jj_client.clear_pr_branch_temp_artifacts()
         if all_:
             return _run_all_convergence(context=context, dry_run=dry_run)
         return run_stack_convergence(

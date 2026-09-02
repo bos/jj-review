@@ -714,7 +714,7 @@ def test_temp_ref_cleanup_removes_raw_ref_when_forgetting_bookmark_fails(
     monkeypatch.setattr(subprocess, "run", runner)
 
     with pytest.raises(JjCommandError, match="forget failed"):
-        JjClient(Path("/repo"))._clear_pr_branch_temp_ref()
+        JjClient(Path("/repo")).clear_pr_branch_temp_artifacts()
 
     assert not raw_ref_present
     assert any(command[3:4] == ("update-ref",) for command in seen_commands)

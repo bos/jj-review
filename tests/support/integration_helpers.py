@@ -452,6 +452,21 @@ def commit_file(repo: Path, message: str, filename: str) -> None:
     run_command(["jj", "commit", "-m", message], repo)
 
 
+def expose_pr_branch_namespace(repo: Path) -> None:
+    """Undo the reserved-namespace fetch exclusion, as a plain clone leaves it."""
+
+    run_command(
+        [
+            "git",
+            "config",
+            "--replace-all",
+            "remote.origin.fetch",
+            "+refs/heads/*:refs/remotes/origin/*",
+        ],
+        repo,
+    )
+
+
 def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     env = {**os.environ, **_TEST_JJ_IDENTITY} if command[0] == "jj" else None
     completed = subprocess.run(

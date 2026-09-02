@@ -3,8 +3,9 @@
 Checks PR-branch fetch settings, visible PR bookmarks, leftovers from interrupted
 checkout or sync commands, remote selection, GitHub connectivity, authentication, and trunk
 discovery. By default, it only reports problems. Pass `--fix` to also apply the local repairs it
-can make safely. Currently, the only automatic repair is reserving the PR-branch namespace
-in the remote's fetch configuration. The command never changes GitHub.
+can make safely: reserving the PR-branch namespace in the remote's fetch configuration,
+forgetting PR bookmarks that a fetch imported, and removing leftovers from an interrupted
+checkout or sync. The command never changes GitHub.
 
 Exit status is 0 unless a check fails; warnings and problems repaired by `--fix` do not count as
 failures. When a check fails, the command exits 1 and names a recovery command when `jj-stack` can
@@ -94,6 +95,7 @@ async def _run_checks(
         results.extend(
             _skipped(
                 "PR branch fetch",
+                "PR bookmarks",
                 "checkout/sync leftovers",
                 "GitHub remote",
                 "GitHub auth",
@@ -107,7 +109,8 @@ async def _run_checks(
     results.append(
         _check_pr_branch_fetch_isolation(context=context, fix=fix, remote=selected_remote)
     )
-    results.append(_check_pr_branch_temp(context=context))
+    results.append(_check_pr_bookmarks(context=context, fix=fix))
+    results.append(_check_pr_branch_temp(context=context, fix=fix))
 
     # Check 2: GitHub remote parsing
     github_result, parsed_repo = _check_github_remote(selected_remote)
@@ -192,10 +195,6 @@ def _check_pr_branch_fetch_isolation(
     remote: GitRemote,
 ) -> CheckResult:
     namespace = current_pr_branch_namespace()
-    visible = tuple(context.jj_client.visible_pr_bookmark_targets())
-    visible_detail: CheckDetail = (
-        t" Visible bookmarks remain: {ui.join(ui.bookmark, visible)}." if visible else ""
-    )
     try:
         isolation = context.jj_client.ensure_pr_branch_fetch_isolation(
             remote=remote.name,
@@ -219,20 +218,7 @@ def _check_pr_branch_fetch_isolation(
             )
         else:
             raise AssertionError("required fetch isolation has no problem")
-        return CheckResult(
-            "PR branch fetch",
-            "warn",
-            (
-                problem_detail,
-                visible_detail,
-            ),
-        )
-    if visible:
-        return CheckResult(
-            "PR branch fetch",
-            "warn",
-            t"exclusion is configured; visible bookmarks remain: {ui.join(ui.bookmark, visible)}",
-        )
+        return CheckResult("PR branch fetch", "warn", problem_detail)
     return CheckResult(
         "PR branch fetch",
         "fixed" if isolation.status == "applied" else "ok",
@@ -240,16 +226,57 @@ def _check_pr_branch_fetch_isolation(
     )
 
 
-def _check_pr_branch_temp(*, context: CommandContext) -> CheckResult:
+def _check_pr_bookmarks(*, context: CommandContext, fix: bool) -> CheckResult:
+    """Report visible PR bookmarks; with --fix, forget the ones a fetch imported.
+
+    Untracked remote bookmarks make their commits immutable for the user's own jj commands, so a
+    clone made before the fetch exclusion existed cannot edit an adopted stack until they go.
+    """
+
+    client = context.jj_client
+    imported = client.untracked_pr_bookmarks()
+    visible = tuple(name for name in client.visible_pr_bookmark_targets() if name not in imported)
+    remaining: CheckDetail = (
+        t"; visible bookmarks remain: {ui.join(ui.bookmark, visible)}" if visible else ""
+    )
+    if imported and fix:
+        client.forget_bookmarks(imported)
+        return CheckResult(
+            "PR bookmarks",
+            "fixed",
+            (t"forgot {ui.join(ui.bookmark, imported)}", remaining),
+        )
+    if imported:
+        pronoun = "it" if len(imported) == 1 else "them"
+        return CheckResult(
+            "PR bookmarks",
+            "warn",
+            (
+                t"{ui.join(ui.bookmark, imported)} came from a fetch and "
+                t"{'makes its commit' if len(imported) == 1 else 'make their commits'} "
+                t"immutable for jj; forget {pronoun} with {ui.cmd('jj-stack doctor --fix')}",
+                remaining,
+            ),
+        )
+    if visible:
+        return CheckResult(
+            "PR bookmarks", "warn", t"visible bookmarks remain: {ui.join(ui.bookmark, visible)}"
+        )
+    return CheckResult("PR bookmarks", "ok", "none")
+
+
+def _check_pr_branch_temp(*, context: CommandContext, fix: bool) -> CheckResult:
     artifacts = context.jj_client.pr_branch_temp_artifacts()
     if artifacts.ref_target is None and not artifacts.bookmark_targets:
         return CheckResult("checkout/sync leftovers", "ok", "none")
+    if fix:
+        context.jj_client.clear_pr_branch_temp_artifacts()
+        return CheckResult("checkout/sync leftovers", "fixed", "removed")
     return CheckResult(
         "checkout/sync leftovers",
         "warn",
-        t"leftovers from an interrupted command remain; rerun the interrupted "
-        t"{ui.cmd('jj-stack checkout --pull-request PR')} or "
-        t"{ui.cmd('jj-stack sync')} command to clear it",
+        t"leftovers from an interrupted checkout or sync remain; rerunning that command "
+        t"removes them, as does {ui.cmd('jj-stack doctor --fix')}",
     )
 
 

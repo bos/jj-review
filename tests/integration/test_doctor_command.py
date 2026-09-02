@@ -9,9 +9,12 @@ from jj_stack.pr_branch_namespace import current_pr_branch_namespace
 
 from ..support.fake_github import FakeGithubState, create_app
 from ..support.integration_helpers import (
+    expose_pr_branch_namespace,
     init_fake_github_repo,
+    init_fake_github_repo_with_submitted_feature,
     patch_github_client_builders,
     run_command,
+    selected_stack,
     write_fake_github_config,
 )
 from .submit_command_helpers import run_main
@@ -90,7 +93,7 @@ def test_doctor_reports_when_github_stacks_are_unavailable(
     assert output.count("https://gh.io/stacksbeta") == 1
 
 
-def test_doctor_warns_about_an_imported_pr_bookmark(
+def test_doctor_warns_about_a_local_pr_bookmark_it_does_not_forget(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -104,7 +107,35 @@ def test_doctor_warns_about_an_imported_pr_bookmark(
     output = " ".join(capsys.readouterr().out.split())
 
     assert exit_code == 0
-    assert f"Visible bookmarks remain: {branch}" in output
+    assert f"visible bookmarks remain: {branch}" in output
+
+
+def test_doctor_fix_forgets_fetched_pr_bookmarks_and_leftovers(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = _configure_doctor_environment(monkeypatch, tmp_path, fake_repo)
+    change = selected_stack(repo).head
+    branch = fake_repo.prs[1].head_ref
+    expose_pr_branch_namespace(repo)
+    run_command(["jj", "git", "fetch", "--remote", "origin"], repo)
+    run_command(["jj", "bookmark", "create", "jj-stack-tmp/checkout", "-r", "@-"], repo)
+
+    assert run_main(repo, config_path, "doctor") == 0
+    output = " ".join(capsys.readouterr().out.split())
+    assert f"{branch} came from a fetch" in output
+    assert "jj-stack doctor --fix" in output
+
+    assert run_main(repo, config_path, "doctor", "--fix") == 0
+    output = " ".join(capsys.readouterr().out.split())
+    client = JjClient(repo)
+
+    assert f"forgot {branch}" in output
+    assert client.visible_pr_bookmark_targets() == {}
+    assert client.pr_branch_temp_artifacts().bookmark_targets == ()
+    run_command(["jj", "describe", "-r", change.change_id, "-m", "editable again"], repo)
 
 
 def test_doctor_reports_runnable_missing_fetch_isolation_recovery(

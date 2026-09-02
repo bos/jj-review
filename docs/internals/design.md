@@ -817,9 +817,10 @@ It refuses a remote target that is neither the change's current commit nor its s
 `submit` replaces it.
 
 `doctor` observes setup, GitHub Stacks API availability, and local leftovers from interrupted
-`checkout` or `sync`. It changes nothing without `--fix`; currently the only automatic repair is
-restoring the reserved PR-branch exclusion in remote fetch configuration. It never mutates
-GitHub.
+`checkout` or `sync`. It changes nothing without `--fix`; its repairs are restoring the reserved
+PR-branch exclusion in remote fetch configuration, forgetting untracked remote bookmarks in that
+namespace, and removing the temporary import ref and bookmark. `checkout` and `sync` also remove
+that leftover when they start. It never mutates GitHub.
 
 ### Inspection
 

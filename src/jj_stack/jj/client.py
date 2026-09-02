@@ -714,6 +714,19 @@ class JjClient:
             targets_by_name.setdefault(row.name, set()).update(row.target)
         return {name: frozenset(targets) for name, targets in sorted(targets_by_name.items())}
 
+    def untracked_pr_bookmarks(self) -> tuple[str, ...]:
+        """Return untracked remote bookmark names in the reserved namespace."""
+
+        rows = self._bookmark_rows(current_pr_branch_namespace().branch_glob)
+        return tuple(
+            sorted({row.name for row in rows if row.remote is not None and not row.tracked})
+        )
+
+    def forget_bookmarks(self, names: Sequence[str]) -> None:
+        """Forget bookmarks and their remote counterparts without touching the remote."""
+
+        self._run_jj(("bookmark", "forget", "--include-remotes", *names))
+
     def accept_expected_pr_bookmarks(
         self,
         bookmarks: Sequence[tuple[str, str, str]],
@@ -836,7 +849,7 @@ class JjClient:
             )
         ):
             raise ValueError("invalid expected remote PR branch chain")
-        self._clear_pr_branch_temp_ref()
+        self.clear_pr_branch_temp_artifacts()
         try:
             configured_remote = self._git_remote(remote)
             self._run_git(
@@ -878,7 +891,7 @@ class JjClient:
                 )
             yield change
         finally:
-            self._clear_pr_branch_temp_ref()
+            self.clear_pr_branch_temp_artifacts()
 
     def read_remote_git_commit(
         self,
@@ -1228,7 +1241,7 @@ class JjClient:
             targets.extend(row.target)
         return tuple(dict.fromkeys(targets))
 
-    def _clear_pr_branch_temp_ref(self) -> None:
+    def clear_pr_branch_temp_artifacts(self) -> None:
         """Remove the fixed transient jj bookmark and backing Git import ref."""
 
         try:
