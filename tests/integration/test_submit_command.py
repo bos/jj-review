@@ -677,6 +677,37 @@ def test_submit_appends_to_active_suffix_after_historical_prefix(
     assert fake_repo.prs[3].base_ref == fake_repo.prs[2].head_ref
 
 
+def test_submit_and_sync_ignore_an_unusable_github_stack_they_do_not_select(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """A merged member above an open one blocks only that stack; unstack still removes it."""
+
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    stack = selected_stack(repo)
+    state = TrackingStore.for_repo(repo).load()
+    parent_branch = state.pr_identities[stack.changes[0].change_id].head_ref
+    # Pushing the parent PR branch to contain the child's head makes GitHub merge the child
+    # into its parent while the parent stays open.
+    update_remote_ref(fake_repo, branch=parent_branch, target=stack.changes[1].commit_id)
+    fake_repo.refresh_prs(fake_repo.prs.values())
+    assert fake_repo.prs[1].merged_at is None and fake_repo.prs[2].merged_at is not None
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "other 1", "other-1.txt")
+
+    submit_exit = run_main(repo, config_path, "submit")
+    sync_exit = run_main(repo, config_path, "sync")
+    captured = capsys.readouterr()
+
+    assert (submit_exit, sync_exit) == (0, 0), captured.err
+    assert fake_repo.prs[3].base_ref == "main"
+    assert run_main(repo, config_path, "unstack", "--stack", "1") == 0
+    # GitHub keeps merged members; releasing the open one is what unblocks the grouping.
+    assert fake_repo.github_stacks[1] == (2,)
+
+
 def test_submit_retargets_stale_pr_bases_before_pushing_reordered_stack(
     tmp_path: Path,
     monkeypatch,

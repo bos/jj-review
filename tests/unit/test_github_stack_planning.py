@@ -136,6 +136,13 @@ def test_github_stack_plan_classifies_selected_membership(
             ("part of GitHub stack #7", "pull requests outside"),
             ("other local path",),
         ),
+        (
+            (1, 2),
+            True,
+            (_stack(7, 1, 2, historical=(2,)),),
+            ("GitHub stack #7", "merged pull request above"),
+            ("unstack --stack 7",),
+        ),
     ),
 )
 def test_github_stack_plan_rejects_ambiguous_selected_membership(

@@ -10,6 +10,7 @@ from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubStack, GithubStackPR
+from jj_stack.stack.github_stack_safety import require_merged_prefix
 
 type GithubStackPRSnapshot = tuple[int, str, str]
 
@@ -51,7 +52,7 @@ def plan_github_stack(
     affected = tuple(
         sorted(
             (
-                stack
+                require_merged_prefix(stack)
                 for stack in observed_stacks
                 if not selected.isdisjoint(stack.active_pr_numbers)
             ),

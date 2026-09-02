@@ -196,7 +196,9 @@ creates an ordinary PR. When a later `submit` extends that stack to two or more 
 only one active member because GitHub retains merged members as history.
 
 GitHub reports merged members as a historical bottom prefix. This document calls the remaining
-members **active members**, regardless of whether an individual PR is open, draft, or closed.
+members **active members**, regardless of whether an individual PR is open, draft, or closed. A
+GitHub stack that lists a merged member above an active one stops only the commands that select
+it; `unstack --stack <number>` still removes it.
 
 ### Workspaces
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from jj_stack.models.github import GithubPR, GithubStack
 
 
@@ -54,7 +52,7 @@ def test_graphql_pr_statuses_normalize_known_states_and_drop_unknown() -> None:
     assert unknown.check_rollup_status is None
 
 
-def test_github_stack_splits_history_and_rejects_nonprefix_history() -> None:
+def test_github_stack_splits_history_and_reports_a_merged_member_above_an_active_one() -> None:
     historical = {
         "head": {"ref": "jj-stack/one", "sha": "head-one"},
         "merged_at": "2026-07-23T12:00:00Z",
@@ -70,8 +68,11 @@ def test_github_stack_splits_history_and_rejects_nonprefix_history() -> None:
 
     assert stack.historical_pr_numbers == (1,)
     assert stack.active_pr_numbers == (2,)
-    with pytest.raises(ValueError, match="must be at the bottom of the stack"):
-        GithubStack.model_validate({"number": 7, "pull_requests": [active, historical]})
+    assert stack.has_merged_prefix
+    reversed_stack = GithubStack.model_validate(
+        {"number": 7, "pull_requests": [active, historical]}
+    )
+    assert not reversed_stack.has_merged_prefix
 
 
 def test_github_stack_defaults_missing_merge_state_to_active() -> None:

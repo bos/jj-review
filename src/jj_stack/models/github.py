@@ -77,15 +77,11 @@ class GithubStack(BaseModel):
     def active_pr_numbers(self) -> tuple[int, ...]:
         return tuple(pr.number for pr in self.prs if not pr.is_historical)
 
-    @model_validator(mode="after")
-    def _validate_historical_prefix(self) -> Self:
-        active_seen = False
-        for pr in self.prs:
-            if not pr.is_historical:
-                active_seen = True
-            elif active_seen:
-                raise ValueError("merged pull requests must be at the bottom of the stack")
-        return self
+    @property
+    def has_merged_prefix(self) -> bool:
+        """Whether every merged member sits below every active one."""
+
+        return self.prs[: len(self.historical_prs)] == self.historical_prs
 
 
 class GithubStackMergeDetails(BaseModel):

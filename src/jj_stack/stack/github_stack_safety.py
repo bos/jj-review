@@ -14,6 +14,23 @@ from jj_stack.models.github import GithubStack
 from jj_stack.stack.pr_facts import observe_github_stacks
 
 
+def require_merged_prefix(stack: GithubStack) -> GithubStack:
+    """Stop on a stack whose merged members do not all sit below its active ones.
+
+    GitHub produces that shape when a parent PR branch is pushed to contain its child's head:
+    the child is merged into the parent while the parent stays open. Planning indexes on the
+    merged prefix, so such a grouping can only be dissolved.
+    """
+
+    if not stack.has_merged_prefix:
+        raise CliError(
+            t"GitHub stack #{stack.number} lists a merged pull request above an unmerged one.",
+            hint=t"Remove the grouping with "
+            t"{ui.cmd(f'jj-stack unstack --stack {stack.number}')}, then retry.",
+        )
+    return stack
+
+
 def selected_github_stack(
     repo: GithubRepoAddress,
     selected_pr_numbers: Collection[int],
@@ -53,7 +70,7 @@ def selected_github_stack(
             t"{ui.join(lambda number: f'#{number}', numbers)}.",
             hint="Select changes belonging to one of those stacks, then retry.",
         )
-    stack = dissolvable[0] if dissolvable else overlapping[0]
+    stack = require_merged_prefix(dissolvable[0] if dissolvable else overlapping[0])
     unselected = tuple(number for number in stack.active_pr_numbers if number not in selected)
     if unselected:
         raise CliError(

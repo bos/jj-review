@@ -148,6 +148,9 @@ async def _run_github_unstack(
             if not pr_numbers:
                 console.output("No saved pull requests were found for the selected stack.")
                 return 0
+            selection = GithubStackSelection(github_client, pr_numbers)
+            observed = await selection.active_stacks()
+            github_stack = selected_github_stack(github_target.repo, pr_numbers, observed)
             await _check_selected_prs(
                 change_ids=change_ids,
                 context=context,
@@ -155,9 +158,6 @@ async def _run_github_unstack(
                 remote_name=github_target.remote.name,
                 state=state,
             )
-            selection = GithubStackSelection(github_client, pr_numbers)
-            observed = await selection.active_stacks()
-            github_stack = selected_github_stack(github_target.repo, pr_numbers, observed)
 
         if github_stack is not None and not dry_run:
             await dissolve_github_stack(github_client=github_client, stack=github_stack)
