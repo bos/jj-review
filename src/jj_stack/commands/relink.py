@@ -44,6 +44,7 @@ def relink(
     debug: bool,
     pr: str,
     repo: Path | None,
+    replace_remote: bool,
     revset: str | None,
 ) -> int:
     """CLI entrypoint for `relink`."""
@@ -54,6 +55,7 @@ def relink(
             _run_relink_async(
                 context=context,
                 pr_reference=pr,
+                replace_remote=replace_remote,
                 revset=revset,
             )
         )
@@ -69,6 +71,7 @@ async def _run_relink_async(
     *,
     context: CommandContext,
     pr_reference: str,
+    replace_remote: bool,
     revset: str | None,
 ) -> RelinkResult:
     client = context.jj_client
@@ -116,33 +119,48 @@ async def _run_relink_async(
             t"Pull request {pr_number_label} and remote branch {ui.bookmark(branch)} "
             t"no longer identify the same commit."
         )
-    remote_change_id = client.read_remote_git_commit(
-        remote=remote.name,
-        commit_id=head_sha,
-    ).change_id
-    if remote_change_id != change.change_id:
-        if remote_change_id is not None and pr_branch_matches_change(branch, remote_change_id):
-            raise CliError(
-                t"Pull request {pr_number_label} belongs to change "
-                t"{ui.change_id(remote_change_id)}, not selected change "
-                t"{ui.change_id(change.change_id)}.",
-                hint=t"If {ui.change_id(remote_change_id)} still exists locally, run "
-                t"{ui.cmd(f'jj-stack relink {pr_number} {short_change_id(remote_change_id)}')} "
-                t"instead. If stack surgery replaced it with "
-                t"{ui.change_id(change.change_id)}, recover the original change with "
-                t"{ui.cmd(f'jj-stack checkout --pull-request {pr_number}')}, then move the "
-                t"intended content onto it; relink cannot assign an existing pull request to "
-                t"a replacement change ID.",
-            )
+    remote_head = client.read_remote_git_commit(remote=remote.name, commit_id=head_sha)
+    remote_change_id = remote_head.change_id
+    if (
+        remote_change_id is not None
+        and remote_change_id != change.change_id
+        and pr_branch_matches_change(branch, remote_change_id)
+    ):
         raise CliError(
-            t"Remote branch {ui.bookmark(branch)} does not contain change "
-            t"{ui.change_id(change.change_id)}."
+            t"Pull request {pr_number_label} belongs to change "
+            t"{ui.change_id(remote_change_id)}, not selected change "
+            t"{ui.change_id(change.change_id)}.",
+            hint=t"If {ui.change_id(remote_change_id)} still exists locally, run "
+            t"{ui.cmd(f'jj-stack relink {pr_number} {short_change_id(remote_change_id)}')} "
+            t"instead. If stack surgery replaced it with "
+            t"{ui.change_id(change.change_id)}, recover the original change with "
+            t"{ui.cmd(f'jj-stack checkout --pull-request {pr_number}')}, then move the "
+            t"intended content onto it; relink cannot assign an existing pull request to "
+            t"a replacement change ID.",
         )
     namespace = current_pr_branch_namespace()
     if not pr_branch_matches_change(branch, change.change_id):
         raise CliError(
             t"Pull request {pr_number_label} head {ui.bookmark(branch)} does not match "
             t"change {ui.change_id(change.change_id)} under {ui.bookmark(namespace.branch_glob)}."
+        )
+    tracked_pr = state.tracked_pr(change.change_id)
+    known = {change.commit_id}
+    if tracked_pr is not None:
+        known.add(tracked_pr.submitted_baseline.commit_id)
+    if head_sha not in known and not replace_remote:
+        short_id = short_change_id(change.change_id)
+        checkout = f"jj-stack checkout --pull-request {pr_number}"
+        replace = f"jj-stack relink --replace-remote {pr_number} {short_id}"
+        raise CliError(
+            t"PR branch {ui.bookmark(branch)} for pull request {pr_number_label} is at "
+            t"{ui.commit_id(head_sha[:8])} ({remote_head.author}: {remote_head.subject}), not "
+            t"at the current commit of change {ui.change_id(change.change_id)}.",
+            hint=t"To keep that work, run {ui.cmd(checkout)} to bring it into your repo and "
+            t"fold it into {ui.change_id(change.change_id)} with jj; "
+            t"{ui.cmd(f'jj-stack submit {short_id}')} then updates the pull request. To drop "
+            t"it, run {ui.cmd(replace)} now; the next {ui.cmd('jj-stack submit')} replaces the "
+            t"branch with your local change.",
         )
     identity = PRIdentity(
         pr_number=pr_number,

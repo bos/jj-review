@@ -812,8 +812,9 @@ it leaves no PR bookmarks behind.
 
 `relink` explicitly replaces uncertain tracking for one change. It verifies the known PR and
 same-repo head branch, then saves the identity and exact observed remote target as one pair.
-Replacing the stale baseline lets a later `submit` update the known PR rather than reject the
-branch as foreign.
+It refuses a remote target that is neither the change's current commit nor its saved baseline;
+`--replace-remote` overrides that and adopts the remote target as the baseline so the next
+`submit` replaces it.
 
 `doctor` observes setup, GitHub Stacks API availability, and local leftovers from interrupted
 `checkout` or `sync`. It changes nothing without `--fix`; currently the only automatic repair is

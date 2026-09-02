@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+
+import pytest
 
 from jj_stack.errors import EXIT_GITHUB
 from jj_stack.state.store import TrackingStore
 
+from ..support.fake_github import FakeGithubPR, FakeGithubRepo
 from ..support.integration_helpers import (
     commit_file,
     init_fake_github_repo,
@@ -20,7 +24,7 @@ from .submit_command_helpers import (
 )
 
 
-def test_relink_repairs_existing_pr_link_for_rewritten_change(
+def test_relink_attaches_pr_whose_branch_is_at_the_local_commit(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -30,10 +34,6 @@ def test_relink_repairs_existing_pr_link_for_rewritten_change(
 
     change_id = selected_stack(repo).changes[-1].change_id
     manual_bookmark = fake_repo.prs[1].head_ref
-    run_command(
-        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 relinked"],
-        repo,
-    )
 
     exit_code = run_main(
         repo,
@@ -50,6 +50,10 @@ def test_relink_repairs_existing_pr_link_for_rewritten_change(
     assert relinked_state.pr_identities[change_id].head_ref == manual_bookmark
     assert relinked_state.pr_identities[change_id].pr_number == 1
 
+    run_command(
+        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 relinked"],
+        repo,
+    )
     exit_code = run_main(repo, config_path, "submit", change_id)
     captured = capsys.readouterr()
     rewritten_stack = selected_stack(repo, change_id)
@@ -65,46 +69,61 @@ def test_relink_repairs_existing_pr_link_for_rewritten_change(
     )
 
 
-def test_relink_replaces_stale_submitted_commit_with_remote_pr_head(
+def _reviewer_commit(fake_repo: FakeGithubRepo, pr: FakeGithubPR) -> str:
+    return fake_repo.advance_branch(
+        pr.head_ref,
+        path="feature-1.txt",
+        contents="feature 1 with a suggestion\n",
+        message="Apply suggestions from code review",
+    )
+
+
+def _other_clone_submit(fake_repo: FakeGithubRepo, pr: FakeGithubPR) -> str:
+    return fake_repo.force_push_pr_head(pr)
+
+
+@pytest.mark.parametrize(
+    ("move_branch", "subject"),
+    (
+        pytest.param(_reviewer_commit, "Apply suggestions from code review", id="foreign-commit"),
+        pytest.param(_other_clone_submit, "feature 1", id="same-change-rewrite"),
+    ),
+)
+def test_relink_refuses_unsubmitted_remote_work_unless_replaced(
     tmp_path: Path,
     monkeypatch,
     capsys,
+    move_branch: Callable[[FakeGithubRepo, FakeGithubPR], str],
+    subject: str,
 ) -> None:
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    change_id = selected_stack(repo).changes[-1].change_id
+    change = selected_stack(repo).changes[-1]
+    pr = fake_repo.prs[1]
+    remote_head = move_branch(fake_repo, pr)
     state_store = TrackingStore.for_repo(repo)
-    initial_state = state_store.load()
-    identity = initial_state.pr_identities[change_id]
-    bookmark = identity.head_ref
-    remote_pr_head = read_remote_ref(fake_repo.git_dir, bookmark)
-    stale_submitted_commit = read_remote_ref(fake_repo.git_dir, "main")
-    assert stale_submitted_commit != remote_pr_head
-    baseline = initial_state.submitted_baselines[change_id]
-    state_store.relink_pr(
-        change_id,
-        identity=identity,
-        baseline=baseline.model_copy(update={"commit_id": stale_submitted_commit}),
-    )
-    run_command(
-        ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature repaired"],
-        repo,
-    )
 
-    exit_code = run_main(repo, config_path, "relink", "1", change_id)
-    capsys.readouterr()
-    relinked_baseline = state_store.load().submitted_baselines[change_id]
-
-    assert exit_code == 0
-    assert relinked_baseline.commit_id == remote_pr_head
-
-    exit_code = run_main(repo, config_path, "submit", change_id)
+    exit_code = run_main(repo, config_path, "relink", "1", change.change_id)
     captured = capsys.readouterr()
 
+    unwrapped = " ".join(captured.err.split())
+    assert exit_code == 1
+    assert subject in unwrapped
+    assert "jj-stack checkout --pull-request 1" in unwrapped
+    assert f"jj-stack relink --replace-remote 1 {change.change_id[:8]}" in unwrapped
+    assert state_store.load().submitted_baselines[change.change_id].commit_id == change.commit_id
+
+    exit_code = run_main(repo, config_path, "relink", "--replace-remote", "1", change.change_id)
+    capsys.readouterr()
+
     assert exit_code == 0
-    assert "PR #1 updated" in captured.out
-    assert set(fake_repo.prs) == {1}
+    assert state_store.load().submitted_baselines[change.change_id].commit_id == remote_head
+
+    exit_code = run_main(repo, config_path, "submit", change.change_id)
+    capsys.readouterr()
+
+    assert exit_code == 0
+    assert read_remote_ref(fake_repo.git_dir, pr.head_ref) == change.commit_id
 
 
 def test_relink_reports_missing_pr_without_traceback(

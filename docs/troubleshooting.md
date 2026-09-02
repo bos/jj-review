@@ -35,11 +35,15 @@ For an accidentally moved `submit --base` branch, restore the immutable submitte
 in that error. For another moved branch, inspect and repair it as the hint directs; for a missing
 branch, either restore it or close the PR on GitHub, run `jj-stack cleanup`, and submit again.
 
-If remote contents are intentional, preserve or reproduce them in the local `jj` change before
-submitting. Use `jj-stack relink <pull-request> <change-id>` only when the PR is open and unique,
-its branch belongs to the same repo and remains a managed `jj-stack/` name for that change,
-and its head still carries that jj change ID. `relink` verifies those conditions and updates
-tracking; it does not copy the remote contents into your local change.
+If the PR branch holds work that is not in your change, such as a reviewer's suggestion or a
+version submitted from another clone, choose what to do with it. To keep it, run
+`jj-stack checkout --pull-request <pull-request>`: it brings that commit into your repo, beside
+your own copy of the change or as a new change on top of it, and
+`jj-stack submit <head-change-id>` updates the pull request once you have folded it in or
+abandoned the copy you do not want. To drop it, run
+`jj-stack relink --replace-remote <pull-request> <change-id>`; the next `submit` replaces the
+branch with your local change. Plain `jj-stack relink <pull-request> <change-id>` reconnects a
+pull request whose branch is still at your change; otherwise it refuses and shows what is there.
 
 Do not force a submit past the mismatch. The stop is what prevents one tool from silently
 overwriting another tool's work.

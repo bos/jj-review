@@ -1005,6 +1005,15 @@ def _add_relink_parser(
         metavar="REVSET",
         help="Revset selecting the local change to reconnect to the pull request",
     )
+    add_help_argument(
+        parser,
+        "--replace-remote",
+        action="store_true",
+        help=(
+            t"Reconnect even if the PR branch has commits that are not in the change; "
+            t"the next {ui.cmd('submit')} replaces them"
+        ),
+    )
     return parser
 
 

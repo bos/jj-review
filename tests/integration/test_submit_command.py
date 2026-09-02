@@ -2121,7 +2121,10 @@ def test_submit_requires_relink_after_state_loss(
     rejected = capsys.readouterr()
     assert "Adopt that PR explicitly with relink" in rejected.err
 
-    assert run_main(repo, config_path, "relink", str(pr_number), change_id) == 0
+    exit_code = run_main(
+        repo, config_path, "relink", "--replace-remote", str(pr_number), change_id
+    )
+    assert exit_code == 0
     capsys.readouterr()
     exit_code = run_main(repo, config_path, "submit", change_id)
     captured = capsys.readouterr()
