@@ -495,6 +495,11 @@ def _status_fragments(
         label = "closed" if closed == 1 else f"{closed} closed"
         fragments.append(ui.semantic_text(label, "warning", "heading"))
 
+    moved = sum(1 for status in statuses if status.pr_head_moved)
+    if moved:
+        label = "PR branch moved" if moved == 1 else f"{moved} PR branches moved"
+        fragments.append(ui.semantic_text(label, "warning", "heading"))
+
     stale_links = sum(1 for status in statuses if status.has_stale_pr_link)
     if stale_links:
         label = "stale link" if stale_links == 1 else f"{stale_links} stale links"

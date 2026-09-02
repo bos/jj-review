@@ -149,6 +149,35 @@ def test_view_advises_submit_when_selected_stack_changed_since_submit() -> None:
     assert "bcdefghi" in normalized_lines
 
 
+def test_view_advises_checkout_or_replace_when_a_pr_branch_moved() -> None:
+    pr = _pr(number=7, state="open").model_copy(
+        update={"head": GithubBranchRef(ref="jj-stack/feature", sha="f" * 40)}
+    )
+    lines = _render_lines(
+        *view_module.render_status_advisory_lines(
+            result=_status_result(
+                changes=(
+                    _status_change(
+                        branch="jj-stack/feature",
+                        change_id="abcdefghijkl",
+                        commit_id="local-commit",
+                        pr_identity=make_pr_identity(head_ref="jj-stack/feature", pr_number=7),
+                        pr_lookup=_lookup(state="open", pr=pr),
+                        submitted_baseline=SubmittedBaseline(commit_id="submitted-commit"),
+                    ),
+                ),
+                submitted_state_disagreements=("abcdefghijkl",),
+            ),
+        )
+    )
+    normalized = " ".join(" ".join(line.split()) for line in lines)
+
+    assert "PR branch moved" in normalized
+    assert "jj-stack checkout --pull-request 7" in normalized
+    assert "jj-stack relink --replace-remote 7 abcdefgh" in normalized
+    assert "Submit needed" not in normalized
+
+
 def test_view_closed_pr_advisory_guides_reopen_relink_or_cleanup() -> None:
     change = _status_change(
         change_id="loqvlqrqabcdefghijkl",

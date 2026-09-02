@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import cast
 
+import jj_stack.ui as ui
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient
 from jj_stack.github.resolution import GithubRepoAddress, GithubTarget
@@ -175,6 +176,48 @@ def test_pr_lookup_falls_back_to_exact_remembered_pr_number() -> None:
     assert lookup.pr is not None
     assert lookup.pr.number == 7
     assert lookup.pr.state == "merged"
+
+
+def test_pr_lookup_reports_the_saved_pr_when_another_open_pr_uses_its_branch() -> None:
+    def pr_payload(number: int, state: str) -> GithubPR:
+        return GithubPR.model_validate(
+            {
+                "base": {"ref": "main"},
+                "head": {"label": "octo-org:jj-stack/branch", "ref": "jj-stack/branch"},
+                "html_url": f"https://github.test/octo-org/stacked-prs/pull/{number}",
+                "number": number,
+                "state": state,
+                "title": f"feature {number}",
+            }
+        )
+
+    class FakeGithubClient:
+        repo = GithubRepoAddress(owner="octo-org", repo="stacked-prs")
+
+        async def get_open_prs_by_head_refs(self, *, head_refs):
+            return {"jj-stack/branch": (pr_payload(180, "open"),)}
+
+        async def get_prs_by_numbers(self, *, pr_numbers):
+            assert pr_numbers == (155,)
+            return {155: pr_payload(155, "closed")}
+
+    prepared_change = PreparedChange(
+        branch="jj-stack/branch",
+        change=make_change(change_id="change", commit_id="commit", description="feature\n"),
+        pr_identity=make_pr_identity(head_ref="jj-stack/branch", pr_number=155),
+        submitted_baseline=None,
+    )
+
+    lookup = asyncio.run(
+        status_module._discover_pr_lookups(
+            github_client=cast(GithubClient, FakeGithubClient()),
+            prepared_changes=(prepared_change,),
+        )
+    )["jj-stack/branch"]
+
+    assert lookup.pr is not None and lookup.pr.number == 155
+    assert (lookup.source, lookup.state) == ("remembered", "closed")
+    assert "#180" in ui.plain_text(lookup.message or "")
 
 
 def test_pr_lookup_ignores_draft_review_decision() -> None:

@@ -48,6 +48,10 @@ class ChangeStatus:
     pr_lookup_error: bool = False
     pr_review_decision_error: str | None = None
     saved_pr_identity: bool = False
+    # The open PR's head is neither the local commit nor the last submitted one: the branch was
+    # updated outside this repo. Submit and merge stop until the user resolves it; sync adopts
+    # a GitHub rewrite of the stack.
+    pr_head_moved: bool = False
 
     @property
     def has_pr_lookup_failure(self) -> bool:
@@ -99,6 +103,20 @@ def classify_stack_status_change(
         local=local,
         pr_lookup=change.pr_lookup,
         pr_identity=change.pr_identity,
+        pr_head_moved=_pr_head_moved(change),
+    )
+
+
+def _pr_head_moved(change: StackStatusChange) -> bool:
+    lookup = change.pr_lookup
+    pr = change.pr()
+    if change.pr_identity is None or lookup is None or lookup.state != "open" or pr is None:
+        return False
+    if pr.head.ref != change.branch or pr.head.sha is None:
+        return False
+    submitted = change.submitted_baseline
+    return pr.head.sha != change.commit_id and (
+        submitted is None or pr.head.sha != submitted.commit_id
     )
 
 
@@ -107,6 +125,7 @@ def classify_change_status(
     local: LocalTrackingState,
     pr_lookup: PRLookup | None,
     pr_identity: PRIdentity | None = None,
+    pr_head_moved: bool = False,
 ) -> ChangeStatus:
     """Derive change status axes from already-loaded facts."""
 
@@ -135,6 +154,7 @@ def classify_change_status(
         pr_lookup_error=pr_lookup_error,
         pr_review_decision_error=(None if pr_lookup is None else pr_lookup.review_decision_error),
         saved_pr_identity=pr_identity is not None,
+        pr_head_moved=pr_head_moved,
     )
 
 

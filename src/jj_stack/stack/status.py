@@ -551,48 +551,52 @@ async def _discover_pr_lookups(
         )
         for branch in branches
     }
-    remembered_numbers = tuple(
-        prepared_change.pr_identity.pr_number
+    # The saved PR number is the one reported. Look it up directly when the branch has no open
+    # PR, or when the open PR on the branch is a different one.
+    remembered = {
+        branch: prepared_change.pr_identity
         for branch, prepared_change in prepared_changes_by_branch.items()
-        if lookups[branch].state == "missing" and prepared_change.pr_identity is not None
-    )
-    if not remembered_numbers:
+        if prepared_change.pr_identity is not None
+        and (
+            lookups[branch].state == "missing"
+            or (
+                (found := lookups[branch].pr) is not None
+                and found.number != prepared_change.pr_identity.pr_number
+            )
+        )
+    }
+    if not remembered:
         return lookups
 
     try:
         remembered_prs = await github_client.get_prs_by_numbers(
-            pr_numbers=remembered_numbers,
+            pr_numbers=tuple(identity.pr_number for identity in remembered.values()),
         )
     except GithubClientError as error:
         lookup_error = summarize_github_lookup_error(
             action="remembered pull request lookup",
             error=error,
         )
-        failed_lookups: dict[str, PRLookup] = {}
-        for branch, lookup in lookups.items():
-            pr_identity = prepared_changes_by_branch[branch].pr_identity
-            if lookup.state == "missing" and pr_identity is not None:
-                failed_lookups[branch] = PRLookup(
-                    message=lookup_error,
-                    pr=None,
-                    state="error",
-                )
-            else:
-                failed_lookups[branch] = lookup
-        return failed_lookups
+        return {
+            branch: (
+                PRLookup(message=lookup_error, pr=None, state="error")
+                if branch in remembered
+                else lookup
+            )
+            for branch, lookup in lookups.items()
+        }
 
-    for branch, lookup in tuple(lookups.items()):
-        if lookup.state != "missing":
-            continue
-        pr_identity = prepared_changes_by_branch[branch].pr_identity
-        if pr_identity is None:
-            continue
-        remembered_pr = remembered_prs.get(pr_identity.pr_number)
+    for branch, identity in remembered.items():
+        remembered_pr = remembered_prs.get(identity.pr_number)
+        other_pr = lookups[branch].pr
         if remembered_pr is None:
+            if other_pr is not None:
+                lookups[branch] = PRLookup(message=None, pr=None, state="missing")
             continue
         lookups[branch] = _pr_lookup_from_remembered(
             branch=branch,
             pr=remembered_pr,
+            other_pr=other_pr,
         )
     return lookups
 
@@ -644,15 +648,22 @@ def _pr_lookup_from_remembered(
     *,
     branch: str,
     pr: GithubPR,
+    other_pr: GithubPR | None = None,
 ) -> PRLookup:
     effective_pr = pr.normalize_state()
+    pr_label = format_pr_label(effective_pr.number, url=effective_pr.html_url)
     message: ErrorMessage | None = None
     if effective_pr.head.ref != branch:
-        pr_label = format_pr_label(effective_pr.number, url=effective_pr.html_url)
         message = (
             t"Remembered {pr_label} now uses head branch "
             t"{ui.bookmark(effective_pr.head.ref)}, not "
             t"{ui.bookmark(branch)}."
+        )
+    elif other_pr is not None:
+        other_label = format_pr_label(other_pr.number, url=other_pr.html_url)
+        message = (
+            t"Open {other_label} also uses PR branch {ui.bookmark(branch)}; this change's "
+            t"pull request is {pr_label}."
         )
     return _single_pr_lookup(
         message=message,

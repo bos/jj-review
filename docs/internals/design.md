@@ -839,7 +839,9 @@ Both report whether an open PR currently has a merge-queue entry. Queue presence
 GitHub observation, not saved tracking; position and intermediate queue phases are not modeled.
 
 Neither command guesses. A change with no saved PR identity is reported as not submitted,
-even if a PR happens to use the branch name that change would generate.
+even if a PR happens to use the branch name that change would generate. A saved PR is always
+the one reported; a different open PR on its branch is a warning. An open PR whose head is
+neither the local commit nor the submitted baseline is reported as moved, not as healthy.
 
 Inspection tolerates history exposed by fetch rather than immediately declaring the stack broken.
 `view` walks past immutable or divergent side copies of merged changes. A merged PR still in the

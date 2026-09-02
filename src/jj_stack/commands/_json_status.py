@@ -60,6 +60,8 @@ def saved_pr_json(
 def _change_status(status: ChangeStatus) -> str:
     if status.local == "divergent":
         return "divergent"
+    if status.pr_head_moved:
+        return "branch_moved"
     if status.pr_lifecycle in {"ambiguous", "closed", "merged", "missing"}:
         return status.pr_lifecycle
     if status.has_pr_lookup_failure:

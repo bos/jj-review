@@ -55,6 +55,7 @@
         "closed",
         "missing",
         "ambiguous",
+        "branch_moved",
         "divergent",
         "unknown"
       ]

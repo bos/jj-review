@@ -722,7 +722,11 @@ def render_status_advisory_lines(
         for classified in classified_changes
         if _classified_change_has_link_advisory(classified)
     ]
-    submitted_disagreements = result.submitted_state_disagreements
+    moved_changes = [
+        classified for classified in classified_changes if classified.status.pr_head_moved
+    ]
+    # A moved PR branch stops submit, so "submit needed" would be the wrong next step.
+    submitted_disagreements = () if moved_changes else result.submitted_state_disagreements
     policy_warning_rows: list[tuple[ui.TableCell, ui.TableCell]] = []
     for classified in cleanup_changes:
         change = classified.change
@@ -746,6 +750,7 @@ def render_status_advisory_lines(
         not cleanup_changes
         and not divergent_changes
         and not link_changes
+        and not moved_changes
         and not submitted_disagreements
         and not policy_warning_rows
     ):
@@ -832,6 +837,33 @@ def render_status_advisory_lines(
                 )
             )
 
+    if moved_changes:
+        single = len(moved_changes) == 1
+        noun = "PR branch" if single else "PR branches"
+        rows.append(
+            (
+                f"{noun} moved",
+                (
+                    f"The {noun} of the change{'' if single else 's'} shown above "
+                    f"{'was' if single else 'were'} updated outside this repo, for example by "
+                    "another clone, a reviewer's commit, or a GitHub stack rebase or merge. "
+                    f"Submit and merge stop until {'it is' if single else 'they are'} resolved. "
+                    "If GitHub rewrote the stack, ",
+                    ui.cmd(f"jj-stack sync {result.selected_revset}"),
+                    " adopts its result (preview with ",
+                    ui.option("--dry-run"),
+                    "); otherwise choose below.",
+                ),
+            )
+        )
+        for classified in moved_changes:
+            rows.append(
+                (
+                    ui.change_id(classified.change.change_id),
+                    _describe_moved_pr_branch(classified),
+                )
+            )
+
     if link_changes:
         rows.append(
             _link_advisory_summary_row(
@@ -859,6 +891,20 @@ def render_status_advisory_lines(
             )
         )
     return ("", "Advisories:", _advisory_table(tuple(rows)))
+
+
+def _describe_moved_pr_branch(classified: _ClassifiedStatusChange) -> ui.Message:
+    pr = classified.change.pr()
+    if pr is None or pr.head.sha is None:
+        raise AssertionError("A moved PR branch advisory requires an open pull request head.")
+    pr_label = format_pr_label(pr.number, url=pr.html_url)
+    short_id = short_change_id(classified.change.change_id)
+    return (
+        t"{pr_label} is at {ui.commit_id(pr.head.sha[:8])}, not at this change. Keep that work "
+        t"with {ui.cmd(f'jj-stack checkout --pull-request {pr.number}')}, or run "
+        t"{ui.cmd(f'jj-stack relink --replace-remote {pr.number} {short_id}')} so the next "
+        t"submit replaces it with this change"
+    )
 
 
 def _submitted_state_disagreement_rows(
@@ -957,9 +1003,8 @@ def _link_advisory_summary_row(
     if states == {"remembered"}:
         label = "Saved GitHub PR" if len(link_changes) == 1 else "Saved GitHub PRs"
         detail = (
-            "GitHub found the remembered PR, but its head branch no longer matches "
-            f"{change_phrase}. Relink it if that PR should stay attached; "
-            "otherwise forget the incorrect link with ",
+            f"Submit cannot use the saved PR of {change_phrase} as it stands; see its row. "
+            "Relink the intended open PR, or forget the saved link with ",
             ui.cmd(f"jj-stack unstack --local {selected_revset}"),
             " before submitting again.",
         )
@@ -1093,6 +1138,8 @@ def _format_status_summary(
         else:
             summary = message
 
+    if change_status.pr_head_moved:
+        summary = t"{summary}, PR branch moved"
     if change_status.local == "divergent" and change_status.pr_lifecycle != "merged":
         summary = t"{summary}, multiple visible commits"
 
