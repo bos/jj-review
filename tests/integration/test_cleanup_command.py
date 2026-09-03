@@ -467,6 +467,42 @@ def test_cleanup_removes_overview_comment_for_closed_pr(
     assert issue_comments(fake_repo, 2) == []
 
 
+def test_cleanup_forgets_a_closed_pr_whose_branch_was_deleted(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """GitHub's "Close" then "Delete branch" leaves only the saved link to remove."""
+
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    change_id = selected_stack(repo).head.change_id
+    state_store = TrackingStore.for_repo(repo)
+    identity = state_store.load().pr_identities[change_id]
+    fake_repo.prs[identity.pr_number].state = "closed"
+    run_command(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "update-ref",
+            "-d",
+            f"refs/heads/{identity.head_ref}",
+        ],
+        fake_repo.git_dir.parent,
+    )
+
+    exit_code = run_main(repo, config_path, "cleanup")
+    captured = capsys.readouterr()
+    output = " ".join(captured.out.split())
+
+    assert exit_code == 0
+    assert f"forget PR #{identity.pr_number}" in output
+    assert "delete" not in output
+    assert change_id not in state_store.load().pr_identities
+    assert fake_repo.prs[identity.pr_number].state == "closed"
+
+
 def test_cleanup_removes_a_closed_pr_whose_head_github_moved(
     tmp_path: Path,
     monkeypatch,

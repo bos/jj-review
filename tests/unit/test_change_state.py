@@ -205,6 +205,16 @@ def test_open_pr_head_is_compared_against_every_visible_copy() -> None:
     assert state.has_local_edits is True
 
 
+def test_branch_missing_repair_matches_the_pull_request_state() -> None:
+    still_open = classify(_observe(remote_target=None))
+    already_closed = classify(_observe(remote_target=None, pr=_pr(state="closed")))
+
+    assert isinstance(still_open, BranchMissing) and isinstance(already_closed, BranchMissing)
+    assert "close PR #7" in ui.plain_text(still_open.repair)
+    assert "reopen PR #7" in ui.plain_text(already_closed.repair)
+    assert "forget it" in ui.plain_text(already_closed.repair)
+
+
 def test_report_incompleteness_rule_is_shared_by_view_and_list() -> None:
     assert report_incomplete(classify(_observe())) is False
     assert report_incomplete(classify(_observe(pr=UNOBSERVED))) is True

@@ -170,6 +170,24 @@ expected_sha256() {
     v0.44.0/x86_64-unknown-linux-musl)
       printf '%s\n' "0a07bab4641a55fd2bc2fd1563ba3a3f9a577584086ad74086a1c5b69b3ffce9"
       ;;
+    v0.45.1/aarch64-apple-darwin)
+      printf '%s\n' "51ba42e3d0682616f6eb015045bfe45289b396f03511f9897f645ce8e9272743"
+      ;;
+    v0.45.1/aarch64-pc-windows-msvc)
+      printf '%s\n' "0f869d108316149f211d2ba50a626b4fe8ef99232db52f13300bde106821be9e"
+      ;;
+    v0.45.1/x86_64-apple-darwin)
+      printf '%s\n' "6171582d0b5a98a1005cd9643faebff7936812ec264d7968a39d9cef3654a99b"
+      ;;
+    v0.45.1/x86_64-pc-windows-msvc)
+      printf '%s\n' "5dbf2619272c897394d34190a94b21a6ab8d1e8e59fcf7dfc173d8fa8aa90bf0"
+      ;;
+    v0.45.1/aarch64-unknown-linux-musl)
+      printf '%s\n' "7349a43dd5a20dbc998b10114daa0ee63d2ab863fb822c7eb6b0ebca5903cc69"
+      ;;
+    v0.45.1/x86_64-unknown-linux-musl)
+      printf '%s\n' "f35438350b5d61963aac5dd74ede510b31d6b9690769d1a6268cf058cc825f72"
+      ;;
     *)
       echo "unsupported jj version for checksum verification: $1" >&2
       exit 1

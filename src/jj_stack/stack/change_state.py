@@ -368,6 +368,13 @@ class BranchMissing(Stop, WithPR):
 
     @property
     def repair(self) -> Message:
+        # GitHub closes a pull request whose head branch is deleted and reopens it only once
+        # the branch is back, so the two states need different next steps.
+        if self.pr.state == "closed":
+            return (
+                t"restore the branch to reopen {_pr_label(self.pr)}, or run "
+                t"{ui.cmd('jj-stack cleanup')} to forget it"
+            )
         return (
             t"restore the branch, or close {_pr_label(self.pr)} on GitHub and run "
             t"{ui.cmd('jj-stack cleanup')}"
