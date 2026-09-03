@@ -643,15 +643,19 @@ def test_sync_removes_a_merged_change_that_a_local_rebase_emptied(
     state_store = TrackingStore.for_repo(repo)
     on_trunk, survivor = selected_stack(repo).changes
     _simulate_stack_partial_merge(fake_repo)
-    # `jj rebase -d main` after fetching carries the merged change along as an empty commit.
+    # `jj rebase -d main` after fetching carries the merged change along as an empty commit and
+    # leaves the whole stack above the trunk tip, where `sync --all` must still find it.
     run_command(["jj", "git", "fetch", "--remote", "origin"], repo)
     run_command(["jj", "rebase", "-b", survivor.change_id, "-d", "trunk()"], repo)
     jj = JjClient(repo)
     assert jj.resolve_commit(on_trunk.change_id).empty
 
-    exit_code = run_main(repo, config_path, "sync", survivor.change_id)
+    preview_exit_code = run_main(repo, config_path, "sync", "--dry-run", survivor.change_id)
+    preview = capsys.readouterr()
+    exit_code = run_main(repo, config_path, "sync", "--all")
     captured = capsys.readouterr()
 
+    assert preview_exit_code == 0, (preview.out, preview.err)
     assert exit_code == 0, (captured.out, captured.err)
     assert jj.query_commits_by_change_ids((on_trunk.change_id,))[on_trunk.change_id] == ()
     assert jj.resolve_commit(survivor.change_id).parents == (

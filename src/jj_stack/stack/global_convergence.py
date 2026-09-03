@@ -76,7 +76,6 @@ async def observe_global_sync(
         observe_repo_paths(
             jj_client=context.jj_client,
             descendant_of=anchors,
-            exclude_trunk_descendants=True,
             state=state,
         ).paths
         if anchors

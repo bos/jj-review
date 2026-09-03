@@ -21,22 +21,19 @@ def observe_repo_paths(
     jj_client: JjClient,
     state: TrackingState,
     descendant_of: Sequence[str] = (),
-    exclude_trunk_descendants: bool = False,
 ) -> RepoStackPaths:
     """Batch the visible facts for ordinary maximal paths.
 
-    With no anchors this observes the repo inventory. Exact commit anchors
-    narrow the observation to paths descending from those changes.
+    With no anchors this observes the repo inventory. Exact commit anchors narrow the
+    observation to the anchors' descendants; callers then keep the paths that contain their
+    anchor, so a wider scope costs only query work.
     """
 
     trunk_path = "first_ancestors(trunk())"
     visible_scope = "visible()"
     if descendant_of:
         anchors = " | ".join(quote_revset_symbol(commit_id) for commit_id in descendant_of)
-        descendants = f"({anchors})::"
-        if exclude_trunk_descendants:
-            descendants += " ~ trunk()::"
-        visible_scope = f"(visible() & {descendants})"
+        visible_scope = f"(visible() & ({anchors})::)"
     candidates = f"(({visible_scope}) ~ {trunk_path})"
     prepare_visible_pr_snapshots(jj_client=jj_client, state=state)
     rows = jj_client.query_commits_with_membership(
