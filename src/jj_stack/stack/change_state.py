@@ -500,12 +500,17 @@ def _classify_pr(
     competitors = tuple(candidate for candidate in open_prs if candidate.number != pr.number)
     if competitors:
         return CompetingOpenPR(**with_pr, competitors=competitors)
-    if pr.state == "closed":
-        return Closed(**with_pr)
     if isinstance(evidence, str):
         return Landed(**with_pr, evidence=evidence)
     if pr.state == "merged":
         return Merged(**with_pr)
+    # Deleting a pull request's head branch also closes the PR. Report the missing branch first:
+    # it is the external drift that made the saved identity unusable and names the repair that
+    # can preserve the PR. A merged PR remains merge evidence even when GitHub deleted its branch.
+    if o.remote_target is None:
+        return BranchMissing(**with_pr)
+    if pr.state == "closed":
+        return Closed(**with_pr)
     return _classify_open(o, with_pr, pr)
 
 
@@ -532,9 +537,6 @@ def _classify_open(
     baseline = o.tracked.submitted_baseline.commit_id
     head = pr.head.sha
     remote = o.remote_target
-    # An absent branch is the more fundamental fact than where the pull request's head sits.
-    if remote is None:
-        return BranchMissing(**with_pr)
     if head is not None and head != baseline and head not in _local_commit_ids(o):
         return PRHeadMoved(**with_pr)
     if not isinstance(remote, Unobserved) and head is not None and remote != head:
