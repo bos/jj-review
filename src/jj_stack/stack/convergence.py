@@ -225,10 +225,15 @@ def _member_state(
             observation, candidate.change_id, ancestries=ancestries, selected=selected
         )
     )
-    # A moved or missing PR branch is left for the pull request refresh to report; sync still
-    # rebases the local change first.
-    tolerated = (BranchDisagrees, BranchMissing, PRHeadMoved)
-    if isinstance(state, Stop) and not isinstance(state, tolerated):
+    # GitHub itself moves the heads of a stack's active members when it merges or rebases the
+    # stack; `_validate_active_member` and the adoption proofs judge those moves. Any other
+    # survivor whose PR branch moved or disappeared stops sync before it rewrites anything.
+    github_moved = (
+        member is not None
+        and not member.is_historical
+        and isinstance(state, (BranchDisagrees, BranchMissing, PRHeadMoved))
+    )
+    if isinstance(state, Stop) and not github_moved:
         raise stop_error(state, rerun=rerun)
     if not isinstance(state, WithPR):
         raise AssertionError("Sync planning looks up every saved pull request.")

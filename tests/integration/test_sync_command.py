@@ -726,9 +726,10 @@ def test_sync_rebases_a_conflicted_pr_before_stopping_its_update(
     (
         ("closed", "is closed, so sync cannot update that PR", "jj-stack cleanup"),
         ("moved_branch", "now uses head branch", "jj-stack relink"),
+        ("reviewer_commit", "not at this change", "jj-stack checkout --pull-request 2"),
     ),
 )
-def test_sync_stops_before_rebasing_when_a_survivor_pr_is_closed_or_relinked(
+def test_sync_stops_before_rebasing_when_a_survivor_pr_drifted(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -736,16 +737,32 @@ def test_sync_stops_before_rebasing_when_a_survivor_pr_is_closed_or_relinked(
     reason: str,
     repair: str,
 ) -> None:
-    """A closed or re-pointed active member is still a survivor; its branch is not blamed."""
+    """A closed, re-pointed, or externally pushed survivor stops sync before it rewrites anything.
+
+    Stopping first keeps a failed sync free of side effects: one rerun after the repair removes
+    the merged change, rebases the survivor, and refreshes its pull request together. The
+    pushed case uses ungrouped pull requests, because GitHub moves the heads of a stack's active
+    members itself when it merges the stack, and sync adopts those moves after proving them.
+    """
 
     repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     state_store = TrackingStore.for_repo(repo)
     on_trunk, survivor = selected_stack(repo).changes
-    _simulate_stack_partial_merge(fake_repo)
+    if drift == "reviewer_commit":
+        fake_repo.github_stacks = {}
+        fake_repo.apply_squash_merge(fake_repo.prs[1])
+        fake_repo.advance_branch(
+            fake_repo.prs[2].head_ref,
+            path="feature-2.txt",
+            contents="feature 2 with a suggestion\n",
+            message="Apply suggestions from code review",
+        )
+    else:
+        _simulate_stack_partial_merge(fake_repo)
     if drift == "closed":
         fake_repo.prs[2].state = "closed"
-    else:
+    elif drift == "moved_branch":
         fake_repo.prs[2].head_ref = "jj-stack/moved-aaaaaaaa"
         fake_repo.prs[2].head_label = "octo-org:jj-stack/moved-aaaaaaaa"
     state_before = state_store.load()

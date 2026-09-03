@@ -20,9 +20,10 @@ verifies the new commits, applies them locally, and restores the original `jj` c
 - An unsubmitted change sits between submitted changes. `sync` updates existing pull requests but
   never creates the missing pull request.
 
-Before rebasing, `sync` also checks saved pull request links and GitHub stack membership. A
-missing or closed pull request, a changed stack relationship, or ambiguous tracking stops the
-command before it changes local history. The error identifies what needs attention.
+Before rebasing, `sync` also checks saved pull request links, PR branches, and GitHub stack
+membership. A missing or closed pull request, a PR branch that moved or disappeared, a changed
+stack relationship, or ambiguous tracking stops the command before it changes local history. The
+error identifies what needs attention.
 
 Conflicts do not prevent the local rebase. If a rebased change remains conflicted, `sync` leaves
 the conflict in local history and stops before updating that pull request. Resolve the conflict

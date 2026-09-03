@@ -620,6 +620,10 @@ content.
 - rewriting it would not discard unpublished local work
 - no surviving change has multiple mutable local copies (a fetched GitHub rewrite is immutable)
 - no unsubmitted change sits between submitted survivors
+- every surviving pull request outside a GitHub stack's active members is open and still at the
+  submitted or local commit; a moved or missing PR branch stops `sync` before any rewrite and
+  names the repair, so a failed `sync` has changed nothing. Survivors GitHub itself rewrote as
+  part of a stack merge or rebase follow the GitHub stack rules below instead.
 
 If any selected open PR is still in a merge queue, `sync` leaves the selected stack unchanged.
 Once GitHub no longer reports it queued, ordinary trunk evidence determines whether `sync`
