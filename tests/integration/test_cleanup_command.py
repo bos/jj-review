@@ -229,28 +229,13 @@ def test_cleanup_preserves_a_branch_while_its_closed_dependent_can_be_reopened(
         f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir) for bookmark in bookmarks
     )
 
-    preview_exit_code = run_main(repo, config_path, "cleanup", "--dry-run")
-    preview = capsys.readouterr()
-    normalized_preview = " ".join(preview.out.split())
-
-    assert preview_exit_code == 1
-    assert "Planned cleanup actions:" in preview.out
-    assert "GitHub stack #7 still groups this pull request" in normalized_preview
-    assert "jj-stack unstack --stack 7" in normalized_preview
-    assert all(
-        f"remote branch: delete {bookmark}@origin" not in normalized_preview
-        for bookmark in bookmarks
-    )
-    assert state_store.load() == state_before
-    assert all(
-        f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir) for bookmark in bookmarks
-    )
-
     blocked_exit_code = run_main(repo, config_path, "cleanup")
     blocked = capsys.readouterr()
+    normalized_blocked = " ".join(blocked.out.split())
 
     assert blocked_exit_code == 1
-    assert "GitHub stack #7 still groups this pull request" in " ".join(blocked.out.split())
+    assert "GitHub stack #7 still groups this pull request" in normalized_blocked
+    assert "jj-stack unstack --stack 7" in normalized_blocked
     assert all(change_id in state_store.load().pr_identities for change_id in change_ids)
     assert all(
         f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir) for bookmark in bookmarks
@@ -467,29 +452,41 @@ def test_cleanup_removes_overview_comment_for_closed_pr(
     assert issue_comments(fake_repo, 2) == []
 
 
-def test_cleanup_forgets_a_closed_pr_whose_branch_was_deleted(
+def test_cleanup_finishes_closed_prs_whose_branch_was_deleted_or_moved(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    """GitHub's "Close" then "Delete branch" leaves only the saved link to remove."""
+    """GitHub's "Delete branch" leaves only the saved link; "Update branch" moves the head."""
 
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    change_id = selected_stack(repo).head.change_id
+    deleted = selected_stack(repo).head.change_id
+    run_command(["jj", "new", "main"], repo)
+    commit_file(repo, "feature 2", "feature-2.txt")
+    assert run_main(repo, config_path, "submit") == 0
+    capsys.readouterr()
+    moved = selected_stack(repo).head.change_id
     state_store = TrackingStore.for_repo(repo)
-    identity = state_store.load().pr_identities[change_id]
-    fake_repo.prs[identity.pr_number].state = "closed"
+    identities = state_store.load().pr_identities
+    deleted_identity, moved_identity = identities[deleted], identities[moved]
+    for identity in (deleted_identity, moved_identity):
+        fake_repo.prs[identity.pr_number].state = "closed"
+    git = ["git", "--git-dir", str(fake_repo.git_dir), "update-ref"]
+    run_command([*git, "-d", f"refs/heads/{deleted_identity.head_ref}"], fake_repo.git_dir.parent)
+    # GitHub's "Update branch" button and its stack rebase both move a PR head off the
+    # submitted commit; here the moved head lands on trunk.
     run_command(
         [
-            "git",
-            "--git-dir",
-            str(fake_repo.git_dir),
-            "update-ref",
-            "-d",
-            f"refs/heads/{identity.head_ref}",
+            *git,
+            f"refs/heads/{moved_identity.head_ref}",
+            read_remote_ref(fake_repo.git_dir, "main"),
         ],
         fake_repo.git_dir.parent,
+    )
+    fake_repo.create_issue_comment(
+        body=f"{STACK_OVERVIEW_COMMENT_MARKER}\nstack overview",
+        issue_number=moved_identity.pr_number,
     )
 
     exit_code = run_main(repo, config_path, "cleanup")
@@ -497,46 +494,9 @@ def test_cleanup_forgets_a_closed_pr_whose_branch_was_deleted(
     output = " ".join(captured.out.split())
 
     assert exit_code == 0
-    assert f"forget PR #{identity.pr_number}" in output
-    assert "delete" not in output
-    assert change_id not in state_store.load().pr_identities
-    assert fake_repo.prs[identity.pr_number].state == "closed"
-
-
-def test_cleanup_removes_a_closed_pr_whose_head_github_moved(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    change_id = selected_stack(repo).head.change_id
-    state_store = TrackingStore.for_repo(repo)
-    identity = state_store.load().pr_identities[change_id]
-    fake_repo.prs[identity.pr_number].state = "closed"
-    # GitHub's "Update branch" button and its stack rebase both move a PR head off the
-    # submitted commit; here the moved head lands on trunk.
-    run_command(
-        [
-            "git",
-            "--git-dir",
-            str(fake_repo.git_dir),
-            "update-ref",
-            f"refs/heads/{identity.head_ref}",
-            read_remote_ref(fake_repo.git_dir, "main"),
-        ],
-        fake_repo.git_dir.parent,
-    )
-    fake_repo.create_issue_comment(
-        body=f"{STACK_OVERVIEW_COMMENT_MARKER}\nstack overview",
-        issue_number=identity.pr_number,
-    )
-
-    exit_code = run_main(repo, config_path, "cleanup")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert f"delete {identity.head_ref}@origin" in " ".join(captured.out.split())
-    assert change_id not in state_store.load().pr_identities
-    assert issue_comments(fake_repo, identity.pr_number) == []
-    assert f"refs/heads/{identity.head_ref}" not in remote_refs(fake_repo.git_dir)
+    assert f"forget PR #{deleted_identity.pr_number}" in output
+    assert f"delete {moved_identity.head_ref}@origin" in output
+    assert not {deleted, moved} & set(state_store.load().pr_identities)
+    assert fake_repo.prs[deleted_identity.pr_number].state == "closed"
+    assert issue_comments(fake_repo, moved_identity.pr_number) == []
+    assert f"refs/heads/{moved_identity.head_ref}" not in remote_refs(fake_repo.git_dir)

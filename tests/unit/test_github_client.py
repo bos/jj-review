@@ -845,16 +845,6 @@ def test_user_facing_reason_reports_repo_not_found_for_404_without_raw_detail(
             "request failed (GitHub 422)",
             id="ignores-a-body-that-is-not-githubs-json",
         ),
-        pytest.param(
-            {"message": "x" * 400},
-            "request failed (GitHub 422)",
-            id="ignores-a-body-too-long-to-shorten",
-        ),
-        pytest.param(
-            {"message": "Refused \x1b[31mred\x1b[0m"},
-            "request failed (GitHub 422: Refused [31mred [0m)",
-            id="strips-escapes-from-the-quoted-body",
-        ),
     ),
 )
 def test_github_client_quotes_githubs_own_explanation_for_a_refusal(

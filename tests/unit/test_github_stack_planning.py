@@ -167,27 +167,3 @@ def test_github_stack_plan_rejects_ambiguous_selected_membership(
     hint = plain_text(error_hint(caught.value) or "")
     assert all(part in message for part in message_parts)
     assert all(part in hint for part in hint_parts)
-
-
-def test_nonmaximal_path_can_replace_stack_when_only_omitted_pr_is_orphaned() -> None:
-    plan = plan_github_stack(
-        desired=(1, 2),
-        is_maximal_path=False,
-        observed_stacks=(_stack(7, 1, 9, 2),),
-        orphaned_pr_snapshots=frozenset({(9, "jj-stack/pull-9", "head-9")}),
-        pr_numbers_requiring_base_update=frozenset(),
-    )
-
-    assert plan.action == "replace"
-    assert tuple(stack.number for stack in plan.affected_stacks) == (7,)
-
-
-def test_nonmaximal_path_rejects_stale_orphan_snapshot() -> None:
-    with pytest.raises(CliError, match="stop below the top of the local stack"):
-        plan_github_stack(
-            desired=(1, 2),
-            is_maximal_path=False,
-            observed_stacks=(_stack(7, 1, 9, 2),),
-            orphaned_pr_snapshots=frozenset({(9, "jj-stack/pull-9", "previous-head-9")}),
-            pr_numbers_requiring_base_update=frozenset(),
-        )

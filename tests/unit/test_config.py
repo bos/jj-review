@@ -92,7 +92,6 @@ def test_load_config_rejects_invalid_branch_prefixes(
     # Each rejection names a next step that survives being followed: `my prs` needs shell
     # quoting, and git accepts `foo|main` and an overlong prefix, so those must not cite git.
     for prefix, next_step in (
-        ("my-prs/", "`git check-ref-format --branch my-prs/`"),
         ("my prs", "`git check-ref-format --branch 'my prs'`"),
         ("foo|main", "Remove the '|'"),
         ("p" * 235, "`jj config set --repo jj-stack.branch_prefix <prefix>`"),

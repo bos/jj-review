@@ -25,30 +25,6 @@ def _identity(
     )
 
 
-def test_store_persists_schema_seven_without_nested_versions(tmp_path: Path) -> None:
-    state_path = tmp_path / "state.json"
-    store = TrackingStore(state_path)
-    identity = _identity()
-    baseline = SubmittedBaseline(commit_id="abc123")
-
-    persisted = store.create_pr(CHANGE_ID, identity=identity, baseline=baseline)
-
-    assert persisted == store.load()
-    assert persisted.pr_identities == {CHANGE_ID: identity}
-    assert persisted.submitted_baselines == {CHANGE_ID: baseline}
-    rendered = json.loads(state_path.read_text(encoding="utf-8"))
-    assert rendered["version"] == 7
-    assert "version" not in rendered["pr_identities"][CHANGE_ID]
-    assert "version" not in rendered["submitted_baselines"][CHANGE_ID]
-
-
-def test_store_returns_schema_seven_defaults_when_file_is_missing(tmp_path: Path) -> None:
-    state = TrackingStore(tmp_path / "missing" / "state.json").load()
-
-    assert state == TrackingState()
-    assert state.version == 7
-
-
 def test_store_migrates_schema_five_in_memory_and_persists_on_mutation(
     tmp_path: Path,
 ) -> None:

@@ -300,20 +300,6 @@ def test_checkout_stops_when_a_lower_pr_branch_moved_off_its_change(
     assert TrackingStore.for_repo(repo).load().pr_identities == {}
 
 
-def test_checkout_clears_a_leftover_temp_bookmark_without_importing(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
-    config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
-    run_command(["jj", "bookmark", "create", "jj-stack-tmp/checkout", "-r", "@-"], repo)
-
-    assert _main(repo, config_path, "checkout", "--pull-request", "1") == 0
-
-    artifacts = JjClient(repo).pr_branch_temp_artifacts()
-    assert (artifacts.bookmark_targets, artifacts.ref_target) == ((), None)
-
-
 def test_checkout_pr_rejects_cross_repo_head(
     tmp_path: Path,
     monkeypatch,
@@ -383,17 +369,21 @@ def test_checkout_rejects_missing_parent_remote_branch_without_partial_tracking(
     assert current.submitted_baselines == {}
 
 
-def test_checkout_reports_up_to_date_for_an_already_attached_stack(
+def test_checkout_reports_up_to_date_and_clears_leftovers_for_an_attached_stack(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
     repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
     config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
+    # A checkout killed between its import and its cleanup leaves this bookmark behind.
+    run_command(["jj", "bookmark", "create", "jj-stack-tmp/checkout", "-r", "@-"], repo)
 
     assert _main(repo, config_path, "checkout", "--pull-request", "2") == 0
 
     assert "Local tracking is already up to date for this stack." in capsys.readouterr().out
+    artifacts = JjClient(repo).pr_branch_temp_artifacts()
+    assert (artifacts.bookmark_targets, artifacts.ref_target) == ((), None)
 
 
 def test_checkout_pick_edits_selected_tracked_stack(

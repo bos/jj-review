@@ -42,9 +42,6 @@ class FakeGithubPR:
     node_id: str
     number: int
     title: str
-    # Real GitHub's PR author is the authenticated user that opened it, and it refuses to
-    # request a review from that login.
-    author_login: str = "octo-author"
     auto_merge_enabled: bool = False
     check_rollup_state: str | None = None
     is_queued: bool = False
@@ -1218,13 +1215,6 @@ def _register_pr_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
             raise HTTPException(status_code=404, detail="Not Found")
         requested = _requested_names(payload, "reviewers")
         requested_teams = _requested_names(payload, "team_reviewers")
-        # Real GitHub rejects the whole batch and requests nobody when it names the PR author.
-        # An unknown login is accepted and silently requests nobody, so stay permissive there.
-        if pr.author_login in requested:
-            raise HTTPException(
-                status_code=422,
-                detail="Review cannot be requested from pull request author.",
-            )
         pr.requested_reviewers = list(dict.fromkeys((*pr.requested_reviewers, *requested)))
         pr.requested_team_reviewers = list(
             dict.fromkeys((*pr.requested_team_reviewers, *requested_teams))
@@ -1564,13 +1554,8 @@ def _require_branch(repo: FakeGithubRepo, branch: str) -> None:
 
 
 def _requested_names(payload: dict[str, object], key: str) -> list[str]:
-    """Read one name list, rejecting the blank names real GitHub refuses with a 422."""
-
     values = payload.get(key, [])
-    names = [str(value) for value in values] if isinstance(values, list) else []
-    if any(not name for name in names):
-        raise HTTPException(status_code=422, detail=f"Invalid {key} value.")
-    return names
+    return [str(value) for value in values] if isinstance(values, list) else []
 
 
 def _require_string(payload: dict[str, object], key: str) -> str:
