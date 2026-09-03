@@ -11,8 +11,9 @@ from jj_stack.jj.client import JjClient
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR
 from jj_stack.models.stack import LocalCommit, LocalStack
-from jj_stack.models.tracking import SubmittedBaseline, TrackingState
+from jj_stack.models.tracking import SubmittedBaseline, TrackedPR, TrackingState
 from jj_stack.stack import status as status_module
+from jj_stack.stack.change_state import CompetingOpenPR
 from jj_stack.stack.status import (
     PreparedChange,
     PreparedStatus,
@@ -150,17 +151,16 @@ def test_pr_lookup_falls_back_to_exact_remembered_pr_number() -> None:
             }
 
     prepared_change = PreparedChange(
-        branch="jj-stack/old-branch",
         change=make_change(
             change_id="feature7change",
             commit_id="old-commit",
             description="feature 7\n",
         ),
-        pr_identity=make_pr_identity(
-            head_ref="jj-stack/old-branch",
-            pr_number=7,
+        tracked=TrackedPR(
+            change_id="feature7change",
+            pr_identity=make_pr_identity(head_ref="jj-stack/old-branch", pr_number=7),
+            submitted_baseline=SubmittedBaseline(commit_id="old-commit"),
         ),
-        submitted_baseline=None,
     )
 
     lookups = asyncio.run(
@@ -171,11 +171,10 @@ def test_pr_lookup_falls_back_to_exact_remembered_pr_number() -> None:
     )
 
     lookup = lookups["jj-stack/old-branch"]
-    assert lookup.source == "remembered"
-    assert lookup.state == "closed"
+    assert lookup.open_prs_on_branch == ()
     assert lookup.pr is not None
     assert lookup.pr.number == 7
-    assert lookup.pr.state == "merged"
+    assert lookup.pr.normalize_state().state == "merged"
 
 
 def test_pr_lookup_reports_the_saved_pr_when_another_open_pr_uses_its_branch() -> None:
@@ -202,10 +201,12 @@ def test_pr_lookup_reports_the_saved_pr_when_another_open_pr_uses_its_branch() -
             return {155: pr_payload(155, "closed")}
 
     prepared_change = PreparedChange(
-        branch="jj-stack/branch",
         change=make_change(change_id="change", commit_id="commit", description="feature\n"),
-        pr_identity=make_pr_identity(head_ref="jj-stack/branch", pr_number=155),
-        submitted_baseline=None,
+        tracked=TrackedPR(
+            change_id="change",
+            pr_identity=make_pr_identity(head_ref="jj-stack/branch", pr_number=155),
+            submitted_baseline=SubmittedBaseline(commit_id="commit"),
+        ),
     )
 
     lookup = asyncio.run(
@@ -216,28 +217,12 @@ def test_pr_lookup_reports_the_saved_pr_when_another_open_pr_uses_its_branch() -
     )["jj-stack/branch"]
 
     assert lookup.pr is not None and lookup.pr.number == 155
-    assert (lookup.source, lookup.state) == ("remembered", "closed")
-    assert "#180" in ui.plain_text(lookup.message or "")
-
-
-def test_pr_lookup_ignores_draft_review_decision() -> None:
-    lookup = status_module._pr_lookup_from_discovered(
-        head_label="octo-org:jj-stack/draft",
-        prs=(
-            GithubPR(
-                base={"ref": "main"},
-                draft=True,
-                head={"ref": "jj-stack/draft"},
-                html_url="https://github.test/octo-org/stacked-prs/pull/3",
-                number=3,
-                review_decision="approved",
-                state="open",
-                title="draft",
-            ),
-        ),
-    )
-
-    assert lookup.review_decision is None
+    assert tuple(pr.number for pr in lookup.open_prs_on_branch) == (180,)
+    state = status_module._status_change(
+        prepared_change, lookup=lookup, remote_name="origin"
+    ).state
+    assert isinstance(state, CompetingOpenPR)
+    assert "#180" in ui.plain_text(state.reason)
 
 
 _STATUS_REMOTE = GitRemote(

@@ -39,13 +39,18 @@ from jj_stack.github.resolution import (
 )
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.models.stack import LocalStack
-from jj_stack.models.tracking import TrackingState
-from jj_stack.stack.change_status import (
-    ChangeStatus,
+from jj_stack.stack.change_state import (
+    ChangeState,
+    Closed,
+    Landed,
+    LookupFailed,
+    Merged,
     OrphanedRecord,
-    classify_stack_status_change,
+    PRAmbiguous,
+    PRHeadMoved,
+    PRMissing,
+    WithPR,
     enumerate_orphaned_records,
-    submitted_state_disagreement,
 )
 from jj_stack.stack.pr_branches import duplicate_pr_branch_claims
 from jj_stack.stack.repo import observe_repo_paths
@@ -256,7 +261,7 @@ def _run_list(
         )
     )
     _emit_orphan_hint(orphan_rows)
-    _emit_stale_stacks_advisory(discovered=ordered, state=state)
+    _emit_stale_stacks_advisory(prepared_discovered)
     return EXIT_INCOMPLETE if incomplete else 0
 
 
@@ -328,9 +333,7 @@ def _emit_orphan_hint(orphan_rows: tuple[OrphanRow, ...]) -> None:
 
 
 def _emit_stale_stacks_advisory(
-    *,
-    discovered: tuple[LocalStack, ...],
-    state: TrackingState,
+    prepared_discovered: tuple[_PreparedDiscoveredStack, ...],
 ) -> None:
     """Hint that tracked stacks have changed since their last successful submit.
 
@@ -341,9 +344,12 @@ def _emit_stale_stacks_advisory(
     """
 
     stale_heads = tuple(
-        stack.head.change_id
-        for stack in discovered
-        if submitted_state_disagreement(state, (stack,))
+        item.prepared.stack.head.change_id
+        for item in prepared_discovered
+        if any(
+            change.state.has_local_edits
+            for change in build_status_changes_for_prepared_stack(item.prepared)
+        )
     )
     if not stale_heads:
         return
@@ -412,7 +418,7 @@ def _build_row(
         prepared_stack,
         pr_lookups=pr_lookups,
     )
-    statuses = tuple(classify_stack_status_change(change) for change in changes)
+    states = tuple(change.state for change in changes)
     prs = _format_pr_summary(changes, repo=github_repo)
     local_fragments: list[ui.Message] = []
     if any(change.divergent for change in stack.changes):
@@ -423,8 +429,7 @@ def _build_row(
         github_error=github_error,
         local_fragments=tuple(local_fragments),
         remote_error=prepared_stack.remote_error,
-        changes=changes,
-        statuses=statuses,
+        states=states,
     )
     return StackRow(
         changes=changes,
@@ -446,17 +451,14 @@ def _state_from_status(
     github_error: ErrorMessage | None,
     local_fragments: tuple[ui.Message, ...],
     remote_error: ErrorMessage | None,
-    changes: tuple[StackStatusChange, ...],
-    statuses: tuple[ChangeStatus, ...] | None = None,
+    states: tuple[ChangeState, ...],
 ) -> ui.Message:
-    if statuses is None:
-        statuses = tuple(classify_stack_status_change(change) for change in changes)
     fragments = [
         *local_fragments,
         *_status_fragments(
             github_error=github_error,
             remote_error=remote_error,
-            statuses=statuses,
+            states=states,
         ),
     ]
     if fragments:
@@ -466,7 +468,7 @@ def _state_from_status(
                 joined.append(", ")
             joined.append(fragment)
         return tuple(joined)
-    if any(status.saved_pr_identity for status in statuses):
+    if any(state.tracked is not None for state in states):
         return "tracked"
     return "not submitted"
 
@@ -475,13 +477,16 @@ def _status_fragments(
     *,
     github_error: ErrorMessage | None,
     remote_error: ErrorMessage | None,
-    statuses: tuple[ChangeStatus, ...],
+    states: tuple[ChangeState, ...],
 ) -> tuple[ui.Message, ...]:
     fragments: list[ui.Message] = []
     if github_error is not None or remote_error is not None:
         fragments.append(ui.semantic_text("GitHub unavailable", "warning", "heading"))
 
-    merged_ancestors = sum(1 for status in statuses if status.pr_lifecycle == "merged")
+    def count(kinds: type | tuple[type, ...]) -> int:
+        return sum(1 for state in states if isinstance(state, kinds))
+
+    merged_ancestors = count((Landed, Merged))
     if merged_ancestors:
         label = (
             "cleanup needed"
@@ -490,27 +495,27 @@ def _status_fragments(
         )
         fragments.append(ui.semantic_text(label, "warning", "heading"))
 
-    closed = sum(1 for status in statuses if status.pr_lifecycle == "closed")
+    closed = count(Closed)
     if closed:
         label = "closed" if closed == 1 else f"{closed} closed"
         fragments.append(ui.semantic_text(label, "warning", "heading"))
 
-    moved = sum(1 for status in statuses if status.pr_head_moved)
+    moved = count(PRHeadMoved)
     if moved:
         label = "PR branch moved" if moved == 1 else f"{moved} PR branches moved"
         fragments.append(ui.semantic_text(label, "warning", "heading"))
 
-    stale_links = sum(1 for status in statuses if status.has_stale_pr_link)
+    stale_links = count(PRMissing)
     if stale_links:
         label = "stale link" if stale_links == 1 else f"{stale_links} stale links"
         fragments.append(ui.semantic_text(label, "warning", "heading"))
 
-    ambiguous = sum(1 for status in statuses if status.pr_lifecycle == "ambiguous")
+    ambiguous = count(PRAmbiguous)
     if ambiguous:
         label = "ambiguous PR" if ambiguous == 1 else f"{ambiguous} ambiguous PRs"
         fragments.append(ui.semantic_text(label, "warning", "heading"))
 
-    lookup_failures = sum(1 for status in statuses if status.has_pr_lookup_failure)
+    lookup_failures = count(LookupFailed)
     if lookup_failures:
         label = (
             "GitHub lookup failed"
@@ -519,24 +524,21 @@ def _status_fragments(
         )
         fragments.append(ui.semantic_text(label, "warning", "heading"))
 
-    queued = sum(1 for status in statuses if status.pr_queued is True)
+    open_prs = tuple(
+        state.pr for state in states if isinstance(state, WithPR) and state.pr.state == "open"
+    )
+    queued = sum(1 for pr in open_prs if pr.is_queued)
     if queued:
         label = "queued" if queued == 1 else f"{queued} queued"
         fragments.append(ui.semantic_text(label, "hint", "heading"))
 
-    drafts = sum(
-        1 for status in statuses if status.pr_draft is True and status.pr_queued is not True
-    )
+    drafts = sum(1 for pr in open_prs if pr.is_draft and not pr.is_queued)
     if drafts:
         label = "draft" if drafts == 1 else f"{drafts} drafts"
         fragments.append(ui.semantic_text(label, "hint", "heading"))
 
     open_non_draft_decisions = tuple(
-        status.pr_review_decision
-        for status in statuses
-        if status.pr_lifecycle == "open"
-        and status.pr_draft is False
-        and status.pr_queued is not True
+        pr.review_decision for pr in open_prs if not pr.is_draft and not pr.is_queued
     )
     changes_requested = sum(
         1 for decision in open_non_draft_decisions if decision == "changes_requested"
@@ -564,9 +566,7 @@ def _status_fragments(
         fragments.append(label)
 
     check_rollup_statuses = {
-        status.pr_check_rollup_status
-        for status in statuses
-        if status.pr_check_rollup_status is not None
+        pr.check_rollup_status for pr in open_prs if pr.check_rollup_status is not None
     }
     for rollup_status, labels in (
         ("failed", ("warning", "heading")),
@@ -584,13 +584,12 @@ def _pr_references_from_changes(
 ) -> tuple[tuple[int, str | None], ...]:
     references: dict[int, str | None] = {}
     for change in changes:
-        lookup = change.pr_lookup
-        if lookup is not None and lookup.pr is not None:
-            references[lookup.pr.number] = lookup.pr.html_url
+        pr = change.pr
+        if pr is not None:
+            references[pr.number] = pr.html_url
             continue
-        pr_identity = change.pr_identity
-        if pr_identity is not None:
-            references.setdefault(pr_identity.pr_number, None)
+        if change.tracked is not None:
+            references.setdefault(change.tracked.pr_identity.pr_number, None)
     return tuple(sorted(references.items()))
 
 
@@ -607,7 +606,7 @@ def _load_pr_lookups(
         branch: change
         for item in prepared_discovered
         for change in item.prepared.status_changes
-        if change.pr_identity is not None
+        if change.tracked is not None
         and (branch := change.branch) is not None
         and branch not in excluded_branches
     }

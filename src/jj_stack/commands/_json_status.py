@@ -2,10 +2,26 @@
 
 from __future__ import annotations
 
+from typing import assert_never
+
+from jj_stack.models.github import GithubPR
 from jj_stack.models.tracking import PRIdentity
-from jj_stack.stack.change_status import (
-    ChangeStatus,
-    classify_stack_status_change,
+from jj_stack.stack.change_state import (
+    BranchClaimed,
+    ChangeState,
+    Closed,
+    CompetingOpenPR,
+    Landed,
+    LookupFailed,
+    Merged,
+    NotInspected,
+    PRAmbiguous,
+    PRHeadMoved,
+    PRMissing,
+    Queued,
+    Unpublished,
+    UntrackedPRExists,
+    WithPR,
 )
 from jj_stack.stack.status import StackStatusChange
 
@@ -19,7 +35,7 @@ def stack_change_json(
 
     payload: dict[str, object] = {
         "change_id": change.change_id,
-        "status": _change_status(classify_stack_status_change(change)),
+        "status": _change_status(change.state),
         "subject": change.subject,
     }
     if change.branch is not None:
@@ -35,9 +51,8 @@ def stack_change_json(
 def pr_json(
     change: StackStatusChange,
 ) -> dict[str, object] | None:
-    lookup = change.pr_lookup
-    if lookup is not None and lookup.pr is not None:
-        pr = lookup.pr
+    pr = change.pr
+    if pr is not None:
         return _json_object(
             {
                 "checks": pr.check_rollup_status,
@@ -45,7 +60,7 @@ def pr_json(
                 "url": pr.html_url,
             }
         )
-    return saved_pr_json(change.pr_identity)
+    return saved_pr_json(change.tracked.pr_identity if change.tracked is not None else None)
 
 
 def saved_pr_json(
@@ -57,28 +72,46 @@ def saved_pr_json(
     return payload or None
 
 
-def _change_status(status: ChangeStatus) -> str:
-    if status.local == "divergent":
+def _change_status(state: ChangeState) -> str:
+    if state.divergent:
         return "divergent"
-    if status.pr_head_moved:
-        return "branch_moved"
-    if status.pr_lifecycle in {"ambiguous", "closed", "merged", "missing"}:
-        return status.pr_lifecycle
-    if status.has_pr_lookup_failure:
-        return "unknown"
-    if status.pr_lifecycle == "open":
-        if status.pr_queued is True:
+    match state:
+        case PRHeadMoved():
+            return "branch_moved"
+        case PRAmbiguous():
+            return "ambiguous"
+        case CompetingOpenPR(ambiguous=True):
+            return "ambiguous"
+        case PRMissing():
+            return "missing"
+        case LookupFailed():
+            return "unknown"
+        case Landed() | Merged():
+            return "merged"
+        case Closed():
+            return "closed"
+        case Queued():
             return "queued"
-        if status.pr_draft is True:
-            return "draft"
-        if status.pr_review_decision == "approved":
-            return "approved"
-        if status.pr_review_decision == "changes_requested":
-            return "changes_requested"
-        return "open"
-    if status.saved_pr_identity:
-        return "submitted"
-    return "unsubmitted"
+        case NotInspected():
+            return "submitted"
+        case Unpublished() | UntrackedPRExists() | BranchClaimed():
+            return "unsubmitted"
+        case WithPR(pr=pr):
+            return _live_pr_status(pr)
+        case _:
+            assert_never(state)
+
+
+def _live_pr_status(pr: GithubPR) -> str:
+    if pr.state != "open":
+        return pr.state
+    if pr.is_queued:
+        return "queued"
+    if pr.is_draft:
+        return "draft"
+    if pr.review_decision in {"approved", "changes_requested"}:
+        return pr.review_decision
+    return "open"
 
 
 def _json_object(values: dict[str, object | None]) -> dict[str, object]:

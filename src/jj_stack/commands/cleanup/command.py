@@ -49,7 +49,7 @@ from jj_stack.jj.client import JjClient, PRRefUpdate
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubIssueComment, GithubPR, GithubStack
 from jj_stack.models.tracking import TrackingState
-from jj_stack.stack.change_status import enumerate_orphaned_records
+from jj_stack.stack.change_state import enumerate_orphaned_records
 from jj_stack.stack.pr_facts import (
     RepoFacts,
     observe_github_stacks,

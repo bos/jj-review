@@ -10,12 +10,11 @@ import jj_stack.ui as ui_module
 from jj_stack.jj.client import JjClient
 from jj_stack.models.github import GithubBranchRef, GithubPR
 from jj_stack.models.stack import LocalStack
-from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
+from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR, TrackingState
+from jj_stack.stack.change_state import UNOBSERVED, ChangeObservation, classify
 from jj_stack.stack.status import (
     PreparedStack,
     PRLookup,
-    PRLookupSource,
-    PRLookupState,
     StackStatusChange,
     StatusResult,
 )
@@ -34,22 +33,11 @@ def _pr(*, base_ref: str = "main", number: int, state: str) -> GithubPR:
     )
 
 
-def _lookup(
-    *,
-    state: PRLookupState,
-    message: str | None = None,
-    pr: GithubPR | None = None,
-    review_decision: str | None = None,
-    review_decision_error: str | None = None,
-    source: PRLookupSource = "head",
-) -> PRLookup:
+def _lookup(*, pr: GithubPR | None = None, error: str | None = None) -> PRLookup:
     return PRLookup(
-        message=message,
         pr=pr,
-        review_decision=review_decision,
-        review_decision_error=review_decision_error,
-        state=state,
-        source=source,
+        open_prs_on_branch=(pr,) if pr is not None and pr.state == "open" else (),
+        error=error,
     )
 
 
@@ -57,7 +45,6 @@ def _status_result(
     *,
     changes: tuple[StackStatusChange, ...],
     selected_revset: str = "@",
-    submitted_state_disagreements: tuple[str, ...] = (),
 ) -> StatusResult:
     return StatusResult(
         changes=changes,
@@ -67,31 +54,39 @@ def _status_result(
         remote=None,
         remote_error=None,
         selected_revset=selected_revset,
-        submitted_state_disagreements=submitted_state_disagreements,
     )
 
 
 def _status_change(
     *,
-    branch: str | None = None,
     change_id: str,
     commit_id: str = "commit-1",
-    local_divergent: bool = False,
     pr_lookup: PRLookup | None = None,
     pr_identity: PRIdentity | None = None,
     submitted_baseline: SubmittedBaseline | None = None,
     subject: str = "feature",
 ) -> StackStatusChange:
-    return StackStatusChange(
-        branch=branch,
-        change_id=change_id,
-        commit_id=commit_id,
-        local_divergent=local_divergent,
-        pr_lookup=pr_lookup,
-        pr_identity=pr_identity,
-        submitted_baseline=submitted_baseline,
-        subject=subject,
+    change = make_change(change_id=change_id, commit_id=commit_id, description=f"{subject}\n")
+    tracked = (
+        TrackedPR(
+            change_id=change_id,
+            pr_identity=pr_identity,
+            submitted_baseline=submitted_baseline or SubmittedBaseline(commit_id=commit_id),
+        )
+        if pr_identity is not None
+        else None
     )
+    observation = ChangeObservation(
+        change_id=change_id,
+        tracked=tracked,
+        branch=pr_identity.head_ref if pr_identity is not None else None,
+        local=(change,),
+        selected=change,
+        pr=UNOBSERVED if pr_lookup is None else pr_lookup.pr,
+        open_prs_on_branch=UNOBSERVED if pr_lookup is None else pr_lookup.open_prs_on_branch,
+        lookup_error=None if pr_lookup is None else pr_lookup.error,
+    )
+    return StackStatusChange(change=change, tracked=tracked, state=classify(observation))
 
 
 def _render_lines(*lines: ui_module.Renderable) -> tuple[str, ...]:
@@ -105,10 +100,8 @@ def _render_lines(*lines: ui_module.Renderable) -> tuple[str, ...]:
 def test_view_advises_cleanup_and_rebase_when_merged_pr_remains_in_stack() -> None:
     merged_change = _status_change(
         change_id="abcdefghijkl",
-        pr_lookup=_lookup(
-            pr=_pr(base_ref="team/feature-base", number=5, state="merged"),
-            state="closed",
-        ),
+        pr_identity=make_pr_identity(head_ref="jj-stack/feature", pr_number=5),
+        pr_lookup=_lookup(pr=_pr(base_ref="team/feature-base", number=5, state="merged")),
     )
 
     lines = _render_lines(
@@ -129,16 +122,27 @@ def test_view_advises_cleanup_and_rebase_when_merged_pr_remains_in_stack() -> No
 
 
 def test_view_advises_submit_when_selected_stack_changed_since_submit() -> None:
+    edited = tuple(
+        _status_change(
+            change_id=change_id,
+            commit_id=f"rewritten-{change_id}",
+            pr_identity=make_pr_identity(head_ref="jj-stack/feature", pr_number=number),
+            submitted_baseline=SubmittedBaseline(commit_id=f"submitted-{change_id}"),
+            pr_lookup=_lookup(
+                pr=_pr(number=number, state="open").model_copy(
+                    update={
+                        "head": GithubBranchRef(
+                            ref="jj-stack/feature", sha=f"submitted-{change_id}"
+                        )
+                    }
+                )
+            ),
+        )
+        for change_id, number in (("abcdefghijkl", 1), ("bcdefghijklm", 2))
+    )
     lines = _render_lines(
         *view_module.render_status_advisory_lines(
-            result=_status_result(
-                changes=(),
-                selected_revset="ulxwxsqw",
-                submitted_state_disagreements=(
-                    "abcdefghijkl",
-                    "bcdefghijklm",
-                ),
-            ),
+            result=_status_result(changes=edited, selected_revset="ulxwxsqw"),
         )
     )
     normalized_lines = " ".join(" ".join(line.split()) for line in lines)
@@ -158,15 +162,13 @@ def test_view_advises_checkout_or_replace_when_a_pr_branch_moved() -> None:
             result=_status_result(
                 changes=(
                     _status_change(
-                        branch="jj-stack/feature",
                         change_id="abcdefghijkl",
                         commit_id="local-commit",
                         pr_identity=make_pr_identity(head_ref="jj-stack/feature", pr_number=7),
-                        pr_lookup=_lookup(state="open", pr=pr),
+                        pr_lookup=_lookup(pr=pr),
                         submitted_baseline=SubmittedBaseline(commit_id="submitted-commit"),
                     ),
                 ),
-                submitted_state_disagreements=("abcdefghijkl",),
             ),
         )
     )
@@ -181,10 +183,8 @@ def test_view_advises_checkout_or_replace_when_a_pr_branch_moved() -> None:
 def test_view_closed_pr_advisory_guides_reopen_relink_or_cleanup() -> None:
     change = _status_change(
         change_id="loqvlqrqabcdefghijkl",
-        pr_lookup=_lookup(
-            pr=_pr(number=21216, state="closed"),
-            state="closed",
-        ),
+        pr_identity=make_pr_identity(head_ref="jj-stack/feature", pr_number=21216),
+        pr_lookup=_lookup(pr=_pr(number=21216, state="closed")),
     )
 
     lines = _render_lines(
@@ -209,10 +209,7 @@ def test_view_missing_pr_advisory_guides_fetch_relink_or_cleanup() -> None:
             pr_number=42,
         ),
         change_id="abcdefgh1234",
-        pr_lookup=_lookup(
-            pr=None,
-            state="missing",
-        ),
+        pr_lookup=_lookup(),
     )
 
     lines = _render_lines(
@@ -232,17 +229,13 @@ def test_view_missing_pr_advisory_guides_fetch_relink_or_cleanup() -> None:
 
 def test_view_summary_does_not_call_tracked_missing_pr_not_submitted() -> None:
     change = _status_change(
-        branch="jj-stack/feature-8-abcdefgh",
         pr_identity=make_pr_identity(
             head_ref="jj-stack/feature-8-abcdefgh",
             pr_number=8,
         ),
         change_id="abcdefgh1234",
         commit_id="1234567890abcdef",
-        pr_lookup=_lookup(
-            pr=None,
-            state="missing",
-        ),
+        pr_lookup=_lookup(),
         subject="feature 8",
     )
 
@@ -301,62 +294,15 @@ def test_view_joins_summary_to_base_without_a_dangling_graph_edge() -> None:
     assert lines == ("◆  base",)
 
 
-def test_view_summary_omits_review_decision_when_live_decision_lookup_fails() -> None:
-    change = _status_change(
-        branch="jj-stack/feature-7-abcdefgh",
-        pr_identity=make_pr_identity(
-            head_ref="jj-stack/feature-7-abcdefgh",
-            pr_number=7,
-        ),
-        change_id="abcdefgh1234",
-        commit_id="1234567890abcdef",
-        pr_lookup=_lookup(
-            pr=_pr(number=7, state="open"),
-            review_decision=None,
-            review_decision_error="review decision lookup failed",
-            state="open",
-        ),
-        subject="feature 7",
-    )
-
-    lines = _render_lines(
-        *view_module.render_status_summary_lines(
-            client=SimpleNamespace(
-                resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
-                render_commit_log_lines=lambda current_change, *, color_when: (
-                    f"○  {current_change.change_id[:8]} {current_change.commit_id[:8]}",
-                    f"│  {current_change.subject}",
-                ),
-            ),
-            leading_separator=False,
-            result=_status_result(changes=(change,)),
-            verbose=False,
-        )
-    )
-
-    normalized_lines = " ".join(lines)
-    assert "Submitted stack (PR #7):" in normalized_lines
-    assert "https://" not in normalized_lines
-    # Identity-only tracking has no saved decision to fall back on; a failed
-    # live lookup must not claim one.
-    assert "PR #7" in normalized_lines
-    assert "approved" not in normalized_lines
-
-
 def test_view_summary_labels_row_when_pr_lookup_fails() -> None:
     change = _status_change(
-        branch="jj-stack/feature-1-abcdefgh",
         pr_identity=make_pr_identity(
             head_ref="jj-stack/feature-1-abcdefgh",
             pr_number=1,
         ),
         change_id="abcdefgh1234",
         commit_id="1234567890abcdef",
-        pr_lookup=_lookup(
-            message="pull request lookup failed",
-            pr=None,
-            state="error",
-        ),
+        pr_lookup=_lookup(error="pull request lookup failed"),
         subject="feature 1",
     )
 

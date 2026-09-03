@@ -50,11 +50,22 @@ from jj_stack.jj.client import (
     UnsupportedStackError,
     divergent_change_id_from_error,
 )
+from jj_stack.models.github import GithubPR
 from jj_stack.models.tracking import PRIdentity
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace
-from jj_stack.stack.change_status import (
-    ChangeStatus,
-    classify_stack_status_change,
+from jj_stack.stack.change_state import (
+    ChangeState,
+    Closed,
+    CompetingOpenPR,
+    Landed,
+    LookupFailed,
+    Merged,
+    NotInspected,
+    PRAmbiguous,
+    PRHeadMoved,
+    PRIdentityMismatch,
+    PRMissing,
+    WithPR,
 )
 from jj_stack.stack.selected import is_change_id_prefix
 from jj_stack.stack.selection import (
@@ -64,7 +75,6 @@ from jj_stack.stack.selection import (
 from jj_stack.stack.status import (
     PreparedStack,
     PreparedStatus,
-    PRLookup,
     StackStatusChange,
     StatusResult,
     prepare_status,
@@ -93,14 +103,6 @@ class _ResolvedViewSelector:
     note: ui.Message | None
     revset: str | None
     containing_change_id: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class _ClassifiedStatusChange:
-    """Rendered status change paired with its derived PR status."""
-
-    change: StackStatusChange
-    status: ChangeStatus
 
 
 def view(
@@ -527,23 +529,8 @@ def render_status_summary_lines(
 ) -> tuple[ui.Renderable, ...]:
     """Render capped submitted and unsubmitted summaries before the trunk row."""
 
-    classified_changes = tuple(
-        _ClassifiedStatusChange(
-            change=change,
-            status=classify_stack_status_change(change),
-        )
-        for change in result.changes
-    )
-    unsubmitted_changes = tuple(
-        classified
-        for classified in classified_changes
-        if _classify_change_for_summary(classified) == "unsubmitted"
-    )
-    submitted_changes = tuple(
-        classified
-        for classified in classified_changes
-        if _classify_change_for_summary(classified) == "submitted"
-    )
+    unsubmitted_changes = tuple(change for change in result.changes if change.tracked is None)
+    submitted_changes = tuple(change for change in result.changes if change.tracked is not None)
 
     lines: list[ui.Renderable] = []
     unsubmitted_lines = _render_summary_section(
@@ -551,8 +538,8 @@ def render_status_summary_lines(
         include_leading_separator=leading_separator,
         changes=unsubmitted_changes,
         verbose=verbose,
-        renderer=lambda classified: _render_summary_change_lines(
-            classified=classified,
+        renderer=lambda change: _render_summary_change_lines(
+            change=change,
             client=client,
             repo=result.github_repo,
             show_status=False,
@@ -563,14 +550,12 @@ def render_status_summary_lines(
         lines.extend(unsubmitted_lines)
 
     submitted_lines = _render_summary_section(
-        _render_submitted_section_title(
-            tuple(classified.change for classified in submitted_changes)
-        ),
+        _render_submitted_section_title(submitted_changes),
         include_leading_separator=False,
         changes=submitted_changes,
         verbose=verbose,
-        renderer=lambda classified: _render_summary_change_lines(
-            classified=classified,
+        renderer=lambda change: _render_summary_change_lines(
+            change=change,
             client=client,
             repo=result.github_repo,
             show_status=True,
@@ -683,11 +668,7 @@ def _render_summary_section(
 def _render_submitted_section_title(changes: tuple) -> ui.Message:
     """Render the submitted-section heading, linking the newest submitted PR when possible."""
 
-    if changes:
-        _lookup = changes[0].pr_lookup
-        top_pr = _lookup.pr if _lookup is not None else None
-    else:
-        top_pr = None
+    top_pr = changes[0].pr if changes else None
     if top_pr is None:
         return "Submitted stack"
     label = format_pr_label(top_pr.number, url=top_pr.html_url)
@@ -701,38 +682,23 @@ def render_status_advisory_lines(
     """Render any advisories that follow the status stack output."""
 
     namespace = current_pr_branch_namespace()
-    classified_changes = tuple(
-        _ClassifiedStatusChange(
-            change=change,
-            status=classify_stack_status_change(change),
-        )
-        for change in result.changes
-    )
     cleanup_changes = [
-        classified
-        for classified in classified_changes
-        if classified.status.pr_lifecycle == "merged"
+        change for change in result.changes if isinstance(change.state, (Landed, Merged))
     ]
     divergent_changes = [
-        classified
-        for classified in classified_changes
-        if classified.status.local == "divergent" and classified.status.pr_lifecycle != "merged"
+        change
+        for change in result.changes
+        if change.state.divergent and not isinstance(change.state, (Landed, Merged))
     ]
     link_changes = [
-        classified
-        for classified in classified_changes
-        if _classified_change_has_link_advisory(classified)
+        change for change in result.changes if _link_advisory_kind(change.state) is not None
     ]
-    moved_changes = [
-        classified for classified in classified_changes if classified.status.pr_head_moved
-    ]
+    moved_changes = [change for change in result.changes if isinstance(change.state, PRHeadMoved)]
     # A moved PR branch stops submit, so "submit needed" would be the wrong next step.
     submitted_disagreements = () if moved_changes else result.submitted_state_disagreements
     policy_warning_rows: list[tuple[ui.TableCell, ui.TableCell]] = []
-    for classified in cleanup_changes:
-        change = classified.change
-        lookup = change.pr_lookup
-        pr = lookup.pr if lookup is not None else None
+    for change in cleanup_changes:
+        pr = change.pr
         if pr is None:
             continue
         base_ref = pr.base.ref
@@ -824,13 +790,13 @@ def render_status_advisory_lines(
             )
         )
         for change in cleanup_changes:
-            pr = change.change.pr()
+            pr = change.pr
             pr_label: ui.Message = (
                 format_pr_label(pr.number, url=pr.html_url) if pr is not None else "merged PR"
             )
             rows.append(
                 (
-                    ui.change_id(change.change.change_id),
+                    ui.change_id(change.change_id),
                     (
                         pr_label,
                         " is merged, and later local changes are still based on it",
@@ -857,13 +823,11 @@ def render_status_advisory_lines(
                 ),
             )
         )
-        for classified in moved_changes:
-            rows.append(
-                (
-                    ui.change_id(classified.change.change_id),
-                    _describe_moved_pr_branch(classified),
-                )
-            )
+        for change in moved_changes:
+            state = change.state
+            if not isinstance(state, PRHeadMoved):
+                raise AssertionError("A moved PR branch advisory requires a moved head.")
+            rows.append((ui.change_id(change.change_id), (state.reason, "; ", state.repair)))
 
     if link_changes:
         rows.append(
@@ -875,8 +839,8 @@ def render_status_advisory_lines(
         for change in link_changes:
             rows.append(
                 (
-                    ui.change_id(change.change.change_id),
-                    _describe_link_advisory(change, repo=result.github_repo),
+                    ui.change_id(change.change_id),
+                    _describe_link_advisory(change.state, repo=result.github_repo),
                 )
             )
 
@@ -885,27 +849,13 @@ def render_status_advisory_lines(
     for change in divergent_changes:
         rows.append(
             (
-                ui.change_id(change.change.change_id),
+                ui.change_id(change.change_id),
                 t"Resolve the multiple visible commits for this change before retrying "
                 t"({ui.cmd('jj log -r')} "
-                t"{ui.revset(f'change_id({change.change.change_id})')})",
+                t"{ui.revset(f'change_id({change.change_id})')})",
             )
         )
     return ("", "Advisories:", _advisory_table(tuple(rows)))
-
-
-def _describe_moved_pr_branch(classified: _ClassifiedStatusChange) -> ui.Message:
-    pr = classified.change.pr()
-    if pr is None or pr.head.sha is None:
-        raise AssertionError("A moved PR branch advisory requires an open pull request head.")
-    pr_label = format_pr_label(pr.number, url=pr.html_url)
-    short_id = short_change_id(classified.change.change_id)
-    return (
-        t"{pr_label} is at {ui.commit_id(pr.head.sha[:8])}, not at this change. Keep that work "
-        t"with {ui.cmd(f'jj-stack checkout --pull-request {pr.number}')}, or run "
-        t"{ui.cmd(f'jj-stack relink --replace-remote {pr.number} {short_id}')} so the next "
-        t"submit replaces it with this change"
-    )
 
 
 def _submitted_state_disagreement_rows(
@@ -963,10 +913,10 @@ def _advisory_table(rows: tuple[tuple[ui.TableCell, ui.TableCell], ...]) -> ui.D
 
 def _link_advisory_summary_row(
     *,
-    link_changes: tuple[_ClassifiedStatusChange, ...],
+    link_changes: tuple[StackStatusChange, ...],
     selected_revset: str,
 ) -> tuple[ui.TableCell, ui.TableCell]:
-    states = {_link_advisory_kind(change) for change in link_changes}
+    states = {_link_advisory_kind(change.state) for change in link_changes}
     change_phrase = (
         "the change shown above" if len(link_changes) == 1 else "one or more changes shown above"
     )
@@ -1001,7 +951,7 @@ def _link_advisory_summary_row(
             " to refresh, then relink the intended open PR.",
         )
         return label, detail
-    if states == {"remembered"}:
+    if states == {"saved"}:
         label = "Saved GitHub PR" if len(link_changes) == 1 else "Saved GitHub PRs"
         detail = (
             f"Submit cannot use the saved PR of {change_phrase} as it stands; see its row. "
@@ -1018,22 +968,23 @@ def _link_advisory_summary_row(
     return "GitHub PRs need repair", detail
 
 
-def _link_advisory_kind(classified: _ClassifiedStatusChange) -> str:
-    change = classified.change
-    lookup = change.pr_lookup
-    if lookup is None:
-        raise AssertionError("Link advisory requires a pull request lookup.")
-    change_status = classified.status
-    if lookup.source == "remembered" and lookup.message is not None:
-        return "remembered"
-    if change_status.pr_lifecycle in {"ambiguous", "closed", "missing"}:
-        return change_status.pr_lifecycle
-    raise AssertionError(f"Unexpected link advisory state: {change_status.pr_lifecycle}")
+def _link_advisory_kind(state: ChangeState) -> str | None:
+    """Name the repair advisory a state needs, or None when its saved link is sound."""
+
+    if isinstance(state, PRAmbiguous) or (isinstance(state, CompetingOpenPR) and state.ambiguous):
+        return "ambiguous"
+    if isinstance(state, (PRIdentityMismatch, CompetingOpenPR)):
+        return "saved"
+    if isinstance(state, PRMissing):
+        return "missing"
+    if isinstance(state, Closed):
+        return "closed"
+    return None
 
 
 def _render_summary_change_lines(
     *,
-    classified: _ClassifiedStatusChange,
+    change: StackStatusChange,
     client,
     repo: GithubRepoAddress | None,
     show_status: bool,
@@ -1041,11 +992,7 @@ def _render_summary_change_lines(
 ) -> tuple[ui.Renderable, ...]:
     """Render one change inside a submitted or unsubmitted summary section."""
 
-    change = classified.change
-    summary = _format_status_summary(
-        classified,
-        repo=repo,
-    )
+    summary = _format_status_summary(change, repo=repo)
     if not show_status and summary == "not submitted":
         summary = None
     return render_commit_lines(
@@ -1058,108 +1005,56 @@ def _render_summary_change_lines(
     )
 
 
-def _classify_change_for_summary(
-    classified: _ClassifiedStatusChange,
-) -> str:
-    """Classify a change into submitted, unsubmitted, or other."""
-
-    change_status = classified.status
-    if change_status.pr_lifecycle in {"open", "closed", "merged"}:
-        return "submitted"
-    if change_status.saved_pr_identity:
-        return "submitted"
-    return "unsubmitted"
-
-
 def _format_status_summary(
-    classified: _ClassifiedStatusChange,
+    change: StackStatusChange,
     *,
     repo: GithubRepoAddress | None,
 ) -> ui.Message:
-    change = classified.change
-    lookup = change.pr_lookup
-    pr_identity = change.pr_identity
-    saved_label = _format_saved_pr_label(pr_identity, repo=repo)
-    change_status = classified.status
+    state = change.state
+    saved_label = _format_saved_pr_label(
+        change.tracked.pr_identity if change.tracked is not None else None,
+        repo=repo,
+    )
+    saved: ui.Message = saved_label if saved_label is not None else "saved PR"
     summary: ui.Message
-    if change_status.pr_lifecycle == "none" and not change_status.pr_lookup_error:
-        # A change with no saved pull request has nothing on GitHub to be unknown about,
-        # whether or not GitHub could be reached.
-        summary = saved_label if saved_label is not None else "not submitted"
-    elif change_status.pr_lifecycle == "open":
-        if lookup is None:
-            raise AssertionError("Open pull request status requires a pull request lookup.")
-        if lookup.pr is None:
-            raise AssertionError("Open pull request lookup must include a pull request.")
-        summary = _format_live_pr_label(
-            lookup=lookup,
-            pr_number=lookup.pr.number,
-            is_draft=lookup.pr.is_draft,
-        )
-        review_decision = change_status.pr_review_decision
-        if review_decision == "unknown" and lookup.review_decision_error is not None:
-            review_decision = "none"
-        if change_status.pr_queued is True:
-            summary = t"{summary} queued"
-        elif change_status.pr_draft is True:
-            pass
-        elif review_decision == "approved":
-            summary = t"{summary} approved"
-        elif review_decision == "changes_requested":
-            summary = t"{summary} changes requested"
-        if change_status.pr_check_rollup_status is not None:
-            summary = t"{summary}, checks {change_status.pr_check_rollup_status}"
-    elif change_status.pr_lifecycle == "missing":
-        if saved_label is not None:
-            summary = t"{saved_label}, no PR found for branch"
-        else:
-            summary = "not submitted"
-    elif change_status.pr_lifecycle in {"closed", "merged"}:
-        if lookup is None:
-            raise AssertionError("Closed pull request status requires a pull request lookup.")
-        if lookup.pr is None:
-            raise AssertionError("Closed pull request lookup must include a pull request.")
-        pr_label = _format_live_pr_label(
-            lookup=lookup,
-            pr_number=lookup.pr.number,
-            is_draft=False,
-        )
-        if change_status.pr_lifecycle == "merged":
-            summary = t"{pr_label} merged into {lookup.pr.base.ref}, cleanup needed"
-        else:
-            summary = t"{pr_label} closed"
+    if isinstance(state, WithPR):
+        summary = _format_live_pr_summary(state.pr)
+    elif isinstance(state, NotInspected):
+        summary = saved
+    elif isinstance(state, PRMissing):
+        summary = t"{saved}, no PR found for branch"
+    elif isinstance(state, (LookupFailed, PRAmbiguous)):
+        summary = t"{saved}, {ui.plain_text(state.reason)}"
     else:
-        message = (
-            ui.plain_text(lookup.message)
-            if lookup is not None and lookup.message is not None
-            else "GitHub lookup failed"
-        )
-        if saved_label is not None:
-            summary = t"{saved_label}, {message}"
-        else:
-            summary = message
-
-    if change_status.pr_head_moved:
+        # Untracked changes are never inspected, so the remaining states are Unpublished.
+        summary = "not submitted"
+    if isinstance(state, PRHeadMoved):
         summary = t"{summary}, PR branch moved"
-    if change_status.local == "divergent" and change_status.pr_lifecycle != "merged":
+    if state.divergent and not isinstance(state, (Landed, Merged)):
         summary = t"{summary}, multiple visible commits"
-
     return summary
 
 
-def _format_live_pr_label(
-    *,
-    lookup: PRLookup,
-    pr_number: int,
-    is_draft: bool,
-) -> ui.Message:
-    prefix = "saved " if lookup.source == "remembered" else ""
-    return format_pr_label(
-        pr_number,
-        is_draft=is_draft,
-        prefix=prefix,
-        url=lookup.pr.html_url if lookup.pr is not None else None,
+def _format_live_pr_summary(pr: GithubPR) -> ui.Message:
+    pr_label = format_pr_label(
+        pr.number, is_draft=pr.state == "open" and pr.is_draft, url=pr.html_url
     )
+    if pr.state == "merged":
+        return t"{pr_label} merged into {pr.base.ref}, cleanup needed"
+    if pr.state == "closed":
+        return t"{pr_label} closed"
+    summary: ui.Message = pr_label
+    if pr.is_queued:
+        summary = t"{summary} queued"
+    elif pr.is_draft:
+        pass
+    elif pr.review_decision == "approved":
+        summary = t"{summary} approved"
+    elif pr.review_decision == "changes_requested":
+        summary = t"{summary} changes requested"
+    if pr.check_rollup_status is not None:
+        summary = t"{summary}, checks {pr.check_rollup_status}"
+    return summary
 
 
 def _emit_lines(
@@ -1180,55 +1075,23 @@ def _format_saved_pr_label(
     return format_pr_label(pr_identity.pr_number, prefix="saved ", repo=repo)
 
 
-def _classified_change_has_link_advisory(
-    classified: _ClassifiedStatusChange,
-) -> bool:
-    change_status = classified.status
-    change = classified.change
-    lookup = change.pr_lookup
-    if lookup is None:
-        return False
-    if lookup.source == "remembered" and lookup.message is not None:
-        return True
-    if change_status.pr_lifecycle == "ambiguous":
-        return True
-    if change_status.pr_lifecycle == "missing":
-        return change_status.has_stale_pr_link
-    if change_status.pr_lifecycle == "closed":
-        return lookup.pr is not None
-    return False
-
-
 def _describe_link_advisory(
-    classified: _ClassifiedStatusChange,
+    state: ChangeState,
     *,
     repo: GithubRepoAddress | None,
 ) -> ui.Message:
-    change = classified.change
-    lookup = change.pr_lookup
-    if lookup is None:
-        raise AssertionError("Link advisory requires a pull request lookup.")
-    change_status = classified.status
-    if lookup.source == "remembered" and lookup.message is not None:
-        return lookup.message
-    if change_status.pr_lifecycle == "ambiguous":
-        return lookup.message or "GitHub reports more than one matching pull request"
-    if change_status.pr_lifecycle == "missing":
-        pr_identity = change.pr_identity
-        if pr_identity is None:
+    if isinstance(state, (PRIdentityMismatch, CompetingOpenPR, PRAmbiguous)):
+        return state.reason
+    if isinstance(state, PRMissing):
+        if state.tracked is None:
             return "GitHub did not report a pull request for this branch"
-        remembered_label = format_pr_label(
-            pr_identity.pr_number,
+        saved_label = format_pr_label(
+            state.tracked.pr_identity.pr_number,
             prefix="saved ",
             repo=repo,
         )
-        return t"GitHub did not report {remembered_label} for this branch"
-    if change_status.pr_lifecycle == "closed":
-        pr = lookup.pr
-        if pr is None:
-            raise AssertionError("Closed pull request advisory requires a pull request.")
-        pr_label = format_pr_label(pr.number, url=pr.html_url)
-        return (
-            t"{pr_label} is {pr.state}; submit will not reuse a closed pull request automatically"
-        )
-    raise AssertionError(f"Unexpected link advisory state: {change_status.pr_lifecycle}")
+        return t"GitHub did not report {saved_label} for this branch"
+    if isinstance(state, Closed):
+        pr_label = format_pr_label(state.pr.number, url=state.pr.html_url)
+        return t"{pr_label} is closed; submit will not reuse a closed pull request automatically"
+    raise AssertionError(f"Unexpected link advisory state: {type(state).__name__}")
