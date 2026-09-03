@@ -522,13 +522,13 @@ def _classify_open(
     baseline = o.tracked.submitted_baseline.commit_id
     head = pr.head.sha
     remote = o.remote_target
+    # An absent branch is the more fundamental fact than where the pull request's head sits.
+    if remote is None:
+        return BranchMissing(**with_pr)
     if head is not None and head != baseline and head not in _local_commit_ids(o):
         return PRHeadMoved(**with_pr)
-    if not isinstance(remote, Unobserved):
-        if remote is None:
-            return BranchMissing(**with_pr)
-        if head is not None and remote != head:
-            return BranchDisagrees(**with_pr)
+    if not isinstance(remote, Unobserved) and head is not None and remote != head:
+        return BranchDisagrees(**with_pr)
     # A queued pull request whose head and branch still agree with what was submitted waits
     # for GitHub; one that no longer agrees is reported as moved first.
     if pr.is_queued:

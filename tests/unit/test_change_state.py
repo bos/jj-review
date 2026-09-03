@@ -129,6 +129,11 @@ _REPRESENTATIVES: tuple[tuple[str, dict[str, object], type], ...] = (
     ("queued but head moved", {"pr": _pr(queued=True, head_sha="elsewhere")}, PRHeadMoved),
     ("head moved off the change", {"pr": _pr(head_sha="elsewhere")}, PRHeadMoved),
     ("branch deleted", {"remote_target": None}, BranchMissing),
+    (
+        "branch deleted while the head moved",
+        {"remote_target": None, "pr": _pr(head_sha="elsewhere")},
+        BranchMissing,
+    ),
     ("branch and PR head disagree", {"remote_target": "other"}, BranchDisagrees),
     ("in sync", {}, Published),
     ("local edited since submit", {"selected": _local("rewrite")}, Edited),

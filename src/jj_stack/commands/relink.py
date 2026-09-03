@@ -27,8 +27,16 @@ from jj_stack.github.resolution import require_github_repo, select_submit_remote
 from jj_stack.identifiers import short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.models.github import GithubPR
-from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
+from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR, TrackingState
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_matches_change
+from jj_stack.stack.change_state import (
+    BranchDisagrees,
+    BranchMissing,
+    ChangeObservation,
+    PRHeadMoved,
+    classify,
+    stop_error,
+)
 from jj_stack.stack.pr_facts import duplicate_pr_claim_change_ids
 from jj_stack.stack.selected import require_submittable_changes, select_stack_path
 from jj_stack.stack.selection import resolve_selected_revset
@@ -119,16 +127,33 @@ async def _run_relink_async(
         branch = pr.head.ref
         remote_target = (await github_client.get_branch_targets(branches=(branch,))).get(branch)
     pr_number_label = format_pr_number(pr_number, url=pr.html_url)
-    if remote_target is None:
-        raise CliError(
-            t"Remote branch {ui.bookmark(branch)} for pull request "
-            t"{pr_number_label} does not exist."
+    identity = PRIdentity(pr_number=pr_number, head_ref=branch)
+    tracked_pr = state.tracked_pr(change.change_id)
+    retry = f"jj-stack relink {pr_number} {short_change_id(change.change_id)}"
+    # Classify the link as if it were already saved: the pull request must still agree with
+    # its branch, and its head must be this change's commit or the commit last submitted.
+    link_state = classify(
+        ChangeObservation(
+            change_id=change.change_id,
+            tracked=TrackedPR(
+                change_id=change.change_id,
+                pr_identity=identity,
+                submitted_baseline=(
+                    tracked_pr.submitted_baseline
+                    if tracked_pr is not None
+                    else SubmittedBaseline(commit_id=change.commit_id)
+                ),
+            ),
+            branch=branch,
+            remote_name=remote.name,
+            local=(change,),
+            selected=change,
+            pr=pr,
+            remote_target=remote_target,
         )
-    if remote_target != head_sha:
-        raise CliError(
-            t"Pull request {pr_number_label} and remote branch {ui.bookmark(branch)} "
-            t"no longer identify the same commit."
-        )
+    )
+    if isinstance(link_state, (BranchMissing, BranchDisagrees)):
+        raise stop_error(link_state, rerun=retry)
     remote_head = client.read_remote_git_commit(remote=remote.name, commit_id=head_sha)
     remote_change_id = remote_head.change_id
     if (
@@ -154,28 +179,12 @@ async def _run_relink_async(
             t"change {ui.change_id(change.change_id)}; jj-stack PR branch names end with the "
             t"change's ID."
         )
-    tracked_pr = state.tracked_pr(change.change_id)
-    known = {change.commit_id}
-    if tracked_pr is not None:
-        known.add(tracked_pr.submitted_baseline.commit_id)
-    if head_sha not in known and not replace_remote:
-        short_id = short_change_id(change.change_id)
-        checkout = f"jj-stack checkout --pull-request {pr_number}"
-        replace = f"jj-stack relink --replace-remote {pr_number} {short_id}"
+    if isinstance(link_state, PRHeadMoved) and not replace_remote:
+        moved = stop_error(link_state, rerun=retry)
         raise CliError(
-            t"PR branch {ui.bookmark(branch)} for pull request {pr_number_label} is at "
-            t"{ui.commit_id(head_sha[:8])} ({remote_head.author}: {remote_head.subject}), not "
-            t"at the current commit of change {ui.change_id(change.change_id)}.",
-            hint=t"To keep that work, run {ui.cmd(checkout)} to bring it into your repo and "
-            t"fold it into {ui.change_id(change.change_id)} with jj; "
-            t"{ui.cmd(f'jj-stack submit {short_id}')} then updates the pull request. To drop "
-            t"it, run {ui.cmd(replace)} now; the next {ui.cmd('jj-stack submit')} replaces the "
-            t"branch with your local change.",
+            (moved.message, t" The branch holds {remote_head.author}: {remote_head.subject}."),
+            hint=moved.hint,
         )
-    identity = PRIdentity(
-        pr_number=pr_number,
-        head_ref=branch,
-    )
     _ensure_relinkable_cached_link(
         change_id=change.change_id,
         identity=identity,

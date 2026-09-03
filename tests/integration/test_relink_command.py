@@ -203,4 +203,4 @@ def test_relink_rejects_pr_with_missing_remote_head_branch(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "does not exist" in captured.err
+    assert "no longer exists" in captured.err
