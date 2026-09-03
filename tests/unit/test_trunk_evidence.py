@@ -6,6 +6,7 @@ from jj_stack.models.github import GithubBranchRef, GithubPR
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
 from jj_stack.stack.trunk_evidence import classify_exact_snapshot, classify_rewritten_result
+from tests.support.change_helpers import make_change
 
 
 def _candidate() -> TrackedPR:
@@ -140,28 +141,29 @@ def test_rewritten_result_requires_a_reachable_concrete_merge_result() -> None:
         assert on_trunk or result.reason is not None
 
 
-def _change(*, commit_id: str, immutable: bool = False) -> LocalCommit:
-    return LocalCommit(
+def _change(*, commit_id: str, empty: bool = False, immutable: bool = False) -> LocalCommit:
+    return make_change(
         change_id="change-1",
         commit_id=commit_id,
-        current_working_copy=False,
         description="feature",
-        divergent=False,
-        empty=False,
-        hidden=False,
+        empty=empty,
         immutable=immutable,
-        parents=("parent-1",),
     )
 
 
 def test_unpublished_edit_check_covers_every_shape_its_callers_pass() -> None:
     """One wrong answer here destroys local work, so pin every shape callers pass."""
 
-    published = ("submitted-1",)
+    submitted = "submitted-1"
 
-    assert not _change(commit_id="submitted-1").holds_unpublished_edit(published)
-    assert _change(commit_id="edited-locally").holds_unpublished_edit(published)
+    assert not _change(commit_id="submitted-1").holds_unpublished_edit(submitted)
+    assert _change(commit_id="edited-locally").holds_unpublished_edit(submitted)
     # An immutable change cannot hold a local edit, whatever its commit.
     assert not _change(commit_id="edited-locally", immutable=True).holds_unpublished_edit(
-        published
+        submitted
+    )
+    # An empty change modifies no files relative to its parent, so a rewrite that emptied it is
+    # safe to remove.
+    assert not _change(commit_id="rebased-onto-trunk", empty=True).holds_unpublished_edit(
+        submitted
     )

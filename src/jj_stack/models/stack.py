@@ -35,14 +35,15 @@ class LocalCommit(BaseModel):
 
         return self.current_working_copy or bool(self.working_copy_workspaces)
 
-    def holds_unpublished_edit(self, published_commit_ids: tuple[str, ...]) -> bool:
+    def holds_unpublished_edit(self, submitted_commit_id: str) -> bool:
         """Whether this change holds work that was never submitted.
 
         Callers check this because acting on a wrong answer destroys local work. An immutable
-        change cannot have been edited locally.
+        change cannot have been edited locally, and an empty change modifies no files relative
+        to its parent, so removing either discards no content.
         """
 
-        return not self.immutable and self.commit_id not in published_commit_ids
+        return not self.immutable and not self.empty and self.commit_id != submitted_commit_id
 
     def is_submittable(self) -> bool:
         """Whether the change can be submitted as part of a stack."""

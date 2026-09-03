@@ -10,8 +10,8 @@ completed direct `merge` performs the same update. Neither command creates a pul
 
 - A remaining change has multiple visible commits. `sync` cannot choose one.
 
-- A merged change has been locally rewritten since it was submitted. Removing it could discard
-  work.
+- A merged change has been locally rewritten since it was submitted and is not empty. Removing
+  it could discard work.
 
 - A local change that has not merged is a parent of submitted work that has merged. Moving the
   local change could put it before or after the merged work. `sync` will not choose for you.

@@ -618,7 +618,7 @@ def test_sync_preserves_a_conflict_resolution_that_restores_the_submitted_tree(
     assert blocked == 1
     assert "unpublished local work" in captured.err
     error = " ".join(captured.err.split())
-    assert f"jj rebase -r {submitted.change_id[:8]} -d 'trunk()'" in error, error
+    assert f"jj rebase -s {submitted.change_id[:8]} -d 'trunk()'" in error, error
     assert f"jj diff -r {submitted.change_id[:8]}" in error, error
     # The diff the hint names must exclude trunk's own content, so the submitted commit must
     # not appear as a diff endpoint.
@@ -633,31 +633,31 @@ def test_sync_preserves_a_conflict_resolution_that_restores_the_submitted_tree(
     )
 
 
-def test_sync_removes_an_untouched_merge_after_trunk_reworks_its_file(
+def test_sync_removes_a_merged_change_that_a_local_rebase_emptied(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    (submitted,) = selected_stack(repo).changes
     state_store = TrackingStore.for_repo(repo)
-    baseline = state_store.load().submitted_baselines[submitted.change_id]
-    assert JjClient(repo).resolve_commit(submitted.change_id).commit_id == baseline.commit_id
+    on_trunk, survivor = selected_stack(repo).changes
+    _simulate_stack_partial_merge(fake_repo)
+    # `jj rebase -d main` after fetching carries the merged change along as an empty commit.
+    run_command(["jj", "git", "fetch", "--remote", "origin"], repo)
+    run_command(["jj", "rebase", "-b", survivor.change_id, "-d", "trunk()"], repo)
+    jj = JjClient(repo)
+    assert jj.resolve_commit(on_trunk.change_id).empty
 
-    _squash_merge_pr(fake_repo, 1)
-    fake_repo.advance_branch(
-        "main",
-        path="feature-1.txt",
-        contents="feature 1, reworked by a colleague\n",
-    )
-    run_command(["jj", "git", "fetch"], repo)
-
-    exit_code = run_main(repo, config_path, "sync", submitted.change_id)
+    exit_code = run_main(repo, config_path, "sync", survivor.change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 0, (captured.out, captured.err)
-    assert submitted.change_id not in state_store.load().pr_identities
+    assert jj.query_commits_by_change_ids((on_trunk.change_id,))[on_trunk.change_id] == ()
+    assert jj.resolve_commit(survivor.change_id).parents == (
+        read_remote_ref(fake_repo.git_dir, "main"),
+    )
+    assert on_trunk.change_id not in state_store.load().pr_identities
 
 
 def test_sync_rebases_a_conflicted_pr_before_stopping_its_update(

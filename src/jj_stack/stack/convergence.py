@@ -441,18 +441,18 @@ def _unproven_rewrite_error(stack: GithubStack) -> CliError:
 def _require_no_unpublished_edits(changes: tuple[OnTrunkChange, ...]) -> None:
     for item in changes:
         local, baseline = item.change, item.candidate.submitted_baseline.commit_id
-        if local is None or not local.holds_unpublished_edit((baseline,)):
+        if local is None or not local.holds_unpublished_edit(baseline):
             continue
         short = short_change_id(local.change_id)
         raise CliError(
             t"Cannot remove merged {ui.change_id(item.candidate.change_id)} because its local "
-            t"commit differs from what was submitted, so jj-stack treats it as unpublished "
-            t"local work.",
-            hint=t"Run {ui.cmd(f"jj rebase -r {short} -d 'trunk()'")}, after which "
-            t"{ui.cmd(f'jj diff -r {short}')} shows only what it still holds. Move anything "
-            t"still needed to another change, then drop this copy with "
-            t"{ui.cmd(f'jj abandon {short}')} and rerun sync, or keep it and forget its saved "
-            t"link with {ui.cmd(f'jj-stack unstack --local {short}')}.",
+            t"commit differs from what was submitted and is not empty, so jj-stack treats it "
+            t"as unpublished local work.",
+            hint=t"Run {ui.cmd(f"jj rebase -s {short} -d 'trunk()'")} and rerun sync. If "
+            t"{ui.cmd(f'jj diff -r {short}')} still shows changes, move anything still needed "
+            t"to another change, then drop this copy with {ui.cmd(f'jj abandon {short}')} and "
+            t"rerun sync, or keep it and forget its saved link with "
+            t"{ui.cmd(f'jj-stack unstack --local {short}')}.",
         )
 
 

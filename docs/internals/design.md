@@ -611,7 +611,9 @@ histories. The user chooses the intended order with ordinary `jj`. Afterward the
 remaining local pull requests, sync a remaining mutable submitted head, or run cleanup when no
 submitted local copy remains.
 
-Here unpublished local work means a mutable change whose commit is not its submitted baseline.
+Here unpublished local work means a mutable, non-empty change whose commit is not its submitted
+baseline. An empty change modifies no files relative to its parent, so removing it discards no
+content.
 
 `sync` reconciles the unmerged suffix only when:
 
