@@ -150,7 +150,8 @@ def test_doctor_reports_runnable_missing_fetch_isolation_recovery(
     output = " ".join(capsys.readouterr().out.split())
 
     assert exit_code == 0
-    assert f"missing {current_pr_branch_namespace().fetch_refspec} exclusion" in output
+    glob = current_pr_branch_namespace().branch_glob
+    assert f"jj git fetch does not skip {glob} branches" in output
     assert "multiple" not in output
     assert "jj-stack doctor --fix" in output
     assert "without --dry-run" not in output
@@ -180,7 +181,8 @@ def test_doctor_distinguishes_duplicate_fetch_exclusions(
     output = " ".join(capsys.readouterr().out.split())
 
     assert exit_code == 0
-    assert f"multiple {current_pr_branch_namespace().fetch_refspec} exclusions" in output
+    glob = current_pr_branch_namespace().branch_glob
+    assert f"fetch rule that skips {glob} branches is duplicated" in output
     assert "keep one with jj-stack doctor --fix" in output
     assert "missing" not in output
 

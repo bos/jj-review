@@ -68,8 +68,9 @@ requests, and clean up after they close or merge. Keep creating and editing chan
 `jj-stack` submits and updates their pull requests on GitHub.
 
 Running `jj-stack` with no command shows the current stack. A typical workflow is
-`jj-stack submit`, `jj-stack view`, then `jj-stack merge`. After a direct merge, `jj-stack`
-updates the local stack; apply a queued or externally completed merge later with `jj-stack sync`.
+`jj-stack submit`, `jj-stack view`, then `jj-stack merge`. When GitHub merges immediately,
+`jj-stack merge` also updates the local stack. When the merge finishes later, through a merge
+queue or outside `jj-stack`, run `jj-stack sync`.
 """
 _REORDERABLE_GLOBAL_FLAGS = frozenset({"--debug", "--time-output"})
 _REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES = frozenset({"--repository", "--color"})
@@ -240,7 +241,8 @@ def build_parser() -> ArgumentParser:
         metavar="TARGET=FILE",
         action="append",
         help=(
-            t"Read a pull request body for {ui.metavar('CHANGE')}, or a stack overview, from "
+            t"Read the pull request body for change {ui.metavar('TARGET')}, or the stack "
+            t"overview when {ui.metavar('TARGET')} is {ui.metavar('stack')}, from "
             t"{ui.metavar('FILE')}"
         ),
     )
@@ -393,7 +395,8 @@ def build_parser() -> ArgumentParser:
         description_text=merge_command.__doc__ or "",
         handler=_forward_handler(merge_command.merge),
         revset_help=(
-            t"Revset selecting the stack to merge; defaults to {ui.revset('@')} when the "
+            t"Revset selecting the last change to merge, together with the changes below it; "
+            t"defaults to {ui.revset('@')} when the "
             t"working-copy change is described and nonempty, otherwise {ui.revset('@-')}; "
             t"cannot be combined with {ui.option('--pull-request')}"
         ),
@@ -408,7 +411,10 @@ def build_parser() -> ArgumentParser:
         *_PR_OPTION_STRINGS,
         dest="pr",
         metavar="PR",
-        help=("Merge this PR and all PRs below it; after a direct merge, sync the entire stack"),
+        help=(
+            "Merge this PR and all PRs below it; when GitHub merges immediately, also sync the "
+            "rest of the stack"
+        ),
     )
     add_help_argument(
         merge_parser,
@@ -1020,7 +1026,7 @@ def _add_relink_parser(
         action="store_true",
         help=(
             t"Reconnect even if the PR branch has commits that are not in the change; "
-            t"the next {ui.cmd('submit')} replaces them"
+            t"the next {ui.cmd('jj-stack submit')} replaces them"
         ),
     )
     return parser

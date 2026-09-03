@@ -20,7 +20,7 @@ stderr explains the problem and the process exit code says what kind of problem 
 print a valid payload and exit 10 when the report is incomplete. The JSON payload is not
 an error-reporting format.
 
-## Change Objects
+## Change objects
 
 Stack changes use this shape:
 
@@ -41,20 +41,20 @@ Stack changes use this shape:
 `current: true` is present when that change is the current working-copy change. It is
 omitted otherwise.
 
-`branch` is present only when tracking data attaches the change to an exact PR branch.
-An unsubmitted change has no `branch` field; `jj-stack` does not generate a speculative name
-for status output. An orphan row always has one, because saved tracking is the only thing that
-identifies it.
+`branch` is present only when `jj-stack`'s tracking data links the change to a PR branch. An
+unsubmitted change has no `branch` field, because the branch name is not chosen until submit. An
+orphan row always has one, because the tracking data is all that identifies it.
 
-`pr` is present when `jj-stack` knows the matching PR identity. It contains PR identity and any
-check rollup GitHub reported; use the change's `status` field for PR lifecycle and review state.
+`pr` is present when `jj-stack` knows which pull request belongs to the change. It holds the pull
+request number, its URL when GitHub reported the pull request, and the combined result of its
+checks when GitHub reported one. Use the change's `status` field for the pull request's state and
+review decision.
 
-Within `pr`, `number` is always present. `url` appears only when GitHub reported the PR, so a
-change whose status is `submitted` — and every orphan row, which is identified from saved
-tracking alone — carries `number` by itself.
+Within `pr`, `number` is always present. `url` is absent when live GitHub state was unavailable,
+so a change whose status is `submitted`, and every orphan row, carries `number` alone.
 
-`checks` appears only when GitHub reported a check rollup. Its value is `passed`, `failed`, or
-`pending`; `pending` includes checks that GitHub reports as expected but not started.
+`checks` is `passed`, `failed`, or `pending`; `pending` includes checks that GitHub expects but
+has not started.
 
 Known change statuses are:
 
@@ -67,7 +67,7 @@ Known change statuses are:
 - `changes_requested`: open PR with requested changes
 - `merged`: PR is merged and local cleanup may be needed
 - `closed`: PR is closed without being merged
-- `missing`: saved PR identity exists, but GitHub did not report that PR for the branch
+- `missing`: tracking data names a PR, but GitHub did not report that PR for the branch
 - `ambiguous`: more than one matching PR was found
 - `branch_moved`: the open PR's branch was updated outside jj-stack; it is at neither this change
   nor the last submitted commit

@@ -71,8 +71,8 @@ name on the command line.
 An explicit `--label` is applied even when the pull request otherwise needs no update; labels
 from repo defaults alone do not turn an unchanged pull request into an update.
 
-After addressing review or automation feedback, you can request another look from reviewers who
-previously approved or asked for changes (i.e. revoking the approved state of your PRs):
+After addressing review feedback, you can ask the reviewers who approved or requested changes to
+look again:
 
 ```console
 jj-stack submit --re-request
@@ -80,9 +80,9 @@ jj-stack submit --re-request
 
 ## PR history
 
-To make it easier for a reader to understand how a pull request has changed over time, when you
-run `submit` to update a PR that you have submitted before, `jj-stack` will keep a comment up to
-date on the PR that shows its most recent versions, with a link to the diff for each update.
+When `submit` updates a pull request you submitted before, `jj-stack` maintains a comment on it
+that lists its recent versions, with a link to the diff for each update. Reviewers can use that
+comment to see how the pull request has changed over time.
 
 ## What the `submit` command changes
 
@@ -104,8 +104,3 @@ first.
 
 For the exact contract between local history and edits made in the GitHub UI, see
 [work with a stack on GitHub](working-on-github.md).
-
-(If you wanted to get pathological, you could move change A from stack 1 to stack 2, and change B
-from stack 2 to stack 1, in which case any automated stack surgery would start to get complex.
-`jj-stack submit` does *not* try to detect or deal with cases like this. If you really need to
-make complex changes to your stacks, do it step by step.)

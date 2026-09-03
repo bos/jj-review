@@ -299,7 +299,7 @@ def _project_rows(
         )
     if any(not commit.parents for commit in path_commits):
         raise UnsupportedStackError(
-            t"Unsupported stack shape: selected-parent path reached the root commit before "
+            t"Unsupported stack shape: the selected change does not descend from "
             t"{ui.revset('trunk()')}.",
             reason="reached_root_before_trunk",
         )

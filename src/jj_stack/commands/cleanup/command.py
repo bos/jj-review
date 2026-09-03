@@ -1,4 +1,4 @@
-"""Remove PR branches, comments, and saved links no active pull request needs.
+"""Remove PR branches, comments, and saved links that no active pull request needs.
 
 With no selector, it checks the whole repo. A revset limits cleanup to one local stack;
 `--pull-request` selects one tracked pull request, and `--pull-request orphans` selects every
@@ -72,7 +72,7 @@ from .stale import (
     local_cleanup_observations,
 )
 
-HELP = "Remove PR data that no active pull request needs"
+HELP = "Remove PR branches, comments, and saved links that no pull request needs"
 type CleanupPreflight = tuple[GithubPR | None, PRRefUpdate | None, CleanupAction | None]
 
 
@@ -289,14 +289,15 @@ def _resolve_cleanup_change_ids(
             pr_label = format_pr_label(pr_number, repo=repo)
             raise AmbiguousSelectionError(
                 t"Multiple saved links claim {pr_label}.",
-                hint=t"Run {ui.cmd('list')} to inspect them and repair the incorrect link.",
+                hint=t"Run {ui.cmd('jj-stack list')} to inspect them and repair the incorrect "
+                t"link.",
             )
         if not matches:
             pr_label = format_pr_label(pr_number, repo=repo)
             raise CliError(
                 t"{pr_label} is not linked to any local change.",
-                hint=t"Run {ui.cmd('checkout')} or {ui.cmd('relink')} to link it first, or "
-                t"close it with {ui.cmd(f'gh pr close {pr_number}')}.",
+                hint=t"Run {ui.cmd('jj-stack checkout')} or {ui.cmd('jj-stack relink')} to link "
+                t"it first, or close it with {ui.cmd(f'gh pr close {pr_number}')}.",
             )
         return matches
     if revset is None:

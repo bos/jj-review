@@ -230,7 +230,7 @@ def test_view_pr_selector_shows_the_complete_containing_stack(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert f"Using PR #{first_pr_number} -> {first_change_id}" in captured.out
+    assert f"Using PR #{first_pr_number} for change {first_change_id[:8]}" in captured.out
     assert "feature 1" in captured.out
     assert "PR #1" in captured.out
     assert "feature 2" in captured.out
@@ -544,7 +544,7 @@ def test_view_preserves_saved_pr_link_when_github_reports_missing(
 
     assert exit_code == EXIT_INCOMPLETE
     assert "Missing GitHub PR" in captured.out
-    assert "remembered PR #1" in captured.out
+    assert "saved PR #1" in captured.out
     assert_output_contains(captured.out, "jj-stack unstack --local")
     assert change_id in captured.out
     assert refreshed_state.pr_identities[change_id].pr_number == 1

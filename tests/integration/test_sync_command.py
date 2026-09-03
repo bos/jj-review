@@ -453,7 +453,7 @@ def test_sync_converges_stack_history_and_adopts_rewritten_survivor(
     retry = capsys.readouterr()
 
     assert retry_exit_code == 1
-    assert "none of its merged members is tracked here" in retry.err
+    assert "None of its merged pull requests is tracked here" in retry.err
     assert state_store.load().submitted_baselines[survivor.change_id] == survivor_baseline
     assert fake_repo.prs[2].head_sha == drifted_head
 
@@ -803,7 +803,7 @@ def test_sync_all_requires_terminal_stack_merge_for_exact_stack_member(
     selected = capsys.readouterr()
 
     assert selected_exit == 1
-    assert "keeps #1 active outside the selected stack" in selected.err
+    assert "also includes #1, outside the selected stack" in selected.err
     assert "jj-stack unstack --stack 7" in selected.err
     assert first.change_id in state_store.load().pr_identities
     assert fake_repo.prs[1].state == "open"
@@ -834,7 +834,7 @@ def test_sync_does_not_trust_active_stack_head_drift_without_merged_history(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "none of its merged members is tracked here" in captured.err
+    assert "None of its merged pull requests is tracked here" in captured.err
     assert state_store.load().submitted_baselines[second.change_id] == baseline
     assert fake_repo.prs[2].head_sha == drifted_head
 
@@ -1023,7 +1023,7 @@ def test_sync_explains_the_reported_rebase_ordering_stop_without_mutation(
     assert f"Local copy commit: {local_submitted.commit_id}" in unwrapped
     assert f"Trunk commit: {landed_commit_id}" in unwrapped
     assert f"jj log -r 'trunk() | (trunk()..{local_submitted.commit_id})'" in unwrapped
-    assert "ask an agent to inspect this repo and these commit IDs" in unwrapped
+    assert "put the unmerged changes where you want them" in unwrapped
     assert "jj-stack view" in unwrapped
     assert "jj-stack sync <head-change-id>" in unwrapped
     assert "jj-stack cleanup" in unwrapped

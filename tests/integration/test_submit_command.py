@@ -532,7 +532,10 @@ def test_submit_explicit_base_requires_an_exact_open_parent_pr(
         submitted_target = state_before.submitted_baselines[parent.change_id].commit_id
         assert "no longer points to the submitted commit" in rendered
         assert f"{branch}@origin" in rendered
-        assert f"immutable submitted commit ID {submitted_target}" in rendered
+        assert (
+            f"back to commit {submitted_target}, the commit last submitted for the base"
+            in rendered
+        )
         assert "jj-stack left it untouched" in rendered
         assert "cannot repair it automatically" in rendered
         assert f"jj-stack submit --base {parent.change_id[:8]} {child.change_id[:8]}" in rendered
@@ -801,7 +804,7 @@ def test_submit_partial_path_guard_sees_another_workspaces_working_copy(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "stops before its local head" in captured.err
+    assert "stop below the top of the local stack" in captured.err
     assert "#3" in captured.err
     assert fake_repo.github_stacks == stacks_before
 
@@ -1036,7 +1039,7 @@ def test_submit_explicit_nonmaximal_prefix_does_not_truncate_github_stack(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "selected path stops before its local head" in captured.err
+    assert "selected changes stop below the top of the local stack" in captured.err
     assert fake_repo.github_stacks == {1: (1, 2, 3)}
     assert TrackingStore.for_repo(repo).load() == state_before
     assert remote_refs(fake_repo.git_dir) == refs_before
@@ -1094,7 +1097,7 @@ def test_submit_cross_stack_move_rejects_destination_first_without_mutation(
     state_before = TrackingStore.for_repo(repo).load()
     refs_before = remote_refs(fake_repo.git_dir)
     assert run_main(repo, config_path, "submit", moved_destination.head.change_id) == 1
-    assert "other local path" in capsys.readouterr().err
+    assert "local stack that contains the rest of GitHub stack #1" in capsys.readouterr().err
     assert fake_repo.github_stacks == {1: (1, 2)}
     assert TrackingStore.for_repo(repo).load() == state_before
     assert remote_refs(fake_repo.git_dir) == refs_before
@@ -1748,7 +1751,7 @@ def test_submit_does_not_claim_a_visible_bookmark_for_an_untracked_change(
     run_command(["jj", "bookmark", "create", branch, "-r", change.commit_id], repo)
 
     assert run_main(repo, config_path, "submit", "--dry-run", change.change_id) == 1
-    assert f"Cannot claim visible bookmark {branch}" in capsys.readouterr().err
+    assert f"Local bookmark {branch} already uses the name" in capsys.readouterr().err
     assert set(remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
 
 
@@ -2119,7 +2122,7 @@ def test_submit_requires_relink_after_state_loss(
 
     assert run_main(repo, config_path, "submit", change_id) == 1
     rejected = capsys.readouterr()
-    assert "Adopt that PR explicitly with relink" in rejected.err
+    assert "Link that PR to the change with jj-stack relink" in rejected.err
 
     exit_code = run_main(
         repo, config_path, "relink", "--replace-remote", str(pr_number), change_id

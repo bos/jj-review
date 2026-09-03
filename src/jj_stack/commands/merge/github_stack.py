@@ -47,13 +47,12 @@ class AsyncMergePlan:
         )
         prs: Message = ("PR " if len(self.planned) == 1 else "PRs ", numbers)
         if merge_action == "merge_queue" and enqueued:
-            body = t"{prs} are queued for {ui.bookmark(trunk_branch)} through "
+            body = t"{prs} are queued for {ui.bookmark(trunk_branch)} up to "
         elif merge_action == "merge_queue":
-            body = t"add {prs} to the merge queue for {ui.bookmark(trunk_branch)} through "
+            body = t"add {prs} to the merge queue for {ui.bookmark(trunk_branch)} up to "
         else:
             body = (
-                t"merge {prs} into {ui.bookmark(trunk_branch)} via "
-                t"{ui.cmd(method or '')} through "
+                t"merge {prs} into {ui.bookmark(trunk_branch)} via {ui.cmd(method or '')} up to "
             )
         return MergeAction(
             kind="GitHub merge request",
@@ -75,7 +74,7 @@ def build_async_merge_plan(
         if len(by_pr) > 1 and merge_plan.planned_changes:
             raise CliError(
                 "GitHub did not report a stack for these pull requests.",
-                hint=t"Run {ui.cmd('submit')} before merging.",
+                hint=t"Run {ui.cmd('jj-stack submit')} before merging.",
             )
         return AsyncMergePlan(
             resource=None,
@@ -88,9 +87,10 @@ def build_async_merge_plan(
         )
         if resource.active_pr_numbers[: len(planned_numbers)] != planned_numbers:
             raise CliError(
-                t"GitHub stack #{resource.number} does not match the candidate prefix.",
-                hint=t"Run {ui.cmd('jj-stack submit')} so the stack matches this path, "
-                t"then retry.",
+                t"GitHub stack #{resource.number} does not start with the pull requests at the "
+                t"bottom of the local stack.",
+                hint=t"Run {ui.cmd('jj-stack submit')} so GitHub's stack matches the local "
+                t"stack, then retry.",
             )
         return AsyncMergePlan(
             resource,
@@ -145,7 +145,7 @@ async def execute_async_merge(
             )
             raise CliError(
                 t"Could not retarget {pr_label} to {ui.bookmark(execution.trunk_branch)}",
-                hint="Resolve the GitHub error above, then rerun merge.",
+                hint="Resolve the GitHub error above, then rerun jj-stack merge.",
             ) from error
     try:
         submission = await github.submit_stack_merge(
@@ -168,7 +168,7 @@ async def execute_async_merge(
         )
         raise CliError(
             t"Could not request GitHub merge through {pr_label}.",
-            hint="Resolve the GitHub error above, then rerun merge.",
+            hint="Resolve the GitHub error above, then rerun jj-stack merge.",
         ) from error
     if submission.already_pending:
         details = submission.result.details
@@ -210,7 +210,8 @@ async def execute_async_merge(
         )
     if terminal.status != "merged" or terminal.details.sha is None:
         raise CliError(
-            "GitHub reported the stack merge as merged without a final trunk commit.",
+            "GitHub reported the stack merge as complete but did not say which trunk commit it "
+            "produced.",
             hint=t"Run {ui.cmd('jj-stack sync')} to apply whatever GitHub completed locally.",
         )
     return _applied_result(
@@ -230,7 +231,8 @@ async def _terminal(
     operation_uuid = result.details.uuid
     if result.status == "pending" and operation_uuid is None:
         raise CliError(
-            "GitHub accepted the stack merge without an operation ID to follow.",
+            "GitHub accepted the stack merge but did not return an operation ID for jj-stack to "
+            "wait on.",
             hint=t"Run {ui.cmd('jj-stack sync')} to see whether the merge completed.",
         )
     poll_interval = 2.0

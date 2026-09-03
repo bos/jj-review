@@ -481,7 +481,7 @@ def test_merge_dry_run_ignores_closed_pr_for_reused_head_branch(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert f"Using PR #2 -> {change_id[:8]}\n" in captured.out
+    assert f"Using PR #2 for change {change_id[:8]}\n" in captured.out
     assert "merge PR #2" in captured.out
     assert fake_repo.prs[1].state == "closed"
     assert fake_repo.prs[2].state == "open"

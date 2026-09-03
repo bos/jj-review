@@ -20,9 +20,9 @@ editor before anything is pushed. Each `JJ: Draft:` field accepts `yes` or `no`,
 as short forms. Saving the document continues the command; a malformed document or a non-zero
 editor exit aborts it before any change is made. The editor file remains available if submit
 fails; pass its path to `--resume-edit` to reopen it. A reopened document supplies only the
-titles, bodies, and draft states; the command inspects the stack and GitHub again. `jj-stack` uses
-the editor selected by `jj`'s `ui.editor` setting. Neither `--edit` nor `--resume-edit` can be
-combined with `--describe-with`.
+titles, bodies, and draft states; the command inspects the stack and GitHub again. The editor
+comes from `jj`'s `ui.editor` setting, then `$VISUAL`, then `$EDITOR`. Neither `--edit` nor
+`--resume-edit` can be combined with `--describe-with`.
 
 The `--label`, `--reviewers`, and `--team-reviewers` flags accept comma-separated values and may
 be repeated. When passed, they override the corresponding configured defaults for this run.
@@ -664,10 +664,10 @@ async def run_submit_async(
             )
             if collisions:
                 raise CliError(
-                    t"Cannot claim visible bookmark "
-                    t"{ui.join(ui.bookmark, collisions)} for a new PR.",
-                    hint=t"Move work you need to keep outside the reserved namespace, or "
-                    t"forget a stale bookmark, then retry.",
+                    t"Local bookmark {ui.join(ui.bookmark, collisions)} already uses the name "
+                    t"jj-stack would give a new PR branch.",
+                    hint=t"Rename or forget that bookmark, then retry; jj-stack reserves the PR "
+                    t"branch prefix for its own branches.",
                 )
             pr_branches = _submit_pr_branches(
                 base_branch=base_branch,
@@ -724,9 +724,9 @@ async def run_submit_async(
                     t"cannot repair it automatically.",
                     condition="remote_branch_moved",
                     hint=(
-                        t"Externally restore {ui.bookmark(remote_branch)} to immutable submitted "
-                        t"commit ID {ui.semantic_text(expected_base_commit, 'commit_id')}, then "
-                        t"run {ui.cmd(child_retry)}."
+                        t"Move {ui.bookmark(remote_branch)} back to commit "
+                        t"{ui.semantic_text(expected_base_commit, 'commit_id')}, the commit "
+                        t"last submitted for the base, then run {ui.cmd(child_retry)}."
                     ),
                 )
             child_bottom = short_change_id(stack.changes[0].change_id)

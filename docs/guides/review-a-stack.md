@@ -29,9 +29,9 @@ A lower layer can be approved while work continues above it. When merging only p
 merge a contiguous section from the bottom; the remaining pull requests still depend on the
 merged work and the author should run `jj-stack sync` afterward.
 
-Use GitHub's native stack merge controls for merges started in the web UI. The ordinary legacy
-pull request merge API does not implement the same stack operation. For current UI behavior and
-limitations, see GitHub's [stacked pull request guides][github-stacks] for the current controls.
+When merging from the web UI, use the stack's own merge controls. Merging an individual pull
+request with its ordinary merge button or API does not perform the stack merge. GitHub's
+[stacked pull request guides][github-stacks] describe the current controls and their limitations.
 
 ## Configure rules and CI for the final base
 

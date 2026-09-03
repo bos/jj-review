@@ -9,7 +9,9 @@ from .models import MergeResult
 
 
 def print_merge_result(result: MergeResult) -> None:
-    console.output(t"Trunk: {result.trunk_subject} -> {ui.bookmark(result.trunk_branch)}")
+    console.output(
+        t'Trunk: {ui.bookmark(result.trunk_branch)}, currently at "{result.trunk_subject}"'
+    )
     if result.actions:
         console.output(_result_header(result))
         for action in result.actions:

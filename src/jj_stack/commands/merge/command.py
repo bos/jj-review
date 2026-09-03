@@ -4,9 +4,10 @@ Starting at the bottom of the stack, `jj-stack` selects consecutive open, non-dr
 requests. Each must still match the commit that was last submitted; GitHub decides whether
 reviews, checks, conflicts, and repo rules allow the merge.
 
-For a direct merge, the command waits for GitHub to finish. It then fetches trunk, removes the
-merged changes from the local stack, rebases any remaining changes onto the updated trunk, and
-updates their existing pull requests.
+For a direct merge, one that GitHub performs immediately rather than through a merge queue, the
+command waits for GitHub to finish. It then fetches trunk, removes the merged changes from the
+local stack, rebases any remaining changes onto the updated trunk, and updates their existing
+pull requests.
 
 When the trunk branch uses a merge queue, the command adds the pull requests to the queue and
 exits once GitHub accepts them. It does not wait for them to merge or update the local stack.
@@ -154,7 +155,8 @@ def _resolve_merge_target(
             revset=revset,
         )
         console.note(
-            t"Using {format_pr_label(pr_number, repo=repo)} -> {ui.change_id(resolved_revset)}"
+            t"Using {format_pr_label(pr_number, repo=repo)} for change "
+            t"{ui.change_id(resolved_revset)}"
         )
         return None, resolved_revset
     return (
@@ -234,7 +236,7 @@ async def _stream_merge_async(
             except GithubClientError as error:
                 raise CliError(
                     t"Could not inspect GitHub repo {github_repo.full_name}",
-                    hint="Resolve the GitHub error above, then rerun merge.",
+                    hint="Resolve the GitHub error above, then rerun jj-stack merge.",
                 ) from error
             trunk_branch, _trunk_targets = resolve_trunk_branch(
                 branches_at_trunk=prepared_merge.context.jj_client.remote_bookmarks_at_commit(
@@ -278,7 +280,7 @@ async def _stream_merge_async(
         except GithubClientError as error:
             raise CliError(
                 "Could not inspect GitHub state for merge.",
-                hint="Resolve the GitHub error above, then rerun merge.",
+                hint="Resolve the GitHub error above, then rerun jj-stack merge.",
             ) from error
         plan = build_merge_plan(
             observation=observation,

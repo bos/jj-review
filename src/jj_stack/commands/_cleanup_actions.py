@@ -97,7 +97,7 @@ def check_tracked_pr(
                 t"preserve {pr_label}'s branch and tracking because "
                 t"{dependent_label} still uses {ui.bookmark(pr_identity.head_ref)} "
                 t"as its base, and deleting it would leave {dependent_label} closed "
-                t"with no way to reopen it; {recovery}, then rerun {ui.cmd('cleanup')}"
+                t"with no way to reopen it; {recovery}, then rerun {ui.cmd('jj-stack cleanup')}"
             )
     return (
         pr,
@@ -326,7 +326,7 @@ def github_stack_cleanup_blockers(
         action = CleanupAction(
             kind="remote branch",
             body=(
-                f"GitHub stack #{stack.number} blocks this jj-stack operation. "
+                f"GitHub stack #{stack.number} still groups this pull request. "
                 f"Run jj-stack unstack --stack {stack.number} and retry."
             ),
             status="blocked",

@@ -28,7 +28,7 @@ def test_stack_commands_fail_closed_for_disconnected_roots(
     combined = captured.out + captured.err
 
     assert exit_code == EXIT_NO_STACK
-    assert "root commit" in combined
+    assert "does not descend from" in combined
     assert "trunk()" in combined
     _assert_no_traceback(captured)
 

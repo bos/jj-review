@@ -29,8 +29,8 @@ By default, `merge` starts with the pull request at the bottom of your stack—t
 trunk—and works upward. It merges your ready pull requests in order until your whole stack is
 merged or it reaches a pull request that it cannot merge.
 
-To merge only the bottom portion of your stack, specify its last change by change ID, commit ID,
-or pull request ID:
+To merge only the bottom portion of your stack, name the last change to merge, either as a
+revset or by its pull request:
 
 ```console
 jj-stack merge --pull-request 42
@@ -74,8 +74,9 @@ trunk. `sync` discards the old changes for you.
 
 ### Direct merges
 
-For a direct merge, `merge` waits for GitHub to finish and runs `sync` before it returns. You do
-not need to run another cleanup command.
+A direct merge is one that GitHub performs immediately, rather than through a merge queue. For a
+direct merge, `merge` waits for GitHub to finish and runs `sync` before it returns. You do not
+need to run another cleanup command.
 
 ### Merge queues
 
@@ -83,8 +84,8 @@ When `merge` uses a merge queue, it returns successfully once GitHub accepts the
 you asked it to merge. This does not mean trunk has changed. Wait until GitHub reports that your
 stack has merged. Then run `sync` for that stack.
 
-If you run either command while one of those pull requests is queued, `submit` and `sync` leave
-your stack unchanged.
+While those pull requests are waiting in the queue, `submit` and `sync` leave your stack
+unchanged.
 
 ### Merges outside jj-stack
 
@@ -115,9 +116,9 @@ to it. It also removes branches, comments, and saved pull-request links for merg
 local changes are gone. If one stack cannot be updated, jj-stack explains why and continues with
 independent stacks.
 
-`sync --all` and `sync <head-change-id>` do not rebase a stack merely because trunk advanced.
-`sync <head-change-id>` also recognizes a completed native GitHub stack rebase because GitHub
-moved every PR branch and the rewritten contents can be verified.
+Neither form of `sync` rebases a stack merely because trunk advanced. `sync --all` applies
+completed merges only; after GitHub's **Rebase stack** action, run `sync <head-change-id>` for
+that stack.
 
 ## If `merge` fails after GitHub merges your pull requests
 

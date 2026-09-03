@@ -119,22 +119,22 @@ def test_github_stack_plan_classifies_selected_membership(
             (1, 2),
             True,
             (_stack(7, 1, 2), _stack(9, 2, 3)),
-            ("part of GitHub stack #9",),
-            ("other local path",),
+            ("pull requests in GitHub stack #9",),
+            ("local stack that contains the rest of",),
         ),
         (
             (1, 2),
             False,
             (_stack(7, 1, 2, 9),),
-            ("stops before its local head", "PR #9", "GitHub stack #7"),
-            ("local path containing PR #9",),
+            ("stop below the top of the local stack", "PR #9", "GitHub stack #7"),
+            ("local stack that contains PR #9",),
         ),
         (
             (3, 2),
             True,
             (_stack(7, 1, 2),),
-            ("part of GitHub stack #7", "pull requests outside"),
-            ("other local path",),
+            ("pull requests in GitHub stack #7", "pull requests outside"),
+            ("local stack that contains the rest of",),
         ),
         (
             (1, 2),
@@ -181,7 +181,7 @@ def test_nonmaximal_path_can_replace_stack_when_only_omitted_pr_is_orphaned() ->
 
 
 def test_nonmaximal_path_rejects_stale_orphan_snapshot() -> None:
-    with pytest.raises(CliError, match="stops before its local head"):
+    with pytest.raises(CliError, match="stop below the top of the local stack"):
         plan_github_stack(
             desired=(1, 2),
             is_maximal_path=False,

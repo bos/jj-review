@@ -39,8 +39,8 @@ changes.
 ## Editing a change keeps its pull request
 
 A `jj` change ID is a persistent identifier for a change as you edit it. The underlying Git
-commit ID changes every time you update your work. `jj-stack` follows a change ID, and ensures
-that a matching PR is created, updated, reordered, or removed on GitHub.
+commit ID changes every time you update your work. `jj-stack` follows the change ID, so editing
+or reordering a change updates its existing pull request instead of opening a new one.
 
 ```mermaid
 flowchart LR

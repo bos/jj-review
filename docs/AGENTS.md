@@ -35,6 +35,16 @@ implementation — terms a jj user would not know without reading the source:
 The distinction is between standard jj/git vocabulary (fine) and
 `jj-stack`-specific design prose that leaked into the wrong layer (not fine).
 
+Use one name for each recurring concept, in docs, help, and hints alike:
+
+- The record that connects a pull request to a local change is its **saved pull request link**
+  (or "saved link"); the collection is **tracking data**. Do not call it PR identity, saved
+  tracking, or a remembered PR. The verbs are **link** and **relink**, not attach, adopt, or
+  claim.
+- A **direct merge** is one GitHub performs immediately rather than through a merge queue. Say
+  so the first time a page or help text uses the term.
+- Name commands in full in hints and messages: `jj-stack relink`, not `relink`.
+
 ## What belongs here vs. docs/internals/
 
 **`docs/`** — user-facing guides. These files should explain what to do and

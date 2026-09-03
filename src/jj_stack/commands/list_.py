@@ -7,10 +7,10 @@ It also shows orphaned PRs: tracked PRs whose local change is no longer part of 
 stack. Close them and remove their branches, comments, and saved links with
 `jj-stack cleanup --pull-request orphans --close`.
 
-It reads pull request state from GitHub, but discovers stack membership from the local DAG using
-local `trunk()` as the lower boundary. If your local copy of trunk is behind, `jj-stack`'s picture
-of membership can be stale even though the pull request state is current. Run `jj git fetch`
-first when the list needs to reflect the latest trunk.
+It reads pull request state from GitHub, but finds the changes in each stack locally by walking
+parents from the stack head down to your local `trunk()`. If your local copy of trunk is behind,
+those lists of changes can be stale even though the pull request state is current. Run
+`jj git fetch` first when the list needs to reflect the latest trunk.
 """
 
 from __future__ import annotations

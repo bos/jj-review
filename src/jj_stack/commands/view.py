@@ -3,11 +3,11 @@
 By default it summarizes the submitted and unsubmitted changes in each selected stack;
 `--verbose` expands those summaries.
 
-It reads pull request state from GitHub, but derives stack membership from the local DAG using
-local `trunk()` as the lower boundary. If your local copy of trunk is behind, `jj-stack`'s picture
-of membership can be stale even though the pull request state is current. Run `jj git fetch`
-first when the view needs to reflect the latest trunk. Mix revsets and repeated `--pull-request`
-values to inspect several stacks in one run.
+It reads pull request state from GitHub, but finds the changes in a stack locally by walking
+parents from the selected change down to your local `trunk()`. If your local copy of trunk is
+behind, that list of changes can be stale even though the pull request state is current. Run
+`jj git fetch` first when the view needs to reflect the latest trunk. Mix revsets and repeated
+`--pull-request` values to inspect several stacks in one run.
 
 Common examples:
 
@@ -270,7 +270,8 @@ def _resolve_status_selector(
             revset=None,
         )
         return _ResolvedViewSelector(
-            note=t"Using {format_pr_label(pr_number, repo=repo)} -> {ui.revset(resolved_revset)}",
+            note=t"Using {format_pr_label(pr_number, repo=repo)} for change "
+            t"{ui.change_id(resolved_revset)}",
             revset=None,
             containing_change_id=resolved_revset,
         )
@@ -376,8 +377,8 @@ def _local_history_warnings(prepared_status: PreparedStatus) -> tuple[ui.Message
             )
         if change.divergent:
             warnings.append(
-                t"Change {change_id} has divergent local commits. Showing the selected path; "
-                t"commands that change stack state will stop until the divergence is resolved."
+                t"Change {change_id} has divergent local commits. Showing the selected one; "
+                t"commands that change the stack will stop until the divergence is resolved."
             )
         if change.conflict:
             warnings.append(
@@ -850,7 +851,7 @@ def render_status_advisory_lines(
                     f"Submit and merge stop until {'it is' if single else 'they are'} resolved. "
                     "If GitHub rewrote the stack, ",
                     ui.cmd(f"jj-stack sync {result.selected_revset}"),
-                    " adopts its result (preview with ",
+                    " applies its result (preview with ",
                     ui.option("--dry-run"),
                     "); otherwise choose below.",
                 ),
@@ -984,7 +985,7 @@ def _link_advisory_summary_row(
     if states == {"missing"}:
         label = "Missing GitHub PR" if len(link_changes) == 1 else "Missing GitHub PRs"
         detail = (
-            f"GitHub did not report a PR for the remembered PR branch of {change_phrase}. Run ",
+            f"GitHub did not report a PR for the saved PR branch of {change_phrase}. Run ",
             ui.cmd("jj git fetch"),
             " if branch state may be stale. Relink an open PR if one exists; otherwise forget "
             "the missing PR link with ",
@@ -995,7 +996,7 @@ def _link_advisory_summary_row(
     if states == {"ambiguous"}:
         label = "Ambiguous GitHub PR" if len(link_changes) == 1 else "Ambiguous GitHub PRs"
         detail = (
-            f"GitHub reports multiple PRs for the remembered PR branch of {change_phrase}. Run ",
+            f"GitHub reports multiple PRs for the saved PR branch of {change_phrase}. Run ",
             ui.cmd("jj git fetch"),
             " to refresh, then relink the intended open PR.",
         )
@@ -1152,7 +1153,7 @@ def _format_live_pr_label(
     pr_number: int,
     is_draft: bool,
 ) -> ui.Message:
-    prefix = "remembered " if lookup.source == "remembered" else ""
+    prefix = "saved " if lookup.source == "remembered" else ""
     return format_pr_label(
         pr_number,
         is_draft=is_draft,
@@ -1218,7 +1219,7 @@ def _describe_link_advisory(
             return "GitHub did not report a pull request for this branch"
         remembered_label = format_pr_label(
             pr_identity.pr_number,
-            prefix="remembered ",
+            prefix="saved ",
             repo=repo,
         )
         return t"GitHub did not report {remembered_label} for this branch"

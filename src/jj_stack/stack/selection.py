@@ -80,8 +80,8 @@ def resolve_linked_change_for_pr(
         raise CliError(
             t"{pr_label} is not linked to any local change.",
             hint=(
-                t"Use an explicit change instead, or run {ui.cmd('checkout')} or "
-                t"{ui.cmd('relink')} first."
+                t"Use an explicit change instead, or run {ui.cmd('jj-stack checkout')} or "
+                t"{ui.cmd('jj-stack relink')} first."
             ),
         )
     if len(matching_change_ids) > 1:

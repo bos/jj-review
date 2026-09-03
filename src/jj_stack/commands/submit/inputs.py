@@ -179,8 +179,8 @@ def _select_submit_stack(
         )
     if base_index is None:
         raise CliError(
-            t"Base {ui.revset(base_revset)} is not an ancestor of the selected head on its "
-            t"single-parent path.",
+            t"Base {ui.revset(base_revset)} is not an ancestor of the selected head within "
+            t"its stack.",
             hint=t"Choose the submitted parent immediately below the changes to submit.",
         )
     changes = stack.changes[base_index + 1 :]

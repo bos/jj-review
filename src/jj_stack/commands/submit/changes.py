@@ -33,11 +33,11 @@ def prepare_submit_changes(
             identity = tracked_pr.pr_identity
             if identity.head_ref != resolution.branch:
                 raise DriftError(
-                    t"Saved PR tracking for {ui.change_id(change.change_id)} names branch "
-                    t"{ui.bookmark(identity.head_ref)}, not "
+                    t"The saved pull request link for {ui.change_id(change.change_id)} names "
+                    t"branch {ui.bookmark(identity.head_ref)}, not "
                     t"{ui.bookmark(resolution.branch)}.",
                     condition="saved_pr_mismatch",
-                    hint=t"Run {ui.cmd('relink')} before submitting again.",
+                    hint=t"Run {ui.cmd('jj-stack relink')} before submitting again.",
                 )
             if remote_target is None:
                 raise DriftError(
@@ -63,9 +63,9 @@ def prepare_submit_changes(
         elif resolution.recovered_target is not None:
             if remote_target != resolution.recovered_target:
                 raise DriftError(
-                    t"Recovered remote branch "
-                    t"{ui.bookmark(f'{resolution.branch}@{remote.name}')} changed during "
-                    t"submission.",
+                    t"PR branch "
+                    t"{ui.bookmark(f'{resolution.branch}@{remote.name}')} changed while submit "
+                    t"was running.",
                     condition="remote_branch_moved",
                     hint="Inspect the branch and retry.",
                 )

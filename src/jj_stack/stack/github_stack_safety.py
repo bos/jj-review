@@ -66,7 +66,7 @@ def selected_github_stack(
     if not dissolvable and len(overlapping) > 1:
         numbers = tuple(sorted(stack.number for stack in overlapping))
         raise CliError(
-            t"The selected pull requests are merged members of GitHub stacks "
+            t"The selected pull requests were merged in different GitHub stacks: "
             t"{ui.join(lambda number: f'#{number}', numbers)}.",
             hint="Select changes belonging to one of those stacks, then retry.",
         )
@@ -74,10 +74,9 @@ def selected_github_stack(
     unselected = tuple(number for number in stack.active_pr_numbers if number not in selected)
     if unselected:
         raise CliError(
-            t"GitHub stack #{stack.number} keeps "
-            t"{ui.join(lambda number: format_pr_number(number, repo=repo), unselected)} "
-            t"active outside the selected "
-            t"stack.",
+            t"GitHub stack #{stack.number} also includes "
+            t"{ui.join(lambda number: format_pr_number(number, repo=repo), unselected)}, "
+            t"outside the selected stack.",
             hint=t"Select the complete stack, or run "
             t"{ui.cmd(f'jj-stack unstack --stack {stack.number}')}, then retry.",
         )

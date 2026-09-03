@@ -97,15 +97,14 @@ jj-stack view feature-b
 
 shows only `A` and `B` because the bookmark selects `B` as the exact head.
 
-If two visible stack heads descend from `B`, there clearly won't be a single containing stack.
-In such a case, `view` will stop and ask for a more precise selection. You can pass the change
-ID of your intended head, or pass a bookmark or other revision expression that resolves to that
-exact head.
+If two visible stack heads descend from `B`, no single stack contains it. In that case, `view`
+stops and asks for a more precise selection. You can pass the change ID of your intended head,
+or pass a bookmark or other revision expression that resolves to that exact head.
 
-If you're going to run a command that can change a pull request, prefer to specify it using the
-head change ID. Selecting a middle change or bookmark will choose only the lower part of a
-stack, and `jj-stack` may stop if updating that part alone would disagree with the stack on
-GitHub.
+For `submit`, select the stack by its head change ID. A middle change or a bookmark selects only
+the lower part of the stack, and `submit` stops if GitHub already groups the whole stack as one.
+For `merge`, selecting a middle change is the normal way to merge only the bottom portion of a
+stack.
 
 ## PR branches are separate from your bookmarks
 
@@ -136,13 +135,10 @@ Use `jj bookmark list --all-remotes` to see whether a remote bookmark points to 
 so, handle that bookmark through your normal `jj` workflow. For example, track it if it is a
 branch you intend to work on, or move your mutable changes onto the intended base with `jj`.
 
-`jj-stack` makes an exception for a fetched `jj-stack/` branch, so one can coexist with your
-local change instead of freezing it. The exception covers a branch that exactly matches the
-submitted version of a pull request `jj-stack` already tracks, and any other `jj-stack/` branch
-whose change has just one visible commit. A branch pointing at a change with several visible
-commits stays immutable, so a rewrite fetched from GitHub is never mistaken for your own copy —
-and so does a commit that some other remote bookmark also points at, which is why the stop above
-can still happen. `jj bookmark list --all-remotes` shows you which bookmark it is.
+A fetched `jj-stack/` branch is the exception: it does not make your change immutable when it
+points at the commit you last submitted, or when the change has only one visible commit. A change
+with several visible commits, or a commit that another remote bookmark also points at, stays
+immutable. `jj bookmark list --all-remotes` shows which bookmark is responsible.
 
 ## Practical rules
 

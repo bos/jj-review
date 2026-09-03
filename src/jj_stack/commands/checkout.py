@@ -129,7 +129,7 @@ async def _run_checkout_async(
 ) -> CheckoutResult:
     if pr_reference is not None and revset is not None:
         raise UsageError(
-            t"{ui.cmd('checkout')} accepts at most one selector: "
+            t"{ui.cmd('jj-stack checkout')} accepts at most one selector: "
             t"{ui.cmd('--pull-request')} or {ui.cmd('--revset')}."
         )
     if pr_reference is None:
@@ -159,7 +159,7 @@ def _checkout_saved_stack(
         raise CliError(
             t"jj-stack has no saved pull request for some changes in this stack: "
             t"{ui.join(ui.change_id, (change.change_id for change in incomplete))}.",
-            hint=t"Attach it with {ui.cmd('checkout --pull-request PR')}.",
+            hint=t"Link it with {ui.cmd('jj-stack checkout --pull-request PR')}.",
         )
     return CheckoutResult(adopted_count=0, fetched_tip_commit=None, stack=stack)
 
@@ -381,7 +381,8 @@ async def _load_pr_chain(
             raise CliError(
                 t"Expected one pull request for managed base branch {ui.bookmark(base)}, "
                 t"but GitHub reports {len(matches)}.",
-                hint=t"Select the intended PR explicitly and repair it with {ui.cmd('relink')}.",
+                hint=t"Select the intended PR explicitly and link it with "
+                t"{ui.cmd('jj-stack relink')}.",
             )
         parent = matches[0]
         _validate_same_repo_managed_pr(
@@ -464,9 +465,10 @@ def _reject_duplicate_checkout_claims(
     combined.update(replacements)
     if duplicate_pr_claim_change_ids(combined).intersection(replacements):
         raise CliError(
-            "Another saved change already claims one of those pull request numbers or branches.",
-            hint=t"Run {ui.cmd('jj-stack list')} to find the claiming change, then drop its "
-            t"tracking with {ui.cmd('jj-stack unstack --local')} or clean it up with "
+            "Another local change is already linked to one of those pull request numbers or "
+            "branches.",
+            hint=t"Run {ui.cmd('jj-stack list')} to find that change, then forget its saved link "
+            t"with {ui.cmd('jj-stack unstack --local')} or clean it up with "
             t"{ui.cmd('jj-stack cleanup')}.",
         )
 
@@ -488,8 +490,8 @@ def _validate_same_repo_managed_pr(
     if not namespace.contains(pr.head.ref):
         raise CliError(
             t"Pull request {pr_number_label} head "
-            t"{ui.bookmark(pr.head.ref)} is not in the reserved "
-            t"{ui.bookmark(namespace.branch_prefix)} namespace."
+            t"{ui.bookmark(pr.head.ref)} is not a jj-stack PR branch; its name does not start "
+            t"with {ui.bookmark(namespace.branch_prefix)}."
         )
 
 
@@ -583,7 +585,8 @@ def _prompt_picker_choice(
     if not choices:
         raise CliError(
             "No active local or GitHub stacks to pick from.",
-            hint=t"Use {ui.cmd('checkout --pull-request PR')} to attach a pull request directly.",
+            hint=t"Use {ui.cmd('jj-stack checkout --pull-request PR')} to link a pull request "
+            t"directly.",
         )
     console.output("Available stacks:")
     for index, choice in enumerate(choices, start=1):

@@ -223,11 +223,11 @@ def test_view_missing_pr_advisory_guides_fetch_relink_or_cleanup() -> None:
     normalized_lines = " ".join(" ".join(line.split()) for line in lines)
 
     assert "Missing GitHub PR" in normalized_lines
-    assert "GitHub did not report a PR for the remembered PR branch" in normalized_lines
+    assert "GitHub did not report a PR for the saved PR branch" in normalized_lines
     assert "jj git fetch" in normalized_lines
     assert "Relink an open PR if one exists" in normalized_lines
     assert "jj-stack unstack --local @" in normalized_lines
-    assert "GitHub did not report remembered PR #42 for this branch" in normalized_lines
+    assert "GitHub did not report saved PR #42 for this branch" in normalized_lines
 
 
 def test_view_summary_does_not_call_tracked_missing_pr_not_submitted() -> None:

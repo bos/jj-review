@@ -12,6 +12,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+import jj_stack.ui as ui
 from jj_stack.errors import TrackingStateError
 from jj_stack.models.tracking import (
     PRIdentity,
@@ -176,9 +177,9 @@ class TrackingStore:
         return TrackingStateError(
             message,
             hint=(
-                f"Move the file aside with `{move_command}`, then explicitly re-adopt pull "
-                "requests with `jj-stack checkout --pull-request PR` or "
-                "`jj-stack relink PR CHANGE`."
+                t"Move the file aside with {ui.cmd(move_command)}, then relink pull requests "
+                t"with {ui.cmd('jj-stack checkout --pull-request PR')} or "
+                t"{ui.cmd('jj-stack relink PR CHANGE')}."
             ),
         )
 

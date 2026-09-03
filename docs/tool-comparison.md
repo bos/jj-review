@@ -8,14 +8,13 @@ weight: 115
 
 ## jj-stack is opinionated
 
-On GitHub, a pull request is the head of a DAG of changes. A GitHub stack builds on this: a
-stack is composed of PRs. This makes a stack a bizarre creature, because it's a (forced linear)
-graph composed of other subgraphs.
+On GitHub, a pull request is the head of a graph of commits. A GitHub stack builds on this: a
+stack is a linear chain of PRs. This makes a stack an odd structure, a chain whose links are
+themselves graphs of commits.
 
 `jj-stack` takes a simpler stance: it requires each PR in a stack to be a single `jj` change.
-While I could easily have supported the GitHub stack concept of a linear stack of DAGs, that
-extra complexity has no intrinsic merit, and is just weirdly complicated for backwards
-compatibility reasons.
+Supporting multi-commit PRs in a stack would add complexity that exists mainly for backwards
+compatibility with branch-based workflows, and I don't think it has merit of its own.
 
 This is also why `jj-stack` manages the refs that keep the PRs in a stack alive. They're not
 valuable, they're merely `git` plumbing getting in your way.
@@ -97,8 +96,8 @@ bottom upward. If you rearrange, split, squash, or reorder a dependent stack wit
 
 In `jj-stack`, instead of a `--cherry-pick` option, independent work belongs in separate local
 stacks. You *can* stack stacks by basing one on another, but I think this quickly becomes
-unwieldy and I don't enjoy it. A megamerge of stacks is a better approach (albeit not always
-possible).
+unwieldy. A [megamerge](guides/multiple-stacks.md#combine-independent-stacks-locally) of
+independent stacks is usually a better approach.
 
 ### Local metadata
 
@@ -118,8 +117,8 @@ submitted commit. If a later change fails, however, earlier pull requests may al
 updated.
 
 `jj-stack submit` first checks the complete selected stack. It refuses to overwrite a PR branch
-that moved since `jj-stack` last observed it, then updates all selected PR branches in one
-guarded, atomic push. When it creates or edits the GitHub pull requests, this still takes
+that moved since `jj-stack` last saw it, then updates all selected PR branches in one push that
+succeeds or fails as a whole. When it creates or edits the GitHub pull requests, this still takes
 separate API calls, so an interruption can leave some of those calls incomplete. Rerunning the
 command reads GitHub again and finishes the work.
 
@@ -134,8 +133,8 @@ hand. A remaining chain of dependent PRs needs more manual rebasing and another 
 the local changes still match what was submitted, then merges ready pull requests from the
 bottom of the stack. For a direct merge, it then fetches trunk, removes the now-duplicated local
 changes, rebases what remains, updates the remaining pull requests, and deletes unused branches.
-Its `sync` command performs the same local update after a merge or native stack rebase completed
-through GitHub. Merge queues are supported as an asynchronous version of that workflow.
+Its `sync` command performs the same local update after a merge or stack rebase completed
+through GitHub, including merges that finish later through a merge queue.
 
 `jj-spr` offers commands to list or close pull requests, copy GitHub text back into a change,
 and find orphaned generated branches. It leaves the post-merge `jj` work and the remaining
@@ -196,9 +195,9 @@ result. The generated PR branches are remote-only and normally hidden.
 The submission behavior follows from those models. `gh stack` currently works upward one layer
 at a time: push a branch, find or create its pull request, update it, and continue. If a higher
 layer fails, lower layers may already have changed. `jj-stack` reads the selected stack first
-and updates all of its PR branches together in one guarded push before it creates or edits pull
-requests. That normally requires fewer serial network round trips for a larger stack, although I
-haven't tried a head-to-head benchmark.
+and updates all of its PR branches together in one all-or-nothing push before it creates or
+edits pull requests. That normally requires fewer serial network round trips for a larger stack,
+although I haven't tried a head-to-head benchmark.
 
 ## Research notes
 

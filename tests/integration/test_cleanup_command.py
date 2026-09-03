@@ -235,7 +235,7 @@ def test_cleanup_preserves_a_branch_while_its_closed_dependent_can_be_reopened(
 
     assert preview_exit_code == 1
     assert "Planned cleanup actions:" in preview.out
-    assert "GitHub stack #7 blocks this jj-stack operation" in normalized_preview
+    assert "GitHub stack #7 still groups this pull request" in normalized_preview
     assert "jj-stack unstack --stack 7" in normalized_preview
     assert all(
         f"remote branch: delete {bookmark}@origin" not in normalized_preview
@@ -250,7 +250,7 @@ def test_cleanup_preserves_a_branch_while_its_closed_dependent_can_be_reopened(
     blocked = capsys.readouterr()
 
     assert blocked_exit_code == 1
-    assert "GitHub stack #7 blocks this jj-stack operation" in " ".join(blocked.out.split())
+    assert "GitHub stack #7 still groups this pull request" in " ".join(blocked.out.split())
     assert all(change_id in state_store.load().pr_identities for change_id in change_ids)
     assert all(
         f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir) for bookmark in bookmarks
@@ -307,7 +307,7 @@ def test_cleanup_close_retargets_an_open_dependent_and_frees_its_base_branch(
 
     assert exit_code == 1
     assert f"PR #{dependent.pr_number} still uses" in output
-    assert "rerun cleanup" in output
+    assert "rerun jj-stack cleanup" in output
     assert state_store.load() == state
     assert issue_comments(fake_repo, identity.pr_number) == comments_before
     assert f"refs/heads/{identity.head_ref}" in remote_refs(fake_repo.git_dir)

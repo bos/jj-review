@@ -3,8 +3,9 @@
 `sync` fetches trunk and determines which submitted changes have reached it. It then rebases the
 remaining changes, updates only their existing pull requests, and removes PR branches,
 comments, and saved links for merged pull requests. If GitHub used rebase merging, `sync`
-verifies the new commits, applies them locally, and restores the original `jj` change IDs. A
-completed direct `merge` performs the same update. Neither command creates a pull request.
+verifies the new commits, applies them locally, and restores the original `jj` change IDs. When
+`merge` completes a merge immediately, it performs this same update itself. Neither `merge` nor
+`sync` creates a pull request.
 
 `sync` stops before rebasing in any of these cases:
 

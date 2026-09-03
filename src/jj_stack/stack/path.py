@@ -230,7 +230,8 @@ def _select_commit(observation: SelectedPathObservation) -> LocalCommit:
             return off_trunk[0]
         raise UnsupportedStackError(
             "This change is already on trunk, so it is not part of a local stack.",
-            hint=t"Reconcile every stack against trunk with {ui.cmd('jj-stack sync --all')}.",
+            hint=t"Run {ui.cmd('jj-stack sync --all')} to clean up after changes that reached "
+            t"trunk.",
         )
 
     if len(candidates) != 1:

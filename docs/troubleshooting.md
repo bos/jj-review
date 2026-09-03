@@ -31,22 +31,24 @@ It does not change anything on GitHub.
 of your open pull requests; someone force-pushed, renamed, or deleted a `jj-stack/` branch; or
 another tool updated it.
 
-`jj-stack` leaves the branch untouched and prints a recovery hint for the condition it observed.
+`jj-stack` leaves the branch untouched and prints a hint that matches what it found.
 `jj-stack view <head-change-id>` shows where each branch moved. If GitHub moved it while
-merging or rebasing your stack, run `jj-stack sync <head-change-id>`. For an accidentally moved
-`submit --base` branch, restore the immutable submitted commit ID named in that error. For a
-missing branch, either restore it or close the PR on GitHub, run `jj-stack cleanup`, and submit
-again.
+merging or rebasing your stack, run `jj-stack sync <head-change-id>`. If the error is about the
+branch of a `--base` parent, move that branch back to the commit ID the error names, then rerun
+the command it prints. For a missing branch, either restore it or close the PR on GitHub, run
+`jj-stack cleanup`, and submit again.
 
 If the PR branch holds work that is not in your change, such as a reviewer's suggestion or a
-version submitted from another clone, choose what to do with it. To keep it, run
-`jj-stack checkout --pull-request <pull-request>`: it brings that commit into your repo, beside
-your own copy of the change or as a new change on top of it, and
-`jj-stack submit <head-change-id>` updates the pull request once you have folded it in or
-abandoned the copy you do not want. To drop it, run
-`jj-stack relink --replace-remote <pull-request> <change-id>`; the next `submit` replaces the
-branch with your local change. Plain `jj-stack relink <pull-request> <change-id>` reconnects a
-pull request whose branch is still at your change; otherwise it refuses and shows what is there.
+version submitted from another clone, decide what to do with it:
+
+- To keep it, run `jj-stack checkout --pull-request <pull-request>`. This brings that commit
+  into your repo, either beside your own copy of the change or as a new change on top of it.
+  Fold it in or abandon the copy you do not want, then run `jj-stack submit <head-change-id>`.
+- To drop it, run `jj-stack relink --replace-remote <pull-request> <change-id>`. The next
+  `submit` replaces the branch with your local change.
+
+Plain `jj-stack relink <pull-request> <change-id>` only reconnects a pull request whose branch is
+still at your change. Otherwise it refuses and shows what is on the branch.
 
 Do not force a submit past the mismatch. The stop is what prevents one tool from silently
 overwriting another tool's work.
@@ -58,9 +60,9 @@ GitHub or another client.
 
 Run `jj-stack view <head-change-id>` and compare the GitHub order with your local stack. If the
 GitHub edit is the intended order, reproduce it with `jj` and submit the resulting local stack.
-If the local order is intended, submit it; jj-stack replaces unambiguous native grouping and pull
-request bases. When the diagnostic says membership is ambiguous, remove the named GitHub grouping
-with `jj-stack unstack --stack <number>`, then submit the intended local stack again.
+If the local order is intended, submit it: `submit` fixes the pull request bases and the GitHub
+stack to match. If the error says it cannot tell which GitHub stack the pull requests belong to,
+remove the GitHub stack it names with `jj-stack unstack --stack <number>`, then submit again.
 
 ## A stack was removed from the merge queue
 
@@ -106,7 +108,7 @@ Run `sync` after GitHub reports that the rebase completed:
 jj-stack sync <head-change-id>
 ```
 
-GitHub's rewritten commits do not contain jj change-ID headers. This is expected; do not relink
+GitHub's rewritten commits do not carry jj change IDs. This is expected; do not relink
 the pull requests by hand. `sync` verifies the rewritten contents, rebases the original local
 changes, and updates the PR branches with equivalent commits that retain their change IDs. If
 you changed the stack locally after submitting it, `sync` stops rather than choosing between your

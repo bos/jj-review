@@ -137,7 +137,7 @@ def ensure_pr_syncs_are_safe(
         if existing_only and (tracked_pr is None or pr is None):
             raise CliError(
                 t"Cannot sync {ui.change_id(change_id)} without its existing pull request.",
-                hint=t"Repair the PR link with {ui.cmd('relink')} before retrying.",
+                hint=t"Repair the PR link with {ui.cmd('jj-stack relink')} before retrying.",
             )
 
 
@@ -311,8 +311,8 @@ def _select_discovered_pr(
             t"GitHub reports multiple pull requests for head branch {ui.bookmark(head_label)}.",
             condition="pr_ambiguous",
             hint=(
-                t"Inspect the PR link with {ui.cmd('view')} and repair it "
-                t"with {ui.cmd('relink')} before submitting again."
+                t"Inspect the PR link with {ui.cmd('jj-stack view')} and repair it "
+                t"with {ui.cmd('jj-stack relink')} before submitting again."
             ),
         )
     if tracked_pr_number is not None:
@@ -336,16 +336,17 @@ def ensure_pr_link_is_consistent(
             raise DriftError(
                 t"GitHub already reports {pr_label} for untracked branch {ui.bookmark(branch)}.",
                 condition="saved_pr_missing",
-                hint=t"Adopt that PR explicitly with {ui.cmd('relink')} before submitting.",
+                hint=t"Link that PR to the change with {ui.cmd('jj-stack relink')} before "
+                t"submitting.",
             )
         return
     pr_identity = tracked_pr.pr_identity
     if pr_identity.head_ref != branch:
         raise DriftError(
-            t"Saved PR tracking for {ui.change_id(change_id)} names branch "
+            t"The saved pull request link for {ui.change_id(change_id)} names branch "
             t"{ui.bookmark(pr_identity.head_ref)}, not {ui.bookmark(branch)}.",
             condition="saved_pr_mismatch",
-            hint=t"Run {ui.cmd('relink')} before submitting again.",
+            hint=t"Run {ui.cmd('jj-stack relink')} before submitting again.",
         )
     if discovered_pr is None:
         raise DriftError(
@@ -353,8 +354,8 @@ def ensure_pr_link_is_consistent(
             t"but GitHub no longer reports a PR for that head branch.",
             condition="saved_pr_missing",
             hint=(
-                t"Inspect the PR link with {ui.cmd('view')} and repair it "
-                t"with {ui.cmd('relink')} before submitting again."
+                t"Inspect the PR link with {ui.cmd('jj-stack view')} and repair it "
+                t"with {ui.cmd('jj-stack relink')} before submitting again."
             ),
         )
     discovered_pr = discovered_pr.normalize_state()
@@ -368,8 +369,8 @@ def ensure_pr_link_is_consistent(
             t"({discovered_number}).",
             condition="saved_pr_mismatch",
             hint=(
-                t"Inspect the PR link with {ui.cmd('view')} and repair it "
-                t"with {ui.cmd('relink')} before submitting again."
+                t"Inspect the PR link with {ui.cmd('jj-stack view')} and repair it "
+                t"with {ui.cmd('jj-stack relink')} before submitting again."
             ),
         )
     if discovered_pr.state != "open":
@@ -420,7 +421,9 @@ async def _sync_pr_metadata(
             )
     except GithubClientError as error:
         pr_label = format_pr_number(pr_number, repo=github_client.repo)
-        raise CliError(t"Could not synchronize metadata for pull request {pr_label}") from error
+        raise CliError(
+            t"Could not update the reviewers or labels of pull request {pr_label}"
+        ) from error
 
 
 def _submitted_identity(

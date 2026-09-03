@@ -163,7 +163,7 @@ def test_prepare_submit_changes_requires_recovered_branch_lease_to_stay_exact() 
     )
     branch = "jj-stack/older-title-abcdefgh"
 
-    with pytest.raises(CliError, match="changed during submission"):
+    with pytest.raises(CliError, match="changed while submit was running"):
         prepare_submit_changes(
             branch_resolutions=(
                 ResolvedPRBranch(

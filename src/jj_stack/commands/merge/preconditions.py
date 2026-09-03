@@ -66,7 +66,7 @@ def explain_precondition(
         return t"it has unresolved conflicts; resolve them with jj, then run {submit}"
     if precondition.recovery == "reconcile":
         return (
-            t"it has more than one visible commit; reconcile them, for example with "
+            t"it has more than one visible commit; resolve the divergence, starting with "
             t"{ui.cmd('jj log -r')} {ui.revset(f'change_id({short_change_id(change_id)})')}, "
             t"then run {submit}"
         )
@@ -84,7 +84,7 @@ def explain_precondition(
             t"{reason}, so this stack still holds a local copy of work already on trunk; run "
             t"{ui.cmd(f'jj-stack sync {sync_target}')}"
         )
-    return t"{reason}; inspect it and rerun {ui.cmd('merge')}"
+    return t"{reason}; inspect it and rerun {ui.cmd('jj-stack merge')}"
 
 
 def _merge_change_precondition_error(

@@ -67,10 +67,10 @@ def plan_github_stack(
         selected_outside_stack = selected.difference(stack.pr_numbers)
         if len(affected) > 1 or selected_outside_stack:
             raise CliError(
-                t"The selected path includes only part of GitHub stack #{stack.number} while "
-                t"also including pull requests outside that GitHub stack.",
-                hint=t"Submit the other local path containing the remaining pull requests in "
-                t"GitHub stack #{stack.number}, then retry.",
+                t"The selected changes include only some of the pull requests in GitHub stack "
+                t"#{stack.number}, together with pull requests outside it.",
+                hint=t"Submit the local stack that contains the rest of GitHub stack "
+                t"#{stack.number} first, then retry.",
             )
         unselected = tuple(
             pr for pr in stack.prs if not pr.is_historical and pr.number not in selected
@@ -82,10 +82,10 @@ def plan_github_stack(
         )
         if not is_maximal_path and unconfirmed:
             raise CliError(
-                t"The selected path stops before its local head and omits "
+                t"The selected changes stop below the top of the local stack and leave out "
                 t"{ui.join(lambda number: format_pr_label(number, repo=repo), unconfirmed)} from "
                 t"GitHub stack #{stack.number}.",
-                hint=t"Submit the local path containing "
+                hint=t"Submit the local stack that contains "
                 t"{ui.join(lambda number: format_pr_label(number, repo=repo), unconfirmed)} "
                 t"first, then retry.",
             )
@@ -111,7 +111,11 @@ def plan_github_stack(
 
 
 def _membership_error(message: str) -> CliError:
-    return CliError(message, hint=t"Rerun {ui.cmd('jj-stack submit')} to inspect membership.")
+    return CliError(
+        message,
+        hint=t"Rerun {ui.cmd('jj-stack submit')} to see how GitHub now groups these pull "
+        t"requests.",
+    )
 
 
 async def apply_github_stack_plan(

@@ -1,4 +1,14 @@
-"""Reconnect a GitHub pull request to a selected local change."""
+"""Reconnect a GitHub pull request to a selected local change.
+
+Use it when `jj-stack` has lost or mixed up the link between a pull request and its local change,
+for example after tracking data was removed or a pull request was submitted from another
+checkout. The pull request must be open, and its PR branch must be at the current commit of the
+selected change; otherwise `relink` refuses and shows what is on the branch. Pass
+`--replace-remote` to link anyway and let the next submit overwrite the branch.
+
+`relink` changes only `jj-stack`'s local tracking data. It does not push or change anything on
+GitHub.
+"""
 
 from __future__ import annotations
 
@@ -132,17 +142,17 @@ async def _run_relink_async(
             t"{ui.change_id(change.change_id)}.",
             hint=t"If {ui.change_id(remote_change_id)} still exists locally, run "
             t"{ui.cmd(f'jj-stack relink {pr_number} {short_change_id(remote_change_id)}')} "
-            t"instead. If stack surgery replaced it with "
-            t"{ui.change_id(change.change_id)}, recover the original change with "
+            t"instead. If you rewrote history and {ui.change_id(change.change_id)} replaced "
+            t"it, recover the original change with "
             t"{ui.cmd(f'jj-stack checkout --pull-request {pr_number}')}, then move the "
             t"intended content onto it; relink cannot assign an existing pull request to "
             t"a replacement change ID.",
         )
-    namespace = current_pr_branch_namespace()
     if not pr_branch_matches_change(branch, change.change_id):
         raise CliError(
-            t"Pull request {pr_number_label} head {ui.bookmark(branch)} does not match "
-            t"change {ui.change_id(change.change_id)} under {ui.bookmark(namespace.branch_glob)}."
+            t"Pull request {pr_number_label} head {ui.bookmark(branch)} was not created for "
+            t"change {ui.change_id(change.change_id)}; jj-stack PR branch names end with the "
+            t"change's ID."
         )
     tracked_pr = state.tracked_pr(change.change_id)
     known = {change.commit_id}
@@ -201,7 +211,7 @@ async def _load_exact_relink_pr(
     if pr.state != "open":
         raise CliError(
             t"Pull request {pr_number_label} is not open; cannot relink {pr.state} PRs.",
-            hint=t"Reopen it on GitHub to keep reviewing it, or drop the stale tracking with "
+            hint=t"Reopen it on GitHub to keep reviewing it, or forget its saved link with "
             t"{ui.cmd('jj-stack unstack --local')} and submit again.",
         )
     branch = pr.head.ref
@@ -214,8 +224,8 @@ async def _load_exact_relink_pr(
     namespace = current_pr_branch_namespace()
     if not namespace.contains(branch):
         raise CliError(
-            t"Pull request {pr_number_label} head {ui.bookmark(branch)} is not under "
-            t"{ui.bookmark(namespace.branch_glob)}."
+            t"Pull request {pr_number_label} head {ui.bookmark(branch)} is not a jj-stack PR "
+            t"branch; its name does not match {ui.bookmark(namespace.branch_glob)}."
         )
     head_sha = pr.head.sha
     if head_sha is None:
@@ -240,7 +250,7 @@ def _ensure_relinkable_cached_link(
         raise CliError(
             t"{pr_label} or branch {ui.bookmark(identity.head_ref)} is already "
             t"linked to another local change.",
-            hint=t"Run {ui.cmd('jj-stack list')} to find the claiming change, then drop its "
-            t"tracking with {ui.cmd('jj-stack unstack --local')} or clean it up with "
+            hint=t"Run {ui.cmd('jj-stack list')} to find that change, then forget its saved link "
+            t"with {ui.cmd('jj-stack unstack --local')} or clean it up with "
             t"{ui.cmd('jj-stack cleanup')}.",
         )

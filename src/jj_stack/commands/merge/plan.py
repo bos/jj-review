@@ -29,7 +29,7 @@ def build_merge_plan(
     boundary: Message | None = None
     for local, change in zip(changes, merge_changes, strict=True):
         if change is None:
-            boundary = _boundary(local, t"run {ui.cmd('relink')} before merging")
+            boundary = _boundary(local, t"run {ui.cmd('jj-stack relink')} before merging")
             break
         error = merge_precondition_error(
             expected_repo=repo,

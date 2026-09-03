@@ -18,9 +18,10 @@ jj-stack checkout --pick
 ```
 
 Each GitHub row shows the stack number, top pull request, base branch, size, status, and whether
-the stack is local, partly local, or available only on GitHub. Choosing a partly local or
-GitHub-only stack completes its local tracking, fetches any missing commits, and edits its top
-active change. Choosing a local stack just edits its head.
+the stack is already tracked here, partly tracked, or available only on GitHub. Choosing a stack
+that is not fully tracked here records its pull request links, fetches any missing commits, and
+runs `jj edit` on its top open change. Choosing a stack that is already tracked here just edits
+its head change.
 
 ## Connect a pull request directly
 

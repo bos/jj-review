@@ -299,7 +299,8 @@ def _resolve_local_revset(
             revset=revset,
         )
         console.note(
-            t"Using {format_pr_label(pr_number, repo=repo)} -> {ui.revset(resolved_revset)}"
+            t"Using {format_pr_label(pr_number, repo=repo)} for change "
+            t"{ui.change_id(resolved_revset)}"
         )
         return resolved_revset
     return resolve_selected_revset(

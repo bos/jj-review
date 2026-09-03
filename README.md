@@ -81,8 +81,8 @@ refresh. Use `jj-stack list` to see every tracked stack in the repo.
 
 ## Mental model
 
-The local `jj` DAG determines which changes form a stack and their order. On GitHub, each change
-gets a stable PR branch and a PR; every PR targets the PR branch below it, except the
+Your local `jj` history determines which changes form a stack and their order. On GitHub, each
+change gets a stable PR branch and a PR; every PR targets the PR branch below it, except the
 bottom PR, which targets trunk by default:
 
 ```text

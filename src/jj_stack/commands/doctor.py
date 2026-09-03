@@ -1,11 +1,11 @@
 """Check `jj-stack`'s configuration and connectivity.
 
-Checks PR-branch fetch settings, visible PR bookmarks, leftovers from interrupted
-checkout or sync commands, remote selection, GitHub connectivity, authentication, and trunk
-discovery. By default, it only reports problems. Pass `--fix` to also apply the local repairs it
-can make safely: reserving the PR-branch namespace in the remote's fetch configuration,
-forgetting PR bookmarks that a fetch imported, and removing leftovers from an interrupted
-checkout or sync. The command never changes GitHub.
+Checks that `jj git fetch` skips PR branches, that no PR bookmarks are visible, that nothing is
+left over from an interrupted checkout or sync, and that the Git remote, GitHub connectivity,
+authentication, and trunk branch are usable. By default, it only reports problems. Pass `--fix`
+to also apply the local repairs it can make safely: configuring the remote so that `jj git fetch`
+skips PR branches, forgetting PR bookmarks that a fetch imported, and removing leftovers from an
+interrupted checkout or sync. The command never changes GitHub.
 
 Exit status is 0 unless a check fails; warnings and problems repaired by `--fix` do not count as
 failures. When a check fails, the command exits 1 and names a recovery command when `jj-stack` can
@@ -208,13 +208,13 @@ def _check_pr_branch_fetch_isolation(
     if isolation.status == "required":
         if isolation.problem == "missing":
             problem_detail = (
-                t"missing {ui.code(namespace.fetch_refspec)} exclusion; ",
-                t"add it with {ui.cmd('jj-stack doctor --fix')}.",
+                t"{ui.cmd('jj git fetch')} does not skip {ui.bookmark(namespace.branch_glob)} "
+                t"branches; fix with {ui.cmd('jj-stack doctor --fix')}.",
             )
         elif isolation.problem == "duplicate":
             problem_detail = (
-                t"found multiple {ui.code(namespace.fetch_refspec)} exclusions; ",
-                t"keep one with {ui.cmd('jj-stack doctor --fix')}.",
+                t"the fetch rule that skips {ui.bookmark(namespace.branch_glob)} branches is "
+                t"duplicated; keep one with {ui.cmd('jj-stack doctor --fix')}.",
             )
         else:
             raise AssertionError("required fetch isolation has no problem")
@@ -222,7 +222,7 @@ def _check_pr_branch_fetch_isolation(
     return CheckResult(
         "PR branch fetch",
         "fixed" if isolation.status == "applied" else "ok",
-        t"exactly one {ui.code(namespace.fetch_refspec)} exclusion",
+        t"{ui.cmd('jj git fetch')} skips {ui.bookmark(namespace.branch_glob)} branches",
     )
 
 

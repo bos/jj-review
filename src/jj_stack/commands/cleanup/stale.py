@@ -44,7 +44,7 @@ def local_cleanup_observations(
         if not change.is_submittable():
             observations[change_id] = LocalCleanupObservation(
                 has_mutable_copy=not change.immutable,
-                stale_reason="local change is no longer an active stack member",
+                stale_reason="its local change is no longer in a stack",
             )
             continue
 
