@@ -42,6 +42,8 @@ def _stack(
     ),
     (
         ((1,), (), frozenset(), True, "none", ()),
+        # A grouping GitHub left unusable blocks only selections that touch it.
+        ((1,), (_stack(9, 2, 3, historical=(3,)),), frozenset(), True, "none", ()),
         ((1, None), (_stack(5, 9, 10),), frozenset(), True, "create", ()),
         ((1, 2), (_stack(7, 1, 2),), frozenset(), True, "none", ()),
         ((1, 2, None, 3), (_stack(7, 1, 2),), frozenset(), True, "append", (7,)),

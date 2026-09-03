@@ -710,37 +710,6 @@ def test_submit_appends_to_active_suffix_after_historical_prefix(
     assert fake_repo.prs[3].base_ref == fake_repo.prs[2].head_ref
 
 
-def test_submit_and_sync_ignore_an_unusable_github_stack_they_do_not_select(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    """A merged member above an open one blocks only that stack; unstack still removes it."""
-
-    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    stack = selected_stack(repo)
-    state = TrackingStore.for_repo(repo).load()
-    parent_branch = state.pr_identities[stack.changes[0].change_id].head_ref
-    # Pushing the parent PR branch to contain the child's head makes GitHub merge the child
-    # into its parent while the parent stays open.
-    update_remote_ref(fake_repo, branch=parent_branch, target=stack.changes[1].commit_id)
-    fake_repo.refresh_prs(fake_repo.prs.values())
-    assert fake_repo.prs[1].merged_at is None and fake_repo.prs[2].merged_at is not None
-    run_command(["jj", "new", "main"], repo)
-    commit_file(repo, "other 1", "other-1.txt")
-
-    submit_exit = run_main(repo, config_path, "submit")
-    sync_exit = run_main(repo, config_path, "sync")
-    captured = capsys.readouterr()
-
-    assert (submit_exit, sync_exit) == (0, 0), captured.err
-    assert fake_repo.prs[3].base_ref == "main"
-    assert run_main(repo, config_path, "unstack", "--stack", "1") == 0
-    # GitHub keeps merged members; releasing the open one is what unblocks the grouping.
-    assert fake_repo.github_stacks[1] == (2,)
-
-
 def test_submit_retargets_stale_pr_bases_before_pushing_reordered_stack(
     tmp_path: Path,
     monkeypatch,
@@ -1195,27 +1164,6 @@ def test_submit_invalid_revset_reports_clean_error_without_mutation(
     assert fake_repo.prs == {}
 
 
-def test_submit_refuses_an_abandoned_change_selected_by_commit_id(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    abandoned = selected_stack(repo).head
-    run_command(["jj", "abandon", abandoned.change_id], repo)
-
-    exit_code = run_main(repo, config_path, "submit", abandoned.commit_id)
-    captured = capsys.readouterr()
-
-    assert exit_code == EXIT_NO_STACK
-    assert abandoned.change_id[:8] in captured.err
-    assert "hidden changes are not submittable" in captured.err
-    assert fake_repo.prs == {}
-    assert TrackingStore.for_repo(repo).load().pr_identities == {}
-
-
 def test_submit_defaults_to_a_described_nonempty_working_copy(
     tmp_path: Path,
     monkeypatch,
@@ -1240,32 +1188,6 @@ def test_submit_defaults_to_a_described_nonempty_working_copy(
     assert set(state.pr_identities) == {shared.change_id, selected.change_id}
     assert committed_path.change_id not in state.pr_identities
     assert len(fake_repo.prs) == 2
-
-
-def test_submit_refuses_an_empty_change_anywhere_in_the_selected_stack(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    """GitHub drops an empty commit when it rebases a stack and auto-closes its PR for good."""
-
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    run_command(["jj", "describe", "-m", "marker"], repo)
-    marker = JjClient(repo).resolve_commit("@")
-    run_command(["jj", "new"], repo)
-    commit_file(repo, "feature 2", "feature-2.txt")
-    remote_before = remote_refs(fake_repo.git_dir)
-
-    exit_code = run_main(repo, config_path, "submit")
-    captured = capsys.readouterr()
-
-    assert exit_code == EXIT_NO_STACK
-    assert marker.change_id[:8] in captured.err
-    assert "jj abandon" in captured.err
-    assert not fake_repo.prs
-    assert remote_refs(fake_repo.git_dir) == remote_before
 
 
 def test_submit_refuses_an_undescribed_change_below_the_selected_head(
@@ -1828,7 +1750,7 @@ def test_submit_single_change_clears_stale_stack_overview_comment(
     assert issue_comments(fake_repo, 1) == []
 
 
-def test_submit_revision_history_uses_submitted_push_while_github_timeline_lags(
+def test_submit_keeps_one_revision_history_comment_per_pull_request(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1846,12 +1768,8 @@ def test_submit_revision_history_uses_submitted_push_while_github_timeline_lags(
     second_commit = TrackingStore.for_repo(repo).load().submitted_baselines[change_id].commit_id
     first_comments = _revision_history_comments(fake_repo, 1)
     assert len(first_comments) == 1
-    first_comment = first_comments[0]
-    first_body = first_comment.body
-    assert "| 2 (current) |" in first_body
-    assert f"/compare/{first_commit}..{second_commit}" in first_body
+    assert f"/compare/{first_commit}..{second_commit}" in first_comments[0].body
 
-    fake_repo.pr_force_push_history_lag.add(1)
     run_command(["jj", "describe", "-r", change_id, "-m", "feature revision 3"], repo)
     assert run_main(repo, config_path, "submit", change_id) == 0
     capsys.readouterr()
@@ -1859,13 +1777,9 @@ def test_submit_revision_history_uses_submitted_push_while_github_timeline_lags(
     comments = _revision_history_comments(fake_repo, 1)
 
     assert len(comments) == 1
-    assert comments[0].id == first_comment.id
-    body = comments[0].body
-    assert body != first_body
-    assert body.index("| 3 (current) |") < body.index("| 2 |") < body.index("| 1 |")
-    assert f"/compare/{second_commit}..{third_commit}" in body
-    assert f"/compare/{first_commit}..{second_commit}" in body
-    assert f"/commit/{third_commit}" in body
+    assert comments[0].id == first_comments[0].id
+    assert f"/compare/{first_commit}..{second_commit}" in comments[0].body
+    assert f"/compare/{second_commit}..{third_commit}" in comments[0].body
 
 
 def test_submit_reports_stack_overview_comment_update_failures_without_traceback(

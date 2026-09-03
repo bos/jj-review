@@ -17,6 +17,7 @@ from jj_stack.commands.submit.models import (
     SubmitOptions,
 )
 from jj_stack.commands.submit.overview_comments import sync_stack_overview_comments
+from jj_stack.commands.submit.revision_comments import _include_submitted_force_push
 from jj_stack.config import AppConfig
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError
@@ -26,6 +27,7 @@ from jj_stack.models.github import (
     GithubBranchRef,
     GithubIssueComment,
     GithubPR,
+    GithubPRRevision,
 )
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import (
@@ -258,4 +260,25 @@ def _github_pr(
         number=number,
         state=state,
         title="feature",
+    )
+
+
+def test_revision_history_fills_only_the_force_push_github_has_not_indexed() -> None:
+    def revision(version: int, before: str, after: str, *, current: bool) -> GithubPRRevision:
+        return GithubPRRevision(
+            before_commit_id=before, commit_id=after, is_current=current, version=version
+        )
+
+    indexed = (revision(2, "c1", "c2", current=True),)
+
+    assert _include_submitted_force_push(indexed, None) == indexed
+    assert _include_submitted_force_push(indexed, ("c1", "c2")) == indexed
+    # A push that does not continue the indexed history is not this PR's next revision.
+    assert _include_submitted_force_push(indexed, ("c9", "c3")) == indexed
+    assert _include_submitted_force_push(indexed, ("c2", "c3")) == (
+        revision(2, "c1", "c2", current=False),
+        revision(3, "c2", "c3", current=True),
+    )
+    assert _include_submitted_force_push((), ("c1", "c2")) == (
+        revision(2, "c1", "c2", current=True),
     )

@@ -220,8 +220,6 @@ class FakeGithubRepo:
     github_stacks: dict[int, tuple[int, ...]] = field(default_factory=dict)
     pr_events: list[FakeGithubPREvent] = field(default_factory=list)
     pr_force_pushes: dict[int, list[tuple[str, str]]] = field(default_factory=dict)
-    # Test hook: PRs whose newest force-push event GraphQL has not indexed yet.
-    pr_force_push_history_lag: set[int] = field(default_factory=set)
     prs: dict[int, FakeGithubPR] = field(default_factory=dict)
     pr_reviews: dict[int, list[FakeGithubPRReview]] = field(default_factory=dict)
     # Test hook: PR numbers GitHub should report as not mergeable (pending
@@ -1726,8 +1724,6 @@ def _graphql_repo_payload(
             }
         if "timelineItems(" in query:
             force_pushes = repo.pr_force_pushes.get(pr_number, ())
-            if pr_number in repo.pr_force_push_history_lag:
-                force_pushes = force_pushes[:-1]
             graphql_payload["timelineItems"] = {
                 "filteredCount": len(force_pushes),
                 "nodes": [

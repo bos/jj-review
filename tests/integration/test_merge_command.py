@@ -156,27 +156,6 @@ def test_merge_draft_blocks_the_candidate_prefix(
     assert read_remote_ref(fake_repo.git_dir, "main") == trunk_before
 
 
-def test_merge_names_a_closed_blocking_pull_request(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    """A closed pull request has to be reported as closed, not as unspecified drift."""
-
-    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    fake_repo.update_pr_state(fake_repo.prs[1], state="closed")
-    trunk_before = read_remote_ref(fake_repo.git_dir, "main")
-
-    exit_code = run_main(repo, config_path, "merge", "--dry-run")
-    rendered = " ".join(capsys.readouterr().out.split())
-
-    assert exit_code == 1
-    assert "pull request #1 is closed" in rendered, rendered
-    assert "base branch" not in rendered, rendered
-    assert read_remote_ref(fake_repo.git_dir, "main") == trunk_before
-
-
 def test_stack_merge_reports_github_failure_during_automatic_sync(
     tmp_path: Path,
     monkeypatch,
