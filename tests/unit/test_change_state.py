@@ -126,6 +126,7 @@ _REPRESENTATIVES: tuple[tuple[str, dict[str, object], type], ...] = (
     ("merged and proven", {"pr": _pr(state="merged"), "trunk_evidence": "rewritten"}, Landed),
     ("open, exact commit already on trunk", {"trunk_evidence": "exact"}, Landed),
     ("queued", {"pr": _pr(queued=True)}, Queued),
+    ("queued but head moved", {"pr": _pr(queued=True, head_sha="elsewhere")}, PRHeadMoved),
     ("head moved off the change", {"pr": _pr(head_sha="elsewhere")}, PRHeadMoved),
     ("branch deleted", {"remote_target": None}, BranchMissing),
     ("branch and PR head disagree", {"remote_target": "other"}, BranchDisagrees),

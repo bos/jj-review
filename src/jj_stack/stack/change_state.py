@@ -105,6 +105,8 @@ class WithPR(_State):
     """A state GitHub reported a pull request for."""
 
     pr: GithubPR
+    # The commit at branch@remote, when observed; None when the branch is absent.
+    remote_target: str | None | Unobserved
 
 
 class Stop:
@@ -139,28 +141,20 @@ class NotInspected(_State):
 class Published(WithPR):
     """The open pull request is at the submitted baseline, and so is the local change."""
 
-    remote_target: str | None | Unobserved
-
 
 @dataclass(frozen=True, kw_only=True)
 class Edited(WithPR):
     """The open pull request is at the submitted baseline; the local change moved on."""
-
-    remote_target: str | None | Unobserved
 
 
 @dataclass(frozen=True, kw_only=True)
 class PushedUnrecorded(WithPR):
     """The open pull request already follows the local commit, but no baseline records it."""
 
-    remote_target: str | None | Unobserved
-
 
 @dataclass(frozen=True, kw_only=True)
 class Queued(WithPR):
     """The open pull request is in the trunk merge queue; every command waits."""
-
-    remote_target: str | None | Unobserved
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -305,8 +299,6 @@ class BranchClaimed(Stop, _State):
 
 @dataclass(frozen=True, kw_only=True)
 class PRHeadMoved(Stop, WithPR):
-    remote_target: str | None | Unobserved
-
     @property
     def reason(self) -> Message:
         head = self.pr.head.sha or "?"
@@ -342,14 +334,13 @@ class BranchMissing(Stop, WithPR):
 
 @dataclass(frozen=True, kw_only=True)
 class BranchDisagrees(Stop, WithPR):
-    remote_target: str
-
     @property
     def reason(self) -> Message:
         head = self.pr.head.sha or "?"
+        target = self.remote_target if isinstance(self.remote_target, str) else "?"
         return (
             t"{_pr_label(self.pr)} is at {ui.commit_id(head)} but PR branch "
-            t"{self._branch_label()} is at {ui.commit_id(self.remote_target)}"
+            t"{self._branch_label()} is at {ui.commit_id(target)}"
         )
 
     @property
@@ -428,24 +419,24 @@ def classify(observation: ChangeObservation) -> ChangeState:
             return PRAmbiguous(**common, open_prs_on_branch=open_prs)
         return PRMissing(**common, open_prs_on_branch=open_prs)
     pr = o.pr.normalize_state()
+    remote = o.remote_target
     if pr.head.ref != o.tracked.pr_identity.head_ref:
-        return PRIdentityMismatch(**common, pr=pr)
+        return PRIdentityMismatch(**common, pr=pr, remote_target=remote)
     competitors = tuple(candidate for candidate in open_prs if candidate.number != pr.number)
     if competitors:
-        return CompetingOpenPR(**common, pr=pr, competitors=competitors)
+        return CompetingOpenPR(**common, pr=pr, remote_target=remote, competitors=competitors)
     if pr.state == "closed":
-        return Closed(**common, pr=pr)
+        return Closed(**common, pr=pr, remote_target=remote)
     evidence = o.trunk_evidence
     if pr.state == "merged":
         if isinstance(evidence, Unobserved):
-            return Merged(**common, pr=pr, unproven=None)
+            return Merged(**common, pr=pr, remote_target=remote, unproven=None)
         if evidence is None:
-            return Merged(**common, pr=pr, unproven=o.trunk_evidence_reason)
-        return Landed(**common, pr=pr, evidence=evidence)
+            reason = o.trunk_evidence_reason
+            return Merged(**common, pr=pr, remote_target=remote, unproven=reason)
+        return Landed(**common, pr=pr, remote_target=remote, evidence=evidence)
     if evidence == "exact":
-        return Landed(**common, pr=pr, evidence=evidence)
-    if pr.is_queued:
-        return Queued(**common, pr=pr, remote_target=o.remote_target)
+        return Landed(**common, pr=pr, remote_target=remote, evidence=evidence)
     return _classify_open(o, common, pr)
 
 
@@ -476,9 +467,13 @@ def _classify_open(
         return PRHeadMoved(**common, pr=pr, remote_target=remote)
     if not isinstance(remote, Unobserved):
         if remote is None:
-            return BranchMissing(**common, pr=pr)
+            return BranchMissing(**common, pr=pr, remote_target=remote)
         if head is not None and remote != head:
             return BranchDisagrees(**common, pr=pr, remote_target=remote)
+    # A queued pull request whose head and branch still agree with what was submitted waits
+    # for GitHub; one that no longer agrees is reported as moved first.
+    if pr.is_queued:
+        return Queued(**common, pr=pr, remote_target=remote)
     if head is not None and head != baseline:
         return PushedUnrecorded(**common, pr=pr, remote_target=remote)
     local_commit = _selected_commit_id(o)
