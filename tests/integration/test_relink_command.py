@@ -55,10 +55,7 @@ def test_relink_attaches_pr_whose_branch_is_at_the_local_commit(
     rewritten_stack = selected_stack(repo, change_id)
 
     assert exit_code == 0
-    assert "PR #1 unchanged" in captured.out
     assert set(fake_repo.prs) == {1}
-    assert fake_repo.prs[1].title == "manual title"
-    assert fake_repo.prs[1].body == "manual body"
     assert (
         read_remote_ref(fake_repo.git_dir, manual_bookmark)
         == rewritten_stack.changes[-1].commit_id

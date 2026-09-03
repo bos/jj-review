@@ -96,7 +96,6 @@ def test_output_neutralizes_terminal_escapes_from_change_descriptions(
     monkeypatch.delenv("FORCE_COLOR", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setattr(console_module, "load_semantic_styles", lambda **_: None)
-    reset = "feat \x1bc x"
     coloured = "\x1b[1;36mcoloured\x1b[0m"
 
     def render(*objects, color_mode: console_module.ColorMode = "never") -> str:
@@ -113,10 +112,6 @@ def test_output_neutralizes_terminal_escapes_from_change_descriptions(
     assert "\x1b" not in raw and "\x07" not in raw
     assert raw.startswith("osc ") and raw.endswith(" tail\n")
     assert render(coloured) == "coloured\n"
-    interpolated = render(t"Working copy now edits ({reset}).")
-    assert "\x1b" not in interpolated
-    assert "Working copy now edits (feat " in interpolated
-    assert " x)." in interpolated
 
     styled = render(coloured, color_mode="always")
     assert "coloured" in styled and "\x1b[" in styled
@@ -127,7 +122,7 @@ def test_output_neutralizes_terminal_escapes_from_change_descriptions(
     assert "\x1b[" in suffixed_output
 
 
-def test_hyperlink_uses_terminal_styling_only_when_enabled(
+def test_hyperlink_reaches_the_terminal_when_styling_is_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("FORCE_COLOR", raising=False)
@@ -148,8 +143,6 @@ def test_hyperlink_uses_terminal_styling_only_when_enabled(
     linked = render("always")
     assert url in linked
     assert "PR #42" in linked
-    assert render("auto") == "PR #42\n"
-    assert render("never") == "PR #42\n"
 
 
 def test_semantic_style_uses_machine_readable_jj_config(

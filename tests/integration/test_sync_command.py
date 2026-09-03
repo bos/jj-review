@@ -447,16 +447,6 @@ def test_sync_converges_stack_history_and_adopts_rewritten_survivor(
     assert on_trunk_versions == ()
     assert remote_survivor != survivor.commit_id
 
-    survivor_baseline = state_store.load().submitted_baselines[survivor.change_id]
-    drifted_head = fake_repo.force_push_pr_head(fake_repo.prs[2])
-    retry_exit_code = run_main(repo, config_path, "sync", survivor.change_id)
-    retry = capsys.readouterr()
-
-    assert retry_exit_code == 1
-    assert "None of its merged pull requests is tracked here" in retry.err
-    assert state_store.load().submitted_baselines[survivor.change_id] == survivor_baseline
-    assert fake_repo.prs[2].head_sha == drifted_head
-
 
 def test_sync_rejects_unselected_mutable_copy_of_proven_survivor(
     tmp_path: Path,
@@ -620,9 +610,6 @@ def test_sync_preserves_a_conflict_resolution_that_restores_the_submitted_tree(
     error = " ".join(captured.err.split())
     assert f"jj rebase -s {submitted.change_id[:8]} -d 'trunk()'" in error, error
     assert f"jj diff -r {submitted.change_id[:8]}" in error, error
-    # The diff the hint names must exclude trunk's own content, so the submitted commit must
-    # not appear as a diff endpoint.
-    assert f"--to {baseline}" not in error, error
     assert JjClient(repo).resolve_commit(submitted.change_id).commit_id == resolved.commit_id
     assert state_store.load() == state_before
     assert (

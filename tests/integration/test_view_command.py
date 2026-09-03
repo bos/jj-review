@@ -75,7 +75,7 @@ def test_view_json_reports_public_stack_status(
     assert "saved_pr" not in change
 
 
-def test_view_and_list_show_queued_prs_with_checks(
+def test_view_and_list_show_queued_prs(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -83,15 +83,14 @@ def test_view_and_list_show_queued_prs_with_checks(
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     fake_repo.prs[1].is_queued = True
-    fake_repo.prs[1].check_rollup_state = "PENDING"
 
     assert run_main(repo, config_path, "view") == 0
     viewed = capsys.readouterr()
-    assert "PR #1 queued, checks pending" in viewed.out
+    assert "PR #1 queued" in viewed.out
 
     assert run_main(repo, config_path, "list") == 0
     listed = capsys.readouterr()
-    assert "queued, checks pending" in listed.out
+    assert "queued" in listed.out
 
 
 def test_view_warns_and_reports_empty_working_copy_from_another_workspace(

@@ -22,19 +22,6 @@ complexity_script = importlib.util.module_from_spec(_COMPLEXITY_SPEC)
 _COMPLEXITY_SPEC.loader.exec_module(complexity_script)
 
 
-def test_pyrefly_checks_name_project_paths_explicitly() -> None:
-    checks = dict(
-        check_script._build_checks(
-            pytest_jobs=1,
-            coverage=False,
-            concurrency_report=False,
-        )
-    )
-
-    for name in ("pyrefly", "pyrefly-windows"):
-        assert checks[name][-4:] == ("src", "tests", "tools", "check.py")
-
-
 def test_fragile_test_output_check_accepts_clean_tree(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

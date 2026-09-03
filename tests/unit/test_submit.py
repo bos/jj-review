@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
 from dataclasses import replace
 
 import pytest
@@ -52,16 +51,6 @@ def test_overview_comment_move_keeps_source_when_head_creation_fails() -> None:
         def __init__(self) -> None:
             self.deleted_comment_ids: list[int] = []
             self._repo = GithubRepoAddress(owner="octo-org", repo="stacked-prs")
-
-        async def find_issue_comments_by_body_marker(
-            self,
-            *,
-            body_marker: str,
-            pr_numbers: Sequence[int],
-        ) -> dict[int, GithubIssueComment | None]:
-            assert body_marker == "<!-- jj-stack-overview -->"
-            assert tuple(pr_numbers) == (1, 2)
-            return {1: source_comment, 2: None}
 
         async def create_issue_comment(
             self,

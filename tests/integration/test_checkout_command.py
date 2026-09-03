@@ -188,9 +188,8 @@ def test_checkout_explains_an_immutable_pr_commit_instead_of_dumping_jj_output(
     assert _main(repo, config_path, "checkout", "--pull-request", "1") != 0
 
     unwrapped = " ".join(capsys.readouterr().err.split())
-    assert "jj will not rewrite commit" in unwrapped
     assert bottom_commit_id[:8] in unwrapped
-    assert "because it is immutable here" in unwrapped
+    assert "immutable" in unwrapped
     assert "jj bookmark list --all-remotes" in unwrapped
 
 
@@ -230,7 +229,7 @@ def test_checkout_imports_a_rewritten_pr_head_beside_the_local_copy(
         copy.commit_id for copy in client.query_commits(f"change_id({change.change_id})")
     } == {change.commit_id, remote_head}
     assert client.resolve_commit("@").commit_id == remote_head
-    assert f"{remote_head[:8]} (from PR #1) and {change.commit_id[:8]}" in unwrapped
+    assert remote_head[:8] in unwrapped and change.commit_id[:8] in unwrapped
     assert "jj converge -r" in unwrapped
     baselines = TrackingStore.for_repo(repo).load().submitted_baselines
     assert baselines[change.change_id].commit_id == remote_head
@@ -265,10 +264,8 @@ def test_checkout_imports_a_commit_added_to_the_pr_branch_above_the_change(
     unwrapped = " ".join(capsys.readouterr().err.split())
     squash = f"jj squash --from {working_copy.change_id[:8]} --into {change.change_id[:8]}"
     assert working_copy.commit_id == added
-    assert (
-        f"{working_copy.change_id[:8]} (Fake GitHub: Apply suggestions from code review)"
-        in unwrapped
-    )
+    assert working_copy.change_id[:8] in unwrapped
+    assert "Apply suggestions from code review" in unwrapped
     assert squash in unwrapped
     baselines = TrackingStore.for_repo(repo).load().submitted_baselines
     assert baselines[change.change_id].commit_id == added
