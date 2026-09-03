@@ -39,4 +39,5 @@ jj-stack <command> --help
 jj-stack help --all
 ```
 
-State-changing commands also accept `--dry-run` when you want to preview their work.
+`submit`, `merge`, `unstack`, `cleanup`, and `sync` accept `--dry-run` when you want to preview
+their work.
