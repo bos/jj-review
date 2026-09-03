@@ -27,13 +27,16 @@ It does not change anything on GitHub.
 
 ## A PR branch moved outside jj-stack
 
-**How this can happen:** someone force-pushed, renamed, or deleted a `jj-stack/` branch, or
+**How this can happen:** GitHub merged part of your stack or rebased it, moving the PR branches
+of your open pull requests; someone force-pushed, renamed, or deleted a `jj-stack/` branch; or
 another tool updated it.
 
 `jj-stack` leaves the branch untouched and prints a recovery hint for the condition it observed.
-For an accidentally moved `submit --base` branch, restore the immutable submitted commit ID named
-in that error. For another moved branch, inspect and repair it as the hint directs; for a missing
-branch, either restore it or close the PR on GitHub, run `jj-stack cleanup`, and submit again.
+`jj-stack view <head-change-id>` shows where each branch moved. If GitHub moved it while
+merging or rebasing your stack, run `jj-stack sync <head-change-id>`. For an accidentally moved
+`submit --base` branch, restore the immutable submitted commit ID named in that error. For a
+missing branch, either restore it or close the PR on GitHub, run `jj-stack cleanup`, and submit
+again.
 
 If the PR branch holds work that is not in your change, such as a reviewer's suggestion or a
 version submitted from another clone, choose what to do with it. To keep it, run
@@ -77,6 +80,10 @@ branches that are no longer needed:
 ```console
 jj-stack sync <head-change-id>
 ```
+
+When GitHub merges only part of your stack, it also moves the PR branches of your remaining pull
+requests onto the merged result. `sync` handles that too, even if you have already edited those
+changes locally.
 
 If completed merges affected several stacks, or you do not want to identify each stack head, run:
 
