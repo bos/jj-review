@@ -3,7 +3,7 @@ production = 20_160
 tests = 21_570
 total = 41_833
 merge = 1_682
-governed = 3_350
+governed = 3_869
 governed_module = 502
 checker = 182
 
@@ -21,9 +21,9 @@ tests = "Tests"
 total = "Production and tests combined"
 checker = "Complexity checker"
 merge = "Merge command"
-governed = "Merge and recovery code"
+governed = "Merge, recovery, and change-state code"
 c901 = "Production"
-governed_c901 = "Merge and recovery code"
+governed_c901 = "Merge, recovery, and change-state code"
 fixed_property = "Property-test cases"
 merge_recovery = "Merge and recovery cases"
 
@@ -57,6 +57,7 @@ governed = [
   "src/jj_stack/stack/convergence_observation.py",
   "src/jj_stack/stack/global_convergence.py",
   "src/jj_stack/stack/pr_facts.py",
+  "src/jj_stack/stack/change_state.py",
 ]
 fixed_property = [
   "tests/property/test_submit_property_scenarios.py",
