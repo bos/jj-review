@@ -43,6 +43,9 @@ class RepoFacts:
     remote: GitRemote | None
     repo: github_resolution.GithubRepoAddress
     prs: Mapping[str, PRFacts]
+    # Whether the optional facts were requested; only then does an absent value mean absent.
+    observed_open_head_prs: bool = False
+    observed_remote_targets: bool = False
 
 
 def has_competing_open_pr(
@@ -154,6 +157,8 @@ async def observe_prs(
         remote=remote,
         repo=repo,
         prs=prs,
+        observed_open_head_prs=include_open_head_prs,
+        observed_remote_targets=include_remote_targets and remote is not None,
     )
 
 

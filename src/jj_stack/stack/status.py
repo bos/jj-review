@@ -32,8 +32,8 @@ from jj_stack.stack.change_state import (
     UNOBSERVED,
     ChangeObservation,
     ChangeState,
-    WithPR,
     classify,
+    live_pr,
     report_incomplete,
 )
 from jj_stack.stack.selected import select_stack_path, select_stack_path_containing_change
@@ -77,7 +77,7 @@ class StackStatusChange:
 
     @property
     def pr(self) -> GithubPR | None:
-        return self.state.pr if isinstance(self.state, WithPR) else None
+        return live_pr(self.state)
 
 
 @dataclass(frozen=True, slots=True)

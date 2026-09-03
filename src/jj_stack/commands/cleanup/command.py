@@ -49,7 +49,7 @@ from jj_stack.jj.client import JjClient, PRRefUpdate
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubIssueComment, GithubPR, GithubStack
 from jj_stack.models.tracking import TrackingState
-from jj_stack.stack.change_state import enumerate_orphaned_records
+from jj_stack.stack.change_state import enumerate_orphaned_records, live_pr
 from jj_stack.stack.pr_facts import (
     RepoFacts,
     observe_github_stacks,
@@ -583,13 +583,14 @@ def _preflight_tracked_pr_cleanup(
     preview_detached_dependents: frozenset[int],
 ) -> CleanupPreflight:
     candidate = prepared_change.candidate
-    pr, blocker = check_tracked_pr(
+    state, blocker = check_tracked_pr(
         allowed_states=frozenset({"open", "closed", "merged"}),
         candidate=candidate,
         observation=initial_observation,
     )
     if blocker is not None:
         return None, None, blocker
+    pr = live_pr(state) if state is not None else None
     if pr is None:
         raise AssertionError("Exact cleanup lookup must return a pull request.")
     if pr.state == "open" and not prepared_cleanup.close_open_prs:
@@ -604,7 +605,7 @@ def _preflight_tracked_pr_cleanup(
             else None
         )
         return None, None, action
-    _pr, update, blocker = plan_pr_cleanup(
+    _state, update, blocker = plan_pr_cleanup(
         allowed_states=(
             frozenset({"open", "closed", "merged"})
             if prepared_cleanup.close_open_prs

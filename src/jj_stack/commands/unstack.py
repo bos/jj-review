@@ -236,7 +236,7 @@ async def _check_selected_prs(
     for change_id in change_ids:
         candidate = state.tracked_pr(change_id)
         assert candidate is not None
-        _pr, blocker = check_tracked_pr(
+        _state, blocker = check_tracked_pr(
             allowed_states=frozenset({"open", "closed", "merged"}),
             candidate=candidate,
             observation=observation,

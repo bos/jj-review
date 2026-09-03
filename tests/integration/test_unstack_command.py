@@ -161,7 +161,7 @@ def test_unstack_rechecks_saved_pr_before_removing_grouping(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "live PR no longer matches" in _combined_output(captured)
+    assert "now uses head branch" in _combined_output(captured)
     assert fake_repo.github_stacks == {7: (1, 2)}
     assert state_store.load() == initial_state
 

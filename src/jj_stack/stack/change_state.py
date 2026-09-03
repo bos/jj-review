@@ -25,6 +25,7 @@ from jj_stack.models.tracking import PRIdentity, TrackedPR, TrackingState
 from jj_stack.ui import Message
 
 if TYPE_CHECKING:
+    from jj_stack.stack.pr_facts import RepoFacts
     from jj_stack.stack.trunk_evidence import TrunkEvidenceKind
 
 
@@ -262,7 +263,7 @@ class CompetingOpenPR(Stop, WithPR):
     def reason(self) -> Message:
         others = ui.join(_pr_label, self.competitors)
         return (
-            t"open {others} also uses PR branch {self._branch_label()}; this change's pull "
+            t"Open {others} also uses PR branch {self._branch_label()}; this change's pull "
             t"request is {_pr_label(self.pr)}"
         )
 
@@ -283,7 +284,7 @@ class UntrackedPRExists(Stop, _State):
 
     @property
     def repair(self) -> Message:
-        return t"adopt the intended pull request with {ui.cmd('jj-stack relink')}"
+        return t"run {ui.cmd('jj-stack relink')} to link it"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -381,9 +382,9 @@ type ChangeState = (
     | BranchDisagrees
 )
 
-_RELINK: Message = t"reattach the intended pull request with {ui.cmd('jj-stack relink')}"
+_RELINK: Message = t"run {ui.cmd('jj-stack relink')} to link the intended pull request"
 _RELINK_OR_FORGET: Message = (
-    t"{_RELINK}, or forget the link with {ui.cmd('jj-stack unstack --local')}"
+    t"{_RELINK}, or forget the saved link with {ui.cmd('jj-stack unstack --local')}"
 )
 
 
@@ -499,6 +500,52 @@ def _local_commit_ids(o: ChangeObservation) -> frozenset[str]:
     if o.selected is not None:
         ids.add(o.selected.commit_id)
     return frozenset(ids)
+
+
+def observe_pr_facts(
+    facts: RepoFacts,
+    change_id: str,
+    *,
+    branch: str | None = None,
+    selected: LocalCommit | None = None,
+    trunk_evidence: TrunkEvidenceKind | None | Unobserved = UNOBSERVED,
+    trunk_evidence_reason: Message | None = None,
+) -> ChangeObservation:
+    """Project one change out of the facts a mutating command observed."""
+
+    item = facts.prs[change_id]
+    tracked = (
+        TrackedPR(
+            change_id=change_id, pr_identity=item.identity, submitted_baseline=item.baseline
+        )
+        if item.identity is not None and item.baseline is not None
+        else None
+    )
+    return ChangeObservation(
+        change_id=change_id,
+        tracked=tracked,
+        branch=branch if branch is not None else _identity_branch(tracked),
+        remote_name=facts.remote.name if facts.remote is not None else None,
+        local=item.local_commits,
+        selected=selected,
+        pr=item.pr if tracked is not None else UNOBSERVED,
+        open_prs_on_branch=item.open_head_prs if facts.observed_open_head_prs else UNOBSERVED,
+        remote_target=(
+            item.remote_pr_branch_target if facts.observed_remote_targets else UNOBSERVED
+        ),
+        trunk_evidence=trunk_evidence,
+        trunk_evidence_reason=trunk_evidence_reason,
+    )
+
+
+def _identity_branch(tracked: TrackedPR | None) -> str | None:
+    return tracked.pr_identity.head_ref if tracked is not None else None
+
+
+def live_pr(state: ChangeState) -> GithubPR | None:
+    """The pull request GitHub reported for this state, if any."""
+
+    return state.pr if isinstance(state, WithPR) else None
 
 
 # ---- shared derived rules ---------------------------------------------------------------

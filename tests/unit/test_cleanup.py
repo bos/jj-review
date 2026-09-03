@@ -109,7 +109,8 @@ def test_cleanup_preserves_a_head_branch_shared_by_another_open_pr() -> None:
     assert update is None
     assert blocker is not None
     assert blocker.kind == "remote branch"
-    assert "another open pull request" in plain_text(blocker.body)
+    assert "cannot delete" in plain_text(blocker.body)
+    assert "also uses PR branch" in plain_text(blocker.body)
 
 
 def _candidate() -> TrackedPR:
@@ -148,6 +149,8 @@ def _observation(
         prs_by_base={BRANCH: ()},
         remote=_REMOTE,
         repo=_REPO,
+        observed_open_head_prs=True,
+        observed_remote_targets=True,
         prs={
             CHANGE_ID: PRFacts(
                 baseline=_BASELINE,

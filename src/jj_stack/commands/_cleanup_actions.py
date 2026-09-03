@@ -19,7 +19,17 @@ from jj_stack.jj.client import JjClient, PRRefUpdate
 from jj_stack.models.github import GithubIssueComment, GithubPR, GithubStack
 from jj_stack.models.tracking import TrackedPR
 from jj_stack.pr_branch_namespace import pr_branch_matches_change
-from jj_stack.stack.pr_facts import RepoFacts, has_competing_open_pr
+from jj_stack.stack.change_state import (
+    ChangeState,
+    CompetingOpenPR,
+    PRAmbiguous,
+    PRIdentityMismatch,
+    PRMissing,
+    classify,
+    live_pr,
+    observe_pr_facts,
+)
+from jj_stack.stack.pr_facts import RepoFacts
 from jj_stack.ui import Message
 
 ActionPresentationStatus = Literal["applied", "blocked", "planned", "skipped"]
@@ -32,76 +42,66 @@ def check_tracked_pr(
     observation: RepoFacts,
     preview_detached_dependents: frozenset[int] = frozenset(),
     require_no_dependents: bool = False,
-) -> tuple[GithubPR | None, CleanupAction | None]:
-    """Check that one saved PR is still the saved one and in an allowed state."""
+) -> tuple[ChangeState | None, CleanupAction | None]:
+    """Classify one saved PR and check that it is still the saved one in an allowed state."""
 
     change_id = candidate.change_id
     pr_identity = candidate.pr_identity
-    submitted_baseline = candidate.submitted_baseline
     observed = observation.prs[change_id]
-    pr_number = pr_identity.pr_number
-    pr = observed.pr
-    pr_label = format_pr_label(pr_number, repo=observation.repo)
-    kind = "pull request"
-    reason: Message | None = None
-    if (observed.identity, observed.baseline) != (pr_identity, submitted_baseline):
-        kind = "tracking"
-        reason = (
-            t"tracking for {ui.change_id(change_id)} changed while this command ran; "
-            t"rerun the same command"
+    if (observed.identity, observed.baseline) != (pr_identity, candidate.submitted_baseline):
+        return None, CleanupAction(
+            kind="tracking",
+            body=t"tracking for {ui.change_id(change_id)} changed while this command ran; "
+            t"rerun the same command",
+            status="blocked",
         )
-    elif pr is None:
-        reason = (
-            t"{pr_label} is no longer on GitHub; attach a replacement with "
-            t"{ui.cmd('jj-stack relink')}, or drop the tracking with "
-            t"{ui.cmd('jj-stack unstack --local')}"
+    state = classify(observe_pr_facts(observation, change_id))
+    if isinstance(state, (PRMissing, PRAmbiguous, PRIdentityMismatch)):
+        return None, CleanupAction(
+            kind="pull request",
+            body=t"{state.reason}; {state.repair}",
+            status="blocked",
         )
-    else:
-        pr = pr.normalize_state()
-        pr_label = format_pr_label(pr.number, url=pr.html_url)
-    if reason is None:
-        assert pr is not None
-        if not pr_identity.matches_pr(pr):
-            reason = (
-                t"cannot inspect saved {pr_label} because its live PR no longer "
-                t"matches {ui.bookmark(pr_identity.head_ref)}"
-            )
-        elif pr.state not in allowed_states:
-            reason = (
-                t"cannot mutate saved {pr_label} because GitHub now reports state {pr.state!r}"
-            )
-    check_dependents = (reason is None, require_no_dependents) == (True, True)
-    if check_dependents:
-        prs_by_base = observation.prs_by_base
-        assert prs_by_base is not None
-        observed_dependents = prs_by_base.get(pr_identity.head_ref, ())
-        dependents = tuple(
-            item
-            for item in observed_dependents
-            if item.number not in preview_detached_dependents
-            # GitHub can never reopen a closed PR whose head branch is gone, so its base is free.
-            and (item.state == "open" or item.head_branch_exists)
+    pr = live_pr(state)
+    if pr is None:
+        raise AssertionError("A tracked pull request lookup must report the pull request.")
+    pr_label = format_pr_label(pr.number, url=pr.html_url)
+    if pr.state not in allowed_states:
+        return state, CleanupAction(
+            kind="pull request",
+            body=t"cannot mutate saved {pr_label} because GitHub now reports state {pr.state!r}",
+            status="blocked",
         )
-        # A full 100-result page may hide another dependent, so it also fails closed.
-        blockers = dependents[:1] or observed_dependents[99:100]
-        if blockers:
-            kind = "remote branch"
-            dependent = blockers[0]
-            dependent_label = format_pr_label(dependent.number, url=dependent.html_url)
-            recovery = (
-                t"retarget {dependent_label}"
-                if dependent.state == "open"
-                else t"reopen and retarget {dependent_label}, or delete its head branch"
-            )
-            reason = (
-                t"preserve {pr_label}'s branch and tracking because "
-                t"{dependent_label} still uses {ui.bookmark(pr_identity.head_ref)} "
-                t"as its base, and deleting it would leave {dependent_label} closed "
-                t"with no way to reopen it; {recovery}, then rerun {ui.cmd('jj-stack cleanup')}"
-            )
-    return (
-        pr,
-        None if reason is None else CleanupAction(kind=kind, body=reason, status="blocked"),
+    if not require_no_dependents:
+        return state, None
+    prs_by_base = observation.prs_by_base
+    assert prs_by_base is not None
+    observed_dependents = prs_by_base.get(pr_identity.head_ref, ())
+    dependents = tuple(
+        item
+        for item in observed_dependents
+        if item.number not in preview_detached_dependents
+        # GitHub can never reopen a closed PR whose head branch is gone, so its base is free.
+        and (item.state == "open" or item.head_branch_exists)
+    )
+    # A full 100-result page may hide another dependent, so it also fails closed.
+    blockers = dependents[:1] or observed_dependents[99:100]
+    if not blockers:
+        return state, None
+    dependent = blockers[0]
+    dependent_label = format_pr_label(dependent.number, url=dependent.html_url)
+    recovery = (
+        t"retarget {dependent_label}"
+        if dependent.state == "open"
+        else t"reopen and retarget {dependent_label}, or delete its head branch"
+    )
+    return state, CleanupAction(
+        kind="remote branch",
+        body=t"preserve {pr_label}'s branch and tracking because "
+        t"{dependent_label} still uses {ui.bookmark(pr_identity.head_ref)} "
+        t"as its base, and deleting it would leave {dependent_label} closed "
+        t"with no way to reopen it; {recovery}, then rerun {ui.cmd('jj-stack cleanup')}",
+        status="blocked",
     )
 
 
@@ -232,32 +232,28 @@ def plan_pr_cleanup(
     candidate: TrackedPR,
     observation: RepoFacts,
     preview_detached_dependents: frozenset[int] = frozenset(),
-) -> tuple[GithubPR | None, PRRefUpdate | None, CleanupAction | None]:
+) -> tuple[ChangeState | None, PRRefUpdate | None, CleanupAction | None]:
     """Check cleanup eligibility and lease the PR branch deletion to its observed target."""
 
-    pr, blocker = check_tracked_pr(
+    state, blocker = check_tracked_pr(
         allowed_states=allowed_states,
         candidate=candidate,
         observation=observation,
         preview_detached_dependents=preview_detached_dependents,
         require_no_dependents=True,
     )
-    if blocker is not None or pr is None:
-        return pr, None, blocker
+    if blocker is not None or state is None:
+        return state, None, blocker
     change_id = candidate.change_id
     pr_identity = candidate.pr_identity
-    observed = observation.prs[change_id]
-    if has_competing_open_pr(
-        open_head_prs=observed.open_head_prs,
-        pr_number=pr_identity.pr_number,
-    ):
+    branch = pr_identity.head_ref
+    if isinstance(state, CompetingOpenPR):
         return (
-            pr,
+            state,
             None,
             CleanupAction(
                 kind="remote branch",
-                body=t"cannot delete {ui.bookmark(pr_identity.head_ref)} because another open "
-                t"pull request uses it as its head branch",
+                body=t"cannot delete {ui.bookmark(branch)}: {state.reason}; {state.repair}",
                 status="blocked",
             ),
         )
@@ -269,7 +265,7 @@ def plan_pr_cleanup(
     ):
         pr_label = format_pr_label(pr_identity.pr_number, repo=observation.repo)
         return (
-            pr,
+            state,
             None,
             CleanupAction(
                 kind="remote branch",
@@ -277,10 +273,9 @@ def plan_pr_cleanup(
                 status="blocked",
             ),
         )
-    branch = pr_identity.head_ref
     if not pr_branch_matches_change(branch, change_id):
         return (
-            pr,
+            state,
             None,
             CleanupAction(
                 kind="tracking",
@@ -289,7 +284,7 @@ def plan_pr_cleanup(
                 status="blocked",
             ),
         )
-    remote_target = observed.remote_pr_branch_target
+    remote_target = observation.prs[change_id].remote_pr_branch_target
     update = (
         None
         if remote_target is None
@@ -299,7 +294,7 @@ def plan_pr_cleanup(
             desired_target=None,
         )
     )
-    return pr, update, None
+    return state, update, None
 
 
 def github_stack_cleanup_blockers(

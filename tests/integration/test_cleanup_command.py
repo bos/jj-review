@@ -357,7 +357,7 @@ def test_cleanup_preserves_closed_pr_branch_used_as_head_by_another_open_pr(
     output = " ".join(captured.out.split())
 
     assert exit_code == 1
-    assert "uses it as its head branch" in output
+    assert "also uses PR branch" in output
     assert state_store.load() == state
     assert issue_comments(fake_repo, identity.pr_number) == comments_before
     assert f"refs/heads/{identity.head_ref}" in remote_refs(fake_repo.git_dir)

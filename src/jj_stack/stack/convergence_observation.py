@@ -72,6 +72,7 @@ async def complete_sync_observation(
     )
     observation = replace(
         initial,
+        observed_remote_targets=True,
         prs={
             change_id: replace(
                 item,
