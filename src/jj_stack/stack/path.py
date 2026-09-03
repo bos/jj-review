@@ -8,6 +8,7 @@ import jj_stack.ui as ui
 from jj_stack.errors import AmbiguousSelectionError, CliError
 from jj_stack.jj.client import UnsupportedStackError
 from jj_stack.models.stack import LocalCommit, LocalStack
+from jj_stack.stack.divergence import divergence_recovery_hint
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +220,10 @@ def _select_commit(observation: SelectedPathObservation) -> LocalCommit:
         if len(mutable) > 1:
             raise AmbiguousSelectionError(
                 "The selected change has more than one mutable local copy.",
+                hint=divergence_recovery_hint(
+                    mutable[0].change_id,
+                    retry="retry the jj-stack command",
+                ),
             )
         if mutable:
             return mutable[0]

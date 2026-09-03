@@ -18,6 +18,7 @@ from jj_stack.stack.change_state import (
     classify,
     observe_pr_facts,
 )
+from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.pr_facts import RepoFacts
 from jj_stack.ui import Message
 
@@ -78,11 +79,8 @@ def explain_precondition(
     if precondition.recovery == "resolve":
         return t"it has unresolved conflicts; resolve them with jj, then run {submit}"
     if precondition.recovery == "reconcile":
-        return (
-            t"it has more than one visible commit; resolve the divergence, starting with "
-            t"{ui.cmd('jj log -r')} {ui.revset(f'change_id({short_change_id(change_id)})')}, "
-            t"then run {submit}"
-        )
+        hint = divergence_recovery_hint(change_id, retry=t"run {submit}")
+        return t"it has more than one visible commit; {hint}"
     if precondition.recovery == "view":
         return (
             t"it is no longer visible locally; find where it went with {ui.cmd('jj-stack view')}"

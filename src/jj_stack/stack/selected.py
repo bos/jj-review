@@ -16,6 +16,7 @@ from jj_stack.jj.client import (
 )
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackingState
+from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.path import (
     SelectedPathObservation,
     SelectedStackPath,
@@ -169,6 +170,10 @@ def require_submittable_changes(changes: tuple[LocalCommit, ...]) -> None:
             raise UnsupportedStackError.stack_shape(
                 change.change_id,
                 "divergent changes are not supported.",
+                hint=divergence_recovery_hint(
+                    change.change_id,
+                    retry="retry the jj-stack command",
+                ),
                 reason="divergent_change",
             )
         if change.empty:

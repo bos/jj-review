@@ -52,6 +52,7 @@ from jj_stack.stack.change_state import (
     WithPR,
     enumerate_orphaned_records,
 )
+from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.pr_branches import duplicate_pr_branch_claims
 from jj_stack.stack.repo import observe_repo_paths
 from jj_stack.stack.status import (
@@ -261,6 +262,7 @@ def _run_list(
         )
     )
     _emit_orphan_hint(orphan_rows)
+    _emit_divergence_hints(prepared_discovered)
     _emit_stale_stacks_advisory(prepared_discovered)
     return EXIT_INCOMPLETE if incomplete else 0
 
@@ -330,6 +332,23 @@ def _emit_orphan_hint(orphan_rows: tuple[OrphanRow, ...]) -> None:
         return
     command = ui.cmd("cleanup --pull-request orphans --close")
     console.note(t"Orphan cleanup: preview and run {command}.")
+
+
+def _emit_divergence_hints(
+    prepared_discovered: tuple[_PreparedDiscoveredStack, ...],
+) -> None:
+    change_ids = tuple(
+        dict.fromkeys(
+            change.change_id
+            for item in prepared_discovered
+            for change in item.prepared.stack.changes
+            if change.divergent
+        )
+    )
+    for change_id in change_ids:
+        console.note(
+            t"Divergent change {ui.change_id(change_id)}: {divergence_recovery_hint(change_id)}"
+        )
 
 
 def _emit_stale_stacks_advisory(

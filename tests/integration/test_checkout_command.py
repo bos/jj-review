@@ -231,7 +231,7 @@ def test_checkout_imports_a_rewritten_pr_head_beside_the_local_copy(
     } == {change.commit_id, remote_head}
     assert client.resolve_commit("@").commit_id == remote_head
     assert f"{remote_head[:8]} (from PR #1) and {change.commit_id[:8]}" in unwrapped
-    assert "jj abandon <commit>" in unwrapped
+    assert "jj converge -r" in unwrapped
     baselines = TrackingStore.for_repo(repo).load().submitted_baselines
     assert baselines[change.change_id].commit_id == remote_head
 

@@ -76,7 +76,10 @@ def test_selected_path_stops_when_two_mutable_copies_match() -> None:
     first = _change("copy-a", "pr-change", parents=("trunk",), divergent=True)
     second = _change("copy-b", "pr-change", parents=("trunk",), divergent=True)
 
-    with pytest.raises(AmbiguousSelectionError, match="more than one mutable local copy"):
+    with pytest.raises(
+        AmbiguousSelectionError,
+        match="more than one mutable local copy",
+    ) as caught:
         project_selected_path(
             _observation(
                 head=first,
@@ -86,6 +89,8 @@ def test_selected_path_stops_when_two_mutable_copies_match() -> None:
                 trunk=trunk,
             )
         )
+
+    assert "jj converge -r 'change_id(pr-change)'" in plain_text(caught.value.hint or "")
 
 
 def test_only_explicit_change_selection_can_project_a_sole_trunk_copy() -> None:

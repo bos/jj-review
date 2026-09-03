@@ -1730,11 +1730,14 @@ def test_submit_rejects_divergence_kept_immutable_by_another_remote_bookmark(
     run_command(["jj", "git", "fetch", "--remote", "origin", "--branch", "*"], repo)
 
     assert run_main(repo, config_path, "submit", change_id) == 2
-    assert "divergent changes are not supported" in capsys.readouterr().err
+    submit_output = capsys.readouterr().err
+    assert "divergent changes are not supported" in submit_output
+    assert "jj converge -r" in submit_output
 
     assert run_main(repo, config_path, "view", change_id) == EXIT_INCOMPLETE
     captured = capsys.readouterr()
     assert "feature rewritten" in captured.out
+    assert "jj converge -r" in captured.out
     assert "divergent" in captured.err
 
 

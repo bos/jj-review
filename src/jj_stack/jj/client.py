@@ -181,11 +181,13 @@ class UnsupportedStackError(CliError):
         change_id: str,
         detail: ErrorMessage,
         *,
+        hint: ErrorHint | None = None,
         reason: UnsupportedStackReason,
     ) -> UnsupportedStackError:
         return cls(
             t"Unsupported stack shape at {ui.change_id(change_id)}: {detail}",
             change_id=change_id,
+            hint=hint,
             reason=reason,
         )
 

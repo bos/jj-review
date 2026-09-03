@@ -461,6 +461,8 @@ def test_list_and_view_agree_that_a_divergent_change_is_an_incomplete_report(
     view_output = capsys.readouterr()
 
     assert "divergent" in list_output
+    assert "jj converge -r" in list_output
     assert list_exit_code == EXIT_INCOMPLETE
     assert view_exit_code == EXIT_INCOMPLETE
+    assert "jj converge -r" in view_output.out
     assert "divergent" in view_output.err

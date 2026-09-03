@@ -36,6 +36,7 @@ from jj_stack.stack.convergence_models import (
     SelectedConvergencePlan,
     SkipPRFinish,
 )
+from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.github_stack_safety import selected_github_stack
 from jj_stack.stack.pr_facts import RepoFacts
 from jj_stack.stack.status import PreparedStatus
@@ -272,7 +273,10 @@ def divergent_change_error(change_id: str) -> CliError:
     return CliError(
         t"Cannot rebase remaining {ui.change_id(change_id)} because it has multiple visible "
         t"commits.",
-        hint=t"Resolve the divergence with {ui.cmd('jj')}, then rerun sync for this stack.",
+        hint=divergence_recovery_hint(
+            change_id,
+            retry="rerun sync for this stack",
+        ),
     )
 
 
@@ -377,7 +381,10 @@ def _historical_member(
         raise CliError(
             t"Merged change {ui.change_id(candidate.change_id)} from this stack has more than "
             t"one mutable local copy.",
-            hint=t"Resolve the divergent change with {ui.cmd('jj')}, then rerun sync.",
+            hint=divergence_recovery_hint(
+                candidate.change_id,
+                retry="rerun sync",
+            ),
         )
     if not isinstance(member_state, Landed):
         pr_label = format_pr_label(member_state.pr.number, url=member_state.pr.html_url)
@@ -421,7 +428,10 @@ def _validate_active_member(
         raise CliError(
             t"Cannot sync {ui.change_id(candidate.change_id)} because it has more than one "
             t"mutable local copy.",
-            hint=t"Resolve the divergence with {ui.cmd('jj')}, then rerun sync for this stack.",
+            hint=divergence_recovery_hint(
+                candidate.change_id,
+                retry="rerun sync for this stack",
+            ),
         )
     if selected_change.immutable and selected_change.commit_id != member.head.sha:
         raise CliError(

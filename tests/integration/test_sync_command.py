@@ -508,7 +508,7 @@ def test_sync_rejects_unselected_mutable_copy_of_proven_survivor(
 
     assert exit_code == 1
     assert "more than one mutable local copy" in captured.err
-    assert "Resolve the divergence with jj" in captured.err
+    assert "jj converge -r" in captured.err
     assert state_store.load() == state_before
     assert remote_refs(fake_repo.git_dir) == refs_before
     assert fake_repo.prs == prs_before

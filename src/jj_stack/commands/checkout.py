@@ -40,6 +40,7 @@ from jj_stack.models.github import GithubPR, GithubStack
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_matches_change
+from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
 from jj_stack.stack.pr_facts import duplicate_pr_claim_change_ids
 from jj_stack.stack.repo import observe_repo_paths
@@ -272,14 +273,12 @@ def _divergent_copy_warnings(
         )
         if not others:
             continue
-        revset = shlex.quote(f"change_id({short_change_id(change.change_id)})")
         warnings.append(
             t"Change {ui.change_id(change.change_id)} now has {len(others) + 1} visible commits: "
             t"{ui.commit_id(change.commit_id[:8])} (from "
             t"{format_pr_label(pr.number, url=pr.html_url)}) and "
-            t"{ui.join(lambda commit_id: ui.commit_id(commit_id[:8]), others)}. Compare them "
-            t"with {ui.cmd(f'jj log -r {revset}')} and {ui.cmd('jj diff -r <commit>')}, then "
-            t"abandon the one you do not want with {ui.cmd('jj abandon <commit>')}."
+            t"{ui.join(lambda commit_id: ui.commit_id(commit_id[:8]), others)}. "
+            t"{divergence_recovery_hint(change.change_id)}"
         )
     return tuple(warnings)
 

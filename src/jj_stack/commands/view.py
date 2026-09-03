@@ -67,6 +67,7 @@ from jj_stack.stack.change_state import (
     PRMissing,
     WithPR,
 )
+from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.selected import is_change_id_prefix
 from jj_stack.stack.selection import (
     resolve_linked_change_for_pr,
@@ -850,9 +851,10 @@ def render_status_advisory_lines(
         rows.append(
             (
                 ui.change_id(change.change_id),
-                t"Resolve the multiple visible commits for this change before retrying "
-                t"({ui.cmd('jj log -r')} "
-                t"{ui.revset(f'change_id({change.change_id})')})",
+                divergence_recovery_hint(
+                    change.change_id,
+                    retry="retry the jj-stack command",
+                ),
             )
         )
     return ("", "Advisories:", _advisory_table(tuple(rows)))
