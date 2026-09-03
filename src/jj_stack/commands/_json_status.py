@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import assert_never
-
 from jj_stack.models.github import GithubPR
 from jj_stack.models.tracking import PRIdentity
 from jj_stack.stack.change_state import (
@@ -72,34 +70,33 @@ def saved_pr_json(
     return payload or None
 
 
+_FLAT_STATUS: dict[type, str] = {
+    PRHeadMoved: "branch_moved",
+    PRAmbiguous: "ambiguous",
+    PRMissing: "missing",
+    LookupFailed: "unknown",
+    Landed: "merged",
+    Merged: "merged",
+    Closed: "closed",
+    Queued: "queued",
+    NotInspected: "submitted",
+    Unpublished: "unsubmitted",
+    UntrackedPRExists: "unsubmitted",
+    BranchClaimed: "unsubmitted",
+}
+
+
 def _change_status(state: ChangeState) -> str:
     if state.divergent:
         return "divergent"
-    match state:
-        case PRHeadMoved():
-            return "branch_moved"
-        case PRAmbiguous():
-            return "ambiguous"
-        case CompetingOpenPR(ambiguous=True):
-            return "ambiguous"
-        case PRMissing():
-            return "missing"
-        case LookupFailed():
-            return "unknown"
-        case Landed() | Merged():
-            return "merged"
-        case Closed():
-            return "closed"
-        case Queued():
-            return "queued"
-        case NotInspected():
-            return "submitted"
-        case Unpublished() | UntrackedPRExists() | BranchClaimed():
-            return "unsubmitted"
-        case WithPR(pr=pr):
-            return _live_pr_status(pr)
-        case _:
-            assert_never(state)
+    if isinstance(state, CompetingOpenPR) and state.ambiguous:
+        return "ambiguous"
+    flat = _FLAT_STATUS.get(type(state))
+    if flat is not None:
+        return flat
+    if isinstance(state, WithPR):
+        return _live_pr_status(state.pr)
+    raise AssertionError(f"Unmapped change state {type(state).__name__}.")
 
 
 def _live_pr_status(pr: GithubPR) -> str:

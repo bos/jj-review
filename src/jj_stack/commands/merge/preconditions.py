@@ -7,6 +7,7 @@ from jj_stack.commands.merge.models import MergeChange, MergePrecondition
 from jj_stack.formatting import format_pr_number
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.identifiers import short_change_id
+from jj_stack.models.stack import LocalCommit
 from jj_stack.stack.change_state import (
     BranchDisagrees,
     BranchMissing,
@@ -134,7 +135,26 @@ def _merge_change_precondition_error(
         )
     if pr.is_draft and not inactive_allowed:
         return MergePrecondition(t"pull request {pr_number} is now a draft")
-    local_commits = observed.local_commits
+    shape_error = _local_shape_error(observed.local_commits, label=label)
+    if shape_error is not None:
+        return shape_error
+    if isinstance(state, (PRHeadMoved, BranchMissing, BranchDisagrees)):
+        return MergePrecondition(t"{state.reason}; {state.repair}", recovery="explained")
+    # Merge only the exact submitted commit: the planned commit must be the local commit, the
+    # submitted baseline, and the PR branch target alike.
+    if selected is None or state.has_local_edits or state.remote_target != planned.commit_id:
+        return MergePrecondition(
+            f"the last submitted commit for {label} changed",
+            recovery="submit",
+        )
+    return None
+
+
+def _local_shape_error(
+    local_commits: tuple[LocalCommit, ...],
+    *,
+    label: str,
+) -> MergePrecondition | None:
     if not local_commits:
         return MergePrecondition(f"{label} is no longer visible locally", recovery="view")
     # Stack discovery normally rejects a divergent change first; this covers one that diverged
@@ -148,13 +168,4 @@ def _merge_change_precondition_error(
     # commit, and resolving is what has to happen first either way.
     if local_commits[0].conflict:
         return MergePrecondition(f"{label} has unresolved conflicts", recovery="resolve")
-    if isinstance(state, (PRHeadMoved, BranchMissing, BranchDisagrees)):
-        return MergePrecondition(t"{state.reason}; {state.repair}", recovery="explained")
-    # Merge only the exact submitted commit: the planned commit must be the local commit, the
-    # submitted baseline, and the PR branch target alike.
-    if selected is None or state.has_local_edits or state.remote_target != planned.commit_id:
-        return MergePrecondition(
-            f"the last submitted commit for {label} changed",
-            recovery="submit",
-        )
     return None

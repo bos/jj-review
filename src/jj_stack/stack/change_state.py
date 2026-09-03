@@ -473,7 +473,17 @@ def classify(observation: ChangeObservation) -> ChangeState:
         if len(open_prs) > 1:
             return PRAmbiguous(**common, open_prs_on_branch=open_prs)
         return PRMissing(**common, open_prs_on_branch=open_prs)
-    pr = o.pr.normalize_state()
+    return _classify_pr(o, common, open_prs, o.pr.normalize_state())
+
+
+def _classify_pr(
+    o: ChangeObservation,
+    common: _Common,
+    open_prs: tuple[GithubPR, ...],
+    pr: GithubPR,
+) -> ChangeState:
+    if o.tracked is None:
+        raise AssertionError("Pull request classification requires tracking.")
     evidence = o.trunk_evidence
     with_pr = _WithPRCommon(
         **common,
