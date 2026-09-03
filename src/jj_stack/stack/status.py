@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 
 import jj_stack.ui as ui
@@ -405,9 +405,9 @@ async def _iter_status_changes_with_github(
 ) -> AsyncIterator[StackStatusChange]:
     ordered_prepared_changes = tuple(reversed(prepared_changes))
     async with build_github_client(repo=github_repo) as github_client:
-        pr_lookups = await _discover_pr_lookups(
+        pr_lookups = await discover_pr_lookups(
             github_client=github_client,
-            prepared_changes=ordered_prepared_changes,
+            tracked_by_branch=_tracked_by_branch(ordered_prepared_changes),
         )
         for prepared_change in ordered_prepared_changes:
             branch = _required_branch(prepared_change)
@@ -451,9 +451,9 @@ async def lookup_pr_lookups_async(
     """Return pull-request lookups for saved branches."""
 
     async with build_github_client(repo=github_repo) as github_client:
-        pr_lookups = await _discover_pr_lookups(
+        pr_lookups = await discover_pr_lookups(
             github_client=github_client,
-            prepared_changes=prepared_changes,
+            tracked_by_branch=_tracked_by_branch(prepared_changes),
         )
         if on_progress is not None and pr_lookups:
             on_progress(len(pr_lookups))
@@ -466,18 +466,27 @@ def _required_branch(change: PreparedChange) -> str:
     return change.branch
 
 
-async def _discover_pr_lookups(
-    *,
-    github_client: GithubClient,
+def _tracked_by_branch(
     prepared_changes: tuple[PreparedChange, ...],
-) -> dict[str, PRLookup]:
-    """Fetch the open pull requests on each saved branch, then the saved PR when it is not one."""
-
-    tracked_by_branch = {
+) -> dict[str, TrackedPR | None]:
+    return {
         _required_branch(change): change.tracked
         for change in prepared_changes
         if change.tracked is not None
     }
+
+
+async def discover_pr_lookups(
+    *,
+    github_client: GithubClient,
+    tracked_by_branch: Mapping[str, TrackedPR | None],
+) -> dict[str, PRLookup]:
+    """Fetch the open pull requests on each branch, then each saved PR that is not one of them.
+
+    A branch with no saved pull request yields only the open pull requests GitHub reports for
+    it, which is what a first submit needs to know.
+    """
+
     branches = tuple(tracked_by_branch)
     if not branches:
         return {}
@@ -501,7 +510,10 @@ async def _discover_pr_lookups(
         }
 
     def saved_open_pr(branch: str) -> GithubPR | None:
-        number = tracked_by_branch[branch].pr_identity.pr_number
+        tracked = tracked_by_branch[branch]
+        if tracked is None:
+            return None
+        number = tracked.pr_identity.pr_number
         return next(
             (pr for pr in open_prs_by_branch.get(branch, ()) if pr.number == number),
             None,
@@ -512,7 +524,7 @@ async def _discover_pr_lookups(
     remembered = {
         branch: tracked.pr_identity.pr_number
         for branch, tracked in tracked_by_branch.items()
-        if saved_open_pr(branch) is None
+        if tracked is not None and saved_open_pr(branch) is None
     }
     remembered_prs: dict[int, GithubPR | None] = {}
     remembered_error: ErrorMessage | None = None

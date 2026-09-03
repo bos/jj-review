@@ -46,6 +46,8 @@ class PreparedSubmitChange:
     expected_remote_target: str | None
     remote_action: RemoteBranchAction
     change: LocalCommit
+    # The saved pull request GitHub reports, or None when submit creates one.
+    pr: GithubPR | None
 
 
 @dataclass(frozen=True, slots=True)

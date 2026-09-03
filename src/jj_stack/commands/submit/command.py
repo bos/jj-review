@@ -52,7 +52,7 @@ import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext, bootstrap_context
 from jj_stack.concurrency import DEFAULT_BOUNDED_CONCURRENCY
-from jj_stack.errors import CliError, DriftError
+from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
 from jj_stack.github.resolution import (
     require_github_repo,
@@ -65,7 +65,7 @@ from jj_stack.jj.client import JjClient, PRRefUpdate
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR, GithubRepo, GithubStack
 from jj_stack.models.stack import LocalStack
-from jj_stack.models.tracking import PRIdentity
+from jj_stack.models.tracking import PRIdentity, TrackedPR
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_matches_change
 from jj_stack.stack.github_stack_safety import dissolve_github_stack
 from jj_stack.stack.pr_branches import (
@@ -77,11 +77,12 @@ from jj_stack.stack.selection import (
     parse_comma_separated_flag_values,
     resolve_selected_revset,
 )
+from jj_stack.stack.status import PRLookup, discover_pr_lookups
 from jj_stack.state.operation_lock import operation_lock_if_mutating
 
 from . import auto_close
 from .auto_close import retarget_pr_bases_before_branch_push
-from .changes import prepare_submit_changes
+from .changes import prepare_submit_changes, require_published_base
 from .comments import sync_submit_comments
 from .descriptions import edit_prs_in_editor, preserve_external_pr_text
 from .github_stack import (
@@ -104,9 +105,6 @@ from .models import (
     SubmittedChange,
 )
 from .prs import (
-    discover_prs_by_branch,
-    ensure_pr_link_is_consistent,
-    ensure_pr_syncs_are_safe,
     load_re_request_reviewers,
     sync_prs,
 )
@@ -281,7 +279,6 @@ def _pr_sync_plans(
     *,
     bottom_base_branch: str,
     context: CommandContext,
-    discovered_prs: dict[str, GithubPR | None],
     drafts: dict[str, bool],
     generated_descriptions: dict[str, GeneratedDescription],
     options: SubmitOptions,
@@ -305,7 +302,7 @@ def _pr_sync_plans(
     )
     plans: list[PRSyncPlan] = []
     for prepared, base_branch in zip(prepared_changes, base_branches, strict=True):
-        pr = discovered_prs[prepared.branch]
+        pr = prepared.pr
         plan = PRSyncPlan(
             base_branch=base_branch,
             discovered_pr=pr,
@@ -348,12 +345,12 @@ def _desired_draft_state(
 
 def _github_inspection_results(
     *,
-    discovered: dict[str, GithubPR | None] | BaseException,
+    lookups: dict[str, PRLookup] | BaseException,
     repo: GithubRepo | BaseException,
     repo_name: str,
     stacks: tuple[GithubStack, ...] | BaseException,
-) -> tuple[GithubRepo, dict[str, GithubPR | None], tuple[GithubStack, ...]]:
-    for kind, result in (("repo", repo), ("stacks", stacks), ("prs", discovered)):
+) -> tuple[GithubRepo, dict[str, PRLookup], tuple[GithubStack, ...]]:
+    for kind, result in (("repo", repo), ("stacks", stacks), ("prs", lookups)):
         if not isinstance(result, BaseException):
             continue
         if kind == "stacks" and isinstance(result, GithubClientError):
@@ -368,7 +365,7 @@ def _github_inspection_results(
         raise result
     return (
         cast(GithubRepo, repo),
-        cast(dict[str, GithubPR | None], discovered),
+        cast(dict[str, PRLookup], lookups),
         cast(tuple[GithubStack, ...], stacks),
     )
 
@@ -601,13 +598,18 @@ async def run_submit_async(
         resolutions=branch_resolutions,
         state_identities=state.pr_identities,
     )
-    tracked_prs = {
-        identity.head_ref: identity.pr_number
-        for resolution in branch_resolutions
-        if (identity := state.pr_identities.get(resolution.change_id)) is not None
-    }
-    if tracked_base is not None:
-        tracked_prs[tracked_base.pr_identity.head_ref] = tracked_base.pr_identity.pr_number
+
+    def tracked_by_branch(
+        resolutions: tuple[ResolvedPRBranch, ...],
+    ) -> dict[str, TrackedPR | None]:
+        by_branch = {
+            resolution.branch: state.tracked_pr(resolution.change_id)
+            for resolution in resolutions
+        }
+        if tracked_base is not None:
+            by_branch[tracked_base.pr_identity.head_ref] = tracked_base
+        return by_branch
+
     submitted_changes: tuple[SubmittedChange, ...] = ()
     generated_edit_path: Path | None = None
     async with build_github_client(repo=github_repo) as github_client:
@@ -617,7 +619,7 @@ async def run_submit_async(
                 exact_remote_targets_result,
                 recovery_targets_result,
                 github_repo_result,
-                discovered_prs_result,
+                lookups_result,
                 observed_stacks_result,
             ) = await asyncio.gather(
                 github_client.get_branch_targets(
@@ -628,10 +630,9 @@ async def run_submit_async(
                     suffixes=recovery_suffixes,
                 ),
                 github_client.get_repo(),
-                discover_prs_by_branch(
+                discover_pr_lookups(
                     github_client=github_client,
-                    branches=initial_pr_branches,
-                    tracked_prs=tracked_prs,
+                    tracked_by_branch=tracked_by_branch(branch_resolutions),
                 ),
                 github_client.list_stacks(),
                 return_exceptions=True,
@@ -674,13 +675,12 @@ async def run_submit_async(
                 resolutions=branch_resolutions,
             )
             if pr_branches != initial_pr_branches:
-                discovered_prs_result = await discover_prs_by_branch(
+                lookups_result = await discover_pr_lookups(
                     github_client=github_client,
-                    branches=pr_branches,
-                    tracked_prs=tracked_prs,
+                    tracked_by_branch=tracked_by_branch(branch_resolutions),
                 )
-            github_repo_state, discovered_prs, observed_stacks = _github_inspection_results(
-                discovered=discovered_prs_result,
+            github_repo_state, lookups, observed_stacks = _github_inspection_results(
+                lookups=lookups_result,
                 repo=github_repo_result,
                 repo_name=github_repo.full_name,
                 stacks=observed_stacks_result,
@@ -696,6 +696,8 @@ async def run_submit_async(
             )
         prepared_changes = prepare_submit_changes(
             branch_resolutions=branch_resolutions,
+            existing_only=options.existing_only,
+            lookups=lookups,
             remote_targets=remote_targets,
             remote=remote,
             stack=stack,
@@ -710,63 +712,37 @@ async def run_submit_async(
         )
         bottom_base_branch = trunk_branch
         if explicit_base is not None and tracked_base is not None and base_branch is not None:
-            expected_base_commit = tracked_base.submitted_baseline.commit_id
-            if remote_targets.get(base_branch) != expected_base_commit:
-                remote_branch = f"{base_branch}@{remote.name}"
-                child_retry = (
-                    f"jj-stack submit --base {short_change_id(explicit_base.change_id)} "
-                    f"{short_change_id(stack.head.change_id)}"
-                )
-                raise DriftError(
-                    t"PR branch {ui.bookmark(remote_branch)} no longer "
-                    t"points to the submitted commit for base "
-                    t"{ui.change_id(explicit_base.change_id)}. jj-stack left it untouched and "
-                    t"cannot repair it automatically.",
-                    condition="remote_branch_moved",
-                    hint=(
-                        t"Move {ui.bookmark(remote_branch)} back to commit "
-                        t"{ui.semantic_text(expected_base_commit, 'commit_id')}, the commit "
-                        t"last submitted for the base, then run {ui.cmd(child_retry)}."
-                    ),
-                )
             child_bottom = short_change_id(stack.changes[0].change_id)
             child_head = short_change_id(stack.head.change_id)
             child_rebase = f"jj rebase -r '{child_bottom}::{child_head}' -o 'trunk()'"
-            ensure_pr_link_is_consistent(
-                branch=base_branch,
-                change_id=explicit_base.change_id,
-                discovered_pr=discovered_prs[base_branch],
-                expected_remote_target=expected_base_commit,
-                repo=github_repo,
-                tracked_pr=tracked_base,
+            require_published_base(
+                base=explicit_base,
+                lookup=lookups[base_branch],
                 merged_hint=(
                     t"Sync the parent PR first, rebase only the child stack with "
                     t"{ui.cmd(child_rebase)}, and then run "
                     t"{ui.cmd(f'jj-stack submit {child_head}')} without "
                     t"{ui.cmd('--base')}."
                 ),
+                remote=remote,
+                remote_target=remote_targets.get(base_branch),
+                retry=(
+                    f"jj-stack submit --base {short_change_id(explicit_base.change_id)} "
+                    f"{child_head}"
+                ),
+                tracked_base=tracked_base,
             )
             bottom_base_branch = base_branch
         drafts = {
             prepared.change.change_id: _desired_draft_state(
                 draft_mode=options.draft_mode,
-                pr=discovered_prs[prepared.branch],
+                pr=prepared.pr,
             )
             for prepared in prepared_changes
         }
-        ensure_pr_syncs_are_safe(
-            discovered_prs=discovered_prs,
-            existing_only=options.existing_only,
-            prepared_changes=prepared_changes,
-            repo=github_client.repo,
-            state=mutation_run.state,
-        )
         generated_descriptions = preserve_external_pr_text(
             descriptions=generated_descriptions,
-            prs={
-                prepared.change.change_id: discovered_prs[prepared.branch]
-                for prepared in prepared_changes
-            },
+            prs={prepared.change.change_id: prepared.pr for prepared in prepared_changes},
             repo_root=client.repo_root,
             submitted_commits=prepared_inputs.submitted_commits,
         )
@@ -787,11 +763,7 @@ async def run_submit_async(
         re_request_reviewers = (
             await load_re_request_reviewers(
                 github_client=github_client,
-                prs=tuple(
-                    pr
-                    for prepared in prepared_changes
-                    if (pr := discovered_prs[prepared.branch]) is not None
-                ),
+                prs=tuple(pr for prepared in prepared_changes if (pr := prepared.pr) is not None),
             )
             if options.re_request and not dry_run
             else {}
@@ -799,7 +771,6 @@ async def run_submit_async(
         pr_plans = _pr_sync_plans(
             bottom_base_branch=bottom_base_branch,
             context=context,
-            discovered_prs=discovered_prs,
             drafts=drafts,
             generated_descriptions=generated_descriptions,
             options=options,

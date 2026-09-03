@@ -14,9 +14,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from string.templatelib import Interpolation, Template
 from typing import TYPE_CHECKING, TypedDict
 
 import jj_stack.ui as ui
+from jj_stack.errors import CliError, DriftCondition, DriftError
 from jj_stack.formatting import format_pr_label
 from jj_stack.identifiers import short_change_id
 from jj_stack.models.github import GithubPR
@@ -120,6 +122,12 @@ class Stop:
     def repair(self) -> Message:
         raise NotImplementedError
 
+    @property
+    def drift_condition(self) -> DriftCondition | None:
+        """Which cross-system check failed, for callers that report drift by category."""
+
+        return None
+
 
 # ---- the healthy lifecycle -----------------------------------------------------------------
 
@@ -200,6 +208,10 @@ class PRMissing(Stop, _State):
     open_prs_on_branch: tuple[GithubPR, ...]
 
     @property
+    def drift_condition(self) -> DriftCondition | None:
+        return "saved_pr_missing"
+
+    @property
     def reason(self) -> Message:
         reason: Message = t"GitHub no longer reports {self._saved_label()}"
         if self.open_prs_on_branch:
@@ -214,6 +226,10 @@ class PRMissing(Stop, _State):
 
 @dataclass(frozen=True, kw_only=True)
 class PRIdentityMismatch(Stop, WithPR):
+    @property
+    def drift_condition(self) -> DriftCondition | None:
+        return "saved_pr_mismatch"
+
     @property
     def reason(self) -> Message:
         return (
@@ -231,6 +247,10 @@ class PRAmbiguous(Stop, _State):
     open_prs_on_branch: tuple[GithubPR, ...]
 
     @property
+    def drift_condition(self) -> DriftCondition | None:
+        return "pr_ambiguous"
+
+    @property
     def reason(self) -> Message:
         numbers = ui.join(_pr_label, self.open_prs_on_branch)
         return (
@@ -246,6 +266,10 @@ class PRAmbiguous(Stop, _State):
 @dataclass(frozen=True, kw_only=True)
 class CompetingOpenPR(Stop, WithPR):
     competitors: tuple[GithubPR, ...]
+
+    @property
+    def drift_condition(self) -> DriftCondition | None:
+        return "pr_ambiguous"
 
     @property
     def ambiguous(self) -> bool:
@@ -272,18 +296,26 @@ class UntrackedPRExists(Stop, _State):
     open_prs_on_branch: tuple[GithubPR, ...]
 
     @property
+    def drift_condition(self) -> DriftCondition | None:
+        return "pr_ambiguous" if len(self.open_prs_on_branch) > 1 else "saved_pr_missing"
+
+    @property
     def reason(self) -> Message:
         prs = ui.join(_pr_label, self.open_prs_on_branch)
         return t"GitHub already reports {prs} for untracked PR branch {self._branch_label()}"
 
     @property
     def repair(self) -> Message:
-        return t"run {ui.cmd('jj-stack relink')} to link it"
+        return t"link that PR to the change with {ui.cmd('jj-stack relink')}"
 
 
 @dataclass(frozen=True, kw_only=True)
 class BranchClaimed(Stop, _State):
     remote_target: str
+
+    @property
+    def drift_condition(self) -> DriftCondition | None:
+        return "remote_branch_moved"
 
     @property
     def reason(self) -> Message:
@@ -299,6 +331,10 @@ class BranchClaimed(Stop, _State):
 
 @dataclass(frozen=True, kw_only=True)
 class PRHeadMoved(Stop, WithPR):
+    @property
+    def drift_condition(self) -> DriftCondition | None:
+        return "remote_branch_moved"
+
     @property
     def reason(self) -> Message:
         head = self.pr.head.sha or "?"
@@ -321,6 +357,10 @@ class PRHeadMoved(Stop, WithPR):
 @dataclass(frozen=True, kw_only=True)
 class BranchMissing(Stop, WithPR):
     @property
+    def drift_condition(self) -> DriftCondition | None:
+        return "remote_branch_missing"
+
+    @property
     def reason(self) -> Message:
         return t"PR branch {self._branch_label()} for {_pr_label(self.pr)} no longer exists"
 
@@ -334,6 +374,10 @@ class BranchMissing(Stop, WithPR):
 
 @dataclass(frozen=True, kw_only=True)
 class BranchDisagrees(Stop, WithPR):
+    @property
+    def drift_condition(self) -> DriftCondition | None:
+        return "remote_branch_moved"
+
     @property
     def reason(self) -> Message:
         head = self.pr.head.sha or "?"
@@ -373,7 +417,10 @@ type ChangeState = (
     | BranchDisagrees
 )
 
-_RELINK: Message = t"run {ui.cmd('jj-stack relink')} to link the intended pull request"
+_RELINK: Message = (
+    t"inspect it with {ui.cmd('jj-stack view')}, then run {ui.cmd('jj-stack relink')} to link "
+    t"the intended pull request"
+)
 _RELINK_OR_FORGET: Message = (
     t"{_RELINK}, or forget the saved link with {ui.cmd('jj-stack unstack --local')}"
 )
@@ -541,6 +588,43 @@ def live_pr(state: ChangeState) -> GithubPR | None:
     """The pull request GitHub reported for this state, if any."""
 
     return state.pr if isinstance(state, WithPR) else None
+
+
+def stop_error(state: Stop, *, rerun: str) -> CliError:
+    """Fail closed on one stop state with its shared wording and the command to rerun."""
+
+    message: Message = t"{state.reason}."
+    hint: Message = t"{_capitalized(state.repair)}, then rerun {ui.cmd(rerun)}."
+    condition = state.drift_condition
+    if condition is None:
+        return CliError(message, hint=hint)
+    return DriftError(message, condition=condition, hint=hint)
+
+
+def _capitalized(message: Message) -> Message:
+    if isinstance(message, str):
+        return message[:1].upper() + message[1:]
+    if isinstance(message, tuple):
+        return (_capitalized(message[0]), *message[1:]) if message else message
+    if isinstance(message, Template):
+        first = message.strings[0]
+        interpolations = list(message.interpolations)
+        if first:
+            first = first[:1].upper() + first[1:]
+        elif interpolations:
+            # The message starts with another message, such as a shared repair clause.
+            leading = interpolations[0]
+            interpolations[0] = Interpolation(
+                _capitalized(leading.value),
+                leading.expression,
+                leading.conversion,
+                leading.format_spec,
+            )
+        parts: list[str | Interpolation] = [first]
+        for interpolation, text in zip(interpolations, message.strings[1:], strict=True):
+            parts.extend((interpolation, text))
+        return Template(*parts)
+    return message
 
 
 # ---- shared derived rules ---------------------------------------------------------------

@@ -48,16 +48,6 @@ class RepoFacts:
     observed_remote_targets: bool = False
 
 
-def has_competing_open_pr(
-    *,
-    open_head_prs: tuple[GithubPR, ...],
-    pr_number: int,
-) -> bool:
-    """Return whether another open PR uses one exact PR's head branch."""
-
-    return any(candidate.number != pr_number for candidate in open_head_prs)
-
-
 def duplicate_pr_claim_change_ids(
     identities: Mapping[str, PRIdentity],
 ) -> frozenset[str]:

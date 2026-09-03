@@ -2,29 +2,22 @@
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 
 import jj_stack.ui as ui
 from jj_stack.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
-from jj_stack.errors import CliError, DriftError
-from jj_stack.formatting import format_pr_label, format_pr_number
+from jj_stack.errors import CliError
+from jj_stack.formatting import format_pr_number
 from jj_stack.github.client import GithubClient, GithubClientError
-from jj_stack.github.resolution import GithubRepoAddress
-from jj_stack.identifiers import short_change_id
 from jj_stack.models.github import GithubPR, GithubPRReview
 from jj_stack.models.tracking import (
     PRIdentity,
     SubmittedBaseline,
-    TrackedPR,
-    TrackingState,
 )
-from jj_stack.stack.pr_facts import has_competing_open_pr
 from jj_stack.ui import Message
 
 from .models import (
     PRDraftAction,
-    PreparedSubmitChange,
     PRSyncPlan,
     SubmitMutationRun,
     SubmittedChange,
@@ -40,39 +33,6 @@ async def _github_request[Result](
         return await request
     except GithubClientError as error:
         raise CliError(error_message) from error
-
-
-async def discover_prs_by_branch(
-    *,
-    github_client: GithubClient,
-    branches: tuple[str, ...],
-    tracked_prs: Mapping[str, int],
-) -> dict[str, GithubPR | None]:
-    if not branches:
-        return {}
-
-    open_prs_by_branch, tracked_prs_by_number = await asyncio.gather(
-        _github_request(
-            github_client.get_open_prs_by_head_refs(head_refs=branches),
-            error_message="Could not batch open pull request discovery for branches",
-        ),
-        _github_request(
-            github_client.get_prs_by_numbers(pr_numbers=tuple(tracked_prs.values())),
-            error_message="Could not batch saved pull request discovery by number",
-        ),
-    )
-
-    return {
-        branch: _select_discovered_pr(
-            head_label=f"{github_client.repo.owner}:{branch}",
-            open_prs=open_prs_by_branch.get(branch, ()),
-            tracked_pr=(
-                tracked_prs_by_number.get(tracked_prs[branch]) if branch in tracked_prs else None
-            ),
-            tracked_pr_number=tracked_prs.get(branch),
-        )
-        for branch in branches
-    }
 
 
 async def load_re_request_reviewers(
@@ -93,52 +53,6 @@ async def load_re_request_reviewers(
         pr.number: _reviewers_to_re_request(pr_reviews)
         for pr, pr_reviews in zip(prs, reviews, strict=True)
     }
-
-
-def ensure_pr_syncs_are_safe(
-    *,
-    discovered_prs: Mapping[str, GithubPR | None],
-    existing_only: bool,
-    prepared_changes: Sequence[PreparedSubmitChange],
-    repo: GithubRepoAddress,
-    state: TrackingState,
-) -> None:
-    """Verify every planned PR sync before any mutation.
-
-    A damaged or divergent link anywhere in the plan must stop `submit` before
-    PR branches push or sibling PRs sync. Validating per change inside the
-    concurrent sync phase would let a mid-stack link failure surface only after
-    those mutations have already happened.
-    """
-
-    for prepared_change in prepared_changes:
-        change_id = prepared_change.change.change_id
-        tracked_pr = state.tracked_pr(change_id)
-        pr = discovered_prs[prepared_change.branch]
-        if pr is not None and pr.is_queued:
-            head_change_id = prepared_changes[-1].change.change_id
-            pr_label = format_pr_label(pr.number, url=pr.html_url)
-            raise CliError(
-                t"{pr_label} for {ui.change_id(change_id)} is in the merge "
-                t"queue, so submit made no changes. Any new changes above it remain "
-                t"unsubmitted.",
-                hint=t"Wait for the queued PRs to merge, then run "
-                t"{ui.cmd(f'jj-stack sync {short_change_id(head_change_id)}')} followed by "
-                t"{ui.cmd(f'jj-stack submit {short_change_id(head_change_id)}')}.",
-            )
-        ensure_pr_link_is_consistent(
-            branch=prepared_change.branch,
-            change_id=change_id,
-            discovered_pr=pr,
-            expected_remote_target=prepared_change.expected_remote_target,
-            repo=repo,
-            tracked_pr=tracked_pr,
-        )
-        if existing_only and (tracked_pr is None or pr is None):
-            raise CliError(
-                t"Cannot sync {ui.change_id(change_id)} without its existing pull request.",
-                hint=t"Repair the PR link with {ui.cmd('jj-stack relink')} before retrying.",
-            )
 
 
 async def sync_prs(
@@ -291,112 +205,6 @@ def _reviewers_to_re_request(
         key=lambda item: item.id,
     )
     return [review.user.login for review in selected_reviews if review.user is not None]
-
-
-def _select_discovered_pr(
-    *,
-    head_label: str,
-    open_prs: tuple[GithubPR, ...],
-    tracked_pr: GithubPR | None,
-    tracked_pr_number: int | None,
-) -> GithubPR | None:
-    ambiguous = len(open_prs) > 1
-    if tracked_pr_number is not None and tracked_pr is not None:
-        ambiguous = ambiguous or has_competing_open_pr(
-            open_head_prs=open_prs,
-            pr_number=tracked_pr_number,
-        )
-    if ambiguous:
-        raise DriftError(
-            t"GitHub reports multiple pull requests for head branch {ui.bookmark(head_label)}.",
-            condition="pr_ambiguous",
-            hint=(
-                t"Inspect the PR link with {ui.cmd('jj-stack view')} and repair it "
-                t"with {ui.cmd('jj-stack relink')} before submitting again."
-            ),
-        )
-    if tracked_pr_number is not None:
-        return tracked_pr
-    return open_prs[0] if open_prs else None
-
-
-def ensure_pr_link_is_consistent(
-    *,
-    branch: str,
-    change_id: str,
-    discovered_pr: GithubPR | None,
-    expected_remote_target: str | None,
-    repo: GithubRepoAddress | None = None,
-    tracked_pr: TrackedPR | None,
-    merged_hint: Message | None = None,
-) -> None:
-    if tracked_pr is None:
-        if discovered_pr is not None:
-            pr_label = format_pr_label(discovered_pr.number, url=discovered_pr.html_url)
-            raise DriftError(
-                t"GitHub already reports {pr_label} for untracked branch {ui.bookmark(branch)}.",
-                condition="saved_pr_missing",
-                hint=t"Link that PR to the change with {ui.cmd('jj-stack relink')} before "
-                t"submitting.",
-            )
-        return
-    pr_identity = tracked_pr.pr_identity
-    if pr_identity.head_ref != branch:
-        raise DriftError(
-            t"The saved pull request link for {ui.change_id(change_id)} names branch "
-            t"{ui.bookmark(pr_identity.head_ref)}, not {ui.bookmark(branch)}.",
-            condition="saved_pr_mismatch",
-            hint=t"Run {ui.cmd('jj-stack relink')} before submitting again.",
-        )
-    if discovered_pr is None:
-        raise DriftError(
-            t"Saved pull request link exists for branch {ui.bookmark(branch)}, "
-            t"but GitHub no longer reports a PR for that head branch.",
-            condition="saved_pr_missing",
-            hint=(
-                t"Inspect the PR link with {ui.cmd('jj-stack view')} and repair it "
-                t"with {ui.cmd('jj-stack relink')} before submitting again."
-            ),
-        )
-    discovered_pr = discovered_pr.normalize_state()
-    discovered_number = format_pr_number(discovered_pr.number, url=discovered_pr.html_url)
-    discovered_label = format_pr_label(discovered_pr.number, url=discovered_pr.html_url)
-    if pr_identity.pr_number != discovered_pr.number:
-        saved_label = format_pr_number(pr_identity.pr_number, repo=repo)
-        raise DriftError(
-            t"Saved pull request {saved_label} does not match the PR "
-            t"GitHub reports for branch {ui.bookmark(branch)} "
-            t"({discovered_number}).",
-            condition="saved_pr_mismatch",
-            hint=(
-                t"Inspect the PR link with {ui.cmd('jj-stack view')} and repair it "
-                t"with {ui.cmd('jj-stack relink')} before submitting again."
-            ),
-        )
-    if discovered_pr.state != "open":
-        short = short_change_id(change_id)
-        hint = (
-            merged_hint
-            if discovered_pr.state == "merged" and merged_hint is not None
-            else t"Run {ui.cmd(f'jj-stack sync {short}')} to update the local stack."
-            if discovered_pr.state == "merged"
-            else t"Reopen the PR, or run {ui.cmd(f'jj-stack cleanup {short}')} before "
-            t"submitting a new PR."
-        )
-        raise DriftError(
-            t"{discovered_label} for {ui.change_id(change_id)} is "
-            t"{discovered_pr.state} and cannot be updated.",
-            condition="pr_not_open",
-            hint=hint,
-        )
-    if expected_remote_target is None or discovered_pr.head.sha != expected_remote_target:
-        raise DriftError(
-            t"Pull request {discovered_number} and its remote branch no longer "
-            t"identify the same commit.",
-            condition="remote_branch_moved",
-            hint=t"Inspect it with {ui.cmd(f'jj-stack view {short_change_id(change_id)}')} "
-            t"before submitting again.",
-        )
 
 
 async def _sync_pr_metadata(

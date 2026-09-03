@@ -1,14 +1,38 @@
-"""Classify direct remote PR-branch updates for submit."""
+"""Classify each selected change and describe the one atomic remote update."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import jj_stack.ui as ui
-from jj_stack.errors import DriftError
+from jj_stack.errors import CliError, DriftError
+from jj_stack.formatting import format_pr_label
 from jj_stack.identifiers import short_change_id
 from jj_stack.models.git import GitRemote
-from jj_stack.models.stack import LocalStack
-from jj_stack.models.tracking import TrackingState
+from jj_stack.models.stack import LocalCommit, LocalStack
+from jj_stack.models.tracking import TrackedPR, TrackingState
+from jj_stack.stack.change_state import (
+    UNOBSERVED,
+    BranchDisagrees,
+    BranchMissing,
+    ChangeObservation,
+    ChangeState,
+    Closed,
+    Merged,
+    PRHeadMoved,
+    Published,
+    Queued,
+    Stop,
+    Unobserved,
+    Unpublished,
+    WithPR,
+    classify,
+    live_pr,
+    stop_error,
+)
 from jj_stack.stack.pr_branches import ResolvedPRBranch
+from jj_stack.stack.status import PRLookup
+from jj_stack.ui import Message
 
 from .models import PreparedSubmitChange
 
@@ -16,51 +40,28 @@ from .models import PreparedSubmitChange
 def prepare_submit_changes(
     *,
     branch_resolutions: tuple[ResolvedPRBranch, ...],
-    remote_targets: dict[str, str],
+    lookups: Mapping[str, PRLookup],
+    remote_targets: Mapping[str, str],
     remote: GitRemote,
     stack: LocalStack,
     state: TrackingState,
+    existing_only: bool = False,
 ) -> tuple[PreparedSubmitChange, ...]:
-    """Validate saved leases and describe the one atomic remote update."""
+    """Classify every selected change and describe the one atomic remote update.
 
+    A damaged or divergent link anywhere in the plan stops submit before any PR branch pushes
+    or any sibling pull request changes; checking per change inside the concurrent sync phase
+    would let a mid-stack failure surface only after those mutations had happened.
+    """
+
+    head = stack.head.change_id
     prepared: list[PreparedSubmitChange] = []
-    view_command = f"jj-stack view {short_change_id(stack.head.change_id)}"
     for resolution, change in zip(branch_resolutions, stack.changes, strict=True):
-        tracked_pr = state.tracked_pr(change.change_id)
         remote_target = remote_targets.get(resolution.branch)
-
-        if tracked_pr is not None:
-            identity = tracked_pr.pr_identity
-            if identity.head_ref != resolution.branch:
-                raise DriftError(
-                    t"The saved pull request link for {ui.change_id(change.change_id)} names "
-                    t"branch {ui.bookmark(identity.head_ref)}, not "
-                    t"{ui.bookmark(resolution.branch)}.",
-                    condition="saved_pr_mismatch",
-                    hint=t"Run {ui.cmd('jj-stack relink')} before submitting again.",
-                )
-            if remote_target is None:
-                raise DriftError(
-                    t"PR branch "
-                    t"{ui.bookmark(f'{resolution.branch}@{remote.name}')} no longer exists.",
-                    condition="remote_branch_missing",
-                    hint=(
-                        t"Restore the branch, or close the PR on GitHub, run "
-                        t"{ui.cmd('jj-stack cleanup')}, and submit it again."
-                    ),
-                )
-            if remote_target not in {
-                tracked_pr.submitted_baseline.commit_id,
-                change.commit_id,
-            }:
-                raise DriftError(
-                    t"PR branch "
-                    t"{ui.bookmark(f'{resolution.branch}@{remote.name}')} points to an "
-                    t"unexpected commit.",
-                    condition="remote_branch_moved",
-                    hint=t"Inspect it with {ui.cmd(view_command)} before submitting again.",
-                )
-        elif resolution.recovered_target is not None:
+        observed_target: str | None | Unobserved = remote_target
+        if resolution.recovered_target is not None:
+            # An interrupted first submit left this branch, and its commit's change-ID header
+            # already proved it belongs to this change.
             if remote_target != resolution.recovered_target:
                 raise DriftError(
                     t"PR branch "
@@ -69,21 +70,133 @@ def prepare_submit_changes(
                     condition="remote_branch_moved",
                     hint="Inspect the branch and retry.",
                 )
-        elif remote_target not in {None, change.commit_id}:
-            raise DriftError(
-                t"PR branch "
-                t"{ui.bookmark(f'{resolution.branch}@{remote.name}')} already exists and "
-                t"points to another change.",
-                condition="remote_branch_moved",
-                hint="Move or delete the conflicting branch, then retry.",
+            observed_target = UNOBSERVED
+        tracked = state.tracked_pr(change.change_id)
+        lookup = lookups[resolution.branch]
+        change_state = classify(
+            ChangeObservation(
+                change_id=change.change_id,
+                tracked=tracked,
+                branch=resolution.branch,
+                remote_name=remote.name,
+                local=(change,),
+                selected=change,
+                pr=lookup.pr if tracked is not None else UNOBSERVED,
+                open_prs_on_branch=lookup.open_prs_on_branch,
+                remote_target=observed_target,
+                lookup_error=lookup.error,
             )
-
+        )
+        _require_submittable(change_state, head_change_id=head, existing_only=existing_only)
         prepared.append(
             PreparedSubmitChange(
                 branch=resolution.branch,
                 expected_remote_target=remote_target,
                 remote_action=("up to date" if remote_target == change.commit_id else "pushed"),
                 change=change,
+                pr=live_pr(change_state),
             )
         )
     return tuple(prepared)
+
+
+def _require_submittable(
+    state: ChangeState,
+    *,
+    head_change_id: str,
+    existing_only: bool,
+) -> None:
+    short = short_change_id(state.change_id)
+    head = short_change_id(head_change_id)
+    if isinstance(state, Queued):
+        pr_label = format_pr_label(state.pr.number, url=state.pr.html_url)
+        raise CliError(
+            t"{pr_label} for {ui.change_id(state.change_id)} is in the merge queue, so submit "
+            t"made no changes. Any new changes above it remain unsubmitted.",
+            hint=t"Wait for the queued PRs to merge, then run "
+            t"{ui.cmd(f'jj-stack sync {head}')} followed by "
+            t"{ui.cmd(f'jj-stack submit {head}')}.",
+        )
+    if isinstance(state, Stop):
+        raise stop_error(state, rerun=f"jj-stack submit {head}")
+    if isinstance(state, (Closed, Merged)):
+        raise _not_open_error(
+            state,
+            hint=(
+                t"Run {ui.cmd(f'jj-stack sync {short}')} to update the local stack."
+                if isinstance(state, Merged)
+                else t"Reopen the PR, or run {ui.cmd(f'jj-stack cleanup {short}')} before "
+                t"submitting a new PR."
+            ),
+        )
+    if existing_only and isinstance(state, Unpublished):
+        raise CliError(
+            t"Cannot sync {ui.change_id(state.change_id)} without its existing pull request.",
+            hint=t"Repair the PR link with {ui.cmd('jj-stack relink')} before retrying.",
+        )
+
+
+def _not_open_error(state: WithPR, *, hint: Message) -> DriftError:
+    pr_label = format_pr_label(state.pr.number, url=state.pr.html_url)
+    return DriftError(
+        t"{pr_label} for {ui.change_id(state.change_id)} is {state.pr.state} and cannot be "
+        t"updated.",
+        condition="pr_not_open",
+        hint=hint,
+    )
+
+
+def require_published_base(
+    *,
+    base: LocalCommit,
+    lookup: PRLookup,
+    merged_hint: Message,
+    remote: GitRemote,
+    remote_target: str | None,
+    retry: str,
+    tracked_base: TrackedPR,
+) -> None:
+    """Accept an explicit `--base` only while its PR, branch, and local copy all agree.
+
+    Submit never touches the base, so a moved or missing base branch is not repaired here; the
+    user restores it externally before retrying.
+    """
+
+    branch = tracked_base.pr_identity.head_ref
+    state = classify(
+        ChangeObservation(
+            change_id=base.change_id,
+            tracked=tracked_base,
+            branch=branch,
+            remote_name=remote.name,
+            local=(base,),
+            selected=base,
+            pr=lookup.pr,
+            open_prs_on_branch=lookup.open_prs_on_branch,
+            remote_target=remote_target,
+            lookup_error=lookup.error,
+        )
+    )
+    if isinstance(state, (Published, Queued)):
+        return
+    if isinstance(state, (PRHeadMoved, BranchMissing, BranchDisagrees)):
+        remote_branch = ui.bookmark(f"{branch}@{remote.name}")
+        expected = ui.semantic_text(tracked_base.submitted_baseline.commit_id, "commit_id")
+        raise DriftError(
+            t"PR branch {remote_branch} no longer points to the submitted commit for base "
+            t"{ui.change_id(base.change_id)}. jj-stack left it untouched and cannot repair it "
+            t"automatically.",
+            condition="remote_branch_moved",
+            hint=t"Move {remote_branch} back to commit {expected}, the commit last submitted "
+            t"for the base, then run {ui.cmd(retry)}.",
+        )
+    if isinstance(state, Stop):
+        raise stop_error(state, rerun=retry)
+    if isinstance(state, Merged):
+        raise _not_open_error(state, hint=merged_hint)
+    if isinstance(state, Closed):
+        raise _not_open_error(
+            state,
+            hint=t"Reopen the PR, or run {ui.cmd('jj-stack cleanup')} before submitting again.",
+        )
+    raise AssertionError(f"An explicit base cannot be {type(state).__name__}.")

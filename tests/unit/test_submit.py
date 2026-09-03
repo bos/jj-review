@@ -17,10 +17,6 @@ from jj_stack.commands.submit.models import (
     SubmitOptions,
 )
 from jj_stack.commands.submit.overview_comments import sync_stack_overview_comments
-from jj_stack.commands.submit.prs import (
-    _select_discovered_pr,
-    ensure_pr_link_is_consistent,
-)
 from jj_stack.config import AppConfig
 from jj_stack.errors import CliError, error_hint
 from jj_stack.github.client import GithubClient, GithubClientError
@@ -35,10 +31,10 @@ from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import (
     PRIdentity,
     SubmittedBaseline,
-    TrackedPR,
     TrackingState,
 )
 from jj_stack.stack.pr_branches import ResolvedPRBranch
+from jj_stack.stack.status import PRLookup
 from jj_stack.ui import plain_text
 from tests.support.change_helpers import make_change
 from tests.support.contexts import fake_command_context
@@ -99,127 +95,125 @@ def test_overview_comment_move_keeps_source_when_head_creation_fails() -> None:
     assert client.deleted_comment_ids == []
 
 
-def test_prepare_submit_changes_rejects_saved_remote_branch_drift() -> None:
-    change = make_change(
-        commit_id="current-commit",
-        change_id="abcdefghijk",
-        description="feature\n",
-    )
-    identity = make_pr_identity(
-        head_ref="jj-stack/feature-abcdefgh",
-        pr_number=17,
+def _prepare(
+    change: LocalCommit,
+    *,
+    branch: str,
+    lookup: PRLookup,
+    remote_target: str | None,
+    state: TrackingState,
+    recovered_target: str | None = None,
+):
+    return prepare_submit_changes(
+        branch_resolutions=(
+            ResolvedPRBranch(
+                branch=branch,
+                change_id=change.change_id,
+                recovered_target=recovered_target,
+            ),
+        ),
+        lookups={branch: lookup},
+        remote_targets={} if remote_target is None else {branch: remote_target},
+        remote=_REMOTE,
+        stack=_local_stack(change),
+        state=state,
     )
 
-    with pytest.raises(CliError, match="unexpected commit") as caught:
-        prepare_submit_changes(
-            branch_resolutions=(
-                ResolvedPRBranch(
-                    branch=identity.head_ref,
-                    change_id=change.change_id,
-                ),
-            ),
-            remote_targets={identity.head_ref: "external-commit"},
-            remote=_REMOTE,
-            stack=_local_stack(change),
-            state=TrackingState(
-                pr_identities={change.change_id: identity},
-                submitted_baselines={
-                    change.change_id: SubmittedBaseline(commit_id="submitted-commit")
-                },
-            ),
+
+def _tracking(identity: PRIdentity, *, change_id: str, baseline: str) -> TrackingState:
+    return TrackingState(
+        pr_identities={change_id: identity},
+        submitted_baselines={change_id: SubmittedBaseline(commit_id=baseline)},
+    )
+
+
+def test_prepare_submit_changes_rejects_a_pr_head_that_left_the_change() -> None:
+    change = make_change(commit_id="current-commit", change_id="abcdefghijk", description="f\n")
+    identity = make_pr_identity(head_ref="jj-stack/feature-abcdefgh", pr_number=17)
+    pr = _github_pr(17, branch=identity.head_ref, head_sha="external-commit")
+
+    with pytest.raises(CliError, match="not at this change") as caught:
+        _prepare(
+            change,
+            branch=identity.head_ref,
+            lookup=PRLookup(pr=pr, open_prs_on_branch=(pr,)),
+            remote_target="external-commit",
+            state=_tracking(identity, change_id=change.change_id, baseline="submitted-commit"),
         )
 
-    assert "jj-stack view abcdefgh" in plain_text(error_hint(caught.value) or "")
+    hint = plain_text(error_hint(caught.value) or "")
+    assert "jj-stack checkout --pull-request 17" in hint
+    assert "jj-stack relink --replace-remote 17 abcdefgh" in hint
 
 
 def test_prepare_submit_changes_rejects_unclaimed_existing_branch() -> None:
-    change = make_change(
-        commit_id="current-commit",
-        change_id="abcdefghijk",
-        description="feature\n",
-    )
-    branch = "jj-stack/feature-abcdefgh"
+    change = make_change(commit_id="current-commit", change_id="abcdefghijk", description="f\n")
 
     with pytest.raises(CliError, match="already exists"):
-        prepare_submit_changes(
-            branch_resolutions=(
-                ResolvedPRBranch(
-                    branch=branch,
-                    change_id=change.change_id,
-                ),
-            ),
-            remote_targets={branch: "another-commit"},
-            remote=_REMOTE,
-            stack=_local_stack(change),
+        _prepare(
+            change,
+            branch="jj-stack/feature-abcdefgh",
+            lookup=PRLookup(pr=None, open_prs_on_branch=()),
+            remote_target="another-commit",
             state=TrackingState(),
         )
 
 
 def test_prepare_submit_changes_requires_recovered_branch_lease_to_stay_exact() -> None:
-    change = make_change(
-        commit_id="current-commit",
-        change_id="abcdefghijk",
-        description="feature\n",
-    )
-    branch = "jj-stack/older-title-abcdefgh"
+    change = make_change(commit_id="current-commit", change_id="abcdefghijk", description="f\n")
 
     with pytest.raises(CliError, match="changed while submit was running"):
-        prepare_submit_changes(
-            branch_resolutions=(
-                ResolvedPRBranch(
-                    branch=branch,
-                    change_id=change.change_id,
-                    recovered_target="interrupted-commit",
-                ),
-            ),
-            remote_targets={branch: "external-commit"},
-            remote=_REMOTE,
-            stack=_local_stack(change),
+        _prepare(
+            change,
+            branch="jj-stack/older-title-abcdefgh",
+            lookup=PRLookup(pr=None, open_prs_on_branch=()),
+            recovered_target="interrupted-commit",
+            remote_target="external-commit",
             state=TrackingState(),
         )
 
 
-def test_pr_link_rejects_missing_discovered_pr() -> None:
+def test_prepare_submit_changes_rejects_a_missing_saved_pr() -> None:
+    change = make_change(commit_id="commit-17", change_id="abcdefghijk", description="f\n")
     identity = make_pr_identity(head_ref="jj-stack/foo-abcdefgh", pr_number=17)
 
-    with pytest.raises(CliError, match="GitHub no longer reports a PR"):
-        ensure_pr_link_is_consistent(
+    with pytest.raises(CliError, match="GitHub no longer reports"):
+        _prepare(
+            change,
             branch=identity.head_ref,
-            change_id="abcdefghijk",
-            discovered_pr=None,
-            expected_remote_target="commit-17",
-            tracked_pr=_tracked_pr(identity),
+            lookup=PRLookup(pr=None, open_prs_on_branch=()),
+            remote_target="commit-17",
+            state=_tracking(identity, change_id=change.change_id, baseline="commit-17"),
         )
 
 
-def test_pr_link_rejects_remote_and_pr_head_mismatch() -> None:
+def test_prepare_submit_changes_rejects_a_branch_that_disagrees_with_the_pr_head() -> None:
+    change = make_change(commit_id="current-commit", change_id="abcdefghijk", description="f\n")
     identity = make_pr_identity(head_ref="jj-stack/foo-abcdefgh", pr_number=17)
-    pr = _github_pr(
-        number=17,
-        branch=identity.head_ref,
-        head_sha="github-commit",
-    )
+    pr = _github_pr(17, branch=identity.head_ref, head_sha="current-commit")
 
-    with pytest.raises(CliError, match="remote branch no longer identify the same commit"):
-        ensure_pr_link_is_consistent(
+    with pytest.raises(CliError, match="PR branch .* is at"):
+        _prepare(
+            change,
             branch=identity.head_ref,
-            change_id="abcdefghijk",
-            discovered_pr=pr,
-            expected_remote_target="remote-commit",
-            tracked_pr=_tracked_pr(identity, commit_id="remote-commit"),
+            lookup=PRLookup(pr=pr, open_prs_on_branch=(pr,)),
+            remote_target="remote-commit",
+            state=_tracking(identity, change_id=change.change_id, baseline="remote-commit"),
         )
 
 
-def _tracked_pr(
-    identity: PRIdentity,
-    *,
-    commit_id: str = "commit-17",
-) -> TrackedPR:
-    return TrackedPR(
-        change_id="abcdefghijk",
-        pr_identity=identity,
-        submitted_baseline=SubmittedBaseline(commit_id=commit_id),
-    )
+def test_prepare_submit_changes_rejects_an_untracked_branch_with_open_prs() -> None:
+    change = make_change(commit_id="current-commit", change_id="abcdefghijk", description="f\n")
+    prs = tuple(_github_pr(number, branch="jj-stack/foo-abcdefgh") for number in (1, 2))
+
+    with pytest.raises(CliError, match="already reports"):
+        _prepare(
+            change,
+            branch="jj-stack/foo-abcdefgh",
+            lookup=PRLookup(pr=None, open_prs_on_branch=prs),
+            remote_target=None,
+            state=TrackingState(),
+        )
 
 
 def test_preflight_private_commits_rejects_blocked_change() -> None:
@@ -241,20 +235,6 @@ def test_preflight_private_commits_rejects_blocked_change() -> None:
         preflight_private_commits(PrivateCommitClient(), (private,))
 
 
-def test_discovered_pr_must_have_only_one_open_pr() -> None:
-    prs = tuple(
-        _github_pr(number=number, state=state)
-        for number, state in enumerate(("open", "open"), start=1)
-    )
-    with pytest.raises(CliError, match="multiple pull requests"):
-        _select_discovered_pr(
-            head_label="octo-org:jj-stack/foo",
-            open_prs=prs,
-            tracked_pr=None,
-            tracked_pr_number=None,
-        )
-
-
 def test_pr_plan_prefers_cli_metadata_over_config() -> None:
     context = fake_command_context(
         config=AppConfig(
@@ -273,7 +253,6 @@ def test_pr_plan_prefers_cli_metadata_over_config() -> None:
     plans = _pr_sync_plans(
         bottom_base_branch="main",
         context=context,
-        discovered_prs={branch: _github_pr(number=17, branch=branch)},
         drafts={change.change_id: False},
         generated_descriptions={change.change_id: GeneratedDescription(body="", title="feature")},
         options=replace(
@@ -287,6 +266,7 @@ def test_pr_plan_prefers_cli_metadata_over_config() -> None:
                 expected_remote_target="old-commit",
                 remote_action="pushed",
                 change=change,
+                pr=_github_pr(17, branch=branch),
             ),
         ),
         prior_reviewers={},

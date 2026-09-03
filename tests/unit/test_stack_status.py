@@ -164,9 +164,9 @@ def test_pr_lookup_falls_back_to_exact_remembered_pr_number() -> None:
     )
 
     lookups = asyncio.run(
-        status_module._discover_pr_lookups(
+        status_module.discover_pr_lookups(
             github_client=cast(GithubClient, FakeGithubClient()),
-            prepared_changes=(prepared_change,),
+            tracked_by_branch={prepared_change.branch or "": prepared_change.tracked},
         )
     )
 
@@ -210,9 +210,9 @@ def test_pr_lookup_reports_the_saved_pr_when_another_open_pr_uses_its_branch() -
     )
 
     lookup = asyncio.run(
-        status_module._discover_pr_lookups(
+        status_module.discover_pr_lookups(
             github_client=cast(GithubClient, FakeGithubClient()),
-            prepared_changes=(prepared_change,),
+            tracked_by_branch={prepared_change.branch or "": prepared_change.tracked},
         )
     )["jj-stack/branch"]
 

@@ -2191,7 +2191,7 @@ def test_submit_fails_closed_when_cached_pr_is_missing_on_github(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "Saved pull request link exists" in captured.err
+    assert "GitHub no longer reports PR #1" in captured.err
     assert "view" in captured.err
     assert "relink" in captured.err
     assert state_store.load() == initial_state
@@ -2224,7 +2224,7 @@ def test_submit_fails_closed_when_github_reports_multiple_prs(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "multiple pull requests" in captured.err
+    assert "also uses PR branch" in captured.err
     assert "view" in captured.err
     assert "relink" in captured.err
     assert state_store.load() == initial_state
@@ -2282,7 +2282,7 @@ def test_submit_fails_closed_when_saved_remote_branch_drifted_externally(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "unexpected commit" in captured.err
+    assert "not at this change" in captured.err
     assert state_store.load() == initial_state
     assert remote_refs(fake_repo.git_dir) == drifted_refs
     assert {
