@@ -393,7 +393,8 @@ def ensure_pr_link_is_consistent(
             t"Pull request {discovered_number} and its remote branch no longer "
             t"identify the same commit.",
             condition="remote_branch_moved",
-            hint=t"Inspect it with {ui.cmd('view')} before submitting again.",
+            hint=t"Inspect it with {ui.cmd(f'jj-stack view {short_change_id(change_id)}')} "
+            t"before submitting again.",
         )
 
 

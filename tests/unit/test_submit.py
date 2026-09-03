@@ -22,7 +22,7 @@ from jj_stack.commands.submit.prs import (
     ensure_pr_link_is_consistent,
 )
 from jj_stack.config import AppConfig
-from jj_stack.errors import CliError
+from jj_stack.errors import CliError, error_hint
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.git import GitRemote
@@ -39,6 +39,7 @@ from jj_stack.models.tracking import (
     TrackingState,
 )
 from jj_stack.stack.pr_branches import ResolvedPRBranch
+from jj_stack.ui import plain_text
 from tests.support.change_helpers import make_change
 from tests.support.contexts import fake_command_context
 from tests.support.tracking import make_pr_identity
@@ -109,7 +110,7 @@ def test_prepare_submit_changes_rejects_saved_remote_branch_drift() -> None:
         pr_number=17,
     )
 
-    with pytest.raises(CliError, match="unexpected commit"):
+    with pytest.raises(CliError, match="unexpected commit") as caught:
         prepare_submit_changes(
             branch_resolutions=(
                 ResolvedPRBranch(
@@ -127,6 +128,8 @@ def test_prepare_submit_changes_rejects_saved_remote_branch_drift() -> None:
                 },
             ),
         )
+
+    assert "jj-stack view abcdefgh" in plain_text(error_hint(caught.value) or "")
 
 
 def test_prepare_submit_changes_rejects_unclaimed_existing_branch() -> None:

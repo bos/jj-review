@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jj_stack.ui as ui
 from jj_stack.errors import DriftError
+from jj_stack.identifiers import short_change_id
 from jj_stack.models.git import GitRemote
 from jj_stack.models.stack import LocalStack
 from jj_stack.models.tracking import TrackingState
@@ -23,6 +24,7 @@ def prepare_submit_changes(
     """Validate saved leases and describe the one atomic remote update."""
 
     prepared: list[PreparedSubmitChange] = []
+    view_command = f"jj-stack view {short_change_id(stack.head.change_id)}"
     for resolution, change in zip(branch_resolutions, stack.changes, strict=True):
         tracked_pr = state.tracked_pr(change.change_id)
         remote_target = remote_targets.get(resolution.branch)
@@ -56,10 +58,7 @@ def prepare_submit_changes(
                     t"{ui.bookmark(f'{resolution.branch}@{remote.name}')} points to an "
                     t"unexpected commit.",
                     condition="remote_branch_moved",
-                    hint=(
-                        t"Inspect it with {ui.cmd('view')} and repair the PR "
-                        t"before submitting again."
-                    ),
+                    hint=t"Inspect it with {ui.cmd(view_command)} before submitting again.",
                 )
         elif resolution.recovered_target is not None:
             if remote_target != resolution.recovered_target:
