@@ -11,6 +11,7 @@ from jj_stack.commands.relink import (
 )
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient
+from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubBranchRef, GithubPR
 from jj_stack.models.tracking import SubmittedBaseline, TrackingState
 from tests.support.tracking import make_pr_identity
@@ -20,7 +21,7 @@ from tests.support.tracking import make_pr_identity
     ("head_owner", "state", "message"),
     (
         ("octo-org", "closed", "is not open"),
-        ("someone-else", "open", "does not belong to the configured repo"),
+        ("someone-else", "open", "does not belong to octo-org/stacked-prs"),
     ),
 )
 def test_relink_requires_open_same_repo_pr(
@@ -36,7 +37,7 @@ def test_relink_requires_open_same_repo_pr(
             _load_exact_relink_pr(
                 github_client=cast(GithubClient, client),
                 pr_number=1,
-                repo_owner="octo-org",
+                repo=GithubRepoAddress(owner="octo-org", repo="stacked-prs"),
             )
         )
 

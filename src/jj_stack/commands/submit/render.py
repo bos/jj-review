@@ -10,7 +10,6 @@ from jj_stack.formatting import (
     render_commit_lines,
 )
 from jj_stack.jj.client import JjClient
-from jj_stack.models.stack import LocalCommit
 
 from .models import SubmitResult, SubmittedChange
 
@@ -27,10 +26,10 @@ def print_submit_result(result: SubmitResult) -> None:
             changes=tuple(change.prepared.change for change in result.changes) + (result.trunk,),
         )
     if not result.changes:
-        for line in _render_submit_trunk_lines(
+        for line in render_commit_lines(
             client=client,
+            change=result.trunk,
             prerendered_lines=prerendered_blocks.get(result.trunk.commit_id),
-            trunk=result.trunk,
         ):
             console.output(line, soft_wrap=True)
         console.note(
@@ -51,10 +50,10 @@ def print_submit_result(result: SubmitResult) -> None:
             change=change,
         ):
             console.output(line, soft_wrap=True)
-    for line in _render_submit_trunk_lines(
+    for line in render_commit_lines(
         client=client,
+        change=result.trunk,
         prerendered_lines=prerendered_blocks.get(result.trunk.commit_id),
-        trunk=result.trunk,
     ):
         console.output(line, soft_wrap=True)
     if not result.dry_run:
@@ -122,17 +121,4 @@ def _render_submit_change_lines(
         prerendered_lines=prerendered_lines,
         change=change.prepared.change,
         suffix=summary,
-    )
-
-
-def _render_submit_trunk_lines(
-    *,
-    client: JjClient,
-    prerendered_lines: tuple[str, ...] | None = None,
-    trunk: LocalCommit,
-) -> tuple[ui.Renderable, ...]:
-    return render_commit_lines(
-        client=client,
-        prerendered_lines=prerendered_lines,
-        change=trunk,
     )

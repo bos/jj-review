@@ -124,12 +124,10 @@ class LiveGithubSuite:
 
         self._section("submit, inspect, unstack, relink, and checkout")
         bottom_change = self._commit_change(
-            self.primary,
             title="prerelease bottom change",
             filename="bottom.txt",
         )
         top_change = self._commit_change(
-            self.primary,
             title="prerelease top change",
             filename="top.txt",
         )
@@ -193,7 +191,6 @@ class LiveGithubSuite:
 
         self._section("external merge followed by selected sync")
         external_change = self._commit_change(
-            self.primary,
             title="prerelease external merge",
             filename="external.txt",
         )
@@ -217,7 +214,6 @@ class LiveGithubSuite:
 
         self._section("explicit close and cleanup")
         cleanup_change = self._commit_change(
-            self.primary,
             title="prerelease cleanup",
             filename="cleanup.txt",
         )
@@ -295,12 +291,12 @@ class LiveGithubSuite:
             )
         )
 
-    def _commit_change(self, repo: Path, *, title: str, filename: str) -> str:
-        (repo / filename).write_text(f"{title}\n", encoding="utf-8")
-        self._run_command(("jj", "commit", "-m", title), cwd=repo)
+    def _commit_change(self, *, title: str, filename: str) -> str:
+        (self.primary / filename).write_text(f"{title}\n", encoding="utf-8")
+        self._run_command(("jj", "commit", "-m", title), cwd=self.primary)
         completed = self._run_command(
             ("jj", "log", "--no-graph", "-r", "@-", "-T", 'change_id ++ "\\n"'),
-            cwd=repo,
+            cwd=self.primary,
             capture=True,
         )
         change_id = completed.stdout.strip()

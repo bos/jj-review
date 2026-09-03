@@ -50,11 +50,6 @@ class CheckedOutMergedChangeError(CliError):
 
 
 @dataclass(frozen=True, slots=True)
-class _NoGithubStack:
-    pass
-
-
-@dataclass(frozen=True, slots=True)
 class _GithubStackMerge:
     history: tuple[OnTrunkChange, ...]
     adopted: tuple[AdoptedSurvivor, ...]
@@ -66,7 +61,7 @@ class _GithubStackRebase:
     adopted: tuple[AdoptedSurvivor, ...]
 
 
-type _GithubStackEffect = _NoGithubStack | _GithubStackMerge | _GithubStackRebase
+type _GithubStackEffect = _GithubStackMerge | _GithubStackRebase | None
 
 
 def build_selected_convergence_plan(
@@ -89,7 +84,7 @@ def build_selected_convergence_plan(
         trunk_branch=trunk_branch,
     )
     history = effect.history if isinstance(effect, _GithubStackMerge) else ()
-    adopted = effect.adopted if not isinstance(effect, _NoGithubStack) else ()
+    adopted = effect.adopted if effect is not None else ()
     history_ids = {item.candidate.change_id for item in history}
     active_ids = {item.candidate.change_id for item in adopted}
     on_trunk = list(history)
@@ -298,7 +293,7 @@ def _classify_github_stack(
     )
     stack = selected_github_stack(observation.repo, selected_prs, github_stacks)
     if stack is None:
-        return _NoGithubStack()
+        return None
     # A selected PR outside the stack, such as a child submitted with --base, is not compared.
     members = tuple(number for number in selected_prs if number in stack.pr_numbers)
     if members != tuple(number for number in stack.pr_numbers if number in members):

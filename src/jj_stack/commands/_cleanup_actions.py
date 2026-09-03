@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Literal
 
 import jj_stack.console as console
 import jj_stack.ui as ui
-from jj_stack.commands.cleanup.shared import CleanupAction
+from jj_stack.commands.cleanup.shared import CleanupAction, CleanupActionStatus
 from jj_stack.errors import CliError
 from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError
@@ -31,8 +30,6 @@ from jj_stack.stack.change_state import (
 )
 from jj_stack.stack.pr_facts import RepoFacts
 from jj_stack.ui import Message
-
-ActionPresentationStatus = Literal["applied", "blocked", "planned", "skipped"]
 
 
 def check_tracked_pr(
@@ -179,7 +176,7 @@ async def apply_overview_comment_cleanup(
 def emit_action_row(
     *,
     kind: str,
-    status: ActionPresentationStatus,
+    status: CleanupActionStatus,
     body: Message,
 ) -> None:
     prefix, prefix_style, body_style = _action_presentation(status)
@@ -197,7 +194,7 @@ def emit_action_row(
 
 
 def _action_presentation(
-    status: ActionPresentationStatus,
+    status: CleanupActionStatus,
 ) -> tuple[str, tuple[str, ...] | None, tuple[str, ...] | None]:
     if status == "applied":
         return (
@@ -232,7 +229,7 @@ def plan_pr_cleanup(
     candidate: TrackedPR,
     observation: RepoFacts,
     preview_detached_dependents: frozenset[int] = frozenset(),
-) -> tuple[ChangeState | None, PRRefUpdate | None, CleanupAction | None]:
+) -> tuple[PRRefUpdate | None, CleanupAction | None]:
     """Check cleanup eligibility and lease the PR branch deletion to its observed target."""
 
     state, blocker = check_tracked_pr(
@@ -243,13 +240,12 @@ def plan_pr_cleanup(
         require_no_dependents=True,
     )
     if blocker is not None or state is None:
-        return state, None, blocker
+        return None, blocker
     change_id = candidate.change_id
     pr_identity = candidate.pr_identity
     branch = pr_identity.head_ref
     if isinstance(state, CompetingOpenPR):
         return (
-            state,
             None,
             CleanupAction(
                 kind="remote branch",
@@ -265,7 +261,6 @@ def plan_pr_cleanup(
     ):
         pr_label = format_pr_label(pr_identity.pr_number, repo=observation.repo)
         return (
-            state,
             None,
             CleanupAction(
                 kind="remote branch",
@@ -275,7 +270,6 @@ def plan_pr_cleanup(
         )
     if not pr_branch_matches_change(branch, change_id):
         return (
-            state,
             None,
             CleanupAction(
                 kind="tracking",
@@ -294,7 +288,7 @@ def plan_pr_cleanup(
             desired_target=None,
         )
     )
-    return state, update, None
+    return update, None
 
 
 def github_stack_cleanup_blockers(

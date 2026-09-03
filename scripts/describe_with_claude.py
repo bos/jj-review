@@ -84,7 +84,7 @@ def build_context(mode: str, revset: str) -> str:
 
 def build_pr_context(revset: str) -> str:
     raw_context = run_jj("show", "--git", "-r", revset).strip()
-    return truncate_context(raw_context, max_bytes=MAX_PR_CONTEXT_BYTES)
+    return truncate_context(raw_context)
 
 
 def build_stack_context(revset: str) -> str:
@@ -181,13 +181,13 @@ def diffstat_for_revision(revset: str) -> str:
     return "\n".join(reversed(diffstat_lines))
 
 
-def truncate_context(text: str, *, max_bytes: int) -> str:
+def truncate_context(text: str) -> str:
     encoded = text.encode("utf-8")
-    if len(encoded) <= max_bytes:
+    if len(encoded) <= MAX_PR_CONTEXT_BYTES:
         return text
-    truncated = encoded[:max_bytes].decode("utf-8", errors="ignore").rstrip()
+    truncated = encoded[:MAX_PR_CONTEXT_BYTES].decode("utf-8", errors="ignore").rstrip()
     return (
-        f"[review context truncated to the first {max_bytes} bytes; original size "
+        f"[review context truncated to the first {MAX_PR_CONTEXT_BYTES} bytes; original size "
         f"{len(encoded)} bytes]\n\n{truncated}"
     )
 

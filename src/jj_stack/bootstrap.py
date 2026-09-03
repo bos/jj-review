@@ -63,8 +63,8 @@ def bootstrap_context(
 ) -> CommandContext:
     """Resolve the repo, load config, and initialize logging."""
 
-    repo = _resolve_optional_path(repo)
-    _validate_repo_path(repo)
+    repo = repo.resolve() if repo is not None else None
+    validate_repo_path(repo)
     check_jj_version()
     repo_root = resolve_repo_root(repo or Path.cwd())
     jj_client = JjClient(repo_root, cli_args=cli_args)
@@ -88,10 +88,7 @@ def bootstrap_context(
 def configure_logging(*, debug: bool, configured_level: str) -> None:
     """Apply process-wide logging defaults for the current command."""
 
-    root_level = _resolve_logging_level(
-        configured_level.upper(),
-        original_value=configured_level,
-    )
+    root_level = logging.getLevelNamesMapping()[configured_level]
     logging.basicConfig(
         format="%(levelname)s %(name)s: %(message)s",
         force=True,
@@ -105,14 +102,6 @@ def configure_logging(*, debug: bool, configured_level: str) -> None:
     logging.getLogger("httpx2").setLevel(logging.WARNING)
     logging.getLogger("httpcore2").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
-
-
-def _resolve_logging_level(level_name: str, *, original_value: str) -> int:
-    level_names = logging.getLevelNamesMapping()
-    if level_name not in level_names:
-        valid_levels = ", ".join(sorted(level_names))
-        raise CliError(f"Invalid logging level {original_value}. Expected one of: {valid_levels}")
-    return level_names[level_name]
 
 
 def resolve_repo_root(start_dir: Path) -> Path:
@@ -196,15 +185,7 @@ def _parse_jj_version(version_output: str) -> tuple[int, ...] | None:
         return None
 
 
-def _resolve_optional_path(raw_path: Path | str | None) -> Path | None:
-    if raw_path is None:
-        return None
-    if isinstance(raw_path, Path):
-        return raw_path.resolve()
-    return Path(str(raw_path)).resolve()
-
-
-def _validate_repo_path(repo: Path | None) -> None:
+def validate_repo_path(repo: Path | None) -> None:
     if repo is None:
         return
     if not repo.exists():

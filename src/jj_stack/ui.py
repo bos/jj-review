@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from string.templatelib import Interpolation, Template, convert
 from typing import Literal
 
+from jj_stack.identifiers import short_change_id, short_commit_id
+
 
 @dataclass(frozen=True, slots=True)
 class SemanticText:
@@ -68,11 +70,7 @@ class DataTable:
     columns: tuple[TableColumn, ...]
     rows: tuple[tuple[TableCell, ...], ...]
     box: str = "simple"
-    expand: bool = False
-    header_style: str | None = "bold"
-    pad_edge: bool = False
     padding: int | tuple[int, int] | tuple[int, int, int, int] = (0, 0)
-    show_edge: bool = False
     show_header: bool = True
 
 
@@ -101,13 +99,13 @@ def bookmark(name: str) -> SemanticText:
 def change_id(name: str) -> SemanticText:
     """Wrap a change ID for semantic rendering, shortening it for display."""
 
-    return semantic_text(name[:8], "change_id")
+    return semantic_text(short_change_id(name), "change_id")
 
 
 def commit_id(name: str) -> SemanticText:
     """Wrap a commit ID for semantic rendering, shortening it for display."""
 
-    return semantic_text(name[:8], "commit_id")
+    return semantic_text(short_commit_id(name), "commit_id")
 
 
 def revset(text: str) -> SemanticText:
@@ -229,15 +227,7 @@ def resolve_interpolation(interpolation: Interpolation) -> Message:
                 link=value.link,
             )
         return value
-    if isinstance(value, Template):
-        if interpolation.conversion is not None or interpolation.format_spec:
-            plain = plain_text(value)
-            converted = convert(plain, interpolation.conversion)
-            if interpolation.format_spec:
-                return format(converted, interpolation.format_spec)
-            return converted
-        return value
-    if isinstance(value, tuple):
+    if isinstance(value, (Template, tuple)):
         if interpolation.conversion is not None or interpolation.format_spec:
             plain = plain_text(value)
             converted = convert(plain, interpolation.conversion)

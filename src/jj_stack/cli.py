@@ -1005,7 +1005,7 @@ def _add_relink_parser(
     help_text: str,
     description_text: str,
     handler: Callable[[Namespace], int],
-) -> ArgumentParser:
+) -> None:
     parser = _add_command_parser(
         subcommands,
         command=command,
@@ -1029,7 +1029,6 @@ def _add_relink_parser(
             t"the next {ui.cmd('jj-stack submit')} replaces them"
         ),
     )
-    return parser
 
 
 def _add_checkout_parser(
@@ -1039,7 +1038,7 @@ def _add_checkout_parser(
     help_text: str,
     description_text: str,
     handler: Callable[[Namespace], int],
-) -> ArgumentParser:
+) -> None:
     parser = _add_command_parser(
         subcommands,
         command=command,
@@ -1069,7 +1068,6 @@ def _add_checkout_parser(
         action="store_true",
         help="Interactively choose a local or GitHub stack to check out",
     )
-    return parser
 
 
 def _add_common_options(

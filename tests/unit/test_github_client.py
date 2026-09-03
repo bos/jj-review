@@ -12,8 +12,8 @@ from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
 
 
-def _github_client(handler, *, client_type=GithubClient) -> GithubClient:
-    return client_type(
+def _github_client(handler) -> GithubClient:
+    return GithubClient(
         httpx2.AsyncClient(
             base_url="https://api.github.test",
             transport=httpx2.MockTransport(handler),

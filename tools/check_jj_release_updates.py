@@ -102,8 +102,8 @@ def tracking_issue_body(
         f"- Versions currently tested in CI: `{tested_display}`\n\n"
         "Update both of these files in the same change:\n"
         f"- `{ci_workflow}`: add `{latest_version}` to the `jj-version` matrix\n"
-        "- `tools/install-jj-release.sh`: add SHA-256 checksums for every "
-        "supported platform for the new release\n"
+        "- `tools/install-jj-release.sh`: replace the prior version's checksum cases with "
+        "SHA-256 checksums for every supported platform for the new release\n"
     )
 
 

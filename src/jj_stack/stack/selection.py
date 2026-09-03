@@ -16,22 +16,6 @@ from jj_stack.jj.client import JjClient
 from jj_stack.state.store import TrackingStore
 
 
-def resolve_selected_revset(
-    *,
-    command_label: str,
-    default_revset: str | None = None,
-    require_explicit: bool,
-    revset: str | None,
-) -> str | None:
-    """Resolve an optional `<revset>` for change-oriented commands."""
-
-    if revset is not None:
-        return revset
-    if require_explicit:
-        raise UsageError(t"{ui.cmd(command_label)} requires an explicit change selection.")
-    return default_revset
-
-
 def parse_comma_separated_flag_values(
     values: Sequence[str] | None,
 ) -> list[str] | None:
@@ -91,16 +75,6 @@ def resolve_linked_change_for_pr(
         )
 
     return pr_number, matching_change_ids[0], repo
-
-
-def resolve_pr_number(
-    *,
-    jj_client: JjClient,
-    pr_reference: str,
-) -> int:
-    """Resolve a pull-request selector as a pull request number for this repo."""
-
-    return resolve_pr_reference(jj_client=jj_client, pr_reference=pr_reference)[0]
 
 
 def resolve_pr_reference(

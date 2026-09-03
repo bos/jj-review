@@ -71,10 +71,9 @@ def stack_defaults(revset: str) -> tuple[str, str]:
     return title, body
 
 
-def prompt_line(label: str, default: str, default_label: str) -> str:
+def prompt_title(default: str, default_label: str) -> str:
     suffix = f" [return to use {default_label}]" if default else ""
-    value = input(f"{label}{suffix}: ").strip()
-    return value or default
+    return input(f"Title{suffix}: ").strip() or default
 
 
 def prompt_body(default: str, default_label: str) -> str:
@@ -128,7 +127,7 @@ def main() -> int:
         print(f"{default_source.capitalize()} body:")
         print(default_body)
 
-    title = prompt_line("Title", default_title, f"{default_source} title")
+    title = prompt_title(default_title, f"{default_source} title")
     body = prompt_body(default_body, f"{default_source} body")
     print(json.dumps({"title": title, "body": body}))
     return 0

@@ -19,16 +19,20 @@ from pathlib import Path
 import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext, bootstrap_context
-from jj_stack.errors import CliError
+from jj_stack.errors import CliError, UsageError
 from jj_stack.formatting import format_pr_label, format_pr_number
-from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
-from jj_stack.github.pr_refs import parse_repo_pr_reference
-from jj_stack.github.resolution import require_github_repo, select_submit_remote
+from jj_stack.github.client import GithubClient, build_github_client
+from jj_stack.github.pr_refs import load_pr, parse_repo_pr_reference, require_managed_pr_head
+from jj_stack.github.resolution import (
+    GithubRepoAddress,
+    require_github_repo,
+    select_submit_remote,
+)
 from jj_stack.identifiers import short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.models.github import GithubPR
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR, TrackingState
-from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_matches_change
+from jj_stack.pr_branch_namespace import pr_branch_matches_change
 from jj_stack.stack.change_state import (
     BranchDisagrees,
     BranchMissing,
@@ -39,7 +43,6 @@ from jj_stack.stack.change_state import (
 )
 from jj_stack.stack.pr_facts import duplicate_pr_claim_change_ids
 from jj_stack.stack.selected import require_submittable_changes, select_stack_path
-from jj_stack.stack.selection import resolve_selected_revset
 from jj_stack.state.operation_lock import acquire_operation_lock
 
 HELP = "Reconnect an existing pull request to a local change"
@@ -94,14 +97,11 @@ async def _run_relink_async(
 ) -> RelinkResult:
     client = context.jj_client
     state = context.state_store.load()
-    selected = resolve_selected_revset(
-        command_label="relink",
-        require_explicit=True,
-        revset=revset,
-    )
+    if revset is None:
+        raise UsageError(t"{ui.cmd('relink')} requires an explicit change selection.")
     stack = select_stack_path(
         jj_client=client,
-        revset=selected,
+        revset=revset,
         state=state,
     ).stack
     require_submittable_changes(stack.changes)
@@ -122,7 +122,7 @@ async def _run_relink_async(
         pr, head_sha = await _load_exact_relink_pr(
             github_client=github_client,
             pr_number=pr_number,
-            repo_owner=repo.owner,
+            repo=repo,
         )
         branch = pr.head.ref
         remote_target = (await github_client.get_branch_targets(branches=(branch,))).get(branch)
@@ -209,13 +209,9 @@ async def _load_exact_relink_pr(
     *,
     github_client: GithubClient,
     pr_number: int,
-    repo_owner: str,
+    repo: GithubRepoAddress,
 ) -> tuple[GithubPR, str]:
-    try:
-        pr = await github_client.get_pr(pr_number=pr_number)
-    except GithubClientError as error:
-        pr_number_label = format_pr_number(pr_number, repo=github_client.repo)
-        raise CliError(t"Could not load pull request {pr_number_label}") from error
+    pr = await load_pr(github_client=github_client, pr_number=pr_number)
     pr_number_label = format_pr_number(pr.number, url=pr.html_url)
     if pr.state != "open":
         raise CliError(
@@ -223,26 +219,7 @@ async def _load_exact_relink_pr(
             hint=t"Reopen it on GitHub to keep reviewing it, or forget its saved link with "
             t"{ui.cmd('jj-stack unstack --local')} and submit again.",
         )
-    branch = pr.head.ref
-    if pr.head.label != f"{repo_owner}:{branch}":
-        raise CliError(
-            t"Pull request {pr_number_label} head "
-            t"{ui.bookmark(pr.head.label or branch)} does not belong to the "
-            t"configured repo."
-        )
-    namespace = current_pr_branch_namespace()
-    if not namespace.contains(branch):
-        raise CliError(
-            t"Pull request {pr_number_label} head {ui.bookmark(branch)} is not a jj-stack PR "
-            t"branch; its name does not match {ui.bookmark(namespace.branch_glob)}."
-        )
-    head_sha = pr.head.sha
-    if head_sha is None:
-        raise CliError(
-            t"GitHub did not report a head commit for PR {pr_number_label}.",
-            hint="Refresh the pull request on GitHub, then retry.",
-        )
-    return pr, head_sha
+    return pr, require_managed_pr_head(pr=pr, repo=repo)
 
 
 def _ensure_relinkable_cached_link(

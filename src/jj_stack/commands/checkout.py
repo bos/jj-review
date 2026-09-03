@@ -24,9 +24,9 @@ import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext, bootstrap_context
 from jj_stack.errors import CliError, UsageError
-from jj_stack.formatting import format_pr_label, format_pr_number
+from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
-from jj_stack.github.pr_refs import parse_repo_pr_reference
+from jj_stack.github.pr_refs import load_pr, parse_repo_pr_reference, require_managed_pr_head
 from jj_stack.github.resolution import (
     GithubRepoAddress,
     require_github_repo,
@@ -179,15 +179,14 @@ async def _checkout_pr_stack(
         github_repo=repo,
     )
     async with build_github_client(repo=repo) as github_client:
-        top_pr = await _load_pr(
+        top_pr = await load_pr(
             github_client=github_client,
             pr_number=pr_number,
         )
-        _validate_same_repo_managed_pr(
+        top_head_sha = require_managed_pr_head(
             pr=top_pr,
             repo=repo,
         )
-        top_head_sha = _require_pr_head_sha(top_pr)
         observed_top_targets, prs = await asyncio.gather(
             github_client.get_branch_targets(branches=(top_pr.head.ref,)),
             _load_pr_chain(
@@ -234,6 +233,7 @@ async def _checkout_pr_stack(
             context=context,
             prs=prs,
             remote_targets=remote_targets,
+            repo=repo,
             stack=stack,
             state=state,
         )
@@ -275,9 +275,9 @@ def _divergent_copy_warnings(
             continue
         warnings.append(
             t"Change {ui.change_id(change.change_id)} now has {len(others) + 1} visible commits: "
-            t"{ui.commit_id(change.commit_id[:8])} (from "
+            t"{ui.commit_id(change.commit_id)} (from "
             t"{format_pr_label(pr.number, url=pr.html_url)}) and "
-            t"{ui.join(lambda commit_id: ui.commit_id(commit_id[:8]), others)}. "
+            t"{ui.join(ui.commit_id, others)}. "
             t"{divergence_recovery_hint(change.change_id)}"
         )
     return tuple(warnings)
@@ -336,18 +336,6 @@ def _discover_checkout_stack(
         raise status_preparation_cli_error(error) from error
 
 
-async def _load_pr(
-    *,
-    github_client: GithubClient,
-    pr_number: int,
-) -> GithubPR:
-    try:
-        return await github_client.get_pr(pr_number=pr_number)
-    except GithubClientError as error:
-        pr_number_label = format_pr_number(pr_number, repo=github_client.repo)
-        raise CliError(t"Could not load pull request {pr_number_label}") from error
-
-
 async def _load_pr_chain(
     *,
     github_client: GithubClient,
@@ -384,7 +372,7 @@ async def _load_pr_chain(
                 t"{ui.cmd('jj-stack relink')}.",
             )
         parent = matches[0]
-        _validate_same_repo_managed_pr(
+        require_managed_pr_head(
             pr=parent,
             repo=repo,
         )
@@ -398,10 +386,11 @@ def _save_checkout_tracking(
     context: CommandContext,
     prs: tuple[GithubPR, ...],
     remote_targets: dict[str, str],
+    repo: GithubRepoAddress,
     stack: LocalStack,
     state: TrackingState,
 ) -> int:
-    pr_heads = tuple(_require_pr_head_sha(pr) for pr in prs)
+    pr_heads = tuple(require_managed_pr_head(pr=pr, repo=repo) for pr in prs)
     changes = stack.changes[: len(prs)]
     if len(changes) < len(prs):
         raise CliError(
@@ -470,39 +459,6 @@ def _reject_duplicate_checkout_claims(
             t"with {ui.cmd('jj-stack unstack --local')} or clean it up with "
             t"{ui.cmd('jj-stack cleanup')}.",
         )
-
-
-def _validate_same_repo_managed_pr(
-    *,
-    pr: GithubPR,
-    repo: GithubRepoAddress,
-) -> None:
-    namespace = current_pr_branch_namespace()
-    expected_label = f"{repo.owner}:{pr.head.ref}"
-    pr_number_label = format_pr_number(pr.number, url=pr.html_url)
-    if pr.head.label != expected_label:
-        raise CliError(
-            t"Pull request {pr_number_label} head "
-            t"{ui.bookmark(pr.head.label or pr.head.ref)} does not "
-            t"belong to {repo.full_name}."
-        )
-    if not namespace.contains(pr.head.ref):
-        raise CliError(
-            t"Pull request {pr_number_label} head "
-            t"{ui.bookmark(pr.head.ref)} is not a jj-stack PR branch; its name does not start "
-            t"with {ui.bookmark(namespace.branch_prefix)}."
-        )
-
-
-def _require_pr_head_sha(pr: GithubPR) -> str:
-    head_sha = pr.head.sha
-    if head_sha is None:
-        pr_label = format_pr_label(pr.number, url=pr.html_url)
-        raise CliError(
-            t"GitHub did not report a head commit for {pr_label}.",
-            hint="Refresh the pull request on GitHub, then retry.",
-        )
-    return head_sha
 
 
 def _require_branch_matches_change(*, branch: str, change: LocalCommit) -> None:

@@ -1,10 +1,4 @@
-import pytest
-
-from jj_stack.errors import CliError
-from jj_stack.stack.selection import (
-    parse_comma_separated_flag_values,
-    resolve_selected_revset,
-)
+from jj_stack.stack.selection import parse_comma_separated_flag_values
 
 
 def test_parse_comma_separated_flag_values_dedupes_keeping_first_occurrence_order() -> None:
@@ -13,12 +7,3 @@ def test_parse_comma_separated_flag_values_dedupes_keeping_first_occurrence_orde
         "bob",
         "carol",
     ]
-
-
-def test_resolve_selected_revset_requires_explicit_selection() -> None:
-    with pytest.raises(CliError, match="requires an explicit change selection"):
-        resolve_selected_revset(
-            command_label="relink",
-            require_explicit=True,
-            revset=None,
-        )

@@ -24,17 +24,16 @@ from jj_stack.github.error_messages import github_target_unavailable_messages
 from jj_stack.github.resolution import GithubTarget, resolve_github_target
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.models.github import GithubStack
+from jj_stack.models.stack import LocalStack
 from jj_stack.models.tracking import TrackingState
 from jj_stack.stack.github_stack_safety import (
-    GithubStackSelection,
     dissolve_github_stack,
     selected_github_stack,
 )
-from jj_stack.stack.pr_facts import observe_prs
+from jj_stack.stack.pr_facts import observe_github_stacks, observe_prs
 from jj_stack.stack.selected import select_stack_path
 from jj_stack.stack.selection import (
     resolve_linked_change_for_pr,
-    resolve_selected_revset,
 )
 from jj_stack.state.operation_lock import operation_lock_if_mutating
 from jj_stack.ui import plain_text
@@ -148,8 +147,12 @@ async def _run_github_unstack(
             if not pr_numbers:
                 console.output("No saved pull requests were found for the selected stack.")
                 return 0
-            selection = GithubStackSelection(github_client, pr_numbers)
-            observed = await selection.active_stacks()
+            selected = set(pr_numbers)
+            observed = tuple(
+                stack
+                for stack in await observe_github_stacks(github=github_client)
+                if not selected.isdisjoint(stack.active_pr_numbers)
+            )
             github_stack = selected_github_stack(github_target.repo, pr_numbers, observed)
             await _check_selected_prs(
                 change_ids=change_ids,
@@ -189,19 +192,7 @@ def _resolve_local_github_stack(
     pr: str | None,
     revset: str | None,
 ) -> tuple[TrackingState, tuple[str, ...], tuple[int, ...]]:
-    selected_revset = _resolve_local_revset(
-        action_name="unstack",
-        context=context,
-        pr=pr,
-        revset=revset,
-    )
-    state = context.state_store.load()
-    with console.spinner(description="Inspecting jj stack"):
-        stack = select_stack_path(
-            jj_client=context.jj_client,
-            revset=selected_revset,
-            state=state,
-        ).stack
+    state, stack = _resolve_local_stack(context=context, pr=pr, revset=revset)
 
     change_ids: list[str] = []
     pr_numbers: list[int] = []
@@ -252,19 +243,7 @@ def _run_local_unstack(
     pr: str | None,
     revset: str | None,
 ) -> LocalUnstackResult:
-    selected_revset = _resolve_local_revset(
-        action_name="unstack --local",
-        context=context,
-        pr=pr,
-        revset=revset,
-    )
-    state = context.state_store.load()
-    with console.spinner(description="Inspecting jj stack"):
-        stack = select_stack_path(
-            jj_client=context.jj_client,
-            revset=selected_revset,
-            state=state,
-        ).stack
+    state, stack = _resolve_local_stack(context=context, pr=pr, revset=revset)
     actions: list[LocalUnstackAction] = []
     forgotten: list[str] = []
     for change in stack.changes:
@@ -285,9 +264,25 @@ def _run_local_unstack(
     return LocalUnstackResult(actions=tuple(actions), dry_run=dry_run)
 
 
+def _resolve_local_stack(
+    *,
+    context: CommandContext,
+    pr: str | None,
+    revset: str | None,
+) -> tuple[TrackingState, LocalStack]:
+    selected_revset = _resolve_local_revset(context=context, pr=pr, revset=revset)
+    state = context.state_store.load()
+    with console.spinner(description="Inspecting jj stack"):
+        stack = select_stack_path(
+            jj_client=context.jj_client,
+            revset=selected_revset,
+            state=state,
+        ).stack
+    return state, stack
+
+
 def _resolve_local_revset(
     *,
-    action_name: str,
     context: CommandContext,
     pr: str | None,
     revset: str | None,
@@ -303,12 +298,7 @@ def _resolve_local_revset(
             t"{ui.change_id(resolved_revset)}"
         )
         return resolved_revset
-    return resolve_selected_revset(
-        command_label=action_name,
-        default_revset=None,
-        require_explicit=False,
-        revset=revset,
-    )
+    return revset
 
 
 def _print_local_unstack_result(result: LocalUnstackResult) -> None:

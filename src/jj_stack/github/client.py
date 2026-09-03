@@ -8,6 +8,7 @@ import logging
 import time
 from collections.abc import Sequence
 from email.utils import parsedate_to_datetime
+from itertools import batched
 from math import ceil
 from textwrap import dedent, indent, shorten
 from typing import Literal
@@ -238,7 +239,7 @@ class GithubClient:
 
         ordered = tuple(dict.fromkeys(branches))
         targets: dict[str, str] = {}
-        for chunk in _chunked(ordered, size=_GRAPHQL_PR_BATCH_SIZE):
+        for chunk in batched(ordered, _GRAPHQL_PR_BATCH_SIZE, strict=False):
             query, branch_variables = _branch_targets_query(chunk)
             payload = await self._graphql_query(
                 query,
@@ -271,7 +272,7 @@ class GithubClient:
 
         ordered = tuple(dict.fromkeys(suffixes))
         targets: dict[str, str] = {}
-        for chunk in _chunked(ordered, size=_GRAPHQL_PR_BATCH_SIZE):
+        for chunk in batched(ordered, _GRAPHQL_PR_BATCH_SIZE, strict=False):
             pending: tuple[tuple[str, str | None], ...] = tuple(
                 (suffix, None) for suffix in chunk
             )
@@ -361,7 +362,7 @@ class GithubClient:
             f"{self._repo_path}/stacks/{stack_number}/unstack",
         )
         if response.status_code == 204:
-            self._expect_success(response)
+            _expect_success(response)
             return None
         return _validate_stack_payload(
             self._expect_json_payload(response, response_name="unstack"),
@@ -391,7 +392,7 @@ class GithubClient:
             return {}
 
         results: dict[int, GithubPR | None] = {}
-        for chunk in _chunked(numbers, size=_GRAPHQL_PR_BATCH_SIZE):
+        for chunk in batched(numbers, _GRAPHQL_PR_BATCH_SIZE, strict=False):
             query = _prs_by_number_query(chunk)
             payload = await self._graphql_query(
                 query,
@@ -446,7 +447,7 @@ class GithubClient:
         kind = "base" if base else "head"
         response_name = f"pull request {kind} lookup"
         results: dict[str, tuple[GithubPR, ...]] = {}
-        for chunk in _chunked(refs, size=_GRAPHQL_PR_BATCH_SIZE):
+        for chunk in batched(refs, _GRAPHQL_PR_BATCH_SIZE, strict=False):
             aliases = {f"{kind}_{index}": ref for index, ref in enumerate(chunk)}
             query, ref_variables = _prs_by_ref_query(aliases, base=base)
             payload = await self._graphql_query(
@@ -551,7 +552,7 @@ class GithubClient:
         revisions_by_pr: dict[int, tuple[GithubPRRevision, ...]] = {
             number: () for number in numbers
         }
-        for chunk in _chunked(numbers, size=_GRAPHQL_PR_BATCH_SIZE):
+        for chunk in batched(numbers, _GRAPHQL_PR_BATCH_SIZE, strict=False):
             pending_comments: dict[int, str | None] = (
                 {number: None for number in chunk} if markers else {}
             )
@@ -575,13 +576,13 @@ class GithubClient:
                 )
                 for number in request_numbers:
                     alias = f"pr_{number}"
-                    raw_pr = repo.get(alias)
+                    history = _pr_history_from_graphql(
+                        alias=alias,
+                        raw_pr=repo.get(alias),
+                        response_name="pull request history lookup",
+                    )
                     if number in pending_comments:
-                        comments, cursor = _issue_comments_from_graphql(
-                            alias=alias,
-                            raw_pr=raw_pr,
-                            response_name="pull request history lookup",
-                        )
+                        comments, cursor = _issue_comments_from_graphql(history, alias=alias)
                         for marker in markers:
                             if comments_by_marker[marker][number] is None:
                                 comments_by_marker[marker][number] = next(
@@ -595,11 +596,7 @@ class GithubClient:
                         else:
                             pending_comments[number] = cursor
                     if number in pending_revisions:
-                        revisions_by_pr[number] = _revisions_from_graphql(
-                            alias=alias,
-                            raw_pr=raw_pr,
-                            response_name="pull request history lookup",
-                        )
+                        revisions_by_pr[number] = _revisions_from_graphql(history)
                         pending_revisions.remove(number)
         return comments_by_marker, revisions_by_pr
 
@@ -642,7 +639,7 @@ class GithubClient:
             "DELETE",
             f"{self._repo_path}/issues/comments/{comment_id}",
         )
-        self._expect_success(response)
+        _expect_success(response)
 
     async def request_reviewers(
         self,
@@ -656,7 +653,7 @@ class GithubClient:
             f"{self._repo_path}/pulls/{pr_number}/requested_reviewers",
             json={"reviewers": reviewers, "team_reviewers": team_reviewers},
         )
-        self._expect_success(response)
+        _expect_success(response)
 
     async def add_labels(
         self,
@@ -669,7 +666,7 @@ class GithubClient:
             f"{self._repo_path}/issues/{issue_number}/labels",
             json={"labels": labels},
         )
-        self._expect_success(response)
+        _expect_success(response)
 
     async def update_pr(
         self,
@@ -808,7 +805,7 @@ class GithubClient:
             f"{self._repo_path}/issues/{pr_number}",
             json={"state": "closed"},
         )
-        self._expect_success(response)
+        _expect_success(response)
 
     async def _request(
         self,
@@ -816,7 +813,6 @@ class GithubClient:
         path: str,
         *,
         json: dict[str, object] | None = None,
-        params: dict[str, str] | None = None,
     ) -> httpx2.Response:
         for attempt in range(_DEFAULT_RATE_LIMIT_RETRIES + 1):
             try:
@@ -824,12 +820,11 @@ class GithubClient:
                     method,
                     path,
                     json=json,
-                    params=params,
                 )
             except httpx2.RequestError as error:
                 raise GithubClientError(f"GitHub request failed: {error}") from error
 
-            retry_after_seconds = self._retry_after_seconds(
+            retry_after_seconds = _retry_after_seconds(
                 attempt=attempt,
                 response=response,
             )
@@ -905,20 +900,6 @@ class GithubClient:
             raise GithubClientError(f"GitHub {response_name} response was missing `data`.")
         return data
 
-    def _expect_success(self, response: httpx2.Response) -> None:
-        """Fail closed on a failed request, for callers that ignore the response body."""
-
-        try:
-            response.raise_for_status()
-        except httpx2.HTTPStatusError as error:
-            rate_limit, reset_seconds = _rate_limit_refusal(error.response)
-            raise GithubClientError(
-                f"GitHub request failed: {error.response.status_code} {error.response.text}",
-                rate_limit=rate_limit,
-                rate_limit_reset_seconds=reset_seconds,
-                status_code=error.response.status_code,
-            ) from error
-
     def _expect_json_payload(
         self,
         response: httpx2.Response,
@@ -933,7 +914,7 @@ class GithubClient:
         probe and the 409 already-pending merge - carry their own guards.
         """
 
-        self._expect_success(response)
+        _expect_success(response)
         try:
             return response.json()
         except json.JSONDecodeError as error:
@@ -941,28 +922,37 @@ class GithubClient:
                 f"GitHub {response_name} response was not valid JSON."
             ) from error
 
-    def _retry_after_seconds(
-        self,
-        *,
-        attempt: int,
-        response: httpx2.Response,
-    ) -> float | None:
-        if not _is_retryable_rate_limit(response):
-            return None
-        if attempt >= _DEFAULT_RATE_LIMIT_RETRIES:
-            return None
 
-        wait_seconds = _parse_retry_after_header(response.headers.get("Retry-After"))
-        if wait_seconds is None:
-            wait_seconds = _seconds_until_rate_limit_reset(
-                response.headers.get("X-RateLimit-Reset")
-            )
-        if wait_seconds is None:
-            wait_seconds = _DEFAULT_RATE_LIMIT_BACKOFF_SECONDS * (2**attempt)
-        # GitHub's primary limit resets up to an hour out, and it asks to be waited out
-        # verbatim. Honouring that would sleep for hours across the retries, so cap every
-        # wait and let the retries run out instead.
-        return min(wait_seconds, _MAX_RATE_LIMIT_WAIT_SECONDS)
+def _expect_success(response: httpx2.Response) -> None:
+    """Fail closed on a failed request, for callers that ignore the response body."""
+
+    try:
+        response.raise_for_status()
+    except httpx2.HTTPStatusError as error:
+        rate_limit, reset_seconds = _rate_limit_refusal(error.response)
+        raise GithubClientError(
+            f"GitHub request failed: {error.response.status_code} {error.response.text}",
+            rate_limit=rate_limit,
+            rate_limit_reset_seconds=reset_seconds,
+            status_code=error.response.status_code,
+        ) from error
+
+
+def _retry_after_seconds(*, attempt: int, response: httpx2.Response) -> float | None:
+    if not _is_retryable_rate_limit(response):
+        return None
+    if attempt >= _DEFAULT_RATE_LIMIT_RETRIES:
+        return None
+
+    wait_seconds = _parse_retry_after_header(response.headers.get("Retry-After"))
+    if wait_seconds is None:
+        wait_seconds = _seconds_until_rate_limit_reset(response.headers.get("X-RateLimit-Reset"))
+    if wait_seconds is None:
+        wait_seconds = _DEFAULT_RATE_LIMIT_BACKOFF_SECONDS * (2**attempt)
+    # GitHub's primary limit resets up to an hour out, and it asks to be waited out
+    # verbatim. Honouring that would sleep for hours across the retries, so cap every
+    # wait and let the retries run out instead.
+    return min(wait_seconds, _MAX_RATE_LIMIT_WAIT_SECONDS)
 
 
 def _is_retryable_rate_limit(response: httpx2.Response) -> bool:
@@ -1086,14 +1076,6 @@ def _graphql_mutation_pr_payload(
         model=GithubPR,
         error_message=f"GitHub {response_name} response had invalid mutation data.",
     )
-
-
-def _chunked[ChunkValue](
-    values: Sequence[ChunkValue],
-    *,
-    size: int,
-) -> list[tuple[ChunkValue, ...]]:
-    return [tuple(values[index : index + size]) for index in range(0, len(values), size)]
 
 
 def _prs_by_number_query(numbers: Sequence[int]) -> str:
@@ -1504,22 +1486,29 @@ def build_github_client(*, repo: GithubRepoAddress) -> GithubClient:
     )
 
 
-def _issue_comments_from_graphql(
+def _pr_history_from_graphql(
     *,
     alias: str,
     raw_pr: object,
     response_name: str,
-) -> tuple[tuple[GithubIssueComment, ...], str | None]:
+) -> _GraphqlPRHistory | None:
     if raw_pr is None:
-        return (), None
-    parsed = _validate_graphql_model(
+        return None
+    return _validate_graphql_model(
         raw_pr,
         model=_GraphqlPRHistory,
         error_message=(
             f"GitHub {response_name} response had invalid pull request payload for {alias}."
         ),
     )
-    comments = parsed.comments
+
+
+def _issue_comments_from_graphql(
+    history: _GraphqlPRHistory | None,
+    *,
+    alias: str,
+) -> tuple[tuple[GithubIssueComment, ...], str | None]:
+    comments = history.comments if history is not None else None
     if comments is None:
         return (), None
     valid_comments = tuple(comment for comment in comments.nodes or () if comment is not None)
@@ -1528,27 +1517,15 @@ def _issue_comments_from_graphql(
     cursor = comments.page_info.end_cursor
     if cursor is None:
         raise GithubClientError(
-            f"GitHub {response_name} response had no page cursor for {alias}."
+            f"GitHub pull request history lookup response had no page cursor for {alias}."
         )
     return valid_comments, cursor
 
 
 def _revisions_from_graphql(
-    *,
-    alias: str,
-    raw_pr: object,
-    response_name: str,
+    history: _GraphqlPRHistory | None,
 ) -> tuple[GithubPRRevision, ...]:
-    if raw_pr is None:
-        return ()
-    parsed = _validate_graphql_model(
-        raw_pr,
-        model=_GraphqlPRHistory,
-        error_message=(
-            f"GitHub {response_name} response had invalid pull request payload for {alias}."
-        ),
-    )
-    timeline = parsed.timeline_items
+    timeline = history.timeline_items if history is not None else None
     if timeline is None:
         return ()
     nodes = timeline.nodes or ()

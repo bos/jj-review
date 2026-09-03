@@ -1304,7 +1304,6 @@ def initialize_bare_repo(
     *,
     owner: str,
     name: str,
-    default_branch: str = "main",
 ) -> FakeGithubRepo:
     """Create a bare Git repo that the fake server can expose."""
 
@@ -1319,7 +1318,7 @@ def initialize_bare_repo(
         text=True,
     )
     subprocess.run(
-        ["git", "symbolic-ref", "HEAD", f"refs/heads/{default_branch}"],
+        ["git", "symbolic-ref", "HEAD", "refs/heads/main"],
         capture_output=True,
         check=True,
         cwd=git_dir,
@@ -1327,7 +1326,7 @@ def initialize_bare_repo(
     )
 
     return FakeGithubRepo(
-        default_branch=default_branch,
+        default_branch="main",
         git_dir=git_dir,
         name=name,
         owner=owner,

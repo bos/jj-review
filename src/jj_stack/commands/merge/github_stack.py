@@ -250,17 +250,13 @@ async def _terminal(
                         _MAX_MERGE_POLL_INTERVAL_SECONDS,
                     )
     except TimeoutError as error:
-        raise _merge_poll_timeout() from error
+        raise CliError(
+            "GitHub's merge request is still pending after 10 minutes.",
+            hint=t"The request may still complete on GitHub. Do not rerun merge while it is "
+            t"pending; check the pull request on GitHub, then run "
+            t"{ui.cmd('jj-stack sync')} if it merges.",
+        ) from error
     return result
-
-
-def _merge_poll_timeout() -> CliError:
-    return CliError(
-        "GitHub's merge request is still pending after 10 minutes.",
-        hint=t"The request may still complete on GitHub. Do not rerun merge while it is "
-        t"pending; check the pull request on GitHub, then run {ui.cmd('jj-stack sync')} if "
-        t"it merges.",
-    )
 
 
 def _blocked_result(

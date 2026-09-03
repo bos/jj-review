@@ -66,8 +66,8 @@ from jj_stack.errors import (
 from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClientError, build_github_client
 from jj_stack.github.resolution import (
-    GithubRepoAddress,
     GithubTarget,
+    UnresolvedGithubTarget,
     resolve_github_target,
     resolve_trunk_branch,
 )
@@ -90,8 +90,7 @@ from jj_stack.stack.global_convergence import (
     observe_global_sync,
 )
 from jj_stack.stack.pr_facts import (
-    RepoFacts,
-    classify_commit_ancestries,
+    classify_observed_commit_ancestries,
     observe_github_stacks,
     observe_prs,
 )
@@ -140,13 +139,7 @@ def sync(
 
 
 def _run_all_convergence(*, context: CommandContext, dry_run: bool) -> int:
-    target = resolve_github_target(context.jj_client.list_git_remotes())
-    if not isinstance(target, GithubTarget):
-        raise CliError(
-            target.github_repo_error or "Could not resolve GitHub target.",
-            hint=t"Point jj-stack at a GitHub remote, then rerun. "
-            t"{ui.cmd('jj-stack doctor')} reports what it found.",
-        )
+    target = _require_github_target(resolve_github_target(context.jj_client.list_git_remotes()))
     with console.spinner(description="Fetching trunk") as progress:
         previous_trunk = context.jj_client.resolve_commit("trunk()")
         branches = tuple(
@@ -169,7 +162,7 @@ def _run_all_convergence(*, context: CommandContext, dry_run: bool) -> int:
         )
     )
     for change_id in change_ids:
-        console.output(t"Syncing local stack {ui.change_id(change_id[:8])}:")
+        console.output(t"Syncing local stack {ui.change_id(change_id)}:")
         try:
             stack_exit_code = run_stack_convergence(
                 context=context,
@@ -180,8 +173,7 @@ def _run_all_convergence(*, context: CommandContext, dry_run: bool) -> int:
             )
         except CliError as error:
             console.error(
-                t"Could not sync local stack {ui.change_id(change_id[:8])}: "
-                t"{error_message(error)}"
+                t"Could not sync local stack {ui.change_id(change_id)}: {error_message(error)}"
             )
             if hint := error_hint(error):
                 console.stderr_output(
@@ -365,7 +357,7 @@ async def _run_selected_convergence(
                         remote=target.remote,
                         trunk_commit_id=prepared.stack.trunk.commit_id,
                     )
-                ancestries = _classify_observed_ancestries(
+                ancestries = classify_observed_commit_ancestries(
                     context=context,
                     observation=observation,
                     trunk_commit_id=prepared.stack.trunk.commit_id,
@@ -379,7 +371,14 @@ async def _run_selected_convergence(
                     trunk_branch=trunk_branch,
                 )
         if queued:
-            _render_queued_sync(queued, repo=observation.repo)
+            labels = ui.join(
+                lambda number: format_pr_label(number, repo=observation.repo),
+                queued,
+            )
+            console.output(
+                t"Nothing to sync while the selected pull request is in the merge queue "
+                t"({labels})."
+            )
             return 0
         if not complete:
             console.output("No merged changes in this stack need rebasing.")
@@ -400,24 +399,24 @@ async def _run_selected_convergence(
         )
 
 
-def _render_queued_sync(pr_numbers: tuple[int, ...], *, repo: GithubRepoAddress) -> None:
-    labels = ui.join(lambda number: format_pr_label(number, repo=repo), pr_numbers)
-    console.output(
-        t"Nothing to sync while the selected pull request is in the merge queue ({labels})."
-    )
-
-
 def _selected_target(
     prepared_status: PreparedStatus,
 ) -> tuple[GithubTarget, tuple[LocalCommit, ...]]:
-    target = prepared_status.github_target
+    target = _require_github_target(prepared_status.github_target)
+
+    return target, prepared_status.prepared.stack.changes
+
+
+def _require_github_target(
+    target: GithubTarget | UnresolvedGithubTarget,
+) -> GithubTarget:
     if not isinstance(target, GithubTarget):
         raise CliError(
             target.github_repo_error or "Could not resolve GitHub target.",
             hint=t"Point jj-stack at a GitHub remote, then rerun. "
             t"{ui.cmd('jj-stack doctor')} reports what it found.",
         )
-    return target, prepared_status.prepared.stack.changes
+    return target
 
 
 def _render_selected_plan(*, dry_run: bool, plan: SelectedConvergencePlan) -> None:
@@ -432,26 +431,6 @@ def _render_selected_plan(*, dry_run: bool, plan: SelectedConvergencePlan) -> No
     console.output(
         t"{status} merged changes from the bottom of the stack: "
         t"{ui.join(lambda item: ui.change_id(item.candidate.change_id), plan.actions.on_trunk)}"
-    )
-
-
-def _classify_observed_ancestries(
-    *,
-    context: CommandContext,
-    observation: RepoFacts,
-    trunk_commit_id: str,
-) -> dict:
-    return classify_commit_ancestries(
-        commit_ids=tuple(
-            commit_id
-            for item in observation.prs.values()
-            for commit_id in (
-                item.baseline.commit_id if item.baseline is not None else None,
-                item.pr.merge_commit_sha if item.pr is not None else None,
-            )
-        ),
-        context=context,
-        trunk_commit_id=trunk_commit_id,
     )
 
 

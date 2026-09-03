@@ -13,20 +13,27 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PROPERTY_TEST_FILES = (REPO_ROOT / "tests" / "property" / "test_submit_property_scenarios.py",)
+PROPERTY_TEST_FILE = REPO_ROOT / "tests" / "property" / "test_submit_property_scenarios.py"
 DEFAULT_PROPERTY_SEED = 8675309
+PROPERTY_DRIFT_SCENARIOS_ENV = "JJ_STACK_SUBMIT_PROPERTY_DRIFT_SCENARIOS"
+PROPERTY_LIFECYCLE_SCENARIOS_ENV = "JJ_STACK_SUBMIT_PROPERTY_LIFECYCLE_SCENARIOS"
+PROPERTY_RETRY_SCENARIOS_ENV = "JJ_STACK_SUBMIT_PROPERTY_RETRY_SCENARIOS"
+PROPERTY_SCENARIOS_ENV = "JJ_STACK_SUBMIT_PROPERTY_SCENARIOS"
+PROPERTY_SEED_ENV = "JJ_STACK_SUBMIT_PROPERTY_SEED"
+PROPERTY_STACK_JOIN_SCENARIOS_ENV = "JJ_STACK_SUBMIT_PROPERTY_STACK_JOIN_SCENARIOS"
+PROPERTY_STACK_MOVE_SCENARIOS_ENV = "JJ_STACK_SUBMIT_PROPERTY_STACK_MOVE_SCENARIOS"
 _REPRODUCTION_SCENARIO_OPTIONS = (
     (
         "--stack-join-scenarios",
-        "JJ_STACK_SUBMIT_PROPERTY_STACK_JOIN_SCENARIOS",
+        PROPERTY_STACK_JOIN_SCENARIOS_ENV,
     ),
     (
         "--stack-move-scenarios",
-        "JJ_STACK_SUBMIT_PROPERTY_STACK_MOVE_SCENARIOS",
+        PROPERTY_STACK_MOVE_SCENARIOS_ENV,
     ),
-    ("--retry-scenarios", "JJ_STACK_SUBMIT_PROPERTY_RETRY_SCENARIOS"),
-    ("--drift-scenarios", "JJ_STACK_SUBMIT_PROPERTY_DRIFT_SCENARIOS"),
-    ("--lifecycle-scenarios", "JJ_STACK_SUBMIT_PROPERTY_LIFECYCLE_SCENARIOS"),
+    ("--retry-scenarios", PROPERTY_RETRY_SCENARIOS_ENV),
+    ("--drift-scenarios", PROPERTY_DRIFT_SCENARIOS_ENV),
+    ("--lifecycle-scenarios", PROPERTY_LIFECYCLE_SCENARIOS_ENV),
 )
 
 
@@ -117,38 +124,37 @@ def main(argv: Sequence[str] | None = None) -> int:
     env = _command_env()
     env.setdefault("JJ_USER", "Test User")
     env.setdefault("JJ_EMAIL", "test@example.com")
-    env["JJ_STACK_SUBMIT_PROPERTY_SCENARIOS"] = str(args.scenarios)
+    env[PROPERTY_SCENARIOS_ENV] = str(args.scenarios)
     stack_join_scenarios = args.stack_join_scenarios
     if stack_join_scenarios is None:
         stack_join_scenarios = 2
-    env["JJ_STACK_SUBMIT_PROPERTY_STACK_JOIN_SCENARIOS"] = str(stack_join_scenarios)
+    env[PROPERTY_STACK_JOIN_SCENARIOS_ENV] = str(stack_join_scenarios)
     stack_move_scenarios = args.stack_move_scenarios
     if stack_move_scenarios is None:
         stack_move_scenarios = max(4, args.scenarios // 10)
-    env["JJ_STACK_SUBMIT_PROPERTY_STACK_MOVE_SCENARIOS"] = str(stack_move_scenarios)
+    env[PROPERTY_STACK_MOVE_SCENARIOS_ENV] = str(stack_move_scenarios)
     retry_scenarios = args.retry_scenarios
     if retry_scenarios is None:
         retry_scenarios = max(4, args.scenarios // 10)
-    env["JJ_STACK_SUBMIT_PROPERTY_RETRY_SCENARIOS"] = str(retry_scenarios)
+    env[PROPERTY_RETRY_SCENARIOS_ENV] = str(retry_scenarios)
     drift_scenarios = args.drift_scenarios
     if drift_scenarios is None:
         drift_scenarios = max(20, args.scenarios // 5)
-    env["JJ_STACK_SUBMIT_PROPERTY_DRIFT_SCENARIOS"] = str(drift_scenarios)
+    env[PROPERTY_DRIFT_SCENARIOS_ENV] = str(drift_scenarios)
     lifecycle_scenarios = args.lifecycle_scenarios
-    env["JJ_STACK_SUBMIT_PROPERTY_LIFECYCLE_SCENARIOS"] = str(
+    env[PROPERTY_LIFECYCLE_SCENARIOS_ENV] = str(
         3 if lifecycle_scenarios is None else lifecycle_scenarios
     )
     seed = secrets.randbits(32) if args.random_seed else args.seed
     if seed is None:
         seed = DEFAULT_PROPERTY_SEED
-    env["JJ_STACK_SUBMIT_PROPERTY_SEED"] = str(seed)
+    env[PROPERTY_SEED_ENV] = str(seed)
 
     venv_python = (
         REPO_ROOT
         / ".venv"
         / (Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python"))
     )
-    test_files = [str(path.relative_to(REPO_ROOT)) for path in PROPERTY_TEST_FILES]
     command = [
         str(venv_python),
         "-m",
@@ -156,7 +162,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "-n",
         args.jobs,
         f"--randomly-seed={seed}",
-        *test_files,
+        str(PROPERTY_TEST_FILE.relative_to(REPO_ROOT)),
         *pytest_args,
     ]
     reproduction_command = _build_reproduction_command(

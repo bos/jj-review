@@ -92,14 +92,6 @@ class StatusResult:
     changes: tuple[StackStatusChange, ...]
     selected_revset: str
 
-    @property
-    def submitted_state_disagreements(self) -> tuple[str, ...]:
-        """Tracked changes whose local commit has moved past the submitted baseline."""
-
-        return tuple(
-            change.change_id for change in reversed(self.changes) if change.state.has_local_edits
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class PreparedStatus:
@@ -223,13 +215,13 @@ def prepare_status(
 def stream_status(
     *,
     prepared_status: PreparedStatus,
-    on_change: Callable[[StackStatusChange, bool], None] | None = None,
+    on_progress: Callable[[], None] | None = None,
 ) -> StatusResult:
-    """Inspect GitHub state for a prepared stack and optionally stream results out."""
+    """Inspect GitHub state for a prepared stack and optionally report progress."""
 
     return asyncio.run(
         stream_status_async(
-            on_change=on_change,
+            on_progress=on_progress,
             prepared_status=prepared_status,
         )
     )
@@ -237,7 +229,7 @@ def stream_status(
 
 async def stream_status_async(
     *,
-    on_change: Callable[[StackStatusChange, bool], None] | None,
+    on_progress: Callable[[], None] | None,
     prepared_status: PreparedStatus,
 ) -> StatusResult:
     prepared = prepared_status.prepared
@@ -263,9 +255,9 @@ async def stream_status_async(
         )
 
     def stream_local(changes: tuple[StackStatusChange, ...]) -> None:
-        if on_change is not None:
-            for change in changes:
-                on_change(change, False)
+        if on_progress is not None:
+            for _change in changes:
+                on_progress()
 
     fallback_changes = tuple(reversed(build_status_changes_for_prepared_stack(prepared)))
     if prepared.remote is None:
@@ -294,8 +286,8 @@ async def stream_status_async(
             remote_name=prepared.remote.name,
         ):
             changes.append(change)
-            if on_change is not None:
-                on_change(change, True)
+            if on_progress is not None:
+                on_progress()
     except CliError as error:
         github_error = error_message(error)
         logger.debug("status github inspection failed: %s", github_error)

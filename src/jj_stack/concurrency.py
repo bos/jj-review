@@ -22,7 +22,7 @@ async def run_bounded_tasks[TaskItemT, TaskResultT](
     concurrency: int,
     items: Sequence[TaskItemT],
     run_item: Callable[[TaskItemT], Coroutine[Any, Any, TaskResultT]],
-    on_success: Callable[[int, TaskResultT], None] | None = None,
+    on_success: Callable[[], None] | None = None,
 ) -> list[TaskResultT]:
     """Run work with bounded in-flight tasks while preserving result order.
 
@@ -68,7 +68,7 @@ async def run_bounded_tasks[TaskItemT, TaskResultT](
                 if on_success is None:
                     continue
                 try:
-                    on_success(index, result)
+                    on_success()
                 except Exception as error:
                     if first_failure is None or index < first_failure[0]:
                         first_failure = (index, error)

@@ -56,7 +56,7 @@ def test_untracked_status_omits_branch_and_skips_github_discovery(
 
     result = asyncio.run(
         stream_status_async(
-            on_change=None,
+            on_progress=None,
             prepared_status=prepared_status,
         )
     )
@@ -91,7 +91,11 @@ def test_stream_status_falls_back_to_local_data_after_github_abort(monkeypatch) 
         github_target=_github_target(),
         prepared=prepared,
     )
-    streamed: list[tuple[str, bool]] = []
+    progress_updates = 0
+
+    def on_progress() -> None:
+        nonlocal progress_updates
+        progress_updates += 1
 
     async def abort_github_inspection(**_kwargs):
         if False:
@@ -105,14 +109,12 @@ def test_stream_status_falls_back_to_local_data_after_github_abort(monkeypatch) 
 
     result = asyncio.run(
         stream_status_async(
-            on_change=lambda item, github_available: streamed.append(
-                (item.change_id, github_available)
-            ),
+            on_progress=on_progress,
             prepared_status=prepared_status,
         )
     )
 
-    assert streamed == [(change.change_id, False)]
+    assert progress_updates == 1
     assert result.github_error == "GitHub lookup failed"
     assert result.incomplete is True
     assert result.changes[0].branch == "jj-stack/feature-1-aaaaaaaa"

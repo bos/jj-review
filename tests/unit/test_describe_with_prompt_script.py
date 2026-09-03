@@ -15,7 +15,7 @@ describe_with_prompt = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(describe_with_prompt)
 
 
-def test_prompt_line_uses_return_hint_instead_of_repeating_default(
+def test_prompt_title_uses_return_hint_instead_of_repeating_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     prompts: list[str] = []
@@ -26,7 +26,7 @@ def test_prompt_line_uses_return_hint_instead_of_repeating_default(
 
     monkeypatch.setattr("builtins.input", fake_input)
 
-    value = describe_with_prompt.prompt_line("Title", "commit title", "commit title")
+    value = describe_with_prompt.prompt_title("commit title", "commit title")
 
     assert value == "commit title"
     assert prompts == ["Title [return to use commit title]: "]

@@ -37,8 +37,8 @@ from jj_stack.github.resolution import (
     UnresolvedGithubTarget,
     resolve_github_target,
 )
+from jj_stack.identifiers import short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
-from jj_stack.models.stack import LocalStack
 from jj_stack.stack.change_state import (
     ChangeState,
     Closed,
@@ -143,9 +143,17 @@ def _run_list(
         else UnresolvedGithubTarget()
     )
     github_repo = github_target.repo if isinstance(github_target, GithubTarget) else None
-    ordered = _order_discovered_stacks(
-        discovered,
-        current_tracked_commit_id=current_tracked_commit_id,
+    ordered = tuple(
+        sorted(
+            discovered,
+            key=lambda stack: (
+                0
+                if current_tracked_commit_id is not None
+                and any(change.commit_id == current_tracked_commit_id for change in stack.changes)
+                else 1,
+                stack.head.change_id,
+            ),
+        )
     )
     duplicate_branches = duplicate_pr_branch_claims(
         (identity.head_ref, change.change_id)
@@ -190,10 +198,8 @@ def _run_list(
         return 0
     prepared_discovered = tuple(
         _PreparedDiscoveredStack(
-            current=_stack_contains_commit_id(
-                stack,
-                commit_id=current_tracked_commit_id,
-            ),
+            current=current_tracked_commit_id is not None
+            and any(change.commit_id == current_tracked_commit_id for change in stack.changes),
             prepared=prepare_stack_for_status(
                 context=context,
                 remote=github_target.remote,
@@ -373,7 +379,7 @@ def _emit_stale_stacks_advisory(
     if not stale_heads:
         return
     if len(stale_heads) == 1:
-        head = stale_heads[0][:8]
+        head = short_change_id(stale_heads[0])
         console.warning(
             (
                 "Tracked stack has changed since its last submit; ",
@@ -391,37 +397,6 @@ def _emit_stale_stacks_advisory(
             *heads_fragments,
         )
     )
-
-
-def _order_discovered_stacks(
-    discovered: tuple[LocalStack, ...],
-    *,
-    current_tracked_commit_id: str | None,
-) -> tuple[LocalStack, ...]:
-    return tuple(
-        sorted(
-            discovered,
-            key=lambda stack: (
-                0
-                if _stack_contains_commit_id(
-                    stack,
-                    commit_id=current_tracked_commit_id,
-                )
-                else 1,
-                stack.head.change_id,
-            ),
-        )
-    )
-
-
-def _stack_contains_commit_id(
-    stack: LocalStack,
-    *,
-    commit_id: str | None,
-) -> bool:
-    if commit_id is None:
-        return False
-    return any(change.commit_id == commit_id for change in stack.changes)
 
 
 def _build_row(
@@ -675,9 +650,17 @@ def _stack_table(
     stack_table_rows = [
         (
             (
-                f"@ {rendered_change_ids.get(row.head_change_id, row.head_change_id[:8])}"
+                f"@ {
+                    rendered_change_ids.get(
+                        row.head_change_id,
+                        short_change_id(row.head_change_id),
+                    )
+                }"
                 if row.current
-                else rendered_change_ids.get(row.head_change_id, row.head_change_id[:8])
+                else rendered_change_ids.get(
+                    row.head_change_id,
+                    short_change_id(row.head_change_id),
+                )
             ),
             f"{row.size} {'change' if row.size == 1 else 'changes'}",
             row.prs,
@@ -689,7 +672,7 @@ def _stack_table(
     for orphan in orphan_rows:
         stack_table_rows.append(
             (
-                rendered_change_ids.get(orphan.change_id, orphan.change_id[:8]),
+                rendered_change_ids.get(orphan.change_id, short_change_id(orphan.change_id)),
                 "orphan",
                 orphan.pr_label,
                 orphan.state,
@@ -704,8 +687,6 @@ def _stack_table(
             ui.TableColumn("state"),
             ui.TableColumn("description"),
         ),
-        pad_edge=False,
         padding=(0, 0),
-        show_edge=False,
         rows=tuple(stack_table_rows),
     )

@@ -5,8 +5,7 @@ from __future__ import annotations
 import jj_stack.console as console
 from jj_stack.concurrency import run_bounded_tasks
 from jj_stack.errors import CliError
-from jj_stack.formatting import format_pr_number
-from jj_stack.github.client import GithubClient, GithubClientError
+from jj_stack.github.client import GithubClient
 from jj_stack.github.overview_comments import (
     STACK_OVERVIEW_COMMENT_LABEL,
     STACK_OVERVIEW_COMMENT_MARKER,
@@ -14,6 +13,7 @@ from jj_stack.github.overview_comments import (
 )
 from jj_stack.models.github import GithubIssueComment
 
+from .managed_comments import upsert_managed_comment
 from .models import GeneratedDescription
 
 
@@ -55,7 +55,7 @@ async def sync_stack_overview_comments(
                 github_client=github_client,
                 pr_number=pr_number,
             ),
-            on_success=lambda _index, _result: progress.advance(),
+            on_success=progress.advance,
         )
 
 
@@ -128,54 +128,13 @@ async def _sync_overview_comment(
             github_client=github_client,
         )
         return None
-    if existing_comment is not None:
-        if existing_comment.body == comment_body:
-            return existing_comment
-        return await _update_stack_overview_comment(
-            comment_body=comment_body,
-            comment_id=existing_comment.id,
-            github_client=github_client,
-        )
-    return await _create_stack_overview_comment(
-        comment_body=comment_body,
+    return await upsert_managed_comment(
+        body=comment_body,
+        existing_comment=existing_comment,
         github_client=github_client,
+        label=STACK_OVERVIEW_COMMENT_LABEL,
         pr_number=pr_number,
     )
-
-
-async def _create_stack_overview_comment(
-    *,
-    comment_body: str,
-    github_client: GithubClient,
-    pr_number: int,
-) -> GithubIssueComment:
-    try:
-        return await github_client.create_issue_comment(
-            issue_number=pr_number,
-            body=comment_body,
-        )
-    except GithubClientError as error:
-        pr_label = format_pr_number(pr_number, repo=github_client.repo)
-        raise CliError(
-            t"Could not create a {STACK_OVERVIEW_COMMENT_LABEL} for pull request {pr_label}"
-        ) from error
-
-
-async def _update_stack_overview_comment(
-    *,
-    comment_body: str,
-    comment_id: int,
-    github_client: GithubClient,
-) -> GithubIssueComment:
-    try:
-        return await github_client.update_issue_comment(
-            comment_id=comment_id,
-            body=comment_body,
-        )
-    except GithubClientError as error:
-        raise CliError(
-            f"Could not update {STACK_OVERVIEW_COMMENT_LABEL} #{comment_id}"
-        ) from error
 
 
 def _render_generated_stack_description(

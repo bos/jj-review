@@ -452,6 +452,13 @@ def commit_file(repo: Path, message: str, filename: str) -> None:
     run_command(["jj", "commit", "-m", message], repo)
 
 
+def jj_commit_id(repo: Path, revset: str) -> str:
+    return run_command(
+        ["jj", "log", "--no-graph", "-r", revset, "-T", "commit_id"],
+        repo,
+    ).stdout.strip()
+
+
 def expose_pr_branch_namespace(repo: Path) -> None:
     """Undo the reserved-namespace fetch exclusion, as a plain clone leaves it."""
 
@@ -482,6 +489,57 @@ def run_command(command: list[str], cwd: Path) -> subprocess.CompletedProcess[st
             f"{command!r} failed:\nstdout={completed.stdout}\nstderr={completed.stderr}"
         )
     return completed
+
+
+def remote_refs(remote: Path) -> dict[str, str]:
+    completed = subprocess.run(
+        ["git", "--git-dir", str(remote), "show-ref", "--heads"],
+        capture_output=True,
+        check=False,
+        cwd=remote.parent,
+        text=True,
+    )
+    if completed.returncode not in (0, 1):
+        raise AssertionError(
+            "['git', '--git-dir', "
+            f"{str(remote)!r}, 'show-ref', '--heads'] failed:\n"
+            f"stdout={completed.stdout}\nstderr={completed.stderr}"
+        )
+    refs: dict[str, str] = {}
+    for line in completed.stdout.splitlines():
+        commit_id, ref_name = line.split(" ", maxsplit=1)
+        refs[ref_name] = commit_id
+    return refs
+
+
+def update_remote_ref(fake_repo: FakeGithubRepo, *, branch: str, target: str) -> None:
+    run_command(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "update-ref",
+            f"refs/heads/{branch}",
+            target,
+        ],
+        fake_repo.git_dir.parent,
+    )
+
+
+def delete_remote_ref(fake_repo: FakeGithubRepo, *, branch: str) -> None:
+    """Remove a branch on the remote, as GitHub does after merging when configured to."""
+
+    run_command(
+        [
+            "git",
+            "--git-dir",
+            str(fake_repo.git_dir),
+            "update-ref",
+            "-d",
+            f"refs/heads/{branch}",
+        ],
+        fake_repo.git_dir.parent,
+    )
 
 
 def write_file(path: Path, contents: str) -> None:

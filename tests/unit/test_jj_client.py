@@ -27,43 +27,6 @@ from tests.support.change_helpers import make_change
 _REPO_GIT_DIR = str(Path("/repo/.git"))
 
 
-def _commit_line(
-    *,
-    commit_id: str,
-    parents: list[str],
-    change_id: str,
-    description: str,
-    conflict: bool = False,
-    empty: bool = False,
-    divergent: bool = False,
-    hidden: bool = False,
-    working_copy: bool = False,
-    working_copy_workspaces: list[str] | None = None,
-    immutable: bool = False,
-) -> str:
-    return (
-        json.dumps(
-            {
-                "change_id": change_id,
-                "commit_id": commit_id,
-                "conflict": conflict,
-                "current_working_copy": working_copy,
-                "description": description,
-                "divergent": divergent,
-                "empty": empty,
-                "hidden": hidden,
-                "immutable": immutable,
-                "parents": parents,
-                "working_copy_workspaces": working_copy_workspaces
-                if working_copy_workspaces is not None
-                else (["default"] if working_copy else []),
-            },
-            separators=(",", ":"),
-        )
-        + "\n"
-    )
-
-
 class _AmbiguousRevsetClient(JjClient):
     def _query_commits(
         self,
@@ -205,12 +168,23 @@ def test_find_private_commits_returns_matching_changes(monkeypatch: pytest.Monke
             "(description(private)) & ('head' | 'parent')",
             "-T",
             _template(),
-        ): _commit_line(
-            commit_id="head",
-            parents=["parent"],
-            change_id="head-change",
-            description="head\n",
-        ),
+        ): json.dumps(
+            {
+                "change_id": "head-change",
+                "commit_id": "head",
+                "conflict": False,
+                "current_working_copy": False,
+                "description": "head\n",
+                "divergent": False,
+                "empty": False,
+                "hidden": False,
+                "immutable": False,
+                "parents": ["parent"],
+                "working_copy_workspaces": [],
+            },
+            separators=(",", ":"),
+        )
+        + "\n",
     }
 
     changes = (

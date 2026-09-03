@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
-from dataclasses import dataclass
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError
@@ -11,7 +10,6 @@ from jj_stack.formatting import format_pr_number
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubStack
-from jj_stack.stack.pr_facts import observe_github_stacks
 
 
 def require_merged_prefix(stack: GithubStack) -> GithubStack:
@@ -109,32 +107,4 @@ async def dissolve_github_stack(
             t"GitHub stack #{stack.number} still contains {members}.",
             hint=t"Resolve its locked pull requests, then retry "
             t"{ui.cmd(f'jj-stack unstack --stack {stack.number}')}.",
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class GithubStackSelection:
-    """Live stack membership for one exact ordered PR selection."""
-
-    github_client: GithubClient
-    pr_numbers: tuple[int, ...]
-
-    async def observe(self) -> tuple[GithubStack, ...]:
-        """Return the current complete GitHub stack resources."""
-
-        return await observe_github_stacks(github=self.github_client)
-
-    async def active_stacks(self) -> tuple[GithubStack, ...]:
-        """Return resources in which a selected pull request is still an active member.
-
-        Only these resources can be dissolved or blocked on: GitHub keeps merged members
-        forever, so a resource the selection only touches through them needs no mutation.
-        """
-
-        if not self.pr_numbers:
-            return ()
-        stacks = await self.observe()
-        selected = set(self.pr_numbers)
-        return tuple(
-            stack for stack in stacks if not selected.isdisjoint(stack.active_pr_numbers)
         )

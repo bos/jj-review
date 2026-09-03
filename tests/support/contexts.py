@@ -28,7 +28,6 @@ def fake_command_context(
     *,
     config: AppConfig | None = None,
     jj_client: JjClient | None = None,
-    state: TrackingState | None = None,
 ) -> CommandContext:
     """Build a real `CommandContext` whose collaborators are cheap stand-ins.
 
@@ -44,6 +43,6 @@ def fake_command_context(
         repo_root=repo_root,
         state_store=cast(
             TrackingStore,
-            InMemoryTrackingStore(state if state is not None else TrackingState()),
+            InMemoryTrackingStore(TrackingState()),
         ),
     )

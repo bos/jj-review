@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import random
 from dataclasses import dataclass
 from typing import Literal
@@ -31,7 +30,6 @@ SubmitRetryFailurePoint = Literal[
     "create_pr",
     "update_pr",
 ]
-DEFAULT_STACK_EDIT_SCENARIO_SEED = 8675309
 MAX_STACK_EDIT_ATTEMPTS_MULTIPLIER = 80
 
 
@@ -65,17 +63,6 @@ LIFECYCLE_SCENARIOS = (
     LifecycleScenario("closed-single-cleanup-resubmit", "closed_restart", 1, 1, "squash"),
     LifecycleScenario("direct-rebase-two-of-four", "direct_merge", 4, 2, "rebase"),
 )
-
-
-def lifecycle_scenarios_from_environment() -> tuple[LifecycleScenario, ...]:
-    count = int(os.environ.get("JJ_STACK_SUBMIT_PROPERTY_LIFECYCLE_SCENARIOS", "3"))
-    seed = int(
-        os.environ.get(
-            "JJ_STACK_SUBMIT_PROPERTY_SEED",
-            str(DEFAULT_STACK_EDIT_SCENARIO_SEED),
-        )
-    )
-    return generate_lifecycle_scenarios(count=count, seed=seed)
 
 
 def generate_lifecycle_scenarios(*, count: int, seed: int) -> tuple[LifecycleScenario, ...]:
@@ -151,17 +138,11 @@ class StackEditScenario:
             self.rewritten_initial_labels,
         )
 
-    def __str__(self) -> str:
-        return f"{self.name}: {self.trace}"
-
 
 @dataclass(frozen=True, slots=True)
 class DriftKindSpec:
     """Transition metadata for one external-drift kind.
 
-    `boundary` names the state-holder the drift mutates: `github_prs` (the PR
-    database), `remote_refs` (the remote Git branch namespace), or `local_jj`
-    (the local DAG and bookmark view).
     `expected_outcome` is the model's verdict for a submit issued after the
     drift. Fail-closed kinds carry the contractual `(exit code, diagnosis)`
     pairs the CLI may report: a `DriftError` condition, an
@@ -170,7 +151,6 @@ class DriftKindSpec:
     repair path — from satisfying the model.
     """
 
-    boundary: Literal["github_prs", "local_jj", "remote_refs"]
     expected_outcome: DriftOutcome
     failures: tuple[tuple[int, str], ...]
     needs_label: bool
@@ -178,7 +158,6 @@ class DriftKindSpec:
 
 DRIFT_KIND_SPECS: dict[DriftKind, DriftKindSpec] = {
     "closed_pr": DriftKindSpec(
-        boundary="github_prs",
         expected_outcome="fail_closed",
         failures=((1, "pr_not_open"),),
         needs_label=True,
@@ -187,7 +166,6 @@ DRIFT_KIND_SPECS: dict[DriftKind, DriftKindSpec] = {
     # change is unrewritten, divergent when a local rewrite already replaced it
     # and the fetch resurrects the hidden predecessor.
     "foreign_branch_fetched": DriftKindSpec(
-        boundary="local_jj",
         expected_outcome="fail_closed",
         failures=(
             (2, "unsupported_stack:divergent_change"),
@@ -196,25 +174,21 @@ DRIFT_KIND_SPECS: dict[DriftKind, DriftKindSpec] = {
         needs_label=True,
     ),
     "pr_base_retargeted": DriftKindSpec(
-        boundary="github_prs",
         expected_outcome="success",
         failures=(),
         needs_label=True,
     ),
     "pr_draft_toggled": DriftKindSpec(
-        boundary="github_prs",
         expected_outcome="success",
         failures=(),
         needs_label=True,
     ),
     "remote_branch_deleted": DriftKindSpec(
-        boundary="remote_refs",
         expected_outcome="fail_closed",
         failures=((1, "remote_branch_missing"),),
         needs_label=True,
     ),
     "trunk_advanced": DriftKindSpec(
-        boundary="remote_refs",
         expected_outcome="success",
         failures=(),
         needs_label=False,
@@ -300,9 +274,6 @@ class ExternalDriftScenario:
             self.orphaned_labels,
             self.rewritten_initial_labels,
         )
-
-    def __str__(self) -> str:
-        return f"{self.name}: {self.trace}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -468,78 +439,6 @@ class _ScenarioModel:
             orphaned_labels=self.orphaned_labels,
             rewritten_initial_labels=self.rewritten_initial_labels,
         )
-
-
-def stack_edit_scenarios_from_environment() -> tuple[StackEditScenario, ...]:
-    """Return the default deterministic scenario set for the pytest adapter."""
-
-    count = int(
-        os.environ.get(
-            "JJ_STACK_SUBMIT_PROPERTY_SCENARIOS",
-            str(DEFAULT_STACK_EDIT_SCENARIO_COUNT),
-        )
-    )
-    seed = int(
-        os.environ.get(
-            "JJ_STACK_SUBMIT_PROPERTY_SEED",
-            str(DEFAULT_STACK_EDIT_SCENARIO_SEED),
-        )
-    )
-    return generate_stack_edit_scenarios(count=count, seed=seed)
-
-
-def stack_join_scenarios_from_environment() -> tuple[StackJoinScenario, ...]:
-    """Return deterministic stack-join scenarios for the pytest adapter."""
-
-    count = int(
-        os.environ.get(
-            "JJ_STACK_SUBMIT_PROPERTY_STACK_JOIN_SCENARIOS",
-            str(DEFAULT_STACK_JOIN_SCENARIO_COUNT),
-        )
-    )
-    seed = int(
-        os.environ.get(
-            "JJ_STACK_SUBMIT_PROPERTY_SEED",
-            str(DEFAULT_STACK_EDIT_SCENARIO_SEED),
-        )
-    )
-    return generate_stack_join_scenarios(count=count, seed=seed)
-
-
-def stack_move_scenarios_from_environment() -> tuple[StackMoveScenario, ...]:
-    """Return deterministic cross-stack move scenarios for the pytest adapter."""
-
-    count = int(
-        os.environ.get(
-            "JJ_STACK_SUBMIT_PROPERTY_STACK_MOVE_SCENARIOS",
-            str(DEFAULT_STACK_MOVE_SCENARIO_COUNT),
-        )
-    )
-    seed = int(
-        os.environ.get(
-            "JJ_STACK_SUBMIT_PROPERTY_SEED",
-            str(DEFAULT_STACK_EDIT_SCENARIO_SEED),
-        )
-    )
-    return generate_stack_move_scenarios(count=count, seed=seed)
-
-
-def submit_retry_scenarios_from_environment() -> tuple[SubmitRetryScenario, ...]:
-    """Return deterministic failed-submit retry scenarios for the pytest adapter."""
-
-    count = int(
-        os.environ.get(
-            "JJ_STACK_SUBMIT_PROPERTY_RETRY_SCENARIOS",
-            str(DEFAULT_SUBMIT_RETRY_SCENARIO_COUNT),
-        )
-    )
-    seed = int(
-        os.environ.get(
-            "JJ_STACK_SUBMIT_PROPERTY_SEED",
-            str(DEFAULT_STACK_EDIT_SCENARIO_SEED),
-        )
-    )
-    return generate_submit_retry_scenarios(count=count, seed=seed)
 
 
 def generate_stack_edit_scenarios(
@@ -727,24 +626,6 @@ def generate_stack_move_scenarios(
     return tuple(scenarios)
 
 
-def external_drift_scenarios_from_environment() -> tuple[ExternalDriftScenario, ...]:
-    """Return deterministic external-drift scenarios for the pytest adapter."""
-
-    count = int(
-        os.environ.get(
-            "JJ_STACK_SUBMIT_PROPERTY_DRIFT_SCENARIOS",
-            str(DEFAULT_EXTERNAL_DRIFT_SCENARIO_COUNT),
-        )
-    )
-    seed = int(
-        os.environ.get(
-            "JJ_STACK_SUBMIT_PROPERTY_SEED",
-            str(DEFAULT_STACK_EDIT_SCENARIO_SEED),
-        )
-    )
-    return generate_external_drift_scenarios(count=count, seed=seed)
-
-
 def generate_external_drift_scenarios(
     *,
     count: int,
@@ -766,7 +647,17 @@ def generate_external_drift_scenarios(
             tuple[str, ...],
         ]
     ] = set()
-    for scenario in _fixed_external_drift_scenarios():
+    fixed_scenarios = (
+        _drift_scenario(
+            drift=DriftOperation(kind="closed_pr", label="c2"),
+            edit_operations=(
+                StackEditOperation(kind="insert_after", label="c1", new_label="i1"),
+            ),
+            hazard_class="github-external-close-with-unsubmitted-change",
+            name="closed-pr-after-insert",
+        ),
+    )
+    for scenario in fixed_scenarios:
         scenarios.append(scenario)
         seen.add(scenario.canonical_key)
         if len(scenarios) >= count:
@@ -787,19 +678,6 @@ def generate_external_drift_scenarios(
 
 
 _GENERATED_DRIFT_KINDS: tuple[DriftKind, ...] = tuple(sorted(DRIFT_KIND_SPECS))
-
-
-def _fixed_external_drift_scenarios() -> tuple[ExternalDriftScenario, ...]:
-    return (_closed_pr_after_insert_scenario(),)
-
-
-def _closed_pr_after_insert_scenario() -> ExternalDriftScenario:
-    return _drift_scenario(
-        drift=DriftOperation(kind="closed_pr", label="c2"),
-        edit_operations=(StackEditOperation(kind="insert_after", label="c1", new_label="i1"),),
-        hazard_class="github-external-close-with-unsubmitted-change",
-        name="closed-pr-after-insert",
-    )
 
 
 def _drift_scenario(
@@ -890,10 +768,8 @@ def _drift_label_is_valid(kind: DriftKind, *, label: str, model: _ScenarioModel)
     return True
 
 
-_SUCCESS_DRIFT_KINDS: tuple[DriftKind, ...] = (
-    "pr_base_retargeted",
-    "pr_draft_toggled",
-    "trunk_advanced",
+_SUCCESS_DRIFT_KINDS: tuple[DriftKind, ...] = tuple(
+    kind for kind, spec in DRIFT_KIND_SPECS.items() if spec.expected_outcome == "success"
 )
 
 
@@ -1196,4 +1072,4 @@ DEFAULT_STACK_EDIT_SCENARIO_COUNT = len(_fixed_stack_edit_scenarios())
 DEFAULT_STACK_JOIN_SCENARIO_COUNT = len(_fixed_stack_join_scenarios())
 DEFAULT_STACK_MOVE_SCENARIO_COUNT = len(_fixed_stack_move_scenarios())
 DEFAULT_SUBMIT_RETRY_SCENARIO_COUNT = len(_fixed_submit_retry_scenarios())
-DEFAULT_EXTERNAL_DRIFT_SCENARIO_COUNT = len(_fixed_external_drift_scenarios())
+DEFAULT_EXTERNAL_DRIFT_SCENARIO_COUNT = 1

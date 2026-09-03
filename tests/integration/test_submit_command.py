@@ -30,17 +30,17 @@ from ..support.integration_helpers import (
     init_fake_github_repo_with_submitted_feature,
     init_fake_github_repo_with_submitted_stack,
     patch_github_client_builders,
+    remote_refs,
     run_command,
     selected_stack,
+    update_remote_ref,
     write_fake_github_config,
     write_file,
 )
-from ..support.submit_property_harness import update_remote_ref
 from .submit_command_helpers import (
     configure_submit_environment,
     issue_comments,
     read_remote_ref,
-    remote_refs,
     run_main,
 )
 
@@ -66,7 +66,6 @@ def _assert_stack_prs_match_dag(
     fake_repo,
     repo: Path,
     stack,
-    trunk_branch: str = "main",
 ) -> None:
     state = TrackingStore.for_repo(repo).load()
     bookmarks_by_change: dict[str, str] = {}
@@ -82,7 +81,7 @@ def _assert_stack_prs_match_dag(
     for index, change in enumerate(stack.changes):
         pr = prs_by_change[change.change_id]
         expected_base = (
-            bookmarks_by_change[stack.changes[index - 1].change_id] if index > 0 else trunk_branch
+            bookmarks_by_change[stack.changes[index - 1].change_id] if index > 0 else "main"
         )
         assert pr.title == change.subject
         assert pr.state == "open"

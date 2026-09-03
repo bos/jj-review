@@ -100,11 +100,6 @@ class _State:
         branch = self.branch or "?"
         return ui.bookmark(f"{branch}@{self.remote_name}" if self.remote_name else branch)
 
-    def _saved_label(self) -> Message:
-        if self.tracked is None:
-            raise AssertionError("A saved pull request label requires tracking.")
-        return format_pr_label(self.tracked.pr_identity.pr_number)
-
 
 @dataclass(frozen=True, kw_only=True)
 class WithPR(_State):
@@ -215,7 +210,10 @@ class PRMissing(Stop, _State):
 
     @property
     def reason(self) -> Message:
-        reason: Message = t"GitHub no longer reports {self._saved_label()}"
+        if self.tracked is None:
+            raise AssertionError("A saved pull request label requires tracking.")
+        saved_label = format_pr_label(self.tracked.pr_identity.pr_number)
+        reason: Message = t"GitHub no longer reports {saved_label}"
         if self.open_prs_on_branch:
             others = ui.join(_pr_label, self.open_prs_on_branch)
             reason = t"{reason}; open {others} uses its PR branch {self._branch_label()}"
@@ -580,7 +578,6 @@ def observe_pr_facts(
     change_id: str,
     *,
     ancestries: Mapping[str, CommitAncestry] | None = None,
-    branch: str | None = None,
     selected: LocalCommit | None = None,
 ) -> ChangeObservation:
     """Project one change out of the facts a mutating command observed.
@@ -608,7 +605,7 @@ def observe_pr_facts(
     return ChangeObservation(
         change_id=change_id,
         tracked=tracked,
-        branch=branch if branch is not None else _identity_branch(tracked),
+        branch=tracked.pr_identity.head_ref if tracked is not None else None,
         remote_name=facts.remote.name if facts.remote is not None else None,
         local=item.local_commits,
         selected=selected,
@@ -620,10 +617,6 @@ def observe_pr_facts(
         trunk_evidence=trunk_evidence,
         trunk_evidence_reason=trunk_evidence_reason,
     )
-
-
-def _identity_branch(tracked: TrackedPR | None) -> str | None:
-    return tracked.pr_identity.head_ref if tracked is not None else None
 
 
 def live_pr(state: ChangeState) -> GithubPR | None:

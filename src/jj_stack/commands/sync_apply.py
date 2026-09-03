@@ -398,7 +398,20 @@ async def _refresh_selected_prs(
         result = await run_submit_async(
             context=context,
             on_prepared=None,
-            options=_sync_submit_options(dry_run=dry_run, revset=head_change_id),
+            options=SubmitOptions(
+                base_revset=None,
+                descriptions=(),
+                describe_with=None,
+                draft_mode="default",
+                dry_run=dry_run,
+                edit=False,
+                existing_only=True,
+                labels=None,
+                re_request=False,
+                reviewers=None,
+                revset=head_change_id,
+                team_reviewers=None,
+            ),
         )
     except ConflictedStackError as error:
         raise ConflictedStackError(
@@ -426,9 +439,10 @@ async def _cleanup_reconciled_prs(
         if result.outcome == "skipped":
             continue
         if heads := dependencies.get(result.candidate.change_id):
-            recovery = (
-                t"run {ui.join(lambda r: ui.cmd(f'jj-stack sync {r.change_id[:8]}'), heads)}"
+            recovery_commands = tuple(
+                f"jj-stack sync {short_change_id(head.change_id)}" for head in heads
             )
+            recovery = t"run {ui.join(ui.cmd, recovery_commands)}"
             pr_label = format_pr_label(
                 result.candidate.pr_identity.pr_number,
                 repo=target.repo,
@@ -480,20 +494,3 @@ def _observe_removal_dependencies(
         ),
     )
     return {change_id: observed.get(commit_id, ()) for change_id, commit_id in anchors.items()}
-
-
-def _sync_submit_options(*, dry_run: bool, revset: str) -> SubmitOptions:
-    return SubmitOptions(
-        base_revset=None,
-        descriptions=(),
-        describe_with=None,
-        draft_mode="default",
-        dry_run=dry_run,
-        edit=False,
-        existing_only=True,
-        labels=None,
-        re_request=False,
-        reviewers=None,
-        revset=revset,
-        team_reviewers=None,
-    )

@@ -62,10 +62,6 @@ async def sync_prs(
     run: SubmitMutationRun,
     on_progress: Callable[[], None] | None = None,
 ) -> tuple[SubmittedChange, ...]:
-    def handle_success(_index: int, _submitted: SubmittedChange) -> None:
-        if on_progress is not None:
-            on_progress()
-
     submitted_changes = await run_bounded_tasks(
         concurrency=DEFAULT_BOUNDED_CONCURRENCY,
         items=plans,
@@ -74,7 +70,7 @@ async def sync_prs(
             plan=plan,
             run=run,
         ),
-        on_success=handle_success,
+        on_success=on_progress,
     )
     return tuple(submitted_changes)
 

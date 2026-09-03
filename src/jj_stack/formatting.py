@@ -60,14 +60,13 @@ def _pr_url(
 def format_pr_number(
     pr_number: int,
     *,
-    include_hash: bool = True,
     repo: GithubRepoRenderTarget | None = None,
     url: str | None = None,
 ) -> ui.Message:
     """Render a pull request number, linking it when its repo or URL is known."""
 
     url = _pr_url(pr_number, repo=repo, url=url)
-    text = f"{'#' if include_hash else ''}{pr_number}"
+    text = f"#{pr_number}"
     return ui.hyperlink(text, url) if url is not None else text
 
 

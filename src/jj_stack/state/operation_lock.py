@@ -81,7 +81,6 @@ def acquire_operation_lock(
     state_dir: Path,
     *,
     command: str,
-    poll_interval: float = DEFAULT_LOCK_POLL_SECONDS,
     timeout: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
 ) -> OperationLock:
     """Acquire the repo operation lock, waiting briefly before failing closed."""
@@ -100,7 +99,7 @@ def acquire_operation_lock(
                 _operation_lock_busy_message(state_dir, holder),
                 hint="Wait for that operation to finish, then rerun this command.",
             )
-        sleep_for = min(poll_interval, max(0.0, deadline - time.monotonic()))
+        sleep_for = min(DEFAULT_LOCK_POLL_SECONDS, max(0.0, deadline - time.monotonic()))
         if sleep_for:
             time.sleep(sleep_for)
 

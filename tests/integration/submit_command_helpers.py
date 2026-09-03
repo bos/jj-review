@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 
 from jj_stack.cli import main
@@ -47,27 +46,6 @@ def read_remote_ref(remote: Path, bookmark: str) -> str:
         remote.parent,
     )
     return completed.stdout.strip()
-
-
-def remote_refs(remote: Path) -> dict[str, str]:
-    completed = subprocess.run(
-        ["git", "--git-dir", str(remote), "show-ref", "--heads"],
-        capture_output=True,
-        check=False,
-        cwd=remote.parent,
-        text=True,
-    )
-    if completed.returncode not in (0, 1):
-        raise AssertionError(
-            "['git', '--git-dir', "
-            f"{str(remote)!r}, 'show-ref', '--heads'] failed:\n"
-            f"stdout={completed.stdout}\nstderr={completed.stderr}"
-        )
-    refs: dict[str, str] = {}
-    for line in completed.stdout.splitlines():
-        commit_id, ref_name = line.split(" ", maxsplit=1)
-        refs[ref_name] = commit_id
-    return refs
 
 
 def run_main(repo: Path, config_path: Path, command: str, *command_args: str) -> int:

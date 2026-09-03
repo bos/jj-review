@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
 
 import pytest
 
@@ -146,7 +145,6 @@ def test_preflight_private_commits_rejects_blocked_change() -> None:
             self,
             changes: tuple[LocalCommit, ...],
         ) -> tuple[LocalCommit, ...]:
-            del changes
             return (private,)
 
     with pytest.raises(CliError, match="git.private-commits"):
@@ -173,10 +171,19 @@ def test_pr_plan_prefers_cli_metadata_over_config() -> None:
         context=context,
         drafts={change.change_id: False},
         generated_descriptions={change.change_id: GeneratedDescription(body="", title="feature")},
-        options=replace(
-            _submit_options(),
+        options=SubmitOptions(
+            base_revset=None,
+            descriptions=(),
+            describe_with=None,
+            draft_mode="default",
+            dry_run=False,
+            edit=False,
+            existing_only=False,
             labels=["cli-label"],
+            re_request=False,
             reviewers=["cli-user"],
+            revset="@",
+            team_reviewers=None,
         ),
         prepared_changes=(
             PreparedSubmitChange(
@@ -184,7 +191,19 @@ def test_pr_plan_prefers_cli_metadata_over_config() -> None:
                 expected_remote_target="old-commit",
                 remote_action="pushed",
                 change=change,
-                pr=_github_pr(17, branch=branch),
+                pr=GithubPR(
+                    base=GithubBranchRef(ref="main"),
+                    body="",
+                    head=GithubBranchRef(
+                        label=f"octo-org:{branch}",
+                        ref=branch,
+                        sha="head-commit",
+                    ),
+                    html_url="https://github.test/octo-org/repo/pull/17",
+                    number=17,
+                    state="open",
+                    title="feature",
+                ),
             ),
         ),
         prior_reviewers={},
@@ -196,23 +215,6 @@ def test_pr_plan_prefers_cli_metadata_over_config() -> None:
     assert plan.metadata.labels == ["cli-label"]
     assert plan.metadata.reviewers == ["cli-user"]
     assert plan.metadata.team_reviewers == ["config-team"]
-
-
-def _submit_options() -> SubmitOptions:
-    return SubmitOptions(
-        base_revset=None,
-        descriptions=(),
-        describe_with=None,
-        draft_mode="default",
-        dry_run=False,
-        edit=False,
-        existing_only=False,
-        labels=None,
-        re_request=False,
-        reviewers=None,
-        revset="@",
-        team_reviewers=None,
-    )
 
 
 def _local_stack(*changes: LocalCommit) -> LocalStack:
@@ -227,28 +229,6 @@ def _local_stack(*changes: LocalCommit) -> LocalStack:
         changes=changes,
         selected_revset=changes[-1].change_id,
         trunk=trunk,
-    )
-
-
-def _github_pr(
-    number: int,
-    *,
-    branch: str = "jj-stack/foo",
-    head_sha: str = "head-commit",
-    state: str = "open",
-) -> GithubPR:
-    return GithubPR(
-        base=GithubBranchRef(ref="main"),
-        body="",
-        head=GithubBranchRef(
-            label=f"octo-org:{branch}",
-            ref=branch,
-            sha=head_sha,
-        ),
-        html_url=f"https://github.test/octo-org/repo/pull/{number}",
-        number=number,
-        state=state,
-        title="feature",
     )
 
 

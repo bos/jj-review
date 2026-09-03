@@ -49,7 +49,6 @@ def test_time_output_prefix_uses_prefix_and_timestamp_semantic_style(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
-    monkeypatch.setenv("TERM", "xterm-256color")
     repo = Path.cwd()
     stdout = 'colors.prefix.bold\0true\ncolors.timestamp\0"cyan"\n'
 
@@ -94,7 +93,6 @@ def test_output_neutralizes_terminal_escapes_from_change_descriptions(
     """No change description can carry an escape introducer to the terminal."""
 
     monkeypatch.delenv("FORCE_COLOR", raising=False)
-    monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.setattr(console_module, "load_semantic_styles", lambda **_: None)
     coloured = "\x1b[1;36mcoloured\x1b[0m"
 
@@ -126,7 +124,6 @@ def test_hyperlink_reaches_the_terminal_when_styling_is_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("FORCE_COLOR", raising=False)
-    monkeypatch.setenv("TERM", "xterm-256color")
     url = "https://github.test/octo-org/repo/pull/42"
     label = ui_module.hyperlink("PR #42", url)
 

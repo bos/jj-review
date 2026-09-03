@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jj_stack.bootstrap import resolve_repo_root
+from jj_stack.bootstrap import resolve_repo_root, validate_repo_path
 from jj_stack.errors import CliError, ProbeError
 from jj_stack.state.store import TrackingStore
 
@@ -21,10 +21,7 @@ def in_use(*, repo: Path | None) -> int:
 
     start = Path.cwd() if repo is None else repo
     try:
-        if repo is not None and not repo.exists():
-            raise CliError(f"Repo path does not exist: {repo}")
-        if repo is not None and not repo.is_dir():
-            raise CliError(f"Repo path is not a directory: {repo}")
+        validate_repo_path(repo)
         repo_root = resolve_repo_root(start)
         return 0 if TrackingStore.for_repo(repo_root).is_in_use() else 1
     except CliError as error:

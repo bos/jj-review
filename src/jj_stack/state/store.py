@@ -105,7 +105,7 @@ class TrackingStore:
             _require_identity_matches_change(identity, change_id)
         return self._persist(_replace_prs(self._load_state(), replacements))
 
-    def retire_pr(self, change_id: str) -> TrackingState:
+    def retire_pr(self, change_id: str) -> None:
         """Atomically remove one complete pull request pair."""
 
         state = self._load_state()
@@ -113,9 +113,7 @@ class TrackingStore:
         baselines = dict(state.submitted_baselines)
         del identities[change_id]
         del baselines[change_id]
-        return self._persist(
-            TrackingState(pr_identities=identities, submitted_baselines=baselines)
-        )
+        self._persist(TrackingState(pr_identities=identities, submitted_baselines=baselines))
 
     def _load_state(self) -> TrackingState:
         if not self._path.exists():

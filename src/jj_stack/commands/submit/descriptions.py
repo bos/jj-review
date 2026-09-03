@@ -41,10 +41,14 @@ def resolve_generated_descriptions(
         raise UsageError(t"Use either {ui.cmd('--describe')} or {ui.cmd('--describe-with')}.")
 
     if describe_with is None:
-        default_descriptions = _default_pr_descriptions(
-            changes,
-            template=_read_pr_template(jj_client.repo_root),
-        )
+        template = _read_pr_template(jj_client.repo_root)
+        default_descriptions = {
+            change.change_id: GeneratedDescription(
+                body=default_pr_body(change.description, template=template),
+                title=change.subject,
+            )
+            for change in changes
+        }
         stack_description: GeneratedDescription | None = None
         if descriptions:
             file_descriptions, stack_description = _resolve_description_files(
@@ -87,20 +91,6 @@ def resolve_generated_descriptions(
                 revset=selected_revset,
             )
     return generated_descriptions, generated_stack_description
-
-
-def _default_pr_descriptions(
-    changes: tuple[LocalCommit, ...],
-    *,
-    template: str,
-) -> dict[str, GeneratedDescription]:
-    return {
-        change.change_id: GeneratedDescription(
-            body=default_pr_body(change.description, template=template),
-            title=change.subject,
-        )
-        for change in changes
-    }
 
 
 def preserve_external_pr_text(

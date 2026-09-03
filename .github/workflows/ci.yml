@@ -23,11 +23,11 @@ jobs:
           python-version: "3.14"
 
       - name: Install tokei
-        env:
-          # Must match TOKEI_VERSION in tools/check_complexity.py; the budgets are baselined
-          # against this exact counter. 14.0.0 publishes no prebuilt binaries, so build it.
-          TOKEI_VERSION: 14.0.0
-        run: cargo install tokei --locked --version "$TOKEI_VERSION"
+        run: |
+          TOKEI_VERSION="$(
+            python -c 'from tools.check_complexity import TOKEI_VERSION; print(TOKEI_VERSION)'
+          )"
+          cargo install tokei --locked --version "$TOKEI_VERSION"
 
       - name: Install project environment
         run: uv sync --locked

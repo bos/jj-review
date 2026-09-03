@@ -70,10 +70,9 @@ def _build_checks(
     if coverage:
         pytest_command = (
             *pytest_command,
-            "--cov=jj_stack",
-            "--cov-branch",
-            "--cov-report=term-missing",
-            "--cov-report=html:htmlcov",
+            "--cov",
+            "--cov-report=term",
+            "--cov-report=html",
         )
     return (
         ("ruff", ("-m", "ruff", "check")),

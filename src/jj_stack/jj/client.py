@@ -6,10 +6,11 @@ import json
 import re
 import shlex
 import subprocess
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
+from itertools import batched
 from pathlib import Path
 from textwrap import dedent
 from typing import Literal, Protocol
@@ -30,6 +31,8 @@ from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.models.git import GitRemote
 from jj_stack.models.stack import LocalCommit
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace
+
+_QUERY_BATCH_SIZE = 200
 
 _CHANGE_JSON_FIELDS = dedent(
     r"""
@@ -308,7 +311,7 @@ class JjClient:
         grouped: dict[str, list[LocalCommit]] = {
             change_id: [] for change_id in ordered_change_ids
         }
-        for chunk in _chunked(ordered_change_ids):
+        for chunk in batched(ordered_change_ids, _QUERY_BATCH_SIZE, strict=False):
             revset = _change_ids_revset(chunk)
             commits = self._query_commits(revset)
             for commit in commits:
@@ -328,7 +331,7 @@ class JjClient:
         ordered = tuple(dict.fromkeys(change_ids))
         all_copies: dict[str, list[LocalCommit]] = {change_id: [] for change_id in ordered}
         off_trunk: dict[str, list[LocalCommit]] = {change_id: [] for change_id in ordered}
-        for chunk in _chunked(ordered):
+        for chunk in batched(ordered, _QUERY_BATCH_SIZE, strict=False):
             rows = self._query_commits_with_membership(
                 _change_ids_revset(chunk),
                 membership_revsets=("~first_ancestors(trunk())",),
@@ -349,15 +352,7 @@ class JjClient:
     ) -> tuple[LocalCommit, ...]:
         """Return locally available commits for the supplied commit IDs in evaluation order."""
 
-        ordered_commit_ids = tuple(dict.fromkeys(commit_ids))
-        if not ordered_commit_ids:
-            return ()
-
-        commits_by_id: dict[str, LocalCommit] = {}
-        for chunk in _chunked(ordered_commit_ids):
-            for commit in self._query_commits(_present_symbols_revset(chunk)):
-                commits_by_id.setdefault(commit.commit_id, commit)
-        return tuple(commits_by_id.values())
+        return self._query_commit_id_scopes(commit_ids, _present_symbols_revset)
 
     def query_present_commit_ancestor_membership(
         self,
@@ -368,7 +363,7 @@ class JjClient:
         """Return presence and ancestry together, omitting unavailable commit IDs."""
 
         memberships: dict[str, bool] = {}
-        for chunk in _chunked(tuple(dict.fromkeys(commit_ids))):
+        for chunk in batched(tuple(dict.fromkeys(commit_ids)), _QUERY_BATCH_SIZE, strict=False):
             try:
                 commits = self._query_commits_with_membership(
                     _present_symbols_revset(chunk),
@@ -386,13 +381,23 @@ class JjClient:
     ) -> tuple[LocalCommit, ...]:
         """Return descendants for the supplied commits, including the commits themselves."""
 
+        return self._query_commit_id_scopes(
+            commit_ids,
+            lambda chunk: f"{_union_revset_symbols(chunk)}::",
+        )
+
+    def _query_commit_id_scopes(
+        self,
+        commit_ids: Sequence[str],
+        revset_for_chunk: Callable[[tuple[str, ...]], str],
+    ) -> tuple[LocalCommit, ...]:
         ordered_commit_ids = tuple(dict.fromkeys(commit_ids))
         if not ordered_commit_ids:
             return ()
 
         commits_by_id: dict[str, LocalCommit] = {}
-        for chunk in _chunked(ordered_commit_ids):
-            commits = self._query_commits(f"{_union_revset_symbols(chunk)}::")
+        for chunk in batched(ordered_commit_ids, _QUERY_BATCH_SIZE, strict=False):
+            commits = self._query_commits(revset_for_chunk(chunk))
             for commit in commits:
                 commits_by_id.setdefault(commit.commit_id, commit)
         return tuple(commits_by_id.values())
@@ -551,7 +556,7 @@ class JjClient:
 
         rendered: dict[str, str] = {}
         template = _short_change_id_render_template()
-        for chunk in _chunked(ordered_change_ids):
+        for chunk in batched(ordered_change_ids, _QUERY_BATCH_SIZE, strict=False):
             revset = _change_ids_revset(chunk)
             stdout = self._run_jj(
                 (
@@ -1494,9 +1499,3 @@ def _union_revset_symbols(symbols: Sequence[str], *, quote: bool = True) -> str:
     if len(parts) == 1:
         return parts[0]
     return f"({' | '.join(parts)})"
-
-
-def _chunked(values: Sequence[str], *, size: int = 200) -> tuple[tuple[str, ...], ...]:
-    if size <= 0:
-        raise ValueError("Chunk size must be positive.")
-    return tuple(tuple(values[index : index + size]) for index in range(0, len(values), size))

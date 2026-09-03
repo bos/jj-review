@@ -12,22 +12,22 @@ from jj_stack.state.store import TrackingStore
 from ..support.fake_github import FakeGithubState, _complete_stack_merge, create_app
 from ..support.integration_helpers import (
     commit_file,
+    delete_remote_ref,
     init_fake_github_repo_with_submitted_feature,
     init_fake_github_repo_with_submitted_stack,
     patch_github_client_builders,
+    remote_refs,
     run_command,
     selected_stack,
+    update_remote_ref,
 )
 from ..support.submit_property_harness import (
     advance_remote_trunk,
-    delete_remote_ref,
-    update_remote_ref,
 )
 from .submit_command_helpers import (
     configure_submit_environment,
     issue_comments,
     read_remote_ref,
-    remote_refs,
     run_main,
 )
 

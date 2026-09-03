@@ -42,7 +42,6 @@ from jj_stack.models.github import GithubRepo
 from jj_stack.stack.pr_facts import observe_github_stacks, observe_prs
 from jj_stack.stack.selection import (
     resolve_linked_change_for_pr,
-    resolve_selected_revset,
 )
 from jj_stack.stack.status import prepare_status
 from jj_stack.state.operation_lock import operation_lock_if_mutating
@@ -159,15 +158,7 @@ def _resolve_merge_target(
             t"{ui.change_id(resolved_revset)}"
         )
         return None, resolved_revset
-    return (
-        resolve_selected_revset(
-            command_label="merge",
-            default_revset=None,
-            require_explicit=False,
-            revset=revset,
-        ),
-        None,
-    )
+    return revset, None
 
 
 def _prepare_merge(

@@ -2,12 +2,24 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from tests.integration.submit_command_helpers import (
     configure_submit_environment,
     run_main,
+)
+from tests.run_submit_property_scenarios import (
+    DEFAULT_PROPERTY_SEED,
+    PROPERTY_DRIFT_SCENARIOS_ENV,
+    PROPERTY_LIFECYCLE_SCENARIOS_ENV,
+    PROPERTY_RETRY_SCENARIOS_ENV,
+    PROPERTY_SCENARIOS_ENV,
+    PROPERTY_SEED_ENV,
+    PROPERTY_STACK_JOIN_SCENARIOS_ENV,
+    PROPERTY_STACK_MOVE_SCENARIOS_ENV,
 )
 from tests.support.fake_github import FakeGithubState, create_app
 from tests.support.integration_helpers import (
@@ -23,19 +35,25 @@ from tests.support.submit_property_harness import (
     replay_successful_stack_edit_scenario,
 )
 from tests.support.submit_property_scenarios import (
+    DEFAULT_EXTERNAL_DRIFT_SCENARIO_COUNT,
+    DEFAULT_STACK_EDIT_SCENARIO_COUNT,
+    DEFAULT_STACK_JOIN_SCENARIO_COUNT,
+    DEFAULT_STACK_MOVE_SCENARIO_COUNT,
+    DEFAULT_SUBMIT_RETRY_SCENARIO_COUNT,
+    LIFECYCLE_SCENARIOS as FIXED_LIFECYCLE_SCENARIOS,
     ExternalDriftScenario,
     LifecycleScenario,
     StackEditScenario,
     StackJoinScenario,
     StackMoveScenario,
     SubmitRetryScenario,
-    external_drift_scenarios_from_environment,
-    lifecycle_scenarios_from_environment,
-    stack_edit_scenarios_from_environment,
-    stack_join_scenarios_from_environment,
-    stack_move_scenarios_from_environment,
+    generate_external_drift_scenarios,
+    generate_lifecycle_scenarios,
+    generate_stack_edit_scenarios,
+    generate_stack_join_scenarios,
+    generate_stack_move_scenarios,
+    generate_submit_retry_scenarios,
     subject_for_label,
-    submit_retry_scenarios_from_environment,
 )
 
 import jj_stack.cli as cli_module
@@ -45,12 +63,48 @@ from jj_stack.github.client import GithubClient, GithubClientError
 
 pytestmark = pytest.mark.fixed_property
 
-STACK_EDIT_SCENARIOS = stack_edit_scenarios_from_environment()
-STACK_JOIN_SCENARIOS = stack_join_scenarios_from_environment()
-STACK_MOVE_SCENARIOS = stack_move_scenarios_from_environment()
-SUBMIT_RETRY_SCENARIOS = submit_retry_scenarios_from_environment()
-EXTERNAL_DRIFT_SCENARIOS = external_drift_scenarios_from_environment()
-LIFECYCLE_SCENARIOS = lifecycle_scenarios_from_environment()
+
+def _scenarios_from_environment[Scenario](
+    generator: Callable[..., tuple[Scenario, ...]],
+    *,
+    count_environment_name: str,
+    default_count: int,
+) -> tuple[Scenario, ...]:
+    count = int(os.environ.get(count_environment_name, str(default_count)))
+    seed = int(os.environ.get(PROPERTY_SEED_ENV, str(DEFAULT_PROPERTY_SEED)))
+    return generator(count=count, seed=seed)
+
+
+STACK_EDIT_SCENARIOS = _scenarios_from_environment(
+    generate_stack_edit_scenarios,
+    count_environment_name=PROPERTY_SCENARIOS_ENV,
+    default_count=DEFAULT_STACK_EDIT_SCENARIO_COUNT,
+)
+STACK_JOIN_SCENARIOS = _scenarios_from_environment(
+    generate_stack_join_scenarios,
+    count_environment_name=PROPERTY_STACK_JOIN_SCENARIOS_ENV,
+    default_count=DEFAULT_STACK_JOIN_SCENARIO_COUNT,
+)
+STACK_MOVE_SCENARIOS = _scenarios_from_environment(
+    generate_stack_move_scenarios,
+    count_environment_name=PROPERTY_STACK_MOVE_SCENARIOS_ENV,
+    default_count=DEFAULT_STACK_MOVE_SCENARIO_COUNT,
+)
+SUBMIT_RETRY_SCENARIOS = _scenarios_from_environment(
+    generate_submit_retry_scenarios,
+    count_environment_name=PROPERTY_RETRY_SCENARIOS_ENV,
+    default_count=DEFAULT_SUBMIT_RETRY_SCENARIO_COUNT,
+)
+EXTERNAL_DRIFT_SCENARIOS = _scenarios_from_environment(
+    generate_external_drift_scenarios,
+    count_environment_name=PROPERTY_DRIFT_SCENARIOS_ENV,
+    default_count=DEFAULT_EXTERNAL_DRIFT_SCENARIO_COUNT,
+)
+LIFECYCLE_SCENARIOS = _scenarios_from_environment(
+    generate_lifecycle_scenarios,
+    count_environment_name=PROPERTY_LIFECYCLE_SCENARIOS_ENV,
+    default_count=len(FIXED_LIFECYCLE_SCENARIOS),
+)
 RETRY_CONFIG_LINES = [
     'labels = ["needs-review"]',
     'reviewers = ["alice"]',

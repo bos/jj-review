@@ -9,6 +9,7 @@ from jj_stack.errors import EXIT_NO_STACK
 from ..support.integration_helpers import (
     commit_file,
     init_repo,
+    jj_commit_id,
     run_command,
 )
 from ..support.output_assertions import assert_output_contains
@@ -90,26 +91,18 @@ def _init_disconnected_root_repo(tmp_path: Path) -> Path:
 
 def _init_merge_commit_repo(tmp_path: Path) -> Path:
     repo = init_repo(tmp_path)
-    base_commit = _parent_commit_id(repo)
+    base_commit = jj_commit_id(repo, "@-")
 
     commit_file(repo, "left", "left.txt")
-    left_commit = _parent_commit_id(repo)
+    left_commit = jj_commit_id(repo, "@-")
 
     run_command(["jj", "new", base_commit], repo)
     commit_file(repo, "right", "right.txt")
-    right_commit = _parent_commit_id(repo)
+    right_commit = jj_commit_id(repo, "@-")
 
     run_command(["jj", "new", left_commit, right_commit], repo)
     commit_file(repo, "merge", "merge.txt")
     return repo
-
-
-def _parent_commit_id(repo: Path) -> str:
-    completed = run_command(
-        ["jj", "log", "--no-graph", "-r", "@-", "-T", "commit_id"],
-        repo,
-    )
-    return completed.stdout.strip()
 
 
 def _add_github_like_remote(repo: Path) -> None:

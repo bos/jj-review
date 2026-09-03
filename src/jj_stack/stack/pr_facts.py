@@ -173,6 +173,26 @@ def classify_commit_ancestries(
     }
 
 
+def classify_observed_commit_ancestries(
+    *,
+    context: CommandContext,
+    observation: RepoFacts,
+    trunk_commit_id: str,
+) -> dict[str, CommitAncestry]:
+    return classify_commit_ancestries(
+        commit_ids=tuple(
+            commit_id
+            for item in observation.prs.values()
+            for commit_id in (
+                item.baseline.commit_id if item.baseline is not None else None,
+                item.pr.merge_commit_sha if item.pr is not None else None,
+            )
+        ),
+        context=context,
+        trunk_commit_id=trunk_commit_id,
+    )
+
+
 async def observe_github_stacks(*, github: GithubClient) -> tuple[GithubStack, ...]:
     try:
         return await github.list_stacks()

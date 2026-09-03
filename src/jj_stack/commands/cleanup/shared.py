@@ -15,7 +15,6 @@ from jj_stack.models.tracking import TrackedPR, TrackingState
 from jj_stack.ui import Message
 
 CleanupActionStatus = Literal["applied", "blocked", "planned", "skipped"]
-type CleanupBody = Message
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,7 +23,7 @@ class CleanupAction:
 
     kind: str
     status: CleanupActionStatus
-    body: CleanupBody
+    body: Message
 
 
 @dataclass(frozen=True, slots=True)

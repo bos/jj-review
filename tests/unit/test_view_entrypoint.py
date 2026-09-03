@@ -82,7 +82,7 @@ def test_view_skips_duplicate_stack(
 
     monkeypatch.setattr(
         view_module,
-        "_prepare_status_for_revset",
+        "_prepare_status_with_spinner",
         fake_prepare_status_for_revset,
     )
     monkeypatch.setattr(view_module, "_render_prepared_status", fake_render_prepared_status)
@@ -145,7 +145,7 @@ def test_view_continues_after_selector_error(
 
     monkeypatch.setattr(
         view_module,
-        "_prepare_status_for_revset",
+        "_prepare_status_with_spinner",
         fake_prepare_status_for_revset,
     )
     monkeypatch.setattr(view_module, "_render_prepared_status", fake_render_prepared_status)
@@ -219,7 +219,7 @@ def test_view_json_continues_after_selector_error(
 
     monkeypatch.setattr(
         view_module,
-        "_prepare_status_for_revset",
+        "_prepare_status_with_spinner",
         fake_prepare_status_for_revset,
     )
     monkeypatch.setattr(view_module, "_json_prepared_status", fake_json_prepared_status)

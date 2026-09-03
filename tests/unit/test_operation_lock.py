@@ -38,7 +38,6 @@ try:
     with acquire_operation_lock(
         Path(sys.argv[1]),
         command="child",
-        poll_interval=0.02,
         timeout=0.05,
     ):
         pass

@@ -34,7 +34,7 @@ from jj_stack.stack.path import RepoStackPath
 from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
 from jj_stack.stack.pr_facts import (
     RepoFacts,
-    classify_commit_ancestries,
+    classify_observed_commit_ancestries,
     observe_github_stacks,
     observe_prs,
 )
@@ -101,11 +101,10 @@ async def observe_global_sync(
         ),
         observe_github_stacks(github=github),
     )
-    commit_ids = _observation_commit_ids(pr_observations)
     return GlobalSyncFacts(
-        ancestries=classify_commit_ancestries(
-            commit_ids=commit_ids,
+        ancestries=classify_observed_commit_ancestries(
             context=context,
+            observation=pr_observations,
             trunk_commit_id=trunk_commit_id,
         ),
         local_copies=local_copies,
@@ -246,16 +245,4 @@ def _detached_stack_blocker(
             else None
         ),
         True,
-    )
-
-
-def _observation_commit_ids(observation: RepoFacts) -> tuple[str, ...]:
-    return tuple(
-        commit_id
-        for item in observation.prs.values()
-        for commit_id in (
-            item.baseline.commit_id if item.baseline is not None else None,
-            item.pr.merge_commit_sha if item.pr is not None else None,
-        )
-        if commit_id is not None
     )

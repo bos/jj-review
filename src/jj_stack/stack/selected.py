@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import jj_stack.ui as ui
-from jj_stack.errors import CliError
 from jj_stack.identifiers import short_change_id
 from jj_stack.jj.client import (
     JjClient,
@@ -23,6 +22,7 @@ from jj_stack.stack.path import (
     project_selected_path,
 )
 from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
+from jj_stack.stack.trunk import require_usable_trunk
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +53,7 @@ def select_stack_path(
         selector = "@ | @-"
         selected_revset = "@"
         select_mutable_copy = False
-    elif _is_full_change_id(revset):
+    elif len(revset) == 32 and is_change_id_prefix(revset):
         selector = _change_id_revset(revset)
         selected_revset = revset
         select_mutable_copy = True
@@ -261,15 +261,7 @@ def _project_rows(
     use_default: bool,
 ) -> SelectedStackPath:
     trunks = tuple(row.commit for row in rows if row.is_trunk)
-    if len(trunks) != 1:
-        raise CliError(t"Could not resolve {ui.revset('trunk()')} to one commit.")
-    trunk = trunks[0]
-    if not trunk.parents:
-        raise UnsupportedStackError(
-            "No trunk bookmark is configured for this repo.",
-            hint=t"Create a trunk bookmark such as {ui.bookmark('main')}, then retry.",
-            reason="trunk_resolved_to_root",
-        )
+    trunk = require_usable_trunk(trunks)
 
     candidates = tuple(
         commit
@@ -377,10 +369,6 @@ def _replace_selected_revset(
 
 def _change_id_revset(change_id: str) -> str:
     return f"change_id({quote_revset_symbol(change_id)})"
-
-
-def _is_full_change_id(value: str) -> bool:
-    return len(value) == 32 and is_change_id_prefix(value)
 
 
 def is_change_id_prefix(value: str | None) -> bool:

@@ -102,7 +102,6 @@ class _HangingIndentRenderable:
     prefix: RenderableType
     prefix_width: int
     body: RenderableType
-    end: str = "\n"
 
     def __rich_console__(self, console, options):
         if options.no_wrap:
@@ -130,10 +129,7 @@ class _HangingIndentRenderable:
             yield from line
             if index < len(body_lines) - 1:
                 yield Segment.line()
-        if self.end == "\n":
-            yield Segment.line()
-        elif self.end:
-            yield from console.render(self.end, options)
+        yield Segment.line()
 
 
 @dataclass(slots=True)
@@ -141,7 +137,6 @@ class _TrimmedRenderable:
     """Render content with trailing whitespace removed from each line."""
 
     renderable: RenderableType
-    end: str = "\n"
 
     def __rich_console__(self, console, options):
         lines = [
@@ -157,10 +152,7 @@ class _TrimmedRenderable:
             yield from line
             if index < len(lines) - 1:
                 yield Segment.line()
-        if self.end == "\n":
-            yield Segment.line()
-        elif self.end:
-            yield from console.render(self.end, options)
+        yield Segment.line()
 
 
 class _ConfiguredConsole:
@@ -683,11 +675,11 @@ def _render_data_table(table_data: ui.DataTable) -> ConsoleRenderable:
     box = SIMPLE if table_data.box == "simple" else None
     table = Table(
         box=box,
-        expand=table_data.expand,
-        header_style=table_data.header_style,
-        pad_edge=table_data.pad_edge,
+        expand=False,
+        header_style="bold",
+        pad_edge=False,
         padding=table_data.padding,
-        show_edge=table_data.show_edge,
+        show_edge=False,
         show_header=table_data.show_header,
     )
     for column in table_data.columns:

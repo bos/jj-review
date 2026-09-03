@@ -17,10 +17,9 @@ OTHER_CHANGE_ID = "qrstuvwxyzabcde"
 def _identity(
     *,
     change_id: str = CHANGE_ID,
-    pr_number: int = 17,
 ) -> PRIdentity:
     return PRIdentity(
-        pr_number=pr_number,
+        pr_number=17,
         head_ref=f"jj-stack/change-{change_id[:8]}",
     )
 

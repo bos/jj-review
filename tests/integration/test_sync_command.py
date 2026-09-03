@@ -19,15 +19,15 @@ from ..support.integration_helpers import (
     commit_file,
     init_fake_github_repo_with_submitted_feature,
     init_fake_github_repo_with_submitted_stack,
+    remote_refs,
     run_command,
     selected_stack,
+    update_remote_ref,
     write_file,
 )
-from ..support.submit_property_harness import update_remote_ref
 from .submit_command_helpers import (
     configure_submit_environment,
     read_remote_ref,
-    remote_refs,
     run_main,
 )
 

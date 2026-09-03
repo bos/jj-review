@@ -12,9 +12,10 @@ from jj_stack.stack.selected import select_stack_path
 from ..support.integration_helpers import (
     commit_file,
     init_repo,
+    jj_commit_id,
+    remote_refs,
     run_command,
 )
-from .submit_command_helpers import remote_refs
 
 
 def test_selected_path_observes_linear_history_from_default_head(tmp_path: Path) -> None:
@@ -40,7 +41,7 @@ def test_selected_path_maximality_ignores_excluded_working_copy_child(
 ) -> None:
     repo = init_repo(tmp_path)
     commit_file(repo, "feature", "feature.txt")
-    feature = _current_parent_commit_id(repo)
+    feature = jj_commit_id(repo, "@-")
     if working_copy == "undescribed":
         (repo / "working-copy.txt").write_text("work\n", encoding="utf-8")
 
@@ -56,9 +57,9 @@ def test_selected_path_maximality_ignores_excluded_working_copy_child(
 def test_selected_path_ignores_off_path_submittable_child(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     commit_file(repo, "feature 1", "feature-1.txt")
-    feature_1 = _current_parent_commit_id(repo)
+    feature_1 = jj_commit_id(repo, "@-")
     commit_file(repo, "feature 2", "feature-2.txt")
-    feature_2 = _current_parent_commit_id(repo)
+    feature_2 = jj_commit_id(repo, "@-")
     run_command(["jj", "new", feature_1], repo)
     commit_file(repo, "feature side", "feature-side.txt")
 
@@ -117,7 +118,7 @@ def test_change_id_of_a_non_utf8_git_commit_object_is_still_readable(tmp_path: P
     run_command(["jj", "git", "remote", "add", "origin", str(tmp_path / "remote.git")], repo)
     git_dir = run_command(["jj", "git", "root"], repo).stdout.strip()
     tree = run_command(
-        ["git", "--git-dir", git_dir, "rev-parse", f"{_commit_id(repo, '@-')}^{{tree}}"],
+        ["git", "--git-dir", git_dir, "rev-parse", f"{jj_commit_id(repo, '@-')}^{{tree}}"],
         repo,
     ).stdout.strip()
     commit_id = (
@@ -161,10 +162,10 @@ def test_deleted_tracked_bookmark_does_not_block_stack_observation(tmp_path: Pat
 def test_visible_pr_bookmark_targets_exclude_removed_conflict_terms(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     commit_file(repo, "left", "left.txt")
-    left = _commit_id(repo, "@-")
+    left = jj_commit_id(repo, "@-")
     run_command(["jj", "new", "main"], repo)
     commit_file(repo, "right", "right.txt")
-    right = _commit_id(repo, "@-")
+    right = jj_commit_id(repo, "@-")
     branch = "jj-stack/conflicted"
     run_command(["jj", "bookmark", "create", branch, "-r", "main"], repo)
     base_operation = run_command(
@@ -193,7 +194,7 @@ def test_visible_pr_bookmark_does_not_block_broad_operations(
     commit_file(repo, "base", "base.txt")
     run_command(["jj", "bookmark", "create", "main", "-r", "@-"], repo)
     commit_file(repo, "feature", "feature.txt")
-    commit_id = _commit_id(repo, "@-")
+    commit_id = jj_commit_id(repo, "@-")
     change_id = _change_id(repo, "@-")
     branch = f"jj-stack/feature-{change_id[:8]}"
     run_command(["jj", "git", "remote", "add", "origin", str(remote)], repo)
@@ -267,8 +268,8 @@ def test_direct_git_pr_branch_ref_operations_use_the_backing_store(
     run_command(["jj", "git", "init", layout_flag, str(repo)], tmp_path)
     commit_file(repo, "base", "base.txt")
     commit_file(repo, "feature", "feature.txt")
-    old_commit = _commit_id(repo, "@--")
-    new_commit = _commit_id(repo, "@-")
+    old_commit = jj_commit_id(repo, "@--")
+    new_commit = jj_commit_id(repo, "@-")
     new_change_id = _change_id(repo, "@-")
     run_command(["jj", "git", "remote", "add", "origin", str(remote)], repo)
     run_command(["jj", "bookmark", "create", "seed", "-r", "@--"], repo)
@@ -297,7 +298,7 @@ def test_direct_git_pr_branch_ref_operations_use_the_backing_store(
     publisher = tmp_path / "publisher"
     run_command(["jj", "git", "init", "--no-colocate", str(publisher)], tmp_path)
     commit_file(publisher, "remote only", "remote-only.txt")
-    remote_only_commit = _commit_id(publisher, "@-")
+    remote_only_commit = jj_commit_id(publisher, "@-")
     remote_only_change = _change_id(publisher, "@-")
     recovery_branch = f"jj-stack/recovery-{remote_only_change[:8]}"
     run_command(["jj", "git", "remote", "add", "origin", str(remote)], publisher)
@@ -430,29 +431,6 @@ def test_direct_git_pr_branch_ref_operations_use_the_backing_store(
     assert f"refs/heads/{created_branch}" not in heads
     assert client.visible_pr_bookmark_targets() == visible_pr_bookmarks
     assert (git_root == repo / ".git") is (layout_flag == "--colocate")
-
-
-def _current_parent_commit_id(repo: Path) -> str:
-    completed = run_command(
-        [
-            "jj",
-            "log",
-            "--no-graph",
-            "-r",
-            "@-",
-            "-T",
-            "commit_id",
-        ],
-        repo,
-    )
-    return completed.stdout.strip()
-
-
-def _commit_id(repo: Path, revset: str) -> str:
-    return run_command(
-        ["jj", "log", "--no-graph", "-r", revset, "-T", "commit_id"],
-        repo,
-    ).stdout.strip()
 
 
 def _change_id(repo: Path, revset: str) -> str:

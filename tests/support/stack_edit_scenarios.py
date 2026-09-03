@@ -43,7 +43,6 @@ class StackEditOperation:
 class StackEditEffect:
     """Modeled order and rewrite consequences of one stack edit."""
 
-    content_divergent_labels: frozenset[str]
     live_labels: tuple[str, ...]
     removed_label: str | None
     rewritten_labels: frozenset[str]
@@ -82,7 +81,6 @@ def apply_stack_edit(
         raise ValueError(f"edit targets a change that is not live: {operation.trace}")
     index = live.index(operation.label)
     rewritten: set[str] = set()
-    divergent: set[str] = set()
     removed_label: str | None = None
 
     if operation.kind == "abandon":
@@ -92,7 +90,6 @@ def apply_stack_edit(
         removed_label = live.pop(index)
     elif operation.kind == "rewrite":
         rewritten.update(live[index:])
-        divergent.add(operation.label)
     elif operation.kind in {"insert_after", "insert_before"}:
         new_label = operation.new_label
         if new_label is None:
@@ -125,15 +122,12 @@ def apply_stack_edit(
     elif operation.kind == "squash_into_previous":
         if index == 0:
             raise ValueError("squash_into_previous requires a non-bottom change")
-        destination = live[index - 1]
         rewritten.update(live[index - 1 :])
-        divergent.add(destination)
         removed_label = live.pop(index)
     else:
         raise ValueError(f"unsupported stack edit kind: {operation.kind}")
 
     return StackEditEffect(
-        content_divergent_labels=frozenset(divergent),
         live_labels=tuple(live),
         removed_label=removed_label,
         rewritten_labels=frozenset(rewritten),

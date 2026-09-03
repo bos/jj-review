@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,8 +15,10 @@ from jj_stack.state.store import TrackingStore
 from .fake_github import FakeGithubRepo
 from .integration_helpers import (
     commit_file,
+    remote_refs,
     run_command,
     selected_stack,
+    update_remote_ref,
     write_file,
 )
 from .submit_property_scenarios import (
@@ -82,13 +83,13 @@ def replay_lifecycle(
         fake_repo.update_pr_state(old_pr, state="closed")
         assert run_cli(("cleanup", head_id)) == 0
         assert old.change_id not in state_store.load().pr_identities
-        assert f"refs/heads/{old.branch}" not in _remote_refs(fake_repo.git_dir)
+        assert f"refs/heads/{old.branch}" not in remote_refs(fake_repo.git_dir)
         assert run_cli(("submit", head_id)) == 0
         fresh = state_store.load().pr_identities[old.change_id]
         assert fresh.pr_number != old.pr_number
         assert fake_repo.prs[fresh.pr_number].state == "open"
         assert fake_repo.prs[fresh.pr_number].base_ref == "main"
-        refs = _remote_refs(fake_repo.git_dir)
+        refs = remote_refs(fake_repo.git_dir)
         change = jj.resolve_commit(old.change_id)
         assert refs[f"refs/heads/{fresh.head_ref}"] == change.commit_id
         assert old_pr.state == "closed" and old_pr.merged_at is None
@@ -121,17 +122,17 @@ def replay_lifecycle(
     else:
         pr = fake_repo.prs[1]
         fake_repo.apply_pr_merge(pr, merge_method=scenario.merge_method)
-        state_before, refs_before = state_store.load(), _remote_refs(fake_repo.git_dir)
+        state_before, refs_before = state_store.load(), remote_refs(fake_repo.git_dir)
         fake_repo.pr_events.clear()
         assert run_cli(("cleanup", head_id)) == 0
         output = " ".join(" ".join(discard_output()).split())
         assert f"sync {head_id[:8]}" in output, output
         assert state_store.load() == state_before
-        assert _remote_refs(fake_repo.git_dir) == refs_before
+        assert remote_refs(fake_repo.git_dir) == refs_before
         assert fake_repo.pr_events == []
         assert run_cli(("sync", head_id)) == 0
     state = state_store.load()
-    refs = _remote_refs(fake_repo.git_dir)
+    refs = remote_refs(fake_repo.git_dir)
     for index in range(1, merged_prefix + 1):
         label = initial_label(index)
         submitted = baseline[label]
@@ -207,7 +208,6 @@ def replay_successful_stack_edit_scenario(
         baseline=baseline,
         fake_repo=fake_repo,
         invariants=scenario.invariants,
-        labels_to_change_ids=labels_to_change_ids,
         repo=repo,
         stack=stack,
         strict_base_events=False,
@@ -251,29 +251,23 @@ def replay_external_drift_scenario(
         )
     assert tuple(live_labels) == scenario.final_live_labels
     submit_revset = labels_to_change_ids[scenario.final_live_labels[-1]]
-    revset_override = _apply_drift_operation(
+    _apply_drift_operation(
         baseline=baseline,
         drift=scenario.drift,
         fake_repo=fake_repo,
-        labels_to_change_ids=labels_to_change_ids,
         repo=repo,
-        run_cli=run_cli,
     )
     if scenario.secondary_drift is not None:
         _apply_drift_operation(
             baseline=baseline,
             drift=scenario.secondary_drift,
             fake_repo=fake_repo,
-            labels_to_change_ids=labels_to_change_ids,
             repo=repo,
-            run_cli=run_cli,
         )
     discard_output()
-    if revset_override is not None:
-        submit_revset = revset_override
 
     if scenario.drift.spec.expected_outcome == "fail_closed":
-        before_refs = _remote_refs(fake_repo.git_dir)
+        before_refs = remote_refs(fake_repo.git_dir)
         before_github = _github_snapshot(fake_repo)
         before_imported_prs = JjClient(repo).visible_pr_bookmark_targets()
         before_state = TrackingStore.for_repo(repo).load()
@@ -285,7 +279,7 @@ def replay_external_drift_scenario(
 
         failure = (exit_code, diagnosis)
         assert failure in scenario.drift.spec.failures, (failure, scenario.trace)
-        assert _remote_refs(fake_repo.git_dir) == before_refs, scenario.trace
+        assert remote_refs(fake_repo.git_dir) == before_refs, scenario.trace
         assert _github_snapshot(fake_repo) == before_github, scenario.trace
         assert fake_repo.pr_events == [], scenario.trace
         assert JjClient(repo).visible_pr_bookmark_targets() == before_imported_prs, scenario.trace
@@ -305,7 +299,6 @@ def replay_external_drift_scenario(
             baseline=baseline,
             fake_repo=fake_repo,
             invariants=scenario.invariants,
-            labels_to_change_ids=labels_to_change_ids,
             repo=repo,
             stack=stack,
             strict_base_events=False,
@@ -404,7 +397,6 @@ def _replay_failed_first_submit(
     )
     _assert_new_submit_invariants(
         fake_repo=fake_repo,
-        labels_to_change_ids=labels_to_change_ids,
         repo=repo,
         scenario=scenario,
         stack=stack,
@@ -451,7 +443,6 @@ def _replay_failed_resubmit(
         baseline=baseline,
         fake_repo=fake_repo,
         invariants=scenario.invariants,
-        labels_to_change_ids=labels_to_change_ids,
         repo=repo,
         stack=stack,
         strict_base_events=False,
@@ -504,7 +495,6 @@ def replay_stack_join_scenario(
         baseline=baseline,
         fake_repo=fake_repo,
         invariants=scenario.invariants,
-        labels_to_change_ids=labels_to_change_ids,
         repo=repo,
         stack=joined_stack,
         strict_base_events=True,
@@ -565,7 +555,6 @@ def replay_stack_move_scenario(
         baseline=baseline,
         fake_repo=fake_repo,
         invariants=scenario.invariants,
-        labels_to_change_ids=labels_to_change_ids,
         repo=repo,
         stack=selected_stack,
         strict_base_events=True,
@@ -580,7 +569,6 @@ def replay_stack_move_scenario(
                 orphaned_labels=(),
                 trace=scenario.trace,
             ),
-            labels_to_change_ids=labels_to_change_ids,
             repo=repo,
             stack=source_stack,
             strict_base_events=True,
@@ -610,7 +598,7 @@ def _capture_submitted_baseline(
     labels_to_change_ids: dict[str, str],
 ) -> dict[str, SubmittedBaseline]:
     state = TrackingStore.for_repo(repo).load()
-    remote_heads = _remote_refs(fake_repo.git_dir)
+    remote_heads = remote_refs(fake_repo.git_dir)
     baseline: dict[str, SubmittedBaseline] = {}
     for label, change_id in labels_to_change_ids.items():
         pr_identity = state.pr_identities[change_id]
@@ -837,13 +825,12 @@ def _discover_stack_for_labels(
 def _assert_new_submit_invariants(
     *,
     fake_repo: FakeGithubRepo,
-    labels_to_change_ids: dict[str, str],
     repo: Path,
     scenario: SubmitRetryScenario,
     stack,
 ) -> None:
     state = TrackingStore.for_repo(repo).load()
-    remote_heads = _remote_refs(fake_repo.git_dir)
+    remote_heads = remote_refs(fake_repo.git_dir)
     branches_by_label: dict[str, str] = {}
 
     for index, label in enumerate(scenario.final_live_labels):
@@ -873,13 +860,12 @@ def _assert_successful_submit_invariants(
     baseline: dict[str, SubmittedBaseline],
     fake_repo: FakeGithubRepo,
     invariants: SubmitInvariants,
-    labels_to_change_ids: dict[str, str],
     repo: Path,
     stack,
     strict_base_events: bool,
 ) -> None:
     state = TrackingStore.for_repo(repo).load()
-    remote_heads = _remote_refs(fake_repo.git_dir)
+    remote_heads = remote_refs(fake_repo.git_dir)
     changes_by_label = dict(zip(invariants.final_live_labels, stack.changes, strict=True))
     expected_base_by_pr_number: dict[int, str] = {}
     live_pr_numbers: set[int] = set()
@@ -991,15 +977,13 @@ def _apply_drift_operation(
     baseline: dict[str, SubmittedBaseline],
     drift: DriftOperation,
     fake_repo: FakeGithubRepo,
-    labels_to_change_ids: dict[str, str],
     repo: Path,
-    run_cli: CliRunner,
-) -> str | None:
-    """Apply one external-actor transition; return a submit revset override if any."""
+) -> None:
+    """Apply one external-actor transition."""
 
     if drift.kind == "trunk_advanced":
         advance_remote_trunk(fake_repo)
-        return None
+        return
 
     label = drift.label
     assert label is not None, drift.trace
@@ -1010,16 +994,16 @@ def _apply_drift_operation(
             fake_repo.prs[submitted.pr_number],
             state="closed",
         )
-        return None
+        return
     if drift.kind == "pr_base_retargeted":
         fake_repo.update_pr_base(
             fake_repo.prs[submitted.pr_number],
             base_ref="main",
         )
-        return None
+        return
     if drift.kind == "pr_draft_toggled":
         fake_repo.prs[submitted.pr_number].is_draft = True
-        return None
+        return
     if drift.kind == "remote_branch_deleted":
         # GitHub closes a pull request when its head branch is deleted, so the
         # faithful transition is branch deletion plus PR closure.
@@ -1038,7 +1022,7 @@ def _apply_drift_operation(
             fake_repo.prs[submitted.pr_number],
             state="closed",
         )
-        return None
+        return
     if drift.kind == "foreign_branch_fetched":
         # A copy of the submitted commit arrives on the remote under a foreign
         # branch name (an agent or teammate pushed it), and the user fetches.
@@ -1051,7 +1035,7 @@ def _apply_drift_operation(
             target=submitted.remote_target,
         )
         run_command(["jj", "git", "fetch", "--remote", "origin"], repo)
-        return None
+        return
     raise AssertionError(f"unsupported drift kind: {drift.kind}")
 
 
@@ -1085,36 +1069,6 @@ def advance_remote_trunk(fake_repo: FakeGithubRepo) -> None:
         cwd,
     ).stdout.strip()
     update_remote_ref(fake_repo, branch="main", target=new_commit)
-
-
-def update_remote_ref(fake_repo: FakeGithubRepo, *, branch: str, target: str) -> None:
-    run_command(
-        [
-            "git",
-            "--git-dir",
-            str(fake_repo.git_dir),
-            "update-ref",
-            f"refs/heads/{branch}",
-            target,
-        ],
-        fake_repo.git_dir.parent,
-    )
-
-
-def delete_remote_ref(fake_repo: FakeGithubRepo, *, branch: str) -> None:
-    """Remove a branch on the remote, as GitHub does after merging when configured to."""
-
-    run_command(
-        [
-            "git",
-            "--git-dir",
-            str(fake_repo.git_dir),
-            "update-ref",
-            "-d",
-            f"refs/heads/{branch}",
-        ],
-        fake_repo.git_dir.parent,
-    )
 
 
 def _github_snapshot(
@@ -1161,24 +1115,3 @@ def _github_snapshot(
 
 def _remote_head(remote_heads: dict[str, str], branch: str) -> str:
     return remote_heads[f"refs/heads/{branch}"]
-
-
-def _remote_refs(remote: Path) -> dict[str, str]:
-    completed = subprocess.run(
-        ["git", "--git-dir", str(remote), "show-ref", "--heads"],
-        capture_output=True,
-        check=False,
-        cwd=remote.parent,
-        text=True,
-    )
-    if completed.returncode not in (0, 1):
-        raise AssertionError(
-            "['git', '--git-dir', "
-            f"{str(remote)!r}, 'show-ref', '--heads'] failed:\n"
-            f"stdout={completed.stdout}\nstderr={completed.stderr}"
-        )
-    refs: dict[str, str] = {}
-    for line in completed.stdout.splitlines():
-        commit_id, ref_name = line.split(" ", maxsplit=1)
-        refs[ref_name] = commit_id
-    return refs

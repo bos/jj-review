@@ -51,7 +51,6 @@ from jj_stack.jj.client import (
     divergent_change_id_from_error,
 )
 from jj_stack.models.github import GithubPR
-from jj_stack.models.tracking import PRIdentity
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace
 from jj_stack.stack.change_state import (
     ChangeState,
@@ -69,10 +68,7 @@ from jj_stack.stack.change_state import (
 )
 from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.selected import is_change_id_prefix
-from jj_stack.stack.selection import (
-    resolve_linked_change_for_pr,
-    resolve_selected_revset,
-)
+from jj_stack.stack.selection import resolve_linked_change_for_pr
 from jj_stack.stack.status import (
     PreparedStack,
     PreparedStatus,
@@ -154,11 +150,10 @@ def _run_status(
             )
             console.machine_output(json.dumps(_view_json_payload(stacks=(rendered,)), indent=2))
             return EXIT_INCOMPLETE if incomplete else 0
-        exit_code = _render_prepared_status(
+        return _render_prepared_status(
             prepared_status=prepared_status,
             verbose=verbose,
         )
-        return exit_code
 
     exit_code = 0
     multi_selector = len(selectors) > 1
@@ -278,12 +273,7 @@ def _resolve_status_selector(
             revset=None,
             containing_change_id=resolved_revset,
         )
-    resolved_revset = resolve_selected_revset(
-        command_label="view",
-        default_revset=None,
-        require_explicit=False,
-        revset=selector.value,
-    )
+    resolved_revset = selector.value
     containing_change_id = _change_id_selector(
         context=context,
         value=resolved_revset,
@@ -320,25 +310,6 @@ def _change_id_selector(*, context: CommandContext, value: str | None) -> str | 
     return value if change.change_id.startswith(value) else None
 
 
-def _prepare_status_for_revset(
-    *,
-    containing_change_id: str | None = None,
-    context: CommandContext,
-    revset: str | None,
-) -> PreparedStatus:
-    try:
-        prepared_status = prepare_status(
-            context=context,
-            containing_change_id=containing_change_id,
-            fetch_remote_state=False,
-            inspection_mode=True,
-            revset=revset,
-        )
-    except UnsupportedStackError as error:
-        raise status_preparation_cli_error(error) from error
-    return prepared_status
-
-
 def _prepare_status_with_spinner(
     *,
     containing_change_id: str | None = None,
@@ -346,11 +317,16 @@ def _prepare_status_with_spinner(
     revset: str | None,
 ) -> PreparedStatus:
     with console.spinner(description="Inspecting jj stack"):
-        prepared_status = _prepare_status_for_revset(
-            containing_change_id=containing_change_id,
-            context=context,
-            revset=revset,
-        )
+        try:
+            prepared_status = prepare_status(
+                context=context,
+                containing_change_id=containing_change_id,
+                fetch_remote_state=False,
+                inspection_mode=True,
+                revset=revset,
+            )
+        except UnsupportedStackError as error:
+            raise status_preparation_cli_error(error) from error
     for warning in _local_history_warnings(prepared_status):
         console.warning(warning)
     return prepared_status
@@ -397,17 +373,21 @@ def _status_heading(selector: ViewSelector) -> ui.Message:
     return t"Status for {ui.revset(selector.value)}:"
 
 
+def _inspect_prepared_status(prepared_status: PreparedStatus) -> StatusResult:
+    progress_total = prepared_status.github_inspection_count()
+    with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
+        return stream_status(
+            on_progress=progress.advance,
+            prepared_status=prepared_status,
+        )
+
+
 def _json_prepared_status(
     *,
     prepared_status: PreparedStatus,
     selector: ViewSelector | None = None,
 ) -> tuple[dict[str, object], bool]:
-    progress_total = prepared_status.github_inspection_count()
-    with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
-        result = stream_status(
-            on_change=lambda _change, _github_available: progress.advance(),
-            prepared_status=prepared_status,
-        )
+    result = _inspect_prepared_status(prepared_status)
     _warn_about_unavailable_github(result)
     return (
         _json_status_result(
@@ -474,12 +454,7 @@ def _render_prepared_status(
     prepared_status: PreparedStatus,
     verbose: bool,
 ) -> int:
-    progress_total = prepared_status.github_inspection_count()
-    with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
-        result = stream_status(
-            on_change=lambda _change, _github_available: progress.advance(),
-            prepared_status=prepared_status,
-        )
+    result = _inspect_prepared_status(prepared_status)
     warning_lines = _warn_about_unavailable_github(result)
 
     if not prepared_status.prepared.status_changes:
@@ -696,7 +671,15 @@ def render_status_advisory_lines(
     ]
     moved_changes = [change for change in result.changes if isinstance(change.state, PRHeadMoved)]
     # A moved PR branch stops submit, so "submit needed" would be the wrong next step.
-    submitted_disagreements = () if moved_changes else result.submitted_state_disagreements
+    submitted_disagreements = (
+        ()
+        if moved_changes
+        else tuple(
+            change.change_id
+            for change in reversed(result.changes)
+            if change.state.has_local_edits
+        )
+    )
     policy_warning_rows: list[tuple[ui.TableCell, ui.TableCell]] = []
     for change in cleanup_changes:
         pr = change.pr
@@ -760,7 +743,17 @@ def render_status_advisory_lines(
                     ),
                 )
             )
-        rows.extend(_submitted_state_disagreement_rows(submitted_disagreements))
+        if len(submitted_disagreements) == 1:
+            disagreement_detail: ui.Message = ui.change_id(submitted_disagreements[0])
+        else:
+            visible_change_ids = tuple(submitted_disagreements[:5])
+            remaining = len(submitted_disagreements) - len(visible_change_ids)
+            disagreement_detail = (
+                f"{len(submitted_disagreements)} changes: ",
+                *ui.join(ui.change_id, visible_change_ids),
+                *((", ", f"... {remaining} more") if remaining else ()),
+            )
+        rows.append(("New commit IDs", disagreement_detail))
 
     if cleanup_changes:
         rows.append(
@@ -857,59 +850,19 @@ def render_status_advisory_lines(
                 ),
             )
         )
-    return ("", "Advisories:", _advisory_table(tuple(rows)))
-
-
-def _submitted_state_disagreement_rows(
-    disagreements: Sequence[str],
-) -> tuple[tuple[ui.TableCell, ui.TableCell], ...]:
-    if not disagreements:
-        return ()
     return (
-        (
-            "New commit IDs",
-            _format_submit_baseline_reason(
-                change_ids=tuple(disagreements),
-                noun="change",
+        "",
+        "Advisories:",
+        ui.DataTable(
+            columns=(
+                ui.TableColumn("advisory", no_wrap=True),
+                ui.TableColumn("detail"),
             ),
+            rows=tuple(rows),
+            box="none",
+            padding=(0, 2),
+            show_header=False,
         ),
-    )
-
-
-def _format_submit_baseline_reason(
-    *,
-    change_ids: Sequence[str],
-    noun: str,
-) -> ui.Message:
-    if len(change_ids) == 1:
-        return ui.change_id(change_ids[0])
-    plural_noun = f"{noun}s" if len(change_ids) != 1 else noun
-    return (f"{len(change_ids)} {plural_noun}: ", *_format_change_id_list(change_ids))
-
-
-def _format_change_id_list(
-    change_ids: Sequence[str], *, limit: int = 5
-) -> tuple[ui.Message, ...]:
-    visible = tuple(change_ids[:limit])
-    rendered = list(ui.join(ui.change_id, visible))
-    remaining = len(change_ids) - limit
-    if remaining > 0:
-        if rendered:
-            rendered.append(", ")
-        rendered.append(f"... {remaining} more")
-    return tuple(rendered)
-
-
-def _advisory_table(rows: tuple[tuple[ui.TableCell, ui.TableCell], ...]) -> ui.DataTable:
-    return ui.DataTable(
-        columns=(
-            ui.TableColumn("advisory", no_wrap=True),
-            ui.TableColumn("detail"),
-        ),
-        rows=rows,
-        box="none",
-        padding=(0, 2),
-        show_header=False,
     )
 
 
@@ -1013,9 +966,10 @@ def _format_status_summary(
     repo: GithubRepoAddress | None,
 ) -> ui.Message:
     state = change.state
-    saved_label = _format_saved_pr_label(
-        change.tracked.pr_identity if change.tracked is not None else None,
-        repo=repo,
+    saved_label = (
+        format_pr_label(change.tracked.pr_identity.pr_number, prefix="saved ", repo=repo)
+        if change.tracked is not None
+        else None
     )
     saved: ui.Message = saved_label if saved_label is not None else "saved PR"
     summary: ui.Message
@@ -1048,12 +1002,11 @@ def _format_live_pr_summary(pr: GithubPR) -> ui.Message:
     summary: ui.Message = pr_label
     if pr.is_queued:
         summary = t"{summary} queued"
-    elif pr.is_draft:
-        pass
-    elif pr.review_decision == "approved":
-        summary = t"{summary} approved"
-    elif pr.review_decision == "changes_requested":
-        summary = t"{summary} changes requested"
+    elif not pr.is_draft:
+        if pr.review_decision == "approved":
+            summary = t"{summary} approved"
+        elif pr.review_decision == "changes_requested":
+            summary = t"{summary} changes requested"
     if pr.check_rollup_status is not None:
         summary = t"{summary}, checks {pr.check_rollup_status}"
     return summary
@@ -1064,17 +1017,6 @@ def _emit_lines(
 ) -> None:
     for line in lines:
         emitter(line, soft_wrap=soft_wrap)
-
-
-def _format_saved_pr_label(
-    pr_identity: PRIdentity | None,
-    *,
-    repo: GithubRepoAddress | None,
-) -> ui.Message | None:
-    if pr_identity is None:
-        return None
-    # Identity-only tracking has no lifecycle to show; --fetch reports it live.
-    return format_pr_label(pr_identity.pr_number, prefix="saved ", repo=repo)
 
 
 def _describe_link_advisory(

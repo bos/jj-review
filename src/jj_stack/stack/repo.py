@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import jj_stack.ui as ui
-from jj_stack.errors import CliError
-from jj_stack.jj.client import JjClient, UnsupportedStackError, quote_revset_symbol
+from jj_stack.jj.client import JjClient, quote_revset_symbol
 from jj_stack.models.tracking import TrackingState
 from jj_stack.stack.path import (
     RepoPathObservation,
@@ -14,6 +12,7 @@ from jj_stack.stack.path import (
     project_repo_paths,
 )
 from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
+from jj_stack.stack.trunk import require_usable_trunk
 
 
 def observe_repo_paths(
@@ -41,15 +40,7 @@ def observe_repo_paths(
         membership_revsets=("trunk()", candidates, trunk_path),
     )
     trunks = tuple(commit for commit, flags in rows if flags[0])
-    if len(trunks) != 1:
-        raise CliError(t"Could not resolve {ui.revset('trunk()')} to one commit.")
-    trunk = trunks[0]
-    if not trunk.parents:
-        raise UnsupportedStackError(
-            t"No trunk bookmark is configured for this repo.",
-            hint=t"Create a trunk bookmark such as {ui.bookmark('main')}, then retry.",
-            reason="trunk_resolved_to_root",
-        )
+    trunk = require_usable_trunk(trunks)
     current_working_copy = next(
         (commit for commit, _flags in rows if commit.current_working_copy),
         None,

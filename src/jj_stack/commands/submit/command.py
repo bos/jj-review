@@ -75,7 +75,6 @@ from jj_stack.stack.pr_branches import (
 )
 from jj_stack.stack.selection import (
     parse_comma_separated_flag_values,
-    resolve_selected_revset,
 )
 from jj_stack.stack.status import PRLookup, discover_pr_lookups
 from jj_stack.state.operation_lock import operation_lock_if_mutating
@@ -171,32 +170,17 @@ def submit(
         command="submit",
         mutating=not dry_run,
     ):
-        result = run_submit(
-            context=context,
-            # The selected line is only rendered when submit picked the
-            # default head for the user.
-            on_prepared=print_selected_line if revset is None else None,
-            options=options,
+        result = asyncio.run(
+            run_submit_async(
+                context=context,
+                # The selected line is only rendered when submit picked the
+                # default head for the user.
+                on_prepared=print_selected_line if revset is None else None,
+                options=options,
+            )
         )
     print_submit_result(result)
     return 0
-
-
-def run_submit(
-    *,
-    context: CommandContext,
-    on_prepared: Callable[[str, str], None] | None,
-    options: SubmitOptions,
-) -> SubmitResult:
-    """Run the full submit flow. The caller owns the operation lock."""
-
-    return asyncio.run(
-        run_submit_async(
-            context=context,
-            on_prepared=on_prepared,
-            options=options,
-        ),
-    )
 
 
 def _submit_options_from_cli(
@@ -215,12 +199,6 @@ def _submit_options_from_cli(
     revset: str | None,
     team_reviewers: Sequence[str] | None,
 ) -> SubmitOptions:
-    selected_revset = resolve_selected_revset(
-        command_label="submit",
-        default_revset=None,
-        require_explicit=False,
-        revset=revset,
-    )
     return SubmitOptions(
         base_revset=base,
         descriptions=tuple(descriptions or ()),
@@ -236,7 +214,7 @@ def _submit_options_from_cli(
         labels=parse_comma_separated_flag_values(labels),
         re_request=re_request,
         reviewers=parse_comma_separated_flag_values(reviewers),
-        revset=selected_revset,
+        revset=revset,
         team_reviewers=parse_comma_separated_flag_values(team_reviewers),
     )
 

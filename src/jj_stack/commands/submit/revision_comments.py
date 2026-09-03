@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import jj_stack.console as console
 from jj_stack.concurrency import run_bounded_tasks
-from jj_stack.errors import CliError
-from jj_stack.formatting import format_pr_number
-from jj_stack.github.client import GithubClient, GithubClientError
+from jj_stack.github.client import GithubClient
+from jj_stack.identifiers import short_commit_id
 from jj_stack.models.github import GithubIssueComment, GithubPRRevision
+
+from .managed_comments import upsert_managed_comment
 
 REVISION_HISTORY_COMMENT_LABEL = "revision history comment"
 REVISION_HISTORY_COMMENT_MARKER = "<!-- jj-stack-revision-history -->"
@@ -42,7 +43,7 @@ async def sync_revision_history_comments(
                     submitted_force_pushes_by_pr.get(pr_number),
                 ),
             ),
-            on_success=lambda _index, _result: progress.advance(),
+            on_success=progress.advance,
         )
 
 
@@ -59,24 +60,15 @@ async def _sync_revision_history_comment(
         revisions=revisions,
         repo_full_name=github_client.repo.full_name,
     )
-    if body is None or existing_comment is not None and existing_comment.body == body:
+    if body is None:
         return existing_comment
-    try:
-        if existing_comment is None:
-            return await github_client.create_issue_comment(
-                issue_number=pr_number,
-                body=body,
-            )
-        return await github_client.update_issue_comment(
-            comment_id=existing_comment.id,
-            body=body,
-        )
-    except GithubClientError as error:
-        action = "create" if existing_comment is None else "update"
-        pr_label = format_pr_number(pr_number, repo=github_client.repo)
-        raise CliError(
-            t"Could not {action} a {REVISION_HISTORY_COMMENT_LABEL} for pull request {pr_label}"
-        ) from error
+    return await upsert_managed_comment(
+        body=body,
+        existing_comment=existing_comment,
+        github_client=github_client,
+        label=REVISION_HISTORY_COMMENT_LABEL,
+        pr_number=pr_number,
+    )
 
 
 def _include_submitted_force_push(
@@ -128,18 +120,19 @@ def _revision_history_body(
     for revision in reversed(revisions):
         version = f"{revision.version}{' (current)' if revision.is_current else ''}"
         changes = _markdown_link(
-            f"{_short_commit(revision.before_commit_id)}..{_short_commit(revision.commit_id)}",
+            f"{short_commit_id(revision.before_commit_id)}.."
+            f"{short_commit_id(revision.commit_id)}",
             f"{repo_url}/compare/{revision.before_commit_id}..{revision.commit_id}",
         )
         submitted = _markdown_link(
-            _short_commit(revision.commit_id),
+            short_commit_id(revision.commit_id),
             f"{repo_url}/commit/{revision.commit_id}",
         )
         rows.append(f"| {version} | {changes} | {submitted} |")
     if revisions[0].version == 2 and len(revisions) < REVISION_HISTORY_VERSION_LIMIT:
         initial_commit = revisions[0].before_commit_id
         submitted = _markdown_link(
-            _short_commit(initial_commit),
+            short_commit_id(initial_commit),
             f"{repo_url}/commit/{initial_commit}",
         )
         rows.append(f"| 1 | Initial version | {submitted} |")
@@ -156,10 +149,6 @@ def _revision_history_body(
         )
     )
     return "\n".join(rows)
-
-
-def _short_commit(commit_id: str) -> str:
-    return commit_id[:8]
 
 
 def _markdown_link(text: str, url: str) -> str:

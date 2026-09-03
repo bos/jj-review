@@ -3,7 +3,6 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
-from jj_stack.cli import main
 from jj_stack.jj.client import JjClient
 from jj_stack.state.store import TrackingStore, resolve_state_path
 
@@ -18,7 +17,7 @@ from ..support.integration_helpers import (
     run_command,
     selected_stack,
 )
-from .submit_command_helpers import read_remote_ref
+from .submit_command_helpers import read_remote_ref, run_main as _main
 
 
 def test_checkout_pick_fetches_github_stack_then_adopts_and_edits_selected_change(
@@ -449,17 +448,4 @@ def _configure_checkout_environment(
         fake_repo=fake_repo,
         monkeypatch=monkeypatch,
         tmp_path=tmp_path,
-    )
-
-
-def _main(repo: Path, config_path: Path, command: str, *command_args: str) -> int:
-    return main(
-        [
-            "--config-file",
-            str(config_path),
-            "--repository",
-            str(repo),
-            command,
-            *command_args,
-        ]
     )

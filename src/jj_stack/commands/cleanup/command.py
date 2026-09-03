@@ -156,7 +156,13 @@ def _run_cleanup_command(
         context=prepared_cleanup.context,
     )
     if _cleanup_needs_remote_context(prepared_cleanup=prepared_cleanup):
-        prepared_cleanup = _load_cleanup_remote_context(prepared_cleanup=prepared_cleanup)
+        if prepared_cleanup.github_target is None:
+            prepared_cleanup = replace(
+                prepared_cleanup,
+                github_target=resolve_github_target(
+                    prepared_cleanup.context.jj_client.list_git_remotes()
+                ),
+            )
         for message in github_target_unavailable_messages(prepared_cleanup.github_target):
             console.warning(plain_text(message))
 
@@ -605,7 +611,7 @@ def _preflight_tracked_pr_cleanup(
             else None
         )
         return None, None, action
-    _state, update, blocker = plan_pr_cleanup(
+    update, blocker = plan_pr_cleanup(
         allowed_states=(
             frozenset({"open", "closed", "merged"})
             if prepared_cleanup.close_open_prs
@@ -681,19 +687,6 @@ async def _apply_tracked_pr_cleanup(
         )
         record_action(action)
     return False
-
-
-def _load_cleanup_remote_context(*, prepared_cleanup: PreparedCleanup) -> PreparedCleanup:
-    """Resolve remote and GitHub target details once plain cleanup actually needs them."""
-
-    if prepared_cleanup.github_target is not None:
-        return prepared_cleanup
-    return replace(
-        prepared_cleanup,
-        github_target=resolve_github_target(
-            prepared_cleanup.context.jj_client.list_git_remotes()
-        ),
-    )
 
 
 def _cleanup_needs_remote_context(

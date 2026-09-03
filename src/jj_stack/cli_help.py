@@ -63,14 +63,13 @@ def add_help_argument(
     *name_or_flags: str,
     help: ui.Message | str,
     **kwargs: Any,
-) -> Any:
+) -> None:
     """Add an argument whose help text keeps its semantic styling when rendered."""
 
     action = parser.add_argument(*name_or_flags, **kwargs)
     action.help = normalized_help_text(help)
     if not isinstance(help, str):
         setattr(action, _ACTION_HELP_RENDERABLE_ATTRIBUTE, help)
-    return action
 
 
 def add_help_section(
@@ -188,11 +187,13 @@ def render_all_in_one_markdown(
         parser,
         groups=groups,
         aliases=aliases,
-        include_hidden=True,
     )
     lines.extend(("", "## Commands"))
+    subparsers = next(
+        action for action in parser._actions if isinstance(action, _SubParsersAction)
+    )
     for title, entries in groups:
-        command_parsers = _command_parsers(parser, entries, include_hidden=True)
+        command_parsers = tuple((entry, subparsers.choices[entry.name]) for entry in entries)
         if command_parsers:
             lines.extend(("", f"### {title}"))
             for entry, child_parser in command_parsers:
@@ -211,24 +212,22 @@ def _append_markdown_overview(
     *,
     groups: Sequence[tuple[str, tuple[HelpCommand, ...]]],
     aliases: Mapping[str, tuple[str, ...]],
-    include_hidden: bool,
 ) -> None:
     lines.extend(
         (
             "## Usage",
             "",
-            _usage_html(parser, _top_level_usage_message(include_hidden=include_hidden)),
+            _usage_html(parser, _top_level_usage_message(include_hidden=True)),
         )
     )
     if parser.description:
         lines.extend(("", _description_html(parser.description)))
 
     for title, entries in groups:
-        visible = tuple(entry for entry in entries if include_hidden or not entry.hidden)
-        if visible:
-            lines.extend(("", f"### {title}", "", _command_list_html(visible, aliases)))
+        if entries:
+            lines.extend(("", f"### {title}", "", _command_list_html(entries, aliases)))
 
-    options = _top_level_option_actions(parser, include_hidden=include_hidden)
+    options = _top_level_option_actions(parser, include_hidden=True)
     if options:
         lines.extend(("", "## Global options", "", _action_list_html(options)))
 
@@ -270,22 +269,6 @@ def _append_markdown_command(
 
 def _help_sections(parser: ArgumentParser) -> tuple[HelpSection, ...]:
     return getattr(parser, _HELP_SECTIONS_ATTRIBUTE, ())
-
-
-def _command_parsers(
-    parser: ArgumentParser,
-    entries: Sequence[HelpCommand],
-    *,
-    include_hidden: bool,
-) -> tuple[tuple[HelpCommand, ArgumentParser], ...]:
-    subparsers = next(
-        action for action in parser._actions if isinstance(action, _SubParsersAction)
-    )
-    return tuple(
-        (entry, subparsers.choices[entry.name])
-        for entry in entries
-        if include_hidden or not entry.hidden
-    )
 
 
 def _command_list_html(
@@ -404,7 +387,7 @@ def _inline_command_html(text: str) -> str:
     for match in _INLINE_OPTION_PATTERN.finditer(text):
         option = match.group(1)
         if "=" in option:
-            option_name, value = option.split("=", 1)
+            option_name = option.split("=", 1)[0]
             value_start = match.start(1) + len(option_name) + 1
             tokens.append((match.start(1), value_start - 1, "cli-option"))
             tokens.append((value_start, match.end(1), "cli-metavar"))
@@ -608,24 +591,20 @@ def _action_label_message(action) -> ui.Message:
     return ui.cmd(label)
 
 
-def _help_table(
-    rows: Sequence[tuple[ui.Message, ui.TableCell]],
-) -> ui.DataTable:
-    label_width = max(len(ui.plain_text(label)) for label, _ in rows) + 2
-    return ui.DataTable(
-        columns=(
-            ui.TableColumn("", no_wrap=True, width=label_width),
-            ui.TableColumn(""),
-        ),
-        rows=tuple(rows),
-        box="",
-        show_header=False,
-    )
-
-
 def _emit_help_table_section(title: str, rows: Sequence[tuple[ui.Message, ui.TableCell]]) -> None:
+    label_width = max(len(ui.plain_text(label)) for label, _ in rows) + 2
     console.output(_help_heading(f"{title}:"))
-    console.output(_help_table(rows))
+    console.output(
+        ui.DataTable(
+            columns=(
+                ui.TableColumn("", no_wrap=True, width=label_width),
+                ui.TableColumn(""),
+            ),
+            rows=tuple(rows),
+            box="",
+            show_header=False,
+        )
+    )
 
 
 def _is_common_option_action(action: Any) -> bool:
