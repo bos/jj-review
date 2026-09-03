@@ -42,6 +42,15 @@ Shared code may observe or classify facts for several commands. It must not beco
 that decides command policy. Command-specific planning stays with the command, while product rules
 remain in [design.md](design.md).
 
+Every command classifies a change's relationship to its pull request, PR branch, and fetched trunk
+through one function, `classify` in `stack/change_state.py`. It takes one `ChangeObservation`, in
+which a fact the command did not look up is marked unobserved rather than treated as absent, and
+returns one `ChangeState`. A stop state carries the explanation and repair every command shares; a
+command decides only which states it acts on, tolerates, or stops on, and supplies the command to
+rerun. Trunk evidence is part of the observation, derived from fetched-trunk ancestries. The
+classifier does not describe the change itself: conflicts, emptiness, divergence, and working
+copies stay fields of `LocalCommit`, and stack-shape rules stay with selection and planning.
+
 Independent reads should be batched or run concurrently. A mutation is re-planned only when an
 earlier mutation changes one of its inputs or the external API requires another observation.
 Irreversible writes use the identity or version observed during planning whenever the platform
