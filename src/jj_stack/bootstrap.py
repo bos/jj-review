@@ -18,8 +18,7 @@ from jj_stack.jj.client import JjClient
 from jj_stack.pr_branch_namespace import install_pr_branch_namespace
 from jj_stack.state.store import TrackingStore
 
-_MINIMUM_JJ_VERSION = (0, 44, 0)
-_MINIMUM_JJ_VERSION_STRING = "0.44.0"
+_MINIMUM_JJ_VERSION = (0, 45, 1)
 _jj_version_verified = False
 
 time_output_active: bool = False
@@ -163,17 +162,18 @@ def check_jj_version() -> None:
         message = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
         raise CliError(t"{ui.cmd('jj --version')} failed: {message}")
 
+    minimum_version = ".".join(str(part) for part in _MINIMUM_JJ_VERSION)
     version = _parse_jj_version(completed.stdout.strip())
     if version is None:
         raise CliError(
             t"Could not parse {ui.cmd('jj --version')} output: {completed.stdout.strip()!r}. "
-            t"jj-stack requires jj {_MINIMUM_JJ_VERSION_STRING} or later."
+            t"jj-stack requires jj {minimum_version} or later."
         )
     if version < _MINIMUM_JJ_VERSION:
         installed = ".".join(str(x) for x in version)
         raise CliError(
             f"jj {installed} is too old. "
-            f"jj-stack requires jj {_MINIMUM_JJ_VERSION_STRING} or later. "
+            f"jj-stack requires jj {minimum_version} or later. "
             "Please upgrade jj."
         )
     _jj_version_verified = True
@@ -182,7 +182,7 @@ def check_jj_version() -> None:
 def _parse_jj_version(version_output: str) -> tuple[int, ...] | None:
     """Parse version tuple from `jj --version` output.
 
-    Expected formats: ``"jj 0.44.0"`` or ``"jj 0.44.0-<build-hash>"``.
+    Expected formats: ``"jj 0.45.1"`` or ``"jj 0.45.1-<build-hash>"``.
     Returns ``None`` if the output does not match the expected format.
     """
 

@@ -9,7 +9,7 @@ matching PRs.
 ### Requirements
 
 - Python 3.14 or newer
-- `jj` 0.44.0 or newer
+- `jj` 0.45.1 or newer
 - GitHub authentication
 
 ### Install
