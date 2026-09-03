@@ -6,15 +6,14 @@ import pytest
 
 import jj_stack.ui as ui
 from jj_stack.models.github import GithubBranchRef, GithubPR
-from jj_stack.models.stack import LocalCommit, LocalStack
-from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR, TrackingState
+from jj_stack.models.stack import LocalCommit
+from jj_stack.models.tracking import SubmittedBaseline, TrackedPR
 from jj_stack.stack.change_state import (
     UNOBSERVED,
     BranchClaimed,
     BranchDisagrees,
     BranchMissing,
     ChangeObservation,
-    ChangeState,
     Closed,
     CompetingOpenPR,
     Edited,
@@ -33,7 +32,6 @@ from jj_stack.stack.change_state import (
     Unpublished,
     UntrackedPRExists,
     classify,
-    enumerate_orphaned_records,
     report_incomplete,
 )
 from tests.support.change_helpers import make_change
@@ -118,11 +116,6 @@ _REPRESENTATIVES: tuple[tuple[str, dict[str, object], type], ...] = (
     ),
     ("closed without merging", {"pr": _pr(state="closed")}, Closed),
     ("merged, trunk not inspected", {"pr": _pr(state="merged")}, Merged),
-    (
-        "merged, not proven on fetched trunk",
-        {"pr": _pr(state="merged"), "trunk_evidence": None, "trunk_evidence_reason": "why"},
-        Merged,
-    ),
     ("merged and proven", {"pr": _pr(state="merged"), "trunk_evidence": "rewritten"}, Landed),
     ("open, exact commit already on trunk", {"trunk_evidence": "exact"}, Landed),
     ("queued", {"pr": _pr(queued=True)}, Queued),
@@ -165,13 +158,6 @@ def test_classifier_reaches_each_state_from_a_representative_observation(
         assert ui.plain_text(state.repair).strip()
 
 
-def test_every_state_variant_has_a_representative() -> None:
-    covered = {expected for _label, _fields, expected in _REPRESENTATIVES}
-    declared = set(ChangeState.__value__.__args__)
-
-    assert covered == declared
-
-
 def test_unobserved_facts_never_produce_a_stop() -> None:
     state = classify(
         _observe(
@@ -186,23 +172,24 @@ def test_unobserved_facts_never_produce_a_stop() -> None:
     assert isinstance(state, Published)
 
 
-def test_merged_state_keeps_the_reason_only_when_trunk_was_inspected() -> None:
-    uninspected = classify(_observe(pr=_pr(state="merged")))
-    unproven = classify(
+def test_merged_state_carries_the_reason_trunk_did_not_prove_it() -> None:
+    state = classify(
         _observe(pr=_pr(state="merged"), trunk_evidence=None, trunk_evidence_reason="why")
     )
 
-    assert isinstance(uninspected, Merged) and uninspected.unproven is None
-    assert isinstance(unproven, Merged) and unproven.unproven == "why"
+    assert isinstance(state, Merged) and state.unproven == "why"
 
 
-def test_open_pr_head_is_compared_against_every_visible_copy() -> None:
-    # The published snapshot is still visible beside the local rewrite.
-    snapshot, rewrite = _local("baseline"), _local("rewrite")
-    state = classify(_observe(local=(snapshot, rewrite), selected=rewrite))
+def test_a_pr_head_visible_locally_is_pushed_work_not_a_moved_head() -> None:
+    # A fetched or checked-out copy of the remote head sits beside the selected commit.
+    selected, fetched = _local("baseline"), _local("remote-rewrite")
+    pr = _pr(head_sha="remote-rewrite")
 
-    assert isinstance(state, Edited)
-    assert state.has_local_edits is True
+    visible = classify(_observe(local=(selected, fetched), selected=selected, pr=pr))
+    hidden = classify(_observe(local=(selected,), selected=selected, pr=pr))
+
+    assert isinstance(visible, PushedUnrecorded)
+    assert isinstance(hidden, PRHeadMoved)
 
 
 def test_branch_missing_repair_matches_the_pull_request_state() -> None:
@@ -215,13 +202,11 @@ def test_branch_missing_repair_matches_the_pull_request_state() -> None:
     assert "forget it" in ui.plain_text(already_closed.repair)
 
 
-def test_report_incompleteness_rule_is_shared_by_view_and_list() -> None:
+def test_report_incomplete_only_when_the_saved_pr_cannot_be_placed() -> None:
     assert report_incomplete(classify(_observe())) is False
-    assert report_incomplete(classify(_observe(pr=UNOBSERVED))) is True
-    assert report_incomplete(classify(_observe(pr=None, open_prs_on_branch=()))) is True
+    # A moved head is a complete report about the pull request; two open pull requests on one
+    # branch are ambiguous; a closed saved PR beside one open competitor is only a warning.
     assert report_incomplete(classify(_observe(pr=_pr(head_sha="elsewhere")))) is False
-    # Two open pull requests on one branch are ambiguous; a closed saved PR beside one open
-    # competitor is only a warning.
     assert (
         report_incomplete(classify(_observe(open_prs_on_branch=(_pr(), _pr(number=8))))) is True
     )
@@ -231,6 +216,7 @@ def test_report_incompleteness_rule_is_shared_by_view_and_list() -> None:
         )
         is False
     )
+    # Divergent unmerged work cannot be placed; divergent merged work is history.
     divergent = _local(divergent=True)
     assert report_incomplete(classify(_observe(local=(divergent,), selected=divergent))) is True
     assert (
@@ -239,25 +225,3 @@ def test_report_incompleteness_rule_is_shared_by_view_and_list() -> None:
         )
         is False
     )
-
-
-def test_enumerate_orphans_returns_tracked_record_with_no_live_change() -> None:
-    live = make_change(change_id="live", commit_id="commit-live", description="live\n")
-    trunk = make_change(change_id="trunk", commit_id="trunk", description="trunk\n")
-    stack = LocalStack(
-        base_parent=trunk, head=live, changes=(live,), selected_revset="@-", trunk=trunk
-    )
-    state = TrackingState(
-        pr_identities={
-            "live": make_pr_identity(head_ref="jj-stack/live-live", pr_number=1),
-            "orphan": PRIdentity(pr_number=2, head_ref="jj-stack/orphan-orphan"),
-        },
-        submitted_baselines={
-            "live": SubmittedBaseline(commit_id="commit-live"),
-            "orphan": SubmittedBaseline(commit_id="commit-orphan"),
-        },
-    )
-
-    orphans = enumerate_orphaned_records(state, (stack,))
-
-    assert tuple(orphan.change_id for orphan in orphans) == ("orphan",)

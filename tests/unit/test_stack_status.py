@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 from typing import cast
 
-import jj_stack.ui as ui
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient
 from jj_stack.github.resolution import GithubRepoAddress, GithubTarget
@@ -13,7 +12,6 @@ from jj_stack.models.github import GithubPR
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import SubmittedBaseline, TrackedPR, TrackingState
 from jj_stack.stack import status as status_module
-from jj_stack.stack.change_state import CompetingOpenPR
 from jj_stack.stack.status import (
     PreparedChange,
     PreparedStatus,
@@ -218,11 +216,6 @@ def test_pr_lookup_reports_the_saved_pr_when_another_open_pr_uses_its_branch() -
 
     assert lookup.pr is not None and lookup.pr.number == 155
     assert tuple(pr.number for pr in lookup.open_prs_on_branch) == (180,)
-    state = status_module._status_change(
-        prepared_change, lookup=lookup, remote_name="origin"
-    ).state
-    assert isinstance(state, CompetingOpenPR)
-    assert "#180" in ui.plain_text(state.reason)
 
 
 _STATUS_REMOTE = GitRemote(

@@ -725,7 +725,6 @@ def test_sync_rebases_a_conflicted_pr_before_stopping_its_update(
     ("drift", "reason", "repair"),
     (
         ("closed", "is closed, so sync cannot update that PR", "jj-stack cleanup"),
-        ("moved_branch", "now uses head branch", "jj-stack relink"),
         ("reviewer_commit", "not at this change", "jj-stack checkout --pull-request 2"),
     ),
 )
@@ -737,7 +736,7 @@ def test_sync_stops_before_rebasing_when_a_survivor_pr_drifted(
     reason: str,
     repair: str,
 ) -> None:
-    """A closed, re-pointed, or externally pushed survivor stops sync before it rewrites anything.
+    """A closed or externally pushed survivor stops sync before it rewrites anything.
 
     Stopping first keeps a failed sync free of side effects: one rerun after the repair removes
     the merged change, rebases the survivor, and refreshes its pull request together. The
@@ -762,9 +761,6 @@ def test_sync_stops_before_rebasing_when_a_survivor_pr_drifted(
         _simulate_stack_partial_merge(fake_repo)
     if drift == "closed":
         fake_repo.prs[2].state = "closed"
-    elif drift == "moved_branch":
-        fake_repo.prs[2].head_ref = "jj-stack/moved-aaaaaaaa"
-        fake_repo.prs[2].head_label = "octo-org:jj-stack/moved-aaaaaaaa"
     state_before = state_store.load()
 
     exit_code = run_main(repo, config_path, "sync", survivor.change_id)

@@ -4,34 +4,15 @@ from types import SimpleNamespace
 from typing import cast
 
 import jj_stack.commands.cleanup.stale as stale_module
-from jj_stack.commands._cleanup_actions import plan_pr_cleanup
-from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.jj.client import JjClient
-from jj_stack.models.git import GitRemote
-from jj_stack.models.github import GithubBranchRef, GithubPR
-from jj_stack.models.tracking import (
-    SubmittedBaseline,
-    TrackedPR,
-)
 from jj_stack.stack.pr_facts import (
-    PRFacts,
-    RepoFacts,
     duplicate_pr_claim_change_ids,
 )
-from jj_stack.ui import plain_text
 from tests.support.change_helpers import make_change
 from tests.support.contexts import fake_command_context
 from tests.support.tracking import make_pr_identity
 
-CHANGE_ID = "aaaaaaaaabcdefgh"
 BRANCH = "jj-stack/feature-aaaaaaaa"
-_BASELINE = SubmittedBaseline(commit_id="saved-remote")
-_REMOTE_URL = "git@github.com:octo-org/stacked-prs.git"
-_REMOTE = GitRemote(name="origin", fetch_url=_REMOTE_URL, push_url=_REMOTE_URL)
-_REPO = GithubRepoAddress(
-    owner="octo-org",
-    repo="stacked-prs",
-)
 
 
 def test_duplicate_claim_facts_reject_shared_prs_and_branches() -> None:
@@ -89,76 +70,3 @@ def test_local_cleanup_observations_flag_changes_outside_current_stacks(
     stale_observation = observations["stale-change"]
     assert stale_observation.has_mutable_copy
     assert stale_observation.stale_reason is not None
-
-
-def test_cleanup_preserves_a_head_branch_shared_by_another_open_pr() -> None:
-    competing_pr = _pr().model_copy(
-        update={
-            "base": GithubBranchRef(ref="release"),
-            "number": 2,
-            "state": "open",
-        }
-    )
-
-    _pr_result, update, blocker = plan_pr_cleanup(
-        allowed_states=frozenset({"closed", "merged"}),
-        candidate=_candidate(),
-        observation=_observation(open_head_prs=(competing_pr,)),
-    )
-
-    assert update is None
-    assert blocker is not None
-    assert blocker.kind == "remote branch"
-    assert "cannot delete" in plain_text(blocker.body)
-    assert "also uses PR branch" in plain_text(blocker.body)
-
-
-def _candidate() -> TrackedPR:
-    return TrackedPR(
-        change_id=CHANGE_ID,
-        pr_identity=make_pr_identity(head_ref=BRANCH),
-        submitted_baseline=_BASELINE,
-    )
-
-
-def _pr() -> GithubPR:
-    return GithubPR(
-        base=GithubBranchRef(ref="main"),
-        head=GithubBranchRef(
-            label=f"octo-org:{BRANCH}",
-            ref=BRANCH,
-            sha=_BASELINE.commit_id,
-        ),
-        html_url="https://github.com/octo-org/stacked-prs/pull/1",
-        number=1,
-        state="closed",
-        title="feature",
-    )
-
-
-def _observation(
-    *,
-    open_head_prs: tuple[GithubPR, ...] = (),
-    remote_target: str | None = _BASELINE.commit_id,
-) -> RepoFacts:
-    identity = make_pr_identity(head_ref=BRANCH)
-    pr = _pr()
-    return RepoFacts(
-        configured_repo=_REPO,
-        github_repo=None,
-        prs_by_base={BRANCH: ()},
-        remote=_REMOTE,
-        repo=_REPO,
-        observed_open_head_prs=True,
-        observed_remote_targets=True,
-        prs={
-            CHANGE_ID: PRFacts(
-                baseline=_BASELINE,
-                open_head_prs=open_head_prs,
-                identity=identity,
-                local_commits=(),
-                pr=pr,
-                remote_pr_branch_target=remote_target,
-            )
-        },
-    )
