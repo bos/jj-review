@@ -9,9 +9,22 @@ from dataclasses import dataclass
 from jj_stack.bootstrap import CommandContext
 from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient
-from jj_stack.models.github import GithubPR, GithubStack
+from jj_stack.models.github import GithubStack
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackedPR, TrackingState
+from jj_stack.stack.change_state import (
+    ChangeState,
+    Closed,
+    Landed,
+    Merged,
+    PRIdentityMismatch,
+    PRMissing,
+    Stop,
+    WithPR,
+    classify,
+    observe_pr_facts,
+    unproven_reason,
+)
 from jj_stack.stack.convergence_models import (
     FinishPR,
     PRFinishPlan,
@@ -21,16 +34,12 @@ from jj_stack.stack.path import RepoStackPath
 from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
 from jj_stack.stack.pr_facts import (
     RepoFacts,
+    classify_commit_ancestries,
     observe_github_stacks,
     observe_prs,
 )
 from jj_stack.stack.repo import observe_repo_paths
-from jj_stack.stack.trunk_evidence import (
-    CommitAncestry,
-    TrunkEvidenceKind,
-    classify_commit_ancestries,
-    classify_proven_kind,
-)
+from jj_stack.stack.trunk_evidence import CommitAncestry
 from jj_stack.ui import Message
 
 
@@ -140,58 +149,47 @@ def _classify_global_candidate(
     tracked_pr_numbers: frozenset[int],
 ) -> tuple[Message | None, PRFinishPlan | None, tuple[str, ...]]:
     ancestry = facts.ancestries[candidate.submitted_baseline.commit_id]
-    pr = facts.pr_facts.prs[candidate.change_id].pr
-    evidence: TrunkEvidenceKind | None = None
-    reason: Message = ""
-    if pr is not None:
-        evidence, reason = classify_proven_kind(
-            ancestries=facts.ancestries,
-            candidate=candidate,
-            pr=pr,
-        )
+    state = classify(
+        observe_pr_facts(facts.pr_facts, candidate.change_id, ancestries=facts.ancestries)
+    )
     heads = _candidate_path_heads(candidate, facts=facts)
-    affected = ancestry == "on_trunk" or evidence == "rewritten"
+    rewritten = isinstance(state, Landed) and state.evidence == "rewritten"
+    affected = ancestry == "on_trunk" or rewritten
     if affected:
         return _affected_candidate_plan(
             candidate=candidate,
-            evidence=evidence,
             facts=facts,
             heads=heads,
-            pr=pr,
-            reason=reason,
+            state=state,
             tracked_prs=tracked_pr_numbers,
         )
-    if pr is None:
-        pr_label = format_pr_label(candidate.pr_identity.pr_number, repo=facts.pr_facts.repo)
-        return t"GitHub no longer reports {pr_label}", None, ()
+    if isinstance(state, PRMissing):
+        return state.reason, None, ()
     if ancestry == "unresolved":
         return "the submitted commit is unavailable locally", None, ()
-    if reason and (
-        pr.normalize_state().state != "open" or not candidate.pr_identity.matches_pr(pr)
-    ):
-        return reason, None, ()
+    if isinstance(state, (PRIdentityMismatch, Closed, Merged)):
+        return unproven_reason(state), None, ()
     return None, None, ()
 
 
 def _affected_candidate_plan(
     *,
     candidate: TrackedPR,
-    evidence: TrunkEvidenceKind | None,
     facts: GlobalSyncFacts,
     heads: tuple[str, ...] | None,
-    pr: GithubPR | None,
-    reason: Message,
+    state: ChangeState,
     tracked_prs: frozenset[int],
 ) -> tuple[Message | None, PRFinishPlan | None, tuple[str, ...]]:
     if heads is None:
         return "local history is not a supported stack", None, ()
     if heads:
         return None, None, heads
-    if pr is None:
-        pr_label = format_pr_label(candidate.pr_identity.pr_number, repo=facts.pr_facts.repo)
-        return t"GitHub no longer reports {pr_label}", None, ()
-    if evidence is None:
-        return reason, None, ()
+    if not isinstance(state, WithPR):
+        if isinstance(state, Stop):
+            return state.reason, None, ()
+        raise AssertionError("Global sync looks up every saved pull request.")
+    if not isinstance(state, Landed):
+        return unproven_reason(state), None, ()
     stack_reason, historical = _detached_stack_blocker(
         candidate=candidate,
         facts=facts,
@@ -201,8 +199,8 @@ def _affected_candidate_plan(
         return stack_reason, None, ()
     finish = (
         SkipPRFinish(candidate)
-        if evidence == "rewritten" or historical or pr.normalize_state().state != "open"
-        else FinishPR(candidate, pr)
+        if state.evidence == "rewritten" or historical or state.pr.state != "open"
+        else FinishPR(candidate, state.pr)
     )
     return None, finish, ()
 

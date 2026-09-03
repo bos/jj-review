@@ -19,6 +19,7 @@ from jj_stack.models.tracking import (
     SubmittedBaseline,
 )
 from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
+from jj_stack.stack.trunk_evidence import CommitAncestry
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +151,26 @@ async def observe_prs(
         observed_open_head_prs=include_open_head_prs,
         observed_remote_targets=include_remote_targets and remote is not None,
     )
+
+
+def classify_commit_ancestries(
+    *,
+    commit_ids: tuple[str | None, ...],
+    context: CommandContext,
+    trunk_commit_id: str,
+) -> dict[str, CommitAncestry]:
+    """Classify commits in one scan while keeping unavailable commits distinct."""
+
+    present_commit_ids = tuple(commit_id for commit_id in commit_ids if commit_id is not None)
+    memberships = context.jj_client.query_present_commit_ancestor_membership(
+        present_commit_ids,
+        descendant_commit_id=trunk_commit_id,
+    )
+    states: dict[bool, CommitAncestry] = {True: "on_trunk", False: "not_on_trunk"}
+    return {
+        commit_id: states[memberships[commit_id]] if commit_id in memberships else "unresolved"
+        for commit_id in dict.fromkeys(present_commit_ids)
+    }
 
 
 async def observe_github_stacks(*, github: GithubClient) -> tuple[GithubStack, ...]:

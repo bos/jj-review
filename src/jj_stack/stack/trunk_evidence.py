@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from typing import Literal
 
 import jj_stack.ui as ui
-from jj_stack.bootstrap import CommandContext
 from jj_stack.formatting import format_pr_label
 from jj_stack.models.github import GithubPR
 from jj_stack.models.tracking import TrackedPR
@@ -52,26 +51,6 @@ class TrunkEvidence:
             reason=reason,
             pr_mismatch=pr_mismatch,
         )
-
-
-def classify_commit_ancestries(
-    *,
-    commit_ids: tuple[str | None, ...],
-    context: CommandContext,
-    trunk_commit_id: str,
-) -> dict[str, CommitAncestry]:
-    """Classify commits in one scan while keeping unavailable commits distinct."""
-
-    present_commit_ids = tuple(commit_id for commit_id in commit_ids if commit_id is not None)
-    memberships = context.jj_client.query_present_commit_ancestor_membership(
-        present_commit_ids,
-        descendant_commit_id=trunk_commit_id,
-    )
-    states: dict[bool, CommitAncestry] = {True: "on_trunk", False: "not_on_trunk"}
-    return {
-        commit_id: states[memberships[commit_id]] if commit_id in memberships else "unresolved"
-        for commit_id in dict.fromkeys(present_commit_ids)
-    }
 
 
 def classify_exact_snapshot(

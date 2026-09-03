@@ -721,19 +721,33 @@ def test_sync_rebases_a_conflicted_pr_before_stopping_its_update(
     assert on_trunk.change_id in state_store.load().pr_identities
 
 
-def test_sync_reports_a_closed_pr_survivor_as_a_closed_pr_not_branch_drift(
+@pytest.mark.parametrize(
+    ("drift", "reason", "repair"),
+    (
+        ("closed", "is closed, so sync cannot update that PR", "jj-stack cleanup"),
+        ("moved_branch", "now uses head branch", "jj-stack relink"),
+    ),
+)
+def test_sync_stops_before_rebasing_when_a_survivor_pr_is_closed_or_relinked(
     tmp_path: Path,
     monkeypatch,
     capsys,
+    drift: str,
+    reason: str,
+    repair: str,
 ) -> None:
-    """A closed active member is still a survivor, so its branch must not take the blame."""
+    """A closed or re-pointed active member is still a survivor; its branch is not blamed."""
 
     repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     state_store = TrackingStore.for_repo(repo)
     on_trunk, survivor = selected_stack(repo).changes
     _simulate_stack_partial_merge(fake_repo)
-    fake_repo.prs[2].state = "closed"
+    if drift == "closed":
+        fake_repo.prs[2].state = "closed"
+    else:
+        fake_repo.prs[2].head_ref = "jj-stack/moved-aaaaaaaa"
+        fake_repo.prs[2].head_label = "octo-org:jj-stack/moved-aaaaaaaa"
     state_before = state_store.load()
 
     exit_code = run_main(repo, config_path, "sync", survivor.change_id)
@@ -741,8 +755,8 @@ def test_sync_reports_a_closed_pr_survivor_as_a_closed_pr_not_branch_drift(
 
     assert exit_code == 1
     unwrapped = " ".join(captured.err.split())
-    assert "PR #2" in unwrapped and "is closed, so sync cannot update that PR" in unwrapped
-    assert "jj-stack cleanup" in unwrapped
+    assert "PR #2" in unwrapped and reason in unwrapped
+    assert repair in unwrapped
     assert JjClient(repo).resolve_commit(on_trunk.change_id).commit_id == on_trunk.commit_id
     assert JjClient(repo).resolve_commit(survivor.change_id).commit_id == survivor.commit_id
     assert state_store.load() == state_before

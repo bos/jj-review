@@ -90,12 +90,12 @@ from jj_stack.stack.global_convergence import (
 )
 from jj_stack.stack.pr_facts import (
     RepoFacts,
+    classify_commit_ancestries,
     observe_github_stacks,
     observe_prs,
 )
 from jj_stack.stack.selection import resolve_linked_change_for_pr
 from jj_stack.stack.status import PreparedStatus, prepare_status, status_preparation_cli_error
-from jj_stack.stack.trunk_evidence import classify_commit_ancestries
 from jj_stack.state.operation_lock import operation_lock_if_mutating
 from jj_stack.ui import Message
 

@@ -12,7 +12,7 @@ copies. This module classifies the change's relationship to GitHub, not its loca
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from string.templatelib import Interpolation, Template
 from typing import TYPE_CHECKING, TypedDict
@@ -24,11 +24,15 @@ from jj_stack.identifiers import short_change_id
 from jj_stack.models.github import GithubPR
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import PRIdentity, TrackedPR, TrackingState
+from jj_stack.stack.trunk_evidence import (
+    CommitAncestry,
+    TrunkEvidenceKind,
+    classify_proven_kind,
+)
 from jj_stack.ui import Message
 
 if TYPE_CHECKING:
     from jj_stack.stack.pr_facts import RepoFacts
-    from jj_stack.stack.trunk_evidence import TrunkEvidenceKind
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +113,9 @@ class WithPR(_State):
     pr: GithubPR
     # The commit at branch@remote, when observed; None when the branch is absent.
     remote_target: str | None | Unobserved
+    # Why the submitted work is not proven on fetched trunk, when the command looked and it
+    # is not; None when it is proven or trunk was not inspected.
+    unproven: Message | None = None
 
 
 class Stop:
@@ -174,12 +181,7 @@ class Landed(WithPR):
 
 @dataclass(frozen=True, kw_only=True)
 class Merged(WithPR):
-    """GitHub reports the pull request merged, but no observation proved it on fetched trunk.
-
-    `unproven` explains why when the command looked; it is None when the command did not.
-    """
-
-    unproven: Message | None
+    """GitHub reports the pull request merged, but no observation proved it on fetched trunk."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -442,6 +444,12 @@ class _Common(TypedDict):
     selected: LocalCommit | None
 
 
+class _WithPRCommon(_Common):
+    pr: GithubPR
+    remote_target: str | None | Unobserved
+    unproven: Message | None
+
+
 def classify(observation: ChangeObservation) -> ChangeState:
     """Derive one state from one observation; unobserved facts never produce a stop."""
 
@@ -466,25 +474,29 @@ def classify(observation: ChangeObservation) -> ChangeState:
             return PRAmbiguous(**common, open_prs_on_branch=open_prs)
         return PRMissing(**common, open_prs_on_branch=open_prs)
     pr = o.pr.normalize_state()
-    remote = o.remote_target
+    evidence = o.trunk_evidence
+    with_pr = _WithPRCommon(
+        **common,
+        pr=pr,
+        remote_target=o.remote_target,
+        unproven=(
+            o.trunk_evidence_reason
+            if evidence is None and not isinstance(evidence, Unobserved)
+            else None
+        ),
+    )
     if pr.head.ref != o.tracked.pr_identity.head_ref:
-        return PRIdentityMismatch(**common, pr=pr, remote_target=remote)
+        return PRIdentityMismatch(**with_pr)
     competitors = tuple(candidate for candidate in open_prs if candidate.number != pr.number)
     if competitors:
-        return CompetingOpenPR(**common, pr=pr, remote_target=remote, competitors=competitors)
+        return CompetingOpenPR(**with_pr, competitors=competitors)
     if pr.state == "closed":
-        return Closed(**common, pr=pr, remote_target=remote)
-    evidence = o.trunk_evidence
+        return Closed(**with_pr)
+    if isinstance(evidence, str):
+        return Landed(**with_pr, evidence=evidence)
     if pr.state == "merged":
-        if isinstance(evidence, Unobserved):
-            return Merged(**common, pr=pr, remote_target=remote, unproven=None)
-        if evidence is None:
-            reason = o.trunk_evidence_reason
-            return Merged(**common, pr=pr, remote_target=remote, unproven=reason)
-        return Landed(**common, pr=pr, remote_target=remote, evidence=evidence)
-    if evidence == "exact":
-        return Landed(**common, pr=pr, remote_target=remote, evidence=evidence)
-    return _classify_open(o, common, pr)
+        return Merged(**with_pr)
+    return _classify_open(o, with_pr, pr)
 
 
 def _classify_untracked(
@@ -502,7 +514,7 @@ def _classify_untracked(
 
 def _classify_open(
     o: ChangeObservation,
-    common: _Common,
+    with_pr: _WithPRCommon,
     pr: GithubPR,
 ) -> ChangeState:
     if o.tracked is None:
@@ -511,22 +523,22 @@ def _classify_open(
     head = pr.head.sha
     remote = o.remote_target
     if head is not None and head != baseline and head not in _local_commit_ids(o):
-        return PRHeadMoved(**common, pr=pr, remote_target=remote)
+        return PRHeadMoved(**with_pr)
     if not isinstance(remote, Unobserved):
         if remote is None:
-            return BranchMissing(**common, pr=pr, remote_target=remote)
+            return BranchMissing(**with_pr)
         if head is not None and remote != head:
-            return BranchDisagrees(**common, pr=pr, remote_target=remote)
+            return BranchDisagrees(**with_pr)
     # A queued pull request whose head and branch still agree with what was submitted waits
     # for GitHub; one that no longer agrees is reported as moved first.
     if pr.is_queued:
-        return Queued(**common, pr=pr, remote_target=remote)
+        return Queued(**with_pr)
     if head is not None and head != baseline:
-        return PushedUnrecorded(**common, pr=pr, remote_target=remote)
+        return PushedUnrecorded(**with_pr)
     local_commit = _selected_commit_id(o)
     if local_commit is not None and local_commit != baseline:
-        return Edited(**common, pr=pr, remote_target=remote)
-    return Published(**common, pr=pr, remote_target=remote)
+        return Edited(**with_pr)
+    return Published(**with_pr)
 
 
 def _selected_commit_id(o: ChangeObservation) -> str | None:
@@ -548,12 +560,15 @@ def observe_pr_facts(
     facts: RepoFacts,
     change_id: str,
     *,
+    ancestries: Mapping[str, CommitAncestry] | None = None,
     branch: str | None = None,
     selected: LocalCommit | None = None,
-    trunk_evidence: TrunkEvidenceKind | None | Unobserved = UNOBSERVED,
-    trunk_evidence_reason: Message | None = None,
 ) -> ChangeObservation:
-    """Project one change out of the facts a mutating command observed."""
+    """Project one change out of the facts a mutating command observed.
+
+    With `ancestries` from fetched trunk, the observation also carries whether the submitted
+    work is proven on it.
+    """
 
     item = facts.prs[change_id]
     tracked = (
@@ -563,6 +578,14 @@ def observe_pr_facts(
         if item.identity is not None and item.baseline is not None
         else None
     )
+    trunk_evidence: TrunkEvidenceKind | None | Unobserved = UNOBSERVED
+    trunk_evidence_reason: Message | None = None
+    if ancestries is not None and tracked is not None and item.pr is not None:
+        trunk_evidence, trunk_evidence_reason = classify_proven_kind(
+            ancestries=ancestries,
+            candidate=tracked,
+            pr=item.pr,
+        )
     return ChangeObservation(
         change_id=change_id,
         tracked=tracked,
@@ -588,6 +611,16 @@ def live_pr(state: ChangeState) -> GithubPR | None:
     """The pull request GitHub reported for this state, if any."""
 
     return state.pr if isinstance(state, WithPR) else None
+
+
+def unproven_reason(state: WithPR) -> Message:
+    """Why this pull request's work is not proven on fetched trunk."""
+
+    if state.unproven is not None:
+        return state.unproven
+    if isinstance(state, Stop):
+        return state.reason
+    return "no merge result is on trunk"
 
 
 def stop_error(state: Stop, *, rerun: str) -> CliError:

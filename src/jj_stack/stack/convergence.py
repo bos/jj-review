@@ -10,6 +10,20 @@ from jj_stack.identifiers import short_change_id
 from jj_stack.models.github import GithubPR, GithubStack, GithubStackPR
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackedPR, TrackingState
+from jj_stack.stack.change_state import (
+    BranchDisagrees,
+    BranchMissing,
+    Closed,
+    Landed,
+    Merged,
+    PRHeadMoved,
+    Stop,
+    WithPR,
+    classify,
+    observe_pr_facts,
+    stop_error,
+    unproven_reason,
+)
 from jj_stack.stack.convergence_models import (
     AdoptedSurvivor,
     ConvergenceActions,
@@ -25,11 +39,7 @@ from jj_stack.stack.convergence_models import (
 from jj_stack.stack.github_stack_safety import selected_github_stack
 from jj_stack.stack.pr_facts import RepoFacts
 from jj_stack.stack.status import PreparedStatus
-from jj_stack.stack.trunk_evidence import (
-    CommitAncestry,
-    TrunkEvidenceKind,
-    classify_proven_kind,
-)
+from jj_stack.stack.trunk_evidence import CommitAncestry
 
 
 class CheckedOutMergedChangeError(CliError):
@@ -83,20 +93,31 @@ def build_selected_convergence_plan(
     active_ids = {item.candidate.change_id for item in adopted}
     on_trunk = list(history)
     survivors: list[LocalCommit] = []
+    rerun = f"jj-stack sync {short_change_id(selected[-1].change_id)}"
     for change in (item for item in selected if item.change_id not in history_ids):
         candidate = state.tracked_pr(change.change_id)
-        evidence_kind = (
-            None
-            if candidate is None or change.change_id in active_ids
-            else _trunk_evidence_kind_for(
-                ancestries=ancestries,
-                candidate=candidate,
-                observation=observation,
-            )
-        )
-        if candidate is None or evidence_kind is None:
+        if candidate is None or change.change_id in active_ids:
             survivors.append(change)
             continue
+        change_state = _member_state(
+            ancestries=ancestries,
+            candidate=candidate,
+            observation=observation,
+            rerun=rerun,
+            selected=change,
+        )
+        if isinstance(change_state, Closed):
+            raise _closed_error(change_state)
+        if isinstance(change_state, Merged):
+            raise CliError(
+                t"Cannot remove {ui.change_id(change.change_id)}: "
+                t"{unproven_reason(change_state)}.",
+                hint="Make GitHub's reported merge commit reachable from trunk, then rerun sync.",
+            )
+        if not isinstance(change_state, Landed):
+            survivors.append(change)
+            continue
+        evidence_kind = change_state.evidence
         if survivors:
             raise CliError(
                 t"Cannot sync submitted {ui.change_id(change.change_id)} because these "
@@ -130,11 +151,7 @@ def build_selected_convergence_plan(
 
     _require_no_unpublished_edits(tuple(on_trunk))
     _require_no_checked_out_merged_changes(tuple(on_trunk))
-    submitted = _submitted_survivors(
-        survivors=tuple(survivors),
-        state=state,
-        observation=observation,
-    )
+    submitted = _submitted_survivors(survivors=tuple(survivors), state=state)
     local_head = selected[-1]
     working_copy_children = tuple(
         commit
@@ -166,13 +183,13 @@ def _submitted_survivors(
     *,
     survivors: tuple[LocalCommit, ...],
     state: TrackingState,
-    observation: RepoFacts,
 ) -> tuple[LocalCommit, ...]:
+    """Return the tracked survivors, which must sit below every untracked one."""
+
     submitted: list[LocalCommit] = []
     saw_unsubmitted = False
     for change in survivors:
-        candidate = state.tracked_pr(change.change_id)
-        if candidate is None:
+        if state.tracked_pr(change.change_id) is None:
             saw_unsubmitted = True
             continue
         if saw_unsubmitted:
@@ -181,62 +198,58 @@ def _submitted_survivors(
                 t"above an unsubmitted change.",
                 hint="Submit the intervening change or select a stack that ends below it.",
             )
-        pr = observation.prs[change.change_id].pr
-        identity = candidate.pr_identity
-        if pr is None or not identity.matches_pr(pr):
-            raise CliError(
-                t"The pull request no longer matches the saved link for "
-                t"{ui.change_id(candidate.change_id)}.",
-                hint=t"Relink the intended PR with {ui.cmd('jj-stack relink')}, or forget "
-                t"the incorrect link with {ui.cmd('jj-stack unstack --local')} before "
-                t"submitting again.",
-            )
-        lifecycle = pr.normalize_state().state
-        if lifecycle != "open":
-            pr_label = format_pr_label(pr.number, url=pr.html_url)
-            raise CliError(
-                t"{pr_label} for {ui.change_id(candidate.change_id)} is "
-                t"{lifecycle}, so sync cannot update that PR.",
-                hint=t"Reopen it on GitHub, or run {ui.cmd('jj-stack cleanup')} before "
-                t"submitting again.",
-            )
         submitted.append(change)
     return tuple(submitted)
 
 
-def _trunk_evidence_kind_for(
+def _member_state(
     *,
     ancestries: dict[str, CommitAncestry],
     candidate: TrackedPR,
     observation: RepoFacts,
-) -> TrunkEvidenceKind | None:
-    observed = observation.prs[candidate.change_id]
-    if observed.identity != candidate.pr_identity:
+    rerun: str,
+    member: GithubStackPR | None = None,
+    selected: LocalCommit | None = None,
+) -> WithPR:
+    """Classify one tracked change with its trunk evidence, stopping on a broken saved link."""
+
+    observed = observation.prs.get(candidate.change_id)
+    if observed is None or observed.identity != candidate.pr_identity:
         raise CliError(
             t"The saved pull request link for {ui.change_id(candidate.change_id)} changed.",
             hint=t"Inspect it with {ui.cmd('jj-stack view')}, then relink the intended "
             t"PR with {ui.cmd('jj-stack relink')}.",
         )
-    pr = observed.pr
-    if pr is None:
-        pr_label = format_pr_label(candidate.pr_identity.pr_number, repo=observation.repo)
-        raise CliError(
-            t"GitHub no longer reports {pr_label}.",
-            hint=t"Confirm it with {ui.cmd('jj-stack view')}, then link an open "
-            t"replacement with {ui.cmd('jj-stack relink')}, or forget the missing link with "
-            t"{ui.cmd('jj-stack unstack --local')} before submitting again.",
+    state = classify(
+        observe_pr_facts(
+            observation, candidate.change_id, ancestries=ancestries, selected=selected
         )
-    evidence_kind, reason = classify_proven_kind(
-        ancestries=ancestries,
-        candidate=candidate,
-        pr=pr,
     )
-    if evidence_kind is None and pr.normalize_state().state in {"closed", "merged"}:
+    # A moved or missing PR branch is left for the pull request refresh to report; sync still
+    # rebases the local change first.
+    tolerated = (BranchDisagrees, BranchMissing, PRHeadMoved)
+    if isinstance(state, Stop) and not isinstance(state, tolerated):
+        raise stop_error(state, rerun=rerun)
+    if not isinstance(state, WithPR):
+        raise AssertionError("Sync planning looks up every saved pull request.")
+    if member is not None and state.pr.head.ref != member.head.ref:
+        pr_label = format_pr_label(member.number, repo=observation.repo)
         raise CliError(
-            t"Cannot remove {ui.change_id(candidate.change_id)}: {reason}.",
-            hint="Make GitHub's reported merge commit reachable from trunk, then rerun sync.",
+            t"{pr_label} no longer matches the saved pull request link for "
+            t"{ui.change_id(candidate.change_id)}.",
+            hint=t"Relink it with {ui.cmd('jj-stack relink')}, or forget the incorrect link "
+            t"with {ui.cmd('jj-stack unstack --local')} before submitting again.",
         )
-    return evidence_kind
+    return state
+
+
+def _closed_error(state: Closed) -> CliError:
+    pr_label = format_pr_label(state.pr.number, url=state.pr.html_url)
+    return CliError(
+        t"{pr_label} for {ui.change_id(state.change_id)} is closed, so sync cannot update "
+        t"that PR.",
+        hint=t"Reopen it on GitHub, or run {ui.cmd('jj-stack cleanup')} before submitting again.",
+    )
 
 
 def _require_no_divergent_survivors(
@@ -292,46 +305,34 @@ def _classify_github_stack(
     adopted: list[AdoptedSurvivor] = []
     expected_base = trunk_branch
     merge_result: str | None = None
+    rerun = f"jj-stack sync {short_change_id(selected[-1].change_id)}"
     for member in stack.prs:
         candidate = by_pr.get(member.number)
         if candidate is None:
             continue
-        pr = _validated_member(candidate, member, observation)
+        member_state = _member_state(
+            ancestries=ancestries,
+            candidate=candidate,
+            observation=observation,
+            rerun=rerun,
+            member=member,
+            selected=selected_by_id.get(candidate.change_id),
+        )
+        pr = member_state.pr
         if member.is_historical:
-            change = selected_by_id.get(candidate.change_id)
-            mutable_copies = tuple(
-                item
-                for item in observation.prs[candidate.change_id].local_commits
-                if not item.immutable
-            )
-            if change is None and len(mutable_copies) > 1:
-                raise CliError(
-                    t"Merged change {ui.change_id(candidate.change_id)} from this stack has "
-                    t"more than one mutable local copy.",
-                    hint=t"Resolve the divergent change with {ui.cmd('jj')}, then rerun sync.",
-                )
-            kind, reason = classify_proven_kind(
-                ancestries=ancestries,
-                candidate=candidate,
-                pr=pr,
-            )
-            if kind is None:
-                pr_label = format_pr_label(pr.number, url=pr.html_url)
-                raise CliError(
-                    t"Cannot remove the saved link for merged {pr_label}: {reason}.",
-                    hint="Make GitHub's merge result reachable from trunk, then rerun sync.",
-                )
-            merge_result = pr.merge_commit_sha
             history.append(
-                OnTrunkChange(
-                    candidate,
-                    kind,
-                    SkipPRFinish(candidate),
-                    change or (mutable_copies[0] if mutable_copies else None),
+                _historical_member(
+                    candidate=candidate,
+                    member_state=member_state,
+                    observation=observation,
+                    selected=selected_by_id.get(candidate.change_id),
                 )
             )
+            merge_result = pr.merge_commit_sha
             continue
         local = selected_by_id[candidate.change_id]
+        if isinstance(member_state, Closed):
+            raise _closed_error(member_state)
         _validate_active_member(
             candidate=candidate,
             expected_base=expected_base,
@@ -355,36 +356,44 @@ def _classify_github_stack(
     return _GithubStackMerge(tuple(history), result, merge_result)
 
 
+def _historical_member(
+    *,
+    candidate: TrackedPR,
+    member_state: WithPR,
+    observation: RepoFacts,
+    selected: LocalCommit | None,
+) -> OnTrunkChange:
+    """Turn a merged stack member into its on-trunk entry, or stop when it cannot be removed."""
+
+    mutable_copies = tuple(
+        item for item in observation.prs[candidate.change_id].local_commits if not item.immutable
+    )
+    if selected is None and len(mutable_copies) > 1:
+        raise CliError(
+            t"Merged change {ui.change_id(candidate.change_id)} from this stack has more than "
+            t"one mutable local copy.",
+            hint=t"Resolve the divergent change with {ui.cmd('jj')}, then rerun sync.",
+        )
+    if not isinstance(member_state, Landed):
+        pr_label = format_pr_label(member_state.pr.number, url=member_state.pr.html_url)
+        raise CliError(
+            t"Cannot remove the saved link for merged {pr_label}: "
+            t"{unproven_reason(member_state)}.",
+            hint="Make GitHub's merge result reachable from trunk, then rerun sync.",
+        )
+    return OnTrunkChange(
+        candidate,
+        member_state.evidence,
+        SkipPRFinish(candidate),
+        selected or (mutable_copies[0] if mutable_copies else None),
+    )
+
+
 def _is_stack_merge(*, stack: GithubStack, by_pr: dict[int, TrackedPR]) -> bool:
     merge_mode = any(member.number in by_pr for member in stack.historical_prs)
     if stack.historical_prs and not merge_mode:
         raise _unproven_rewrite_error(stack)
     return merge_mode
-
-
-def _validated_member(
-    candidate: TrackedPR,
-    member: GithubStackPR,
-    observation: RepoFacts,
-) -> GithubPR:
-    observed = observation.prs.get(candidate.change_id)
-    pr = observed.pr if observed is not None else None
-    identity = candidate.pr_identity
-    pr_label = format_pr_label(member.number, repo=observation.repo)
-    if (
-        observed is None
-        or observed.identity != identity
-        or pr is None
-        or not identity.matches_pr(pr)
-        or pr.head.ref != member.head.ref
-    ):
-        raise CliError(
-            t"{pr_label} no longer matches the saved pull request link for "
-            t"{ui.change_id(candidate.change_id)}.",
-            hint=t"Relink it with {ui.cmd('jj-stack relink')}, or forget the incorrect link "
-            t"with {ui.cmd('jj-stack unstack --local')} before submitting again.",
-        )
-    return pr
 
 
 def _validate_active_member(
