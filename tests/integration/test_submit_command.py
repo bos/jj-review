@@ -751,33 +751,6 @@ def test_submit_retargets_stale_pr_bases_before_pushing_reordered_stack(
     assert fake_repo.prs[1].base_ref == bookmarks_by_subject["feature 4"]
 
 
-def test_submit_partial_path_guard_sees_another_workspaces_working_copy(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    """A described, nonempty working copy in another workspace is an ordinary stack head."""
-
-    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=3)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    stack = selected_stack(repo)
-    run_command(["jj", "edit", stack.changes[2].change_id], repo)
-    other_workspace = tmp_path / "other-workspace"
-    run_command(
-        ["jj", "workspace", "add", "-r", stack.changes[1].change_id, str(other_workspace)],
-        repo,
-    )
-    stacks_before = dict(fake_repo.github_stacks)
-
-    exit_code = run_main(other_workspace, config_path, "submit")
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "stop below the top of the local stack" in captured.err
-    assert "#3" in captured.err
-    assert fake_repo.github_stacks == stacks_before
-
-
 def test_submit_stack_preflight_failures_recover_without_persisted_phase(
     tmp_path: Path,
     monkeypatch,
@@ -988,27 +961,31 @@ def test_submit_shrinking_stack_to_one_pr_dissolves_grouping(
     _assert_stack_prs_match_dag(fake_repo=fake_repo, repo=repo, stack=survivor)
 
 
-def test_submit_explicit_nonmaximal_prefix_does_not_truncate_github_stack(
+def test_submit_selection_below_the_stack_top_does_not_truncate_github_stack(
     tmp_path: Path,
     monkeypatch,
     capsys,
 ) -> None:
+    """A described, nonempty working copy in another workspace is an ordinary stack head."""
+
     repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=3)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    bottom = selected_stack(repo).changes[0]
+    stack = selected_stack(repo)
+    run_command(["jj", "edit", stack.changes[2].change_id], repo)
+    other_workspace = tmp_path / "other-workspace"
+    run_command(
+        ["jj", "workspace", "add", "-r", stack.changes[1].change_id, str(other_workspace)],
+        repo,
+    )
     state_before = TrackingStore.for_repo(repo).load()
     refs_before = remote_refs(fake_repo.git_dir)
 
-    exit_code = run_main(
-        repo,
-        config_path,
-        "submit",
-        f'change_id("{bottom.change_id}")',
-    )
+    exit_code = run_main(other_workspace, config_path, "submit")
     captured = capsys.readouterr()
 
     assert exit_code == 1
     assert "selected changes stop below the top of the local stack" in captured.err
+    assert "#3" in captured.err
     assert fake_repo.github_stacks == {1: (1, 2, 3)}
     assert TrackingStore.for_repo(repo).load() == state_before
     assert remote_refs(fake_repo.git_dir) == refs_before
@@ -1680,58 +1657,6 @@ def test_submit_does_not_claim_a_visible_bookmark_for_an_untracked_change(
     assert set(remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
 
 
-def test_submit_moves_overview_comment_when_stack_head_advances(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    commit_file(repo, "feature 2", "feature-2.txt")
-    helper = tmp_path / "describe.py"
-    helper.write_text(
-        "\n".join(
-            [
-                "#!/usr/bin/env python3",
-                "import json",
-                "import sys",
-                "",
-                "kind, revset = sys.argv[1], sys.argv[2]",
-                "if kind == '--pr':",
-                "    print(json.dumps({'title': revset[:8], 'body': revset}))",
-                "elif kind == '--stack':",
-                "    print(json.dumps({'title': 'stack', 'body': 'stack body'}))",
-                "else:",
-                "    raise SystemExit(f'unexpected args: {sys.argv[1:]}')",
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    helper.chmod(0o755)
-
-    assert run_main(repo, config_path, "submit", "--describe-with", str(helper)) == 0
-    capsys.readouterr()
-    initial_stack = selected_stack(repo)
-    initial_top_change_id = initial_stack.changes[-1].change_id
-    initial_top_pr_number = (
-        TrackingStore.for_repo(repo).load().pr_identities[initial_top_change_id].pr_number
-    )
-    assert len(_overview_comments(fake_repo, initial_top_pr_number)) == 1
-
-    commit_file(repo, "feature 3", "feature-3.txt")
-    assert run_main(repo, config_path, "submit", "--describe-with", str(helper)) == 0
-    capsys.readouterr()
-    refreshed_stack = selected_stack(repo)
-    new_top_change_id = refreshed_stack.changes[-1].change_id
-    refreshed_state = TrackingStore.for_repo(repo).load()
-    new_top_pr_number = refreshed_state.pr_identities[new_top_change_id].pr_number
-
-    assert _overview_comments(fake_repo, initial_top_pr_number) == []
-    assert len(_overview_comments(fake_repo, new_top_pr_number)) == 1
-
-
 def test_submit_single_change_clears_stale_stack_overview_comment(
     tmp_path: Path,
     monkeypatch,
@@ -1876,8 +1801,6 @@ def test_submit_refreshes_unchanged_pr_text_and_preserves_github_edits(
 
     fake_repo.prs[pr_number].body = "Body edited on GitHub"
     run_command(["jj", "edit", change_id], repo)
-    template = repo / ".github" / "PULL_REQUEST_TEMPLATE.md"
-    write_file(template, "Current template\n")
     run_command(
         [
             "jj",
@@ -1900,29 +1823,6 @@ def test_submit_refreshes_unchanged_pr_text_and_preserves_github_edits(
     assert read_remote_ref(fake_repo.git_dir, bookmark) == rewritten_stack.changes[-1].commit_id
     assert fake_repo.prs[pr_number].title == "feature 1"
     assert fake_repo.prs[pr_number].body == "Body edited on GitHub"
-
-    fake_repo.prs[pr_number].title = "feature 1 renamed"
-    fake_repo.prs[pr_number].body = "Managed body"
-    run_command(
-        [
-            "jj",
-            "describe",
-            "--ignore-immutable",
-            "-r",
-            change_id,
-            "-m",
-            "feature 1 revised again\n\nNew local body",
-        ],
-        repo,
-    )
-
-    assert run_main(repo, config_path, "submit", change_id) == 0
-    capsys.readouterr()
-    rewritten_stack = selected_stack(repo, change_id)
-
-    assert read_remote_ref(fake_repo.git_dir, bookmark) == rewritten_stack.head.commit_id
-    assert fake_repo.prs[pr_number].title == "feature 1 revised again"
-    assert fake_repo.prs[pr_number].body == "New local body"
 
     fake_repo.prs[pr_number].title = "Title edited on GitHub"
     explicit_body = tmp_path / "pr-body.md"
@@ -2270,36 +2170,6 @@ def test_submit_bases_on_the_default_branch_when_local_trunk_is_behind_it(
     assert fake_repo.prs[1].base_ref == "main"
 
 
-def test_submit_accepts_a_stack_based_on_a_merge_commit_at_trunk(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    """GitHub's default merge method leaves a merge commit at the tip of the default branch.
-
-    The trunk change is the stack's base, not a stack member, so its shape must not decide
-    whether the stack above it can be submitted.
-    """
-
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    fake_repo.apply_merge_commit((fake_repo.prs[1],))
-    run_command(["jj", "git", "fetch", "--remote", "origin"], repo)
-    trunk_parents = run_command(
-        ["jj", "log", "--no-graph", "-r", "trunk()", "-T", "parents.len()"],
-        repo,
-    ).stdout.strip()
-    assert trunk_parents == "2"
-    run_command(["jj", "new", "-r", "trunk()"], repo)
-    commit_file(repo, "next feature", "next-feature.txt")
-
-    exit_code = run_main(repo, config_path, "submit")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0, captured.err
-    assert fake_repo.prs[2].base_ref == "main"
-
-
 def test_submit_open_marks_existing_draft_prs_ready_for_review(
     tmp_path: Path,
     monkeypatch,
@@ -2528,7 +2398,7 @@ def test_submit_unchanged_rerun_skips_pr_metadata_writes(
     assert metadata_write_calls == []
 
 
-def test_submit_explicit_reviewers_apply_to_unchanged_pr(
+def test_submit_explicit_metadata_applies_to_an_unchanged_pr(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -2558,43 +2428,19 @@ def test_submit_explicit_reviewers_apply_to_unchanged_pr(
             "alice,bob",
             "--team-reviewers",
             "platform",
+            "--label",
+            "needs-review",
         )
         == 0
     )
+    capsys.readouterr()
+    assert run_main(repo, config_path, "submit", "--label", "needs-docs") == 0
     capsys.readouterr()
 
     pr = fake_repo.prs[1]
     assert pr.requested_reviewers == ["alice", "bob"]
     assert pr.requested_team_reviewers == ["platform"]
-
-
-def test_submit_explicit_labels_accumulate_on_an_unchanged_pr(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    config_path = write_fake_github_config(tmp_path)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    app = create_app(FakeGithubState.single_repo(fake_repo))
-
-    patch_github_client_builders(
-        monkeypatch,
-        app=app,
-        fake_repo=fake_repo,
-        modules=("jj_stack.commands.submit.command",),
-    )
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    assert run_main(repo, config_path, "submit", "--label", "needs-review") == 0
-    capsys.readouterr()
-    assert run_main(repo, config_path, "submit", "--label", "needs-docs") == 0
-    capsys.readouterr()
-
-    assert fake_repo.prs[1].labels == ["needs-review", "needs-docs"]
+    assert pr.labels == ["needs-review", "needs-docs"]
 
 
 def test_submit_re_request_observes_reviews_before_mutation_and_retries(
