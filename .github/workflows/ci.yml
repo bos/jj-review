@@ -25,7 +25,8 @@ jobs:
       - name: Install tokei
         run: |
           TOKEI_VERSION="$(
-            python -c 'from tools.check_complexity import TOKEI_VERSION; print(TOKEI_VERSION)'
+            uv run --no-project --python 3.14 python -c \
+              'from tools.check_complexity import TOKEI_VERSION; print(TOKEI_VERSION)'
           )"
           cargo install tokei --locked --version "$TOKEI_VERSION"
 
