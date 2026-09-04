@@ -142,7 +142,7 @@ command.
 changes with `jj` if needed, then submit the rewritten changes:
 
 ```console
-jj rebase -r '<bottom-change-id>::<head-change-id>' -o 'trunk()'
+jj rebase -s '<bottom-change-id>' -o 'trunk()'
 jj-stack submit <head-change-id>
 ```
 
