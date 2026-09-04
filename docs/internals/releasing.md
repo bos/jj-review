@@ -11,26 +11,70 @@ source for the GitHub Release body and must be part of the tagged commit. The pr
 fails before publishing if the file is absent or empty. On a retry, it also fails if an existing
 GitHub Release does not contain exactly the notes from the tagged commit.
 
+### Choose what belongs
+
+Read the changes since the previous tag and the affected user documentation before drafting. Use
+the commit history to find candidates, not as the outline for the notes. A change belongs only
+when it gives someone a concrete reason to upgrade or requires them to act:
+
+- a new user workflow or capability;
+- a change to installation requirements, a command, configuration, or a documented
+  machine-readable interface;
+- a fix for a symptom users could recognize, especially one that blocked recovery or risked losing
+  work; or
+- a substantial new guide that helps users complete a workflow.
+
+Omit internal refactors, dependency substitutions, test and CI work, routine hardening, and small
+normalization or diagnostic changes unless their user-visible consequence is important. Do not
+give a bullet to a detail merely because it took significant engineering work. Collapse several
+commits that solve the same user problem into one outcome. Prefer a short set of meaningful notes
+over a comprehensive inventory.
+
+### Write from the user's situation
+
 Write for someone deciding whether to upgrade, not for someone reconstructing the commit history:
 
-- Open with a short summary of the release's user-visible value.
+- Open with one or two sentences that name the release's theme and its most important user-visible
+  benefits. Describe problems solved, not mechanisms added.
 - Group changes by user impact. Use headings such as `Breaking changes`, `Highlights`, `Fixes`,
   and `Documentation`, but omit empty sections.
-- Put breaking changes first. State who is affected, what happens after upgrading, and the exact
-  migration or workaround.
-- Make each bullet describe one observable outcome in plain language. Include commands, version
-  requirements, and links to the relevant guide when they help the reader act.
+- Put breaking changes first. State which users are affected, what stops working after upgrading,
+  how they can recognize the situation, and the exact migration or workaround.
+- Lead each bullet with a situation or outcome the reader can recognize. Add the old symptom or
+  risk when it explains why the change matters, and give an exact command when the reader must
+  act.
+- Use the same ordinary `jj`, Git, and GitHub vocabulary as the user guides. Do not make readers
+  understand implementation terms such as classifiers, remote heads, survivors, leases,
+  convergence, or mutations. A public command, option, configuration key, or JSON value may be
+  named exactly when it is relevant to that audience.
+- Make each bullet describe one observable outcome. Combine implementation changes that produce
+  the same outcome, and split unrelated outcomes rather than joining them into a grab bag.
 - Explain important fixes in terms of the symptom that is gone. Do not paste commit subjects,
   internal type names, or an automatically generated pull request list.
 - End with a comparison link from the previous tag to the new tag, labeled `Full changelog`.
+
+For example, do not write “`sync` detects moved survivor branches before rewriting local
+history.” Write “If a remaining PR branch changed on GitHub, `sync` now stops before rebasing
+your local changes and tells you how to recover.” Omit an item such as “configured reviewer
+values are normalized like command-line values” unless that change breaks a real workflow; if it
+does, put it under `Breaking changes` with the affected audience and migration.
+
+### Edit for value and clarity
+
+For every bullet, answer “Who cares?” and “What can they now do, or what must they do?”
+Delete the bullet if the answers are not clear from its text. Check that the opening and first
+few bullets capture the strongest reasons to upgrade; minor fixes must not crowd out the
+release's main value. Read the result as someone familiar with `jj` and Git but unfamiliar with
+the jj-stack source. Add missing context and replace unexplained internal nouns.
 
 Do not word-wrap release-note prose. Keep each paragraph and list item on one physical line, even
 when it exceeds the repository's usual 98-column limit. GitHub preserves those source line breaks
 in Release bodies, which makes hard-wrapped notes render awkwardly.
 
-Keep the notes self-contained even when they link to a pull request or issue. Proofread the
-rendered Markdown and check every command and link before tagging. A release with no breaking
-changes does not need a `Breaking changes` heading.
+Keep the notes self-contained even when they link to a pull request or issue. Fact-check every
+claim against the released behavior, proofread the rendered Markdown, verify every command in a
+safe environment or against `--help`, and check every link before tagging. A release with no
+breaking changes does not need a `Breaking changes` heading.
 
 ## Qualify the candidate
 
