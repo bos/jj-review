@@ -1,0 +1,59 @@
+name: Bug report
+description: Report incorrect or surprising jj-stack behavior.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing, check [Troubleshooting](https://www.serpentine.com/software/jj-stack/troubleshooting/).
+        Many errors end with a `Hint:` that resolves them.
+
+        Do not paste private repository contents, tokens, or internal URLs.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what jj-stack did instead.
+      placeholder: |
+        I ran `jj-stack submit` on a three-change stack and expected ...
+        Instead it ...
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: >-
+        The local stack shape and the commands you ran, in order. `jj log` output for the
+        affected stack is usually the most useful thing you can include.
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `jj-stack doctor`
+      description: Run it in the affected repo. It reports repo setup, GitHub access, and leftovers.
+      render: console
+    validations:
+      required: false
+  - type: input
+    id: jj-stack-version
+    attributes:
+      label: jj-stack version
+      description: Output of `jj-stack --version`.
+    validations:
+      required: true
+  - type: input
+    id: jj-version
+    attributes:
+      label: jj version
+      description: Output of `jj --version`.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system
+      placeholder: macOS 15.5, Ubuntu 24.04, Windows 11
+    validations:
+      required: true

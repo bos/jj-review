@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest a capability or a change to an existing one.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        jj-stack is deliberately opinionated: one `jj` change is one pull request, and it owns the
+        generated PR branches. [Compare tools](https://www.serpentine.com/software/jj-stack/tool-comparison/)
+        explains what that rules out. A request that conflicts with those choices may still be
+        worth making — say why the stance should change.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: The workflow you are trying to complete, and where jj-stack gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like instead
+      description: The behavior you want. Include the command and output you imagine, if you have one.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today
+      description: The workaround you currently use, and why it is not good enough.
+    validations:
+      required: false

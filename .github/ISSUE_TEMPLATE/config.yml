@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://www.serpentine.com/software/jj-stack/
+    about: Guides, command reference, configuration, and automation.
+  - name: Troubleshooting
+    url: https://www.serpentine.com/software/jj-stack/troubleshooting/
+    about: Recovery steps for the common failure symptoms, organized by what you saw.
+  - name: Report a security vulnerability
+    url: https://github.com/bos/jj-stack/security/advisories/new
+    about: Use private vulnerability reporting. Do not open a public issue.

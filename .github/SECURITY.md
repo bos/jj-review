@@ -8,8 +8,8 @@ This project is under active development. Security fixes are supported on `main`
 
 Please do not report security vulnerabilities in public GitHub issues.
 
-Use GitHub's private vulnerability reporting for this repo if it is enabled. If you cannot
-use private reporting, contact the maintainers directly and include:
+Use [private vulnerability reporting](https://github.com/bos/jj-stack/security/advisories/new),
+which is enabled for this repo. Include:
 
 - a description of the issue
 - steps to reproduce or a proof of concept
