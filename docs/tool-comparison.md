@@ -201,13 +201,14 @@ although I haven't tried a head-to-head benchmark.
 
 ## Research notes
 
-This comparison was checked on August 27, 2026, against `jj-gh` [commit
-`3236585f`][jj-gh-revision], `jj-spr` [commit `998ee83d`][jj-spr-revision], and `gh stack`
-[commit `4f9188e`][gh-stack-revision]. These tools are evolving, so recheck their current
-documentation before relying on a detail that affects your workflow.
+The `jj-gh` and `jj-spr` comparisons were checked on August 27, 2026, against [commit
+`3236585f`][jj-gh-revision] and [commit `998ee83d`][jj-spr-revision]. The `gh stack` comparison
+was rechecked on September 3, 2026, against [commit `2bd699a`][gh-stack-revision]. These tools
+are evolving, so recheck their current documentation before relying on a detail that affects
+your workflow.
 
 [gh-stack]: https://github.com/github/gh-stack
-[gh-stack-revision]: https://github.com/github/gh-stack/commit/4f9188e
+[gh-stack-revision]: https://github.com/github/gh-stack/commit/2bd699a
 [jj-gh]: https://github.com/mrjones2014/jj-gh
 [jj-gh-revision]: https://github.com/mrjones2014/jj-gh/commit/3236585f
 [jj-spr]: https://github.com/LucioFranco/jj-spr
