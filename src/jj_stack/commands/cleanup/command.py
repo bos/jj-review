@@ -2,8 +2,8 @@
 
 With no selector, it checks the whole repo. A revset limits cleanup to one local stack;
 `--pull-request` selects one tracked pull request, and `--pull-request orphans` selects every
-tracked pull request whose local change is gone. Add `--close` to retarget selected open pull
-requests to trunk and close them before cleanup.
+tracked pull request whose local change is gone. Add `--close` to a `--pull-request` selection
+to retarget those open pull requests to trunk and close them before cleanup.
 
 Without `--close`, open pull requests are left alone. Already closed or merged pull requests do
 not need the flag and are cleaned up normally.
