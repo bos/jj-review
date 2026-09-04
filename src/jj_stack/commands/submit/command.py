@@ -692,7 +692,7 @@ async def run_submit_async(
         if explicit_base is not None and tracked_base is not None and base_branch is not None:
             child_bottom = short_change_id(stack.changes[0].change_id)
             child_head = short_change_id(stack.head.change_id)
-            child_rebase = f"jj rebase -r '{child_bottom}::{child_head}' -o 'trunk()'"
+            child_rebase = f"jj rebase -s '{child_bottom}' -o 'trunk()'"
             require_published_base(
                 base=explicit_base,
                 lookup=lookups[base_branch],

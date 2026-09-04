@@ -391,7 +391,7 @@ def test_submit_landed_interior_base_requires_the_child_to_move_to_trunk(
 
     assert exit_code == 1
     assert "Sync the parent PR first" in rendered
-    assert f"jj rebase -r '{child_bottom_id}::{child_head_id}' -o 'trunk()'" in rendered
+    assert f"jj rebase -s '{child_bottom_id}' -o 'trunk()'" in rendered
     assert f"jj-stack submit {child_head_id}" in rendered
     assert "without --base" in rendered
     assert parent_survivor.change_id not in rendered
@@ -541,7 +541,7 @@ def test_submit_explicit_base_requires_an_exact_open_parent_pr(
     else:
         child_id = child.change_id[:8]
         assert "Sync the parent PR first" in rendered
-        assert f"jj rebase -r '{child_id}::{child_id}' -o 'trunk()'" in rendered
+        assert f"jj rebase -s '{child_id}' -o 'trunk()'" in rendered
         assert f"jj-stack submit {child_id}" in rendered
         assert "without --base" in rendered
     assert tuple(fake_repo.prs) == (1,)

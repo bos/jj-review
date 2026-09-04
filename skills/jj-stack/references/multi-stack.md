@@ -43,12 +43,15 @@ the shared fork in the parent stack. Do not merge a child stack while its bottom
 parent PR branch. After the parent PR lands:
 
 1. Run `sync <parent-head-change-id>` if the merge was queued or external.
-2. Rebase exactly the child range with
-   `jj rebase -r '<child-bottom-change-id>::<child-head-change-id>' -o 'trunk()'`.
+2. Move the child stack onto trunk with
+   `jj rebase -s '<child-bottom-change-id>' -o 'trunk()'`.
 3. Run ordinary `submit <child-head-change-id>` without `--base`.
 
-Use the bounded rebase so sibling paths remain untouched. Make this transition even when the PR
-for a higher change in the parent stack remains open.
+Rebase from the child's bottom, not over a `<bottom>::<head>` range. `-s` carries the child's
+own descendants, including the working copy, with it; a range rebase strands them on the parent
+stack. Sibling paths that fork below the child bottom are untouched either way.
+
+Make this transition even when the PR for a higher change in the parent stack remains open.
 
 ## Move changes between submitted stacks
 
