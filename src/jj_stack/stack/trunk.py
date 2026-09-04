@@ -16,8 +16,10 @@ def require_usable_trunk(trunks: Sequence[LocalCommit]) -> LocalCommit:
     trunk = trunks[0]
     if not trunk.parents:
         raise UnsupportedStackError(
-            t"No trunk bookmark is configured for this repo.",
-            hint=t"Create a trunk bookmark such as {ui.bookmark('main')}, then retry.",
+            t"{ui.revset('trunk()')} resolves to the root commit, so this repo has no trunk.",
+            hint=t"This usually means the repo has no Git remote, or its trunk branch has not "
+            t"been fetched. Run {ui.cmd('jj-stack doctor')} to check the remote and trunk "
+            t"branch.",
             reason="trunk_resolved_to_root",
         )
     return trunk

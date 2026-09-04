@@ -314,7 +314,7 @@ def test_view_refuses_an_abandoned_change_by_either_selector_form(
     assert "did not resolve to a visible commit" in change_id_captured.err
 
 
-def test_view_reports_missing_trunk_bookmark_in_empty_repo(
+def test_view_reports_unresolvable_trunk_in_empty_repo(
     tmp_path: Path,
     capsys,
 ) -> None:
@@ -330,7 +330,7 @@ def test_view_reports_missing_trunk_bookmark_in_empty_repo(
     combined = " ".join((captured.out + captured.err).split())
 
     assert exit_code == EXIT_NO_STACK
-    assert "create a trunk bookmark" in combined.lower()
+    assert "jj-stack doctor" in combined
 
 
 def test_view_reports_missing_git_remote_for_local_only_repo(
