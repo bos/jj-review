@@ -68,6 +68,13 @@ When choosing reviewers and labels for one of your pull requests or your whole s
 starts with repo defaults from your `jj` config. It then adds any reviewers and labels you
 name on the command line.
 
+For example, to request review from `octocat` whenever you submit from this repo:
+
+```toml
+[jj-stack]
+reviewers = ["octocat"]
+```
+
 An explicit `--label` is applied even when the pull request otherwise needs no update; labels
 from repo defaults alone do not turn an unchanged pull request into an update.
 
