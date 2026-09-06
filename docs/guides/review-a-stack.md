@@ -1,20 +1,20 @@
 ---
-title: Review and operate a stack
+title: Review and merge a stack on GitHub
 linkTitle: Review a stack
 description: Review each layer and configure GitHub checks and merges for native stacks.
 navGroup: Everyday work
 weight: 47
 ---
 
-This page is for reviewers and repo administrators. Authors can keep using ordinary `jj`
-locally; reviewers work with native stacked pull requests on GitHub.
+Each change appears as a pull request in GitHub's stack view. You can comment, approve, or
+request changes without installing jj-stack.
 
 ## Read the stack map
 
 GitHub shows the ordered stack and each pull request's position. Start at the bottom, where the
 stack branches from its base branch, and move upward. Each pull request's **Files changed** view
-is the diff for that layer, not the cumulative diff from the base branch. Review and approve each
-layer independently, while reading a higher layer with its dependencies in mind.
+shows the diff for that layer. Review and approve each layer independently, while reading higher
+layers with their dependencies in mind. See GitHub's [guide to reviewing stacks][github-review].
 
 From a checkout that tracks the stack, you can print the same order before opening GitHub:
 
@@ -22,39 +22,49 @@ From a checkout that tracks the stack, you can print the same order before openi
 jj-stack view --pull-request <pr>
 ```
 
+## Review revisions
+
+After an author resubmits a changed PR, look for its **Revision history** comment. The newest
+version appears first and is marked **current**. Use **Changes from previous version** to see
+what changed in that update. Use **Submitted commit** to inspect the exact commit published for
+that version.
+
+The comment lists recent available versions. If you missed several updates, follow their diff
+links in order; use the PR's **Files changed** tab to review the current layer as a whole.
+
 ## Review and merge in order
 
-Comments, requested changes, approvals, CODEOWNERS, and required checks remain per pull request.
-A lower layer can be approved while work continues above it. When merging only part of a stack,
-merge a contiguous section from the bottom; the remaining pull requests still depend on the
-merged work and the author should run `jj-stack sync` afterward.
+Approvals, requested changes, and checks apply to each PR, so a lower layer can be approved while
+work continues above it. Merge from the bottom upward: select the highest PR you want to merge
+and use its stack merge controls. GitHub merges that PR and every unmerged PR below it. The PRs
+above it remain open. See GitHub's [merging guide][github-merge] for the controls and
+requirements.
 
-When merging from the web UI, use the stack's own merge controls. Merging an individual pull
-request with its ordinary merge button or API does not perform the stack merge. GitHub's
-[stacked pull request guides][github-stacks] describe the current controls and their limitations.
+After GitHub finishes, the author should run `jj-stack sync <head-change-id>` to update local
+history and any remaining PRs.
 
-## Configure rules and CI for the final base
+## Configure rules and CI
 
-GitHub evaluates every layer against the stack's final base branch, even though an individual
-pull request directly targets the layer below it. Required reviews, CODEOWNERS, rulesets, and
-required status checks on that final base therefore apply to every pull request in the stack.
-GitHub Actions workflows triggered for pull requests to the final base also run for every layer.
+Configure merge requirements on the stack's base branch, usually `main`. GitHub enforces those
+requirements, including required reviews, CODEOWNER approvals, and checks, on every PR in the
+stack, even when its immediate base is another PR branch. See GitHub's
+[rules and CI guidance][github-rules].
 
-Keep required checks meaningful for each layer. If running the full suite for every pull request
-is too expensive, use GitHub's stack metadata to choose cheaper layer checks without weakening
-the checks required before merge. GitHub's [stacked pull request guides][github-stacks] link to
-the current rollout and CI articles about events and stack metadata.
+GitHub Actions workflows for pull requests targeting that base also run for every layer. A
+workflow configured for pull requests to `main`, for example, covers the whole stack. If that
+multiplies an expensive CI workload, use stack metadata to choose where each job runs. GitHub's
+[CI guide][github-ci] provides examples. Keep the checks required before merge meaningful for
+each PR.
 
 ## Merge queues
 
-GitHub enqueues a stack's pull requests in dependency order. If a pull request is removed or
-ejected, GitHub also removes every pull request above it. Resolve the failing rule or check, then
-enqueue the stack again. Queue acceptance is not the same as a completed merge. After GitHub
-reports completion, the author runs `jj-stack sync <head-change-id>` to update local history and
-the remaining PRs.
+GitHub adds a stack's pull requests to the queue in dependency order. Removing or ejecting a PR
+also removes every PR above it. Resolve the cause, then add the stack to the queue again. Wait
+until the merge completes before running `jj-stack sync`. See GitHub's
+[merge queue guidance][github-queue].
 
-Repo behavior and preview limitations can change independently of jj-stack. Use GitHub's
-[stacked pull request guides][github-stacks] for the current platform rules instead of copying
-those details into local team instructions.
-
-[github-stacks]: https://docs.github.com/pull-requests/how-tos/stacked-pull-requests
+[github-review]: https://docs.github.com/en/pull-requests/how-tos/review-pull-requests/reviewing-stacked-pull-requests
+[github-merge]: https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/merging-stacked-pull-requests
+[github-rules]: https://docs.github.com/en/pull-requests/get-started/about-stacked-prs#rules-and-ci-enforcement
+[github-ci]: https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/optimizing-ci-for-stacked-pull-requests
+[github-queue]: https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/merging-stacked-pull-requests#merging-using-a-merge-queue

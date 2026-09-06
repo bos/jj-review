@@ -445,7 +445,8 @@ def build_parser() -> ArgumentParser:
         description_text=merge_command.__doc__ or "",
         handler=_forward_handler(merge_command.merge),
         revset_help=(
-            t"Revset selecting the last change to merge, together with the changes below it; "
+            t"Revset selecting the stack to merge; use {ui.option('--pull-request')} to merge "
+            t"only the bottom portion of a larger stack; "
             t"defaults to {ui.revset('@')} when the "
             t"working-copy change is described and nonempty, otherwise {ui.revset('@-')}; "
             t"cannot be combined with {ui.option('--pull-request')}"

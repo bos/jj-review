@@ -1,15 +1,20 @@
-"""Apply completed GitHub merges to a local stack and refresh the pull requests that remain.
+"""Update a local stack after GitHub merges or rebases its pull requests.
 
 `sync` fetches trunk and determines which submitted changes have reached it. It then rebases the
-remaining changes, updates only their existing pull requests, and removes PR branches,
-comments, and saved links for merged pull requests. If GitHub used rebase merging, `sync`
-verifies the new commits, applies them locally, and restores the original `jj` change IDs. When
-`merge` completes a merge immediately, it performs this same update itself. Neither `merge` nor
-`sync` creates a pull request.
+remaining changes, updates their existing pull requests, and removes unused PR branches,
+stack overview comments, and saved links for merged pull requests. When GitHub merges immediately,
+`jj-stack merge` performs this same update itself. After a merge queue finishes or someone merges
+the PRs through another client, run `jj-stack sync`. While a selected PR is still queued, sync
+leaves the stack unchanged.
+
+After GitHub's Rebase stack action, run `jj-stack sync <head-change-id>`. It checks that the PR
+order and contents match, rebases your original changes, and updates the PR branches with commits
+that retain their jj change IDs. It stops if local edits or different contents on GitHub prevent
+a match.
 
 `sync` stops before rebasing in any of these cases:
 
-- A remaining change has multiple visible commits. `sync` cannot choose one.
+- A remaining change has several mutable local versions. `sync` cannot choose one.
 
 - A merged change has been locally rewritten since it was submitted and is not empty. Removing
   it could discard work.
@@ -20,10 +25,10 @@ verifies the new commits, applies them locally, and restores the original `jj` c
 - An unsubmitted change sits between submitted changes. `sync` updates existing pull requests but
   never creates the missing pull request.
 
-Before rebasing, `sync` also checks saved pull request links, PR branches, and GitHub stack
-membership. A missing or closed pull request, a PR branch that moved or disappeared, a changed
-stack relationship, or ambiguous tracking stops the command before it changes local history. The
-error identifies what needs attention.
+Before rebasing, `sync` also checks saved pull request links, PR branches, and GitHub grouping.
+It can handle branches GitHub rewrote while merging or rebasing the stack. Other unexpected branch
+updates, missing or closed PRs, and ambiguous links stop the command before it changes local
+history. The error identifies what needs attention.
 
 Conflicts do not prevent the local rebase. If a rebased change remains conflicted, `sync` leaves
 the conflict in local history and stops before updating that pull request. Resolve the conflict
@@ -36,9 +41,9 @@ Another local stack may share a merged change with the stack being synced. If th
 uses the old local change, `sync` leaves the change in place and prints the other stack to sync
 next. Rerunning `sync` skips completed work and continues.
 
-`sync --all` checks every pull request known to `jj-stack`. It updates each affected local stack
-in turn and also cleans up pull requests whose submitted commits are on trunk even when their
-local changes are gone.
+`jj-stack sync --all` updates every local stack affected by a completed merge and cleans up merged
+PRs whose local changes are gone. A blocked stack does not prevent it from syncing independent
+stacks. Use an explicit stack selection after GitHub's Rebase stack action.
 
 Use plain `jj rebase` when trunk merely advanced and GitHub did not rewrite the commits.
 """

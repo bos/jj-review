@@ -6,77 +6,79 @@ navGroup: Everyday work
 weight: 30
 ---
 
-Use `submit` whenever your local stack is the version you want GitHub to show.
+Run `jj-stack submit` to create pull requests for your stack or update them after local edits.
+Each change gets one pull request, and the PR order follows your local history. Existing pull
+requests keep their discussions as you revise the stack.
 
 ## Submit the current stack
 
-Submit your stack:
+From the head of your stack, run:
 
 ```console
 jj-stack submit
 ```
 
-```mermaid
-flowchart LR
-  A["Read your local changes"]
-  B["Check your existing pull requests"]
-  C["Create or update your pull requests"]
-  D["Show what changed"]
-  A --> B --> C --> D
+To select another stack, pass its head change ID:
+
+```console
+jj-stack submit <head-change-id>
 ```
+
+Use `jj-stack submit --dry-run` to preview the changes. Submitting pushes the PR branches and
+updates GitHub; it does not rewrite your local history.
 
 ## Titles and descriptions
 
-For each of your changes, the subject becomes its pull request title and the rest of the
-description becomes the body. If there is no body, `submit` tries the repo's pull request
-template.
+By default, a change's subject becomes its pull request title and the rest of its description
+becomes the body. If there is no body, jj-stack uses the repo's pull request template, or repeats
+the subject if no template exists. Later submits refresh this text unless you have customized it.
 
-You can review everything in your preferred editor before anything is pushed:
+To edit the planned titles, bodies, and draft states in your editor before anything is pushed:
 
 ```console
 jj-stack submit --edit
 ```
 
-You can supply Markdown as the pull request description for one of your changes:
+To supply a Markdown file as one pull request's body:
 
 ```console
 jj-stack submit --describe <change-id>=pr-body.md
 ```
 
-If your stack has several changes, you can use `--describe stack=overview.md` to create an
-overview comment on your head pull request. See
-[pull request descriptions](../reference/descriptions.md) for helper programs and validation
-rules.
+For a stack with several changes, `--describe stack=overview.md` adds an overview comment to the
+head pull request. See [pull request descriptions](../reference/descriptions.md) for how text
+updates work, how to reuse an editor file after a failed submit, and how to generate descriptions
+with a helper program.
 
-The `--describe` option is particularly useful for coding agents.
+## Drafts and ready PRs
 
-## Drafts and readying PRs for review
-
-When you `submit`, you can create your new pull requests as drafts:
+To create new pull requests as drafts:
 
 ```console
 jj-stack submit --draft
 ```
 
-This does not affect the draft status of your existing pull requests. Use `--draft=all` to return
-them to draft, or `--open` to mark them as ready to review. With `--edit`, each of your changes
-has its own editable draft choice.
+Existing pull requests keep their draft status. Use `jj-stack submit --draft=all` to make every
+PR in the stack a draft, or `jj-stack submit --open` to mark them ready for review. Use `--edit`
+when only some PRs should be drafts.
 
 ## Reviewers and labels
 
-When choosing reviewers and labels for one of your pull requests or your whole stack, `jj-stack`
-starts with repo defaults from your `jj` config. It then adds any reviewers and labels you
-name on the command line.
-
-For example, to request review from `octocat` whenever you submit from this repo:
+Set reviewers and labels in your `jj` config to apply them when pull requests are created or
+updated. For example, to request review from `octocat`, add this to your repo config:
 
 ```toml
 [jj-stack]
 reviewers = ["octocat"]
 ```
 
-An explicit `--label` is applied even when the pull request otherwise needs no update; labels
-from repo defaults alone do not turn an unchanged pull request into an update.
+Command-line choices replace the corresponding configured defaults for that submit. For example,
+`jj-stack submit --reviewers hubot --label needs-review` requests `hubot` and applies
+`needs-review` to the stack's PRs. Existing labels and reviewer requests on GitHub are left in
+place.
+
+Explicit reviewer or label requests apply even to unchanged PRs. Configured defaults alone do
+not cause unchanged PRs to be updated.
 
 After addressing review feedback, you can ask the reviewers who approved or requested changes to
 look again:
@@ -87,27 +89,9 @@ jj-stack submit --re-request
 
 ## PR history
 
-When `submit` updates a pull request you submitted before, `jj-stack` maintains a comment on it
-that lists its recent versions, with a link to the diff for each update. Reviewers can use that
-comment to see how the pull request has changed over time.
+After updates, jj-stack maintains a comment on each PR listing its recent versions with links
+to the diffs. Reviewers can use it to see what changed since their last review.
 
-## What the `submit` command changes
-
-| Surface | Effect |
-|---|---|
-| Local `jj` history | Not rewritten |
-| PR branches | Created or updated |
-| Pull requests | Created or updated |
-| Pull request order | Updated to match the local change order |
-| Pull request comments | Revision history maintained |
-| Other local stacks | Not changed |
-
-With `jj`, you can easily move your changes between existing stacks. However, GitHub allows each
-of your pull requests to belong to only one stack. `jj-stack` therefore has to move your pull
-request out of its old stack before moving it into its new one.
-
-If you get into such a state, `jj-stack submit` stops and tells you which of your stacks to submit
-first.
-
-For the exact contract between local history and edits made in the GitHub UI, see
-[work with a stack on GitHub](working-on-github.md).
+For edits made directly on GitHub, see [work with a stack on GitHub](working-on-github.md).
+If you move changes between stacks, follow
+[multiple stacks](multiple-stacks.md#move-work-between-stacks).

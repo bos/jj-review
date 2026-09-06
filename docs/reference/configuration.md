@@ -5,8 +5,8 @@ navGroup: Look things up
 weight: 90
 ---
 
-For most repos, `jj-stack` needs no configuration. It reads local changes through `jj` and
-pull request status from GitHub.
+Most repos need no jj-stack-specific configuration. The settings below let you choose defaults
+for submitting and merging, or use jj-stack through a `jj stack` alias.
 
 ## Repo defaults
 
@@ -25,14 +25,16 @@ merge_method = "squash"
 - `labels` contains labels added on submit.
 - `merge_method` is `merge`, `rebase`, or `squash`.
 
-Command-line options override these defaults without removing existing reviewers or labels that
-you omit.
+Command-line options override the corresponding defaults for that invocation. Omitting an
+existing reviewer or label does not remove it from a PR.
+
+If GitHub allows only one merge method, jj-stack uses it automatically. If the repo allows
+several, choose one here or pass `--method` to `jj-stack merge`.
 
 ## PR branch names
 
-By default, the Git branches managed by jj-stack start with `jj-stack/`. Do not create your own
-branches with that prefix. `jj-stack doctor --fix` normally keeps those branches out of local
-bookmark output.
+By default, PR branches start with `jj-stack/`. Reserve this prefix for jj-stack. Run
+`jj-stack doctor --fix` if those branches appear in local bookmark output.
 
 Set a different prefix before the first submit:
 
@@ -40,18 +42,20 @@ Set a different prefix before the first submit:
 jj config set --repo jj-stack.branch_prefix my-prs
 ```
 
+This gives PR branches names beginning with `my-prs/`.
+
 ## Git remote
 
 jj-stack uses the `origin` remote when it exists, or the repo's only Git remote otherwise. The
 remote's fetch and push URLs must contain the same `owner/repo` path.
 
-jj-stack intentionally does not check the remote URL's hostname. This allows SSH hostname aliases
-such as `git@github-work:owner/repo.git`. Configure any such alias to connect to `github.com`:
-jj-stack always uses GitHub's public API for the `owner/repo` path from the remote URL.
+SSH hostname aliases such as `git@github-work:owner/repo.git` are supported. The alias must
+connect to `github.com`: jj-stack takes the `owner/repo` path from the remote URL and always
+uses GitHub's public API. GitHub Enterprise Server is not supported.
 
 ## Authentication
 
-Authentication is checked in this order:
+jj-stack uses the first available token from:
 
 1. `GITHUB_TOKEN`
 2. `GH_TOKEN`
@@ -66,10 +70,33 @@ Add a command alias to your `jj` configuration:
 stack = ["util", "exec", "--", "jj-stack"]
 ```
 
-Then install matching shell completion:
+## Shell completion
 
-```console
+To complete commands such as `jj stack s<TAB>`, generate completion with `--jj-alias stack`.
+This connects the alias to jj-stack's commands and options while preserving other `jj`
+completions.
+
+Add the appropriate line to your shell's startup file **after** any existing `jj` completion
+setup. In Zsh, it must also follow completion initialization (`compinit`).
+
+For Bash (`~/.bashrc`):
+
+```bash
+eval "$(jj-stack completion bash --jj-alias stack)"
+```
+
+For Zsh (`~/.zshrc`, after your completion initialization):
+
+```zsh
 eval "$(jj-stack completion zsh --jj-alias stack)"
 ```
 
-`bash` and `fish` work the same way.
+For Fish (`~/.config/fish/config.fish`):
+
+```fish
+jj-stack completion fish --jj-alias stack | source
+```
+
+These lines enable completion for both `jj-stack` and `jj stack`. Omit `--jj-alias stack` if you
+only use the standalone `jj-stack` command. Start a new shell after editing the startup file, or
+run the line in your current shell to enable completion immediately.

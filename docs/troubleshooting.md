@@ -1,195 +1,182 @@
 ---
 title: Troubleshooting
-description: Occasionally you'll run into problems. Here's what to do.
+description: Recover from failed commands, changed PR branches, and conflicting local versions.
 navGroup: Fix a problem
 weight: 120
 ---
 
-Many `jj-stack` errors end with a `Hint:` that gives clear advice on what to do next. Start
-there.
+Start with the `Hint:` at the end of the error. It usually names a command for the problem
+jj-stack found.
 
 The examples below use `<head-change-id>` to identify your stack. If you do not know that ID, run
 `jj-stack list` and copy your stack's head change ID.
 
 ## Setup or GitHub access fails
 
-**How this can happen:** you just cloned your repo, its Git remote changed, or your GitHub
-login expired.
-
-Prepare your repo again and look for any failed checks:
+Run the setup checks after cloning a repo, changing its Git remote, or encountering an
+authentication error:
 
 ```console
 jj-stack doctor --fix
 ```
 
-`doctor` checks your repo, trunk, Git remote, GitHub access, and Stacks API availability.
-It does not change anything on GitHub.
+`jj-stack doctor` checks your repo, trunk, Git remote, GitHub access, and Stacks API availability.
+With `--fix`, it also repairs local fetch configuration and removes leftovers from interrupted
+commands. Follow the guidance for any checks that still fail. It does not change GitHub.
 
 ## A PR branch moved outside jj-stack
 
-**How this can happen:** GitHub merged part of your stack or rebased it, moving the PR branches
-of your open pull requests; someone force-pushed, renamed, or deleted a `jj-stack/` branch; or
-another tool updated it.
+This can happen after GitHub merges or rebases a stack, someone pushes to a PR branch from
+another checkout, or a branch is renamed or deleted.
 
-`jj-stack` leaves the branch untouched and prints a hint that matches what it found.
-`jj-stack view <head-change-id>` shows where each branch moved. If GitHub moved it while
-merging or rebasing your stack, run `jj-stack sync <head-change-id>`. If the error is about the
-branch of a `--base` parent, move that branch back to the commit ID the error names, then rerun
-the command it prints. For a missing branch, either restore it or close the PR on GitHub, run
-`jj-stack cleanup`, and submit again.
+Run `jj-stack view <head-change-id>` to inspect the mismatch. If GitHub moved the branch while
+merging or rebasing your stack, run `jj-stack sync <head-change-id>`.
 
 If the PR branch holds work that is not in your change, such as a reviewer's suggestion or a
 version submitted from another clone, decide what to do with it:
 
-- To keep it, run `jj-stack checkout --pull-request <pull-request>`. This brings that commit
-  into your repo, either beside your own copy of the change or as a new change on top of it.
-  Fold it in or abandon the copy you do not want, then run `jj-stack submit <head-change-id>`.
-- To drop it, run `jj-stack relink --replace-remote <pull-request> <change-id>`. The next
-  `submit` replaces the branch with your local change.
+- To keep the work, run `jj-stack checkout --pull-request <pr>`. It brings the PR's commits into
+  your repo. [Compare and combine the versions](guides/continue-a-stack.md), then run
+  `jj-stack submit <head-change-id>`.
+- To replace it with your local version, run
+  `jj-stack relink --replace-remote <pr> <change-id>`, then `jj-stack submit <head-change-id>`.
+  The submit overwrites the PR branch with your local change.
 
-Plain `jj-stack relink <pull-request> <change-id>` only reconnects a pull request whose branch is
-still at your change. Otherwise it refuses and shows what is on the branch.
+Without `--replace-remote`, `jj-stack relink <pr> <change-id>` accepts only a branch at your
+change's current commit or the commit jj-stack last recorded as submitted. It refuses other
+versions so that a later submit cannot silently overwrite them.
 
-Do not force a submit past the mismatch. The stop is what prevents one tool from silently
-overwriting another tool's work.
+If the error names a `--base` parent's branch, restore that branch to the commit ID in the error
+before retrying the child submission. Submitting a child stack does not update its parent.
+
+For a missing branch, either restore it or [close and clean up the old PR](
+guides/close-or-separate.md#close-the-prs-in-your-stack-without-merging-them), then submit again
+to create a new PR.
 
 ## A pull request was added to or reordered in the GitHub stack
 
-**How this can happen:** someone changed native stack membership or pull request bases through
-GitHub or another client.
+The local `jj` history determines PR order. Compare it with the stack on GitHub. If you want the
+GitHub order, reproduce it locally with `jj`, then submit. If you want the local order, run
+`jj-stack submit <head-change-id>` to update the PR bases and GitHub grouping.
 
-Run `jj-stack view <head-change-id>` and compare the GitHub order with your local stack. If the
-GitHub edit is the intended order, reproduce it with `jj` and submit the resulting local stack.
-If the local order is intended, submit it: `submit` fixes the pull request bases and the GitHub
-stack to match. If the error says it cannot tell which GitHub stack the pull requests belong to,
-remove the GitHub stack it names with `jj-stack unstack --stack <number>`, then submit again.
+If the error says the PRs do not identify one GitHub stack, remove the grouping named in the
+error with `jj-stack unstack --stack <number>`, then submit again. This keeps the PRs open.
 
 ## A stack was removed from the merge queue
 
-GitHub enqueues stack members in dependency order. If one pull request is removed or ejected,
-GitHub also removes every pull request above it. Fix the failing check, approval, conflict, or
-repo rule, then rerun the same `jj-stack merge` command. If GitHub merged any lower pull
-requests before the ejection, run `jj-stack sync <head-change-id>` first.
+If a pull request is removed or ejected from the merge queue, [GitHub also removes the PRs above
+it][stack-merges]. Check the reason on GitHub and fix the failing check, missing approval,
+conflict, or repo rule. If GitHub merged any lower PRs, run `jj-stack sync <head-change-id>`.
+Then rerun the same `jj-stack merge` command.
+
+[stack-merges]: https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/merging-stacked-pull-requests
 
 ## You merged pull requests on GitHub
 
-**How this can happen:** you clicked Merge on GitHub, someone else merged your pull requests, or
-a merge queue finished while you were away.
-
-Run `sync` to apply the merge locally, update your remaining pull requests, and remove PR
-branches that are no longer needed:
+After a merge through GitHub or another client, or after a merge queue finishes, run
+`jj-stack sync` to update your local stack, refresh the remaining PRs, and remove unused PR
+branches:
 
 ```console
 jj-stack sync <head-change-id>
 ```
 
-When GitHub merges only part of your stack, it also moves the PR branches of your remaining pull
-requests onto the merged result. `sync` handles that too, even if you have already edited those
-changes locally.
+If GitHub also rewrote the remaining PR branches, `jj-stack sync` handles those rewrites and
+keeps any local edits to the remaining changes.
 
-If completed merges affected several stacks, or you do not want to identify each stack head, run:
+To sync every stack affected by a completed merge, run:
 
 ```console
 jj-stack sync --all
 ```
 
-One blocked stack does not prevent jj-stack from syncing independent stacks.
-
-If your pull requests are waiting in a merge queue, wait until GitHub reports them as merged
-before running `sync`. (It's safe to run `sync` early; it just won't do anything.)
+A blocked stack does not prevent jj-stack from syncing independent stacks. If a selected PR is
+still in a merge queue, sync leaves that stack unchanged; wait for GitHub to finish.
 
 ## You rebased your stack on GitHub
 
-**How this can happen:** you used GitHub's **Rebase stack** action after trunk advanced.
-
-Run `sync` after GitHub reports that the rebase completed:
+After GitHub's **Rebase stack** action completes, run:
 
 ```console
 jj-stack sync <head-change-id>
 ```
 
-GitHub's rewritten commits do not carry jj change IDs. This is expected; do not relink
-the pull requests by hand. `sync` verifies the rewritten contents, rebases the original local
-changes, and updates the PR branches with equivalent commits that retain their change IDs. If
-you changed the stack locally after submitting it, `sync` stops rather than choosing between your
-local work and GitHub's result.
+`jj-stack sync` rebases your original local changes and updates the PR branches with equivalent
+commits that retain their jj change IDs. There is no need to relink the PRs. It stops if local
+edits or different contents on GitHub prevent it from matching the two versions.
+
+Select this stack explicitly: `jj-stack sync --all` handles completed merges, not GitHub stack
+rebases.
 
 ## `merge` did not merge your whole stack
 
-**How this can happen:** `merge` works upward from the bottom of your stack. It stops when it
-reaches a pull request that is a draft, no longer matches your local change, or cannot be merged
-by GitHub.
+`jj-stack merge` selects consecutive submitted, open, non-draft PRs from the bottom of the
+stack. A draft, closed PR, or change that no longer matches its submitted commit stops that
+selection. GitHub then applies its merge requirements to the selected PRs.
 
-The output identifies which of your pull requests it left open and explains why:
+Use the reason in the output to choose the next step:
 
 - If your local changes no longer match what you submitted, run
-  `jj-stack submit <head-change-id>`, then retry `merge`.
+  `jj-stack submit <head-change-id>`, then retry `jj-stack merge`.
 - If GitHub reports a pending check, missing approval, draft pull request, repo rule, or
-  permissions problem, fix that on GitHub, then retry the same `merge` command.
+  permissions problem, fix that on GitHub, then retry the same `jj-stack merge` command.
 - If GitHub reports a conflict, rebase and resolve it with `jj`, submit the updated stack, then
-  retry `merge`.
+  retry `jj-stack merge`.
 - If that pull request was already merged separately, run `jj-stack sync <head-change-id>`.
 
-If all that happened was that trunk advanced, you may not need to rebase. GitHub can merge your
-stack while its base is behind trunk when it has no conflicts.
+Rebase when you need to resolve a conflict or GitHub requires the stack to be up to date.
 
 ## GitHub merged your stack, but `merge` ended with an error
 
-**How this can happen:** GitHub completed the merge, then your network connection failed or
-`jj-stack` could not finish updating your local repo.
-
-Your pull requests are already merged, but your local update and GitHub cleanup may still need to
-finish:
+The merge completed, but jj-stack could not finish updating your local stack or cleaning up
+GitHub. This can happen after a network failure or an interrupted local update. Follow the sync
+command in the error, normally:
 
 ```console
 jj-stack sync <head-change-id>
 ```
 
+Do not retry the merge; the PRs are already merged.
+
 ## A command was interrupted
 
-**How this can happen:** you pressed Ctrl-C, closed the terminal, lost connectivity, or the
-computer stopped while a command was running.
-
-Check the current state before doing anything else:
+After Ctrl-C, lost connectivity, or a terminal closing mid-command, inspect the current state:
 
 ```console
 jj-stack view <head-change-id>
 ```
 
-If GitHub completed a merge, finish off that work with `sync`. Otherwise, rerun the interrupted
-command with the same head change ID.
+If GitHub completed a merge, run `jj-stack sync <head-change-id>`. Otherwise, rerun the
+interrupted command with the same selection. jj-stack checks what already succeeded and
+continues from the current state.
 
 ## Your old PR branches remain
 
-**How this can happen:** your pull requests were merged or closed outside `jj-stack`, or cleanup
-was interrupted.
-
-If your pull requests were merged, run `sync` first. If they are closed and no longer needed, run
-cleanup:
+For merged PRs, run `jj-stack sync <head-change-id>` first. For closed PRs, or to retry unfinished
+cleanup, run:
 
 ```console
 jj-stack cleanup <head-change-id>
 ```
 
-Cleanup leaves a PR branch in place while an open pull request still needs it.
+Cleanup keeps a branch while another open or reopenable closed PR uses it as a base, or an
+unmerged PR in a GitHub stack needs it. See [what to do when cleanup keeps a branch](
+guides/close-or-separate.md#if-cleanup-keeps-a-branch).
 
 ## “The selector resolved to more than one commit”
 
-**How this can happen:** you passed a broad revset that identifies more than one of your changes
-as a possible stack head.
+Your revset matched several commits, but the command needs one stack head.
 
 Run `jj-stack list` to identify your intended stack, then rerun your failing command with that
 stack's head change ID.
 
 ## “Divergent changes are not supported”
 
-**How this can happen:** separate `jj` workspaces modified one of your changes independently, or
-`jj-stack checkout --pull-request` brought in a pull request's copy of a change you had also
-edited here, leaving multiple local versions of its change ID. `jj-stack` cannot determine which
-version belongs in your stack.
+Two or more local commits share a change ID. This can happen when separate workspaces modify a
+change independently, or when `jj-stack checkout --pull-request` brings in a PR's version of a
+change you also edited locally. jj-stack cannot choose which version belongs in your stack.
 
-In this case, two or more of your local commits have the same `jj` change ID. Show both, then
-compare their diffs:
+Show the versions and compare their diffs:
 
 ```console
 jj log -r 'change_id(<change-id>)'
@@ -197,15 +184,11 @@ jj diff -r <first-commit-id>
 jj diff -r <second-commit-id>
 ```
 
-Choose the version you want to keep, then abandon the other one by its commit ID:
+Keep or combine the edits you need, then abandon the unwanted version by its **commit ID**.
+The versions share a change ID, so a bare change ID is ambiguous:
 
 ```console
 jj abandon <unwanted-commit-id>
 ```
-
-> [!WARNING]
-> Use the *commit IDs* to abandon an unwanted version of your change. Because divergent versions
-> share a change ID, specifying the change ID would abandon *all* versions of that change. If you
-> make this mistake, use `jj undo` to recover.
 
 Once you're down to a single commit for that change ID, rerun your `jj-stack` command.

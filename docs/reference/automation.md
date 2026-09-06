@@ -9,24 +9,23 @@ weight: 110
 
 ## Install the coding-agent skill
 
-The bundled skill teaches coding agents how to use `jj-stack` without bypassing it with GitHub
-or Git branch commands:
+The bundled skill gives coding agents instructions for using jj-stack to manage pull requests
+and PR branches. Install it with the
+[GitHub CLI](https://cli.github.com/manual/gh_skill_install):
 
 ```bash
 gh skill install bos/jj-stack jj-stack
 ```
 
-Installing the skill makes it available to the agent, but an agent might not know when to use
-the skill. To have an agent use it automatically in repos that already use jj-stack, add
-something like this to your personal agent instructions or the repo's agent instructions:
+To tell the agent when to load the skill, add this to your personal or repo agent instructions:
 
 ```markdown
 ## jj-stack
 
 Before any GitHub pull request or branch task in a jj repo, run `jj-stack in-use`. If it
 exits 0, load and follow the jj-stack skill. If it exits 1, continue without that skill. For any
-other exit, stop and report the error. Cache the result for the repo. Check when the task
-arises, not at session startup.
+other exit, stop and report the error. Cache the result for the repo during this session. Check
+when the task arises, not at session startup.
 ```
 
 `in-use` is a silent, read-only check for `jj-stack`'s local tracking data. Exit 0 means the
@@ -34,36 +33,35 @@ repo uses `jj-stack`, exit 1 means it does not, and exit 11 means the check itse
 
 ## Inspect stacks from a script
 
-Use `view` when the script is concerned with one stack and `list` when it needs an inventory of
-every tracked stack:
+Use `jj-stack view --json` to inspect a selected stack and `jj-stack list --json` to find all
+tracked stacks:
 
 ```console
 jj-stack view --json <head-change-id>
 jj-stack list --json
 ```
 
-Both commands write JSON to standard output and diagnostics to standard error. Their output
-follows `jj-stack`'s [published JSON
-Schema](https://github.com/bos/jj-stack/blob/main/docs/json-output.schema.json).
+Both commands write JSON to standard output and diagnostics to standard error. See
+[JSON output](json-output.md) for the format and published schema.
 
-In `view` output, the `stacks` array contains the stacks you asked it to inspect. In `list`
-output, the `rows` array contains both stacks and orphaned PRs. A stack row contains a `changes`
-array ordered from the bottom of the stack to its head.
+`view` returns a `stacks` array. `list` returns a `rows` array containing both stacks and orphaned
+PRs: saved pull request links whose local changes have left every current stack. Neither command
+discovers stacks that exist only on GitHub.
 
-Each change has a stable `status` value such as `unsubmitted`, `open`, `draft`, `approved`,
-`changes_requested`, `merged`, or `closed`. Inspect those values rather than the stack row's
-human-readable `status` summary.
+For decisions in a script, inspect each change's documented `status` value, such as `open` or
+`merged`. A stack row's `status` is a human-readable summary whose wording may change.
 
 ### Keep partial reports
 
-`view` and `list` exit 10 when they can report *some* state but could not inspect everything. With
-`--json`, standard output still contains a valid payload. A script should keep and inspect it
-while also recording that the report was incomplete.
+`view` and `list` exit 10 when they can report some state but cannot produce a complete report.
+With `--json`, standard output still contains valid JSON. Keep the report and record that it was
+incomplete.
 
 For example:
 
 ```sh
-report=$(mktemp)
+report=$(mktemp) || exit 1
+trap 'rm -f "$report"' 0
 if jj-stack list --json >"$report"; then
   result=complete
 else
@@ -75,7 +73,7 @@ else
   fi
 fi
 
-# Parse "$report" here. "$result" says whether every lookup succeeded.
+# Parse "$report" here. "$result" is complete or incomplete.
 ```
 
 Exit 0 means inspection completed, not that every stack is ready to merge. The JSON may still
@@ -83,12 +81,15 @@ contain closed pull requests, orphaned PRs, or other work that needs attention.
 
 ## Select the same stack reliably
 
-In scripts and coding agents, always discover and use a stack's head change ID explicitly. Do
-not depend on whichever change happens to be the working copy when the script runs, because this
-can change.
+Pass the head change ID explicitly so a command selects the intended stack even if the working
+copy moves between commands.
 
-The head is the last entry in a stack's `changes` array. Change IDs remain stable when commits are
-rewritten, which makes them suitable for passing from inspection to a later command:
+The two JSON commands order their `changes` arrays differently:
+
+- In `view`, the head is the **first** entry; changes run from head to bottom.
+- In a `list` stack row, the head is the **last** entry; changes run from bottom to head.
+
+Change IDs survive edits and rebases, so use them when passing a selection to a later command:
 
 ```console
 jj-stack view --json zvlyxwvk
@@ -97,22 +98,17 @@ jj-stack submit zvlyxwvk
 
 ## Handle commands that make changes
 
-`submit`, `merge`, `sync`, `unstack`, and `cleanup` can finish some work before encountering a
-problem. A nonzero exit therefore does not mean that nothing happened. Preserve the command's
-output and inspect the repo again before retrying.
+Commands that make changes can complete some work before failing. Preserve their output and
+inspect the repo again before retrying; a nonzero exit does not mean nothing happened.
 
-Two cases deserve particular care:
+Follow the recovery command printed by jj-stack. In particular:
 
-- `merge` may merge pull requests on GitHub and then fail while performing a `sync` (e.g. due to
-  a network failure). In this case, rerunning `merge` will not restart a `sync`; it will notice
-  that the merge has already completed and stop. Instead, run `sync` to complete the remaining
-  cleanup work.
-- `sync` rebases the changes with remaining pull requests onto trunk before updating those PRs.
-  A `jj` rebase can complete with conflicted changes; if that happens, `sync` keeps the local
-  rebase but cannot update the PRs from those changes. It therefore stops before updating the
-  remaining pull requests or cleaning up the merged PRs. Resolve the conflicts with `jj`, then
-  run the `submit` command printed by `sync`. A later `cleanup` can remove any leftover PR
-  branches and tracking data.
+- If GitHub finishes a merge but the local update fails, run `jj-stack sync <head-change-id>`.
+  Rerunning `jj-stack merge` does not resume that update.
+- If `jj-stack sync` rebases changes into conflicts, it keeps the local rebase and stops before
+  updating the remaining PRs or cleaning up merged PRs. Resolve the conflicts with `jj`, then run
+  the `jj-stack submit` command it printed. Use `jj-stack cleanup` afterward if unused PR branches
+  and saved links remain.
 
 ## Exit codes
 

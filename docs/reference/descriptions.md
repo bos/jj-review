@@ -6,22 +6,25 @@ navGroup: Look things up
 weight: 100
 ---
 
-By default, `submit` will generate a pull request description from the `jj` change. On a
-subsequent submit, if the PR description still matches the last automated PR description,
-`submit` will refresh it from the current change description. Otherwise, `submit` will leave it
-untouched.
+`jj-stack submit` takes each new PR's title and body from its `jj` change description. Later
+submits refresh that text as you edit the change, provided the PR's title and body still match
+the defaults for the last submitted version.
 
 For example, suppose a submit creates the title `Add caching`. You rename it on GitHub to
-`Cache API requests`, then change the local description. The next submit keeps the GitHub text.
+`Cache API requests`, then change the local description. The next submit keeps both the GitHub
+title and body. Editing either field on GitHub preserves the pair.
 
-To replace text that jj-stack would otherwise leave alone, use `--describe` for a body, or use
-`--describe-with` or `--edit` for titles and bodies.
+Use `--describe` to replace a body explicitly, `--edit` to edit titles and bodies yourself, or
+`--describe-with` to generate them with a helper.
 
 ## Default text
 
-For each change, the subject becomes the pull request title and the remainder becomes its body. If
-the description has no body, jj-stack tries the repo's pull request template and then falls
-back to the subject.
+The first line of the change description becomes the PR title; the rest becomes its body. If
+there is no body, jj-stack uses the repo's pull request template, or repeats the title if no
+template exists.
+
+jj-stack looks for `PULL_REQUEST_TEMPLATE.md` or `pull_request_template.md` in `.github/`, the
+repo root, and `docs/`, in that order. It uses the first file it finds.
 
 When the body comes from the change description, jj-stack removes line wrapping inside Markdown
 paragraphs while preserving lists, quotes, tables, code blocks, and explicit line breaks.
@@ -34,14 +37,14 @@ Set one pull request body explicitly. The title still follows the normal update 
 jj-stack submit --describe <change-id>=body.md
 ```
 
-Add a stack overview to the head pull request:
+For a stack with more than one change, add an overview comment to the head pull request:
 
 ```console
 jj-stack submit --describe stack=overview.md
 ```
 
-Later submits preserve that overview, including edits made on GitHub, until you supply another
-stack description. If the stack grows, jj-stack moves the overview to the new head pull request.
+Later submits preserve the overview, including edits made on GitHub, until you supply another
+stack description. If the stack grows, jj-stack moves the overview to the new head PR.
 
 Relative paths resolve from the directory in which you invoke jj-stack.
 
@@ -51,8 +54,9 @@ Relative paths resolve from the directory in which you invoke jj-stack.
 jj-stack submit --edit
 ```
 
-The editor opens once with every planned title, body, and draft choice. If the edited document is
-invalid or the editor exits with an error, nothing is changed locally or on GitHub.
+The editor opens once with every PR's title, body, and draft choice. Follow the instructions in
+the file, then save and close it. If the document is invalid or the editor exits with an error,
+submit stops before changing PR branches or pull requests.
 
 jj-stack keeps the editor file until the whole submit succeeds and prints its path before
 continuing. If submit fails, pass that file to `--resume-edit` when you retry:
@@ -61,9 +65,9 @@ continuing. If submit fails, pass that file to `--resume-edit` when you retry:
 jj-stack submit --resume-edit /path/to/jj-stack-edit-….md
 ```
 
-The retry inspects the local stack and GitHub again. The saved file supplies only the titles,
-bodies, and draft choices, and must still name exactly the selected changes. A file passed to
-`--resume-edit` is not removed automatically.
+The retry inspects the local stack and GitHub again and reopens the file in your editor. The file
+must still contain exactly the selected changes. jj-stack does not remove a file supplied with
+`--resume-edit`; remove it yourself once submit succeeds.
 
 The editor comes from jj's `ui.editor`, then `$VISUAL`, then `$EDITOR`.
 
@@ -73,12 +77,18 @@ The editor comes from jj's `ui.editor`, then `$VISUAL`, then `$EDITOR`.
 jj-stack submit --describe-with <helper>
 ```
 
-The executable receives `--pr <change-id>` once per change and `--stack <revset>` once for a
-multi-change overview. It prints one JSON object:
+jj-stack runs the executable from the repo root with `--pr <change-id>` once per change. For a
+stack with more than one change, it also calls the helper with `--stack <revset>` to generate an
+overview comment. Each invocation must print one JSON object with string `title` and `body`
+fields:
 
 ```json
 {"title": "add the API", "body": "Why this change exists.\n"}
 ```
 
-Invalid or empty helper output stops the submit. A helper controls the text only; the order of
-pull requests still comes from the order of the `jj` changes.
+For the `--stack` call, the `JJ_STACK_INPUT_FILE` environment variable points to a temporary JSON
+file. Its `changes` array contains each change's `change_id`, generated `title` and `body`, and
+`diffstat`, ordered from the bottom of the stack to its head. The helper can use this to summarize
+the stack without generating the individual descriptions again.
+
+The helper must exit successfully and write valid JSON. Send any diagnostics to standard error.

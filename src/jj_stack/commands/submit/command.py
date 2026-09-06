@@ -11,9 +11,8 @@ description. When a description has no body, `jj-stack` uses the repo's pull req
 (`.github/PULL_REQUEST_TEMPLATE.md`, `PULL_REQUEST_TEMPLATE.md`, or
 `docs/PULL_REQUEST_TEMPLATE.md`), or repeats the subject line if no template exists.
 
-On a subsequent submit, if the PR description still matches the last automated PR description,
-`jj-stack` will refresh it from the current change description. Otherwise, `jj-stack` will leave
-it untouched.
+Later submits refresh the title and body from the change description, provided both still match
+the defaults for the last submitted version. Editing either field on GitHub preserves both.
 
 Use `--describe` to replace one body deliberately, or use `--describe-with` or `--edit` for titles
 and bodies.

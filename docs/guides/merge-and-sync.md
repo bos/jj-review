@@ -6,9 +6,10 @@ navGroup: Everyday work
 weight: 50
 ---
 
-`merge` asks GitHub to merge your ready pull requests, starting at the bottom of your stack. After
-GitHub finishes, `sync` brings your local stack, remaining pull requests, and PR branches up to
-date.
+Use `jj-stack merge` to merge submitted pull requests, starting at the bottom of your stack.
+After a merge, `jj-stack sync` updates your local stack and the pull requests that remain open.
+For a direct merge, which GitHub performs immediately rather than through a merge queue,
+`jj-stack merge` runs that sync for you.
 
 ## Before merging
 
@@ -20,37 +21,36 @@ jj-stack submit <head-change-id>
 jj-stack merge <head-change-id>
 ```
 
-`merge` checks that each of your local changes still matches the commit you last submitted and
-that none of your PR branches or pull requests has moved unexpectedly.
+`jj-stack merge` checks that the changes to merge still match the commits you last submitted and
+that their PR branches and pull requests have not moved unexpectedly. GitHub decides whether
+checks, approvals, conflicts, and repo rules allow the merge.
 
 ## Choose how much of your stack to merge
 
-By default, `merge` starts with the pull request at the bottom of your stack—the one based on
-trunk—and works upward. It merges your ready pull requests in order until your whole stack is
-merged or it reaches a pull request that it cannot merge.
+By default, `jj-stack merge` selects consecutive submitted, open, non-draft pull requests from
+the bottom of your stack. A draft, closed PR, or change that no longer matches its submitted
+commit stops the selection; pull requests above it are left for later.
 
-To merge only the bottom portion of your stack, name the last change to merge, either as a
-revset or by its pull request:
+To merge only the bottom portion of your stack, use `--pull-request` to name the last PR to merge.
+For example, suppose PR 42 depends on PR 41, and PR 43 depends on PR 42:
 
 ```console
 jj-stack merge --pull-request 42
 ```
 
-PRs 41 and 42 merge; PR 43 stays open and is updated to start from the new main branch:
+This asks GitHub to merge PRs 41 and 42. PR 43 stays open. After a direct merge, the automatic
+sync rebases its local change and updates its PR branch and base to follow the new trunk.
 
-```mermaid
-flowchart LR
-  Before["Before<br/>main ← PR 41 ← PR 42<br/>← PR 43"]
-  Merge["Merge PRs 41 and 42"]
-  After["After<br/>main includes A and B<br/>PR 43 stays open"]
-  Before --> Merge --> After
-```
+If GitHub allows several merge methods and you have not configured a preference, specify one
+with `--method`, for example `jj-stack merge --method squash <head-change-id>`. A merge queue
+uses the method configured on GitHub.
 
 ## Finish after GitHub merges
 
-After GitHub merges some or all of your pull requests, `sync` fetches trunk, removes the merged
-changes from your local history if needed, rebases your remaining changes, updates your remaining
-pull requests, and removes your PR branches when they are no longer needed.
+Run `jj-stack sync` after a merge queue finishes or after someone merges your pull requests
+through GitHub, `gh`, or another client. It fetches trunk, removes obsolete local copies of the
+merged changes, rebases the remaining changes, updates their existing pull requests, and removes
+PR branches that are no longer needed.
 
 Select the stack by its head change ID or by any linked pull request:
 
@@ -59,91 +59,69 @@ jj-stack sync <head-change-id>
 jj-stack sync --pull-request <pr>
 ```
 
-Unlike `merge --pull-request`, which stops at the selected PR, `sync --pull-request` selects the
-complete local stack containing that PR. The selected PR can already be merged.
+`jj-stack sync --pull-request` updates the complete local stack containing that PR, including
+changes above it. The selected PR can already be merged if jj-stack still has its saved link.
 
-If none of the pull requests in your stack has merged and GitHub has not rebased the stack,
-`sync` reports that there are no merged changes and leaves the pull requests unchanged. Run
-`submit` explicitly when you want to publish local changes.
+If none of the pull requests has merged and GitHub has not rebased the stack, `jj-stack sync`
+reports that there are no merged changes. Use `jj-stack submit` to publish local edits.
 
-What does “removes the merged changes from your local history” mean? If GitHub uses a merge
-commit or rebase merge for your pull requests, it preserves their `jj` change IDs, and
-`jj git fetch` gets your local history right. A squash merge drops those change IDs. After you
-fetch, your local history therefore contains both the old changes and the squashed version on
-trunk. `sync` discards the old changes for you.
-
-### Direct merges
-
-A direct merge is one that GitHub performs immediately, rather than through a merge queue. For a
-direct merge, `merge` waits for GitHub to finish and runs `sync` before it returns. You do not
-need to run another cleanup command.
+For example, after a squash merge, trunk contains a new commit while your original changes may
+still appear in local history. `jj-stack sync` removes those obsolete copies. If you edited a
+merged change after submitting it, the command stops so that it does not discard your edits.
 
 ### Merge queues
 
-When `merge` uses a merge queue, it returns successfully once GitHub accepts the pull requests
-you asked it to merge. This does not mean trunk has changed. Wait until GitHub reports that your
-stack has merged. Then run `sync` for that stack.
+When `jj-stack merge` uses a merge queue, success means GitHub accepted the pull requests into the
+queue. Wait until GitHub reports that they have merged, then run `jj-stack sync` for that stack.
 
-While those pull requests are waiting in the queue, `submit` and `sync` leave your stack
-unchanged.
-
-### Merges outside jj-stack
-
-If you or someone else merged your stack through the GitHub UI, `gh`, or another client, run the
-same `sync` command after GitHub reports that the merge finished.
+While any selected pull request is queued, `jj-stack submit` refuses to update the stack and
+`jj-stack sync` leaves it unchanged.
 
 ### Rebasing from GitHub
 
-GitHub's **Rebase stack** action rewrites every PR branch onto the latest trunk. After it
-finishes, run `sync` for that stack.
+After GitHub's **Rebase stack** action finishes, run `jj-stack sync <head-change-id>` to bring
+that rebase into your local stack.
 
-GitHub does not retain jj change IDs in those rewritten commits. `sync` verifies that the PRs,
-branch order, and contents still match your submitted stack, rebases the original local changes,
-and updates the PR branches with commits that retain their change IDs. It stops if local
-edits or GitHub content differ.
+GitHub's rewritten commits do not retain jj change IDs. `jj-stack sync` checks that the PR order
+and contents match, rebases your original changes, and updates the PR branches with commits that
+retain their change IDs. It stops if local edits or different contents on GitHub prevent a match.
 
 ### Several merged stacks
 
-If completed merges affected several local stacks, you can check every pull request that jj-stack
-knows about without naming the stack heads individually:
+To sync every local stack affected by a completed merge, run:
 
 ```console
 jj-stack sync --all
 ```
 
-This finds each local stack affected by a completed merge and applies the normal `sync` workflow
-to it. It also removes branches, comments, and saved pull-request links for merged PRs whose
-local changes are gone. If one stack cannot be updated, jj-stack explains why and continues with
-independent stacks.
+This also cleans up merged PRs whose local changes are gone. If one stack cannot be updated,
+jj-stack explains why and continues with independent stacks.
 
-Neither form of `sync` rebases a stack merely because trunk advanced. `sync --all` applies
-completed merges only; after GitHub's **Rebase stack** action, run `sync <head-change-id>` for
-that stack.
+`jj-stack sync --all` handles completed merges only. After GitHub's **Rebase stack** action,
+select that stack explicitly with `jj-stack sync <head-change-id>`.
 
 ## If `merge` fails after GitHub merges your pull requests
 
-This should be rare, but might happen if your network connection is interrupted or your power
-fails.
-
-There is no need to run `merge` again. Your pull requests are already merged. Finish your local
-update and GitHub cleanup with the command printed by the diagnostic, normally:
+A network failure or interrupted local update can leave the merge complete on GitHub but the
+sync unfinished. Follow the recovery command in the error, normally:
 
 ```console
 jj-stack view <head-change-id>
 jj-stack sync <head-change-id>
 ```
 
-`sync` checks the current local and GitHub state each time, so there is no separate resume
-command.
+Your pull requests are already merged, so do not retry `jj-stack merge`. `jj-stack sync` checks
+the current local and GitHub state and finishes the remaining work.
 
 ## When trunk moves without one of your pull requests merging
 
-`sync` is for cleaning up after completed GitHub merges. If trunk merely advanced, rebase your
-changes with `jj` if needed, then submit the rewritten changes:
+`jj-stack sync` does not rebase a stack merely because trunk advanced. Fetch and rebase with `jj`
+when you need the latest trunk, then submit the rewritten changes:
 
 ```console
+jj git fetch
 jj rebase -s '<bottom-change-id>' -o 'trunk()'
 jj-stack submit <head-change-id>
 ```
 
-You can often merge your pull requests when their branches are behind trunk.
+Rebase when your work needs the latest trunk or GitHub requires it before merging.

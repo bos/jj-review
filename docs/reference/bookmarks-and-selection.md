@@ -6,9 +6,8 @@ navGroup: Look things up
 weight: 82
 ---
 
-In `jj`, a bookmark is a movable name for a revision that can also become a Git branch when you
-push it. `jj-stack` does not need a bookmark for every change, or even one bookmark for an entire
-stack. It finds stacks from the parent relationships already recorded by `jj`.
+jj-stack finds stacks by following the parent relationships in `jj`. You do not need to create
+bookmarks for individual changes or for the stack as a whole.
 
 ## How jj-stack finds a stack
 
@@ -32,8 +31,8 @@ If `C` is selected as the head, `jj-stack` walks back through its parents until 
 `trunk()`. The stack contains `A`, `B`, and `C`; the change at `trunk()` is the base and is not
 part of the stack.
 
-The main stack commands (`view`, `submit`, `merge`, and `sync`) select your current stack by
-default. To select a different stack, pass its head change ID:
+By default, `view`, `submit`, `merge`, and `sync` select `@` as the head, or `@-` if `@` is empty
+or has no description. To select a different stack, pass its head change ID:
 
 ```console
 jj-stack view <head-change-id>
@@ -64,26 +63,22 @@ block-beta
   style FEATURE fill:none,stroke:none,font-family:monospace
 ```
 
-Selecting `C` still gives `jj-stack` the complete `A`, `B`, `C` stack. The bookmark does not
-divide the stack, name it, or change which pull request belongs to any change. Ordinary
-bookmarks continue to serve whatever purpose they have in your usual `jj` workflow.
+Selecting `C` still selects `A`, `B`, and `C`. The bookmark neither divides the stack nor changes
+which pull request belongs to each change.
 
-A bookmark *does* matter when you pass it to a command:
+Passing the bookmark as an argument selects `B` as the head:
 
 ```console
 jj-stack view feature-b
 jj-stack submit feature-b
 ```
 
-A bookmark name is a valid `jj` revision expression. In these commands it selects the exact
-change at `B` as the head, so the selected stack contains `A` and `B`, but not `C`. The bookmark
-is therefore ignored as stack structure, but it is not ignored when you use it as a command
-argument.
+These commands select `A` and `B`. `C` is above the selected head and is left out.
 
 ## `view` can find the stack containing a change
 
-`view` gives a bare change ID one useful extra behavior. If you pass the change ID of `B`, it
-looks for the complete stack containing that change. In the example above:
+`jj-stack view` treats a bare change ID differently from a bookmark or other revset. A change ID
+asks for the complete stack containing that change. In the example above:
 
 ```console
 jj-stack view <B-change-id>
@@ -97,21 +92,23 @@ jj-stack view feature-b
 
 shows only `A` and `B` because the bookmark selects `B` as the exact head.
 
-If two visible stack heads descend from `B`, no single stack contains it. In that case, `view`
-stops and asks for a more precise selection. You can pass the change ID of your intended head,
-or pass a bookmark or other revision expression that resolves to that exact head.
+If two stack heads descend from `B`, both stacks contain it. `jj-stack view` then asks you to
+choose a head explicitly. Pass that head's change ID, a bookmark, or another revset resolving to
+it.
 
-For `submit`, select the stack by its head change ID. A middle change or a bookmark selects only
-the lower part of the stack, and `submit` stops if GitHub already groups the whole stack as one.
-For `merge`, selecting a middle change is the normal way to merge only the bottom portion of a
-stack.
+For `jj-stack submit`, a middle change ID selects only the lower part of the stack, just as a
+bookmark does. Submit stops if GitHub already groups the whole stack as one. Use the head change
+ID to refresh the complete stack.
+
+To merge only the bottom portion of a submitted stack, use `jj-stack merge --pull-request <pr>`.
+It selects that PR as the last one to merge while keeping the rest of the stack available for
+the update afterward. See [merge and sync](../guides/merge-and-sync.md).
 
 ## PR branches are separate from your bookmarks
 
-GitHub requires every pull request to have a Git branch. `jj-stack` creates and updates these PR
-branches itself, normally with names beginning with `jj-stack/`. It uses Git refs directly,
-rather than `jj` bookmarks. It will not reuse an ordinary bookmark that happens to point to the
-same change.
+jj-stack creates and updates the Git branches that GitHub needs for PRs, normally with names
+beginning with `jj-stack/`. These are separate from your ordinary bookmarks, even when a bookmark
+points to the same change.
 
 The managed PR branches normally stay out of local bookmark output. Do not create, move, or
 delete bookmarks in the `jj-stack/` namespace yourself. See
@@ -120,30 +117,18 @@ before your first submit.
 
 ## When a bookmark makes a change immutable
 
-`jj-stack` submits visible, mutable `jj` changes. An ordinary local bookmark does not make its
-target immutable. By default, `jj` uses `trunk()`, tags, and untracked remote bookmarks as
-immutable heads, which makes those commits and their ancestors immutable. If you've customized
-your own `immutable_heads()` configuration, `jj-stack` will use that.
+jj-stack submits visible, mutable changes. With jj's default immutability rules, a local bookmark
+does not make its target immutable, but an untracked remote bookmark can. jj-stack respects your
+`immutable_heads()` configuration.
 
-The immutable change at `trunk()` is expected because it is the stack's base, not a change being
-submitted. `jj-stack` does not allow other immutable changes inside a stack. For example, an
-untracked remote bookmark pointing to a stack change can make that change immutable under `jj`'s
-default configuration. If this happens, `jj-stack` stops instead of submitting or rewriting the
-change.
+An immutable base at `trunk()` is expected. If a change inside the stack is immutable, jj-stack
+stops before submitting or rewriting it.
 
 Use `jj bookmark list --all-remotes` to see whether a remote bookmark points to the change. If
 so, handle that bookmark through your normal `jj` workflow. For example, track it if it is a
 branch you intend to work on, or move your mutable changes onto the intended base with `jj`.
 
-A fetched `jj-stack/` branch is the exception: it does not make your change immutable when it
-points at the commit you last submitted, or when the change has only one visible commit. A change
-with several visible commits, or a commit that another remote bookmark also points at, stays
-immutable. `jj bookmark list --all-remotes` shows which bookmark is responsible.
-
-## Practical rules
-
-- You do not need to create bookmarks for `jj-stack`.
-- A bookmark attached to a stack member does not change the stack.
-- A bookmark passed to a command selects its target as the exact stack head.
-- Use the head change ID when you want to select the same complete stack again later.
-- Leave the `jj-stack/` branch namespace to `jj-stack`.
+If PR bookmarks in the `jj-stack/` namespace appear in your local output, run
+`jj-stack doctor --fix` to remove untracked PR bookmarks and keep them out of future fetches.
+If the change is still immutable, inspect other remote bookmarks, tags, and your
+`immutable_heads()` configuration before deciding how to proceed.

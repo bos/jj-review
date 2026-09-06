@@ -6,33 +6,34 @@ navGroup: Everyday work
 weight: 70
 ---
 
-Use this workflow when you submitted your stack from another machine or checkout and want to work
-on it here.
+Use `jj-stack checkout` to continue work submitted from another machine or checkout. It fetches
+the changes you need, saves their pull request links, and switches your working copy to the
+selected change.
 
 ## Pick a stack
 
-List the active stacks already tracked here and those available only on GitHub:
+Choose from local stacks and stacks on GitHub:
 
 ```console
 jj-stack checkout --pick
 ```
 
-Each GitHub row shows the stack number, top pull request, base branch, size, status, and whether
-the stack is already tracked here, partly tracked, or available only on GitHub. Choosing a stack
-that is not fully tracked here records its pull request links, fetches any missing commits, and
-runs `jj edit` on its top open change. Choosing a stack that is already tracked here just edits
-its head change.
+The picker shows each GitHub stack's top PR, base branch, size, and status, along with whether it
+is already available locally. Choose a stack to fetch any missing commits, save its pull request
+links, and run `jj edit` on its top unmerged change. For a stack already tracked here, the command
+edits its local head change.
 
-## Connect a pull request directly
+## Check out a specific pull request
 
-Choose any pull request in your stack:
+If you know the PR number or URL, select it directly:
 
 ```console
 jj-stack checkout --pull-request <pr>
 ```
 
-`checkout` follows that pull request down to the bottom of its stack, fetches those commits,
-records which local change belongs to each pull request, and runs `jj edit` on its change.
+`jj-stack checkout` brings in that PR and the PRs below it, then runs `jj edit` on the selected
+PR's head commit. Select the top PR to check out the whole stack; selecting a middle PR does not
+bring in the changes above it.
 
 To start a new change on top instead of editing that change directly, run:
 
@@ -40,20 +41,25 @@ To start a new change on top instead of editing that change directly, run:
 jj new
 ```
 
-## If your change is already here with local edits
+## Resolve different versions of the same change
 
-If this repo already has a different commit for the same change, usually because you edited it
-after it was last submitted, `checkout` brings in the pull request's commit as a second copy of
-that change and prints both commit IDs. It does not choose between them. Compare the two, then
-abandon the one you do not want by its commit ID:
+If you edited a change locally after submitting it, `jj-stack checkout` may bring in the PR's
+version alongside your local version. It prints their commit IDs so you can compare them:
 
 ```console
 jj log -r 'change_id(<change-id>)'
-jj diff -r <commit-id>
+jj diff -r <first-commit-id>
+jj diff -r <second-commit-id>
+```
+
+Keep any edits you need, then abandon the unwanted version by its **commit ID**. Both versions
+share a change ID, so a bare change ID is ambiguous:
+
+```console
 jj abandon <unwanted-commit-id>
 ```
 
-If you kept your own copy, update the pull request:
+If you kept or combined local edits, update the pull request:
 
 ```console
 jj-stack submit <head-change-id>
@@ -61,6 +67,6 @@ jj-stack submit <head-change-id>
 
 ## If someone pushed a commit to your PR branch
 
-A commit that someone else pushed to your PR branch, such as a reviewer's suggestion, is not part
-of your change. `checkout` brings it in as a new change on top of yours and prints the
-`jj squash` command that folds it into your change.
+If someone added a commit to your PR branch, such as a reviewer's suggestion, `jj-stack checkout`
+brings it in as a new change on top of yours. To include it in the existing PR, run the
+`jj squash` command printed by checkout, then run `jj-stack submit <head-change-id>`.

@@ -1,130 +1,104 @@
 # jj-stack: manage stacked GitHub PRs with jj
 
 `jj-stack` turns a linear series of local `jj` changes into a stack of GitHub pull requests.
-Rewrite, split, squash, or reorder the changes with `jj`, then let `jj-stack` update the
-matching PRs.
+Rewrite, split, squash, or reorder the changes with `jj`, then run `jj-stack submit` to update
+GitHub. Existing PRs follow their change IDs, keeping comments and review history together.
 
 ## Quick start
 
-### Requirements
+You need Python 3.14 or newer, `jj` 0.45.1 or newer, and a repo on github.com where you can push
+branches and open pull requests. `jj-stack` uses `GITHUB_TOKEN`, then `GH_TOKEN`, then your GitHub
+CLI login for authentication.
 
-- Python 3.14 or newer
-- `jj` 0.45.1 or newer
-- GitHub authentication
-
-### Install
-
-Install `jj-stack` from PyPI with `uv` in an isolated tool environment (recommended):
+Install with `uv`:
 
 ```bash
 uv tool install jj-stack
 ```
 
-`pipx` provides another isolated installation:
+Inside your `jj` repo, check the setup and configure fetches to skip the PR branches that
+`jj-stack` manages:
 
 ```bash
-pipx install jj-stack
+jj-stack doctor --fix
 ```
 
-You can also use `pip` inside an activated virtual environment:
+Start with a linear series of described, non-empty changes above `trunk()`. Inspect the stack,
+then create one PR per change:
 
 ```bash
-python -m pip install jj-stack
+jj-stack
+jj-stack submit
 ```
 
-To upgrade an installation made with `uv`, rerun its command with `--force`. If the command is
-not on your shell `PATH`, run `uv tool update-shell`.
+By default, these commands select `@` when it has a description and changes, or `@-` otherwise.
+Use `jj-stack list` to see all tracked stacks in the repo.
 
-### Invoke it as `jj stack`
+The [quick start](https://www.serpentine.com/software/jj-stack/quick-start/) walks through a
+complete example, alternative installation methods, and setup for the `jj stack` alias and shell
+completion. To upgrade a `uv` installation, run `uv tool upgrade jj-stack`.
 
-Add a command alias to your user configuration with `jj config edit --user`:
+### Use `jj stack` with tab completion
+
+Add this alias with `jj config edit --user`:
 
 ```toml
 [aliases]
 stack = ["util", "exec", "--", "jj-stack"]
 ```
 
-For tab completion of both `jj-stack` and `jj stack`, add the output of `jj-stack completion` to
-your shell startup file:
+Also set up completion for the alias. For zsh, add this to `~/.zshrc` after your shell and `jj`
+completion setup:
 
-```bash
+```zsh
 eval "$(jj-stack completion zsh --jj-alias stack)"
 ```
 
-`bash` and `fish` work the same way. See
-[Configuration](https://www.serpentine.com/software/jj-stack/reference/configuration/) for more
-setup options.
+`--jj-alias stack` updates `jj`'s completion so `jj stack s<TAB>` offers `submit`, `sync`, and
+other matching commands. It also enables completion for `jj-stack`. See
+[shell completion](https://www.serpentine.com/software/jj-stack/reference/configuration/#shell-completion)
+for bash and fish instructions.
 
-### Submit your first stack
-
-Start with a linear series of local `jj` changes on top of `trunk()`. In a new repo, check
-the setup and apply the safe local fixes:
-
-```bash
-jj-stack doctor --fix
-```
-
-Inspect the stack that ends at your working copy:
-
-```bash
-jj-stack
-```
-
-Create one GitHub PR per local change:
-
-```bash
-jj-stack submit
-```
-
-Revise the changes locally with `jj` and rerun `jj-stack submit` whenever the stack is ready to
-refresh. Use `jj-stack list` to see every tracked stack in the repo.
-
-## Mental model
+## How it works
 
 Your local `jj` history determines which changes form a stack and their order. On GitHub, each
-change gets a stable PR branch and a PR; every PR targets the PR branch below it, except the
-bottom PR, which targets trunk by default:
+change gets a stable PR branch and a PR. The bottom PR targets trunk; each PR above it targets
+the PR branch below:
 
 ```text
-jj-stack/add-ui-...         -> PR #3 (base: jj-stack/add-api-...)
-jj-stack/add-api-...        -> PR #2 (base: jj-stack/refactor-model-...)
-jj-stack/refactor-model-... -> PR #1 (base: main)
-main                        -> trunk
+Local changes:  trunk() <- A     <- B     <- C
+GitHub PRs:     main    <- PR #1 <- PR #2 <- PR #3
 ```
 
-The PR branches normally stay out of your local bookmark view. When you rewrite a change,
-`jj-stack` updates that change's existing PR branch and PR, along with the PR branches and PRs for
-dependent changes.
+Each PR shows only its own change's diff. `jj-stack` manages the PR branches, so you can keep
+using ordinary `jj` commands to arrange your work.
 
 ## Everyday workflow
 
 1. Write code as a series of local `jj` changes.
-2. Run `jj-stack submit`.
-3. Revise, add, remove, or reorder the changes locally as reviews come in.
-4. Run `jj-stack submit` again to refresh GitHub.
-5. Run `jj-stack merge` when the changes at the bottom are ready.
-6. After a queued or externally initiated merge finishes, run
-   `jj-stack sync <head-change-id>`.
+2. Run `jj-stack submit` to open the PRs.
+3. Revise your changes as reviews come in, then run `jj-stack submit` again.
+4. Run `jj-stack merge` when the PRs at the bottom are ready. If GitHub completes the merge
+   immediately, the command also updates your local stack.
+5. After a queued merge finishes, or if you merge on GitHub, run `jj-stack sync`.
 
-`view`, `submit`, `merge`, and `sync` accept a change ID when you need to select a stack other
-than the one ending at the working copy.
-
-See the [user guide](https://www.serpentine.com/software/jj-stack/) for drafts, descriptions,
-merge queues, cleanup, and working with multiple stacks.
+Pass a stack's top change ID to `view`, `submit`, `merge`, or `sync` to work on that stack without
+switching your working copy. Add `--dry-run` to `submit`, `merge`, or `sync` to preview what the
+command would do.
 
 ## Learn more
 
-- [Mental model](https://www.serpentine.com/software/jj-stack/mental-model/)
-- [Quick start](https://www.serpentine.com/software/jj-stack/quick-start/)
-- [Everyday workflows](https://www.serpentine.com/software/jj-stack/guides/submit-and-update/)
+- [How jj-stack works](https://www.serpentine.com/software/jj-stack/mental-model/)
+- [Submit and update](https://www.serpentine.com/software/jj-stack/guides/submit-and-update/)
+- [Merge and sync](https://www.serpentine.com/software/jj-stack/guides/merge-and-sync/)
+- [Multiple stacks](https://www.serpentine.com/software/jj-stack/guides/multiple-stacks/)
 - [Configuration](https://www.serpentine.com/software/jj-stack/reference/configuration/)
 - [Writing PR descriptions](https://www.serpentine.com/software/jj-stack/reference/descriptions/)
 - [Troubleshooting](https://www.serpentine.com/software/jj-stack/troubleshooting/)
-- [Tool comparison](https://www.serpentine.com/software/jj-stack/tool-comparison/)
-- [JSON output](https://www.serpentine.com/software/jj-stack/reference/json-output/)
-- [Automation and exit codes](https://www.serpentine.com/software/jj-stack/reference/automation/)
+- [Compare tools](https://www.serpentine.com/software/jj-stack/tool-comparison/)
+- [Automation](https://www.serpentine.com/software/jj-stack/reference/automation/)
 
-The built-in help is the canonical flag reference:
+For all flags and aliases, use the built-in help:
 
 ```bash
 jj-stack --help
@@ -132,42 +106,18 @@ jj-stack <command> --help
 jj-stack help --all
 ```
 
-## Development
-
-Contributor workflows live in the [`justfile`](justfile). With `uv`, `jj`, and `just` installed,
-run `just` to list the setup, formatting, focused test, verification, documentation, and release
-recipes.
-
 ## Coding agent integration
 
-Install the bundled skill to teach coding agents to work with local `jj` stacks and refresh their
-GitHub PRs safely:
+Install the bundled skill to give coding agents instructions for working with `jj-stack`:
 
 ```bash
 gh skill install bos/jj-stack jj-stack
 ```
 
-See the [skill source](https://github.com/bos/jj-stack/blob/main/skills/jj-stack/SKILL.md). In
-my evaluations with Codex and Claude Code, agents with the `jj-stack` skill succeeded in 11/12
-scenarios versus 6/12 without it, with one critical error versus four, using 60% fewer failed
-command attempts and 18% fewer tool calls. Treat that as a small pilot rather than a published
-benchmark:
-[`evals/jj-stack-skill.md`](https://github.com/bos/jj-stack/blob/main/evals/jj-stack-skill.md)
-gives the evaluation design, but this repo does not include the traces behind those numbers.
-(The critical error was due to Claude Haiku understanding a rule and ignoring it. I haven't
-figured out how to get smaller Claude models to behave better, and I don't personally use them.)
+The [skill source](skills/jj-stack/SKILL.md) and [evaluation notes](evals/jj-stack-skill.md) are
+included in this repo.
 
-## Performance
+## Development
 
-Although `jj-stack` is written in Python, this does not significantly affect its speed.
-The real determinants of its performance are the GitHub API and the `jj` command.
-
-The GitHub API is *slow*; a single roundtrip takes many hundreds of milliseconds. `jj-stack`
-reduces its impact with:
-
-- GraphQL batch requests where possible
-- concurrent use of the GitHub REST API
-- periodic audits that its queries are minimal in extent
-
-In pursuit of good performance, `jj-stack` also batches calls to `jj` and minimizes the amount
-of work those calls must do.
+With `uv`, `jj`, and `just` installed, run `just` to list the development workflows. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for setup and validation instructions.

@@ -1,8 +1,7 @@
 # User guide
 
-These pages are the canonical user documentation for `jj-stack`. The
-[jj-stack website](https://www.serpentine.com/software/jj-stack/) publishes the same guides with
-web navigation and presentation.
+Use these guides to submit, revise, review, and merge stacked GitHub pull requests with `jj`.
+You can also read them on the [jj-stack website](https://www.serpentine.com/software/jj-stack/).
 
 ## Start here
 
@@ -13,7 +12,7 @@ web navigation and presentation.
 
 - [Submit and update a stack](guides/submit-and-update.md)
 - [Work with a stack on GitHub](guides/working-on-github.md)
-- [Review and operate a stack](guides/review-a-stack.md)
+- [Review and merge a stack on GitHub](guides/review-a-stack.md)
 - [Edit and rearrange a stack](guides/revise.md)
 - [Merge and sync](guides/merge-and-sync.md)
 - [Multiple stacks and dependent work](guides/multiple-stacks.md)
@@ -31,7 +30,7 @@ web navigation and presentation.
 - [Troubleshooting](troubleshooting.md)
 - [Compare `jj-stack` with other tools](tool-comparison.md)
 
-The built-in help is the exact flag and alias reference:
+For all flags and aliases, use the built-in help:
 
 ```console
 jj-stack --help

@@ -6,10 +6,10 @@ navGroup: Everyday work
 weight: 45
 ---
 
-GitHub remains the place to review, discuss, check, and merge a stack. Your local `jj` history
-remains the source of truth for its changes and order.
+Use GitHub to review, discuss, run checks, and merge. Use `jj` to edit the changes and their
+order, then `jj-stack submit` to publish the result.
 
-## Safe GitHub actions
+## Review, merge, and rebase on GitHub
 
 You can comment, review, approve, request changes, add labels, request reviewers, and inspect or
 rerun checks normally. You can also merge through GitHub's native stack UI or use **Rebase
@@ -19,37 +19,38 @@ stack**. After a merge or rebase finishes, run:
 jj-stack sync <head-change-id>
 ```
 
-Do not rewrite the same stack locally while a GitHub rebase or merge is in progress. If local
-edits and GitHub's rewritten contents disagree, `sync` stops instead of choosing one.
+Wait for a GitHub rebase or merge to finish before rewriting the same stack locally. After a
+GitHub rebase, `jj-stack sync` checks that rebasing your local changes produces the same contents
+as GitHub's version. If they disagree, it stops and leaves the PR branches untouched. See
+[merge and sync](merge-and-sync.md) for the full workflow.
 
-## What the next submit replaces
+## Titles, bodies, drafts, and labels
 
-`jj-stack submit` makes GitHub's stack match your local stack. It pushes each change in your stack
-to its PR branch, sets each pull request's base from the local parent order, and updates native
-stack membership.
-
-By default, `submit` will generate a pull request description from the `jj` change. On a
-subsequent submit, if the PR description still matches the last automated PR description,
-`submit` will refresh it from the current change description. Otherwise, `submit` will leave it
-untouched.
+You can edit pull request titles and bodies on GitHub. On the next submit, jj-stack checks both
+against the text generated from the last submitted change. If both still match, it refreshes
+them from your local description. If either differs, it preserves both.
 
 Use `--describe` to replace one body deliberately (or `--describe-with` or `--edit` for titles and
-bodies).
+bodies). See [pull request descriptions](../reference/descriptions.md) for examples.
 
-`--draft` affects new pull requests. `--draft=all`, `--open`, and the choices made through
-`--edit` can change existing draft states. Labels and reviewer requests that submit applies are
-additive; unrelated existing labels and reviewers are not removed.
+Existing PRs keep their draft state unless you submit with `--draft=all`, `--open`, or an edited
+draft choice from `--edit`. Plain `--draft` affects only new PRs.
+
+Submitting can add labels and request reviewers, but it does not remove existing labels or
+reviewer requests. Set defaults or make explicit requests as described in
+[submit and update](submit-and-update.md#reviewers-and-labels).
 
 ## Changes to avoid on GitHub
 
-Do not force-push, rename, or delete `jj-stack/` PR branches. If a branch moves unexpectedly,
-jj-stack stops instead of overwriting it. See [troubleshooting](../troubleshooting.md) for the
-recovery steps.
+Let jj-stack manage its PR branches, whose names normally start with `jj-stack/`. Do not
+force-push, rename, or delete them. An unexpected branch change stops submission; see
+[troubleshooting](../troubleshooting.md) for recovery steps. GitHub's **Rebase stack** operation
+is supported through `jj-stack sync`, as described above.
 
 Do not change pull request bases or GitHub stack membership by hand. `jj-stack submit` derives
-both from the local `jj` history. To keep a different base or order, make that change locally and
-submit again. To leave the pull requests open but remove their GitHub stack grouping, run
-`jj-stack unstack --stack <number>`.
+both from the local `jj` history. To change the base or order, make that change locally and
+submit again. To remove the GitHub stack grouping while leaving the PRs open, see
+[separate a stack](close-or-separate.md#remove-a-stacks-github-grouping).
 
 For reviewer and repo configuration guidance, see
-[review and operate a stack](review-a-stack.md).
+[review and merge a stack on GitHub](review-a-stack.md).

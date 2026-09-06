@@ -2,9 +2,10 @@
 
 Use it when `jj-stack` has lost or mixed up the link between a pull request and its local change,
 for example after tracking data was removed or a pull request was submitted from another
-checkout. The pull request must be open, and its PR branch must be at the current commit of the
-selected change; otherwise `relink` refuses and shows what is on the branch. Pass
-`--replace-remote` to link anyway and let the next submit overwrite the branch.
+checkout. The pull request must be open, and its PR branch must match either the selected
+change's current commit or the commit that `jj-stack` last recorded as submitted. Otherwise,
+`relink` refuses and shows what is on the branch. Pass `--replace-remote` to accept that branch
+version and let the next `jj-stack submit` replace it with your local change.
 
 `relink` changes only `jj-stack`'s local tracking data. It does not push or change anything on
 GitHub.

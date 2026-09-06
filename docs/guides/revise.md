@@ -7,7 +7,8 @@ navGroup: Everyday work
 weight: 40
 ---
 
-Use `jj` for your local history edits. Use `jj-stack submit` afterwards to make GitHub match.
+Edit your stack with ordinary `jj` commands, then run `jj-stack submit` to update GitHub. Pull
+requests follow change IDs, so rewriting or moving a change keeps its existing PR and discussion.
 
 ## Edit a change in your stack
 
@@ -19,11 +20,12 @@ jj edit <change-id>
 jj-stack submit <head-change-id>
 ```
 
-`jj-stack` updates your existing pull request, preserving its discussion.
+`jj` rebases descendants when you edit a change. Resolve any conflicts before submitting, and
+select the stack's head so the PRs above the edited change are updated too.
 
 ## Reorder changes
 
-Rebase or rearrange your work with `jj`, optionally inspect the result, then submit:
+Use `jj arrange` or `jj rebase` to change the order. Check the resulting stack before submitting:
 
 ```console
 jj arrange
@@ -31,21 +33,23 @@ jj-stack view <head-change-id>
 jj-stack submit <head-change-id>
 ```
 
-`submit` updates your pull request order to match.
+Use the head change ID from the new order. `jj-stack submit` updates the PR order and base
+branches to match. If you are moving changes between stacks, follow
+[multiple stacks](multiple-stacks.md#move-work-between-stacks) for the submission order.
 
 ## Split or squash
 
-When you split one of your changes, the part that keeps the original change ID also keeps its
-pull request. Your new change gets a new pull request.
+When you split a change, the part that keeps the original change ID also keeps its pull request.
+The new change gets a new PR on the next submit.
 
-When you squash your changes, whichever change survives keeps its pull request. Pull requests for
-changes that are no longer in your stack remain open until you close and clean them up; jj-stack
-never reuses one for different work.
+When you squash changes, each surviving change keeps its PR. Submit the resulting stack, then
+close the PRs for any removed changes using the cleanup command below.
 
 ## Abandon one of your submitted changes
 
-Using `jj abandon` removes your change from your local history, not from GitHub. Your orphaned
-pull request and PR branch remain until you close your pull request and run cleanup:
+`jj abandon` removes the local change and leaves its PR open. If other changes remain in the
+stack, submit them first so their PRs no longer depend on the removed change. Then close the
+orphaned PR and remove its unused branch and saved link:
 
 ```console
 jj-stack cleanup --pull-request <pr> --close

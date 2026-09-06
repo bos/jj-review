@@ -5,20 +5,16 @@ navGroup: Look things up
 weight: 105
 ---
 
-`jj-stack view --json` and `jj-stack list --json` print structured versions of the
-normal command output. The JSON schema uses the same user-facing concepts as the text
-output: stacks, rows, changes, PR branches, pull requests, and status.
+`jj-stack view --json` reports selected stacks. `jj-stack list --json` reports tracked stacks and
+orphaned PRs in the repo. Both write JSON to standard output and diagnostics to standard error.
 
-The checked-in schema is
+The published schema is
 [json-output.schema.json](https://github.com/bos/jj-stack/blob/main/docs/json-output.schema.json).
-Integration tests validate real command output against that file.
 
-Command failures and incomplete GitHub inspection still use the normal CLI contract:
-stderr explains the problem and the process exit code says what kind of problem it was
-(see [Automation and agents](automation.md#exit-codes)). In particular, `view --json` and
-`list --json`
-print a valid payload and exit 10 when the report is incomplete. The JSON payload is not
-an error-reporting format.
+An incomplete report is still valid JSON, but the command exits 10. Save both the output and exit
+code so you can distinguish a complete report from a partial one. Other failures may produce no
+JSON. See [Automation and agents](automation.md#keep-partial-reports) for an example and the full
+exit-code reference.
 
 ## Change objects
 
@@ -38,27 +34,27 @@ Stack changes use this shape:
 }
 ```
 
-`current: true` is present when that change is the current working-copy change. It is
-omitted otherwise.
+`change_id` is the full jj change ID. `subject` is the first line of its description.
 
-`branch` is present only when `jj-stack`'s tracking data links the change to a PR branch. An
-unsubmitted change has no `branch` field, because the branch name is not chosen until submit. An
-orphan row always has one, because the tracking data is all that identifies it.
+`current: true` is present when the change is the current working-copy change and omitted
+otherwise.
 
-`pr` is present when `jj-stack` knows which pull request belongs to the change. It holds the pull
-request number, its URL when GitHub reported the pull request, and the combined result of its
-checks when GitHub reported one. Use the change's `status` field for the pull request's state and
-review decision.
+`branch` is present only when jj-stack has a saved pull request link for the change. Unsubmitted
+changes omit it. Orphan rows always include it.
 
-Within `pr`, `number` is always present. `url` is absent when live GitHub state was unavailable,
-so a change whose status is `submitted`, and every orphan row, carries `number` alone.
+`pr` contains the pull request number, plus its URL and combined check result when available.
+Use the change's `status` for the PR's state and review decision.
+
+When jj-stack has only a saved PR number, `pr` contains `number` alone. This is the case for
+`submitted` changes and orphan rows. `url` requires a live GitHub lookup; `checks` is included
+only when GitHub reports a check result.
 
 `checks` is `passed`, `failed`, or `pending`; `pending` includes checks that GitHub expects but
 has not started.
 
 Known change statuses are:
 
-- `unsubmitted`: no PR has been submitted for this change
+- `unsubmitted`: jj-stack has no saved pull request link for this change
 - `submitted`: submitted before, but live GitHub status is unavailable
 - `open`: open, non-draft PR with no review decision to report
 - `queued`: open PR waiting in GitHub's merge queue
@@ -76,7 +72,8 @@ Known change statuses are:
 
 ## `view --json`
 
-`view --json` returns the stack or stacks you asked it to inspect:
+`view --json` returns a `stacks` array. Within each stack, `changes` runs from the head down to
+the bottom, matching the text display. The head is the **first** entry.
 
 ```json
 {
@@ -106,9 +103,13 @@ revset argument or `--pull-request`.
 
 ## `list --json`
 
-`list --json` returns the same row model as the text table. Stack rows contain their
-changes, so clients can derive the head change, change count, and PR list directly from
-the `changes` array.
+`list --json` returns a `rows` array. Each row has a `type` of `stack` or `orphan`.
+
+In a stack row, `changes` runs from the bottom up to the head. The head is the **last** entry,
+and the row's `subject` is that head's subject. This order is the reverse of `view --json`.
+
+An orphan row describes a saved pull request link whose local change is no longer part of a
+current stack. It has its own `change_id`, `branch`, and optional `pr`, without a `changes` array.
 
 ```json
 {
@@ -157,11 +158,10 @@ the `changes` array.
 }
 ```
 
-`current: true` on a stack row means that the current working-copy change is part of
-that stack. It is omitted for other stack rows.
+`current: true` marks the stack associated with the working copy. It can mark the parent's stack
+when `@` is an empty change above it. Other stack rows omit the field. To locate `@` itself, look
+for `current: true` on an individual change.
 
-A stack row's `status` is a human-readable summary of the changes below it, as in the
-`1 approved, open, checks pending` above. Its wording is not a stable machine-readable vocabulary,
-and for a single-change stack it can look exactly like a change status. Scripts should inspect the
-`changes` array and use each change's documented `status` value instead. An orphan row always
-uses `"status": "orphan"`.
+A stack row's `status`, such as `1 approved, open, checks pending`, is a human-readable summary.
+Its wording can change. Scripts should inspect the individual changes' documented `status`
+values, even for a stack with only one change. An orphan row always uses `"status": "orphan"`.
