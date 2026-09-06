@@ -43,8 +43,8 @@ def test_relink_attaches_pr_whose_branch_is_at_the_local_commit(
 
     assert exit_code == 0
     assert "Relinked PR #1" in captured.out
-    assert relinked_state.pr_identities[change_id].head_ref == manual_bookmark
-    assert relinked_state.pr_identities[change_id].pr_number == 1
+    assert relinked_state.prs[change_id].pr_identity.head_ref == manual_bookmark
+    assert relinked_state.prs[change_id].pr_identity.pr_number == 1
 
     run_command(
         ["jj", "describe", "--ignore-immutable", "-r", change_id, "-m", "feature 1 relinked"],
@@ -86,13 +86,15 @@ def test_relink_refuses_unsubmitted_remote_work_unless_replaced(
     assert "Apply suggestions from code review" in unwrapped
     assert "jj-stack checkout --pull-request 1" in unwrapped
     assert f"jj-stack relink --replace-remote 1 {change.change_id[:8]}" in unwrapped
-    assert state_store.load().submitted_baselines[change.change_id].commit_id == change.commit_id
+    assert (
+        state_store.load().prs[change.change_id].submitted_baseline.commit_id == change.commit_id
+    )
 
     exit_code = run_main(repo, config_path, "relink", "--replace-remote", "1", change.change_id)
     capsys.readouterr()
 
     assert exit_code == 0
-    assert state_store.load().submitted_baselines[change.change_id].commit_id == remote_head
+    assert state_store.load().prs[change.change_id].submitted_baseline.commit_id == remote_head
 
     exit_code = run_main(repo, config_path, "submit", change.change_id)
     capsys.readouterr()
@@ -145,7 +147,7 @@ def test_relink_explains_recovery_after_change_id_replacement(
         f"{replacement_change_id[:8]}" in captured.err
     )
     assert "jj-stack checkout --pull-request 1" in captured.err
-    assert replacement_change_id not in TrackingStore.for_repo(repo).load().pr_identities
+    assert replacement_change_id not in TrackingStore.for_repo(repo).load().prs
 
 
 def test_relink_rejects_pr_with_missing_remote_head_branch(

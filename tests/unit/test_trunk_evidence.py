@@ -11,11 +11,7 @@ from tests.support.change_helpers import make_change
 
 def _candidate() -> TrackedPR:
     return TrackedPR(
-        change_id="change-1",
-        pr_identity=PRIdentity(
-            pr_number=1,
-            head_ref="jj-stack/change-1",
-        ),
+        pr_identity=PRIdentity(pr_number=1, head_ref="jj-stack/change-1"),
         submitted_baseline=SubmittedBaseline(commit_id="submitted-1"),
     )
 
@@ -67,6 +63,7 @@ def test_exact_snapshot_evidence_is_identity_and_ancestry_bound() -> None:
         result = classify_exact_snapshot(
             ancestry=ancestry,
             candidate=_candidate(),
+            change_id="abcdefghijkl",
             pr=pr,
         )
 
@@ -133,6 +130,7 @@ def test_rewritten_result_requires_a_reachable_concrete_merge_result() -> None:
     for pr, ancestry, on_trunk in rows:
         result = classify_rewritten_result(
             candidate=_candidate(),
+            change_id="abcdefghijkl",
             merge_result_ancestry=ancestry,
             pr=pr,
         )

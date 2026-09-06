@@ -217,8 +217,8 @@ def test_view_pr_selector_shows_the_complete_containing_stack(
     first_change_id = stack.changes[0].change_id
     second_change_id = stack.changes[1].change_id
     state = TrackingStore.for_repo(repo).load()
-    first_pr_number = state.pr_identities[first_change_id].pr_number
-    second_pr_number = state.pr_identities[second_change_id].pr_number
+    first_pr_number = state.prs[first_change_id].pr_identity.pr_number
+    second_pr_number = state.prs[second_change_id].pr_identity.pr_number
     exit_code = run_main(
         repo,
         config_path,
@@ -473,7 +473,7 @@ def test_view_exits_nonzero_when_github_reports_multiple_prs(
     change_id = stack.changes[-1].change_id
     state_store = TrackingStore.for_repo(repo)
     state_before = state_store.load()
-    bookmark = state_before.pr_identities[change_id].head_ref
+    bookmark = state_before.prs[change_id].pr_identity.head_ref
     fake_repo.create_pr(
         base_ref="main",
         body="duplicate",
@@ -506,8 +506,7 @@ def test_view_reports_unsubmitted_after_state_loss(
     assert exit_code == 0
     assert "Unsubmitted stack:" in captured.out
     assert "PR #1" not in captured.out
-    assert refreshed_state.pr_identities == {}
-    assert refreshed_state.submitted_baselines == {}
+    assert refreshed_state.prs == {}
 
     exit_code = run_main(repo, config_path, "view", "--json", change_id)
     captured = capsys.readouterr()
@@ -533,7 +532,7 @@ def test_view_preserves_saved_pr_link_when_github_reports_missing(
     change_id = stack.changes[-1].change_id
     state_store = TrackingStore.for_repo(repo)
     initial_state = state_store.load()
-    assert initial_state.pr_identities[change_id].pr_number == 1
+    assert initial_state.prs[change_id].pr_identity.pr_number == 1
 
     del fake_repo.prs[1]
 
@@ -546,7 +545,7 @@ def test_view_preserves_saved_pr_link_when_github_reports_missing(
     assert "saved PR #1" in captured.out
     assert_output_contains(captured.out, "jj-stack unstack --local")
     assert change_id in captured.out
-    assert refreshed_state.pr_identities[change_id].pr_number == 1
+    assert refreshed_state.prs[change_id].pr_identity.pr_number == 1
 
 
 def test_view_reports_merged_pr_state(

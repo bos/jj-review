@@ -73,7 +73,7 @@ def test_unstack_by_number_does_not_require_local_tracking(
     assert "Removed GitHub stack grouping #7" in captured.out
     assert fake_repo.github_stacks == {}
     assert all(pr.state == "open" for pr in fake_repo.prs.values())
-    assert state_store.load().pr_identities == {}
+    assert state_store.load().prs == {}
 
     retry_exit_code = run_main(repo, config_path, "unstack", "--stack", "7")
     retry = capsys.readouterr()
@@ -175,7 +175,7 @@ def test_unstack_local_forgets_links_without_changing_github(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     change_id = selected_stack(repo).head.change_id
     state_store = TrackingStore.for_repo(repo)
-    branch = state_store.load().pr_identities[change_id].head_ref
+    branch = state_store.load().prs[change_id].pr_identity.head_ref
 
     preview_exit_code = run_main(
         repo,
@@ -189,7 +189,7 @@ def test_unstack_local_forgets_links_without_changing_github(
 
     assert preview_exit_code == 0
     assert "Would forget saved pull request links" in preview.out
-    assert change_id in state_store.load().pr_identities
+    assert change_id in state_store.load().prs
 
     exit_code = run_main(repo, config_path, "unstack", "--local", change_id)
     captured = capsys.readouterr()
@@ -197,7 +197,7 @@ def test_unstack_local_forgets_links_without_changing_github(
     assert exit_code == 0
     assert "Forgot saved pull request links" in captured.out
     assert fake_repo.prs[1].state == "open"
-    assert change_id not in state_store.load().pr_identities
+    assert change_id not in state_store.load().prs
     assert read_remote_ref(fake_repo.git_dir, branch)
 
 

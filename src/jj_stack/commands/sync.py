@@ -211,11 +211,9 @@ async def _run_global_plan(
                 facts=facts,
                 state=state,
             )
-        for candidate, reason in plan.blocked:
+        for change_id, candidate, reason in plan.blocked:
             pr_label = format_pr_label(candidate.pr_identity.pr_number, repo=facts.pr_facts.repo)
-            console.warning(
-                t"Skipped {pr_label} for {ui.change_id(candidate.change_id)}: {reason}."
-            )
+            console.warning(t"Skipped {pr_label} for {ui.change_id(change_id)}: {reason}.")
         required = bool(plan.finishes or plan.sync_change_ids)
         trunk_branch = None
         if required:
@@ -243,7 +241,7 @@ async def _run_global_plan(
         )
         cleanup = await cleanup_tracked_prs(
             change_ids=tuple(
-                result.candidate.change_id for result in results if result.outcome != "skipped"
+                result.change_id for result in results if result.outcome != "skipped"
             ),
             context=context,
             dry_run=dry_run,
@@ -430,7 +428,7 @@ def _render_selected_plan(*, dry_run: bool, plan: SelectedConvergencePlan) -> No
     status = "Would remove" if dry_run else "Removing"
     console.output(
         t"{status} merged changes from the bottom of the stack: "
-        t"{ui.join(lambda item: ui.change_id(item.candidate.change_id), plan.actions.on_trunk)}"
+        t"{ui.join(lambda item: ui.change_id(item.change_id), plan.actions.on_trunk)}"
     )
 
 

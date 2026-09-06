@@ -144,8 +144,8 @@ def test_sync_reconciles_a_fork_child_after_its_whole_parent_stack_merged(
     assert rewritten_fork.parents == (read_remote_ref(fake_repo.git_dir, "main"),)
     assert jj.resolve_commit("@").parents == (rewritten_fork.commit_id,)
     state = state_store.load()
-    assert set(state.pr_identities) == {fork.change_id}
-    assert state.submitted_baselines[fork.change_id].commit_id == rewritten_fork.commit_id
+    assert set(state.prs) == {fork.change_id}
+    assert state.prs[fork.change_id].submitted_baseline.commit_id == rewritten_fork.commit_id
     assert (fake_repo.prs[3].head_sha, fake_repo.prs[3].base_ref) == (
         rewritten_fork.commit_id,
         "main",
@@ -164,7 +164,7 @@ def test_sync_recovers_a_clean_single_pr_rebase_merge(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     submitted = selected_stack(repo).head
     state_store = TrackingStore.for_repo(repo)
-    identity = state_store.load().pr_identities[submitted.change_id]
+    identity = state_store.load().prs[submitted.change_id].pr_identity
     pr_branch = identity.head_ref
     landed_commit_id = fake_repo.apply_rebase_merge(fake_repo.prs[identity.pr_number])
 
@@ -178,7 +178,7 @@ def test_sync_recovers_a_clean_single_pr_rebase_merge(
     assert tuple(item.commit_id for item in copies) == (landed_commit_id,)
     assert copies[0].immutable
     assert JjClient(repo).resolve_commit("@").parents == (landed_commit_id,)
-    assert submitted.change_id not in state_store.load().pr_identities
+    assert submitted.change_id not in state_store.load().prs
     assert f"refs/heads/{pr_branch}" not in remote_refs(fake_repo.git_dir)
 
 
@@ -196,7 +196,7 @@ def test_sync_all_finds_cross_workspace_recovery(
     run_command(["jj", "edit", "@-"], other_workspace)
     dependent = JjClient(other_workspace).resolve_commit("@")
     state_store = TrackingStore.for_repo(repo)
-    pr_branch = state_store.load().pr_identities[submitted.change_id].head_ref
+    pr_branch = state_store.load().prs[submitted.change_id].pr_identity.head_ref
     _squash_merge_pr(fake_repo, 1)
     landed_commit_id = read_remote_ref(fake_repo.git_dir, "main")
     progress_phases: list[str] = []
@@ -219,7 +219,7 @@ def test_sync_all_finds_cross_workspace_recovery(
     captured = capsys.readouterr()
 
     assert exit_code == 0, (captured.out, captured.err)
-    assert submitted.change_id not in state_store.load().pr_identities
+    assert submitted.change_id not in state_store.load().prs
     assert f"refs/heads/{pr_branch}" not in remote_refs(fake_repo.git_dir)
     rewritten_dependent = JjClient(other_workspace).resolve_commit("@")
     assert rewritten_dependent.change_id == dependent.change_id
@@ -271,7 +271,7 @@ def test_sync_all_exact_merge_does_not_select_an_unrelated_post_trunk_stack(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     (submitted,) = selected_stack(repo).changes
     state_store = TrackingStore.for_repo(repo)
-    pr_branch = state_store.load().pr_identities[submitted.change_id].head_ref
+    pr_branch = state_store.load().prs[submitted.change_id].pr_identity.head_ref
     fake_repo.apply_merge_commit((fake_repo.prs[1],))
     run_command(["jj", "git", "fetch"], repo)
     run_command(["jj", "new", "trunk()"], repo)
@@ -286,7 +286,7 @@ def test_sync_all_exact_merge_does_not_select_an_unrelated_post_trunk_stack(
     assert exit_code == 0, (captured.out, captured.err)
     unchanged = JjClient(repo).resolve_commit(unrelated.change_id)
     assert (unchanged.commit_id, unchanged.parents) == unrelated_snapshot
-    assert submitted.change_id not in state_store.load().pr_identities
+    assert submitted.change_id not in state_store.load().prs
     assert f"refs/heads/{pr_branch}" not in remote_refs(fake_repo.git_dir)
 
 
@@ -299,7 +299,7 @@ def test_sync_all_cleans_a_rewritten_merge_after_its_local_copy_is_gone(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     (submitted,) = selected_stack(repo).changes
     state_store = TrackingStore.for_repo(repo)
-    pr_branch = state_store.load().pr_identities[submitted.change_id].head_ref
+    pr_branch = state_store.load().prs[submitted.change_id].pr_identity.head_ref
     _squash_merge_pr(fake_repo, 1)
     run_command(["jj", "abandon", submitted.change_id], repo)
 
@@ -307,7 +307,7 @@ def test_sync_all_cleans_a_rewritten_merge_after_its_local_copy_is_gone(
     captured = capsys.readouterr()
 
     assert exit_code == 0, (captured.out, captured.err)
-    assert submitted.change_id not in state_store.load().pr_identities
+    assert submitted.change_id not in state_store.load().prs
     assert f"refs/heads/{pr_branch}" not in remote_refs(fake_repo.git_dir)
 
 
@@ -344,7 +344,7 @@ def test_sync_all_explains_how_to_forget_a_deleted_workspace_blocking_removal(
     assert str(other_workspace) not in captured.err
     merged_change = JjClient(repo).resolve_commit(submitted.change_id)
     assert merged_change.working_copy_workspaces == ("other",)
-    remaining = TrackingStore.for_repo(repo).load().pr_identities
+    remaining = TrackingStore.for_repo(repo).load().prs
     assert submitted.change_id in remaining
     assert independent.change_id not in remaining
 
@@ -368,7 +368,7 @@ def test_sync_all_preserves_tracking_when_exact_pr_head_changed(
     assert exit_code == 1
     assert "PR #1" in captured.err
     assert "submitted head" in captured.err
-    assert submitted.change_id in state_store.load().pr_identities
+    assert submitted.change_id in state_store.load().prs
 
 
 def test_sync_all_reports_batch_pr_failure_without_traceback(
@@ -407,7 +407,7 @@ def test_sync_converges_stack_history_and_adopts_rewritten_survivor(
     advanced_trunk = fake_repo.advance_branch(
         "main", path="landed-later.txt", contents="landed after the stack merge\n"
     )
-    survivor_branch = state_store.load().pr_identities[survivor.change_id].head_ref
+    survivor_branch = state_store.load().prs[survivor.change_id].pr_identity.head_ref
     run_command(
         ["jj", "git", "fetch", "--remote", "origin", "--branch", survivor_branch],
         repo,
@@ -424,7 +424,7 @@ def test_sync_converges_stack_history_and_adopts_rewritten_survivor(
 
     assert exit_code == 0, (captured.out, captured.err)
     state = state_store.load()
-    assert on_trunk.change_id not in state.pr_identities
+    assert on_trunk.change_id not in state.prs
     rewritten_survivor = JjClient(repo).resolve_commit(survivor.change_id)
     assert rewritten_survivor.parents == (fake_repo.prs[1].merge_commit_sha,)
     assert (
@@ -435,7 +435,7 @@ def test_sync_converges_stack_history_and_adopts_rewritten_survivor(
     assert JjClient(repo).resolve_commit("@").parents == (rewritten_survivor.commit_id,)
     pr_branch_temp = JjClient(repo).pr_branch_temp_artifacts()
     assert (pr_branch_temp.ref_target, pr_branch_temp.bookmark_targets) == (None, ())
-    assert state.submitted_baselines[survivor.change_id].commit_id == (
+    assert state.prs[survivor.change_id].submitted_baseline.commit_id == (
         rewritten_survivor.commit_id
     )
     assert fake_repo.prs[2].head_sha == rewritten_survivor.commit_id
@@ -458,7 +458,7 @@ def test_sync_rejects_unselected_mutable_copy_of_proven_survivor(
     state_store = TrackingStore.for_repo(repo)
     _merged, survivor = selected_stack(repo).changes
     remote_survivor = _simulate_stack_partial_merge(fake_repo)
-    survivor_branch = state_store.load().pr_identities[survivor.change_id].head_ref
+    survivor_branch = state_store.load().prs[survivor.change_id].pr_identity.head_ref
     run_command(
         ["jj", "git", "fetch", "--remote", "origin", "--branch", survivor_branch],
         repo,
@@ -562,8 +562,8 @@ def test_sync_republishes_an_amended_survivor_after_an_external_stack_merge(
         "main",
     )
     state = state_store.load()
-    assert on_trunk.change_id not in state.pr_identities
-    assert state.submitted_baselines[survivor.change_id].commit_id == republished.commit_id
+    assert on_trunk.change_id not in state.prs
+    assert state.prs[survivor.change_id].submitted_baseline.commit_id == republished.commit_id
     assert jj.query_commits_by_change_ids((on_trunk.change_id,))[on_trunk.change_id] == ()
 
 
@@ -577,7 +577,7 @@ def test_sync_preserves_a_conflict_resolution_that_restores_the_submitted_tree(
     (submitted,) = selected_stack(repo).changes
     state_store = TrackingStore.for_repo(repo)
     state_before = state_store.load()
-    baseline = state_before.submitted_baselines[submitted.change_id].commit_id
+    baseline = state_before.prs[submitted.change_id].submitted_baseline.commit_id
     _squash_merge_pr(fake_repo, 1)
     fake_repo.advance_branch(
         "main",
@@ -614,7 +614,7 @@ def test_sync_preserves_a_conflict_resolution_that_restores_the_submitted_tree(
     assert state_store.load() == state_before
     assert (
         read_remote_ref(
-            fake_repo.git_dir, state_before.pr_identities[submitted.change_id].head_ref
+            fake_repo.git_dir, state_before.prs[submitted.change_id].pr_identity.head_ref
         )
         == baseline
     )
@@ -648,7 +648,7 @@ def test_sync_removes_a_merged_change_that_a_local_rebase_emptied(
     assert jj.resolve_commit(survivor.change_id).parents == (
         read_remote_ref(fake_repo.git_dir, "main"),
     )
-    assert on_trunk.change_id not in state_store.load().pr_identities
+    assert on_trunk.change_id not in state_store.load().prs
 
 
 def test_sync_rebases_a_conflicted_pr_before_stopping_its_update(
@@ -660,7 +660,7 @@ def test_sync_rebases_a_conflicted_pr_before_stopping_its_update(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     state_store = TrackingStore.for_repo(repo)
     on_trunk, submitted = selected_stack(repo).changes
-    submitted_baseline = state_store.load().submitted_baselines[submitted.change_id].commit_id
+    submitted_baseline = state_store.load().prs[submitted.change_id].submitted_baseline.commit_id
 
     run_command(["jj", "new", on_trunk.change_id], repo)
     commit_file(repo, "left conflict", "conflict.txt")
@@ -705,7 +705,7 @@ def test_sync_rebases_a_conflicted_pr_before_stopping_its_update(
     assert conflicted_after.parents == (read_remote_ref(fake_repo.git_dir, "main"),)
     assert conflicted_after.commit_id != conflicted_before.commit_id
     assert fake_repo.prs[2].head_sha == submitted_baseline
-    assert on_trunk.change_id in state_store.load().pr_identities
+    assert on_trunk.change_id in state_store.load().prs
 
 
 @pytest.mark.parametrize(
@@ -771,7 +771,7 @@ def test_sync_retries_stack_adoption_after_survivor_submit_fails(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     state_store = TrackingStore.for_repo(repo)
     on_trunk, survivor = selected_stack(repo).changes
-    baseline_before = state_store.load().submitted_baselines[survivor.change_id]
+    baseline_before = state_store.load().prs[survivor.change_id].submitted_baseline
     remote_survivor = _simulate_stack_partial_merge(fake_repo)
     real_run_submit = sync_apply.run_submit_async
 
@@ -785,8 +785,10 @@ def test_sync_retries_stack_adoption_after_survivor_submit_fails(
     assert exit_code == 1
     assert "injected survivor submit failure" in failed.err
     interrupted_state = state_store.load()
-    assert on_trunk.change_id in interrupted_state.pr_identities
-    assert interrupted_state.submitted_baselines[survivor.change_id].commit_id == remote_survivor
+    assert on_trunk.change_id in interrupted_state.prs
+    assert (
+        interrupted_state.prs[survivor.change_id].submitted_baseline.commit_id == remote_survivor
+    )
     assert remote_survivor != baseline_before.commit_id
     assert JjClient(repo).resolve_commit(survivor.change_id).commit_id == remote_survivor
 
@@ -796,8 +798,8 @@ def test_sync_retries_stack_adoption_after_survivor_submit_fails(
 
     assert retry_exit_code == 0, (retry.out, retry.err)
     recovered_state = state_store.load()
-    assert on_trunk.change_id not in recovered_state.pr_identities
-    assert recovered_state.submitted_baselines[survivor.change_id].commit_id == remote_survivor
+    assert on_trunk.change_id not in recovered_state.prs
+    assert recovered_state.prs[survivor.change_id].submitted_baseline.commit_id == remote_survivor
 
 
 def test_sync_all_requires_terminal_stack_merge_for_exact_stack_member(
@@ -819,7 +821,7 @@ def test_sync_all_requires_terminal_stack_merge_for_exact_stack_member(
     assert selected_exit == 1
     assert "also includes #1, outside the selected stack" in selected.err
     assert "jj-stack unstack --stack 7" in selected.err
-    assert first.change_id in state_store.load().pr_identities
+    assert first.change_id in state_store.load().prs
     assert fake_repo.prs[1].state == "open"
 
     blocked_exit = run_main(repo, config_path, "sync", "--all")
@@ -827,7 +829,7 @@ def test_sync_all_requires_terminal_stack_merge_for_exact_stack_member(
 
     assert blocked_exit == 1
     assert "GitHub still lists PR #1 as an active member" in " ".join(blocked.err.split())
-    assert first.change_id in state_store.load().pr_identities
+    assert first.change_id in state_store.load().prs
     assert fake_repo.prs[1].state == "open"
 
 
@@ -840,7 +842,7 @@ def test_sync_does_not_trust_active_stack_head_drift_without_merged_history(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     state_store = TrackingStore.for_repo(repo)
     _first, second = selected_stack(repo).changes
-    baseline = state_store.load().submitted_baselines[second.change_id]
+    baseline = state_store.load().prs[second.change_id].submitted_baseline
     fake_repo.github_stacks = {7: (1, 2)}
     drifted_head = fake_repo.force_push_pr_head(fake_repo.prs[2])
 
@@ -849,7 +851,7 @@ def test_sync_does_not_trust_active_stack_head_drift_without_merged_history(
 
     assert exit_code == 1
     assert "None of its merged pull requests is tracked here" in captured.err
-    assert state_store.load().submitted_baselines[second.change_id] == baseline
+    assert state_store.load().prs[second.change_id].submitted_baseline == baseline
     assert fake_repo.prs[2].head_sha == drifted_head
 
 
@@ -944,7 +946,7 @@ def test_sync_restores_change_ids_after_an_exact_github_stack_rebase(
         fake_repo.ref_target(fake_repo.prs[index].head_ref) for index in (1, 2)
     ) == tuple(change.commit_id for change in rewritten[:2])
     assert tuple(
-        state_store.load().submitted_baselines[change.change_id].commit_id
+        state_store.load().prs[change.change_id].submitted_baseline.commit_id
         for change in original_changes
     ) == tuple(change.commit_id for change in rewritten[:2])
     assert tuple(change.commit_id for change in rewritten[:2]) != github_heads
@@ -991,8 +993,8 @@ def test_sync_explains_the_reported_rebase_ordering_stop_without_mutation(
     submitted = initial.head
     state_store = TrackingStore.for_repo(repo)
     initial_state = state_store.load()
-    identity = initial_state.pr_identities[submitted.change_id]
-    submitted_commit_id = initial_state.submitted_baselines[submitted.change_id].commit_id
+    identity = initial_state.prs[submitted.change_id].pr_identity
+    submitted_commit_id = initial_state.prs[submitted.change_id].submitted_baseline.commit_id
     run_command(["jj", "new", initial.base_parent.commit_id], repo)
     commit_file(repo, "local lower", "local-lower.txt")
     lower = selected_stack(repo).head
@@ -1076,7 +1078,7 @@ def test_sync_converges_selected_path_while_a_sibling_still_needs_the_merged_cha
     assert fake_repo.prs[2].base_ref == "main"
     assert jj.resolve_commit(sibling.change_id).parents == (on_trunk.commit_id,)
     assert jj.resolve_commit(on_trunk.change_id).commit_id == on_trunk.commit_id
-    assert on_trunk.change_id in TrackingStore.for_repo(repo).load().pr_identities
+    assert on_trunk.change_id in TrackingStore.for_repo(repo).load().prs
 
 
 def test_sync_rebases_the_current_commit_of_trailing_local_work_without_creating_a_pr(
@@ -1091,7 +1093,7 @@ def test_sync_rebases_the_current_commit_of_trailing_local_work_without_creating
     commit_file(repo, "local trailing", "local-trailing.txt")
     trailing = selected_stack(repo).head
     state_before = TrackingStore.for_repo(repo).load()
-    assert trailing.change_id not in state_before.pr_identities
+    assert trailing.change_id not in state_before.prs
     _squash_merge_pr(fake_repo, 1)
     real_apply_pr_finishes = sync_apply.apply_pr_finishes
 
@@ -1116,7 +1118,7 @@ def test_sync_rebases_the_current_commit_of_trailing_local_work_without_creating
     assert rewritten_trailing.description.startswith("described during sync")
     assert jj.resolve_commit("@").parents == (rewritten_trailing.commit_id,)
     assert set(fake_repo.prs) == {1, 2}
-    assert trailing.change_id not in TrackingStore.for_repo(repo).load().pr_identities
+    assert trailing.change_id not in TrackingStore.for_repo(repo).load().prs
 
 
 def test_sync_requires_every_surviving_pr_before_rewriting(
@@ -1176,12 +1178,12 @@ def test_sync_all_isolates_an_unavailable_snapshot_from_an_exact_pr(
     ).stdout.strip()
     update_remote_ref(
         fake_repo,
-        branch=initial_state.pr_identities[first.change_id].head_ref,
+        branch=initial_state.prs[first.change_id].pr_identity.head_ref,
         target=unavailable_commit_id,
     )
     state_path = resolve_state_path(repo)
     raw_state = json.loads(state_path.read_text(encoding="utf-8"))
-    raw_state["submitted_baselines"][first.change_id]["commit_id"] = unavailable_commit_id
+    raw_state["prs"][first.change_id]["submitted_baseline"]["commit_id"] = unavailable_commit_id
     write_file(state_path, json.dumps(raw_state))
 
     fake_repo.auto_merge_reachable_heads = False
@@ -1196,7 +1198,7 @@ def test_sync_all_isolates_an_unavailable_snapshot_from_an_exact_pr(
     assert first.change_id[:8] in captured.err
     assert "submitted commit is unavailable locally" in captured.err
     state = state_store.load()
-    assert first.change_id in state.pr_identities
-    assert second.change_id not in state.pr_identities
+    assert first.change_id in state.prs
+    assert second.change_id not in state.prs
     assert fake_repo.prs[1].state == "open"
     assert fake_repo.prs[2].state == "closed"

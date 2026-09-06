@@ -85,17 +85,18 @@ def build_selected_convergence_plan(
     )
     history = effect.history if isinstance(effect, _GithubStackMerge) else ()
     adopted = effect.adopted if effect is not None else ()
-    history_ids = {item.candidate.change_id for item in history}
-    active_ids = {item.candidate.change_id for item in adopted}
+    history_ids = {item.change_id for item in history}
+    active_ids = {item.change_id for item in adopted}
     on_trunk = list(history)
     survivors: list[LocalCommit] = []
     rerun = f"jj-stack sync {short_change_id(selected[-1].change_id)}"
     for change in (item for item in selected if item.change_id not in history_ids):
-        candidate = state.tracked_pr(change.change_id)
+        candidate = state.prs.get(change.change_id)
         if candidate is None or change.change_id in active_ids:
             survivors.append(change)
             continue
         change_state = _member_state(
+            change_id=change.change_id,
             ancestries=ancestries,
             candidate=candidate,
             observation=observation,
@@ -138,9 +139,12 @@ def build_selected_convergence_plan(
             )
         on_trunk.append(
             OnTrunkChange(
+                change_id=change.change_id,
                 candidate=candidate,
                 evidence_kind=evidence_kind,
-                finish=_finish_plan(candidate, observation, evidence_kind == "exact"),
+                finish=_finish_plan(
+                    change.change_id, candidate, observation, evidence_kind == "exact"
+                ),
                 change=change,
             )
         )
@@ -185,7 +189,7 @@ def _submitted_survivors(
     submitted: list[LocalCommit] = []
     saw_unsubmitted = False
     for change in survivors:
-        if state.tracked_pr(change.change_id) is None:
+        if state.prs.get(change.change_id) is None:
             saw_unsubmitted = True
             continue
         if saw_unsubmitted:
@@ -202,6 +206,7 @@ def _member_state(
     *,
     ancestries: dict[str, CommitAncestry],
     candidate: TrackedPR,
+    change_id: str,
     observation: RepoFacts,
     rerun: str,
     member: GithubStackPR | None = None,
@@ -209,17 +214,19 @@ def _member_state(
 ) -> WithPR:
     """Classify one tracked change with its trunk evidence, stopping on a broken saved link."""
 
-    observed = observation.prs.get(candidate.change_id)
-    if observed is None or observed.identity != candidate.pr_identity:
+    observed = observation.prs.get(change_id)
+    if (
+        observed is None
+        or observed.tracked is None
+        or observed.tracked.pr_identity != candidate.pr_identity
+    ):
         raise CliError(
-            t"The saved pull request link for {ui.change_id(candidate.change_id)} changed.",
+            t"The saved pull request link for {ui.change_id(change_id)} changed.",
             hint=t"Inspect it with {ui.cmd('jj-stack view')}, then relink the intended "
             t"PR with {ui.cmd('jj-stack relink')}.",
         )
     state = classify(
-        observe_pr_facts(
-            observation, candidate.change_id, ancestries=ancestries, selected=selected
-        )
+        observe_pr_facts(observation, change_id, ancestries=ancestries, selected=selected)
     )
     # GitHub itself moves the heads of a stack's active members when it merges or rebases the
     # stack; `_validate_active_member` and the adoption proofs judge those moves. Any other
@@ -237,7 +244,7 @@ def _member_state(
         pr_label = format_pr_label(member.number, repo=observation.repo)
         raise CliError(
             t"{pr_label} no longer matches the saved pull request link for "
-            t"{ui.change_id(candidate.change_id)}.",
+            t"{ui.change_id(change_id)}.",
             hint=t"Relink it with {ui.cmd('jj-stack relink')}, or forget the incorrect link "
             t"with {ui.cmd('jj-stack unstack --local')} before submitting again.",
         )
@@ -258,7 +265,7 @@ def _require_no_divergent_survivors(
     *,
     adopted: tuple[AdoptedSurvivor, ...],
 ) -> None:
-    expected_remote_copies = {item.candidate.change_id for item in adopted}
+    expected_remote_copies = {item.change_id for item in adopted}
     for change in actions.survivors:
         if change.divergent and change.change_id not in expected_remote_copies:
             raise divergent_change_error(change.change_id)
@@ -285,11 +292,14 @@ def _classify_github_stack(
     trunk_branch: str,
 ) -> _GithubStackEffect:
     selected_by_id = {change.change_id: change for change in selected}
-    by_pr = {candidate.pr_identity.pr_number: candidate for candidate in state.tracked_prs()}
+    by_pr = {
+        candidate.pr_identity.pr_number: change_id
+        for change_id, candidate in sorted(state.prs.items())
+    }
     selected_prs = tuple(
         candidate.pr_identity.pr_number
         for change in selected
-        if (candidate := state.tracked_pr(change.change_id)) is not None
+        if (candidate := state.prs.get(change.change_id)) is not None
     )
     stack = selected_github_stack(observation.repo, selected_prs, github_stacks)
     if stack is None:
@@ -311,34 +321,36 @@ def _classify_github_stack(
     merge_result: str | None = None
     rerun = f"jj-stack sync {short_change_id(selected[-1].change_id)}"
     for member in stack.prs:
-        candidate = by_pr.get(member.number)
-        if candidate is None:
+        change_id = by_pr.get(member.number)
+        if change_id is None:
             continue
+        candidate = state.prs[change_id]
         member_state = _member_state(
+            change_id=change_id,
             ancestries=ancestries,
             candidate=candidate,
             observation=observation,
             rerun=rerun,
             member=member,
-            selected=selected_by_id.get(candidate.change_id),
+            selected=selected_by_id.get(change_id),
         )
         pr = member_state.pr
         if member.is_historical:
             history.append(
                 _historical_member(
+                    change_id=change_id,
                     candidate=candidate,
                     member_state=member_state,
                     observation=observation,
-                    selected=selected_by_id.get(candidate.change_id),
+                    selected=selected_by_id.get(change_id),
                 )
             )
             merge_result = pr.merge_commit_sha
             continue
-        local = selected_by_id[candidate.change_id]
+        local = selected_by_id[change_id]
         if isinstance(member_state, Closed):
             raise _closed_error(member_state)
         _validate_active_member(
-            candidate=candidate,
             expected_base=expected_base,
             merge_mode=merge_mode,
             member=member,
@@ -347,7 +359,7 @@ def _classify_github_stack(
             selected_change=local,
             stack=stack,
         )
-        adopted.append(AdoptedSurvivor(candidate, local, member.head.sha))
+        adopted.append(AdoptedSurvivor(change_id, candidate, local, member.head.sha))
         expected_base = candidate.pr_identity.head_ref
     result = tuple(adopted)
     if not merge_mode:
@@ -363,6 +375,7 @@ def _classify_github_stack(
 def _historical_member(
     *,
     candidate: TrackedPR,
+    change_id: str,
     member_state: WithPR,
     observation: RepoFacts,
     selected: LocalCommit | None,
@@ -370,14 +383,14 @@ def _historical_member(
     """Turn a merged stack member into its on-trunk entry, or stop when it cannot be removed."""
 
     mutable_copies = tuple(
-        item for item in observation.prs[candidate.change_id].local_commits if not item.immutable
+        item for item in observation.prs[change_id].local_commits if not item.immutable
     )
     if selected is None and len(mutable_copies) > 1:
         raise CliError(
-            t"Merged change {ui.change_id(candidate.change_id)} from this stack has more than "
+            t"Merged change {ui.change_id(change_id)} from this stack has more than "
             t"one mutable local copy.",
             hint=divergence_recovery_hint(
-                candidate.change_id,
+                change_id,
                 retry="rerun sync",
             ),
         )
@@ -389,14 +402,15 @@ def _historical_member(
             hint="Make GitHub's merge result reachable from trunk, then rerun sync.",
         )
     return OnTrunkChange(
+        change_id,
         candidate,
         member_state.evidence,
-        SkipPRFinish(candidate),
+        SkipPRFinish(change_id, candidate),
         selected or (mutable_copies[0] if mutable_copies else None),
     )
 
 
-def _is_stack_merge(*, stack: GithubStack, by_pr: dict[int, TrackedPR]) -> bool:
+def _is_stack_merge(*, stack: GithubStack, by_pr: dict[int, str]) -> bool:
     merge_mode = any(member.number in by_pr for member in stack.historical_prs)
     if stack.historical_prs and not merge_mode:
         raise _unproven_rewrite_error(stack)
@@ -405,7 +419,6 @@ def _is_stack_merge(*, stack: GithubStack, by_pr: dict[int, TrackedPR]) -> bool:
 
 def _validate_active_member(
     *,
-    candidate: TrackedPR,
     expected_base: str,
     merge_mode: bool,
     member: GithubStackPR,
@@ -414,24 +427,25 @@ def _validate_active_member(
     selected_change: LocalCommit,
     stack: GithubStack,
 ) -> None:
-    observed = observation.prs[candidate.change_id]
+    change_id = selected_change.change_id
+    observed = observation.prs[change_id]
     pr_label = format_pr_label(pr.number, url=pr.html_url)
     expected = {selected_change.commit_id, member.head.sha}
     if any(
         not item.immutable and item.commit_id not in expected for item in observed.local_commits
     ):
         raise CliError(
-            t"Cannot sync {ui.change_id(candidate.change_id)} because it has more than one "
+            t"Cannot sync {ui.change_id(change_id)} because it has more than one "
             t"mutable local copy.",
             hint=divergence_recovery_hint(
-                candidate.change_id,
+                change_id,
                 retry="rerun sync for this stack",
             ),
         )
     if selected_change.immutable and selected_change.commit_id != member.head.sha:
         raise CliError(
             t"GitHub still lists {pr_label} as active in stack #{stack.number}, but "
-            t"{ui.change_id(candidate.change_id)} is already immutable here, so this repo "
+            t"{ui.change_id(change_id)} is already immutable here, so this repo "
             t"cannot tell what GitHub did with it.",
             hint=t"Check GitHub's result with {ui.cmd('jj-stack view')}, then rerun sync once it "
             t"reports the merge.",
@@ -466,7 +480,7 @@ def _require_no_unpublished_edits(changes: tuple[OnTrunkChange, ...]) -> None:
             continue
         short = short_change_id(local.change_id)
         raise CliError(
-            t"Cannot remove merged {ui.change_id(item.candidate.change_id)} because its local "
+            t"Cannot remove merged {ui.change_id(item.change_id)} because its local "
             t"commit differs from what was submitted and is not empty, so jj-stack treats it "
             t"as unpublished local work.",
             hint=t"Run {ui.cmd(f"jj rebase -s {short} -d 'trunk()'")} and rerun sync. If "
@@ -478,14 +492,15 @@ def _require_no_unpublished_edits(changes: tuple[OnTrunkChange, ...]) -> None:
 
 
 def _finish_plan(
+    change_id: str,
     candidate: TrackedPR,
     observation: RepoFacts,
     allowed: bool,
 ) -> PRFinishPlan:
-    pr = observation.prs[candidate.change_id].pr
+    pr = observation.prs[change_id].pr
     if not allowed or pr is None or pr.normalize_state().state != "open":
-        return SkipPRFinish(candidate)
-    return FinishPR(candidate, pr)
+        return SkipPRFinish(change_id, candidate)
+    return FinishPR(change_id, candidate, pr)
 
 
 def _require_no_checked_out_merged_changes(
@@ -503,7 +518,7 @@ def _require_no_checked_out_merged_changes(
         else:
             location = t"workspaces {ui.join(ui.code, workspaces)}"
         raise CheckedOutMergedChangeError(
-            t"Cannot remove merged {ui.change_id(item.candidate.change_id)} because it is "
+            t"Cannot remove merged {ui.change_id(item.change_id)} because it is "
             t"checked out in {location}.",
             workspaces=workspaces,
         )

@@ -85,7 +85,6 @@ async def _sync_pr(
     branch = prepared_change.branch
     change_id = prepared_change.change.change_id
     pr = plan.discovered_pr
-    pr_identity = run.state.pr_identities.get(change_id)
     action = plan.action
     base_update, body_update, title_update = plan.content_updates
 
@@ -125,11 +124,7 @@ async def _sync_pr(
         run.record_submission(
             baseline=SubmittedBaseline(commit_id=prepared_change.change.commit_id),
             change_id=change_id,
-            identity=_submitted_identity(
-                branch=branch,
-                pr=pr,
-                pr_identity=pr_identity,
-            ),
+            identity=PRIdentity(pr_number=pr.number, head_ref=branch),
         )
         pr = await _apply_draft_action(
             action=plan.draft_action,
@@ -228,17 +223,3 @@ async def _sync_pr_metadata(
         raise CliError(
             t"Could not update the reviewers or labels of pull request {pr_label}"
         ) from error
-
-
-def _submitted_identity(
-    *,
-    branch: str,
-    pr: GithubPR,
-    pr_identity: PRIdentity | None,
-) -> PRIdentity:
-    if pr_identity is None:
-        return PRIdentity(
-            pr_number=pr.number,
-            head_ref=branch,
-        )
-    return pr_identity

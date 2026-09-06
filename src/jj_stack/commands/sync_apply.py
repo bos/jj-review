@@ -38,6 +38,7 @@ from jj_stack.ui import Message
 
 @dataclass(frozen=True, slots=True)
 class PRFinishResult:
+    change_id: str
     candidate: TrackedPR
     outcome: Literal["finished", "already_terminal", "skipped"]
     skip_reason: Message | None = None
@@ -71,8 +72,7 @@ async def apply_pr_finishes(
         for result in visible:
             if result.outcome == "skipped":
                 console.output(
-                    t"  ! leave {ui.change_id(result.candidate.change_id)} unchanged: "
-                    t"{result.skip_reason}"
+                    t"  ! leave {ui.change_id(result.change_id)} unchanged: {result.skip_reason}"
                 )
             else:
                 pr_label = format_pr_label(
@@ -88,16 +88,16 @@ async def _apply_pr_finish(
 ) -> PRFinishResult:
     candidate = plan.candidate
     if isinstance(plan, SkipPRFinish):
-        return PRFinishResult(candidate, "already_terminal")
+        return PRFinishResult(plan.change_id, candidate, "already_terminal")
     if dry_run:
-        return PRFinishResult(candidate, "finished")
+        return PRFinishResult(plan.change_id, candidate, "finished")
     pr_label = format_pr_label(plan.pr.number, url=plan.pr.html_url)
-    console.output(t"Finishing {pr_label} for {candidate.change_id}...")
+    console.output(t"Finishing {pr_label} for {plan.change_id}...")
     reason = await close_pr_on_trunk(github_client=github, pr=plan.pr, trunk_branch=trunk_branch)
     return (
-        PRFinishResult(candidate, "skipped", reason)
+        PRFinishResult(plan.change_id, candidate, "skipped", reason)
         if reason
-        else PRFinishResult(candidate, "finished")
+        else PRFinishResult(plan.change_id, candidate, "finished")
     )
 
 
@@ -167,7 +167,7 @@ def _apply_local_convergence(
     # GitHub's rewrite of a survivor is its baseline, moved. Adopt those commits only while every
     # survivor is still at its baseline; otherwise rebase them all and let the refresh republish.
     adopt = _all_at_baseline(rewritten)
-    adopted_ids = {item.candidate.change_id for item in rewritten} if adopt else set()
+    adopted_ids = {item.change_id for item in rewritten} if adopt else set()
     rebased = (
         (
             *(item for item in actions.survivors if item.change_id not in adopted_ids),
@@ -190,12 +190,12 @@ def _apply_local_convergence(
             remote=remote_name,
             branch=top.candidate.pr_identity.head_ref,
             expected_target=destination,
-            expected_change_id=top.candidate.change_id,
+            expected_change_id=top.change_id,
             expected_chain=tuple(
                 (
                     item.candidate.pr_identity.head_ref,
                     item.remote_commit_id,
-                    item.candidate.change_id,
+                    item.change_id,
                 )
                 for item in rewritten
             ),
@@ -219,16 +219,16 @@ def _apply_local_convergence(
             for change in actions.on_trunk
             if change.change is not None
             and not change.change.immutable
-            and not dependencies.get(change.candidate.change_id)
+            and not dependencies.get(change.change_id)
         )
         if abandoned:
             context.jj_client.abandon_changes(abandoned)
         if rewritten:
             context.state_store.relink_prs(
                 replacements={
-                    item.candidate.change_id: (
-                        item.candidate.pr_identity,
-                        SubmittedBaseline(commit_id=item.remote_commit_id),
+                    item.change_id: TrackedPR(
+                        pr_identity=item.candidate.pr_identity,
+                        submitted_baseline=SubmittedBaseline(commit_id=item.remote_commit_id),
                     )
                     for item in rewritten
                 },
@@ -254,7 +254,7 @@ def _apply_github_stack_rebase(
             (
                 item.candidate.pr_identity.head_ref,
                 item.remote_commit_id,
-                (None, item.candidate.change_id),
+                (None, item.change_id),
             )
             for item in adopted
         ),
@@ -275,17 +275,17 @@ def _apply_github_stack_rebase(
                 PRRefUpdate(
                     branch=item.candidate.pr_identity.head_ref,
                     expected_target=item.remote_commit_id,
-                    desired_target=desired_by_change[item.candidate.change_id].commit_id,
+                    desired_target=desired_by_change[item.change_id].commit_id,
                 )
                 for item in adopted
             ),
         )
         context.state_store.relink_prs(
             replacements={
-                item.candidate.change_id: (
-                    item.candidate.pr_identity,
-                    SubmittedBaseline(
-                        commit_id=desired_by_change[item.candidate.change_id].commit_id
+                item.change_id: TrackedPR(
+                    pr_identity=item.candidate.pr_identity,
+                    submitted_baseline=SubmittedBaseline(
+                        commit_id=desired_by_change[item.change_id].commit_id
                     ),
                 )
                 for item in adopted
@@ -338,8 +338,7 @@ def _verified_local_rebase(
         expected_parent = change.commit_id
     desired_by_change = {item.change_id: item for item in desired}
     tree_pairs = tuple(
-        (desired_by_change[item.candidate.change_id].commit_id, item.remote_commit_id)
-        for item in adopted
+        (desired_by_change[item.change_id].commit_id, item.remote_commit_id) for item in adopted
     )
     trees = context.jj_client.git_tree_ids(
         tuple(commit_id for pair in tree_pairs for commit_id in pair)
@@ -434,11 +433,11 @@ async def _cleanup_reconciled_prs(
     dependencies: dict[str, tuple[LocalCommit, ...]],
     target: GithubTarget,
 ) -> int:
-    cleanup_candidates: list[TrackedPR] = []
+    cleanup_change_ids: list[str] = []
     for result in finish_results:
         if result.outcome == "skipped":
             continue
-        if heads := dependencies.get(result.candidate.change_id):
+        if heads := dependencies.get(result.change_id):
             recovery_commands = tuple(
                 f"jj-stack sync {short_change_id(head.change_id)}" for head in heads
             )
@@ -449,24 +448,24 @@ async def _cleanup_reconciled_prs(
             )
             console.output(
                 t"  ! kept {pr_label} and its PR "
-                t"branch for {ui.change_id(result.candidate.change_id)}: another local stack "
+                t"branch for {ui.change_id(result.change_id)}: another local stack "
                 t"still uses this merged change; {recovery}"
             )
             continue
-        cleanup_candidates.append(result.candidate)
-    pr_identities = context.state_store.load().pr_identities
+        cleanup_change_ids.append(result.change_id)
+    tracked_prs = context.state_store.load().prs
     cleanup = await cleanup_tracked_prs(
-        change_ids=tuple(item.change_id for item in cleanup_candidates),
+        change_ids=tuple(cleanup_change_ids),
         context=context,
         dry_run=dry_run,
         github_client=github,
         github_target=target,
         planned_detached_dependents=frozenset(
-            identity.pr_number
+            tracked.pr_identity.pr_number
             for change in submitted_survivors
-            if (identity := pr_identities.get(change.change_id)) is not None
+            if (tracked := tracked_prs.get(change.change_id)) is not None
         ),
-        planned_local_removals=frozenset(item.change_id for item in cleanup_candidates),
+        planned_local_removals=frozenset(cleanup_change_ids),
     )
     return 1 if any(action.status == "blocked" for action in cleanup.actions) else 0
 
@@ -475,7 +474,7 @@ def _observe_removal_dependencies(
     *, context: CommandContext, actions: ConvergenceActions
 ) -> dict[str, tuple[LocalCommit, ...]]:
     anchors = {
-        change.candidate.change_id: (
+        change.change_id: (
             change.change.commit_id
             if change.change is not None
             else change.candidate.submitted_baseline.commit_id
@@ -488,7 +487,7 @@ def _observe_removal_dependencies(
         context=context,
         excluded_change_ids=frozenset(
             (
-                *(change.candidate.change_id for change in actions.on_trunk),
+                *(change.change_id for change in actions.on_trunk),
                 *(item.change_id for item in actions.survivors),
             )
         ),

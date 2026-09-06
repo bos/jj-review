@@ -17,6 +17,7 @@ from jj_stack.errors import TrackingStateError
 from jj_stack.models.tracking import (
     PRIdentity,
     SubmittedBaseline,
+    TrackedPR,
     TrackingState,
 )
 from jj_stack.pr_branch_namespace import pr_branch_matches_change
@@ -75,13 +76,18 @@ class TrackingStore:
         identity: PRIdentity,
         baseline: SubmittedBaseline,
     ) -> TrackingState:
-        """Atomically create an identity and baseline when both records are absent."""
+        """Atomically create a complete record for an untracked change."""
 
         _require_identity_matches_change(identity, change_id)
         state = self._load_state()
-        if change_id in state.pr_identities:
+        if change_id in state.prs:
             raise TrackingStateError(f"Tracking data already exists for {change_id}.")
-        return self._persist(_replace_prs(state, {change_id: (identity, baseline)}))
+        return self._persist(
+            TrackingState(
+                prs=state.prs
+                | {change_id: TrackedPR(pr_identity=identity, submitted_baseline=baseline)}
+            )
+        )
 
     def relink_pr(
         self,
@@ -90,30 +96,30 @@ class TrackingStore:
         identity: PRIdentity,
         baseline: SubmittedBaseline,
     ) -> TrackingState:
-        """Atomically replace one complete pull request pair."""
+        """Atomically replace one complete pull request record."""
 
-        return self.relink_prs(replacements={change_id: (identity, baseline)})
+        return self.relink_prs(
+            replacements={change_id: TrackedPR(pr_identity=identity, submitted_baseline=baseline)}
+        )
 
     def relink_prs(
         self,
         *,
-        replacements: Mapping[str, tuple[PRIdentity, SubmittedBaseline]],
+        replacements: Mapping[str, TrackedPR],
     ) -> TrackingState:
-        """Atomically replace complete pull request pairs."""
+        """Atomically replace complete pull request records."""
 
-        for change_id, (identity, _baseline) in replacements.items():
-            _require_identity_matches_change(identity, change_id)
-        return self._persist(_replace_prs(self._load_state(), replacements))
+        for change_id, tracked in replacements.items():
+            _require_identity_matches_change(tracked.pr_identity, change_id)
+        return self._persist(TrackingState(prs={**self._load_state().prs, **replacements}))
 
     def retire_pr(self, change_id: str) -> None:
-        """Atomically remove one complete pull request pair."""
+        """Atomically remove one complete pull request record."""
 
         state = self._load_state()
-        identities = dict(state.pr_identities)
-        baselines = dict(state.submitted_baselines)
-        del identities[change_id]
-        del baselines[change_id]
-        self._persist(TrackingState(pr_identities=identities, submitted_baselines=baselines))
+        prs = dict(state.prs)
+        del prs[change_id]
+        self._persist(TrackingState(prs=prs))
 
     def _load_state(self) -> TrackingState:
         if not self._path.exists():
@@ -139,8 +145,8 @@ class TrackingStore:
         try:
             raw = migrate_tracking_state(raw)
             state = TrackingState.model_validate(raw)
-            for change_id, identity in state.pr_identities.items():
-                _require_identity_matches_change(identity, change_id)
+            for change_id, tracked in state.prs.items():
+                _require_identity_matches_change(tracked.pr_identity, change_id)
         except (ValidationError, ValueError) as error:
             raise self._invalid_state_error(
                 f"Invalid jj-stack data in {self._path}: {error}"
@@ -180,18 +186,6 @@ class TrackingStore:
                 t"{ui.cmd('jj-stack relink PR CHANGE')}."
             ),
         )
-
-
-def _replace_prs(
-    state: TrackingState,
-    replacements: Mapping[str, tuple[PRIdentity, SubmittedBaseline]],
-) -> TrackingState:
-    identities = dict(state.pr_identities)
-    baselines = dict(state.submitted_baselines)
-    for change_id, (identity, baseline) in replacements.items():
-        identities[change_id] = identity
-        baselines[change_id] = baseline
-    return TrackingState(pr_identities=identities, submitted_baselines=baselines)
 
 
 def _require_identity_matches_change(identity: PRIdentity, change_id: str) -> None:

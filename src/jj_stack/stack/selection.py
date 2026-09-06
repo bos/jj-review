@@ -57,8 +57,8 @@ def resolve_linked_change_for_pr(
     state = TrackingStore.for_repo(jj_client.repo_root).load()
     matching_change_ids = [
         change_id
-        for change_id, pr_identity in state.pr_identities.items()
-        if pr_identity.pr_number == pr_number
+        for change_id, tracked in state.prs.items()
+        if tracked.pr_identity.pr_number == pr_number
     ]
     if not matching_change_ids:
         raise CliError(

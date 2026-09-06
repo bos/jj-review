@@ -69,7 +69,6 @@ def _status_change(
     change = make_change(change_id=change_id, commit_id=commit_id, description=f"{subject}\n")
     tracked = (
         TrackedPR(
-            change_id=change_id,
             pr_identity=pr_identity,
             submitted_baseline=submitted_baseline or SubmittedBaseline(commit_id=commit_id),
         )

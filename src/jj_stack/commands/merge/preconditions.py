@@ -103,7 +103,7 @@ def _merge_change_precondition_error(
 
     observed = observation.prs[planned.change_id]
     label = short_change_id(planned.change_id)
-    if observed.identity != planned.identity:
+    if observed.tracked is None or observed.tracked.pr_identity != planned.identity:
         return MergePrecondition(f"saved PR tracking for {label} changed")
     selected = next(
         (commit for commit in observed.local_commits if commit.commit_id == planned.commit_id),

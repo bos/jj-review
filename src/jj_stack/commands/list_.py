@@ -125,7 +125,7 @@ def _run_list(
     context: CommandContext,
 ) -> int:
     state = context.state_store.load()
-    if state.pr_identities:
+    if state.prs:
         with console.spinner(description="Inspecting local stacks"):
             repo_paths = observe_repo_paths(
                 jj_client=context.jj_client,
@@ -139,7 +139,7 @@ def _run_list(
 
     github_target = (
         resolve_github_target(context.jj_client.list_git_remotes())
-        if state.pr_identities
+        if state.prs
         else UnresolvedGithubTarget()
     )
     github_repo = github_target.repo if isinstance(github_target, GithubTarget) else None
@@ -156,10 +156,10 @@ def _run_list(
         )
     )
     duplicate_branches = duplicate_pr_branch_claims(
-        (identity.head_ref, change.change_id)
+        (tracked.pr_identity.head_ref, change.change_id)
         for stack in ordered
         for change in stack.changes
-        if (identity := state.pr_identities.get(change.change_id)) is not None
+        if (tracked := state.prs.get(change.change_id)) is not None
     )
     duplicate_branch_names = frozenset(duplicate_branches)
     orphan_rows = tuple(

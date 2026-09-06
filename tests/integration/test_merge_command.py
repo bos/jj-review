@@ -234,7 +234,7 @@ def test_stack_merge_commit_uses_resolved_head_for_automatic_sync(
 
     assert "Updating the local stack after the completed merge" in merged.out
     assert "submit" not in merged.out
-    assert state_store.load().pr_identities == {}
+    assert state_store.load().prs == {}
     assert JjClient(repo).resolve_commit("@").parents == (merge_commit,)
 
 
@@ -267,7 +267,7 @@ def test_stack_rewriting_merge_automatically_retires_pre_merge_copies(
     assert final_trunk == read_remote_ref(fake_repo.git_dir, "main")
 
     assert "Updating the local stack after the completed merge" in merged.out
-    assert state_store.load().pr_identities == {}
+    assert state_store.load().prs == {}
     assert not any(
         ref.startswith("refs/heads/jj-stack/") for ref in remote_refs(fake_repo.git_dir)
     )
@@ -380,7 +380,7 @@ def test_stack_merge_recovers_with_sync_after_a_lost_response(
     assert len(fake_repo.stack_merge_requests) == 1
     assert tuple(pr.state for pr in fake_repo.prs.values()) == ("closed", "closed")
     assert run_main(repo, config_path, "sync") == 0
-    assert state_store.load().pr_identities == {}
+    assert state_store.load().prs == {}
     assert JjClient(repo).resolve_commit("@").parents == (
         read_remote_ref(fake_repo.git_dir, "main"),
     )
@@ -479,7 +479,7 @@ def test_merge_requires_submit_after_a_diff_equivalent_rebase(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     change = selected_stack(repo).changes[0]
     state_store = TrackingStore.for_repo(repo)
-    bookmark = state_store.load().pr_identities[change.change_id].head_ref
+    bookmark = state_store.load().prs[change.change_id].pr_identity.head_ref
 
     run_command(["jj", "new", "main"], repo)
     commit_file(repo, "trunk 1", "trunk-1.txt")
@@ -543,7 +543,7 @@ def test_merge_expected_head_guard_rejects_a_race(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     change = selected_stack(repo).changes[0]
     state_before = TrackingStore.for_repo(repo).load()
-    bookmark = state_before.pr_identities[change.change_id].head_ref
+    bookmark = state_before.prs[change.change_id].pr_identity.head_ref
     trunk_before = read_remote_ref(fake_repo.git_dir, "main")
     fake_repo.auto_merge_reachable_heads = False
     app = create_app(FakeGithubState.single_repo(fake_repo))

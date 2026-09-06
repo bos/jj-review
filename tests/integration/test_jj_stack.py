@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from jj_stack.jj.client import JjClient, JjCommandError, PRRefUpdate
-from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
+from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR, TrackingState
 from jj_stack.stack.selected import select_stack_path
 
 from ..support.integration_helpers import (
@@ -237,13 +237,12 @@ def test_visible_pr_bookmark_does_not_block_broad_operations(
     assert client.pr_branch_temp_artifacts().ref_target is None
 
     state = TrackingState(
-        pr_identities={
-            change_id: PRIdentity(
-                pr_number=1,
-                head_ref=branch,
+        prs={
+            change_id: TrackedPR(
+                pr_identity=PRIdentity(pr_number=1, head_ref=branch),
+                submitted_baseline=SubmittedBaseline(commit_id=commit_id),
             )
-        },
-        submitted_baselines={change_id: SubmittedBaseline(commit_id=commit_id)},
+        }
     )
 
     selected = select_stack_path(

@@ -6,6 +6,7 @@ import pytest
 
 from jj_stack.errors import CliError
 from jj_stack.models.stack import LocalCommit
+from jj_stack.models.tracking import SubmittedBaseline, TrackedPR
 from jj_stack.pr_branch_namespace import (
     PRBranchNamespace,
     current_pr_branch_namespace,
@@ -76,8 +77,11 @@ def test_pr_branch_matcher_ties_a_branch_to_one_change(
 
 
 def test_pr_branch_resolution_keeps_saved_branch_stable_after_subject_change() -> None:
-    identities = {
-        "zvlywqkxtmnpqrstu": make_pr_identity(head_ref="jj-stack/fix-cache-invalidation-zvlywqkx")
+    tracked_prs = {
+        "zvlywqkxtmnpqrstu": TrackedPR(
+            pr_identity=make_pr_identity(head_ref="jj-stack/fix-cache-invalidation-zvlywqkx"),
+            submitted_baseline=SubmittedBaseline(commit_id="submitted"),
+        )
     }
     renamed_change = _change(
         change_id="zvlywqkxtmnpqrstu",
@@ -86,7 +90,7 @@ def test_pr_branch_resolution_keeps_saved_branch_stable_after_subject_change() -
 
     resolutions = resolve_pr_branches(
         changes=(renamed_change,),
-        pr_identities=identities,
+        tracked_prs=tracked_prs,
     )
 
     assert resolutions[0].branch == "jj-stack/fix-cache-invalidation-zvlywqkx"
@@ -113,16 +117,21 @@ def test_pr_branch_resolution_rejects_new_branch_claimed_by_another_stack() -> N
     new_change_id = "abcdefgh-two"
     branch = "jj-stack/shared-abcdefgh"
 
-    identities = {existing_change_id: make_pr_identity(head_ref=branch)}
+    tracked_prs = {
+        existing_change_id: TrackedPR(
+            pr_identity=make_pr_identity(head_ref=branch),
+            submitted_baseline=SubmittedBaseline(commit_id="submitted"),
+        )
+    }
     resolutions = resolve_pr_branches(
         changes=(_change(change_id=new_change_id, description="shared"),),
-        pr_identities=identities,
+        tracked_prs=tracked_prs,
     )
 
     with pytest.raises(CliError, match="Cannot create a pull request on saved PR branch"):
         ensure_new_pr_branches_unclaimed(
             resolutions,
-            identities,
+            tracked_prs,
         )
 
 

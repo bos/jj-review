@@ -80,8 +80,8 @@ def test_list_surfaces_orphaned_pr_after_change_is_abandoned(
     stack = selected_stack(repo)
     orphaned_change_id = stack.changes[0].change_id
     state = TrackingStore.for_repo(repo).load()
-    orphaned_pr_number = state.pr_identities[orphaned_change_id].pr_number
-    orphaned_branch = state.pr_identities[orphaned_change_id].head_ref
+    orphaned_pr_number = state.prs[orphaned_change_id].pr_identity.pr_number
+    orphaned_branch = state.prs[orphaned_change_id].pr_identity.head_ref
 
     run_command(["jj", "abandon", orphaned_change_id], repo)
 
@@ -163,7 +163,7 @@ def test_list_treats_a_visible_submitted_predecessor_as_published(
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     change_id = selected_stack(repo).head.change_id
-    branch = TrackingStore.for_repo(repo).load().pr_identities[change_id].head_ref
+    branch = TrackingStore.for_repo(repo).load().prs[change_id].pr_identity.head_ref
     run_command(["jj", "describe", "-r", change_id, "-m", "feature rewritten"], repo)
     run_command(["jj", "git", "fetch", "--remote", "origin", "--branch", branch], repo)
 

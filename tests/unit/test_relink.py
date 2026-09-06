@@ -13,7 +13,7 @@ from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubBranchRef, GithubPR
-from jj_stack.models.tracking import SubmittedBaseline, TrackingState
+from jj_stack.models.tracking import SubmittedBaseline, TrackedPR, TrackingState
 from tests.support.tracking import make_pr_identity
 
 
@@ -48,13 +48,14 @@ def test_relink_rejects_duplicate_saved_pr_or_branch_claim_in_same_repo() -> Non
         pr_number=1,
     )
     state = TrackingState(
-        pr_identities={
-            "other-change": make_pr_identity(
-                head_ref="jj-stack/manual-feature-feature1",
-                pr_number=2,
-            ),
-        },
-        submitted_baselines={"other-change": SubmittedBaseline(commit_id="other-commit")},
+        prs={
+            "other-change": TrackedPR(
+                pr_identity=make_pr_identity(
+                    head_ref="jj-stack/manual-feature-feature1", pr_number=2
+                ),
+                submitted_baseline=SubmittedBaseline(commit_id="other-commit"),
+            )
+        }
     )
 
     with pytest.raises(CliError, match="already linked"):

@@ -587,19 +587,14 @@ def observe_pr_facts(
     """
 
     item = facts.prs[change_id]
-    tracked = (
-        TrackedPR(
-            change_id=change_id, pr_identity=item.identity, submitted_baseline=item.baseline
-        )
-        if item.identity is not None and item.baseline is not None
-        else None
-    )
+    tracked = item.tracked
     trunk_evidence: TrunkEvidenceKind | None | Unobserved = UNOBSERVED
     trunk_evidence_reason: Message | None = None
     if ancestries is not None and tracked is not None and item.pr is not None:
         trunk_evidence, trunk_evidence_reason = classify_proven_kind(
             ancestries=ancestries,
             candidate=tracked,
+            change_id=change_id,
             pr=item.pr,
         )
     return ChangeObservation(
@@ -707,7 +702,7 @@ def enumerate_orphaned_records(
 
     live_change_ids = {change.change_id for stack in local_stacks for change in stack.changes}
     return tuple(
-        OrphanedRecord(change_id=change_id, pr_identity=pr_identity)
-        for change_id, pr_identity in state.pr_identities.items()
+        OrphanedRecord(change_id=change_id, pr_identity=tracked.pr_identity)
+        for change_id, tracked in state.prs.items()
         if change_id not in live_change_ids
     )

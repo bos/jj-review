@@ -57,6 +57,7 @@ def classify_exact_snapshot(
     *,
     ancestry: CommitAncestry,
     candidate: TrackedPR,
+    change_id: str,
     pr: GithubPR,
 ) -> TrunkEvidence:
     """Classify the repo-wide exact-snapshot gate without lifecycle policy."""
@@ -65,7 +66,7 @@ def classify_exact_snapshot(
         return TrunkEvidence.unproven(
             _ancestry_reason(ancestry, candidate.submitted_baseline.commit_id)
         )
-    mismatch = _snapshot_mismatch(candidate, pr)
+    mismatch = _snapshot_mismatch(candidate, change_id, pr)
     if mismatch is not None:
         return TrunkEvidence.unproven(mismatch, pr_mismatch=True)
     return TrunkEvidence.proven()
@@ -74,12 +75,13 @@ def classify_exact_snapshot(
 def classify_rewritten_result(
     *,
     candidate: TrackedPR,
+    change_id: str,
     merge_result_ancestry: CommitAncestry | None,
     pr: GithubPR,
 ) -> TrunkEvidence:
     """Classify merge-result evidence for one currently selected pull request."""
 
-    mismatch = _snapshot_mismatch(candidate, pr)
+    mismatch = _snapshot_mismatch(candidate, change_id, pr)
     if mismatch is not None:
         return TrunkEvidence.unproven(mismatch, pr_mismatch=True)
     lifecycle = pr.normalize_state().state
@@ -106,6 +108,7 @@ def classify_proven_kind(
     *,
     ancestries: Mapping[str, CommitAncestry],
     candidate: TrackedPR,
+    change_id: str,
     pr: GithubPR,
 ) -> tuple[TrunkEvidenceKind | None, Message]:
     """Classify both proof routes from one previously batched ancestry observation."""
@@ -113,10 +116,12 @@ def classify_proven_kind(
     exact = classify_exact_snapshot(
         ancestry=ancestries[candidate.submitted_baseline.commit_id],
         candidate=candidate,
+        change_id=change_id,
         pr=pr,
     )
     rewritten = classify_rewritten_result(
         candidate=candidate,
+        change_id=change_id,
         merge_result_ancestry=ancestries.get(pr.merge_commit_sha or ""),
         pr=pr,
     )
@@ -135,6 +140,7 @@ def _ancestry_reason(ancestry: CommitAncestry, commit_id: str) -> Message:
 
 def _snapshot_mismatch(
     candidate: TrackedPR,
+    change_id: str,
     pr: GithubPR,
 ) -> Message | None:
     if candidate.matches_snapshot(pr):
@@ -144,6 +150,6 @@ def _snapshot_mismatch(
     if not identity.matches_pr(pr):
         return (
             t"{pr_label} no longer matches the pull request recorded for "
-            t"{ui.change_id(candidate.change_id)}"
+            t"{ui.change_id(change_id)}"
         )
     return t"{pr_label} no longer reports the submitted head"

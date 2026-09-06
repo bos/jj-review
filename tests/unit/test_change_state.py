@@ -39,7 +39,6 @@ from tests.support.tracking import make_pr_identity
 
 _BRANCH = "jj-stack/feature-abcdefgh"
 _TRACKED = TrackedPR(
-    change_id="abcdefghijkl",
     pr_identity=make_pr_identity(head_ref=_BRANCH, pr_number=7),
     submitted_baseline=SubmittedBaseline(commit_id="baseline"),
 )
@@ -67,14 +66,14 @@ def _pr(
 
 def _local(commit_id: str = "baseline", *, divergent: bool = False) -> LocalCommit:
     return make_change(
-        change_id=_TRACKED.change_id, commit_id=commit_id, description="feature\n"
+        change_id="abcdefghijkl", commit_id=commit_id, description="feature\n"
     ).model_copy(update={"divergent": divergent})
 
 
 def _observe(**overrides: Any) -> ChangeObservation:
     local = _local()
     fields: dict[str, Any] = {
-        "change_id": _TRACKED.change_id,
+        "change_id": "abcdefghijkl",
         "tracked": _TRACKED,
         "branch": _BRANCH,
         "remote_name": "origin",

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import jj_stack.ui as ui
 from jj_stack.errors import CliError
 from jj_stack.models.stack import LocalCommit
-from jj_stack.models.tracking import PRIdentity, TrackingState
+from jj_stack.models.tracking import TrackedPR, TrackingState
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace
 
 if TYPE_CHECKING:
@@ -34,11 +34,11 @@ def prepare_visible_pr_snapshots(
 
     visible = jj_client.visible_pr_bookmark_targets()
     claims: dict[str, list[tuple[str, str]]] = {}
-    for tracked_pr in state.tracked_prs():
+    for change_id, tracked_pr in state.prs.items():
         branch = tracked_pr.pr_identity.head_ref
         baseline = tracked_pr.submitted_baseline.commit_id
         if visible.get(branch) == frozenset({baseline}):
-            claims.setdefault(branch, []).append((tracked_pr.change_id, baseline))
+            claims.setdefault(branch, []).append((change_id, baseline))
     exact = {branch: items[0] for branch, items in claims.items() if len(items) == 1}
     jj_client.accept_expected_pr_bookmarks(
         tuple((branch, change_id, commit_id) for branch, (change_id, commit_id) in exact.items())
@@ -48,15 +48,15 @@ def prepare_visible_pr_snapshots(
 def resolve_pr_branches(
     *,
     changes: tuple[LocalCommit, ...],
-    pr_identities: Mapping[str, PRIdentity],
+    tracked_prs: Mapping[str, TrackedPR],
 ) -> tuple[ResolvedPRBranch, ...]:
     """Resolve each branch from its saved identity or initial name."""
 
     resolutions = tuple(
         ResolvedPRBranch(
             branch=(
-                identity.head_ref
-                if (identity := pr_identities.get(change.change_id)) is not None
+                tracked.pr_identity.head_ref
+                if (tracked := tracked_prs.get(change.change_id)) is not None
                 else current_pr_branch_namespace().generate_branch(change)
             ),
             change_id=change.change_id,
@@ -69,15 +69,15 @@ def resolve_pr_branches(
 
 def ensure_new_pr_branches_unclaimed(
     resolutions: tuple[ResolvedPRBranch, ...],
-    pr_identities: Mapping[str, PRIdentity],
+    tracked_prs: Mapping[str, TrackedPR],
 ) -> None:
     saved_by_branch = {
-        identity.head_ref: change_id for change_id, identity in pr_identities.items()
+        tracked.pr_identity.head_ref: change_id for change_id, tracked in tracked_prs.items()
     }
     collisions = tuple(
         resolution.branch
         for resolution in resolutions
-        if resolution.change_id not in pr_identities
+        if resolution.change_id not in tracked_prs
         and resolution.branch in saved_by_branch
         and saved_by_branch[resolution.branch] != resolution.change_id
     )

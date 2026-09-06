@@ -41,7 +41,7 @@ def test_cleanup_removes_closed_pr_after_local_change_is_abandoned(
     assert exit_code == 0
     assert "PR #1" in captured.out
     assert change_id[:8] in captured.out
-    assert change_id not in TrackingStore.for_repo(repo).load().pr_identities
+    assert change_id not in TrackingStore.for_repo(repo).load().prs
     assert not any(
         ref.startswith("refs/heads/jj-stack/") for ref in remote_refs(fake_repo.git_dir)
     )
@@ -86,8 +86,8 @@ def test_cleanup_change_only_removes_leftovers_for_selected_stack(
     state = TrackingStore.for_repo(repo).load()
 
     assert exit_code == 0
-    assert second_change_id not in state.pr_identities
-    assert first_change_id in state.pr_identities
+    assert second_change_id not in state.prs
+    assert first_change_id in state.prs
 
 
 def test_cleanup_pr_selects_a_saved_orphan_and_rejects_an_unlinked_pr(
@@ -104,7 +104,7 @@ def test_cleanup_pr_selects_a_saved_orphan_and_rejects_an_unlinked_pr(
     exit_code = run_main(repo, config_path, "cleanup", "--pull-request", "1")
 
     assert exit_code == 0
-    assert change_id not in TrackingStore.for_repo(repo).load().pr_identities
+    assert change_id not in TrackingStore.for_repo(repo).load().prs
 
     outside = fake_repo.create_pr(
         base_ref="main",
@@ -142,7 +142,7 @@ def test_cleanup_close_finishes_open_and_terminal_orphans(
 
     state_store = TrackingStore.for_repo(repo)
     initial_state = state_store.load()
-    identities = tuple(initial_state.pr_identities[change_id] for change_id in change_ids)
+    identities = tuple(initial_state.prs[change_id].pr_identity for change_id in change_ids)
     fake_repo.prs[identities[1].pr_number].state = "closed"
     merged_pr = fake_repo.prs[identities[2].pr_number]
     merged_pr.state = "closed"
@@ -183,7 +183,7 @@ def test_cleanup_close_finishes_open_and_terminal_orphans(
     assert f"close PR #{identities[0].pr_number}" in applied.out
     assert f"close PR #{identities[1].pr_number}" not in applied.out
     assert f"close PR #{identities[2].pr_number}" not in applied.out
-    assert all(change_id not in refreshed_state.pr_identities for change_id in change_ids)
+    assert all(change_id not in refreshed_state.prs for change_id in change_ids)
     assert all(
         f"refs/heads/{identity.head_ref}" not in remote_refs(fake_repo.git_dir)
         for identity in identities
@@ -202,7 +202,7 @@ def test_cleanup_preserves_a_branch_while_its_closed_dependent_can_be_reopened(
     stack = selected_stack(repo)
     change_ids = tuple(change.change_id for change in stack.changes)
     state_store = TrackingStore.for_repo(repo)
-    identities = tuple(state_store.load().pr_identities[change_id] for change_id in change_ids)
+    identities = tuple(state_store.load().prs[change_id].pr_identity for change_id in change_ids)
     bookmarks = tuple(identity.head_ref for identity in identities)
 
     for pr in fake_repo.prs.values():
@@ -236,7 +236,7 @@ def test_cleanup_preserves_a_branch_while_its_closed_dependent_can_be_reopened(
     assert blocked_exit_code == 1
     assert "GitHub stack #7 still groups this pull request" in normalized_blocked
     assert "jj-stack unstack --stack 7" in normalized_blocked
-    assert all(change_id in state_store.load().pr_identities for change_id in change_ids)
+    assert all(change_id in state_store.load().prs for change_id in change_ids)
     assert all(
         f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir) for bookmark in bookmarks
     )
@@ -263,7 +263,7 @@ def test_cleanup_preserves_a_branch_while_its_closed_dependent_can_be_reopened(
 
     assert apply_exit_code == 0
     assert f"remote branch: delete {bookmarks[0]}@origin" in normalized_applied
-    assert all(change_id not in state_store.load().pr_identities for change_id in change_ids)
+    assert all(change_id not in state_store.load().prs for change_id in change_ids)
     assert all(
         f"refs/heads/{bookmark}" not in remote_refs(fake_repo.git_dir) for bookmark in bookmarks
     )
@@ -281,8 +281,8 @@ def test_cleanup_close_retargets_an_open_dependent_and_frees_its_base_branch(
     )
     state_store = TrackingStore.for_repo(repo)
     state = state_store.load()
-    identity = state.pr_identities[bottom_change_id]
-    dependent = state.pr_identities[top_change_id]
+    identity = state.prs[bottom_change_id].pr_identity
+    dependent = state.prs[top_change_id].pr_identity
     comments_before = issue_comments(fake_repo, identity.pr_number)
     fake_repo.prs[identity.pr_number].state = "closed"
 
@@ -308,10 +308,10 @@ def test_cleanup_close_retargets_an_open_dependent_and_frees_its_base_branch(
 
     assert close_exit_code == 0
     assert (dependent_pr.base_ref, dependent_pr.state) == ("main", "closed")
-    assert top_change_id not in state_store.load().pr_identities
+    assert top_change_id not in state_store.load().prs
 
     assert run_main(repo, config_path, "cleanup") == 0
-    assert state_store.load().pr_identities == {}
+    assert state_store.load().prs == {}
     assert not any(
         ref.startswith("refs/heads/jj-stack/") for ref in remote_refs(fake_repo.git_dir)
     )
@@ -327,7 +327,7 @@ def test_cleanup_preserves_closed_pr_branch_used_as_head_by_another_open_pr(
     change_id = selected_stack(repo).head.change_id
     state_store = TrackingStore.for_repo(repo)
     state = state_store.load()
-    identity = state.pr_identities[change_id]
+    identity = state.prs[change_id].pr_identity
     comments_before = issue_comments(fake_repo, identity.pr_number)
     fake_repo.prs[identity.pr_number].state = "closed"
     competing_pr = fake_repo.create_pr(
@@ -361,11 +361,11 @@ def test_cleanup_stops_later_prs_after_partial_mutation_failure(
     initial_state = state_store.load()
     stack_change_ids = {change.change_id for change in stack.changes}
     ordered_change_ids = tuple(
-        change_id for change_id in initial_state.pr_identities if change_id in stack_change_ids
+        change_id for change_id in initial_state.prs if change_id in stack_change_ids
     )
     blocking_change_id, later_change_id = ordered_change_ids
-    blocking_identity = initial_state.pr_identities[blocking_change_id]
-    later_identity = initial_state.pr_identities[later_change_id]
+    blocking_identity = initial_state.prs[blocking_change_id].pr_identity
+    later_identity = initial_state.prs[later_change_id].pr_identity
     fake_repo.github_stacks = {}
     fake_repo.prs[blocking_identity.pr_number].state = "closed"
     fake_repo.prs[later_identity.pr_number].state = "closed"
@@ -391,8 +391,8 @@ def test_cleanup_stops_later_prs_after_partial_mutation_failure(
 
     assert exit_code == 1
     assert "comment deletion failed" in captured.out
-    assert blocking_change_id in refreshed_state.pr_identities
-    assert later_change_id in refreshed_state.pr_identities
+    assert blocking_change_id in refreshed_state.prs
+    assert later_change_id in refreshed_state.prs
     assert f"refs/heads/{blocking_identity.head_ref}" not in remote_refs(fake_repo.git_dir)
     assert f"refs/heads/{later_identity.head_ref}" in remote_refs(fake_repo.git_dir)
 
@@ -408,7 +408,7 @@ def test_cleanup_preserves_open_orphan_record_and_remote_branch(
     stack = selected_stack(repo)
     change_id = stack.changes[0].change_id
     state_store = TrackingStore.for_repo(repo)
-    bookmark = state_store.load().pr_identities[change_id].head_ref
+    bookmark = state_store.load().prs[change_id].pr_identity.head_ref
 
     run_command(["jj", "abandon", change_id], repo)
     exit_code = run_main(repo, config_path, "cleanup")
@@ -419,8 +419,8 @@ def test_cleanup_preserves_open_orphan_record_and_remote_branch(
     assert exit_code == 0
     assert "  - preserve open orphan" in captured.out
     assert "preserve open orphan" in normalized_output
-    assert change_id in refreshed_state.pr_identities
-    assert refreshed_state.pr_identities[change_id].head_ref == bookmark
+    assert change_id in refreshed_state.prs
+    assert refreshed_state.prs[change_id].pr_identity.head_ref == bookmark
     assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
 
 
@@ -448,7 +448,7 @@ def test_cleanup_removes_overview_comment_for_closed_pr(
 
     assert exit_code == 0
     assert "delete stack overview comment" in captured.out
-    assert change_id not in refreshed_state.pr_identities
+    assert change_id not in refreshed_state.prs
     assert issue_comments(fake_repo, 2) == []
 
 
@@ -468,12 +468,16 @@ def test_cleanup_finishes_closed_prs_whose_branch_was_deleted_or_moved(
     capsys.readouterr()
     moved = selected_stack(repo).head.change_id
     state_store = TrackingStore.for_repo(repo)
-    identities = state_store.load().pr_identities
-    deleted_identity, moved_identity = identities[deleted], identities[moved]
+    tracked_prs = state_store.load().prs
+    deleted_identity = tracked_prs[deleted].pr_identity
+    moved_identity = tracked_prs[moved].pr_identity
     for identity in (deleted_identity, moved_identity):
         fake_repo.prs[identity.pr_number].state = "closed"
     git = ["git", "--git-dir", str(fake_repo.git_dir), "update-ref"]
-    run_command([*git, "-d", f"refs/heads/{deleted_identity.head_ref}"], fake_repo.git_dir.parent)
+    run_command(
+        [*git, "-d", f"refs/heads/{deleted_identity.head_ref}"],
+        fake_repo.git_dir.parent,
+    )
     # GitHub's "Update branch" button and its stack rebase both move a PR head off the
     # submitted commit; here the moved head lands on trunk.
     run_command(
@@ -496,7 +500,7 @@ def test_cleanup_finishes_closed_prs_whose_branch_was_deleted_or_moved(
     assert exit_code == 0
     assert f"forget PR #{deleted_identity.pr_number}" in output
     assert f"delete {moved_identity.head_ref}@origin" in output
-    assert not {deleted, moved} & set(state_store.load().pr_identities)
+    assert not {deleted, moved} & set(state_store.load().prs)
     assert fake_repo.prs[deleted_identity.pr_number].state == "closed"
     assert issue_comments(fake_repo, moved_identity.pr_number) == []
     assert f"refs/heads/{moved_identity.head_ref}" not in remote_refs(fake_repo.git_dir)

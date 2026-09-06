@@ -82,10 +82,10 @@ def replay_lifecycle(
         old_pr = fake_repo.prs[old.pr_number]
         fake_repo.update_pr_state(old_pr, state="closed")
         assert run_cli(("cleanup", head_id)) == 0
-        assert old.change_id not in state_store.load().pr_identities
+        assert old.change_id not in state_store.load().prs
         assert f"refs/heads/{old.branch}" not in remote_refs(fake_repo.git_dir)
         assert run_cli(("submit", head_id)) == 0
-        fresh = state_store.load().pr_identities[old.change_id]
+        fresh = state_store.load().prs[old.change_id].pr_identity
         assert fresh.pr_number != old.pr_number
         assert fake_repo.prs[fresh.pr_number].state == "open"
         assert fake_repo.prs[fresh.pr_number].base_ref == "main"
@@ -136,7 +136,7 @@ def replay_lifecycle(
     for index in range(1, merged_prefix + 1):
         label = initial_label(index)
         submitted = baseline[label]
-        assert submitted.change_id not in state.pr_identities
+        assert submitted.change_id not in state.prs
         assert f"refs/heads/{submitted.branch}" not in refs
         assert fake_repo.prs[submitted.pr_number].merged_at is not None
         _assert_approval_review_preserved(fake_repo, submitted.pr_number, label)
@@ -153,14 +153,14 @@ def replay_lifecycle(
     for index in range(merged_prefix + 1, stack_size + 1):
         label = initial_label(index)
         submitted = baseline[label]
-        assert state.pr_identities[submitted.change_id].pr_number == submitted.pr_number
+        assert state.prs[submitted.change_id].pr_identity.pr_number == submitted.pr_number
         assert fake_repo.prs[submitted.pr_number].state == "open"
         change = jj.resolve_commit(submitted.change_id)
         assert change.parents == (previous_commit,)
         if scenario.template == "direct_merge":
             assert change.commit_id != submitted.remote_target
         assert refs[f"refs/heads/{submitted.branch}"] == change.commit_id
-        assert state.submitted_baselines[submitted.change_id].commit_id == change.commit_id
+        assert state.prs[submitted.change_id].submitted_baseline.commit_id == change.commit_id
         assert fake_repo.prs[submitted.pr_number].base_ref == previous_base
         _assert_approval_review_preserved(fake_repo, submitted.pr_number, label)
         previous_base = submitted.branch
@@ -601,8 +601,8 @@ def _capture_submitted_baseline(
     remote_heads = remote_refs(fake_repo.git_dir)
     baseline: dict[str, SubmittedBaseline] = {}
     for label, change_id in labels_to_change_ids.items():
-        pr_identity = state.pr_identities[change_id]
-        submitted_baseline = state.submitted_baselines[change_id]
+        pr_identity = state.prs[change_id].pr_identity
+        submitted_baseline = state.prs[change_id].submitted_baseline
         branch = pr_identity.head_ref
         pr_number = pr_identity.pr_number
         pr = fake_repo.prs[pr_number]
@@ -835,7 +835,7 @@ def _assert_new_submit_invariants(
 
     for index, label in enumerate(scenario.final_live_labels):
         change = stack.changes[index]
-        pr_identity = state.pr_identities[change.change_id]
+        pr_identity = state.prs[change.change_id].pr_identity
         branch = pr_identity.head_ref
         pr_number = pr_identity.pr_number
         branches_by_label[label] = branch
@@ -850,7 +850,7 @@ def _assert_new_submit_invariants(
         assert pr.merged_at is None
         assert pr.state == "open"
         assert pr.title == subject_for_label(label)
-        assert state.submitted_baselines[change.change_id].commit_id == change.commit_id
+        assert state.prs[change.change_id].submitted_baseline.commit_id == change.commit_id
 
     assert len(fake_repo.prs) == scenario.initial_size
 
@@ -873,7 +873,7 @@ def _assert_successful_submit_invariants(
 
     for index, label in enumerate(invariants.final_live_labels):
         change = changes_by_label[label]
-        pr_identity = state.pr_identities[change.change_id]
+        pr_identity = state.prs[change.change_id].pr_identity
         branch = pr_identity.head_ref
         pr_number = pr_identity.pr_number
         branches_by_label[label] = branch
@@ -896,15 +896,15 @@ def _assert_successful_submit_invariants(
         assert pr.merged_at is None
         assert pr.state == "open"
         assert pr.title == subject_for_label(label)
-        assert state.submitted_baselines[change.change_id].commit_id == change.commit_id
+        assert state.prs[change.change_id].submitted_baseline.commit_id == change.commit_id
 
     if len(expected_base_by_pr_number) >= 2:
         assert tuple(expected_base_by_pr_number) in fake_repo.github_stacks.values()
 
     for label in invariants.orphaned_labels:
         submitted = baseline[label]
-        pr_identity = state.pr_identities[submitted.change_id]
-        submitted_baseline = state.submitted_baselines[submitted.change_id]
+        pr_identity = state.prs[submitted.change_id].pr_identity
+        submitted_baseline = state.prs[submitted.change_id].submitted_baseline
         pr = fake_repo.prs[submitted.pr_number]
         assert submitted.pr_number not in live_pr_numbers
         assert pr_identity == submitted.pr_identity

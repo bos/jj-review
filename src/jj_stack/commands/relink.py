@@ -128,7 +128,7 @@ async def _run_relink_async(
         remote_target = (await github_client.get_branch_targets(branches=(branch,))).get(branch)
     pr_number_label = format_pr_number(pr_number, url=pr.html_url)
     identity = PRIdentity(pr_number=pr_number, head_ref=branch)
-    tracked_pr = state.tracked_pr(change.change_id)
+    tracked_pr = state.prs.get(change.change_id)
     retry = f"jj-stack relink {pr_number} {short_change_id(change.change_id)}"
     # Classify the link as if it were already saved: the pull request must still agree with
     # its branch, and its head must be this change's commit or the commit last submitted.
@@ -136,13 +136,10 @@ async def _run_relink_async(
         ChangeObservation(
             change_id=change.change_id,
             tracked=TrackedPR(
-                change_id=change.change_id,
                 pr_identity=identity,
-                submitted_baseline=(
-                    tracked_pr.submitted_baseline
-                    if tracked_pr is not None
-                    else SubmittedBaseline(commit_id=change.commit_id)
-                ),
+                submitted_baseline=tracked_pr.submitted_baseline
+                if tracked_pr is not None
+                else SubmittedBaseline(commit_id=change.commit_id),
             ),
             branch=branch,
             remote_name=remote.name,
@@ -229,7 +226,7 @@ def _ensure_relinkable_cached_link(
     pr_url: str | None = None,
     state: TrackingState,
 ) -> None:
-    identities = dict(state.pr_identities)
+    identities = {key: tracked.pr_identity for key, tracked in state.prs.items()}
     identities[change_id] = identity
     if change_id in duplicate_pr_claim_change_ids(identities):
         pr_label = format_pr_label(identity.pr_number, url=pr_url)

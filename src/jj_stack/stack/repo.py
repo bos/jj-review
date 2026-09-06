@@ -48,7 +48,7 @@ def observe_repo_paths(
     current_tracked_commit_id = (
         (
             current_working_copy.commit_id
-            if current_working_copy.change_id in state.pr_identities
+            if current_working_copy.change_id in state.prs
             and not current_working_copy.empty
             and bool(current_working_copy.description.strip())
             else current_working_copy.parents[0]
@@ -66,7 +66,7 @@ def observe_repo_paths(
                 commit.commit_id for commit, flags in rows if flags[2]
             ),
             commits=tuple(commit for commit, _flags in rows),
-            tracked_change_ids=frozenset(state.pr_identities),
+            tracked_change_ids=frozenset(state.prs),
             trunk=trunk,
         )
     )

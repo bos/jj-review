@@ -12,12 +12,14 @@ from jj_stack.stack.trunk_evidence import TrunkEvidenceKind
 
 @dataclass(frozen=True, slots=True)
 class FinishPR:
+    change_id: str
     candidate: TrackedPR
     pr: GithubPR
 
 
 @dataclass(frozen=True, slots=True)
 class SkipPRFinish:
+    change_id: str
     candidate: TrackedPR
 
 
@@ -26,6 +28,7 @@ type PRFinishPlan = FinishPR | SkipPRFinish
 
 @dataclass(frozen=True, slots=True)
 class OnTrunkChange:
+    change_id: str
     candidate: TrackedPR
     evidence_kind: TrunkEvidenceKind
     finish: PRFinishPlan
@@ -42,6 +45,7 @@ class ConvergenceActions:
 
 @dataclass(frozen=True, slots=True)
 class AdoptedSurvivor:
+    change_id: str
     candidate: TrackedPR
     local_change: LocalCommit
     remote_commit_id: str

@@ -55,7 +55,7 @@ def prepare_submit_inputs(
                 hint=t"Run {ui.cmd(f'jj-stack submit {short_head}')} without {ui.cmd('--base')}.",
             )
         retry = ui.cmd(f"jj-stack submit --base {short_base} {short_head}")
-        tracked_base = state.tracked_pr(base.change_id)
+        tracked_base = state.prs.get(base.change_id)
         if tracked_base is None:
             raise CliError(
                 t"Base {ui.change_id(base.change_id)} has no submitted PR.",
@@ -72,7 +72,7 @@ def prepare_submit_inputs(
     require_submittable_changes(stack.changes)
     branch_resolutions = resolve_pr_branches(
         changes=stack.changes,
-        pr_identities=state.pr_identities,
+        tracked_prs=state.prs,
     )
     preflight_conflicted_changes(stack.changes)
     preflight_private_commits(client, stack.changes)
@@ -93,9 +93,9 @@ def prepare_submit_inputs(
     )
     submitted_commits = client.query_commits_by_ids(
         tuple(
-            state.submitted_baselines[change.change_id].commit_id
+            state.prs[change.change_id].submitted_baseline.commit_id
             for change in stack.changes
-            if change.change_id in state.submitted_baselines
+            if change.change_id in state.prs
         )
     )
     return PreparedSubmitInputs(
@@ -121,7 +121,7 @@ def confirm_orphaned_pr_snapshots(
 
     candidate_snapshots = {github_stack_pr_snapshot(candidate) for candidate in candidates}
     change_ids_by_snapshot: dict[GithubStackPRSnapshot, list[str]] = {}
-    for tracked in state.tracked_prs():
+    for change_id, tracked in sorted(state.prs.items()):
         # Do not add repository identity to this match. jj-stack operates on one configured
         # repository, and these candidates were observed through its GitHub client. PR number,
         # branch, and submitted commit are the complete proof for this decision.
@@ -131,7 +131,7 @@ def confirm_orphaned_pr_snapshots(
             tracked.submitted_baseline.commit_id,
         )
         if snapshot in candidate_snapshots:
-            change_ids_by_snapshot.setdefault(snapshot, []).append(tracked.change_id)
+            change_ids_by_snapshot.setdefault(snapshot, []).append(change_id)
     if not change_ids_by_snapshot:
         return frozenset()
 

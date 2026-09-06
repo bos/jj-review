@@ -38,7 +38,7 @@ from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import JjClient, UnsupportedStackError
 from jj_stack.models.github import GithubPR, GithubStack
 from jj_stack.models.stack import LocalCommit, LocalStack
-from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
+from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR, TrackingState
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_matches_change
 from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
@@ -154,7 +154,7 @@ def _checkout_saved_stack(
         state=state,
     ).stack
     incomplete = tuple(
-        change for change in stack.changes if state.pr_identities.get(change.change_id) is None
+        change for change in stack.changes if state.prs.get(change.change_id) is None
     )
     if incomplete:
         raise CliError(
@@ -401,7 +401,7 @@ def _save_checkout_tracking(
     # The stack was discovered from the top PR's head, so any changes above the top PR's own
     # change are additions to its branch. Each lower PR's head must be exactly its change's
     # commit, and every branch must name the change it is paired with.
-    replacements: dict[str, tuple[PRIdentity, SubmittedBaseline]] = {}
+    replacements: dict[str, TrackedPR] = {}
     for pr, head_sha, change in zip(prs, pr_heads, changes, strict=True):
         _require_branch_matches_change(branch=pr.head.ref, change=change)
         pr_label = format_pr_label(pr.number, url=pr.html_url)
@@ -417,24 +417,21 @@ def _save_checkout_tracking(
                 t"{pr_label} and branch "
                 t"{ui.bookmark(pr.head.ref)} no longer identify the same commit."
             )
-        replacements[change.change_id] = (
-            PRIdentity(
+        replacements[change.change_id] = TrackedPR(
+            pr_identity=PRIdentity(
                 pr_number=pr.number,
                 head_ref=pr.head.ref,
             ),
-            SubmittedBaseline(commit_id=head_sha),
+            submitted_baseline=SubmittedBaseline(commit_id=head_sha),
         )
     _reject_duplicate_checkout_claims(
-        current=state.pr_identities,
-        replacements={change_id: pair[0] for change_id, pair in replacements.items()},
+        current={change_id: tracked.pr_identity for change_id, tracked in state.prs.items()},
+        replacements={
+            change_id: tracked.pr_identity for change_id, tracked in replacements.items()
+        },
     )
     changed_count = sum(
-        (
-            state.pr_identities.get(change_id),
-            state.submitted_baselines.get(change_id),
-        )
-        != replacement
-        for change_id, replacement in replacements.items()
+        state.prs.get(change_id) != replacement for change_id, replacement in replacements.items()
     )
     if not changed_count:
         return 0
@@ -473,7 +470,7 @@ async def _pick_stack(context: CommandContext) -> CheckoutPickerChoice:
     """Prompt for one local or GitHub stack without holding the operation lock."""
 
     state = context.state_store.load()
-    if not state.pr_identities:
+    if not state.prs:
         local_stacks: list[LocalStack] = []
     else:
         repo_paths = observe_repo_paths(
@@ -568,8 +565,8 @@ def _picker_choices(
     visible_commit_ids: set[str],
 ) -> tuple[CheckoutPickerChoice, ...]:
     saved_by_pr = {
-        identity.pr_number: (change_id, identity)
-        for change_id, identity in state.pr_identities.items()
+        tracked.pr_identity.pr_number: (change_id, tracked.pr_identity)
+        for change_id, tracked in state.prs.items()
     }
     choices: list[CheckoutPickerChoice] = []
     listed_pr_numbers: set[int] = set()
@@ -624,8 +621,8 @@ def _picker_choices(
         )
         listed_pr_numbers.update(numbers)
     for stack in local_stacks:
-        identity = state.pr_identities.get(stack.head.change_id)
-        if identity is not None and identity.pr_number in listed_pr_numbers:
+        tracked = state.prs.get(stack.head.change_id)
+        if tracked is not None and tracked.pr_identity.pr_number in listed_pr_numbers:
             continue
         count = len(stack.changes)
         noun = "change" if count == 1 else "changes"

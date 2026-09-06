@@ -10,7 +10,7 @@ from jj_stack.errors import EXIT_USAGE, CliError
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubBranchRef, GithubPR, GithubRepo
-from jj_stack.models.tracking import PRIdentity, SubmittedBaseline
+from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
 from jj_stack.stack.pr_facts import PRFacts, RepoFacts
 from jj_stack.ui import plain_text
 from tests.support.change_helpers import make_change
@@ -217,12 +217,14 @@ def test_merge_preconditions_name_a_closed_pull_request() -> None:
         repo=repo,
         prs={
             change.change_id: PRFacts(
-                baseline=SubmittedBaseline(commit_id=change.commit_id),
                 open_head_prs=(),
-                identity=identity,
                 local_commits=(change,),
                 pr=closed_pr,
                 remote_pr_branch_target=change.commit_id,
+                tracked=TrackedPR(
+                    pr_identity=identity,
+                    submitted_baseline=SubmittedBaseline(commit_id=change.commit_id),
+                ),
             )
         },
         observed_open_head_prs=True,

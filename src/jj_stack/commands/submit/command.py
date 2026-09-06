@@ -65,7 +65,7 @@ from jj_stack.jj.client import JjClient, PRRefUpdate
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR, GithubRepo, GithubStack
 from jj_stack.models.stack import LocalStack
-from jj_stack.models.tracking import PRIdentity, TrackedPR
+from jj_stack.models.tracking import TrackedPR
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_matches_change
 from jj_stack.stack.github_stack_safety import dissolve_github_stack
 from jj_stack.stack.pr_branches import (
@@ -354,13 +354,13 @@ def _recover_interrupted_first_submissions(
     remote: GitRemote,
     remote_targets: Mapping[str, str],
     resolutions: tuple[ResolvedPRBranch, ...],
-    state_identities: Mapping[str, PRIdentity],
+    tracked_prs: Mapping[str, TrackedPR],
 ) -> tuple[ResolvedPRBranch, ...]:
     """Reuse only one suffix candidate whose Git header records the full change ID."""
 
     candidates_by_change: dict[str, dict[str, str]] = {}
     unresolved = tuple(
-        resolution for resolution in resolutions if resolution.change_id not in state_identities
+        resolution for resolution in resolutions if resolution.change_id not in tracked_prs
     )
     if not unresolved:
         return resolutions
@@ -431,13 +431,11 @@ def _submit_remote_branch_queries(
     *,
     base_branch: str | None,
     resolutions: tuple[ResolvedPRBranch, ...],
-    state_identities: Mapping[str, PRIdentity],
+    tracked_prs: Mapping[str, TrackedPR],
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     exact_branches = tuple(
         dict.fromkeys(
-            resolution.branch
-            for resolution in resolutions
-            if resolution.change_id in state_identities
+            resolution.branch for resolution in resolutions if resolution.change_id in tracked_prs
         )
     )
     if base_branch is not None and base_branch not in exact_branches:
@@ -446,7 +444,7 @@ def _submit_remote_branch_queries(
         dict.fromkeys(
             f"-{short_change_id(resolution.change_id)}"
             for resolution in resolutions
-            if resolution.change_id not in state_identities
+            if resolution.change_id not in tracked_prs
         )
     )
     return exact_branches, recovery_suffixes
@@ -550,7 +548,7 @@ async def run_submit_async(
     stack = prepared_inputs.stack
     state = prepared_inputs.state
     explicit_base = stack.base_parent if options.base_revset is not None else None
-    tracked_base = state.tracked_pr(explicit_base.change_id) if explicit_base else None
+    tracked_base = state.prs.get(explicit_base.change_id) if explicit_base else None
     assert explicit_base is None or tracked_base is not None, (
         "Prepared explicit base requires a tracked PR."
     )
@@ -574,15 +572,14 @@ async def run_submit_async(
     exact_remote_branches, recovery_suffixes = _submit_remote_branch_queries(
         base_branch=base_branch,
         resolutions=branch_resolutions,
-        state_identities=state.pr_identities,
+        tracked_prs=state.prs,
     )
 
     def tracked_by_branch(
         resolutions: tuple[ResolvedPRBranch, ...],
     ) -> dict[str, TrackedPR | None]:
         by_branch = {
-            resolution.branch: state.tracked_pr(resolution.change_id)
-            for resolution in resolutions
+            resolution.branch: state.prs.get(resolution.change_id) for resolution in resolutions
         }
         if tracked_base is not None:
             by_branch[tracked_base.pr_identity.head_ref] = tracked_base
@@ -628,16 +625,16 @@ async def run_submit_async(
                 remote=remote,
                 remote_targets=remote_targets,
                 resolutions=branch_resolutions,
-                state_identities=state.pr_identities,
+                tracked_prs=state.prs,
             )
             ensure_new_pr_branches_unclaimed(
                 branch_resolutions,
-                state.pr_identities,
+                state.prs,
             )
             collisions = tuple(
                 resolution.branch
                 for resolution in branch_resolutions
-                if resolution.change_id not in state.pr_identities
+                if resolution.change_id not in state.prs
                 and not resolution.recovered
                 and resolution.branch in visible_bookmarks
             )

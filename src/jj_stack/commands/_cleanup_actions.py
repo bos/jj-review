@@ -17,7 +17,6 @@ from jj_stack.github.overview_comments import (
 from jj_stack.jj.client import JjClient, PRRefUpdate
 from jj_stack.models.github import GithubIssueComment, GithubPR, GithubStack
 from jj_stack.models.tracking import TrackedPR
-from jj_stack.pr_branch_namespace import pr_branch_matches_change
 from jj_stack.stack.change_state import (
     ChangeState,
     CompetingOpenPR,
@@ -36,16 +35,16 @@ def check_tracked_pr(
     *,
     allowed_states: frozenset[str],
     candidate: TrackedPR,
+    change_id: str,
     observation: RepoFacts,
     preview_detached_dependents: frozenset[int] = frozenset(),
     require_no_dependents: bool = False,
 ) -> tuple[ChangeState | None, CleanupAction | None]:
     """Classify one saved PR and check that it is still the saved one in an allowed state."""
 
-    change_id = candidate.change_id
     pr_identity = candidate.pr_identity
     observed = observation.prs[change_id]
-    if (observed.identity, observed.baseline) != (pr_identity, candidate.submitted_baseline):
+    if observed.tracked != candidate:
         return None, CleanupAction(
             kind="tracking",
             body=t"tracking for {ui.change_id(change_id)} changed while this command ran; "
@@ -227,6 +226,7 @@ def plan_pr_cleanup(
     *,
     allowed_states: frozenset[str],
     candidate: TrackedPR,
+    change_id: str,
     observation: RepoFacts,
     preview_detached_dependents: frozenset[int] = frozenset(),
 ) -> tuple[PRRefUpdate | None, CleanupAction | None]:
@@ -235,13 +235,13 @@ def plan_pr_cleanup(
     state, blocker = check_tracked_pr(
         allowed_states=allowed_states,
         candidate=candidate,
+        change_id=change_id,
         observation=observation,
         preview_detached_dependents=preview_detached_dependents,
         require_no_dependents=True,
     )
     if blocker is not None or state is None:
         return None, blocker
-    change_id = candidate.change_id
     pr_identity = candidate.pr_identity
     branch = pr_identity.head_ref
     if isinstance(state, CompetingOpenPR):
@@ -265,16 +265,6 @@ def plan_pr_cleanup(
             CleanupAction(
                 kind="remote branch",
                 body=t"cannot resolve the configured remote for saved {pr_label}",
-                status="blocked",
-            ),
-        )
-    if not pr_branch_matches_change(branch, change_id):
-        return (
-            None,
-            CleanupAction(
-                kind="tracking",
-                body=t"cannot clean up {ui.bookmark(branch)} because it does not match "
-                t"change {ui.change_id(change_id)}",
                 status="blocked",
             ),
         )

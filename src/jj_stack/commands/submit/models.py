@@ -180,7 +180,7 @@ class SubmitMutationRun:
 
         if self.dry_run:
             return
-        current = self.state.tracked_pr(change_id)
+        current = self.state.prs.get(change_id)
         if current is None:
             self.state = self.state_store.create_pr(
                 change_id,
@@ -188,11 +188,9 @@ class SubmitMutationRun:
                 baseline=baseline,
             )
             return
-        if identity != current.pr_identity:
-            raise RuntimeError(f"PR identity changed during submit for {change_id}.")
         self.state = self.state_store.relink_pr(
             change_id,
-            identity=identity,
+            identity=current.pr_identity,
             baseline=baseline,
         )
 

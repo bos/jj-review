@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
+from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR, TrackingState
 from jj_stack.state.store import TrackingStateError, TrackingStore
 
 CHANGE_ID = "abcdefghijklmno"
@@ -24,34 +24,35 @@ def _identity(
     )
 
 
-def test_store_migrates_schema_five_in_memory_and_persists_on_mutation(
+@pytest.mark.parametrize("version", (5, 6, 7))
+def test_store_migrates_released_schemas_in_memory_and_persists_on_mutation(
     tmp_path: Path,
+    version: int,
 ) -> None:
     state_path = tmp_path / "state.json"
     identity = _identity()
     baseline = SubmittedBaseline(commit_id="abc123")
-    schema_five = {
-        "version": 5,
-        "pr_identities": {
-            CHANGE_ID: identity.model_dump(mode="json")
-            | {
-                "version": 3,
-                "repo_owner": "octocat",
-                "repo_name": "example",
-                "head_owner": "octocat",
-            },
-        },
-        "submitted_baselines": {
-            CHANGE_ID: baseline.model_dump(mode="json") | {"version": 1},
-        },
-    }
-    original = json.dumps(schema_five) + "\n"
+    old_identity = identity.model_dump(mode="json")
+    old_baseline = baseline.model_dump(mode="json")
+    if version < 7:
+        old_identity.update(repo_owner="octocat", repo_name="example", head_owner="octocat")
+    if version == 5:
+        old_identity["version"], old_baseline["version"] = 3, 1
+    original = (
+        json.dumps(
+            {
+                "version": version,
+                "pr_identities": {CHANGE_ID: old_identity},
+                "submitted_baselines": {CHANGE_ID: old_baseline},
+            }
+        )
+        + "\n"
+    )
     state_path.write_text(original, encoding="utf-8")
     store = TrackingStore(state_path)
 
     assert store.load() == TrackingState(
-        pr_identities={CHANGE_ID: identity},
-        submitted_baselines={CHANGE_ID: baseline},
+        prs={CHANGE_ID: TrackedPR(pr_identity=identity, submitted_baseline=baseline)}
     )
     assert state_path.read_text(encoding="utf-8") == original
 
@@ -62,9 +63,15 @@ def test_store_migrates_schema_five_in_memory_and_persists_on_mutation(
     )
 
     rendered = json.loads(state_path.read_text(encoding="utf-8"))
-    assert rendered["version"] == 7
-    assert "version" not in rendered["pr_identities"][CHANGE_ID]
-    assert "version" not in rendered["submitted_baselines"][CHANGE_ID]
+    assert rendered == {
+        "version": 8,
+        "prs": {
+            CHANGE_ID: {
+                "pr_identity": identity.model_dump(mode="json"),
+                "submitted_baseline": {"commit_id": "def456"},
+            }
+        },
+    }
 
 
 def test_atomic_relink_failure_preserves_original_pair(
@@ -153,10 +160,10 @@ def test_store_rejects_invalid_schema_five_without_rewriting(tmp_path: Path) -> 
 
 def test_store_rejects_newer_schema_with_upgrade_guidance(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
-    rendered = '{"version": 8}\n'
+    rendered = '{"version": 9}\n'
     state_path.write_text(rendered, encoding="utf-8")
 
-    with pytest.raises(TrackingStateError, match="newer than supported version 7") as caught:
+    with pytest.raises(TrackingStateError, match="newer than supported version 8") as caught:
         TrackingStore(state_path).load()
 
     assert caught.value.hint is not None
@@ -195,4 +202,4 @@ def test_store_shares_tracking_across_workspaces_for_same_repo(
 
     primary_store.create_pr(CHANGE_ID, identity=identity, baseline=baseline)
 
-    assert secondary_store.load().pr_identities == {CHANGE_ID: identity}
+    assert secondary_store.load() == primary_store.load()

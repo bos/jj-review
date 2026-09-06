@@ -16,7 +16,7 @@ from jj_stack.models.github import GithubPR, GithubRepo, GithubStack
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import (
     PRIdentity,
-    SubmittedBaseline,
+    TrackedPR,
 )
 from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
 from jj_stack.stack.trunk_evidence import CommitAncestry
@@ -26,9 +26,8 @@ from jj_stack.stack.trunk_evidence import CommitAncestry
 class PRFacts:
     """Fresh facts for one change ID; no field decides whether a mutation is safe."""
 
-    baseline: SubmittedBaseline | None
+    tracked: TrackedPR | None
     open_head_prs: tuple[GithubPR, ...]
-    identity: PRIdentity | None
     local_commits: tuple[LocalCommit, ...]
     pr: GithubPR | None
     remote_pr_branch_target: str | None
@@ -81,18 +80,18 @@ async def observe_prs(
     remotes = context.jj_client.list_git_remotes()
     remote = next((item for item in remotes if item.name == remote_name), None)
     state = context.state_store.load()
-    identities = {
-        change_id: state.pr_identities.get(change_id) for change_id in dict.fromkeys(change_ids)
-    }
+    tracked_prs = {change_id: state.prs.get(change_id) for change_id in dict.fromkeys(change_ids)}
     repo = github_client.repo
-    known_identities = tuple(identity for identity in identities.values() if identity is not None)
+    known_identities = tuple(
+        tracked.pr_identity for tracked in tracked_prs.values() if tracked is not None
+    )
     head_refs = tuple(dict.fromkeys(identity.head_ref for identity in known_identities))
     pr_numbers = tuple(dict.fromkeys(identity.pr_number for identity in known_identities))
     if local_commits_snapshot is None:
 
         def observe_local_commits() -> dict[str, tuple[LocalCommit, ...]]:
             prepare_visible_pr_snapshots(jj_client=context.jj_client, state=state)
-            return context.jj_client.query_commits_by_change_ids(tuple(identities))
+            return context.jj_client.query_commits_by_change_ids(tuple(tracked_prs))
 
         local_task = asyncio.create_task(asyncio.to_thread(observe_local_commits))
     else:
@@ -128,16 +127,16 @@ async def observe_prs(
     numbered, by_head, by_base, github_repo, remote_targets = results
     prs = {
         change_id: PRFacts(
-            baseline=state.submitted_baselines.get(change_id),
+            tracked=tracked,
             open_head_prs=(by_head.get(identity.head_ref, ()) if identity is not None else ()),
-            identity=identity,
             local_commits=matches,
             pr=(numbered.get(identity.pr_number) if identity is not None else None),
             remote_pr_branch_target=(
                 remote_targets.get(identity.head_ref) if identity is not None else None
             ),
         )
-        for change_id, identity in identities.items()
+        for change_id, tracked in tracked_prs.items()
+        for identity in (tracked.pr_identity if tracked is not None else None,)
         for matches in (local_commits.get(change_id, ()),)
     }
 
@@ -184,7 +183,7 @@ def classify_observed_commit_ancestries(
             commit_id
             for item in observation.prs.values()
             for commit_id in (
-                item.baseline.commit_id if item.baseline is not None else None,
+                item.tracked.submitted_baseline.commit_id if item.tracked is not None else None,
                 item.pr.merge_commit_sha if item.pr is not None else None,
             )
         ),

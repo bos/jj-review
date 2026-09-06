@@ -17,7 +17,7 @@ same cleanup command.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 
@@ -258,8 +258,8 @@ def _resolve_cleanup_change_ids(
         )
         matches = tuple(
             change_id
-            for change_id, identity in state.pr_identities.items()
-            if identity.pr_number == pr_number
+            for change_id, tracked in state.prs.items()
+            if tracked.pr_identity.pr_number == pr_number
         )
         if len(matches) > 1:
             pr_label = format_pr_label(pr_number, repo=repo)
@@ -283,9 +283,7 @@ def _resolve_cleanup_change_ids(
         revset=revset,
         state=state,
     ).stack
-    return tuple(
-        change.change_id for change in stack.changes if change.change_id in state.pr_identities
-    )
+    return tuple(change.change_id for change in stack.changes if change.change_id in state.prs)
 
 
 async def _run_cleanup_async(
@@ -304,15 +302,13 @@ async def _run_cleanup_async(
             on_action(action)
 
     selected_change_ids = prepared_cleanup.selected_change_ids
-    candidates = tuple(
-        candidate
+    candidates = {
+        change_id: candidate
         for change_id in (
-            prepared_cleanup.state.pr_identities
-            if selected_change_ids is None
-            else selected_change_ids
+            prepared_cleanup.state.prs if selected_change_ids is None else selected_change_ids
         )
-        if (candidate := prepared_cleanup.state.tracked_pr(change_id)) is not None
-    )
+        if (candidate := prepared_cleanup.state.prs.get(change_id)) is not None
+    }
     github_target = prepared_cleanup.github_target
     if isinstance(github_target, GithubTarget) and candidates:
         if github_client is not None:
@@ -335,13 +331,13 @@ async def _run_cleanup_async(
                     record_action=record_action,
                 )
     elif candidates:
-        for candidate in candidates:
+        for change_id, candidate in candidates.items():
             record_action(
                 CleanupAction(
                     kind="tracking",
                     status="blocked",
                     body=t"cannot inspect PR #{candidate.pr_identity.pr_number} for "
-                    t"{ui.change_id(candidate.change_id)} because the GitHub repo "
+                    t"{ui.change_id(change_id)} because the GitHub repo "
                     t"cannot be resolved",
                 )
             )
@@ -351,7 +347,7 @@ async def _run_cleanup_async(
 async def _run_tracked_pr_cleanup_pass(
     *,
     github_client: GithubClient,
-    candidates: tuple[TrackedPR, ...],
+    candidates: Mapping[str, TrackedPR],
     prepared_cleanup: PreparedCleanup,
     preview_detached_dependents: frozenset[int] = frozenset(),
     preview_local_removals: frozenset[str] = frozenset(),
@@ -366,7 +362,7 @@ async def _run_tracked_pr_cleanup_pass(
         raise AssertionError("Tracked PR cleanup requires a configured remote.")
     remote_name = remote.name
     observation = await observe_prs(
-        change_ids=tuple(candidate.change_id for candidate in candidates),
+        change_ids=tuple(candidates),
         context=prepared_cleanup.context,
         github_client=github_client,
         include_dependents=True,
@@ -375,15 +371,16 @@ async def _run_tracked_pr_cleanup_pass(
     )
     preflights: dict[str, CleanupPreflight] = {}
     eligible_pr_numbers: list[int] = []
-    for candidate in candidates:
+    for change_id, candidate in candidates.items():
         preflight = _preflight_tracked_pr_cleanup(
             initial_observation=observation,
             candidate=candidate,
+            change_id=change_id,
             prepared_cleanup=prepared_cleanup,
             preview_detached_dependents=preview_detached_dependents,
             preview_local_removals=preview_local_removals,
         )
-        preflights[candidate.change_id] = preflight
+        preflights[change_id] = preflight
         if preflight[0] is not None:
             eligible_pr_numbers.append(candidate.pr_identity.pr_number)
     trunk_branch = None
@@ -403,11 +400,12 @@ async def _run_tracked_pr_cleanup_pass(
         pr_numbers=tuple(eligible_pr_numbers),
         stacks=stacks,
     )
-    for candidate in candidates:
+    for change_id, candidate in candidates.items():
         stop_after_failure = await _cleanup_tracked_pr(
             github_client=github_client,
-            preflight=preflights[candidate.change_id],
+            preflight=preflights[change_id],
             candidate=candidate,
+            change_id=change_id,
             prepared_cleanup=prepared_cleanup,
             record_action=record_action,
             remote_name=remote_name,
@@ -471,6 +469,7 @@ async def _cleanup_tracked_pr(
     github_client: GithubClient,
     preflight: CleanupPreflight,
     candidate: TrackedPR,
+    change_id: str,
     prepared_cleanup: PreparedCleanup,
     record_action: Callable[[CleanupAction], None],
     remote_name: str,
@@ -519,6 +518,7 @@ async def _cleanup_tracked_pr(
         github_client=github_client,
         pr=pr,
         candidate=candidate,
+        change_id=change_id,
         prepared_cleanup=prepared_cleanup,
         record_action=record_action,
         remote_name=remote_name,
@@ -529,14 +529,16 @@ def _preflight_tracked_pr_cleanup(
     *,
     initial_observation: RepoFacts,
     candidate: TrackedPR,
+    change_id: str,
     prepared_cleanup: PreparedCleanup,
     preview_detached_dependents: frozenset[int],
     preview_local_removals: frozenset[str],
 ) -> CleanupPreflight:
-    local_commits = initial_observation.prs[candidate.change_id].local_commits
+    local_commits = initial_observation.prs[change_id].local_commits
     state, blocker = check_tracked_pr(
         allowed_states=frozenset({"open", "closed", "merged"}),
         candidate=candidate,
+        change_id=change_id,
         observation=initial_observation,
     )
     if blocker is not None:
@@ -563,6 +565,7 @@ def _preflight_tracked_pr_cleanup(
             else frozenset({"closed", "merged"})
         ),
         candidate=candidate,
+        change_id=change_id,
         observation=initial_observation,
         preview_detached_dependents=preview_detached_dependents,
     )
@@ -570,7 +573,7 @@ def _preflight_tracked_pr_cleanup(
         return None, update, blocker
     if (
         pr.state == "merged"
-        and candidate.change_id not in preview_local_removals
+        and change_id not in preview_local_removals
         and any(not commit.immutable for commit in local_commits)
     ):
         pr_label = format_pr_label(pr.number, url=pr.html_url)
@@ -578,8 +581,8 @@ def _preflight_tracked_pr_cleanup(
             kind="tracking",
             status="skipped",
             body=t"preserve merged {pr_label} for "
-            t"{ui.change_id(candidate.change_id)}; run "
-            t"{ui.cmd(f'sync {short_change_id(candidate.change_id)}')} before cleanup",
+            t"{ui.change_id(change_id)}; run "
+            t"{ui.cmd(f'sync {short_change_id(change_id)}')} before cleanup",
         )
         return None, None, action
     return pr, update, None
@@ -592,6 +595,7 @@ async def _apply_tracked_pr_cleanup(
     github_client: GithubClient,
     pr: GithubPR,
     candidate: TrackedPR,
+    change_id: str,
     prepared_cleanup: PreparedCleanup,
     record_action: Callable[[CleanupAction], None],
     remote_name: str,
@@ -622,13 +626,13 @@ async def _apply_tracked_pr_cleanup(
         kind="tracking",
         status="planned" if prepared_cleanup.dry_run else "applied",
         body=t"forget {format_pr_label(pr.number, url=pr.html_url)} for "
-        t"{ui.change_id(candidate.change_id)}",
+        t"{ui.change_id(change_id)}",
     )
     if prepared_cleanup.dry_run:
         record_action(action)
     else:
         prepared_cleanup.context.state_store.retire_pr(
-            candidate.change_id,
+            change_id,
         )
         record_action(action)
     return False
@@ -641,9 +645,9 @@ def _cleanup_needs_remote_context(
     """Whether plain cleanup might need remote or GitHub state beyond local checks."""
 
     return any(
-        change_id in prepared_cleanup.state.submitted_baselines
+        change_id in prepared_cleanup.state.prs
         for change_id in (
-            tuple(prepared_cleanup.state.pr_identities)
+            tuple(prepared_cleanup.state.prs)
             if prepared_cleanup.selected_change_ids is None
             else prepared_cleanup.selected_change_ids
         )

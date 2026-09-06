@@ -71,7 +71,7 @@ def _assert_stack_prs_match_dag(
     bookmarks_by_change: dict[str, str] = {}
     prs_by_change = {}
     for change in stack.changes:
-        identity = state.pr_identities[change.change_id]
+        identity = state.prs[change.change_id].pr_identity
         bookmark = identity.head_ref
         pr_number = identity.pr_number
         bookmarks_by_change[change.change_id] = bookmark
@@ -136,7 +136,7 @@ def test_submit_updates_a_tracked_branch_after_the_prefix_is_renamed(
         extra_config_lines=['branch_prefix = "renamed"'],
     )
     feature = selected_stack(repo).head
-    head_ref = TrackingStore.for_repo(repo).load().pr_identities[feature.change_id].head_ref
+    head_ref = TrackingStore.for_repo(repo).load().prs[feature.change_id].pr_identity.head_ref
     run_command(["jj", "edit", feature.change_id], repo)
     write_file(repo / "feature-1.txt", "feature 1 amended\n")
 
@@ -221,10 +221,10 @@ def test_submit_explicit_base_creates_and_updates_only_the_child_stack(
 
     assert exit_code == 0, (captured.out, captured.err)
     state = TrackingStore.for_repo(repo).load()
-    parent_branch = state.pr_identities[parent_base.change_id].head_ref
+    parent_branch = state.prs[parent_base.change_id].pr_identity.head_ref
     child_changes = selected_stack(repo, child_head.change_id).changes[-child_size:]
     child_pr_numbers = tuple(
-        state.pr_identities[change.change_id].pr_number for change in child_changes
+        state.prs[change.change_id].pr_identity.pr_number for change in child_changes
     )
     assert child_pr_numbers == tuple(range(3, 3 + child_size))
     assert fake_repo.prs[child_pr_numbers[0]].base_ref == parent_branch
@@ -314,7 +314,8 @@ def test_submit_explicit_base_creates_and_updates_only_the_child_stack(
         sibling_state = TrackingStore.for_repo(repo).load()
         sibling_changes = selected_stack(repo, sibling_head.change_id).changes[-2:]
         sibling_pr_numbers = tuple(
-            sibling_state.pr_identities[change.change_id].pr_number for change in sibling_changes
+            sibling_state.prs[change.change_id].pr_identity.pr_number
+            for change in sibling_changes
         )
         assert sibling_pr_numbers == (5, 6)
         assert fake_repo.prs[5].base_ref == parent_branch
@@ -357,7 +358,7 @@ def test_submit_landed_interior_base_requires_the_child_to_move_to_trunk(
     capsys.readouterr()
     state_with_child = TrackingStore.for_repo(repo).load()
     child_pr_numbers = tuple(
-        state_with_child.pr_identities[change.change_id].pr_number
+        state_with_child.prs[change.change_id].pr_identity.pr_number
         for change in (child_bottom, child_head)
     )
     assert child_pr_numbers == (3, 4)
@@ -416,8 +417,8 @@ def test_submit_landed_interior_base_requires_the_child_to_move_to_trunk(
         survivor_pr.head_sha,
         read_remote_ref(fake_repo.git_dir, survivor_pr.head_ref),
         fake_repo.stack_number_for_pr(2),
-        state_after_sync.pr_identities[parent_survivor.change_id],
-        state_after_sync.submitted_baselines[parent_survivor.change_id],
+        state_after_sync.prs[parent_survivor.change_id].pr_identity,
+        state_after_sync.prs[parent_survivor.change_id].submitted_baseline,
     )
     assert survivor_after_sync.parents == (read_remote_ref(fake_repo.git_dir, "main"),)
     assert survivor_pr.base_ref == "main"
@@ -428,9 +429,8 @@ def test_submit_landed_interior_base_requires_the_child_to_move_to_trunk(
         survivor_pr.state,
     ) == survivor_before
     assert fake_repo.github_stacks == stacks_before
-    assert (
-        state_after_sync.pr_identities[parent_survivor.change_id]
-        == (state_before.pr_identities[parent_survivor.change_id])
+    assert state_after_sync.prs[parent_survivor.change_id].pr_identity == (
+        state_before.prs[parent_survivor.change_id].pr_identity
     )
 
     run_command(
@@ -461,10 +461,11 @@ def test_submit_landed_interior_base_requires_the_child_to_move_to_trunk(
     assert parent_stack_number != child_stack_number
     state_after_child_submit = TrackingStore.for_repo(repo).load()
     assert tuple(
-        state_after_child_submit.pr_identities[change.change_id]
+        state_after_child_submit.prs[change.change_id].pr_identity
         for change in (child_bottom, child_head)
     ) == tuple(
-        state_with_child.pr_identities[change.change_id] for change in (child_bottom, child_head)
+        state_with_child.prs[change.change_id].pr_identity
+        for change in (child_bottom, child_head)
     )
     assert (
         survivor_pr.base_ref,
@@ -472,8 +473,8 @@ def test_submit_landed_interior_base_requires_the_child_to_move_to_trunk(
         survivor_pr.head_sha,
         read_remote_ref(fake_repo.git_dir, survivor_pr.head_ref),
         fake_repo.stack_number_for_pr(2),
-        state_after_child_submit.pr_identities[parent_survivor.change_id],
-        state_after_child_submit.submitted_baselines[parent_survivor.change_id],
+        state_after_child_submit.prs[parent_survivor.change_id].pr_identity,
+        state_after_child_submit.prs[parent_survivor.change_id].submitted_baseline,
     ) == survivor_snapshot
 
 
@@ -489,7 +490,7 @@ def test_submit_explicit_base_requires_an_exact_open_parent_pr(
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     parent = selected_stack(repo).head
-    parent_identity = TrackingStore.for_repo(repo).load().pr_identities[parent.change_id]
+    parent_identity = TrackingStore.for_repo(repo).load().prs[parent.change_id].pr_identity
     commit_file(repo, "child 1", "child-1.txt")
     child = selected_stack(repo).head
     if drift == "local":
@@ -528,7 +529,7 @@ def test_submit_explicit_base_requires_an_exact_open_parent_pr(
         assert f"jj-stack submit --base {parent.change_id[:8]} {child.change_id[:8]}" in rendered
     elif drift == "remote":
         branch = parent_identity.head_ref
-        submitted_target = state_before.submitted_baselines[parent.change_id].commit_id
+        submitted_target = state_before.prs[parent.change_id].submitted_baseline.commit_id
         assert "no longer points to the submitted commit" in rendered
         assert f"{branch}@origin" in rendered
         assert (
@@ -588,7 +589,7 @@ def test_submit_github_stack_recovers_lost_create_and_retries_blocked_append(
     assert run_main(repo, config_path, "submit") == EXIT_GITHUB
     assert "jj-stack submit" in capsys.readouterr().err
     assert fake_repo.github_stacks == {1: (1, 2)}
-    assert len(state_store.load().pr_identities) == 2
+    assert len(state_store.load().prs) == 2
 
     top_change_id = selected_stack(repo).changes[-1].change_id
     run_command(
@@ -736,7 +737,7 @@ def test_submit_retargets_stale_pr_bases_before_pushing_reordered_stack(
 
     refreshed_state = TrackingStore.for_repo(repo).load()
     bookmarks_by_subject = {
-        change.subject: refreshed_state.pr_identities[change.change_id].head_ref
+        change.subject: refreshed_state.prs[change.change_id].pr_identity.head_ref
         for change in reordered_stack.changes
     }
     assert all(pr.state == "open" for pr in fake_repo.prs.values())
@@ -829,9 +830,7 @@ def test_submit_stack_preflight_failures_recover_without_persisted_phase(
 
     failure = "none"
     assert run_main(repo, config_path, "submit", reordered_head) == 0
-    assert TrackingStore.for_repo(repo).load().pr_identities.keys() == (
-        state_before.pr_identities.keys()
-    )
+    assert TrackingStore.for_repo(repo).load().prs.keys() == (state_before.prs.keys())
     assert fake_repo.github_stacks == {2: (2, 1)}
 
 
@@ -857,7 +856,7 @@ def test_submit_opens_new_pr_when_middle_change_is_split_in_two(
     assert run_main(repo, config_path, "submit") == 0
     capsys.readouterr()
     initial_state = TrackingStore.for_repo(repo).load()
-    original_middle_pr_number = initial_state.pr_identities[original_middle_change_id].pr_number
+    original_middle_pr_number = initial_state.prs[original_middle_change_id].pr_identity.pr_number
 
     monkeypatch.setenv("EDITOR", "true")
     monkeypatch.setenv("VISUAL", "true")
@@ -877,11 +876,11 @@ def test_submit_opens_new_pr_when_middle_change_is_split_in_two(
 
     refreshed_state = TrackingStore.for_repo(repo).load()
     assert (
-        refreshed_state.pr_identities[original_middle_change_id].pr_number
+        refreshed_state.prs[original_middle_change_id].pr_identity.pr_number
         == original_middle_pr_number
     )
     pr_numbers = {
-        refreshed_state.pr_identities[change.change_id].pr_number
+        refreshed_state.prs[change.change_id].pr_identity.pr_number
         for change in split_stack.changes
     }
     assert len(pr_numbers) == 4
@@ -902,8 +901,8 @@ def test_submit_split_path_rebuilds_selected_github_stack(
     change_ids = [change.change_id for change in selected_stack(repo).changes]
     submitted_state = TrackingStore.for_repo(repo).load()
     deferred_change_id = change_ids[1]
-    deferred_identity = submitted_state.pr_identities[deferred_change_id]
-    deferred_baseline = submitted_state.submitted_baselines[deferred_change_id]
+    deferred_identity = submitted_state.prs[deferred_change_id].pr_identity
+    deferred_baseline = submitted_state.prs[deferred_change_id].submitted_baseline
     deferred_pr = fake_repo.prs[deferred_identity.pr_number]
     shared_base_ref = deferred_pr.base_ref
     deferred_remote_target = read_remote_ref(fake_repo.git_dir, deferred_identity.head_ref)
@@ -934,8 +933,8 @@ def test_submit_split_path_rebuilds_selected_github_stack(
     assert read_remote_ref(fake_repo.git_dir, deferred_identity.head_ref) == (
         deferred_remote_target
     )
-    assert refreshed_state.pr_identities[deferred_change_id] == deferred_identity
-    assert refreshed_state.submitted_baselines[deferred_change_id] == deferred_baseline
+    assert refreshed_state.prs[deferred_change_id].pr_identity == deferred_identity
+    assert refreshed_state.prs[deferred_change_id].submitted_baseline == deferred_baseline
     assert [
         event for event in fake_repo.pr_events if event.pr_number == deferred_identity.pr_number
     ] == deferred_events
@@ -999,7 +998,7 @@ def test_submit_nonmaximal_path_dissolves_grouping_around_orphan(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     bottom, abandoned = selected_stack(repo).changes
     state_before = TrackingStore.for_repo(repo).load()
-    abandoned_identity = state_before.pr_identities[abandoned.change_id]
+    abandoned_identity = state_before.prs[abandoned.change_id].pr_identity
 
     run_command(["jj", "abandon", abandoned.change_id], repo)
     commit_file(repo, "unsubmitted child", "unsubmitted-child.txt")
@@ -1012,7 +1011,7 @@ def test_submit_nonmaximal_path_dissolves_grouping_around_orphan(
     assert tuple(fake_repo.prs) == (1, 2)
     assert fake_repo.prs[abandoned_identity.pr_number].state == "open"
     refreshed_state = TrackingStore.for_repo(repo).load()
-    assert refreshed_state.pr_identities[abandoned.change_id] == abandoned_identity
+    assert refreshed_state.prs[abandoned.change_id].pr_identity == abandoned_identity
 
 
 def test_submit_cross_stack_move_rejects_destination_first_without_mutation(
@@ -1063,7 +1062,7 @@ def test_submit_uses_readable_pr_branch_names(
     assert JjClient(repo).visible_pr_bookmark_targets() == {}
 
     for change, subject in zip(stack.changes, ("feature-1", "feature-2"), strict=True):
-        branch = state.pr_identities[change.change_id].head_ref
+        branch = state.prs[change.change_id].pr_identity.head_ref
         assert branch == f"jj-stack/{subject}-{change.change_id[:8]}"
         assert f"refs/heads/{branch}" in remote_refs(fake_repo.git_dir)
 
@@ -1134,8 +1133,7 @@ def test_submit_invalid_revset_reports_clean_error_without_mutation(
     assert "Error: Revset xporz did not resolve to a visible commit" in captured.err
     assert "jj log --no-graph" not in captured.err
     empty_state = TrackingStore.for_repo(repo).load()
-    assert empty_state.pr_identities == {}
-    assert empty_state.submitted_baselines == {}
+    assert empty_state.prs == {}
     assert set(remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
     assert fake_repo.prs == {}
 
@@ -1161,8 +1159,8 @@ def test_submit_defaults_to_a_described_nonempty_working_copy(
     state = TrackingStore.for_repo(repo).load()
 
     assert exit_code == 0, captured.err
-    assert set(state.pr_identities) == {shared.change_id, selected.change_id}
-    assert committed_path.change_id not in state.pr_identities
+    assert set(state.prs) == {shared.change_id, selected.change_id}
+    assert committed_path.change_id not in state.prs
     assert len(fake_repo.prs) == 2
 
 
@@ -1188,7 +1186,7 @@ def test_submit_refuses_an_undescribed_change_below_the_selected_head(
     assert undescribed.change_id[:8] in captured.err
     assert f"jj describe {undescribed.change_id[:8]}" in " ".join(captured.err.split())
     assert fake_repo.prs == {}
-    assert TrackingStore.for_repo(repo).load().pr_identities == {}
+    assert TrackingStore.for_repo(repo).load().prs == {}
 
 
 def test_submit_blocks_unresolved_conflicted_rebase_without_mutation(
@@ -1219,8 +1217,7 @@ def test_submit_blocks_unresolved_conflicted_rebase_without_mutation(
     assert exit_code == EXIT_CONFLICTS
     assert "unresolved conflicts" in captured.err
     empty_state = TrackingStore.for_repo(repo).load()
-    assert empty_state.pr_identities == {}
-    assert empty_state.submitted_baselines == {}
+    assert empty_state.prs == {}
     assert set(remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
     assert fake_repo.prs == {}
 
@@ -1274,7 +1271,7 @@ def test_submit_describe_reads_files_and_preserves_stack_overview(
     capsys.readouterr()
     refreshed_stack = selected_stack(repo)
     refreshed_state = TrackingStore.for_repo(repo).load()
-    top_pr_number = refreshed_state.pr_identities[refreshed_stack.head.change_id].pr_number
+    top_pr_number = refreshed_state.prs[refreshed_stack.head.change_id].pr_identity.pr_number
 
     assert _overview_comments(fake_repo, 2) == []
     assert _overview_comments(fake_repo, top_pr_number)[0].body == edited_overview
@@ -1364,8 +1361,7 @@ def test_submit_describe_rejects_target_outside_selected_stack_before_mutation(
     assert exit_code == EXIT_USAGE
     assert "--describe target trunk() is not in the selected stack" in captured.err
     empty_state = TrackingStore.for_repo(repo).load()
-    assert empty_state.pr_identities == {}
-    assert empty_state.submitted_baselines == {}
+    assert empty_state.prs == {}
     assert set(remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
     assert fake_repo.prs == {}
     assert issue_comments(fake_repo, 1) == []
@@ -1491,8 +1487,7 @@ def test_submit_describe_with_failure_aborts_before_mutation(
     assert exit_code == 1
     assert "returned invalid JSON" in captured.err
     empty_state = TrackingStore.for_repo(repo).load()
-    assert empty_state.pr_identities == {}
-    assert empty_state.submitted_baselines == {}
+    assert empty_state.prs == {}
     assert set(remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
     assert fake_repo.prs == {}
     assert issue_comments(fake_repo, 1) == []
@@ -1566,20 +1561,20 @@ def test_submit_accepts_a_matching_visible_pr_bookmark(
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     state = TrackingStore.for_repo(repo).load()
-    change_id, identity = next(iter(state.pr_identities.items()))
-    old_commit = state.submitted_baselines[change_id].commit_id
+    change_id, identity = next(iter(state.prs.items()))
+    old_commit = state.prs[change_id].submitted_baseline.commit_id
     if rewrite:
         run_command(["jj", "describe", "-r", change_id, "-m", "feature rewritten"], repo)
     run_command(["jj", "git", "fetch", "--remote", "origin", "--branch", "*"], repo)
     if tracked:
-        run_command(["jj", "bookmark", "track", f"{identity.head_ref}@origin"], repo)
+        run_command(["jj", "bookmark", "track", f"{identity.pr_identity.head_ref}@origin"], repo)
 
-    assert identity.head_ref in JjClient(repo).visible_pr_bookmark_targets()
+    assert identity.pr_identity.head_ref in JjClient(repo).visible_pr_bookmark_targets()
     assert run_main(repo, config_path, "submit", change_id) == 0
     assert "divergent changes are not supported" not in capsys.readouterr().err
 
-    submitted = TrackingStore.for_repo(repo).load().submitted_baselines[change_id].commit_id
-    assert read_remote_ref(fake_repo.git_dir, identity.head_ref) == submitted
+    submitted = TrackingStore.for_repo(repo).load().prs[change_id].submitted_baseline.commit_id
+    assert read_remote_ref(fake_repo.git_dir, identity.pr_identity.head_ref) == submitted
     assert (submitted != old_commit) is rewrite
 
 
@@ -1591,16 +1586,18 @@ def test_submit_rejects_a_conflicted_visible_pr_bookmark(
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     state = TrackingStore.for_repo(repo).load()
-    change_id, identity = next(iter(state.pr_identities.items()))
-    old_commit = state.submitted_baselines[change_id].commit_id
+    change_id, identity = next(iter(state.prs.items()))
+    old_commit = state.prs[change_id].submitted_baseline.commit_id
     run_command(["jj", "describe", "-r", change_id, "-m", "feature rewritten"], repo)
     rewritten = selected_stack(repo, change_id).head.commit_id
     run_command(["jj", "git", "fetch", "--remote", "origin", "--branch", "*"], repo)
-    run_command(["jj", "bookmark", "create", identity.head_ref, "-r", rewritten], repo)
+    run_command(
+        ["jj", "bookmark", "create", identity.pr_identity.head_ref, "-r", rewritten], repo
+    )
 
     assert run_main(repo, config_path, "submit", change_id) != 0
     assert "divergent" in capsys.readouterr().err
-    assert read_remote_ref(fake_repo.git_dir, identity.head_ref) == old_commit
+    assert read_remote_ref(fake_repo.git_dir, identity.pr_identity.head_ref) == old_commit
 
 
 def test_submit_rejects_divergence_kept_immutable_by_another_remote_bookmark(
@@ -1611,8 +1608,8 @@ def test_submit_rejects_divergence_kept_immutable_by_another_remote_bookmark(
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     state = TrackingStore.for_repo(repo).load()
-    change_id = next(iter(state.pr_identities))
-    baseline = state.submitted_baselines[change_id].commit_id
+    change_id = next(iter(state.prs))
+    baseline = state.prs[change_id].submitted_baseline.commit_id
     run_command(["jj", "describe", "-r", change_id, "-m", "feature rewritten"], repo)
     run_command(
         [
@@ -1682,14 +1679,16 @@ def test_submit_keeps_one_revision_history_comment_per_pull_request(
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     state = TrackingStore.for_repo(repo).load()
-    change_id = next(iter(state.pr_identities))
-    first_commit = state.submitted_baselines[change_id].commit_id
+    change_id = next(iter(state.prs))
+    first_commit = state.prs[change_id].submitted_baseline.commit_id
     assert _revision_history_comments(fake_repo, 1) == []
 
     run_command(["jj", "describe", "-r", change_id, "-m", "feature revision 2"], repo)
     assert run_main(repo, config_path, "submit", change_id) == 0
     capsys.readouterr()
-    second_commit = TrackingStore.for_repo(repo).load().submitted_baselines[change_id].commit_id
+    second_commit = (
+        TrackingStore.for_repo(repo).load().prs[change_id].submitted_baseline.commit_id
+    )
     first_comments = _revision_history_comments(fake_repo, 1)
     assert len(first_comments) == 1
     assert f"/compare/{first_commit}..{second_commit}" in first_comments[0].body
@@ -1697,7 +1696,7 @@ def test_submit_keeps_one_revision_history_comment_per_pull_request(
     run_command(["jj", "describe", "-r", change_id, "-m", "feature revision 3"], repo)
     assert run_main(repo, config_path, "submit", change_id) == 0
     capsys.readouterr()
-    third_commit = TrackingStore.for_repo(repo).load().submitted_baselines[change_id].commit_id
+    third_commit = TrackingStore.for_repo(repo).load().prs[change_id].submitted_baseline.commit_id
     comments = _revision_history_comments(fake_repo, 1)
 
     assert len(comments) == 1
@@ -1792,7 +1791,7 @@ def test_submit_refreshes_unchanged_pr_text_and_preserves_github_edits(
 
     stack = selected_stack(repo)
     change_id = stack.changes[-1].change_id
-    identity = TrackingStore.for_repo(repo).load().pr_identities[change_id]
+    identity = TrackingStore.for_repo(repo).load().prs[change_id].pr_identity
     bookmark = identity.head_ref
     pr_number = identity.pr_number
     assert fake_repo.prs[pr_number].title == "feature 1"
@@ -1869,7 +1868,7 @@ def test_submit_rerun_recovers_after_lost_remote_update_response(
 
     stack = selected_stack(repo)
     change_id = stack.changes[-1].change_id
-    identity = TrackingStore.for_repo(repo).load().pr_identities[change_id]
+    identity = TrackingStore.for_repo(repo).load().prs[change_id].pr_identity
     bookmark = identity.head_ref
     pr_number = identity.pr_number
 
@@ -1925,7 +1924,7 @@ def test_submit_requires_relink_after_state_loss(
     stack = selected_stack(repo)
     change_id = stack.changes[-1].change_id
     state_store = TrackingStore.for_repo(repo)
-    identity = state_store.load().pr_identities[change_id]
+    identity = state_store.load().prs[change_id].pr_identity
     bookmark = identity.head_ref
     pr_number = identity.pr_number
 
@@ -1953,8 +1952,8 @@ def test_submit_requires_relink_after_state_loss(
     assert exit_code == 0
     assert "PR #1 updated" in captured.out
     assert set(fake_repo.prs) == {pr_number}
-    assert rewritten_state.pr_identities[change_id].head_ref == bookmark
-    assert rewritten_state.pr_identities[change_id].pr_number == pr_number
+    assert rewritten_state.prs[change_id].pr_identity.head_ref == bookmark
+    assert rewritten_state.prs[change_id].pr_identity.pr_number == pr_number
     assert read_remote_ref(fake_repo.git_dir, bookmark) == rewritten_stack.changes[-1].commit_id
     assert fake_repo.prs[pr_number].title == "feature 1 renamed"
 
@@ -1998,7 +1997,7 @@ def test_submit_fails_closed_when_cached_pr_is_missing_on_github(
     change_id = stack.changes[-1].change_id
     state_store = TrackingStore.for_repo(repo)
     initial_state = state_store.load()
-    bookmark = initial_state.pr_identities[change_id].head_ref
+    bookmark = initial_state.prs[change_id].pr_identity.head_ref
     initial_remote_target = read_remote_ref(fake_repo.git_dir, bookmark)
 
     del fake_repo.prs[1]
@@ -2027,7 +2026,7 @@ def test_submit_fails_closed_when_github_reports_multiple_prs(
     change_id = stack.changes[-1].change_id
     state_store = TrackingStore.for_repo(repo)
     initial_state = state_store.load()
-    bookmark = initial_state.pr_identities[change_id].head_ref
+    bookmark = initial_state.prs[change_id].pr_identity.head_ref
     initial_remote_target = read_remote_ref(fake_repo.git_dir, bookmark)
     fake_repo.create_pr(
         base_ref="main",
@@ -2066,8 +2065,8 @@ def test_submit_fails_closed_when_saved_remote_branch_drifted_externally(
     top_change_id = stack.changes[2].change_id
     state_store = TrackingStore.for_repo(repo)
     initial_state = state_store.load()
-    middle_bookmark = initial_state.pr_identities[middle_change_id].head_ref
-    top_target = initial_state.submitted_baselines[top_change_id].commit_id
+    middle_bookmark = initial_state.prs[middle_change_id].pr_identity.head_ref
+    top_target = initial_state.prs[top_change_id].submitted_baseline.commit_id
 
     run_command(
         [
@@ -2136,7 +2135,7 @@ def test_submit_accepts_stack_forked_from_trunk_ancestor(
     captured = capsys.readouterr()
     state = TrackingStore.for_repo(repo).load()
     change_id = stack.changes[-1].change_id
-    bookmark = state.pr_identities[change_id].head_ref
+    bookmark = state.prs[change_id].pr_identity.head_ref
 
     assert exit_code == 0
     assert "Submitted changes:" in captured.out
@@ -2250,10 +2249,9 @@ def test_submit_checkpoints_successful_in_flight_pr_before_failure(
     assert exit_code != 0
 
     state = TrackingStore.for_repo(repo).load()
-    assert state.pr_identities[change_id_1].pr_number == 1
-    assert change_id_1 in state.submitted_baselines
-    assert change_id_2 not in state.pr_identities
-    assert change_id_2 not in state.submitted_baselines
+    assert state.prs[change_id_1].pr_identity.pr_number == 1
+    assert change_id_1 in state.prs
+    assert change_id_2 not in state.prs
     assert len(fake_repo.prs) == 1 and fake_repo.github_stacks == {}
     assert fake_repo.prs[1].title == "feature 1"
     pushed_pr_branch_refs = {
@@ -2316,8 +2314,8 @@ def test_submit_rerun_converges_pr_metadata_after_partial_create_failure(
     assert len(fake_repo.prs) == 1
     # GitHub acknowledged the pull request, so its link must already be saved. An
     # untracked PR of submit's own making would need an explicit relink to repair.
-    assert state_after_failure.pr_identities[change_id].pr_number == 1
-    assert change_id in state_after_failure.submitted_baselines
+    assert state_after_failure.prs[change_id].pr_identity.pr_number == 1
+    assert change_id in state_after_failure.prs
     assert fake_repo.prs[1].requested_reviewers == ["alice"]
     assert fake_repo.prs[1].requested_team_reviewers == ["platform"]
     assert fake_repo.prs[1].labels == []
@@ -2328,7 +2326,7 @@ def test_submit_rerun_converges_pr_metadata_after_partial_create_failure(
 
     state_after_rerun = TrackingStore.for_repo(repo).load()
 
-    assert state_after_rerun.pr_identities[change_id].pr_number == 1
+    assert state_after_rerun.prs[change_id].pr_identity.pr_number == 1
     assert fake_repo.prs[1].requested_reviewers == ["alice"]
     assert fake_repo.prs[1].requested_team_reviewers == ["platform"]
     assert fake_repo.prs[1].labels == ["needs-review"]
@@ -2582,8 +2580,7 @@ def test_submit_edit_malformed_document_aborts_before_mutation(
     assert saved_edit is not None
     Path(saved_edit.group(1)).unlink()
     empty_state = TrackingStore.for_repo(repo).load()
-    assert empty_state.pr_identities == {}
-    assert empty_state.submitted_baselines == {}
+    assert empty_state.prs == {}
     assert set(remote_refs(fake_repo.git_dir)) == {"refs/heads/main"}
     assert fake_repo.prs == {}
 

@@ -41,15 +41,7 @@ def test_checkout_pick_fetches_github_stack_then_adopts_and_edits_selected_chang
     client.fetch_remote(remote="origin")
     run_command(["jj", "bookmark", "create", "main", "-r", "main@origin"], repo)
     assert client.query_commits_by_ids((expected_head.commit_id,)) == ()
-    TrackingStore.for_repo(repo).relink_prs(
-        replacements={
-            change_id: (
-                identity,
-                expected.submitted_baselines[change_id],
-            )
-            for change_id, identity in expected.pr_identities.items()
-        }
-    )
+    TrackingStore.for_repo(repo).relink_prs(replacements=expected.prs)
     capsys.readouterr()
 
     monkeypatch.setattr("sys.stdin", io.StringIO("1\n"))
@@ -93,7 +85,7 @@ def test_checkout_pick_completes_a_partly_local_github_stack(
     run_command(["jj", "bookmark", "create", "main", "-r", "main@origin"], repo)
 
     assert _main(repo, config_path, "checkout", "--pull-request", "1") == 0
-    assert len(TrackingStore.for_repo(repo).load().pr_identities) == 1
+    assert len(TrackingStore.for_repo(repo).load().prs) == 1
     capsys.readouterr()
 
     monkeypatch.setattr("sys.stdin", io.StringIO("1\n"))
@@ -133,15 +125,17 @@ def test_checkout_accepts_a_matching_visible_pr_bookmark(
     config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
     state_store = TrackingStore.for_repo(repo)
     state = state_store.load()
-    change_id, identity = next(iter(state.pr_identities.items()))
+    change_id, identity = next(iter(state.prs.items()))
     resolve_state_path(repo).unlink()
-    run_command(["jj", "bookmark", "create", identity.head_ref, "-r", change_id], repo)
+    run_command(
+        ["jj", "bookmark", "create", identity.pr_identity.head_ref, "-r", change_id], repo
+    )
 
     assert _main(repo, config_path, "checkout", "--pull-request", "1") == 0
 
     assert "Updated local tracking for 1 PR" in capsys.readouterr().out
-    assert state_store.load().pr_identities == state.pr_identities
-    assert set(JjClient(repo).visible_pr_bookmark_targets()) == {identity.head_ref}
+    assert state_store.load().prs == state.prs
+    assert set(JjClient(repo).visible_pr_bookmark_targets()) == {identity.pr_identity.head_ref}
 
 
 def test_checkout_edits_a_lower_pr_with_the_whole_namespace_fetched(
@@ -230,8 +224,8 @@ def test_checkout_imports_a_rewritten_pr_head_beside_the_local_copy(
     assert client.resolve_commit("@").commit_id == remote_head
     assert remote_head[:8] in unwrapped and change.commit_id[:8] in unwrapped
     assert "jj converge -r" in unwrapped
-    baselines = TrackingStore.for_repo(repo).load().submitted_baselines
-    assert baselines[change.change_id].commit_id == remote_head
+    baselines = TrackingStore.for_repo(repo).load().prs
+    assert baselines[change.change_id].submitted_baseline.commit_id == remote_head
 
     run_command(["jj", "abandon", remote_head], repo)
 
@@ -266,8 +260,8 @@ def test_checkout_imports_a_commit_added_to_the_pr_branch_above_the_change(
     assert working_copy.change_id[:8] in unwrapped
     assert "Apply suggestions from code review" in unwrapped
     assert squash in unwrapped
-    baselines = TrackingStore.for_repo(repo).load().submitted_baselines
-    assert baselines[change.change_id].commit_id == added
+    baselines = TrackingStore.for_repo(repo).load().prs
+    assert baselines[change.change_id].submitted_baseline.commit_id == added
 
     run_command([*squash.split(), "--use-destination-message"], repo)
 
@@ -296,7 +290,7 @@ def test_checkout_stops_when_a_lower_pr_branch_moved_off_its_change(
     assert _main(repo, config_path, "checkout", "--pull-request", "2") == 1
 
     assert "jj-stack checkout --pull-request 1" in " ".join(capsys.readouterr().err.split())
-    assert TrackingStore.for_repo(repo).load().pr_identities == {}
+    assert TrackingStore.for_repo(repo).load().prs == {}
 
 
 def test_checkout_pr_rejects_cross_repo_head(
@@ -346,7 +340,7 @@ def test_checkout_rejects_missing_parent_remote_branch_without_partial_tracking(
     config_path = _configure_checkout_environment(monkeypatch, tmp_path, fake_repo)
     state = TrackingStore.for_repo(repo).load()
     stack = selected_stack(repo)
-    bottom_branch = state.pr_identities[stack.changes[0].change_id].head_ref
+    bottom_branch = state.prs[stack.changes[0].change_id].pr_identity.head_ref
     resolve_state_path(repo).unlink()
     run_command(
         [
@@ -364,8 +358,7 @@ def test_checkout_rejects_missing_parent_remote_branch_without_partial_tracking(
 
     assert "no longer identify the same commit" in capsys.readouterr().err
     current = TrackingStore.for_repo(repo).load()
-    assert current.pr_identities == {}
-    assert current.submitted_baselines == {}
+    assert current.prs == {}
 
 
 def test_checkout_reports_up_to_date_and_clears_leftovers_for_an_attached_stack(
@@ -397,7 +390,7 @@ def test_checkout_pick_edits_selected_tracked_stack(
     commit_file(repo, "feature 2", "feature-2.txt")
     assert _main(repo, config_path, "submit") == 0
     feature_2_change_id = selected_stack(repo).head.change_id
-    feature_1_identity = TrackingStore.for_repo(repo).load().pr_identities[feature_1_change_id]
+    feature_1_identity = TrackingStore.for_repo(repo).load().prs[feature_1_change_id].pr_identity
     feature_1_head = fake_repo.ref_target(feature_1_identity.head_ref)
     assert feature_1_head is not None
     run_command(

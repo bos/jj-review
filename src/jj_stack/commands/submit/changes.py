@@ -63,7 +63,7 @@ def prepare_submit_changes(
             # An interrupted first submit left this branch, and its commit's change-ID header
             # already proved it belongs to this change.
             observed_target = UNOBSERVED
-        tracked = state.tracked_pr(change.change_id)
+        tracked = state.prs.get(change.change_id)
         lookup = lookups[resolution.branch]
         change_state = classify(
             ChangeObservation(

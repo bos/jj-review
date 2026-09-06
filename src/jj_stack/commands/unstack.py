@@ -197,7 +197,7 @@ def _resolve_local_github_stack(
     change_ids: list[str] = []
     pr_numbers: list[int] = []
     for change in stack.changes:
-        tracked_pr = state.tracked_pr(change.change_id)
+        tracked_pr = state.prs.get(change.change_id)
         if tracked_pr is None:
             continue
         change_ids.append(change.change_id)
@@ -225,11 +225,12 @@ async def _check_selected_prs(
         raise CliError("Could not inspect the selected pull requests.") from error
 
     for change_id in change_ids:
-        candidate = state.tracked_pr(change_id)
+        candidate = state.prs.get(change_id)
         assert candidate is not None
         _state, blocker = check_tracked_pr(
             allowed_states=frozenset({"open", "closed", "merged"}),
             candidate=candidate,
+            change_id=change_id,
             observation=observation,
         )
         if blocker is not None:
@@ -247,7 +248,7 @@ def _run_local_unstack(
     actions: list[LocalUnstackAction] = []
     forgotten: list[str] = []
     for change in stack.changes:
-        tracked_pr = state.tracked_pr(change.change_id)
+        tracked_pr = state.prs.get(change.change_id)
         if tracked_pr is None:
             continue
         forgotten.append(change.change_id)

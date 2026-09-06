@@ -330,7 +330,7 @@ def prepare_stack_for_status(
         stack=stack,
         state=state,
         status_changes=tuple(
-            PreparedChange(change=change, tracked=state.tracked_pr(change.change_id))
+            PreparedChange(change=change, tracked=state.prs.get(change.change_id))
             for change in stack.changes
         ),
     )

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from jj_stack.models.github import GithubPR
@@ -32,56 +32,11 @@ class SubmittedBaseline(BaseModel):
     commit_id: str
 
 
-class TrackingState(BaseModel):
-    """Validated pull request tracking records."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    version: Literal[7] = 7
-    pr_identities: dict[str, PRIdentity] = Field(default_factory=dict)
-    submitted_baselines: dict[str, SubmittedBaseline] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _require_complete_pairs(self) -> Self:
-        if self.pr_identities.keys() != self.submitted_baselines.keys():
-            raise ValueError("Pull request identities and baselines must have identical keys.")
-        return self
-
-    def tracked_pr(self, change_id: str) -> TrackedPR | None:
-        """Return one tracked pull request, or None when the change is untracked."""
-
-        identity = self.pr_identities.get(change_id)
-        if identity is None:
-            return None
-        return TrackedPR(
-            change_id=change_id,
-            pr_identity=identity,
-            submitted_baseline=self.submitted_baselines[change_id],
-        )
-
-    def tracked_prs(self) -> tuple[TrackedPR, ...]:
-        """Return every tracked pull request in stable change-ID order."""
-
-        return tuple(
-            TrackedPR(
-                change_id=change_id,
-                pr_identity=self.pr_identities[change_id],
-                submitted_baseline=self.submitted_baselines[change_id],
-            )
-            for change_id in sorted(self.pr_identities)
-        )
-
-
 class TrackedPR(BaseModel):
-    """One change whose pull request is tracked by both of its records.
-
-    Commands act on a pull request only when its identity and submitted baseline are both
-    present, so this pairs them once instead of each caller re-checking for the halves.
-    """
+    """The identity and submitted baseline of one tracked pull request."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    change_id: str
     pr_identity: PRIdentity
     submitted_baseline: SubmittedBaseline
 
@@ -91,3 +46,12 @@ class TrackedPR(BaseModel):
         return (
             self.pr_identity.matches_pr(pr) and pr.head.sha == self.submitted_baseline.commit_id
         )
+
+
+class TrackingState(BaseModel):
+    """Complete pull request records keyed by their owning change IDs."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    version: Literal[8] = 8
+    prs: dict[str, TrackedPR] = Field(default_factory=dict)

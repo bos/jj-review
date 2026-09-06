@@ -45,7 +45,7 @@ from jj_stack.ui import Message
 
 @dataclass(frozen=True, slots=True)
 class GlobalConvergencePlan:
-    blocked: tuple[tuple[TrackedPR, Message], ...]
+    blocked: tuple[tuple[str, TrackedPR, Message], ...]
     finishes: tuple[PRFinishPlan, ...]
     sync_change_ids: tuple[str, ...]
 
@@ -71,8 +71,7 @@ async def observe_global_sync(
     """Observe tracked pull requests from tracking toward affected local paths."""
 
     state = context.state_store.load()
-    candidates = state.tracked_prs()
-    change_ids = tuple(candidate.change_id for candidate in candidates)
+    change_ids = tuple(sorted(state.prs))
     prepare_visible_pr_snapshots(
         jj_client=context.jj_client,
         state=state,
@@ -119,19 +118,20 @@ def build_global_convergence_plan(
     facts: GlobalSyncFacts,
     state: TrackingState,
 ) -> GlobalConvergencePlan:
-    blocked: list[tuple[TrackedPR, Message]] = []
+    blocked: list[tuple[str, TrackedPR, Message]] = []
     finishes: list[PRFinishPlan] = []
     heads: list[str] = []
-    tracked_prs = frozenset(identity.pr_number for identity in state.pr_identities.values())
-    for candidate in state.tracked_prs():
+    tracked_prs = frozenset(tracked.pr_identity.pr_number for tracked in state.prs.values())
+    for change_id, candidate in sorted(state.prs.items()):
         reason, finish, candidate_heads = _classify_global_candidate(
+            change_id=change_id,
             candidate=candidate,
             facts=facts,
             tracked_pr_numbers=tracked_prs,
         )
         heads.extend(candidate_heads)
         if reason is not None:
-            blocked.append((candidate, reason))
+            blocked.append((change_id, candidate, reason))
         if finish is not None:
             finishes.append(finish)
     return GlobalConvergencePlan(
@@ -143,15 +143,14 @@ def build_global_convergence_plan(
 
 def _classify_global_candidate(
     *,
+    change_id: str,
     candidate: TrackedPR,
     facts: GlobalSyncFacts,
     tracked_pr_numbers: frozenset[int],
 ) -> tuple[Message | None, PRFinishPlan | None, tuple[str, ...]]:
     ancestry = facts.ancestries[candidate.submitted_baseline.commit_id]
-    state = classify(
-        observe_pr_facts(facts.pr_facts, candidate.change_id, ancestries=facts.ancestries)
-    )
-    heads = _candidate_path_heads(candidate, facts=facts)
+    state = classify(observe_pr_facts(facts.pr_facts, change_id, ancestries=facts.ancestries))
+    heads = _candidate_path_heads(change_id, facts=facts)
     rewritten = isinstance(state, Landed) and state.evidence == "rewritten"
     affected = ancestry == "on_trunk" or rewritten
     if affected:
@@ -197,17 +196,15 @@ def _affected_candidate_plan(
     if stack_reason is not None:
         return stack_reason, None, ()
     finish = (
-        SkipPRFinish(candidate)
+        SkipPRFinish(state.change_id, candidate)
         if state.evidence == "rewritten" or historical or state.pr.state != "open"
-        else FinishPR(candidate, state.pr)
+        else FinishPR(state.change_id, candidate, state.pr)
     )
     return None, finish, ()
 
 
-def _candidate_path_heads(
-    candidate: TrackedPR, *, facts: GlobalSyncFacts
-) -> tuple[str, ...] | None:
-    copies = {commit.commit_id for commit in facts.local_copies[candidate.change_id]}
+def _candidate_path_heads(change_id: str, *, facts: GlobalSyncFacts) -> tuple[str, ...] | None:
+    copies = {commit.commit_id for commit in facts.local_copies[change_id]}
     if not copies:
         return ()
     heads = tuple(

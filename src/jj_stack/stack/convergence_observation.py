@@ -27,13 +27,13 @@ async def complete_sync_observation(
 ) -> tuple[RepoFacts, tuple[GithubStack, ...], bool]:
     state = context.state_store.load()
     selected_prs = {
-        identity.pr_number
+        tracked.pr_identity.pr_number
         for change in selected
-        if (identity := state.pr_identities.get(change.change_id)) is not None
+        if (tracked := state.prs.get(change.change_id)) is not None
     }
     affected = tuple(stack for stack in stacks if not selected_prs.isdisjoint(stack.pr_numbers))
     resource_prs = {number for stack in affected for number in stack.pr_numbers}
-    tracked_prs = {identity.pr_number for identity in state.pr_identities.values()}
+    tracked_prs = {tracked.pr_identity.pr_number for tracked in state.prs.values()}
     if not any(
         _pr_changed(observed, include_remote_target=False)
         for change in selected
@@ -42,8 +42,8 @@ async def complete_sync_observation(
         return initial, (), False
     change_ids = tuple(
         change_id
-        for change_id, identity in state.pr_identities.items()
-        if identity.pr_number in resource_prs and change_id in state.submitted_baselines
+        for change_id, tracked in state.prs.items()
+        if tracked.pr_identity.pr_number in resource_prs
     )
     missing_ids = tuple(change_id for change_id in change_ids if change_id not in initial.prs)
     missing = (
@@ -62,7 +62,9 @@ async def complete_sync_observation(
         **initial.prs,
         **(missing.prs if missing is not None else {}),
     }
-    identities = tuple(item.identity for item in prs.values() if item.identity is not None)
+    identities = tuple(
+        item.tracked.pr_identity for item in prs.values() if item.tracked is not None
+    )
     targets = (
         await github.get_branch_targets(
             branches=tuple(item.head_ref for item in identities),
@@ -77,7 +79,9 @@ async def complete_sync_observation(
             change_id: replace(
                 item,
                 remote_pr_branch_target=(
-                    targets.get(item.identity.head_ref) if item.identity is not None else None
+                    targets.get(item.tracked.pr_identity.head_ref)
+                    if item.tracked is not None
+                    else None
                 ),
             )
             for change_id, item in prs.items()
@@ -140,13 +144,14 @@ def _pr_changed(
     include_remote_target: bool = True,
 ) -> bool:
     pr = observed.pr
-    if (baseline := observed.baseline) is None:
+    if (tracked := observed.tracked) is None:
         return False
     if pr is None:
         return True
+    baseline = tracked.submitted_baseline.commit_id
     return (
         pr.normalize_state().state == "merged"
-        or pr.head.sha != baseline.commit_id
-        or (include_remote_target and observed.remote_pr_branch_target != baseline.commit_id)
+        or pr.head.sha != baseline
+        or (include_remote_target and observed.remote_pr_branch_target != baseline)
         or any(commit.immutable for commit in observed.local_commits)
     )

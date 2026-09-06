@@ -71,13 +71,12 @@ def test_stream_status_falls_back_to_local_data_after_github_abort(monkeypatch) 
         change_id="aaaaaaaa1234",
     )
     state = TrackingState(
-        pr_identities={
-            change.change_id: make_pr_identity(
-                head_ref="jj-stack/feature-1-aaaaaaaa",
-                pr_number=1,
+        prs={
+            change.change_id: TrackedPR(
+                pr_identity=make_pr_identity(head_ref="jj-stack/feature-1-aaaaaaaa", pr_number=1),
+                submitted_baseline=SubmittedBaseline(commit_id=change.commit_id),
             )
-        },
-        submitted_baselines={change.change_id: SubmittedBaseline(commit_id=change.commit_id)},
+        }
     )
     client = _PrepareStatusClient(_stack_for_status(change))
     prepared = prepare_stack_for_status(
@@ -157,7 +156,6 @@ def test_pr_lookup_falls_back_to_exact_remembered_pr_number() -> None:
             description="feature 7\n",
         ),
         tracked=TrackedPR(
-            change_id="feature7change",
             pr_identity=make_pr_identity(head_ref="jj-stack/old-branch", pr_number=7),
             submitted_baseline=SubmittedBaseline(commit_id="old-commit"),
         ),
@@ -203,7 +201,6 @@ def test_pr_lookup_reports_the_saved_pr_when_another_open_pr_uses_its_branch() -
     prepared_change = PreparedChange(
         change=make_change(change_id="change", commit_id="commit", description="feature\n"),
         tracked=TrackedPR(
-            change_id="change",
             pr_identity=make_pr_identity(head_ref="jj-stack/branch", pr_number=155),
             submitted_baseline=SubmittedBaseline(commit_id="commit"),
         ),

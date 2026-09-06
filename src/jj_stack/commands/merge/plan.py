@@ -89,7 +89,7 @@ def _merge_change(
     change: LocalCommit,
     state: TrackingState,
 ) -> MergeChange | None:
-    candidate = state.tracked_pr(change.change_id)
+    candidate = state.prs.get(change.change_id)
     pr = observation.prs[change.change_id].pr
     if candidate is None or pr is None:
         return None
