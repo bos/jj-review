@@ -54,7 +54,7 @@ def test_untracked_status_omits_branch_and_skips_github_discovery(
 
     result = asyncio.run(
         stream_status_async(
-            on_progress=None,
+            on_progress=lambda: None,
             prepared_status=prepared_status,
         )
     )

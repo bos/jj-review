@@ -194,7 +194,7 @@ def emit_action_row(
 
 def _action_presentation(
     status: CleanupActionStatus,
-) -> tuple[str, tuple[str, ...] | None, tuple[str, ...] | None]:
+) -> tuple[str, tuple[str, ...], tuple[str, ...] | None]:
     if status == "applied":
         return (
             "  ✓",
@@ -213,13 +213,11 @@ def _action_presentation(
             ("error heading",),
             ("warning heading",),
         )
-    if status == "skipped":
-        return (
-            "  -",
-            ("hint heading",),
-            None,
-        )
-    return ("  ?", None, None)
+    return (
+        "  -",
+        ("hint heading",),
+        None,
+    )
 
 
 def plan_pr_cleanup(

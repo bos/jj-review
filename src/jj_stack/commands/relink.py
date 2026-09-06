@@ -223,7 +223,7 @@ def _ensure_relinkable_cached_link(
     *,
     change_id: str,
     identity: PRIdentity,
-    pr_url: str | None = None,
+    pr_url: str,
     state: TrackingState,
 ) -> None:
     identities = {key: tracked.pr_identity for key, tracked in state.prs.items()}

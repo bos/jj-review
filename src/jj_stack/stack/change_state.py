@@ -205,7 +205,7 @@ class PRMissing(Stop, _State):
     open_prs_on_branch: tuple[GithubPR, ...]
 
     @property
-    def drift_condition(self) -> DriftCondition | None:
+    def drift_condition(self) -> DriftCondition:
         return "saved_pr_missing"
 
     @property
@@ -227,7 +227,7 @@ class PRMissing(Stop, _State):
 @dataclass(frozen=True, kw_only=True)
 class PRIdentityMismatch(Stop, WithPR):
     @property
-    def drift_condition(self) -> DriftCondition | None:
+    def drift_condition(self) -> DriftCondition:
         return "saved_pr_mismatch"
 
     @property
@@ -247,7 +247,7 @@ class PRAmbiguous(Stop, _State):
     open_prs_on_branch: tuple[GithubPR, ...]
 
     @property
-    def drift_condition(self) -> DriftCondition | None:
+    def drift_condition(self) -> DriftCondition:
         return "pr_ambiguous"
 
     @property
@@ -268,7 +268,7 @@ class CompetingOpenPR(Stop, WithPR):
     competitors: tuple[GithubPR, ...]
 
     @property
-    def drift_condition(self) -> DriftCondition | None:
+    def drift_condition(self) -> DriftCondition:
         return "pr_ambiguous"
 
     @property
@@ -296,7 +296,7 @@ class UntrackedPRExists(Stop, _State):
     open_prs_on_branch: tuple[GithubPR, ...]
 
     @property
-    def drift_condition(self) -> DriftCondition | None:
+    def drift_condition(self) -> DriftCondition:
         return "pr_ambiguous" if len(self.open_prs_on_branch) > 1 else "saved_pr_missing"
 
     @property
@@ -314,7 +314,7 @@ class BranchClaimed(Stop, _State):
     remote_target: str
 
     @property
-    def drift_condition(self) -> DriftCondition | None:
+    def drift_condition(self) -> DriftCondition:
         return "remote_branch_moved"
 
     @property
@@ -332,7 +332,7 @@ class BranchClaimed(Stop, _State):
 @dataclass(frozen=True, kw_only=True)
 class PRHeadMoved(Stop, WithPR):
     @property
-    def drift_condition(self) -> DriftCondition | None:
+    def drift_condition(self) -> DriftCondition:
         return "remote_branch_moved"
 
     @property
@@ -357,7 +357,7 @@ class PRHeadMoved(Stop, WithPR):
 @dataclass(frozen=True, kw_only=True)
 class BranchMissing(Stop, WithPR):
     @property
-    def drift_condition(self) -> DriftCondition | None:
+    def drift_condition(self) -> DriftCondition:
         return "remote_branch_missing"
 
     @property
@@ -382,7 +382,7 @@ class BranchMissing(Stop, WithPR):
 @dataclass(frozen=True, kw_only=True)
 class BranchDisagrees(Stop, WithPR):
     @property
-    def drift_condition(self) -> DriftCondition | None:
+    def drift_condition(self) -> DriftCondition:
         return "remote_branch_moved"
 
     @property

@@ -49,7 +49,7 @@ def _pr(
     number: int = 7,
     state: str = "open",
     head_ref: str = _BRANCH,
-    head_sha: str | None = "baseline",
+    head_sha: str = "baseline",
     queued: bool = False,
 ) -> GithubPR:
     return GithubPR(

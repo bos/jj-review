@@ -60,7 +60,7 @@ async def sync_prs(
     github_client: GithubClient,
     plans: tuple[PRSyncPlan, ...],
     run: SubmitMutationRun,
-    on_progress: Callable[[], None] | None = None,
+    on_progress: Callable[[], None],
 ) -> tuple[SubmittedChange, ...]:
     submitted_changes = await run_bounded_tasks(
         concurrency=DEFAULT_BOUNDED_CONCURRENCY,

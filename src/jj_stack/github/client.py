@@ -875,14 +875,14 @@ class GithubClient:
         *,
         response_name: str,
         tolerate_missing_selections: bool = False,
-        variables: dict[str, object] | None = None,
+        variables: dict[str, object],
     ) -> dict[str, object]:
         response = await self._request(
             "POST",
             "/graphql",
             json={
                 "query": query,
-                "variables": variables or {},
+                "variables": variables,
             },
         )
         payload = self._expect_json_payload(response, response_name=response_name)

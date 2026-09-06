@@ -630,7 +630,7 @@ class FakeGithubRepo:
         *,
         commit_id: str,
         drop_change_id: bool = False,
-        extra_header: str | None = None,
+        extra_header: str,
         message_suffix: str = "",
         parent_commit_id: str,
         tree_id: str | None = None,
@@ -645,8 +645,7 @@ class FakeGithubRepo:
             and not (drop_change_id and line.startswith("change-id "))
         ]
         rewritten_headers.insert(1, f"parent {parent_commit_id}")
-        if extra_header is not None:
-            rewritten_headers.append(extra_header)
+        rewritten_headers.append(extra_header)
         return self._run_backing_git(
             "hash-object",
             "-t",

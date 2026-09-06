@@ -26,13 +26,6 @@ class CommitRenderClient(Protocol):
         stdout_is_tty: bool,
     ) -> Literal["always", "debug", "never"]: ...
 
-    def render_commit_log_lines(
-        self,
-        change: RenderableCommit,
-        *,
-        color_when: Literal["always", "debug", "never"],
-    ) -> tuple[str, ...]: ...
-
     def render_commit_log_blocks(
         self,
         changes: tuple[RenderableCommit, ...],
@@ -90,22 +83,12 @@ def format_pr_label(
 
 
 def render_commit_lines(
+    raw_lines: tuple[str, ...],
     *,
-    client: CommitRenderClient,
-    change: RenderableCommit,
     suffix: ui.Message | None = None,
-    prerendered_lines: tuple[str, ...] | None = None,
 ) -> tuple[ui.Renderable, ...]:
-    """Render one change using the active CLI/UI color policy."""
+    """Add an optional status suffix to a rendered `jj log` block."""
 
-    if prerendered_lines is None:
-        color_when = client.resolve_color_when(
-            cli_color=requested_color_mode(),
-            stdout_is_tty=sys.stdout.isatty(),
-        )
-        raw_lines = client.render_commit_log_lines(change, color_when=color_when)
-    else:
-        raw_lines = prerendered_lines
     lines: list[ui.Renderable] = list(raw_lines)
     if not lines:
         raise AssertionError("Expected `jj log` to render at least one line for a change.")

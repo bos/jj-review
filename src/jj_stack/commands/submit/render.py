@@ -9,7 +9,6 @@ from jj_stack.formatting import (
     render_commit_blocks,
     render_commit_lines,
 )
-from jj_stack.jj.client import JjClient
 
 from .models import SubmitResult, SubmittedChange
 
@@ -27,9 +26,7 @@ def print_submit_result(result: SubmitResult) -> None:
         )
     if not result.changes:
         for line in render_commit_lines(
-            client=client,
-            change=result.trunk,
-            prerendered_lines=prerendered_blocks.get(result.trunk.commit_id),
+            prerendered_blocks[result.trunk.commit_id],
         ):
             console.output(line, soft_wrap=True)
         console.note(
@@ -45,15 +42,12 @@ def print_submit_result(result: SubmitResult) -> None:
         console.output("Submitted changes:")
     for change in reversed(result.changes):
         for line in _render_submit_change_lines(
-            client=client,
-            prerendered_lines=prerendered_blocks.get(change.prepared.change.commit_id),
+            prerendered_lines=prerendered_blocks[change.prepared.change.commit_id],
             change=change,
         ):
             console.output(line, soft_wrap=True)
     for line in render_commit_lines(
-        client=client,
-        change=result.trunk,
-        prerendered_lines=prerendered_blocks.get(result.trunk.commit_id),
+        prerendered_blocks[result.trunk.commit_id],
     ):
         console.output(line, soft_wrap=True)
     if not result.dry_run:
@@ -86,8 +80,7 @@ def print_selected_line(
 
 def _render_submit_change_lines(
     *,
-    client: JjClient,
-    prerendered_lines: tuple[str, ...] | None = None,
+    prerendered_lines: tuple[str, ...],
     change: SubmittedChange,
 ) -> tuple[ui.Renderable, ...]:
     parts: list[ui.Message] = []
@@ -112,8 +105,6 @@ def _render_submit_change_lines(
 
     summary = ui.join(lambda part: part, parts)
     return render_commit_lines(
-        client=client,
-        prerendered_lines=prerendered_lines,
-        change=change.prepared.change,
+        prerendered_lines,
         suffix=summary,
     )

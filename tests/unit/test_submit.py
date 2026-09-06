@@ -86,7 +86,7 @@ def _prepare(
     *,
     branch: str,
     lookup: PRLookup,
-    remote_target: str | None,
+    remote_target: str,
     state: TrackingState,
 ):
     return prepare_submit_changes(
@@ -97,7 +97,7 @@ def _prepare(
             ),
         ),
         lookups={branch: lookup},
-        remote_targets={} if remote_target is None else {branch: remote_target},
+        remote_targets={branch: remote_target},
         remote=_REMOTE,
         stack=_local_stack(change),
         state=state,

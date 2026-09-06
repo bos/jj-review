@@ -4,6 +4,7 @@ import pytest
 
 from jj_stack.commands.submit.github_stack import plan_github_stack
 from jj_stack.errors import CliError, error_hint, error_message
+from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubStack
 from jj_stack.ui import plain_text
 
@@ -101,6 +102,7 @@ def test_github_stack_plan_classifies_selected_membership(
         observed_stacks=observed,
         orphaned_pr_snapshots=frozenset(),
         pr_numbers_requiring_base_update=base_updates,
+        repo=GithubRepoAddress(owner="octo-org", repo="stacked-prs"),
     )
 
     assert plan.action == expected_action
@@ -161,6 +163,7 @@ def test_github_stack_plan_rejects_ambiguous_selected_membership(
             observed_stacks=observed,
             orphaned_pr_snapshots=frozenset(),
             pr_numbers_requiring_base_update=frozenset(),
+            repo=GithubRepoAddress(owner="octo-org", repo="stacked-prs"),
         )
 
     message = plain_text(error_message(caught.value))

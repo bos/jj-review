@@ -289,7 +289,7 @@ def _resolve_cleanup_change_ids(
 async def _run_cleanup_async(
     *,
     github_client: GithubClient | None = None,
-    on_action: Callable[[CleanupAction], None] | None,
+    on_action: Callable[[CleanupAction], None],
     prepared_cleanup: PreparedCleanup,
     preview_detached_dependents: frozenset[int] = frozenset(),
     preview_local_removals: frozenset[str] = frozenset(),
@@ -298,8 +298,7 @@ async def _run_cleanup_async(
 
     def record_action(action: CleanupAction) -> None:
         actions.append(action)
-        if on_action is not None:
-            on_action(action)
+        on_action(action)
 
     selected_change_ids = prepared_cleanup.selected_change_ids
     candidates = {

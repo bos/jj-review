@@ -1,19 +1,14 @@
 from __future__ import annotations
 
 from io import StringIO
-from pathlib import Path
-from types import SimpleNamespace
 
 import jj_stack.commands.view as view_module
 import jj_stack.console as console_module
 import jj_stack.ui as ui_module
-from jj_stack.jj.client import JjClient
 from jj_stack.models.github import GithubBranchRef, GithubPR
-from jj_stack.models.stack import LocalStack
-from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR, TrackingState
+from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
 from jj_stack.stack.change_state import UNOBSERVED, ChangeObservation, classify
 from jj_stack.stack.status import (
-    PreparedStack,
     PRLookup,
     StackStatusChange,
     StatusResult,
@@ -240,13 +235,12 @@ def test_view_summary_does_not_call_tracked_missing_pr_not_submitted() -> None:
 
     lines = _render_lines(
         *view_module.render_status_summary_lines(
-            client=SimpleNamespace(
-                resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
-                render_commit_log_lines=lambda current_change, *, color_when: (
-                    f"○  {current_change.change_id[:8]} {current_change.commit_id[:8]}",
-                    f"│  {current_change.subject}",
-                ),
-            ),
+            prerendered_blocks={
+                change.commit_id: (
+                    f"○  {change.change_id[:8]} {change.commit_id[:8]}",
+                    f"│  {change.subject}",
+                )
+            },
             leading_separator=False,
             result=_status_result(changes=(change,)),
             verbose=False,
@@ -261,33 +255,8 @@ def test_view_summary_does_not_call_tracked_missing_pr_not_submitted() -> None:
 
 
 def test_view_joins_summary_to_base_without_a_dangling_graph_edge() -> None:
-    base = make_change(
-        change_id="trunkchange",
-        commit_id="base-commit",
-        description="base\n",
-    )
-    stack = LocalStack(
-        base_parent=base,
-        head=base,
-        changes=(),
-        selected_revset="@",
-        trunk=base,
-    )
     lines = view_module.render_trunk_status_lines(
-        prepared=PreparedStack(
-            client=JjClient(Path("/repo")),
-            remote=None,
-            remote_error=None,
-            stack=stack,
-            state=TrackingState(),
-            status_changes=(),
-        ),
-        prerendered_blocks={
-            base.commit_id: (
-                "◆  base",
-                "\033[38;5;8m│\033[39m",
-            )
-        },
+        ("◆  base", "\033[38;5;8m│\033[39m"),
     )
 
     assert lines == ("◆  base",)
@@ -307,13 +276,12 @@ def test_view_summary_labels_row_when_pr_lookup_fails() -> None:
 
     lines = _render_lines(
         *view_module.render_status_summary_lines(
-            client=SimpleNamespace(
-                resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
-                render_commit_log_lines=lambda current_change, *, color_when: (
-                    f"○  {current_change.change_id[:8]} {current_change.commit_id[:8]}",
-                    f"│  {current_change.subject}",
-                ),
-            ),
+            prerendered_blocks={
+                change.commit_id: (
+                    f"○  {change.change_id[:8]} {change.commit_id[:8]}",
+                    f"│  {change.subject}",
+                )
+            },
             leading_separator=False,
             result=_status_result(changes=(change,)),
             verbose=False,
@@ -336,13 +304,13 @@ def test_view_summary_truncates_middle_of_long_unsubmitted_sections() -> None:
 
     lines = _render_lines(
         *view_module.render_status_summary_lines(
-            client=SimpleNamespace(
-                resolve_color_when=lambda *, cli_color, stdout_is_tty: "never",
-                render_commit_log_lines=lambda change, *, color_when: (
+            prerendered_blocks={
+                change.commit_id: (
                     f"{change.subject} [{change.change_id[:8]}]",
                     f"body for {change.subject}",
-                ),
-            ),
+                )
+                for change in changes
+            },
             leading_separator=False,
             result=_status_result(changes=changes),
             verbose=False,

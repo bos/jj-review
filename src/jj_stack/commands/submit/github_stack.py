@@ -30,9 +30,9 @@ class GithubStackPlan:
     @property
     def membership_key(
         self,
-    ) -> tuple[str, tuple[tuple[int, tuple[int, ...]], ...] | None]:
+    ) -> tuple[str, tuple[tuple[int, tuple[int, ...]], ...]]:
         stacks = tuple((stack.number, stack.pr_numbers) for stack in self.affected_stacks)
-        return self.action, stacks or None
+        return self.action, stacks
 
 
 def plan_github_stack(
@@ -42,7 +42,7 @@ def plan_github_stack(
     observed_stacks: Sequence[GithubStack],
     orphaned_pr_snapshots: Set[GithubStackPRSnapshot],
     pr_numbers_requiring_base_update: Set[int],
-    repo: GithubRepoAddress | None = None,
+    repo: GithubRepoAddress,
 ) -> GithubStackPlan:
     known_desired = tuple(number for number in desired if number is not None)
     if len(set(known_desired)) != len(known_desired):

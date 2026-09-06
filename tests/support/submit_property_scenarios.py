@@ -687,7 +687,6 @@ def _drift_scenario(
     name: str,
     edit_operations: tuple[StackEditOperation, ...] = (),
     initial_size: int = 3,
-    secondary_drift: DriftOperation | None = None,
 ) -> ExternalDriftScenario:
     model = _model(initial_size)
     for operation in edit_operations:
@@ -701,7 +700,6 @@ def _drift_scenario(
         name=name,
         orphaned_labels=model.orphaned_labels,
         rewritten_initial_labels=model.rewritten_initial_labels,
-        secondary_drift=secondary_drift,
     )
 
 

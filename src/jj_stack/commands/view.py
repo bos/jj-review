@@ -69,7 +69,6 @@ from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.selected import is_change_id_prefix
 from jj_stack.stack.selection import resolve_linked_change_for_pr
 from jj_stack.stack.status import (
-    PreparedStack,
     PreparedStatus,
     StackStatusChange,
     StatusResult,
@@ -255,12 +254,11 @@ def _resolve_status_selector(
     )
 
 
-def _change_id_selector(*, context: CommandContext, value: str | None) -> str | None:
+def _change_id_selector(*, context: CommandContext, value: str) -> str | None:
     """Recognize a bare change ID without misclassifying a bookmark."""
 
     if not is_change_id_prefix(value):
         return None
-    assert value is not None
     try:
         change = context.jj_client.resolve_commit(value)
     except JjCommandError as error:
@@ -443,7 +441,6 @@ def _render_prepared_status(
         )
     _emit_lines(
         render_status_summary_lines(
-            client=prepared_status.prepared.client,
             result=result,
             leading_separator=bool(warning_lines),
             verbose=verbose,
@@ -452,8 +449,7 @@ def _render_prepared_status(
     )
     _emit_lines(
         render_trunk_status_lines(
-            prepared=prepared_status.prepared,
-            prerendered_blocks=prerendered_blocks,
+            prerendered_blocks[prepared_status.prepared.stack.base_parent.commit_id],
         )
     )
     _emit_lines(
@@ -467,11 +463,10 @@ def _render_prepared_status(
 
 def render_status_summary_lines(
     *,
-    client,
     leading_separator: bool,
     result,
     verbose: bool,
-    prerendered_blocks: dict[str, tuple[str, ...]] | None = None,
+    prerendered_blocks: dict[str, tuple[str, ...]],
 ) -> tuple[ui.Renderable, ...]:
     """Render capped submitted and unsubmitted summaries before the trunk row."""
 
@@ -486,7 +481,6 @@ def render_status_summary_lines(
         verbose=verbose,
         renderer=lambda change: _render_summary_change_lines(
             change=change,
-            client=client,
             repo=result.github_repo,
             show_status=False,
             prerendered_blocks=prerendered_blocks,
@@ -502,7 +496,6 @@ def render_status_summary_lines(
         verbose=verbose,
         renderer=lambda change: _render_summary_change_lines(
             change=change,
-            client=client,
             repo=result.github_repo,
             show_status=True,
             prerendered_blocks=prerendered_blocks,
@@ -516,20 +509,11 @@ def render_status_summary_lines(
 
 
 def render_trunk_status_lines(
-    *,
-    prepared: PreparedStack,
-    prerendered_blocks: dict[str, tuple[str, ...]] | None = None,
+    raw_lines: tuple[str, ...],
 ) -> tuple[ui.Renderable, ...]:
     """Render the trunk footer with the user's `jj log` formatting."""
 
-    trunk = prepared.stack.base_parent
-    lines = render_commit_lines(
-        client=prepared.client,
-        change=trunk,
-        prerendered_lines=(
-            prerendered_blocks.get(trunk.commit_id) if prerendered_blocks else None
-        ),
-    )
+    lines = render_commit_lines(raw_lines)
     if len(lines) > 1 and _plain_terminal_text(lines[-1]) in {"|", "│", "┃"}:
         return lines[:-1]
     return lines
@@ -549,9 +533,11 @@ def render_empty_status_lines(
 ) -> tuple[ui.Renderable, ...]:
     """Render the empty-stack footer and explanation."""
 
+    trunk = prepared_status.prepared.stack.base_parent
+    blocks = render_commit_blocks(client=prepared_status.prepared.client, changes=(trunk,))
     return (
         *render_trunk_status_lines(
-            prepared=prepared_status.prepared,
+            blocks[trunk.commit_id],
         ),
         "The selected stack has no changes to show.",
     )
@@ -910,10 +896,9 @@ def _link_advisory_kind(state: ChangeState) -> str | None:
 def _render_summary_change_lines(
     *,
     change: StackStatusChange,
-    client,
     repo: GithubRepoAddress | None,
     show_status: bool,
-    prerendered_blocks: dict[str, tuple[str, ...]] | None = None,
+    prerendered_blocks: dict[str, tuple[str, ...]],
 ) -> tuple[ui.Renderable, ...]:
     """Render one change inside a submitted or unsubmitted summary section."""
 
@@ -921,12 +906,8 @@ def _render_summary_change_lines(
     if not show_status and summary == "not submitted":
         summary = None
     return render_commit_lines(
-        client=client,
-        change=change,
+        prerendered_blocks[change.commit_id],
         suffix=summary,
-        prerendered_lines=(
-            prerendered_blocks.get(change.commit_id) if prerendered_blocks else None
-        ),
     )
 
 

@@ -62,6 +62,7 @@ def test_relink_rejects_duplicate_saved_pr_or_branch_claim_in_same_repo() -> Non
         _ensure_relinkable_cached_link(
             change_id="feature1change",
             identity=identity,
+            pr_url="https://github.test/octo-org/stacked-prs/pull/1",
             state=state,
         )
 

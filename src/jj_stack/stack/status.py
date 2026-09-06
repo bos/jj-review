@@ -215,9 +215,9 @@ def prepare_status(
 def stream_status(
     *,
     prepared_status: PreparedStatus,
-    on_progress: Callable[[], None] | None = None,
+    on_progress: Callable[[], None],
 ) -> StatusResult:
-    """Inspect GitHub state for a prepared stack and optionally report progress."""
+    """Inspect GitHub state for a prepared stack and report progress."""
 
     return asyncio.run(
         stream_status_async(
@@ -229,7 +229,7 @@ def stream_status(
 
 async def stream_status_async(
     *,
-    on_progress: Callable[[], None] | None,
+    on_progress: Callable[[], None],
     prepared_status: PreparedStatus,
 ) -> StatusResult:
     prepared = prepared_status.prepared
@@ -255,9 +255,8 @@ async def stream_status_async(
         )
 
     def stream_local(changes: tuple[StackStatusChange, ...]) -> None:
-        if on_progress is not None:
-            for _change in changes:
-                on_progress()
+        for _change in changes:
+            on_progress()
 
     fallback_changes = tuple(reversed(build_status_changes_for_prepared_stack(prepared)))
     if prepared.remote is None:
@@ -286,8 +285,7 @@ async def stream_status_async(
             remote_name=prepared.remote.name,
         ):
             changes.append(change)
-            if on_progress is not None:
-                on_progress()
+            on_progress()
     except CliError as error:
         github_error = error_message(error)
         logger.debug("status github inspection failed: %s", github_error)
@@ -420,7 +418,7 @@ async def _iter_status_changes_with_github(
 def lookup_pr_lookups(
     *,
     github_repo: GithubRepoAddress,
-    on_progress: Callable[[int], None] | None = None,
+    on_progress: Callable[[int], None],
     prepared_changes: tuple[PreparedChange, ...],
 ) -> dict[str, PRLookup]:
     """Return pull-request lookups for saved branches."""
@@ -437,7 +435,7 @@ def lookup_pr_lookups(
 async def lookup_pr_lookups_async(
     *,
     github_repo: GithubRepoAddress,
-    on_progress: Callable[[int], None] | None = None,
+    on_progress: Callable[[int], None],
     prepared_changes: tuple[PreparedChange, ...],
 ) -> dict[str, PRLookup]:
     """Return pull-request lookups for saved branches."""
@@ -447,7 +445,7 @@ async def lookup_pr_lookups_async(
             github_client=github_client,
             tracked_by_branch=_tracked_by_branch(prepared_changes),
         )
-        if on_progress is not None and pr_lookups:
+        if pr_lookups:
             on_progress(len(pr_lookups))
         return pr_lookups
 
@@ -460,7 +458,7 @@ def _required_branch(change: PreparedChange) -> str:
 
 def _tracked_by_branch(
     prepared_changes: tuple[PreparedChange, ...],
-) -> dict[str, TrackedPR | None]:
+) -> dict[str, TrackedPR]:
     return {
         _required_branch(change): change.tracked
         for change in prepared_changes
