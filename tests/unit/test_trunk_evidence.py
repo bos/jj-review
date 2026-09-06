@@ -36,14 +36,13 @@ def _pr(**updates: object) -> GithubPR:
 @pytest.mark.merge_recovery
 def test_exact_snapshot_evidence_is_identity_and_ancestry_bound() -> None:
     rows = (
-        ("on_trunk", _pr(), True, False),
-        ("not_on_trunk", _pr(), False, False),
-        ("unresolved", _pr(), False, False),
+        ("on_trunk", _pr(), True),
+        ("not_on_trunk", _pr(), False),
+        ("unresolved", _pr(), False),
         (
             "on_trunk",
             _pr(head=GithubBranchRef(ref="other", sha="submitted-1")),
             False,
-            True,
         ),
         (
             "on_trunk",
@@ -55,11 +54,10 @@ def test_exact_snapshot_evidence_is_identity_and_ancestry_bound() -> None:
                 )
             ),
             False,
-            True,
         ),
     )
 
-    for ancestry, pr, on_trunk, pr_mismatch in rows:
+    for ancestry, pr, on_trunk in rows:
         result = classify_exact_snapshot(
             ancestry=ancestry,
             candidate=_candidate(),
@@ -68,7 +66,6 @@ def test_exact_snapshot_evidence_is_identity_and_ancestry_bound() -> None:
         )
 
         assert result.on_trunk is on_trunk
-        assert result.pr_mismatch is pr_mismatch
         # An unproven verdict always explains itself, so no caller has to invent a message.
         assert on_trunk or result.reason is not None
 

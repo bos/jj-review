@@ -1069,7 +1069,7 @@ class JjClient:
         self._initial_working_copy_snapshot_pending = False
         extra_args = () if use_working_copy else ("--ignore-working-copy",)
         return self._run_command(
-            ["jj", *self._cli_args.to_argv(), *cli_args.to_argv(), *extra_args, *args],
+            ["jj", *self._cli_args.argv, *cli_args.argv, *extra_args, *args],
             missing_tool_message=t"{ui.cmd('jj')} is not installed or is not on PATH.",
             detect_stale_workspace=True,
             return_stderr=return_stderr,

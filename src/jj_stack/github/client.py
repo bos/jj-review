@@ -605,30 +605,26 @@ class GithubClient:
         *,
         issue_number: int,
         body: str,
-    ) -> GithubIssueComment:
+    ) -> None:
         response = await self._request(
             "POST",
             f"{self._repo_path}/issues/{issue_number}/comments",
             json={"body": body},
         )
-        return GithubIssueComment.model_validate(
-            self._expect_json_payload(response, response_name="issue comment creation")
-        )
+        _expect_success(response)
 
     async def update_issue_comment(
         self,
         *,
         comment_id: int,
         body: str,
-    ) -> GithubIssueComment:
+    ) -> None:
         response = await self._request(
             "PATCH",
             f"{self._repo_path}/issues/comments/{comment_id}",
             json={"body": body},
         )
-        return GithubIssueComment.model_validate(
-            self._expect_json_payload(response, response_name="issue comment update")
-        )
+        _expect_success(response)
 
     async def delete_issue_comment(
         self,

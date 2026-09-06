@@ -83,7 +83,7 @@ def load_semantic_styles(
         completed = subprocess.run(
             [
                 "jj",
-                *cli_args.to_argv(),
+                *cli_args.argv,
                 "--ignore-working-copy",
                 "config",
                 "list",

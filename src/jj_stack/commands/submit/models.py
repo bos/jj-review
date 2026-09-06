@@ -178,8 +178,6 @@ class SubmitMutationRun:
     ) -> None:
         """Save one GitHub-acknowledged PR snapshot."""
 
-        if self.dry_run:
-            return
         current = self.state.prs.get(change_id)
         if current is None:
             self.state = self.state_store.create_pr(

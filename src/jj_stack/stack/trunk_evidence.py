@@ -25,15 +25,11 @@ TrunkEvidenceKind = Literal["exact", "rewritten"]
 class TrunkEvidence:
     """Whether one pull request's work is proven to be on trunk, and why not when it is not.
 
-    Callers only ever ask whether the work is proven and, failing that, what to tell the user, so
-    an unproven verdict always carries a reason. `pr_mismatch` marks the one distinction a
-    caller draws beyond that: the saved pull request identity no longer describes the live pull
-    request, which is a tracking problem rather than a question about trunk.
+    An unproven verdict always carries a reason to report to the user.
     """
 
     on_trunk: bool
     reason: Message | None = None
-    pr_mismatch: bool = False
 
     @classmethod
     def proven(cls) -> TrunkEvidence:
@@ -43,13 +39,10 @@ class TrunkEvidence:
     def unproven(
         cls,
         reason: Message,
-        *,
-        pr_mismatch: bool = False,
     ) -> TrunkEvidence:
         return cls(
             on_trunk=False,
             reason=reason,
-            pr_mismatch=pr_mismatch,
         )
 
 
@@ -68,7 +61,7 @@ def classify_exact_snapshot(
         )
     mismatch = _snapshot_mismatch(candidate, change_id, pr)
     if mismatch is not None:
-        return TrunkEvidence.unproven(mismatch, pr_mismatch=True)
+        return TrunkEvidence.unproven(mismatch)
     return TrunkEvidence.proven()
 
 
@@ -83,7 +76,7 @@ def classify_rewritten_result(
 
     mismatch = _snapshot_mismatch(candidate, change_id, pr)
     if mismatch is not None:
-        return TrunkEvidence.unproven(mismatch, pr_mismatch=True)
+        return TrunkEvidence.unproven(mismatch)
     lifecycle = pr.normalize_state().state
     pr_label = format_pr_label(pr.number, url=pr.html_url)
     if lifecycle != "merged":

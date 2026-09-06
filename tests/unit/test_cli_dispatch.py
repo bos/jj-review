@@ -57,7 +57,7 @@ def test_config_overrides_preserve_argv_order_across_the_subcommand(
         ]
     )
 
-    assert cli_args.to_argv() == (
+    assert cli_args.argv == (
         "--config-file",
         str(file_a),
         "--config",
@@ -78,7 +78,7 @@ def test_config_file_paths_resolve_against_current_directory(
 
     cli_args, _ = _extract_config_overrides(["--config-file", "jjr.toml", "view"])
 
-    assert cli_args.to_argv() == ("--config-file", str(config_file.resolve()))
+    assert cli_args.argv == ("--config-file", str(config_file.resolve()))
 
 
 def test_config_overrides_leave_malformed_flag_for_argparse_to_report() -> None:
@@ -89,7 +89,7 @@ def test_config_overrides_leave_malformed_flag_for_argparse_to_report() -> None:
 
     cli_args, remaining = _extract_config_overrides(["--config", "--repository", ".", "view"])
 
-    assert cli_args.to_argv() == ()
+    assert cli_args.argv == ()
     assert remaining == ["--config", "--repository", ".", "view"]
 
 
@@ -98,7 +98,7 @@ def test_config_overrides_stop_at_end_of_options_marker() -> None:
 
     cli_args, remaining = _extract_config_overrides(["view", "--", "--config", "x=1"])
 
-    assert cli_args.to_argv() == ()
+    assert cli_args.argv == ()
     assert remaining == ["view", "--", "--config", "x=1"]
 
 

@@ -119,16 +119,16 @@ async def _sync_overview_comment(
     existing_comment: GithubIssueComment | None,
     github_client: GithubClient,
     pr_number: int,
-) -> GithubIssueComment | None:
+) -> None:
     if comment_body is None:
         if existing_comment is None:
-            return None
+            return
         await delete_stack_overview_comment(
             comment_id=existing_comment.id,
             github_client=github_client,
         )
-        return None
-    return await upsert_managed_comment(
+        return
+    await upsert_managed_comment(
         body=comment_body,
         existing_comment=existing_comment,
         github_client=github_client,
@@ -138,11 +138,8 @@ async def _sync_overview_comment(
 
 
 def _render_generated_stack_description(
-    stack_description: GeneratedDescription | None,
+    stack_description: GeneratedDescription,
 ) -> list[str]:
-    if stack_description is None:
-        return []
-
     lines: list[str] = []
     if stack_description.title:
         lines.append(f"## {stack_description.title}")

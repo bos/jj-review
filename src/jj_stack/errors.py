@@ -136,7 +136,6 @@ type DriftCondition = Literal[
     "pr_not_open",
     "remote_branch_missing",
     "remote_branch_moved",
-    "remote_trunk_moved",
     "saved_pr_mismatch",
     "saved_pr_missing",
 ]

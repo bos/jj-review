@@ -15,20 +15,21 @@ async def upsert_managed_comment(
     github_client: GithubClient,
     label: str,
     pr_number: int,
-) -> GithubIssueComment:
+) -> None:
     if existing_comment is not None and existing_comment.body == body:
-        return existing_comment
+        return
     action = "create" if existing_comment is None else "update"
     try:
         if existing_comment is None:
-            return await github_client.create_issue_comment(
+            await github_client.create_issue_comment(
                 issue_number=pr_number,
                 body=body,
             )
-        return await github_client.update_issue_comment(
-            comment_id=existing_comment.id,
-            body=body,
-        )
+        else:
+            await github_client.update_issue_comment(
+                comment_id=existing_comment.id,
+                body=body,
+            )
     except GithubClientError as error:
         article = "a " if action == "create" else ""
         pr_label = format_pr_number(pr_number, repo=github_client.repo)

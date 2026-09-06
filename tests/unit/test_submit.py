@@ -56,7 +56,7 @@ def test_overview_comment_move_keeps_source_when_head_creation_fails() -> None:
             *,
             issue_number: int,
             body: str,
-        ) -> GithubIssueComment:
+        ) -> None:
             assert issue_number == 2
             assert body == source_comment.body
             raise GithubClientError("create failed")

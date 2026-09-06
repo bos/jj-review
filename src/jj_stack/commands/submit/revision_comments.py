@@ -53,16 +53,14 @@ async def _sync_revision_history_comment(
     revisions: tuple[GithubPRRevision, ...],
     github_client: GithubClient,
     pr_number: int,
-) -> GithubIssueComment | None:
+) -> None:
     if not revisions:
-        return existing_comment
+        return
     body = _revision_history_body(
         revisions=revisions,
         repo_full_name=github_client.repo.full_name,
     )
-    if body is None:
-        return existing_comment
-    return await upsert_managed_comment(
+    await upsert_managed_comment(
         body=body,
         existing_comment=existing_comment,
         github_client=github_client,
@@ -105,10 +103,8 @@ def _revision_history_body(
     *,
     revisions: tuple[GithubPRRevision, ...],
     repo_full_name: str,
-) -> str | None:
+) -> str:
     revisions = revisions[-REVISION_HISTORY_VERSION_LIMIT:]
-    if not revisions:
-        return None
     repo_url = f"https://github.com/{repo_full_name}"
     rows = [
         REVISION_HISTORY_COMMENT_MARKER,

@@ -66,8 +66,7 @@ def saved_pr_json(
 ) -> dict[str, object] | None:
     if pr_identity is None:
         return None
-    payload = _json_object({"number": pr_identity.pr_number})
-    return payload or None
+    return {"number": pr_identity.pr_number}
 
 
 _FLAT_STATUS: dict[type, str] = {

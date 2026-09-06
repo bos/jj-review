@@ -98,12 +98,7 @@ def _render_submit_change_lines(
             parts.append("pushed")
 
     if change.pr_number is None:
-        if change.pr_action == "created":
-            parts.append("new PR")
-        elif change.pr_action == "updated":
-            parts.append("PR updated")
-        else:
-            parts.append("PR unchanged")
+        parts.append("new PR")
     else:
         label = format_pr_label(
             change.pr_number,

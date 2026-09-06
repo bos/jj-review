@@ -18,6 +18,3 @@ class JjCliArgs:
     """
 
     argv: tuple[str, ...] = ()
-
-    def to_argv(self) -> tuple[str, ...]:
-        return self.argv

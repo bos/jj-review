@@ -789,7 +789,7 @@ def _load_configured_jj_color(
     cwd = repo if repo is not None and repo.exists() and repo.is_dir() else Path.cwd()
     try:
         completed = subprocess.run(
-            ["jj", *cli_args.to_argv(), "--ignore-working-copy", "config", "get", "ui.color"],
+            ["jj", *cli_args.argv, "--ignore-working-copy", "config", "get", "ui.color"],
             capture_output=True,
             check=False,
             cwd=cwd,
