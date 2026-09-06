@@ -1,15 +1,15 @@
-"""Check `jj-stack`'s configuration and connectivity.
+"""Check repo setup and GitHub access.
 
-Checks that `jj git fetch` skips PR branches, that no PR bookmarks are visible, that nothing is
-left over from an interrupted checkout or sync, and that the Git remote, GitHub connectivity,
-authentication, and trunk branch are usable. By default, it only reports problems. Pass `--fix`
-to also apply the local repairs it can make safely: configuring the remote so that `jj git fetch`
-skips PR branches, forgetting PR bookmarks that a fetch imported, and removing leftovers from an
-interrupted checkout or sync. The command never changes GitHub.
+Checks the Git remote, authentication, GitHub access, stacked pull request support, and GitHub's
+default branch. It also reports PR bookmarks imported by a fetch and leftovers from an
+interrupted checkout or sync.
 
-Exit status is 0 unless a check fails; warnings and problems repaired by `--fix` do not count as
-failures. When a check fails, the command exits 1 and names a recovery command when `jj-stack` can
-determine one.
+Run `jj-stack doctor --fix` to configure fetches to skip PR branches, forget untracked PR
+bookmarks imported by a fetch, and remove checkout or sync leftovers. These repairs affect only
+this local repo.
+
+The command exits 1 if a check fails and 0 otherwise. Warnings and problems repaired by `--fix`
+do not count as failures. The report includes recovery commands where available.
 """
 
 from __future__ import annotations
@@ -260,7 +260,10 @@ def _check_pr_bookmarks(*, context: CommandContext, fix: bool) -> CheckResult:
         )
     if visible:
         return CheckResult(
-            "PR bookmarks", "warn", t"visible bookmarks remain: {ui.join(ui.bookmark, visible)}"
+            "PR bookmarks",
+            "warn",
+            t"visible bookmarks remain: {ui.join(ui.bookmark, visible)}; check them with "
+            t"{ui.cmd('jj bookmark list --all-remotes')}",
         )
     return CheckResult("PR bookmarks", "ok", "none")
 
@@ -275,8 +278,8 @@ def _check_pr_branch_temp(*, context: CommandContext, fix: bool) -> CheckResult:
     return CheckResult(
         "checkout/sync leftovers",
         "warn",
-        t"leftovers from an interrupted checkout or sync remain; rerunning that command "
-        t"removes them, as does {ui.cmd('jj-stack doctor --fix')}",
+        t"leftovers from an interrupted checkout or sync remain; remove them with "
+        t"{ui.cmd('jj-stack doctor --fix')} or rerun the interrupted command",
     )
 
 
@@ -342,7 +345,7 @@ async def _check_github_connectivity(
             )
             stacks_result = CheckResult("GitHub stacks", "fail", detail)
         else:
-            stacks_result = CheckResult("GitHub stacks", "ok", "Stacks API available")
+            stacks_result = CheckResult("GitHub stacks", "ok", "stacked pull requests available")
     return (
         CheckResult(
             "connectivity",
@@ -360,8 +363,8 @@ def _check_trunk_branch(github_repo: GithubRepo) -> CheckResult:
     return CheckResult(
         "trunk branch",
         "warn",
-        t"GitHub repo has no default branch set; set a default branch on GitHub "
-        t"or configure {ui.revset('trunk()')} in jj",
+        t"GitHub repo has no default branch set; choose a default branch in the repo's "
+        t"GitHub settings",
     )
 
 

@@ -70,21 +70,18 @@ def explain_precondition(
         return t"it has unresolved conflicts; resolve them with jj, then run {submit}"
     if precondition.recovery == "reconcile":
         hint = divergence_recovery_hint(change_id, retry=t"run {submit}")
-        return t"it has more than one visible commit; {hint}"
+        return t"it has more than one local version; {hint}"
     if precondition.recovery == "view":
         return (
             t"it is no longer visible locally; find where it went with {ui.cmd('jj-stack view')}"
         )
     if precondition.recovery == "submit":
         return (
-            t"the local change, the commit last submitted for it, and its PR branch do not "
-            t"all name the same commit; run {submit}"
+            t"the local change or its PR branch no longer matches the last submitted commit; "
+            t"run {submit}"
         )
     if precondition.recovery == "sync":
-        return (
-            t"{reason}, so this stack still holds a local copy of work already on trunk; run "
-            t"{ui.cmd(f'jj-stack sync {sync_target}')}"
-        )
+        return t"{reason}; update the local stack with {ui.cmd(f'jj-stack sync {sync_target}')}"
     return t"{reason}; inspect it and rerun {ui.cmd('jj-stack merge')}"
 
 
@@ -103,7 +100,7 @@ def _merge_change_precondition_error(
     observed = observation.prs[planned.change_id]
     label = short_change_id(planned.change_id)
     if observed.tracked is None or observed.tracked.pr_identity != planned.identity:
-        return MergePrecondition(f"saved PR tracking for {label} changed")
+        return MergePrecondition(f"the saved pull request link for {label} changed")
     selected = next(
         (commit for commit in observed.local_commits if commit.commit_id == planned.commit_id),
         None,

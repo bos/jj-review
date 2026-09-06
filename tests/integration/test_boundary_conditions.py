@@ -71,7 +71,7 @@ def test_stack_commands_reject_merge_commits_without_traceback(
     combined = captured.out + captured.err
 
     assert exit_code == EXIT_NO_STACK
-    assert "merge changes are not supported" in combined
+    assert "change with multiple parents" in combined
     _assert_no_traceback(captured)
 
 

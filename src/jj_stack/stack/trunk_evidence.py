@@ -84,15 +84,15 @@ def classify_rewritten_result(
     merge_commit_id = pr.merge_commit_sha
     if merge_commit_id is None:
         return TrunkEvidence.unproven(
-            t"GitHub did not report the merge-result commit for {pr_label}"
+            t"GitHub did not report the commit produced by merging {pr_label}"
         )
     if merge_result_ancestry == "unresolved":
         return TrunkEvidence.unproven(
-            t"merge result {ui.commit_id(merge_commit_id)} is unavailable locally",
+            t"commit {ui.commit_id(merge_commit_id)} from GitHub's merge is unavailable locally",
         )
     if merge_result_ancestry != "on_trunk":
         return TrunkEvidence.unproven(
-            t"merge result {ui.commit_id(merge_commit_id)} is not on trunk",
+            t"commit {ui.commit_id(merge_commit_id)} from GitHub's merge is not on trunk",
         )
     return TrunkEvidence.proven()
 
@@ -142,7 +142,7 @@ def _snapshot_mismatch(
     pr_label = format_pr_label(pr.number, url=pr.html_url)
     if not identity.matches_pr(pr):
         return (
-            t"{pr_label} no longer matches the pull request recorded for "
+            t"{pr_label} no longer matches the saved pull request link for "
             t"{ui.change_id(change_id)}"
         )
-    return t"{pr_label} no longer reports the submitted head"
+    return t"{pr_label} no longer points to the last submitted commit"

@@ -1900,7 +1900,7 @@ def test_submit_requires_relink_after_state_loss(
 
     assert run_main(repo, config_path, "submit", change_id) == 1
     rejected = capsys.readouterr()
-    assert "Link that PR to the change with jj-stack relink" in rejected.err
+    assert "jj-stack relink PR CHANGE" in rejected.err
 
     exit_code = run_main(
         repo, config_path, "relink", "--replace-remote", str(pr_number), change_id
@@ -2002,7 +2002,7 @@ def test_submit_fails_closed_when_github_reports_multiple_prs(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "also uses PR branch" in captured.err
+    assert "also has open" in captured.err
     assert "view" in captured.err
     assert "relink" in captured.err
     assert state_store.load() == initial_state
@@ -2060,7 +2060,7 @@ def test_submit_fails_closed_when_saved_remote_branch_drifted_externally(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "not at this change" in captured.err
+    assert "matches neither this change" in captured.err
     assert state_store.load() == initial_state
     assert remote_refs(fake_repo.git_dir) == drifted_refs
     assert {
@@ -2492,7 +2492,7 @@ def test_submit_re_request_observes_reviews_before_mutation_and_retries(
     assert run_main(repo, config_path, "submit", "--re-request", "--edit") == EXIT_GITHUB
     failed = capsys.readouterr()
     assert remote_refs(fake_repo.git_dir) == submitted_remote_refs
-    match = re.search(r"Recovery copy: (\S+) \(removed", failed.out)
+    match = re.search(r"Editor file: (\S+)", failed.out)
     assert match is not None
     edit_path = Path(match.group(1))
     assert edit_path.is_file()
@@ -2558,7 +2558,7 @@ def test_submit_edit_malformed_document_aborts_before_mutation(
 
     assert exit_code == 1
     assert "missing change" in captured.err
-    assert "Reopen the saved editor file with --resume-edit" in captured.err
+    assert "jj-stack submit" in captured.err
     saved_edit = re.search(r"--resume-edit (\S+\.md)", captured.err)
     assert saved_edit is not None
     Path(saved_edit.group(1)).unlink()
@@ -2597,7 +2597,7 @@ def test_submit_edit_sets_each_pr_draft_state(
 
     assert run_main(repo, config_path, "submit", "--draft", "--edit") == 0
     submitted = capsys.readouterr()
-    recovery_copy = re.search(r"Recovery copy: (\S+) \(removed", submitted.out)
+    recovery_copy = re.search(r"Editor file: (\S+)", submitted.out)
     assert recovery_copy is not None
     assert not Path(recovery_copy.group(1)).exists()
 

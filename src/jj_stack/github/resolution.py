@@ -71,7 +71,8 @@ def select_submit_remote(remotes: tuple[GitRemote, ...]) -> GitRemote:
         return remotes[0]
     raise CliError(
         "Could not determine which Git remote to use.",
-        hint=t"Add an {ui.bookmark('origin')} remote or leave exactly one remote.",
+        hint=t"Run {ui.cmd('jj git remote list')} to check the remotes. Name the intended "
+        t"remote {ui.bookmark('origin')}, or configure exactly one remote.",
     )
 
 
@@ -208,8 +209,8 @@ def resolve_trunk_branch(
                 t"{ui.join(ui.bookmark, matches)}.",
                 hint=(
                     t"Point {ui.revset('trunk()')} at {ui.bookmark(default_branch)}, or change "
-                    t"the repo's default branch on GitHub, so pull requests are based on "
-                    t"the branch the pull requests should target."
+                    t"the repo's default branch on GitHub. Both must name the branch your "
+                    t"pull requests should target."
                 ),
             )
         return default_branch, trunk_targets
@@ -224,7 +225,7 @@ def resolve_trunk_branch(
     raise CliError(
         t"Could not determine the trunk branch for remote {ui.bookmark(remote.name)}.",
         hint=(
-            t"Ensure the GitHub repo exposes a default branch or create one "
+            t"Set the repo's default branch on GitHub, or create one "
             t"remote branch that points at {ui.revset('trunk()')}."
         ),
     )

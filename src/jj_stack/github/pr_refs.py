@@ -41,12 +41,12 @@ def require_managed_pr_head(*, pr: GithubPR, repo: GithubRepoAddress) -> CommitI
     pr_number_label = format_pr_number(pr.number, url=pr.html_url)
     if pr.head.label != expected_label:
         raise CliError(
-            t"Pull request {pr_number_label} head "
+            t"Pull request {pr_number_label}'s head branch "
             t"{ui.bookmark(pr.head.label or pr.head.ref)} does not belong to {repo.full_name}."
         )
     if not namespace.contains(pr.head.ref):
         raise CliError(
-            t"Pull request {pr_number_label} head "
+            t"Pull request {pr_number_label}'s head branch "
             t"{ui.bookmark(pr.head.ref)} is not a jj-stack PR branch; its name does not start "
             t"with {ui.bookmark(namespace.branch_prefix)}."
         )

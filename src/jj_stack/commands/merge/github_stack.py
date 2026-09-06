@@ -45,16 +45,20 @@ class AsyncMergePlan:
         )
         prs: Message = ("PR " if len(self.planned) == 1 else "PRs ", numbers)
         if merge_action == "merge_queue" and enqueued:
-            body = t"{prs} are queued for {ui.bookmark(trunk_branch)} up to "
+            body = t"queued {prs} for {ui.bookmark(trunk_branch)} through "
         elif merge_action == "merge_queue":
-            body = t"add {prs} to the merge queue for {ui.bookmark(trunk_branch)} up to "
+            body = t"add {prs} to the merge queue for {ui.bookmark(trunk_branch)} through "
         else:
             body = (
                 t"merge {prs} into {ui.bookmark(trunk_branch)} via {ui.cmd(method or '')} up to "
             )
         return MergeAction(
             kind="GitHub merge request",
-            body=(body, t"commit {ui.commit_id(self.target.commit_id)}"),
+            body=(
+                body,
+                t"change {ui.change_id(self.target.change_id)} "
+                t"(commit ID {ui.commit_id(self.target.commit_id)})",
+            ),
             status="planned",
         )
 
@@ -157,9 +161,11 @@ async def execute_async_merge(
             execution,
             merge,
             reason=(
-                "a matching request is already pending; wait and rerun merge"
+                "a matching merge request is already pending; wait for GitHub to finish, "
+                "then run jj-stack sync if it merged"
                 if matching
-                else "another GitHub stack merge request is already pending"
+                else "another merge request is already pending; check its status on GitHub "
+                "and run jj-stack sync if it merges"
             ),
         )
     terminal = await _terminal(
@@ -173,10 +179,10 @@ async def execute_async_merge(
         return _blocked_result(
             execution,
             merge,
-            reason=t"GitHub reports nothing merged: {reason}; if the stack conflicts with "
+            reason=t"GitHub rejected the merge: {reason}. If the stack conflicts with "
             t"{ui.bookmark(execution.trunk_branch)}, rebase onto {ui.revset('trunk()')}, resolve "
-            t"the conflict, and run {submit} before merging again; if a check or repo rule "
-            t"is failing, fix that on GitHub first",
+            t"the conflicts, and run {submit} before merging again. For a failed check or "
+            t"unmet repo requirement, fix the issue reported by GitHub first",
         )
     if terminal.status == "enqueued":
         return _enqueued_result(
@@ -188,7 +194,8 @@ async def execute_async_merge(
         raise CliError(
             "GitHub reported the stack merge as complete but did not say which trunk commit it "
             "produced.",
-            hint=t"Run {ui.cmd('jj-stack sync')} to apply whatever GitHub completed locally.",
+            hint=t"Check the PRs on GitHub, then run {ui.cmd('jj-stack sync')} for this stack "
+            t"to apply any completed merges.",
         )
     return _applied_result(
         execution,
@@ -207,9 +214,9 @@ async def _terminal(
     operation_uuid = result.details.uuid
     if result.status == "pending" and operation_uuid is None:
         raise CliError(
-            "GitHub accepted the stack merge but did not return an operation ID for jj-stack to "
-            "wait on.",
-            hint=t"Run {ui.cmd('jj-stack sync')} to see whether the merge completed.",
+            "GitHub accepted the merge request, but jj-stack cannot check its progress.",
+            hint=t"Check the pull request on GitHub. After it merges, run "
+            t"{ui.cmd('jj-stack sync')} for this stack.",
         )
     poll_interval = 2.0
     try:
@@ -228,7 +235,8 @@ async def _terminal(
     except TimeoutError as error:
         raise CliError(
             "GitHub's merge request is still pending after 10 minutes.",
-            hint=t"The request may still complete on GitHub. Do not rerun merge while it is "
+            hint=t"The request may still complete on GitHub. Do not rerun "
+            t"{ui.cmd('jj-stack merge')} while it is "
             t"pending; check the pull request on GitHub, then run "
             t"{ui.cmd('jj-stack sync')} if it merges.",
         ) from error

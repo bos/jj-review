@@ -1,45 +1,26 @@
 """Update a local stack after GitHub merges or rebases its pull requests.
 
-`sync` fetches trunk and determines which submitted changes have reached it. It then rebases the
-remaining changes, updates their existing pull requests, and removes unused PR branches,
-stack overview comments, and saved links for merged pull requests. When GitHub merges immediately,
-`jj-stack merge` performs this same update itself. After a merge queue finishes or someone merges
-the PRs through another client, run `jj-stack sync`. While a selected PR is still queued, sync
-leaves the stack unchanged.
+`jj-stack sync` fetches trunk, removes obsolete local copies of merged changes, rebases the
+remaining changes, updates their existing pull requests, and cleans up unused PR branches,
+stack overview comments, and saved links. It never creates pull requests.
+
+Run it after a merge queue finishes or someone merges the PRs through another client. When
+GitHub merges immediately, `jj-stack merge` performs this update itself. While a selected PR is
+still queued, sync leaves the stack unchanged.
 
 After GitHub's Rebase stack action, run `jj-stack sync <head-change-id>`. It checks that the PR
 order and contents match, rebases your original changes, and updates the PR branches with commits
 that retain their jj change IDs. It stops if local edits or different contents on GitHub prevent
 a match.
 
-`sync` stops before rebasing in any of these cases:
+Sync stops if it would discard local edits or cannot determine which local changes and PRs to
+update. The error explains what needs attention. If a rebase produces conflicts, the local rebase
+stays in place but the affected PRs are not updated. Resolve the conflicts with `jj`, then run
+`jj-stack submit <head-change-id>`.
 
-- A remaining change has several mutable local versions. `sync` cannot choose one.
-
-- A merged change has been locally rewritten since it was submitted and is not empty. Removing
-  it could discard work.
-
-- A local change that has not merged is a parent of submitted work that has merged. Moving the
-  local change could put it before or after the merged work. `sync` will not choose for you.
-
-- An unsubmitted change sits between submitted changes. `sync` updates existing pull requests but
-  never creates the missing pull request.
-
-Before rebasing, `sync` also checks saved pull request links, PR branches, and GitHub grouping.
-It can handle branches GitHub rewrote while merging or rebasing the stack. Other unexpected branch
-updates, missing or closed PRs, and ambiguous links stop the command before it changes local
-history. The error identifies what needs attention.
-
-Conflicts do not prevent the local rebase. If a rebased change remains conflicted, `sync` leaves
-the conflict in local history and stops before updating that pull request. Resolve the conflict
-with `jj`, then run `jj-stack submit`.
-
-Rebasing a `jj` change also rebases its descendants. This may move local work above the selected
-stack, but `sync` updates pull requests only for the selected stack.
-
-Another local stack may share a merged change with the stack being synced. If that stack still
-uses the old local change, `sync` leaves the change in place and prints the other stack to sync
-next. Rerunning `sync` skips completed work and continues.
+Rebasing also moves local descendants, but sync updates PRs only for the selected stack. If
+another stack still depends on an obsolete merged change, sync keeps it and names the other stack
+to sync next.
 
 `jj-stack sync --all` updates every local stack affected by a completed merge and cleans up merged
 PRs whose local changes are gone. A blocked stack does not prevent it from syncing independent
@@ -106,7 +87,7 @@ from jj_stack.stack.status import PreparedStatus, prepare_status, status_prepara
 from jj_stack.state.operation_lock import operation_lock_if_mutating
 from jj_stack.ui import Message
 
-HELP = "Apply completed GitHub merges locally and refresh the pull requests that remain"
+HELP = "Update a local stack after GitHub merges or rebases it"
 
 
 def sync(
@@ -374,12 +355,12 @@ async def _run_selected_convergence(
                 queued,
             )
             console.output(
-                t"Nothing to sync while the selected pull request is in the merge queue "
-                t"({labels})."
+                t"Stack unchanged because the merge queue still contains {labels}. Run "
+                t"{ui.cmd('jj-stack sync')} again after GitHub finishes."
             )
             return 0
         if not complete:
-            console.output("No merged changes in this stack need rebasing.")
+            console.output("No completed merges or GitHub stack rebases to sync.")
             return 0
         if plan is None:
             raise AssertionError("Complete sync observation requires a convergence plan.")
@@ -418,11 +399,11 @@ def _require_github_target(
 
 def _render_selected_plan(*, dry_run: bool, plan: SelectedConvergencePlan) -> None:
     if isinstance(plan, GithubStackRebasePlan):
-        action = "Would restore" if dry_run else "Restoring"
-        console.output(f"{action} the stack's jj change IDs after GitHub rebased it.")
+        action = "Would apply" if dry_run else "Applying"
+        console.output(f"{action} GitHub's stack rebase using the original jj change IDs.")
         return
     if not plan.actions.on_trunk:
-        console.output("No merged changes in this stack need rebasing.")
+        console.output("No completed merges to apply to this stack.")
         return
     status = "Would remove" if dry_run else "Removing"
     console.output(
@@ -437,7 +418,7 @@ def _checked_out_workspace_hint(
     known = {workspace.name: workspace for workspace in context.jj_client.list_workspaces()}
     if not workspaces:
         workspaces = tuple(workspace.name for workspace in known.values() if workspace.current)
-    hint: list[Message] = ["Resolve each workspace still on the merged change:\n"]
+    hint: list[Message] = ["Move each workspace off the merged change:\n"]
     disposable: list[tuple[str, str]] = []
     for name in workspaces:
         workspace = known.get(name)
@@ -467,7 +448,7 @@ def _checked_out_workspace_hint(
             shell = " (PowerShell)" if sys.platform == "win32" else ""
             command = _workspace_disposal_command(name=name, root=root, platform=sys.platform)
             hint.append(t"For {ui.code(name)}{shell}:\n  {ui.cmd(command)}\n")
-    hint.append("Then rerun the same sync command.")
+    hint.append("Then rerun the same jj-stack sync command.")
     return tuple(hint)
 
 

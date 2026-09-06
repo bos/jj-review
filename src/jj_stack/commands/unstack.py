@@ -1,4 +1,7 @@
-"""Separate a GitHub stack without closing its pull requests.
+"""Remove a GitHub stack's grouping without closing its pull requests.
+
+The PRs keep their base branches and dependencies. Local changes and saved pull request links
+stay in place. Submitting the same local stack again recreates the GitHub grouping.
 
 With a revset or pull request, `unstack` uses the matching local stack. Use
 `--stack <number>` when the GitHub stack no longer corresponds to a single local stack.
@@ -73,10 +76,11 @@ def unstack(
 
     if stack is not None and (local or pr is not None or revset is not None):
         raise UsageError(
-            "unstack --stack cannot be combined with --local, --pull-request, or a revset."
+            "jj-stack unstack --stack cannot be combined with --local, --pull-request, "
+            "or a revset."
         )
     if stack is not None and stack < 1:
-        raise UsageError("unstack --stack requires a positive GitHub stack number.")
+        raise UsageError("jj-stack unstack --stack requires a positive GitHub stack number.")
 
     context = bootstrap_context(
         repo=repo,
@@ -134,8 +138,8 @@ async def _run_github_unstack(
                 return 0
             if not github_stack.active_pr_numbers:
                 console.output(
-                    t"GitHub stack grouping #{stack_number} holds only merged pull "
-                    t"requests, which GitHub keeps; there is nothing to remove."
+                    t"GitHub stack #{stack_number} contains only merged PRs. "
+                    t"GitHub keeps them as history; there is nothing to remove."
                 )
                 return 0
         else:
@@ -145,7 +149,7 @@ async def _run_github_unstack(
                 revset=revset,
             )
             if not pr_numbers:
-                console.output("No saved pull requests were found for the selected stack.")
+                console.output("No saved pull request links were found for the selected stack.")
                 return 0
             selected = set(pr_numbers)
             observed = tuple(

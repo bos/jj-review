@@ -1,8 +1,8 @@
 """Check whether this repo contains valid `jj-stack` tracking data.
 
-Intended for scripts and automation, the command prints nothing and exits 0 when `jj-stack` is in
-use, 1 when it is not, and 11 for repo or tracking errors. It does not inspect the working
-copy, read GitHub, or create tracking.
+Use this in scripts to check whether jj-stack has been set up in this repo. It exits silently
+with 0 when valid tracking data exists, or 1 when there is none. Repo or tracking errors produce
+a diagnostic and exit 11. The command does not contact GitHub or change local state.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from jj_stack.bootstrap import resolve_repo_root, validate_repo_path
 from jj_stack.errors import CliError, ProbeError
 from jj_stack.state.store import TrackingStore
 
-HELP = "Check whether this repo uses `jj-stack`"
+HELP = "Check whether this repo uses jj-stack"
 
 
 def in_use(*, repo: Path | None) -> int:

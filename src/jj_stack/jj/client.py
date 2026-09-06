@@ -631,16 +631,19 @@ class JjClient:
                 unset = ui.cmd(
                     f"jj config unset --{override_origin.source} {shlex.quote(override_key)}"
                 )
-                hint = t"Remove the override with {unset} to restore the normal exclusion."
+                hint = (
+                    t"Remove the override with {unset}, then run "
+                    t"{ui.cmd('jj-stack doctor --fix')}."
+                )
             else:
                 hint = (
                     t"Remove that {override_origin.source} override from the jj invocation "
-                    t"or environment to restore the normal exclusion."
+                    t"or environment, then run {ui.cmd('jj-stack doctor --fix')}."
                 )
             raise CliError(
-                t"Effective jj setting {ui.code(override_key)} from {origin} overrides "
-                t"Git fetch refspecs and can import {ui.bookmark(namespace.branch_prefix)} "
-                t"bookmarks.",
+                t"The jj setting {ui.code(override_key)} from {origin} overrides the fetch "
+                t"rule that excludes PR branches, so {ui.cmd('jj git fetch')} may import "
+                t"{ui.bookmark(namespace.branch_glob)} bookmarks.",
                 hint=hint,
             )
 
@@ -798,7 +801,7 @@ class JjClient:
             change = self.resolve_commit(quote_revset_symbol(_PR_BRANCH_TEMP_BOOKMARK))
             if change.commit_id != expected_target:
                 raise JjCommandError(
-                    t"{ui.cmd('jj git import')} did not import the exact temporary PR branch ref."
+                    t"{ui.cmd('jj git import')} did not import the expected PR branch commit."
                 )
             if expected_change_id is not None and change.change_id != expected_change_id:
                 raise CliError(
@@ -1229,9 +1232,10 @@ class JjClient:
                 raise JjCommandError(
                     t"jj will not rewrite commit {ui.commit_id(immutable_commit)} because it "
                     t"is immutable here.",
-                    hint=t"Run {ui.cmd('jj bookmark list --all-remotes')} to see whether a "
-                    t"remote bookmark points at it, then handle that bookmark with jj and "
-                    t"retry.",
+                    hint=t"Run {ui.cmd('jj bookmark list --all-remotes')} to check for an "
+                    t"untracked remote bookmark. If it is a branch you intend to edit, track "
+                    t"it with {ui.cmd('jj bookmark track NAME@REMOTE')}. Otherwise, check your "
+                    t"{ui.code('immutable_heads()')} configuration before retrying.",
                 )
             displayed_command = _redact_http_url_userinfo(shlex.join(command))
             displayed_message = _redact_http_url_userinfo(message)

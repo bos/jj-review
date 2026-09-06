@@ -59,10 +59,12 @@ def ensure_new_pr_branches_unclaimed(
     )
     if collisions:
         raise CliError(
-            t"Cannot create a pull request on saved PR branch "
+            t"Cannot create a pull request: these PR branches are already linked to other "
+            t"changes: "
             t"{ui.join(ui.bookmark, collisions)}.",
-            hint=t"Run {ui.cmd('jj-stack list')} to find the change that owns it, then clean "
-            t"up that pull request or change the new change's subject.",
+            hint=t"Run {ui.cmd('jj-stack list')} to find those changes. Use "
+            t"{ui.cmd('jj-stack cleanup --pull-request PR')} for a closed or merged PR, or "
+            t"change the new change's subject with {ui.cmd('jj describe CHANGE')}.",
         )
 
 
@@ -79,8 +81,9 @@ def ensure_unique_pr_branches(
         sorted(duplicates.items()),
     )
     raise CliError(
-        t"Selected stack resolves multiple changes to the same branch: {collisions}.",
-        hint="Change an untracked change's subject or repair the saved pull request links.",
+        t"Multiple changes in the selected stack would use the same PR branch: {collisions}.",
+        hint=t"Use {ui.cmd('jj describe CHANGE')} to change an unsubmitted change's subject, or "
+        t"{ui.cmd('jj-stack relink PR CHANGE')} to correct a saved pull request link.",
     )
 
 

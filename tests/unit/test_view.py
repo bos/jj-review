@@ -113,7 +113,6 @@ def test_view_advises_cleanup_and_rebase_when_merged_pr_remains_in_stack() -> No
         "jj-stack sync @"
     )
     assert "PR #5 is merged" in normalized_lines
-    assert "later local changes are still based on it" in normalized_lines
 
 
 def test_view_advises_submit_when_selected_stack_changed_since_submit() -> None:
@@ -141,7 +140,7 @@ def test_view_advises_submit_when_selected_stack_changed_since_submit() -> None:
     normalized_lines = " ".join(" ".join(line.split()) for line in lines)
 
     assert "Advisories:" in lines
-    assert "New commit IDs" in normalized_lines
+    assert "jj-stack submit ulxwxsqw" in normalized_lines
     assert "abcdefgh" in normalized_lines
     assert "bcdefghi" in normalized_lines
 
@@ -190,12 +189,12 @@ def test_view_closed_pr_advisory_guides_reopen_relink_or_cleanup() -> None:
     assert "Closed GitHub PR" in normalized_lines
     assert "GitHub reports a closed PR for the change shown above" in normalized_lines
     assert "Reopen the PR on GitHub to continue using it" in normalized_lines
-    assert "relink an open replacement" in normalized_lines
+    assert "jj-stack relink" in normalized_lines
     assert "jj-stack cleanup @" in normalized_lines
     assert "changes below" not in normalized_lines
 
 
-def test_view_missing_pr_advisory_guides_fetch_relink_or_cleanup() -> None:
+def test_view_missing_pr_advisory_guides_relinking_an_open_pr() -> None:
     change = _status_change(
         pr_identity=make_pr_identity(
             head_ref="jj-stack/feature-8-abcdefgh",
@@ -214,7 +213,5 @@ def test_view_missing_pr_advisory_guides_fetch_relink_or_cleanup() -> None:
 
     assert "Missing GitHub PR" in normalized_lines
     assert "GitHub did not report a PR for the saved PR branch" in normalized_lines
-    assert "jj git fetch" in normalized_lines
-    assert "Relink an open PR if one exists" in normalized_lines
-    assert "jj-stack unstack --local @" in normalized_lines
+    assert "jj-stack relink" in normalized_lines
     assert "GitHub did not report saved PR #42 for this branch" in normalized_lines

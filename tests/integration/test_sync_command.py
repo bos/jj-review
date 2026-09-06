@@ -83,7 +83,7 @@ def test_sync_leaves_a_partially_merged_queued_pr_alone(
     captured = capsys.readouterr()
 
     assert exit_code == 0, (captured.out, captured.err)
-    assert "Nothing to sync" in captured.out
+    assert "Stack unchanged" in captured.out
     assert fake_repo.ref_target(top_pr.head_ref) == top_remote_before
     assert tuple(change.commit_id for change in selected_stack(repo).changes) == tuple(
         change.commit_id for change in stack_before.changes
@@ -110,7 +110,6 @@ def test_sync_dry_run_previews_rebase_and_skips_submit_preview(
     assert exit_code == 0
     assert "Would remove merged changes from the bottom" in captured.out
     assert f"jj-stack sync {top_change_id[:8]}" in captured.out
-    assert "remaining existing PRs" in captured.out
     assert JjClient(repo).resolve_commit(top_change_id).commit_id == top_commit_id
     assert fake_repo.prs[2].base_ref == original_base_ref
 
@@ -341,7 +340,7 @@ def test_sync_all_preserves_tracking_when_exact_pr_head_changed(
 
     assert exit_code == 1
     assert "PR #1" in captured.err
-    assert "submitted head" in captured.err
+    assert "last submitted commit" in captured.err
     assert submitted.change_id in state_store.load().prs
 
 
@@ -503,7 +502,7 @@ def test_sync_noop_after_partial_merge_does_not_read_pr_branch_targets_or_submit
     captured = capsys.readouterr()
 
     assert exit_code == 0, (captured.out, captured.err)
-    assert "No merged changes in this stack need rebasing." in captured.out
+    assert "No completed merges or GitHub stack rebases to sync." in captured.out
     assert "Submitted changes:" not in captured.out
     assert fake_repo.prs[2] == pr_before
 
@@ -580,7 +579,7 @@ def test_sync_preserves_a_conflict_resolution_that_restores_the_submitted_tree(
     captured = capsys.readouterr()
 
     assert blocked == 1
-    assert "unpublished local work" in captured.err
+    assert "could discard local work" in captured.err
     error = " ".join(captured.err.split())
     assert f"jj rebase -s {submitted.change_id[:8]} -d 'trunk()'" in error, error
     assert f"jj diff -r {submitted.change_id[:8]}" in error, error
@@ -685,8 +684,8 @@ def test_sync_rebases_a_conflicted_pr_before_stopping_its_update(
 @pytest.mark.parametrize(
     ("drift", "reason", "repair"),
     (
-        ("closed", "is closed, so sync cannot update that PR", "jj-stack cleanup"),
-        ("reviewer_commit", "not at this change", "jj-stack checkout --pull-request 2"),
+        ("closed", "is closed, so jj-stack cannot update that PR", "jj-stack cleanup"),
+        ("reviewer_commit", "matches neither this change", "jj-stack checkout --pull-request 2"),
     ),
 )
 def test_sync_stops_before_rebasing_when_a_survivor_pr_drifted(
@@ -824,7 +823,7 @@ def test_sync_does_not_trust_active_stack_head_drift_without_merged_history(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "None of its merged pull requests is tracked here" in captured.err
+    assert "cannot verify a merge or a rebase" in captured.err
     assert state_store.load().prs[second.change_id].submitted_baseline == baseline
     assert fake_repo.prs[2].head_sha == drifted_head
 
@@ -908,7 +907,6 @@ def test_sync_restores_change_ids_after_an_exact_github_stack_rebase(
     captured = capsys.readouterr()
 
     assert exit_code == 0, (captured.out, captured.err)
-    assert "Restoring the stack's jj change IDs" in captured.out
     rewritten = tuple(JjClient(repo).resolve_commit(change.change_id) for change in original)
     assert tuple(change.change_id for change in rewritten) == tuple(
         change.change_id for change in original
@@ -1145,7 +1143,6 @@ def test_sync_all_finishes_exact_prs_after_an_external_fast_forward(
     # The initial cleanup observation still protects the bottom branch while the closed
     # top PR has a head. Its successful deletion makes a fresh cleanup safe on the rerun.
     assert first.change_id in state_store.load().prs
-    assert "preserve PR #1's branch" in " ".join(captured.out.split())
 
     retry = run_main(repo, config_path, "sync", "--all")
     retried = capsys.readouterr()

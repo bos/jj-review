@@ -64,18 +64,14 @@ def test_merge_queue_accepts_single_and_stacked_prs_without_a_merge_method(
     assert read_remote_ref(fake_repo.git_dir, "main") == trunk_before
     assert "ignoring --method" in captured.err
     assert "In merge queue" in captured.out
-    assert "are queued for main" in captured.out
-    assert "Added to merge queue" not in captured.out
-    assert "once the queue processes them" in captured.out
-    assert "jj-stack sync" not in captured.out
+    assert "jj-stack sync" in captured.out
 
     repeated_exit_code = run_main(repo, config_path, "merge")
     repeated = capsys.readouterr()
 
     assert repeated_exit_code == 0, (repeated.out, repeated.err)
     assert "In merge queue" in repeated.out
-    assert "are queued for main" in repeated.out
-    assert "Added to merge queue" not in repeated.out
+    assert "jj-stack sync" in repeated.out
     assert fake_repo.stack_merge_requests == [
         (stack_size, None, "merge_queue", stack.head.commit_id)
     ]
@@ -305,7 +301,7 @@ def test_stack_merge_terminal_failure_is_atomic(
     captured = capsys.readouterr()
 
     assert exit_code == 1
-    assert "nothing merged" in captured.out
+    assert "Merge blocked:" in captured.out
     # A refused group merge reaches the user the same way a refused single merge does: with the
     # rebase-and-resubmit route, since rerunning merge cannot clear a conflict.
     normalized = " ".join(captured.out.split())
@@ -369,7 +365,7 @@ def test_stack_merge_recovers_with_sync_after_a_lost_response(
     )
     assert run_main(repo, config_path, "merge") == 1
     pending = capsys.readouterr()
-    assert "matching request is already pending" in pending.out
+    assert "matching merge request is already pending" in pending.out
     assert tuple(pr.state for pr in fake_repo.prs.values()) == ("open", "open")
 
     _complete_stack_merge(fake_repo, fake_repo.stack_merge_operations[2])
@@ -494,7 +490,7 @@ def test_merge_requires_submit_after_a_diff_equivalent_rebase(
     rendered = " ".join(captured.out.split())
 
     assert exit_code == 1
-    assert "do not all name the same commit" in rendered
+    assert "no longer matches the last submitted commit" in rendered
     assert f"jj-stack submit {change.change_id[:8]}" in rendered
     assert read_remote_ref(fake_repo.git_dir, "main") == trunk_before
     assert read_remote_ref(fake_repo.git_dir, bookmark) == change.commit_id
@@ -530,7 +526,7 @@ def test_merge_tells_a_conflicted_change_to_resolve_before_submitting(
     assert exit_code == 1
     assert "unresolved conflicts" in rendered
     assert "resolve them" in rendered
-    assert "do not all name the same commit" not in rendered
+    assert "no longer matches the last submitted commit" not in rendered
     assert fake_repo.prs[1].state == "open"
 
 

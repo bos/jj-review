@@ -16,7 +16,7 @@ def test_prompt_picker_choice_reports_missing_or_invalid_selection(
         _prompt_picker_choice(())
 
     monkeypatch.setattr("sys.stdin", io.StringIO("9\n"))
-    with pytest.raises(UsageError, match="not a valid stack number"):
+    with pytest.raises(UsageError, match="not a valid choice"):
         _prompt_picker_choice(
             (CheckoutPickerChoice(details=(), heading="feature 1", revset="change-1"),)
         )

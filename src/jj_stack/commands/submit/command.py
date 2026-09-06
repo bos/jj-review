@@ -1,7 +1,7 @@
 """Create or update GitHub pull requests for the selected stack of changes.
 
-This pushes or updates the PR branches for that stack, then opens or refreshes one pull
-request per change from bottom to top. The selected changes must have no unresolved conflicts.
+Push the selected changes and create or update one PR per change, in local parent order.
+Existing PRs follow their change IDs. Resolve any conflicts before submitting.
 
 In terminals with hyperlink support, the PR labels in the output are clickable links to GitHub.
 The PR beside "Top of stack" opens the top PR in the submitted stack.
@@ -14,17 +14,8 @@ description. When a description has no body, `jj-stack` uses the repo's pull req
 Later submits refresh the title and body from the change description, provided both still match
 the defaults for the last submitted version. Editing either field on GitHub preserves both.
 
-Use `--describe` to replace one body deliberately, or use `--describe-with` or `--edit` for titles
-and bodies.
-
-Use `--edit` to review and edit the planned pull request titles, bodies, and draft states in your
-editor before anything is pushed. Each `JJ: Draft:` field accepts `yes` or `no`, with `y` and `n`
-as short forms. Saving the document continues the command; a malformed document or a non-zero
-editor exit aborts it before any change is made. The editor file remains available if submit
-fails; pass its path to `--resume-edit` to reopen it. A reopened document supplies only the
-titles, bodies, and draft states; the command inspects the stack and GitHub again. The editor
-comes from `jj`'s `ui.editor` setting, then `$VISUAL`, then `$EDITOR`. Neither `--edit` nor
-`--resume-edit` can be combined with `--describe-with`.
+Use `--describe` to replace one body, or `--describe-with` for titles and bodies from a helper.
+Use `--edit` to edit the planned titles, bodies, and draft states before anything is pushed.
 
 The `--label`, `--reviewers`, and `--team-reviewers` flags accept comma-separated values and may
 be repeated. When passed, they override the corresponding configured defaults for this run.
@@ -111,18 +102,23 @@ from .prs import (
 )
 from .render import print_selected_line, print_submit_result
 
-HELP = "Submit a `jj` stack for review"
+HELP = "Create or update PRs for a jj stack"
 DESCRIPTION_HELP = """
-Use `--describe CHANGE=FILE` to read a prepared pull request body from a Markdown file, or
-`--describe stack=FILE` to read prepared overview text for a multi-change stack. Relative file
-paths are read from the current directory where `jj-stack` was invoked.
+Use `--describe CHANGE=FILE` to read a PR body from a Markdown file, or `--describe stack=FILE`
+to add an overview comment to the head PR of a stack with several changes. Relative paths are
+resolved from the directory where you run `jj-stack`.
 
-Use `--describe-with HELPER` to author pull request titles, bodies, and the stack overview. The
-helper may be interactive or may generate the text noninteractively.
+With `--edit`, save and close the editor to continue. Invalid text or an editor error stops
+submission before any branches or PRs change. If submission fails, the editor file is kept.
+Retry the same command with `--resume-edit FILE` instead of `--edit`. The file must still name
+exactly the selected changes.
 
-`jj-stack` invokes the helper as `helper --pr <change_id>` for each pull request and
-`helper --stack <revset>` for the selected stack. The helper must output JSON with string `title`
-and `body` fields.
+The editor comes from `jj`'s `ui.editor`, then `$VISUAL`, then `$EDITOR`. Neither `--edit` nor
+`--resume-edit` can be combined with `--describe-with`.
+
+With `--describe-with HELPER`, jj-stack runs `helper --pr <change-id>` once per PR and
+`helper --stack <revset>` once for a stack with several changes. Each call must print a JSON
+object with string `title` and `body` fields.
 """
 
 
@@ -384,7 +380,8 @@ def _recover_interrupted_first_submissions(
                 t"{ui.change_id(resolution.change_id)} because multiple remote branches "
                 t"have its short change-ID suffix: "
                 t"{ui.join(ui.bookmark, sorted(candidates))}.",
-                hint="Inspect those branches and remove the unintended candidates, then retry.",
+                hint="Inspect those branches, rename or remove any that belong to other work, "
+                "then retry the same jj-stack submit command.",
             )
         branch, target = next(iter(candidates.items()))
         if (
@@ -394,7 +391,8 @@ def _recover_interrupted_first_submissions(
             raise CliError(
                 t"Remote branch {ui.bookmark(branch)} does not record the expected change ID "
                 t"{ui.change_id(resolution.change_id)}.",
-                hint="Inspect or remove that branch, then retry the submission.",
+                hint="Inspect that branch and rename it if it belongs to other work. "
+                "Then retry the same jj-stack submit command.",
             )
         replacements[resolution.change_id] = branch
 
@@ -732,7 +730,7 @@ async def run_submit_async(
             if not isinstance(options.edit, Path):
                 generated_edit_path = edit_path
                 console.note(
-                    t"Recovery copy: {ui.code(str(edit_path))} (removed after submit succeeds).",
+                    t"Editor file: {ui.code(str(edit_path))} (kept if submission fails).",
                     soft_wrap=True,
                 )
         re_request_reviewers = (

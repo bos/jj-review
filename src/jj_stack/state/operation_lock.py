@@ -97,7 +97,7 @@ def acquire_operation_lock(
             holder = read_operation_lock_holder(state_dir)
             raise CliError(
                 _operation_lock_busy_message(state_dir, holder),
-                hint="Wait for that operation to finish, then rerun this command.",
+                hint="Wait for that command to finish, then retry.",
             )
         sleep_for = min(DEFAULT_LOCK_POLL_SECONDS, max(0.0, deadline - time.monotonic()))
         if sleep_for:
@@ -149,7 +149,7 @@ def try_acquire_operation_lock(
     except OSError as error:
         raise CliError(
             f"Could not use jj-stack data directory {state_dir}: {error}",
-            hint="Make the directory writable by your user, then rerun the command.",
+            hint="Resolve the filesystem error above, then rerun the command.",
         ) from error
     return OperationLock(file=lock_file, holder=holder, holder_path=holder_path)
 
@@ -239,8 +239,8 @@ def _write_holder(holder_path: Path, holder: OperationLockHolder) -> None:
 
 def _operation_lock_busy_message(state_dir: Path, holder: OperationLockHolder | None) -> str:
     if holder is None:
-        return f"Another jj-stack operation already holds {state_dir / LOCK_FILENAME}."
+        return f"Another jj-stack command is using this repo (lock: {state_dir / LOCK_FILENAME})."
     return (
-        f"Another jj-stack {holder.command} operation is already running "
+        f"jj-stack {holder.command} is already running in this repo "
         f"(PID {holder.pid}, started {holder.started_at})."
     )

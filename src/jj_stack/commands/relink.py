@@ -1,9 +1,8 @@
 """Reconnect a GitHub pull request to a selected local change.
 
-Use it when `jj-stack` has lost or mixed up the link between a pull request and its local change,
-for example after tracking data was removed or a pull request was submitted from another
-checkout. The pull request must be open, and its PR branch must match either the selected
-change's current commit or the commit that `jj-stack` last recorded as submitted. Otherwise,
+Use it to repair a missing or incorrect saved pull request link. The pull request must be open,
+and its PR branch must match either the selected change's current commit or the commit that
+`jj-stack` last recorded as submitted. Otherwise,
 `relink` refuses and shows what is on the branch. Pass `--replace-remote` to accept that branch
 version and let the next `jj-stack submit` replace it with your local change.
 
@@ -99,7 +98,7 @@ async def _run_relink_async(
     client = context.jj_client
     state = context.state_store.load()
     if revset is None:
-        raise UsageError(t"{ui.cmd('relink')} requires an explicit change selection.")
+        raise UsageError(t"{ui.cmd('jj-stack relink')} requires an explicit change selection.")
     stack = select_stack_path(
         jj_client=client,
         revset=revset,
@@ -168,19 +167,22 @@ async def _run_relink_async(
             t"instead. If you rewrote history and {ui.change_id(change.change_id)} replaced "
             t"it, recover the original change with "
             t"{ui.cmd(f'jj-stack checkout --pull-request {pr_number}')}, then move the "
-            t"intended content onto it; relink cannot assign an existing pull request to "
+            t"edits you want to keep onto it. {ui.cmd('jj-stack relink')} cannot assign a PR to "
             t"a replacement change ID.",
         )
     if not pr_branch_matches_change(branch, change.change_id):
         raise CliError(
-            t"Pull request {pr_number_label} head {ui.bookmark(branch)} was not created for "
-            t"change {ui.change_id(change.change_id)}; jj-stack PR branch names end with the "
-            t"change's ID."
+            t"PR branch {ui.bookmark(branch)} for pull request {pr_number_label} was not "
+            t"created for change {ui.change_id(change.change_id)}; its name must end with "
+            t"that change's short ID."
         )
     if isinstance(link_state, PRHeadMoved) and not replace_remote:
         moved = stop_error(link_state, rerun=retry)
         raise CliError(
-            (moved.message, t" The branch holds {remote_head.author}: {remote_head.subject}."),
+            (
+                moved.message,
+                t" Its head commit is by {remote_head.author}: {remote_head.subject}.",
+            ),
             hint=moved.hint,
         )
     _ensure_relinkable_cached_link(
@@ -214,8 +216,8 @@ async def _load_exact_relink_pr(
     if pr.state != "open":
         raise CliError(
             t"Pull request {pr_number_label} is not open; cannot relink {pr.state} PRs.",
-            hint=t"Reopen it on GitHub to keep reviewing it, or forget its saved link with "
-            t"{ui.cmd('jj-stack unstack --local')} and submit again.",
+            hint=t"Select an open PR. If this PR was closed without merging, reopen it on "
+            t"GitHub first. For a merged PR, run {ui.cmd('jj-stack sync')} for its local stack.",
         )
     return pr, require_managed_pr_head(pr=pr, repo=repo)
 
@@ -234,7 +236,7 @@ def _ensure_relinkable_cached_link(
         raise CliError(
             t"{pr_label} or branch {ui.bookmark(identity.head_ref)} is already "
             t"linked to another local change.",
-            hint=t"Run {ui.cmd('jj-stack list')} to find that change, then forget its saved link "
-            t"with {ui.cmd('jj-stack unstack --local')} or clean it up with "
-            t"{ui.cmd('jj-stack cleanup')}.",
+            hint=t"Run {ui.cmd('jj-stack list')} to find the linked change. To forget its "
+            t"stack's saved links, run {ui.cmd('jj-stack unstack --local <change-id>')}. "
+            t"For a closed or merged PR, use {ui.cmd('jj-stack cleanup --pull-request <pr>')}.",
         )

@@ -1,19 +1,18 @@
 """List the stacks `jj-stack` is tracking in this local repo.
 
-It shows one row per locally known stack, including the head change ID, stack size, PR state,
-and description of the head change. It does not discover stacks that exist only on GitHub.
+Each row shows the head change ID, stack size, PR state, and head description. Stacks without
+any submitted changes and stacks that exist only on GitHub are not listed.
+
+Orphaned PRs are listed separately: their local changes are no longer in any stack. The orphan
+rows show saved PR links without checking their current GitHub state. To close them and remove
+their unused branches, stack overview comments, and saved links, use
+`jj-stack cleanup --pull-request orphans --close`.
+
+For local stacks, PR state comes from GitHub and stack order comes from local history. This
+command does not fetch. Run `jj git fetch` first if you need to update local `trunk()`.
 
 In terminals with hyperlink support, click the PR label in a row to open it on GitHub. A count
 such as `5 PRs` links to the topmost PR in that stack.
-
-It also shows orphaned PRs: tracked PRs whose local change is no longer part of any current
-stack. Close them and remove their branches, comments, and saved links with
-`jj-stack cleanup --pull-request orphans --close`.
-
-It reads pull request state from GitHub, but finds the changes in each stack locally by walking
-parents from the stack head down to your local `trunk()`. If your local copy of trunk is behind,
-those lists of changes can be stale even though the pull request state is current. Run
-`jj git fetch` first when the list needs to reflect the latest trunk.
 """
 
 from __future__ import annotations
@@ -68,7 +67,7 @@ from jj_stack.stack.status import (
     status_is_incomplete,
 )
 
-HELP = "List the stacks `jj-stack` is tracking in this repo"
+HELP = "List the stacks jj-stack is tracking in this repo"
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,8 +336,8 @@ def _json_orphan_row(row: OrphanRow) -> dict[str, object]:
 def _emit_orphan_hint(orphan_rows: tuple[OrphanRow, ...]) -> None:
     if not orphan_rows:
         return
-    command = ui.cmd("cleanup --pull-request orphans --close")
-    console.note(t"Orphan cleanup: preview and run {command}.")
+    command = ui.cmd("jj-stack cleanup --pull-request orphans --close")
+    console.note(t"To close orphaned PRs and clean up, run {command}; add --dry-run to preview.")
 
 
 def _emit_divergence_hints(
@@ -484,9 +483,7 @@ def _status_fragments(
     merged_ancestors = count((Landed, Merged))
     if merged_ancestors:
         label = (
-            "cleanup needed"
-            if merged_ancestors == 1
-            else f"{merged_ancestors} merged, cleanup needed"
+            "sync needed" if merged_ancestors == 1 else f"{merged_ancestors} merged, sync needed"
         )
         fragments.append(ui.semantic_text(label, "warning", "heading"))
 

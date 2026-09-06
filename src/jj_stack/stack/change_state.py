@@ -216,12 +216,12 @@ class PRMissing(Stop, _State):
         reason: Message = t"GitHub no longer reports {saved_label}"
         if self.open_prs_on_branch:
             others = ui.join(_pr_label, self.open_prs_on_branch)
-            reason = t"{reason}; open {others} uses its PR branch {self._branch_label()}"
+            reason = t"{reason}; its PR branch {self._branch_label()} has open {others}"
         return reason
 
     @property
     def repair(self) -> Message:
-        return _RELINK_OR_FORGET
+        return _RELINK
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -281,8 +281,8 @@ class CompetingOpenPR(Stop, WithPR):
     def reason(self) -> Message:
         others = ui.join(_pr_label, self.competitors)
         return (
-            t"Open {others} also uses PR branch {self._branch_label()}; this change's pull "
-            t"request is {_pr_label(self.pr)}"
+            t"PR branch {self._branch_label()} also has open {others}; this change is linked "
+            t"to {_pr_label(self.pr)}"
         )
 
     @property
@@ -302,11 +302,14 @@ class UntrackedPRExists(Stop, _State):
     @property
     def reason(self) -> Message:
         prs = ui.join(_pr_label, self.open_prs_on_branch)
-        return t"GitHub already reports {prs} for untracked PR branch {self._branch_label()}"
+        return (
+            t"PR branch {self._branch_label()} already has {prs}, but jj-stack has no saved "
+            t"pull request link for this change"
+        )
 
     @property
     def repair(self) -> Message:
-        return t"link that PR to the change with {ui.cmd('jj-stack relink')}"
+        return t"choose the intended PR and link it with {ui.cmd('jj-stack relink PR CHANGE')}"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -321,12 +324,16 @@ class BranchClaimed(Stop, _State):
     def reason(self) -> Message:
         return (
             t"PR branch {self._branch_label()} already exists at "
-            t"{ui.commit_id(self.remote_target)} and does not belong to this change"
+            t"commit {ui.commit_id(self.remote_target)}, which does not match this change"
         )
 
     @property
     def repair(self) -> Message:
-        return "move or delete that branch"
+        return (
+            t"check the branch's work on GitHub before moving or deleting it, or choose another "
+            t"PR branch name by editing the subject with "
+            t"{ui.cmd(f'jj describe {short_change_id(self.change_id)}')}"
+        )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -339,8 +346,8 @@ class PRHeadMoved(Stop, WithPR):
     def reason(self) -> Message:
         head = self.pr.head.sha
         return (
-            t"{_pr_label(self.pr)} is at {ui.commit_id(head)}, not at this change or its last "
-            t"submitted commit; the PR branch was updated outside this repo"
+            t"{_pr_label(self.pr)} is at commit {ui.commit_id(head)}, which matches neither this "
+            t"change nor its last submitted commit; the PR branch was updated outside this repo"
         )
 
     @property
@@ -348,7 +355,7 @@ class PRHeadMoved(Stop, WithPR):
         number = self.pr.number
         short = short_change_id(self.change_id)
         return (
-            t"keep that work with {ui.cmd(f'jj-stack checkout --pull-request {number}')}, or run "
+            t"fetch the work with {ui.cmd(f'jj-stack checkout --pull-request {number}')}, or run "
             t"{ui.cmd(f'jj-stack relink --replace-remote {number} {short}')} so the next submit "
             t"replaces it with this change"
         )
@@ -371,11 +378,12 @@ class BranchMissing(Stop, WithPR):
         if self.pr.state == "closed":
             return (
                 t"restore the branch to reopen {_pr_label(self.pr)}, or run "
-                t"{ui.cmd('jj-stack cleanup')} to forget it"
+                t"{ui.cmd(f'jj-stack cleanup --pull-request {self.pr.number}')} to remove its "
+                t"saved link and stack overview comment"
             )
         return (
             t"restore the branch, or close {_pr_label(self.pr)} on GitHub and run "
-            t"{ui.cmd('jj-stack cleanup')}"
+            t"{ui.cmd(f'jj-stack cleanup --pull-request {self.pr.number}')}"
         )
 
 
@@ -390,15 +398,15 @@ class BranchDisagrees(Stop, WithPR):
         head = self.pr.head.sha
         target = self.remote_target if isinstance(self.remote_target, str) else "?"
         return (
-            t"{_pr_label(self.pr)} is at {ui.commit_id(head)} but PR branch "
-            t"{self._branch_label()} is at {ui.commit_id(target)}"
+            t"{_pr_label(self.pr)} is at commit {ui.commit_id(head)} but PR branch "
+            t"{self._branch_label()} is at commit {ui.commit_id(target)}"
         )
 
     @property
     def repair(self) -> Message:
         return (
-            t"inspect them with {ui.cmd('jj-stack view')}; GitHub may still be catching up on a "
-            t"recent push"
+            t"check the PR with {ui.cmd(f'jj-stack view {short_change_id(self.change_id)}')}; "
+            t"GitHub may still be catching up with a recent push"
         )
 
 
@@ -425,11 +433,8 @@ type ChangeState = (
 )
 
 _RELINK: Message = (
-    t"inspect it with {ui.cmd('jj-stack view')}, then run {ui.cmd('jj-stack relink')} to link "
-    t"the intended pull request"
-)
-_RELINK_OR_FORGET: Message = (
-    t"{_RELINK}, or forget the saved link with {ui.cmd('jj-stack unstack --local')}"
+    t"check the change with {ui.cmd('jj-stack view CHANGE')}, then link the intended pull "
+    t"request with {ui.cmd('jj-stack relink PR CHANGE')}"
 )
 
 

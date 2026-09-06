@@ -65,7 +65,7 @@ def check_tracked_pr(
     if pr.state not in allowed_states:
         return state, CleanupAction(
             kind="pull request",
-            body=t"cannot mutate saved {pr_label} because GitHub now reports state {pr.state!r}",
+            body=t"cannot update {pr_label}: GitHub now reports it as {pr.state!r}",
             status="blocked",
         )
     if not require_no_dependents:
@@ -87,16 +87,17 @@ def check_tracked_pr(
     dependent = blockers[0]
     dependent_label = format_pr_label(dependent.number, url=dependent.html_url)
     recovery = (
-        t"retarget {dependent_label}"
+        t"retarget {dependent_label} to its new base"
         if dependent.state == "open"
-        else t"reopen and retarget {dependent_label}, or delete its head branch"
+        else t"reopen and retarget {dependent_label} to its new base, or delete its head branch "
+        t"if you no longer need to reopen it"
     )
     return state, CleanupAction(
         kind="remote branch",
-        body=t"preserve {pr_label}'s branch and tracking because "
+        body=t"keep {pr_label}'s branch and saved link because "
         t"{dependent_label} still uses {ui.bookmark(pr_identity.head_ref)} "
-        t"as its base, and deleting it would leave {dependent_label} closed "
-        t"with no way to reopen it; {recovery}, then rerun {ui.cmd('jj-stack cleanup')}",
+        t"as its base; deleting the base branch would prevent reopening {dependent_label}. "
+        t"To continue, {recovery}, then rerun {ui.cmd('jj-stack cleanup')}",
         status="blocked",
     )
 
@@ -262,7 +263,8 @@ def plan_pr_cleanup(
             None,
             CleanupAction(
                 kind="remote branch",
-                body=t"cannot resolve the configured remote for saved {pr_label}",
+                body=t"cannot determine which Git remote belongs to {pr_label}; run "
+                t"{ui.cmd('jj-stack doctor')} to check the repo setup",
                 status="blocked",
             ),
         )

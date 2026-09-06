@@ -64,14 +64,17 @@ def resolve_linked_change_for_pr(
         raise CliError(
             t"{pr_label} is not linked to any local change.",
             hint=(
-                t"Use an explicit change instead, or run {ui.cmd('jj-stack checkout')} or "
-                t"{ui.cmd('jj-stack relink')} first."
+                t"Fetch and link the PR stack with "
+                t"{ui.cmd(f'jj-stack checkout --pull-request {pr_number}')}, or link an "
+                t"existing local change with {ui.cmd(f'jj-stack relink {pr_number} CHANGE')}."
             ),
         )
     if len(matching_change_ids) > 1:
         raise AmbiguousSelectionError(
             t"{pr_label} is linked to multiple local changes.",
-            hint=t"Use an explicit change ID after pointing the remote at the intended repo.",
+            hint=t"Run {ui.cmd('jj-stack list')} to find the conflicting saved links. Forget "
+            t"the incorrect stack's links with {ui.cmd('jj-stack unstack --local CHANGE')}, "
+            t"then link the intended change with {ui.cmd('jj-stack relink PR CHANGE')}.",
         )
 
     return pr_number, matching_change_ids[0], repo

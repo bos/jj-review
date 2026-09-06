@@ -55,7 +55,7 @@ def test_checkout_pick_fetches_github_stack_then_adopts_and_edits_selected_chang
     assert "Base: main" in normalized
     assert "Size: 2 PRs" in normalized
     assert "Status: 2 open" in normalized
-    assert "Fetched tip commit:" in captured.out
+    assert "Fetched PR head commit:" in captured.out
     assert "Working copy now edits" in captured.out
     assert JjClient(repo).resolve_commit("@").change_id == expected_head.change_id
     assert TrackingStore.for_repo(repo).load() == expected
@@ -133,7 +133,7 @@ def test_checkout_accepts_a_matching_visible_pr_bookmark(
 
     assert _main(repo, config_path, "checkout", "--pull-request", "1") == 0
 
-    assert "Updated local tracking for 1 PR" in capsys.readouterr().out
+    assert "Saved pull request links for 1 PR" in capsys.readouterr().out
     assert state_store.load().prs == state.prs
     assert set(JjClient(repo).visible_pr_bookmark_targets()) == {identity.pr_identity.head_ref}
 
@@ -373,7 +373,7 @@ def test_checkout_reports_up_to_date_and_clears_leftovers_for_an_attached_stack(
 
     assert _main(repo, config_path, "checkout", "--pull-request", "2") == 0
 
-    assert "Local tracking is already up to date for this stack." in capsys.readouterr().out
+    assert "Saved pull request links are already up to date" in capsys.readouterr().out
     artifacts = JjClient(repo).pr_branch_temp_artifacts()
     assert (artifacts.bookmark_targets, artifacts.ref_target) == ((), None)
 
@@ -422,7 +422,7 @@ def test_checkout_pick_edits_selected_tracked_stack(
     assert "Available stacks:" in captured.out
     assert "feature 1" in captured.out
     assert "not adoptable" not in captured.out
-    assert "Local tracking is already up to date for this stack." in captured.out
+    assert "Saved pull request links are already up to date for this stack." in captured.out
     assert "Working copy now edits" in captured.out
     assert JjClient(repo).resolve_commit("@").change_id == feature_1_change_id
 

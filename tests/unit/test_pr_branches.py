@@ -88,7 +88,7 @@ def test_pr_branch_resolution_rejects_multiple_changes_on_same_branch() -> None:
         ),
     )
 
-    with pytest.raises(CliError, match="multiple changes to the same branch"):
+    with pytest.raises(CliError, match="same PR branch"):
         ensure_unique_pr_branches(resolutions)
 
 
@@ -108,7 +108,7 @@ def test_pr_branch_resolution_rejects_new_branch_claimed_by_another_stack() -> N
         tracked_prs=tracked_prs,
     )
 
-    with pytest.raises(CliError, match="Cannot create a pull request on saved PR branch"):
+    with pytest.raises(CliError, match="already linked to other changes"):
         ensure_new_pr_branches_unclaimed(
             resolutions,
             tracked_prs,

@@ -1,17 +1,20 @@
-"""Remove PR branches, comments, and saved links that no active pull request needs.
+"""Clean up closed or merged pull requests.
+
+This removes unused PR branches, stack overview comments, and saved pull request links. It keeps
+your local changes and other comments on GitHub. For merged PRs, run `jj-stack sync` first to
+update the local stack.
 
 With no selector, it checks the whole repo. A revset limits cleanup to one local stack;
 `--pull-request` selects one tracked pull request, and `--pull-request orphans` selects every
 tracked pull request whose local change is gone. Add `--close` to a `--pull-request` selection
-to retarget those open pull requests to trunk and close them before cleanup.
+to retarget those open pull requests to trunk and close them before cleanup. To close a whole
+stack, first run `jj-stack unstack`, then close each PR from the top of the stack downward.
 
-Without `--close`, open pull requests are left alone. Already closed or merged pull requests do
-not need the flag and are cleaned up normally.
+Without `--close`, open pull requests are left alone.
 
-If another pull request still uses a PR branch as its base, that branch stays, because GitHub
-will not reopen a pull request whose base branch is gone. Retarget the pull request named in the
-message; if it is closed, either reopen and retarget it or delete its head branch. Then rerun the
-same cleanup command.
+Cleanup keeps a branch while another open or reopenable closed PR uses it as a base, or an
+unmerged PR in a GitHub stack needs it. The message names the PR or stack to update before
+retrying cleanup.
 """
 
 from __future__ import annotations
@@ -67,7 +70,7 @@ from .shared import (
     PreparedCleanup,
 )
 
-HELP = "Remove PR branches, comments, and saved links that no pull request needs"
+HELP = "Remove unused PR branches, stack overviews, and saved links"
 type CleanupPreflight = tuple[GithubPR | None, PRRefUpdate | None, CleanupAction | None]
 
 
@@ -99,9 +102,9 @@ def cleanup(
     """CLI entrypoint for `cleanup`."""
 
     if pr is not None and revset is not None:
-        raise UsageError("cleanup --pull-request cannot be combined with a revset.")
+        raise UsageError("jj-stack cleanup --pull-request cannot be combined with a revset.")
     if close and pr is None:
-        raise UsageError("cleanup --close requires --pull-request.")
+        raise UsageError("jj-stack cleanup --close requires --pull-request.")
 
     context = bootstrap_context(
         repo=repo,
@@ -154,11 +157,7 @@ def _run_cleanup_command(
     result = asyncio.run(
         _run_cleanup_async(
             on_action=_build_action_streamer(
-                header=(
-                    "Planned cleanup actions:"
-                    if prepared_cleanup.dry_run
-                    else "Applied cleanup actions:"
-                ),
+                header=("Cleanup preview:" if prepared_cleanup.dry_run else "Cleanup:"),
             ),
             prepared_cleanup=prepared_cleanup,
         )
@@ -194,7 +193,7 @@ async def cleanup_tracked_prs(
     return await _run_cleanup_async(
         github_client=github_client,
         on_action=_build_action_streamer(
-            header="Planned cleanup actions:" if dry_run else "Applied cleanup actions:",
+            header="Cleanup preview:" if dry_run else "Cleanup:",
         ),
         prepared_cleanup=prepared_cleanup,
         preview_detached_dependents=(planned_detached_dependents if dry_run else frozenset()),
@@ -272,8 +271,9 @@ def _resolve_cleanup_change_ids(
             pr_label = format_pr_label(pr_number, repo=repo)
             raise CliError(
                 t"{pr_label} is not linked to any local change.",
-                hint=t"Run {ui.cmd('jj-stack checkout')} or {ui.cmd('jj-stack relink')} to link "
-                t"it first, or close it with {ui.cmd(f'gh pr close {pr_number}')}.",
+                hint=t"For an open PR, save its link with "
+                t"{ui.cmd(f'jj-stack checkout --pull-request {pr_number}')}. "
+                t"To close it without jj-stack, run {ui.cmd(f'gh pr close {pr_number}')}.",
             )
         return matches
     if revset is None:
@@ -549,7 +549,8 @@ def _preflight_tracked_pr_cleanup(
             CleanupAction(
                 kind="tracking",
                 status="skipped",
-                body=t"preserve open orphan {pr_label}",
+                body=t"keep open orphan {pr_label}; to close it, run "
+                t"{ui.cmd(f'jj-stack cleanup --pull-request {pr.number} --close')}",
             )
             if not local_commits
             else None
@@ -577,9 +578,9 @@ def _preflight_tracked_pr_cleanup(
         action = CleanupAction(
             kind="tracking",
             status="skipped",
-            body=t"preserve merged {pr_label} for "
-            t"{ui.change_id(change_id)}; run "
-            t"{ui.cmd(f'sync {short_change_id(change_id)}')} before cleanup",
+            body=t"keep the saved link for merged {pr_label}: "
+            t"{ui.change_id(change_id)} is still in local history; run "
+            t"{ui.cmd(f'jj-stack sync {short_change_id(change_id)}')} before cleanup",
         )
         return None, None, action
     return pr, update, None
@@ -622,7 +623,7 @@ async def _apply_tracked_pr_cleanup(
     action = CleanupAction(
         kind="tracking",
         status="planned" if prepared_cleanup.dry_run else "applied",
-        body=t"forget {format_pr_label(pr.number, url=pr.html_url)} for "
+        body=t"forget the saved link between {format_pr_label(pr.number, url=pr.html_url)} and "
         t"{ui.change_id(change_id)}",
     )
     if prepared_cleanup.dry_run:

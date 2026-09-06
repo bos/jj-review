@@ -157,13 +157,13 @@ def require_submittable_changes(changes: tuple[LocalCommit, ...]) -> None:
         if change.hidden:
             raise UnsupportedStackError.stack_shape(
                 change.change_id,
-                "hidden changes are not submittable.",
+                "hidden changes cannot be submitted.",
                 reason="hidden_commit",
             )
         if change.immutable:
             raise UnsupportedStackError.stack_shape(
                 change.change_id,
-                "immutable changes are not submittable.",
+                "immutable changes cannot be submitted.",
                 reason="immutable_commit",
             )
         if change.divergent:
@@ -294,13 +294,12 @@ def _project_rows(
         len(row.commit.parents) > 1 for row in rows if row.is_path and not row.is_trunk_path
     ):
         raise UnsupportedStackError(
-            "Unsupported stack shape: merge changes are not supported.",
+            "The selected stack includes a change with multiple parents.",
             reason="merge_commit",
         )
     if any(not commit.parents for commit in path_commits):
         raise UnsupportedStackError(
-            t"Unsupported stack shape: the selected change does not descend from "
-            t"{ui.revset('trunk()')}.",
+            t"The selected change does not descend from {ui.revset('trunk()')}.",
             reason="reached_root_before_trunk",
         )
     path = project_selected_path(

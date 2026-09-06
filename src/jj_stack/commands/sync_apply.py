@@ -63,9 +63,9 @@ async def apply_pr_finishes(
     visible = tuple(result for result in results if result.outcome != "already_terminal")
     if visible:
         console.output(
-            "Planned GitHub updates for merged PRs:"
+            "Planned PR updates for changes already on trunk:"
             if dry_run
-            else "Applied GitHub updates for merged PRs:"
+            else "PR updates for changes already on trunk:"
         )
         marker = "•" if dry_run else "✓"
         for result in visible:
@@ -78,7 +78,7 @@ async def apply_pr_finishes(
                     result.candidate.pr_identity.pr_number,
                     repo=github.repo,
                 )
-                console.output(t"  {marker} finish merged {pr_label}")
+                console.output(t"  {marker} close {pr_label}")
     return tuple(results)
 
 
@@ -91,7 +91,9 @@ async def _apply_pr_finish(
     if dry_run:
         return PRFinishResult(plan.change_id, candidate, "finished")
     pr_label = format_pr_label(plan.pr.number, url=plan.pr.html_url)
-    console.output(t"Finishing {pr_label} for {plan.change_id}...")
+    console.output(
+        t"Closing {pr_label}: change {ui.change_id(plan.change_id)} is already on trunk."
+    )
     try:
         await github.close_pr(pr_number=plan.pr.number)
     except GithubClientError as error:
@@ -328,15 +330,16 @@ def _verified_local_rebase(
     for change in desired:
         if change.conflict:
             raise CliError(
-                t"Rebasing {ui.change_id(change.change_id)} locally produced conflicts.",
-                hint=t"Rebase and resolve the stack with {ui.cmd('jj')}, then run "
-                t"{ui.cmd('jj-stack submit')}.",
+                t"A local rebase of {ui.change_id(change.change_id)} would produce conflicts.",
+                hint=t"Rebase and resolve the local stack to match GitHub's version, then "
+                t"rerun the same {ui.cmd('jj-stack sync')} command.",
             )
         if change.parents != (expected_parent,):
             raise CliError(
                 "The local stack does not match GitHub's rebase onto trunk.",
-                hint=t"Inspect the local and GitHub stacks, then restore or resubmit the "
-                t"intended pull requests.",
+                hint=t"Compare the local history with the PR branches on GitHub, then "
+                t"restore the intended change order with {ui.cmd('jj')}. Run "
+                t"{ui.cmd('jj-stack sync')} again when the stacks match.",
             )
         expected_parent = change.commit_id
     desired_by_change: dict[str, LocalCommit] = {item.change_id: item for item in desired}
@@ -391,12 +394,12 @@ async def _refresh_selected_prs(
         short = short_change_id(actions.survivors[-1].change_id)
         console.output(
             t"Run {ui.cmd(f'jj-stack sync {short}')} to apply the "
-            t"rebase and then compute updates for the remaining existing PRs."
+            t"rebase and update the remaining pull requests."
         )
         return 0
     if not actions.submitted_survivors:
         if actions.survivors:
-            console.output("No existing pull requests to update; trailing work remains local.")
+            console.output("The remaining changes have no pull requests; they stay local.")
         return 0
     head_change_id = actions.submitted_survivors[-1].change_id
     try:
@@ -453,8 +456,8 @@ async def _cleanup_reconciled_prs(
                 repo=target.repo,
             )
             console.output(
-                t"  ! kept {pr_label} and its PR "
-                t"branch for {ui.change_id(result.change_id)}: another local stack "
+                t"  ! kept the saved link and PR branch for {pr_label} "
+                t"({ui.change_id(result.change_id)}): another local stack "
                 t"still uses this merged change; {recovery}"
             )
             continue

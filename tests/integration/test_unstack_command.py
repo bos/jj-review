@@ -102,7 +102,7 @@ def test_unstack_by_number_reports_a_grouping_github_keeps_because_it_is_merged(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "only merged pull requests" in " ".join(captured.out.split())
+    assert "only merged PRs" in " ".join(captured.out.split())
     assert "Removed GitHub stack grouping" not in captured.out
     assert fake_repo.github_stacks == {7: (1, 2)}
 

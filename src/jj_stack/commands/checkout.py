@@ -1,17 +1,18 @@
 """Check out an existing stack of pull requests.
 
-Use `--pull-request` to select a GitHub pull request, `--revset` to select a locally tracked head,
-or `--pick` to choose from local and GitHub stacks in an interactive numbered list. When the
-selected stack's submitted commits are not present locally, the command fetches them
-automatically. It records which pull request belongs to each local change, then runs `jj edit` on
-the selected change.
+Use `--pull-request` to bring in a PR and the PRs below it. Select the top PR to check out the
+whole stack. Use `--revset` for a locally tracked stack, or `--pick` to choose from local and
+GitHub stacks in an interactive list.
+
+The command fetches any missing commits, saves their pull request links, and runs `jj edit` on
+the selected change. If a PR's version differs from your local version, checkout keeps both and
+explains how to resolve the difference.
+
+Checkout does not rebase changes or modify GitHub. To start a new change on top, run `jj new`
+afterward.
 
 In terminals with hyperlink support, the PR beside "Top" in each GitHub stack's `--pick` entry
 is a clickable link. Open it to inspect that stack on GitHub before choosing an entry.
-
-`jj-stack` changes the working copy only after validating the entire stack and saving any new
-pull request links. `checkout` does not rebase changes or modify GitHub. To create a new change
-on top of the checked-out change, run `jj new` afterward.
 """
 
 from __future__ import annotations
@@ -106,12 +107,12 @@ def checkout(
             )
             context.jj_client.edit_commit(result.stack.head.commit_id, cli_args=edit_args)
     if result.fetched_tip_commit is not None:
-        console.output(ui.prefixed_line("Fetched tip commit: ", result.fetched_tip_commit))
+        console.output(ui.prefixed_line("Fetched PR head commit: ", result.fetched_tip_commit))
     if result.adopted_count:
         noun = "PR" if result.adopted_count == 1 else "PRs"
-        console.output(f"Updated local tracking for {result.adopted_count} {noun}.")
+        console.output(f"Saved pull request links for {result.adopted_count} {noun}.")
     elif result.stack.changes:
-        console.output("Local tracking is already up to date for this stack.")
+        console.output("Saved pull request links are already up to date for this stack.")
     else:
         console.output("The selected stack has no changes to check out.")
     if result.stack.changes:
@@ -160,9 +161,11 @@ def _checkout_saved_stack(
     )
     if incomplete:
         raise CliError(
-            t"jj-stack has no saved pull request for some changes in this stack: "
+            t"jj-stack has no saved pull request link for these changes: "
             t"{ui.join(ui.change_id, (change.change_id for change in incomplete))}.",
-            hint=t"Link it with {ui.cmd('jj-stack checkout --pull-request PR')}.",
+            hint=t"To check out their existing PRs, run "
+            t"{ui.cmd('jj-stack checkout --pull-request <top-pr>')}. "
+            t"For changes that have not been submitted, use {ui.cmd('jj edit <change-id>')}.",
         )
     return CheckoutResult(adopted_count=0, fetched_tip_commit=None, stack=stack)
 
@@ -373,10 +376,10 @@ async def _load_pr_chain(
             raise CliError(f"Could not inspect pull request branch {base}") from error
         if len(matches) != 1:
             raise CliError(
-                t"Expected one pull request for managed base branch {ui.bookmark(base)}, "
+                t"PR base branch {ui.bookmark(base)} must belong to one open pull request, "
                 t"but GitHub reports {len(matches)}.",
-                hint=t"Select the intended PR explicitly and link it with "
-                t"{ui.cmd('jj-stack relink')}.",
+                hint=t"Check the PR's base branch on GitHub. To link a known open PR to a "
+                t"local change, run {ui.cmd('jj-stack relink <pr> <change-id>')}.",
             )
         parent = matches[0]
         require_managed_pr_head(
@@ -402,8 +405,9 @@ def _save_checkout_tracking(
     if len(changes) < len(prs):
         raise CliError(
             "The selected pull requests do not describe the stack that was just fetched.",
-            hint=t"Run {ui.cmd('jj-stack view')} to compare them, then submit or "
-            t"relink the pull requests that should match this history.",
+            hint=t"Compare {ui.cmd('jj log')} with the PRs on GitHub. Use "
+            t"{ui.cmd('jj-stack submit')} to update the PRs from local history, or "
+            t"{ui.cmd('jj-stack relink <pr> <change-id>')} to repair a saved link.",
         )
     # The stack was discovered from the top PR's head, so any changes above the top PR's own
     # change are additions to its branch. Each lower PR's head must be exactly its change's
@@ -459,9 +463,9 @@ def _reject_duplicate_checkout_claims(
         raise CliError(
             "Another local change is already linked to one of those pull request numbers or "
             "branches.",
-            hint=t"Run {ui.cmd('jj-stack list')} to find that change, then forget its saved link "
-            t"with {ui.cmd('jj-stack unstack --local')} or clean it up with "
-            t"{ui.cmd('jj-stack cleanup')}.",
+            hint=t"Run {ui.cmd('jj-stack list')} to find the linked change. To forget its "
+            t"stack's saved links, run {ui.cmd('jj-stack unstack --local <change-id>')}. "
+            t"For a closed or merged PR, use {ui.cmd('jj-stack cleanup --pull-request <pr>')}.",
         )
 
 
@@ -556,8 +560,8 @@ def _prompt_picker_choice(
     selection = sys.stdin.readline().strip()
     if not selection.isdigit() or not 1 <= int(selection) <= len(choices):
         raise UsageError(
-            t"{ui.cmd(selection or '(empty)')} is not a valid stack number; "
-            t"expected 1-{len(choices)}."
+            t"{ui.cmd(selection or '(empty)')} is not a valid choice; "
+            t"enter a number from 1 to {len(choices)}."
         )
     return choices[int(selection) - 1]
 

@@ -1,4 +1,10 @@
-"""CLI entrypoint for the standalone `jj-stack` executable."""
+"""CLI entrypoint for the standalone `jj-stack` executable.
+
+In terminals with hyperlink support, PR labels such as `PR #123` and `#123` are clickable
+links to GitHub when the PR's URL is known. Look for them in command results, status output,
+and diagnostics. Stack summaries in `submit`, `view`, and `list` link through the top PR;
+`list` makes counts such as `5 PRs` clickable too. `--color=never` disables these links.
+"""
 
 from __future__ import annotations
 
@@ -61,21 +67,14 @@ logger = logging.getLogger(__name__)
 _COLOR_CHOICES: tuple[RequestedColorMode, ...] = ("always", "never", "debug", "auto")
 _TOP_LEVEL_HELP_USAGE = "jj-stack [--help] [--color WHEN] [--version] [<command> ...]"
 _TOP_LEVEL_HELP_DESCRIPTION = """
-`jj-stack` lets you submit a stack of `jj` changes for review on GitHub.
+Create and update stacked GitHub pull requests from your `jj` changes.
 
-Use it to submit and refresh pull requests, inspect their status, merge pull
-requests, and clean up after they close or merge. Keep creating and editing changes with `jj`;
-`jj-stack` submits and updates their pull requests on GitHub.
+Edit and rearrange changes with `jj`, then run `jj-stack submit` to update their PRs.
+Running `jj-stack` with no command shows the current stack and its PR status.
 
-Running `jj-stack` with no command shows the current stack. A typical workflow is
-`jj-stack submit`, `jj-stack view`, then `jj-stack merge`. When GitHub merges immediately,
-`jj-stack merge` also updates the local stack. When the merge finishes later, through a merge
-queue or outside `jj-stack`, run `jj-stack sync`.
-
-In terminals with hyperlink support, PR labels such as `PR #123` and `#123` are clickable
-links to GitHub when the PR's URL is known. Look for them in command results, status output,
-and diagnostics. Stack summaries in `submit`, `view`, and `list` link through the top PR;
-`list` makes counts such as `5 PRs` clickable too. `--color=never` disables these links.
+Use `jj-stack merge` when the PRs at the bottom are ready. The command also updates your local
+stack when GitHub merges immediately. After a queued merge finishes, or if you merge on GitHub,
+run `jj-stack sync`.
 """
 _REORDERABLE_GLOBAL_FLAGS = frozenset({"--debug", "--time-output"})
 _REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES = frozenset({"--repository", "--color"})
@@ -83,13 +82,19 @@ _HELP_FLAGS = frozenset({"-h", "--help"})
 _COMPLETION_HELP = "Print shell completion setup for bash, zsh, or fish"
 _HELP_HELP = "Show top-level help, or help for one command"
 _COMPLETION_DESCRIPTION = """
-Print the shell completion script for bash, zsh, or fish. It does not inspect the repo or
-GitHub.
+Print a shell completion script. Load it from your shell's startup file after any existing
+completion setup. For zsh, run it after `compinit`.
 
-If you already have a `jj` alias that runs `jj-stack`, such as `jj stack`, and use `jj`'s built-in
-shell completion, pass `--jj-alias stack` here. Then typing `jj sta` and pressing Tab completes it
-to `jj stack`; completion after `jj stack` also offers `jj-stack` commands and options. Other `jj`
-completions remain available.
+If you use a `jj stack` alias, include `--jj-alias stack` to complete commands and options after
+both `jj-stack` and `jj stack`. For example:
+
+- Bash: `eval "$(jj-stack completion bash --jj-alias stack)"`
+
+- Zsh: `eval "$(jj-stack completion zsh --jj-alias stack)"`
+
+- Fish: `jj-stack completion fish --jj-alias stack | source`
+
+Omit `--jj-alias` if you only use the standalone `jj-stack` command.
 """
 _HELP_DESCRIPTION = """
 Show top-level help or the detailed help for one command. Use `--all` to show every command and
@@ -257,7 +262,7 @@ def build_parser() -> ArgumentParser:
         description_text=submit_command.__doc__ or "",
         handler=_forward_handler(submit_command.submit, open_="open"),
         revset_help=(
-            t"Revset selecting the stack to submit; defaults to {ui.revset('@')} when the "
+            t"Stack head to submit; defaults to {ui.revset('@')} when the "
             t"working-copy change is described and nonempty, otherwise {ui.revset('@-')}"
         ),
     )
@@ -271,7 +276,8 @@ def build_parser() -> ArgumentParser:
         "--base",
         metavar="REVSET",
         help=(
-            "Submit only changes after this submitted ancestor, using its PR branch as the base"
+            "Submit changes above this submitted ancestor, using its PR branch as the base; "
+            "repeat this option on later submits of the dependent stack"
         ),
     )
     add_help_argument(
@@ -288,9 +294,8 @@ def build_parser() -> ArgumentParser:
         metavar="TARGET=FILE",
         action="append",
         help=(
-            t"Read the pull request body for change {ui.metavar('TARGET')}, or the stack "
-            t"overview when {ui.metavar('TARGET')} is {ui.metavar('stack')}, from "
-            t"{ui.metavar('FILE')}"
+            t"Read a PR body from {ui.metavar('FILE')}; {ui.metavar('TARGET')} is a change ID "
+            t"or {ui.code('stack')} for an overview comment on the head PR"
         ),
     )
     add_help_argument(
@@ -327,8 +332,8 @@ def build_parser() -> ArgumentParser:
         "--draft",
         action="store_true",
         help=(
-            t"Create pull requests as drafts; use {ui.option('--draft=all')} to "
-            t"return existing pull requests to draft"
+            t"Create new PRs as drafts; use {ui.option('--draft=all')} to make existing "
+            t"PRs drafts too"
         ),
     )
     submit_draft_mode.add_argument(
@@ -340,14 +345,14 @@ def build_parser() -> ArgumentParser:
         "--open",
         dest="open",
         action="store_true",
-        help="Mark existing draft pull requests ready for review when submitting",
+        help="Mark submitted PRs ready for review, including existing drafts",
     )
     add_help_argument(
         submit_parser,
         "--label",
         dest="labels",
         action="append",
-        help="Apply GitHub labels to submitted pull requests",
+        help="Add labels to the selected PRs; comma-separated or repeat the option",
     )
     add_help_argument(
         submit_parser,
@@ -355,7 +360,7 @@ def build_parser() -> ArgumentParser:
         dest="reviewers",
         action="append",
         metavar="USERS",
-        help="Request reviews from GitHub users on submitted pull requests",
+        help="Request reviews by GitHub username; comma-separated or repeat the option",
     )
     add_help_argument(
         submit_parser,
@@ -363,7 +368,7 @@ def build_parser() -> ArgumentParser:
         dest="team_reviewers",
         action="append",
         metavar="TEAMS",
-        help="Ask for reviews from GitHub teams on submitted pull requests",
+        help="Request reviews by team slug; comma-separated or repeat the option",
     )
     add_help_argument(
         submit_parser,
@@ -429,7 +434,7 @@ def build_parser() -> ArgumentParser:
         "--json",
         dest="as_json",
         action="store_true",
-        help="Output stack list as JSON",
+        help="Output tracked stacks and orphaned PRs as JSON",
     )
     _add_relink_parser(
         subcommands,
@@ -445,11 +450,9 @@ def build_parser() -> ArgumentParser:
         description_text=merge_command.__doc__ or "",
         handler=_forward_handler(merge_command.merge),
         revset_help=(
-            t"Revset selecting the stack to merge; use {ui.option('--pull-request')} to merge "
-            t"only the bottom portion of a larger stack; "
-            t"defaults to {ui.revset('@')} when the "
-            t"working-copy change is described and nonempty, otherwise {ui.revset('@-')}; "
-            t"cannot be combined with {ui.option('--pull-request')}"
+            t"Stack head to merge; defaults to {ui.revset('@')} when the working-copy change "
+            t"is described and nonempty, otherwise {ui.revset('@-')}. To merge only the bottom "
+            t"portion, use {ui.option('--pull-request')} instead"
         ),
     )
     merge_parser.add_argument(
@@ -486,7 +489,7 @@ def build_parser() -> ArgumentParser:
         description_text=unstack_command.__doc__ or "",
         handler=_forward_handler(unstack_command.unstack),
         revset_help=(
-            t"Revset selecting the stack to unstack; defaults to {ui.revset('@')} when the "
+            t"Stack head to unstack; defaults to {ui.revset('@')} when the "
             t"working-copy change is described and nonempty, otherwise {ui.revset('@-')}; "
             t"cannot be combined with {ui.option('--pull-request')} or {ui.option('--stack')}"
         ),
@@ -537,7 +540,7 @@ def build_parser() -> ArgumentParser:
     cleanup_parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Preview the cleanup without deleting PR branches, comments, or tracking",
+        help="Preview cleanup without closing PRs or removing anything",
     )
     add_help_argument(
         cleanup_parser,
@@ -566,7 +569,7 @@ def build_parser() -> ArgumentParser:
         description_text=sync_command.__doc__ or "",
         handler=_forward_handler(sync_command.sync, all_="all"),
         revset_help=(
-            t"Revset selecting the stack to sync; defaults to {ui.revset('@')} when the "
+            t"Stack head to sync; defaults to {ui.revset('@')} when the "
             t"working-copy change is described and nonempty, otherwise {ui.revset('@-')}; "
             t"cannot be combined with {ui.option('--pull-request')}"
         ),
@@ -576,8 +579,7 @@ def build_parser() -> ArgumentParser:
         "--dry-run",
         action="store_true",
         help=(
-            "Preview the sync without changing pull requests, local changes, PR branches, "
-            "or tracking"
+            "Preview the sync without changing your local stack, PRs, branches, or saved links"
         ),
     )
     add_help_argument(
@@ -593,8 +595,8 @@ def build_parser() -> ArgumentParser:
         "--all",
         action="store_true",
         help=(
-            "Run sync for every stack affected by a completed merge; may rewrite local "
-            "changes and clean up merged pull requests whose local changes are gone"
+            "Sync every stack affected by a completed merge, including merged PRs whose local "
+            "changes are gone; cannot be combined with a selector"
         ),
     )
 
@@ -637,7 +639,10 @@ def build_parser() -> ArgumentParser:
         "--jj-alias",
         metavar="NAME",
         type=_parse_jj_alias,
-        help=t"Name of an existing {ui.code('jj')} alias that runs {ui.code('jj-stack')}",
+        help=(
+            t"Also complete an existing {ui.code('jj')} alias that runs {ui.code('jj-stack')}, "
+            t"such as {ui.code('stack')}"
+        ),
     )
     help_parser = _add_command_parser(
         subcommands,
@@ -948,15 +953,15 @@ def _add_relink_parser(
         parser,
         "revset",
         metavar="REVSET",
-        help="Revset selecting the local change to reconnect to the pull request",
+        help="Local change to link to the pull request",
     )
     add_help_argument(
         parser,
         "--replace-remote",
         action="store_true",
         help=(
-            t"Reconnect even if the PR branch has commits that are not in the change; "
-            t"the next {ui.cmd('jj-stack submit')} replaces them"
+            t"Link even if the PR branch has changed unexpectedly; the next "
+            t"{ui.cmd('jj-stack submit')} overwrites it with the local change"
         ),
     )
 
@@ -988,7 +993,7 @@ def _add_checkout_parser(
         selector,
         "--revset",
         help=(
-            t"Revset selecting the local stack head; defaults to {ui.revset('@')} when the "
+            t"Local stack head to edit; defaults to {ui.revset('@')} when the "
             t"working-copy change is described and nonempty, otherwise {ui.revset('@-')}"
         ),
     )
@@ -1026,8 +1031,8 @@ def _add_common_options(
         dest=SUPPRESS,
         metavar="NAME=VALUE",
         help=(
-            t"Additional {ui.code('jj')} config option as a TOML dotted-key assignment "
-            t"(e.g. {ui.code('ui.color=always')})"
+            t"Set a {ui.code('jj')} config value for this command, such as "
+            t"{ui.code('ui.color=always')}; repeat for several values"
         ),
     )
     add_help_argument(
@@ -1057,7 +1062,7 @@ def _add_common_options(
         "--time-output",
         action="store_true",
         default=SUPPRESS if suppress_defaults else False,
-        help="Prefix each printed line with the seconds elapsed since the process started",
+        help="Prefix each output line with elapsed seconds",
     )
 
 

@@ -13,9 +13,9 @@ _CHANGE_ID = "abcdefghijkl"
 @pytest.mark.parametrize(
     ("overrides", "expected"),
     (
-        pytest.param({"hidden": True}, "hidden changes are not submittable", id="hidden"),
+        pytest.param({"hidden": True}, "hidden changes cannot be submitted", id="hidden"),
         pytest.param(
-            {"immutable": True}, "immutable changes are not submittable", id="immutable"
+            {"immutable": True}, "immutable changes cannot be submitted", id="immutable"
         ),
         pytest.param({"divergent": True}, "jj converge -r", id="divergent"),
         pytest.param({"empty": True}, "jj abandon abcdefgh", id="empty"),

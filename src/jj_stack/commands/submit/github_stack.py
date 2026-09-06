@@ -113,8 +113,8 @@ def plan_github_stack(
 def _membership_error(message: str) -> CliError:
     return CliError(
         message,
-        hint=t"Rerun {ui.cmd('jj-stack submit')} to see how GitHub now groups these pull "
-        t"requests.",
+        hint=t"Retry the same {ui.cmd('jj-stack submit')} command. It will check the current "
+        t"GitHub stack before continuing.",
     )
 
 
@@ -163,7 +163,8 @@ async def apply_github_stack_plan(
     except GithubClientError as error:
         raise CliError(
             "Could not update the GitHub stack",
-            hint=t"Resolve GitHub's reported error, then rerun {ui.cmd('jj-stack submit')}.",
+            hint=t"Resolve GitHub's reported error, then retry the same "
+            t"{ui.cmd('jj-stack submit')} command.",
         ) from error
 
 

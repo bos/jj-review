@@ -178,7 +178,7 @@ def test_doctor_fix_applies_the_pr_branch_fetch_exclusion(
     assert run_main(repo, config_path, "doctor") == 0
     rerun_output = " ".join(capsys.readouterr().out.split())
     assert "jj-stack doctor --fix" not in rerun_output
-    assert "Stacks API available" in rerun_output
+    assert "stacked pull requests available" in rerun_output
 
 
 def test_doctor_shows_skipped_checks_when_remote_fails(

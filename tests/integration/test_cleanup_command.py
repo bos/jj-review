@@ -342,7 +342,7 @@ def test_cleanup_preserves_closed_pr_branch_used_as_head_by_another_open_pr(
     output = " ".join(captured.out.split())
 
     assert exit_code == 1
-    assert "also uses PR branch" in output
+    assert "also has open" in output
     assert state_store.load() == state
     assert issue_comments(fake_repo, identity.pr_number) == comments_before
     assert f"refs/heads/{identity.head_ref}" in remote_refs(fake_repo.git_dir)
@@ -417,8 +417,7 @@ def test_cleanup_preserves_open_orphan_record_and_remote_branch(
     normalized_output = " ".join(captured.out.split())
 
     assert exit_code == 0
-    assert "  - preserve open orphan" in captured.out
-    assert "preserve open orphan" in normalized_output
+    assert "keep open orphan" in normalized_output
     assert change_id in refreshed_state.prs
     assert refreshed_state.prs[change_id].pr_identity.head_ref == bookmark
     assert f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir)
@@ -498,7 +497,7 @@ def test_cleanup_finishes_closed_prs_whose_branch_was_deleted_or_moved(
     output = " ".join(captured.out.split())
 
     assert exit_code == 0
-    assert f"forget PR #{deleted_identity.pr_number}" in output
+    assert f"forget the saved link between PR #{deleted_identity.pr_number}" in output
     assert f"delete {moved_identity.head_ref}@origin" in output
     assert not {deleted, moved} & set(state_store.load().prs)
     assert fake_repo.prs[deleted_identity.pr_number].state == "closed"

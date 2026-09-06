@@ -1,16 +1,11 @@
 """Compare the local and GitHub state of the selected `jj` stacks.
 
-By default it summarizes the submitted and unsubmitted changes in each selected stack;
-`--verbose` expands those summaries.
+Show submitted and unsubmitted changes with their current PR state. Long stacks are summarized;
+use `--verbose` to show every change.
 
-In terminals with hyperlink support, click a PR label to open it on GitHub. The PR in the
-"Submitted stack" heading links to the topmost submitted PR.
-
-It reads pull request state from GitHub, but finds the changes in a stack locally by walking
-parents from the selected change down to your local `trunk()`. If your local copy of trunk is
-behind, that list of changes can be stale even though the pull request state is current. Run
-`jj git fetch` first when the view needs to reflect the latest trunk. Mix revsets and repeated
-`--pull-request` values to inspect several stacks in one run.
+PR state comes from GitHub and stack order comes from local history. This command does not
+fetch. Run `jj git fetch` first if you need to update local `trunk()`. Pass several revsets or
+repeat `--pull-request` to inspect several stacks in one run.
 
 Common examples:
 
@@ -20,6 +15,9 @@ Common examples:
 - `jj-stack view --pull-request 123` finds the full local stack containing that PR.
 
 - `jj-stack view <change-id>` finds the full local stack containing that change.
+
+In terminals with hyperlink support, click a PR label to open it on GitHub. The PR in the
+"Submitted stack" heading links to the topmost submitted PR.
 """
 
 from __future__ import annotations
@@ -53,7 +51,6 @@ from jj_stack.jj.client import (
     divergent_change_id_from_error,
 )
 from jj_stack.models.github import GithubPR
-from jj_stack.pr_branch_namespace import current_pr_branch_namespace
 from jj_stack.stack.change_state import (
     ChangeState,
     Closed,
@@ -83,7 +80,7 @@ from jj_stack.stack.status import (
 _SUMMARY_SECTION_HEAD_COUNT = 3
 _SUMMARY_SECTION_TAIL_COUNT = 3
 
-HELP = "Check the PR status of one or more `jj` stacks"
+HELP = "Check the PR status of one or more jj stacks"
 
 ViewSelectorKind = Literal["pr", "revset"]
 
@@ -311,29 +308,25 @@ def _local_history_warnings(prepared_status: PreparedStatus) -> tuple[ui.Message
         change_id = ui.change_id(change.change_id)
         if len(change.parents) > 1:
             warnings.append(
-                t"Change {change_id} is a merge change. Showing its first-parent path; "
-                t"commands that change stack state require a linear stack."
+                t"Change {change_id} has multiple parents. Showing its first-parent path; "
+                t"submitting requires a linear stack."
             )
         if change.empty:
-            warnings.append(
-                t"Change {change_id} is empty. Showing it for inspection; it cannot be "
-                t"submitted until it has content."
-            )
+            warnings.append(t"Change {change_id} is empty and cannot be submitted.")
         elif not change.description.strip():
             warnings.append(
-                t"Change {change_id} has no description. Showing it for inspection, but it "
-                t"cannot be submitted until it is described with "
+                t"Change {change_id} has no description. Before submitting, describe it with "
                 t"{ui.cmd(f'jj describe {short_change_id(change.change_id)}')}."
             )
         if change.divergent:
             warnings.append(
-                t"Change {change_id} has divergent local commits. Showing the selected one; "
-                t"commands that change the stack will stop until the divergence is resolved."
+                t"Change {change_id} is divergent. Showing the selected commit; resolve the "
+                t"divergence before changing the stack with jj-stack."
             )
         if change.conflict:
             warnings.append(
-                t"Change {change_id} has unresolved conflicts. Showing it for inspection; "
-                t"submit and merge remain blocked until the conflicts are resolved."
+                t"Change {change_id} has unresolved conflicts. Resolve them before running "
+                t"{ui.cmd('jj-stack submit')} or {ui.cmd('jj-stack merge')}."
             )
     return tuple(warnings)
 
@@ -616,7 +609,6 @@ def render_status_advisory_lines(
 ) -> tuple[ui.Renderable, ...]:
     """Render any advisories that follow the status stack output."""
 
-    namespace = current_pr_branch_namespace()
     cleanup_changes = [
         change for change in result.changes if isinstance(change.state, (Landed, Merged))
     ]
@@ -639,30 +631,12 @@ def render_status_advisory_lines(
             if change.state.has_local_edits
         )
     )
-    policy_warning_rows: list[tuple[ui.TableCell, ui.TableCell]] = []
-    for change in cleanup_changes:
-        pr = change.pr
-        if pr is None:
-            continue
-        base_ref = pr.base.ref
-        if not namespace.contains(base_ref):
-            continue
-        pr_label = format_pr_label(pr.number, url=pr.html_url)
-        policy_warning_rows.append(
-            (
-                "Repo policy",
-                t"Repo policy warning: {pr_label} merged into "
-                t"{ui.bookmark(base_ref)}; configure GitHub to block merges of PRs "
-                t"targeting {ui.bookmark(namespace.branch_glob)}",
-            )
-        )
     if (
         not cleanup_changes
         and not divergent_changes
         and not link_changes
         and not moved_changes
         and not submitted_disagreements
-        and not policy_warning_rows
     ):
         return ()
 
@@ -671,19 +645,19 @@ def render_status_advisory_lines(
         rows.append(
             (
                 "Submit needed",
-                "PR branches are behind the current local stack",
+                "Local changes have not been submitted",
             )
         )
         rows.append(
             (
                 "Meaning",
-                "Submit will push the current commit IDs and PR bases to GitHub",
+                "jj-stack submit will update the PR branches and bases to match local history",
             )
         )
         if cleanup_changes:
             rows.append(
                 (
-                    "After cleanup",
+                    "After syncing",
                     (
                         ui.cmd("jj-stack submit"),
                         " ",
@@ -712,14 +686,14 @@ def render_status_advisory_lines(
                 *ui.join(ui.change_id, visible_change_ids),
                 *((", ", f"... {remaining} more") if remaining else ()),
             )
-        rows.append(("New commit IDs", disagreement_detail))
+        rows.append(("Changed locally", disagreement_detail))
 
     if cleanup_changes:
         rows.append(
             (
                 "Sync needed",
-                "Submit note: descendant PR bases still follow the old local ancestry "
-                "until the remaining selected changes are synced",
+                "Merged changes remain in local history. Run jj-stack sync to update the "
+                "stack and any remaining PRs",
             )
         )
         rows.append(
@@ -734,7 +708,7 @@ def render_status_advisory_lines(
         )
         rows.append(
             (
-                "If the plan is safe",
+                "Apply",
                 (
                     ui.cmd("jj-stack sync"),
                     " ",
@@ -752,7 +726,7 @@ def render_status_advisory_lines(
                     ui.change_id(change.change_id),
                     (
                         pr_label,
-                        " is merged, and later local changes are still based on it",
+                        " is merged; the local stack still includes this change",
                     ),
                 )
             )
@@ -797,8 +771,6 @@ def render_status_advisory_lines(
                 )
             )
 
-    rows.extend(policy_warning_rows)
-
     for change in divergent_changes:
         rows.append(
             (
@@ -841,7 +813,7 @@ def _link_advisory_summary_row(
         detail = (
             f"GitHub reports {closed_phrase} for {change_phrase}; submit will not "
             "reuse closed pull requests. Reopen the PR on GitHub to continue using it, "
-            "relink an open replacement, or remove the closed PR's leftovers with ",
+            "link an open replacement with jj-stack relink, or clean up with ",
             cleanup_command,
             " before submitting again.",
         )
@@ -849,35 +821,34 @@ def _link_advisory_summary_row(
     if states == {"missing"}:
         label = "Missing GitHub PR" if len(link_changes) == 1 else "Missing GitHub PRs"
         detail = (
-            f"GitHub did not report a PR for the saved PR branch of {change_phrase}. Run ",
-            ui.cmd("jj git fetch"),
-            " if branch state may be stale. Relink an open PR if one exists; otherwise forget "
-            "the missing PR link with ",
-            ui.cmd(f"jj-stack unstack --local {selected_revset}"),
-            " before submitting again.",
+            f"GitHub did not report a PR for the saved PR branch of {change_phrase}. "
+            "Inspect the saved PR on GitHub. To link an existing open PR, use ",
+            ui.cmd("jj-stack relink"),
+            ".",
         )
         return label, detail
     if states == {"ambiguous"}:
         label = "Ambiguous GitHub PR" if len(link_changes) == 1 else "Ambiguous GitHub PRs"
         detail = (
-            f"GitHub reports multiple PRs for the saved PR branch of {change_phrase}. Run ",
-            ui.cmd("jj git fetch"),
-            " to refresh, then relink the intended open PR.",
+            f"GitHub reports multiple PRs for the saved PR branch of {change_phrase}. "
+            "Inspect those PRs on GitHub, then use ",
+            ui.cmd("jj-stack relink"),
+            " to link the intended open PR.",
         )
         return label, detail
     if states == {"saved"}:
         label = "Saved GitHub PR" if len(link_changes) == 1 else "Saved GitHub PRs"
         detail = (
             f"Submit cannot use the saved PR of {change_phrase} as it stands; see its row. "
-            "Relink the intended open PR, or forget the saved link with ",
-            ui.cmd(f"jj-stack unstack --local {selected_revset}"),
-            " before submitting again.",
+            "Inspect the PRs on GitHub, then use ",
+            ui.cmd("jj-stack relink"),
+            " to link the intended open PR.",
         )
         return label, detail
     detail = (
         "GitHub reports closed, missing, or ambiguous PR state for one or more "
-        "changes shown above. Inspect the per-change rows, then reopen, relink, clean up, or "
-        "forget a saved link as appropriate.",
+        "changes shown above. Inspect their PRs on GitHub and the details below before "
+        "choosing a repair command.",
     )
     return "GitHub PRs need repair", detail
 
@@ -950,7 +921,7 @@ def _format_live_pr_summary(pr: GithubPR) -> ui.Message:
         pr.number, is_draft=pr.state == "open" and pr.is_draft, url=pr.html_url
     )
     if pr.state == "merged":
-        return t"{pr_label} merged into {pr.base.ref}, cleanup needed"
+        return t"{pr_label} merged, sync needed"
     if pr.state == "closed":
         return t"{pr_label} closed"
     summary: ui.Message = pr_label

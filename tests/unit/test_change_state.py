@@ -199,7 +199,7 @@ def test_branch_missing_repair_matches_the_pull_request_state() -> None:
     assert isinstance(still_open, BranchMissing) and isinstance(already_closed, BranchMissing)
     assert "close PR #7" in ui.plain_text(still_open.repair)
     assert "reopen PR #7" in ui.plain_text(already_closed.repair)
-    assert "forget it" in ui.plain_text(already_closed.repair)
+    assert "jj-stack cleanup --pull-request 7" in ui.plain_text(already_closed.repair)
 
 
 def test_report_incomplete_only_when_the_saved_pr_cannot_be_placed() -> None:

@@ -10,7 +10,7 @@ from .models import MergeResult
 
 def print_merge_result(result: MergeResult) -> None:
     console.output(
-        t'Trunk: {ui.bookmark(result.trunk_branch)}, currently at "{result.trunk_subject}"'
+        t'Trunk: {ui.bookmark(result.trunk_branch)}, observed at "{result.trunk_subject}"'
     )
     if result.actions:
         console.output(_result_header(result))
@@ -41,14 +41,16 @@ def print_merge_result(result: MergeResult) -> None:
             t"GitHub reported final trunk commit {ui.commit_id(result.final_trunk_commit_id)}."
         )
     if result.enqueued:
-        console.output("GitHub will merge them once the queue processes them.")
+        console.output(
+            "Wait for GitHub to finish merging, then run jj-stack sync for this stack."
+        )
 
 
 def _result_header(result: MergeResult) -> str:
     if result.enqueued:
         return "In merge queue:"
     if result.applied:
-        return "Applied merge actions:"
+        return "Merge completed:"
     if result.blocked:
         return "Merge blocked:"
-    return "Planned merge actions:"
+    return "Merge preview:"

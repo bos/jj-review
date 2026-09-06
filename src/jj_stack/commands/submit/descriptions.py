@@ -364,7 +364,10 @@ def edit_prs_in_editor(
         else shlex.quote(str(document_path))
     )
     retry = f"--resume-edit {quoted_document_path}"
-    recovery_hint = t"Reopen the saved editor file with {ui.cmd(retry)}."
+    recovery_hint = (
+        t"Retry the same {ui.cmd('jj-stack submit')} command with {ui.cmd(retry)} "
+        t"instead of {ui.option('--edit')}."
+    )
     try:
         completed = subprocess.run(
             [*editor_command, str(document_path)],

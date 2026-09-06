@@ -543,8 +543,8 @@ def test_view_preserves_saved_pr_link_when_github_reports_missing(
     assert exit_code == EXIT_INCOMPLETE
     assert "Missing GitHub PR" in captured.out
     assert "saved PR #1" in captured.out
-    assert_output_contains(captured.out, "jj-stack unstack --local")
-    assert change_id in captured.out
+    assert_output_contains(captured.out, "jj-stack relink")
+    assert change_id[:8] in captured.out
     assert refreshed_state.prs[change_id].pr_identity.pr_number == 1
 
 
@@ -567,4 +567,4 @@ def test_view_reports_merged_pr_state(
     state_store.load()
 
     assert exit_code == 0
-    assert "PR #1 merged into main, cleanup needed" in captured.out
+    assert "PR #1 merged, sync needed" in captured.out
