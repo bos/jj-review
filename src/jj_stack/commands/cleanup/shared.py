@@ -11,7 +11,7 @@ from jj_stack.github.resolution import (
     UnresolvedGithubTarget,
 )
 from jj_stack.models.git import GitRemote
-from jj_stack.models.tracking import TrackedPR, TrackingState
+from jj_stack.models.tracking import TrackingState
 from jj_stack.ui import Message
 
 CleanupActionStatus = Literal["applied", "blocked", "planned", "skipped"]
@@ -50,12 +50,3 @@ class PreparedCleanup:
         """The selected Git remote, once remote context is loaded and one resolved."""
 
         return self.github_target.remote if self.github_target is not None else None
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedCleanupChange:
-    """Locally prepared cleanup state for one complete tracked PR."""
-
-    candidate: TrackedPR
-    has_mutable_copy: bool
-    stale_reason: str | None

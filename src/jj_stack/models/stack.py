@@ -45,17 +45,6 @@ class LocalCommit(BaseModel):
 
         return not self.immutable and not self.empty and self.commit_id != submitted_commit_id
 
-    def is_submittable(self) -> bool:
-        """Whether the change can be submitted as part of a stack."""
-
-        return (
-            not self.hidden
-            and not self.immutable
-            and not self.divergent
-            and not self.empty
-            and len(self.parents) == 1
-        )
-
 
 class LocalStack(BaseModel):
     """A linear stack of submittable changes with explicit trunk and base-parent context."""
