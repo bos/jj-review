@@ -19,6 +19,7 @@ from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient
 from jj_stack.github.resolution import GithubTarget
 from jj_stack.identifiers import short_change_id
+from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import PRRefUpdate
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import SubmittedBaseline, TrackedPR
@@ -33,6 +34,7 @@ from jj_stack.stack.convergence_models import (
     SkipPRFinish,
 )
 from jj_stack.stack.convergence_observation import dependent_path_heads
+from jj_stack.stack.observation import observe_change_copies, observe_pr_bookmarks
 from jj_stack.ui import Message
 
 
@@ -207,12 +209,16 @@ def _apply_local_convergence(
         attachment = nullcontext()
     with attachment:
         if rebased:
+            change_ids, rewrite_args = _single_visible_change_ids(context, rebased)
             context.jj_client.rebase_changes(
-                change_ids=_single_visible_change_ids(context, rebased),
-                destination=destination,
+                change_ids=change_ids, destination=destination, cli_args=rewrite_args
+            )
+        else:
+            rewrite_args, _snapshots = observe_pr_bookmarks(
+                jj_client=context.jj_client, state=context.state_store.load()
             )
         if replaced:
-            context.jj_client.abandon_changes(replaced)
+            context.jj_client.abandon_changes(replaced, cli_args=rewrite_args)
         dependencies = _observe_removal_dependencies(context=context, actions=actions)
         abandoned = tuple(
             change.change.commit_id
@@ -222,7 +228,7 @@ def _apply_local_convergence(
             and not dependencies.get(change.change_id)
         )
         if abandoned:
-            context.jj_client.abandon_changes(abandoned)
+            context.jj_client.abandon_changes(abandoned, cli_args=rewrite_args)
         if rewritten:
             context.state_store.relink_prs(
                 replacements={
@@ -304,15 +310,16 @@ def _verified_local_rebase(
     desired = local
     operation_id: str | None = None
     if _all_at_baseline(adopted):
+        change_ids, rewrite_args = _single_visible_change_ids(
+            context, (*local, *plan.actions.working_copy_children)
+        )
         operation_id = context.jj_client.prepare_rebase_changes(
-            change_ids=_single_visible_change_ids(
-                context, (*local, *plan.actions.working_copy_children)
-            ),
-            destination=trunk_commit_id,
+            change_ids=change_ids, destination=trunk_commit_id, cli_args=rewrite_args
         )
         grouped = context.jj_client.query_commits_at_operation(
             change_ids=tuple(item.change_id for item in local),
             operation_id=operation_id,
+            cli_args=rewrite_args,
         )
         desired = tuple(
             commits[0] for item in local if len(commits := grouped[item.change_id]) == 1
@@ -361,7 +368,7 @@ def _all_at_baseline(items: tuple[AdoptedSurvivor, ...]) -> bool:
 
 def _single_visible_change_ids(
     context: CommandContext, changes: tuple[LocalCommit, ...]
-) -> tuple[str, ...]:
+) -> tuple[tuple[str, ...], JjCliArgs]:
     """Require one visible commit per change right before rewriting it.
 
     Planning observed these changes before the GitHub round-trips; one that became divergent
@@ -369,11 +376,14 @@ def _single_visible_change_ids(
     """
 
     change_ids = tuple(change.change_id for change in changes)
-    visible = context.jj_client.query_commits_by_change_ids(change_ids)
+    observed = observe_change_copies(
+        jj_client=context.jj_client, state=context.state_store.load(), change_ids=change_ids
+    )
+    visible = observed.copies(change_ids)
     for change_id in change_ids:
         if len(visible[change_id]) != 1:
             raise divergent_change_error(change_id)
-    return change_ids
+    return change_ids, observed.cli_args
 
 
 async def _refresh_selected_prs(

@@ -67,6 +67,11 @@ The client invokes `jj` and Git as subprocesses rather than linking to `jj-lib`.
 `jj` templates are preferred over parsing display output. Direct Git access is limited to remote
 inspection and leased ref mutation that `jj` does not expose with enough precision.
 
+The jj client returns raw commit and bookmark facts. Stack observation distinguishes fetched
+submitted snapshots from local rewrites and derives the reserved-bookmark immutability exception.
+That subprocess configuration is an explicit value, passed to observations and local mutations;
+observing a stack does not change later client queries.
+
 Read-only setup and presentation calls may ignore the working copy. Operations that fetch or
 rewrite preserve normal `jj` snapshot and checkout behavior. Remote PR branch refs are inspected
 without importing them into the ordinary `jj` view; commands that must attach a remote commit use

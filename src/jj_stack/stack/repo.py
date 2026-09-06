@@ -6,12 +6,12 @@ from collections.abc import Sequence
 
 from jj_stack.jj.client import JjClient, quote_revset_symbol
 from jj_stack.models.tracking import TrackingState
+from jj_stack.stack.observation import observe_stack_commits
 from jj_stack.stack.path import (
     RepoPathObservation,
     RepoStackPaths,
     project_repo_paths,
 )
-from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
 from jj_stack.stack.trunk import require_usable_trunk
 
 
@@ -34,11 +34,12 @@ def observe_repo_paths(
         anchors = " | ".join(quote_revset_symbol(commit_id) for commit_id in descendant_of)
         visible_scope = f"(visible() & ({anchors})::)"
     candidates = f"(({visible_scope}) ~ {trunk_path})"
-    prepare_visible_pr_snapshots(jj_client=jj_client, state=state)
-    rows = jj_client.query_commits_with_membership(
-        f"trunk() | ({candidates}) | parents({candidates}) | @",
+    rows = observe_stack_commits(
+        jj_client=jj_client,
+        state=state,
+        revset=f"trunk() | ({candidates}) | parents({candidates}) | @",
         membership_revsets=("trunk()", candidates, trunk_path),
-    )
+    ).rows
     trunks = tuple(commit for commit, flags in rows if flags[0])
     trunk = require_usable_trunk(trunks)
     current_working_copy = next(

@@ -4,16 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError
 from jj_stack.models.stack import LocalCommit
-from jj_stack.models.tracking import TrackedPR, TrackingState
+from jj_stack.models.tracking import TrackedPR
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace
-
-if TYPE_CHECKING:
-    from jj_stack.jj.client import JjClient
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,26 +19,6 @@ class ResolvedPRBranch:
     branch: str
     change_id: str
     recovered: bool = False
-
-
-def prepare_visible_pr_snapshots(
-    *,
-    jj_client: JjClient,
-    state: TrackingState,
-) -> None:
-    """Observe saved PR bookmarks and narrow built-in bookmark immutability."""
-
-    visible = jj_client.visible_pr_bookmark_targets()
-    claims: dict[str, list[tuple[str, str]]] = {}
-    for change_id, tracked_pr in state.prs.items():
-        branch = tracked_pr.pr_identity.head_ref
-        baseline = tracked_pr.submitted_baseline.commit_id
-        if visible.get(branch) == frozenset({baseline}):
-            claims.setdefault(branch, []).append((change_id, baseline))
-    exact = {branch: items[0] for branch, items in claims.items() if len(items) == 1}
-    jj_client.accept_expected_pr_bookmarks(
-        tuple((branch, change_id, commit_id) for branch, (change_id, commit_id) in exact.items())
-    )
 
 
 def resolve_pr_branches(

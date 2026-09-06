@@ -30,8 +30,8 @@ from jj_stack.stack.convergence_models import (
     PRFinishPlan,
     SkipPRFinish,
 )
+from jj_stack.stack.observation import observe_change_copies
 from jj_stack.stack.path import RepoStackPath
-from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
 from jj_stack.stack.pr_facts import (
     RepoFacts,
     classify_observed_commit_ancestries,
@@ -72,13 +72,11 @@ async def observe_global_sync(
 
     state = context.state_store.load()
     change_ids = tuple(sorted(state.prs))
-    prepare_visible_pr_snapshots(
-        jj_client=context.jj_client,
-        state=state,
+    observed = observe_change_copies(
+        jj_client=context.jj_client, state=state, change_ids=change_ids
     )
-    all_copies, local_copies = context.jj_client.query_commits_by_change_ids_with_off_trunk(
-        change_ids
-    )
+    all_copies = observed.copies(change_ids)
+    local_copies = observed.copies(change_ids, off_trunk=True)
     anchors = tuple(commit.commit_id for commits in local_copies.values() for commit in commits)
     paths = (
         observe_repo_paths(

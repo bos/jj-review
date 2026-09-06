@@ -16,12 +16,12 @@ from jj_stack.jj.client import (
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackingState
 from jj_stack.stack.divergence import divergence_recovery_hint
+from jj_stack.stack.observation import observe_stack_commits
 from jj_stack.stack.path import (
     SelectedPathObservation,
     SelectedStackPath,
     project_selected_path,
 )
-from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
 from jj_stack.stack.trunk import require_usable_trunk
 
 
@@ -47,8 +47,6 @@ def select_stack_path(
 ) -> SelectedStackPath:
     """Collect the bounded facts for one selector and project its parent path."""
 
-    prepare_visible_pr_snapshots(jj_client=jj_client, state=state)
-
     if revset is None:
         selector = "@ | @-"
         selected_revset = "@"
@@ -65,6 +63,7 @@ def select_stack_path(
     try:
         rows = _observe_path_rows(
             jj_client=jj_client,
+            state=state,
             selector=selector,
             selected_revset=revset,
         )
@@ -75,6 +74,7 @@ def select_stack_path(
         select_mutable_copy = True
         rows = _observe_path_rows(
             jj_client=jj_client,
+            state=state,
             selector=selector,
             selected_revset=revset,
         )
@@ -102,7 +102,6 @@ def select_stack_path_containing_change(
 ) -> SelectedStackPath:
     """Project the unique ordinary path whose head descends from one tracked change."""
 
-    prepare_visible_pr_snapshots(jj_client=jj_client, state=state)
     linked_selector = _change_id_revset(change_id)
     trunk_path = "first_ancestors(trunk())"
     nonempty_descendants = f"((({linked_selector}) ~ {trunk_path}):: ~ {trunk_path}) ~ empty()"
@@ -120,6 +119,7 @@ def select_stack_path_containing_change(
         bound_heads = f"visible() & ({bound_heads})"
     rows = _observe_path_rows(
         jj_client=jj_client,
+        state=state,
         linked_selector=linked_selector,
         selector=bound_heads,
         selected_revset=change_id,
@@ -197,6 +197,7 @@ def _observe_path_rows(
     *,
     jj_client: JjClient,
     linked_selector: str | None = None,
+    state: TrackingState,
     selector: str,
     selected_revset: str | None,
 ) -> tuple[_ObservedPathRow, ...]:
@@ -217,8 +218,10 @@ def _observe_path_rows(
             *((linked_selector,) if linked_selector is not None else ()),
         )
     )
-    raw_rows = jj_client.query_commits_with_membership(
-        query,
+    raw_rows = observe_stack_commits(
+        jj_client=jj_client,
+        state=state,
+        revset=query,
         membership_revsets=(
             "trunk()",
             selector,
@@ -228,7 +231,7 @@ def _observe_path_rows(
             trunk_path,
         ),
         selected_revset=selected_revset,
-    )
+    ).rows
     return tuple(
         _ObservedPathRow(
             commit=commit,

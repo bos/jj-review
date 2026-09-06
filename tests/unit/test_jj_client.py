@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
@@ -22,6 +23,8 @@ from jj_stack.jj.client import (
     StaleWorkspaceError,
 )
 from jj_stack.models.stack import LocalCommit
+from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR, TrackingState
+from jj_stack.stack.observation import observe_change_copies, observe_stack_commits
 from tests.support.change_helpers import make_change
 
 _REPO_GIT_DIR = str(Path("/repo/.git"))
@@ -456,25 +459,80 @@ def test_pr_branch_fetch_isolation_reports_the_effective_override_origin(
     assert "jj config unset --repo" in str(raised.value)
 
 
-def test_imported_pr_bookmark_scan_reports_every_reserved_namespace_ref(
+def test_stack_observation_bounds_change_scopes_and_reads_bookmarks_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    payload = (
-        json.dumps({"name": "jj-stack/not-managed", "target": ["one"], "tracked": False})
-        + "\n"
-        + json.dumps({"name": "jj-stack/feature-abcdefgh", "target": ["two"], "tracked": False})
-        + "\n"
+    alphabet = str.maketrans("0123456789abcdef", "klmnopqrstuvwxyz")
+    change_ids = tuple(f"{index:032x}".translate(alphabet) for index in range(3_001))
+    state = TrackingState(
+        prs={
+            change_id: TrackedPR(
+                pr_identity=PRIdentity(
+                    pr_number=index + 1, head_ref=f"jj-stack/feature-{change_id}"
+                ),
+                submitted_baseline=SubmittedBaseline(commit_id=f"{index * 2:040x}"),
+            )
+            for index, change_id in enumerate(change_ids)
+        },
     )
+    bookmark_reads = 0
 
     def runner(command: Sequence[str], **_kwargs) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, 0, stdout=payload, stderr="")
+        nonlocal bookmark_reads
+        # Bound each argument for systems with a 128 KiB per-argument limit.
+        assert all(len(argument.encode()) < 128 * 1024 for argument in command)
+        if "bookmark" in command:
+            bookmark_reads += 1
+            payload = (
+                {
+                    "name": tracked.pr_identity.head_ref,
+                    "target": [tracked.submitted_baseline.commit_id],
+                    "tracked": False,
+                }
+                for tracked in state.prs.values()
+            )
+        else:
+            revset = command[command.index("-r") + 1]
+            scope = set(re.findall(r"change_id\(['\"]([^'\"]+)", revset))
+            flags_count = command[command.index("-T") + 1].count("self.contained_in(")
+            payload = (
+                {
+                    "commit": make_change(
+                        change_id=change_id,
+                        commit_id=commit_id,
+                        description="feature",
+                    )
+                    .model_copy(update={"divergent": True})
+                    .model_dump(mode="json"),
+                    "membership": (
+                        [True] if flags_count == 1 else [change_id == change_ids[0], True]
+                    ),
+                }
+                for change_id in sorted(scope)
+                for baseline in (state.prs[change_id].submitted_baseline.commit_id,)
+                for commit_id in (baseline, f"{int(baseline, 16) + 1:040x}")
+            )
+        stdout = "".join(json.dumps(row) + "\n" for row in payload)
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
     monkeypatch.setattr(subprocess, "run", runner)
+    client = JjClient(Path("/repo"))
+    copies = observe_change_copies(
+        jj_client=client, state=state, change_ids=(*change_ids, change_ids[0])
+    ).copies(change_ids, off_trunk=True)
+    assert bookmark_reads == 1
+    assert len(copies) == len(change_ids)
+    assert all(len(commits) == 1 and not commits[0].divergent for commits in copies.values())
 
-    assert JjClient(Path("/repo")).visible_pr_bookmark_targets() == {
-        "jj-stack/feature-abcdefgh": frozenset({"two"}),
-        "jj-stack/not-managed": frozenset({"one"}),
-    }
+    selected = observe_stack_commits(
+        jj_client=client,
+        state=state,
+        revset=f"change_id('{change_ids[0]}')",
+        membership_revsets=("all()",),
+    )
+    assert bookmark_reads == 2
+    assert len(selected.rows) == 1
+    assert selected.rows[0][0] == copies[change_ids[0]][0]
 
 
 def test_remote_pr_branch_ref_mutation_uses_one_atomic_exact_lease_push(

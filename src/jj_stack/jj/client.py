@@ -32,7 +32,7 @@ from jj_stack.models.git import GitRemote
 from jj_stack.models.stack import LocalCommit
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace
 
-_QUERY_BATCH_SIZE = 200
+QUERY_BATCH_SIZE = 200
 
 _CHANGE_JSON_FIELDS = dedent(
     r"""
@@ -133,7 +133,7 @@ class _ConfigOrigin(BaseModel):
     path: str
 
 
-class _BookmarkRow(BaseModel):
+class Bookmark(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore", strict=True)
 
     name: str
@@ -221,9 +221,7 @@ class JjClient:
         cli_args: JjCliArgs = _NO_CLI_ARGS,
     ) -> None:
         self._repo_root = repo_root
-        self._base_cli_args = cli_args
         self._cli_args = cli_args
-        self._published_pr_snapshots: dict[str, str] = {}
         self._config_strings: dict[str, str | None] = {}
         self._git_root: Path | None = None
         self._initial_working_copy_snapshot_pending = False
@@ -279,18 +277,15 @@ class JjClient:
         *,
         membership_revsets: Sequence[str],
         selected_revset: str | None = None,
+        cli_args: JjCliArgs = _NO_CLI_ARGS,
     ) -> tuple[tuple[LocalCommit, tuple[bool, ...]], ...]:
         """Return commits with one containment flag per supplied revset."""
 
         try:
-            rows = self._query_commits_with_membership(
+            return self._query_commits_with_membership(
                 revset,
                 membership_revsets=membership_revsets,
-            )
-            return tuple(
-                (projected, flags)
-                for commit, flags in rows
-                if (projected := self._project(commit))
+                cli_args=cli_args,
             )
         except JjCommandError as error:
             friendly_error = _revset_resolution_error(selected_revset or revset, error)
@@ -311,40 +306,12 @@ class JjClient:
         grouped: dict[str, list[LocalCommit]] = {
             change_id: [] for change_id in ordered_change_ids
         }
-        for chunk in batched(ordered_change_ids, _QUERY_BATCH_SIZE, strict=False):
-            revset = _change_ids_revset(chunk)
+        for chunk in batched(ordered_change_ids, QUERY_BATCH_SIZE, strict=False):
+            revset = change_ids_revset(chunk)
             commits = self._query_commits(revset)
             for commit in commits:
-                if projected := self._project(commit):
-                    grouped.setdefault(commit.change_id, []).append(projected)
+                grouped.setdefault(commit.change_id, []).append(commit)
         return {change_id: tuple(grouped.get(change_id, ())) for change_id in ordered_change_ids}
-
-    def query_commits_by_change_ids_with_off_trunk(
-        self,
-        change_ids: Sequence[str],
-    ) -> tuple[
-        dict[str, tuple[LocalCommit, ...]],
-        dict[str, tuple[LocalCommit, ...]],
-    ]:
-        """Return all visible copies and the subset outside trunk in one scan."""
-
-        ordered = tuple(dict.fromkeys(change_ids))
-        all_copies: dict[str, list[LocalCommit]] = {change_id: [] for change_id in ordered}
-        off_trunk: dict[str, list[LocalCommit]] = {change_id: [] for change_id in ordered}
-        for chunk in batched(ordered, _QUERY_BATCH_SIZE, strict=False):
-            rows = self._query_commits_with_membership(
-                _change_ids_revset(chunk),
-                membership_revsets=("~first_ancestors(trunk())",),
-            )
-            for commit, (is_off_trunk,) in rows:
-                if projected := self._project(commit):
-                    all_copies.setdefault(commit.change_id, []).append(projected)
-                    if is_off_trunk:
-                        off_trunk.setdefault(commit.change_id, []).append(projected)
-        return (
-            {change_id: tuple(all_copies[change_id]) for change_id in ordered},
-            {change_id: tuple(off_trunk[change_id]) for change_id in ordered},
-        )
 
     def query_commits_by_ids(
         self,
@@ -363,7 +330,7 @@ class JjClient:
         """Return presence and ancestry together, omitting unavailable commit IDs."""
 
         memberships: dict[str, bool] = {}
-        for chunk in batched(tuple(dict.fromkeys(commit_ids)), _QUERY_BATCH_SIZE, strict=False):
+        for chunk in batched(tuple(dict.fromkeys(commit_ids)), QUERY_BATCH_SIZE, strict=False):
             try:
                 commits = self._query_commits_with_membership(
                     _present_symbols_revset(chunk),
@@ -396,7 +363,7 @@ class JjClient:
             return ()
 
         commits_by_id: dict[str, LocalCommit] = {}
-        for chunk in batched(ordered_commit_ids, _QUERY_BATCH_SIZE, strict=False):
+        for chunk in batched(ordered_commit_ids, QUERY_BATCH_SIZE, strict=False):
             commits = self._query_commits(revset_for_chunk(chunk))
             for commit in commits:
                 commits_by_id.setdefault(commit.commit_id, commit)
@@ -556,8 +523,8 @@ class JjClient:
 
         rendered: dict[str, str] = {}
         template = _short_change_id_render_template()
-        for chunk in batched(ordered_change_ids, _QUERY_BATCH_SIZE, strict=False):
-            revset = _change_ids_revset(chunk)
+        for chunk in batched(ordered_change_ids, QUERY_BATCH_SIZE, strict=False):
+            revset = change_ids_revset(chunk)
             stdout = self._run_jj(
                 (
                     "--no-pager",
@@ -717,14 +684,14 @@ class JjClient:
 
         namespace = current_pr_branch_namespace()
         targets_by_name: dict[str, set[str]] = {}
-        for row in self._bookmark_rows(namespace.branch_glob):
+        for row in self.query_bookmarks(namespace.branch_glob):
             targets_by_name.setdefault(row.name, set()).update(row.target)
         return {name: frozenset(targets) for name, targets in sorted(targets_by_name.items())}
 
     def untracked_pr_bookmarks(self) -> tuple[str, ...]:
         """Return untracked remote bookmark names in the reserved namespace."""
 
-        rows = self._bookmark_rows(current_pr_branch_namespace().branch_glob)
+        rows = self.query_bookmarks(current_pr_branch_namespace().branch_glob)
         return tuple(
             sorted({row.name for row in rows if row.remote is not None and not row.tracked})
         )
@@ -734,77 +701,7 @@ class JjClient:
 
         self._run_jj(("bookmark", "forget", "--include-remotes", *names))
 
-    def accept_expected_pr_bookmarks(
-        self,
-        bookmarks: Sequence[tuple[str, str, str]],
-    ) -> None:
-        """Keep expected PR bookmarks from making their target commits immutable.
-
-        Two disjoint cases get an exception. An exact expected bookmark from `bookmarks`
-        covers a published snapshot visible beside its local rewrite. A visible bookmark in
-        the reserved namespace whose target is the only visible commit of its change covers
-        adoption, where no saved tracking exists yet and a fresh clone has imported the whole
-        namespace; a divergent target stays immutable so a fetched GitHub rewrite is still
-        distinguishable from a local copy. Either way the override narrows only jj's built-in
-        untracked-remote rule: trunk, tags, and additions in the user's `immutable_heads()`
-        still apply, and neither exception covers a commit that a second untracked bookmark
-        also claims.
-        """
-
-        self._published_pr_snapshots = {}
-        namespace = current_pr_branch_namespace()
-        untracked: list[tuple[str, str]] = []
-        target_counts: dict[str, int] = {}
-        for row in self._bookmark_rows():
-            if row.remote is not None and not row.tracked:
-                for target in row.target:
-                    untracked.append((row.name, target))
-                    target_counts[target] = target_counts.get(target, 0) + 1
-        accepted = [
-            f"(remote_bookmarks(exact:{quote_revset_symbol(name)}) & "
-            f"{quote_revset_symbol(commit_id)})"
-            for name, _change_id, commit_id in sorted(bookmarks)
-            if (name, commit_id) in untracked
-        ]
-        if any(namespace.contains(name) for name, _target in untracked):
-            accepted.append(
-                f"(untracked_remote_bookmarks(glob:{quote_revset_symbol(namespace.branch_glob)})"
-                " ~ divergent())"
-            )
-        shared = " | ".join(
-            quote_revset_symbol(commit_id)
-            for commit_id, count in sorted(target_counts.items())
-            if count > 1
-        )
-        selectors = " | ".join(accepted)
-        if selectors and shared:
-            selectors = f"({selectors}) ~ ({shared})"
-        self._cli_args = self._base_cli_args
-        if selectors:
-            immutable_heads = f"trunk() | tags() | (untracked_remote_bookmarks() ~ ({selectors}))"
-            self._cli_args = JjCliArgs(
-                argv=(
-                    *self._base_cli_args.to_argv(),
-                    "--config",
-                    f'revset-aliases."builtin_immutable_heads()"={immutable_heads}',
-                )
-            )
-        commits = self.query_commits_by_change_ids(
-            tuple(change_id for _name, change_id, _commit_id in bookmarks)
-        )
-        self._published_pr_snapshots = {
-            change_id: commit_id
-            for _name, change_id, commit_id in bookmarks
-            for matches in (commits[change_id],)
-            for published in (
-                tuple(commit for commit in matches if commit.commit_id == commit_id),
-            )
-            for local in (tuple(commit for commit in matches if commit.commit_id != commit_id),)
-            if len(published) == 1 and not published[0].immutable
-            if len(local) == 1 and not local[0].immutable
-        }
-
-    def _bookmark_rows(self, *patterns: str) -> tuple[_BookmarkRow, ...]:
+    def query_bookmarks(self, *patterns: str) -> tuple[Bookmark, ...]:
         stdout = self._run_jj(
             ("bookmark", "list", "--all-remotes", "-T", _BOOKMARK_TEMPLATE, *patterns)
         )
@@ -999,16 +896,17 @@ class JjClient:
             command.append(f"{desired}:{ref}")
         self._run_git(command)
 
-    def edit_commit(self, commit_id: str) -> None:
+    def edit_commit(self, commit_id: str, *, cli_args: JjCliArgs = _NO_CLI_ARGS) -> None:
         """Set the current workspace's working-copy change to one exact commit."""
 
-        self._run_jj(("edit", commit_id), manage_working_copy=True)
+        self._run_jj(("edit", commit_id), manage_working_copy=True, cli_args=cli_args)
 
     def rebase_changes(
         self,
         *,
         change_ids: Sequence[str],
         destination: str,
+        cli_args: JjCliArgs = _NO_CLI_ARGS,
     ) -> None:
         """Rebase the current visible commits of the named changes onto one destination.
 
@@ -1020,8 +918,9 @@ class JjClient:
         if not ordered_change_ids:
             return
         self._run_jj(
-            ("rebase", "-r", _change_ids_revset(ordered_change_ids), "-d", destination),
+            ("rebase", "-r", change_ids_revset(ordered_change_ids), "-d", destination),
             manage_working_copy=True,
+            cli_args=cli_args,
         )
 
     def prepare_rebase_changes(
@@ -1029,6 +928,7 @@ class JjClient:
         *,
         change_ids: Sequence[str],
         destination: str,
+        cli_args: JjCliArgs = _NO_CLI_ARGS,
     ) -> str:
         """Compute a rebase in an unintegrated operation and return its operation ID."""
 
@@ -1040,11 +940,12 @@ class JjClient:
                 "--no-integrate-operation",
                 "rebase",
                 "-r",
-                _change_ids_revset(ordered_change_ids),
+                change_ids_revset(ordered_change_ids),
                 "-d",
                 destination,
             ),
             return_stderr=True,
+            cli_args=cli_args,
         )
         match = re.search(
             r"Operation left uncommitted because --no-integrate-operation was requested: "
@@ -1062,6 +963,7 @@ class JjClient:
         *,
         change_ids: Sequence[str],
         operation_id: str,
+        cli_args: JjCliArgs = _NO_CLI_ARGS,
     ) -> dict[str, tuple[LocalCommit, ...]]:
         """Return visible commits for logical changes in one unintegrated operation."""
 
@@ -1074,10 +976,11 @@ class JjClient:
                 "log",
                 "--no-graph",
                 "-r",
-                _change_ids_revset(ordered_change_ids),
+                change_ids_revset(ordered_change_ids),
                 "-T",
                 _COMMIT_TEMPLATE,
-            )
+            ),
+            cli_args=cli_args,
         )
         grouped: dict[str, list[LocalCommit]] = {
             change_id: [] for change_id in ordered_change_ids
@@ -1108,13 +1011,15 @@ class JjClient:
             raise JjCommandError(t"{ui.cmd('git rev-parse')} returned incomplete tree data.")
         return dict(zip(ordered_commit_ids, tree_ids, strict=True))
 
-    def abandon_changes(self, revsets: Sequence[str]) -> None:
+    def abandon_changes(
+        self, revsets: Sequence[str], *, cli_args: JjCliArgs = _NO_CLI_ARGS
+    ) -> None:
         """Abandon changes; jj rebases descendants and drops pointing bookmarks."""
 
         ordered_revsets = tuple(revsets)
         if not ordered_revsets:
             return
-        self._run_jj(("abandon", *ordered_revsets), manage_working_copy=True)
+        self._run_jj(("abandon", *ordered_revsets), manage_working_copy=True, cli_args=cli_args)
 
     def _query_commits(self, revset: str, *, limit: int | None = None) -> list[LocalCommit]:
         lines = self._query_template_lines(revset, _COMMIT_TEMPLATE, limit=limit)
@@ -1125,19 +1030,16 @@ class JjClient:
         revset: str,
         *,
         membership_revsets: Sequence[str],
-    ) -> list[tuple[LocalCommit, tuple[bool, ...]]]:
+        cli_args: JjCliArgs = _NO_CLI_ARGS,
+    ) -> tuple[tuple[LocalCommit, tuple[bool, ...]], ...]:
         """Query commits plus one containment flag per membership revset."""
 
-        lines = self._query_template_lines(revset, _membership_scan_template(membership_revsets))
-        return [_parse_commit_with_flags_line(line, len(membership_revsets)) for line in lines]
-
-    def _project(self, commit: LocalCommit) -> LocalCommit | None:
-        published = self._published_pr_snapshots.get(commit.change_id)
-        if commit.commit_id == published:
-            return None
-        if published is not None:
-            return commit.model_copy(update={"divergent": False})
-        return commit
+        lines = self._query_template_lines(
+            revset, _membership_scan_template(membership_revsets), cli_args=cli_args
+        )
+        return tuple(
+            _parse_commit_with_flags_line(line, len(membership_revsets)) for line in lines
+        )
 
     def _query_template_lines(
         self,
@@ -1145,11 +1047,12 @@ class JjClient:
         template: str,
         *,
         limit: int | None = None,
+        cli_args: JjCliArgs = _NO_CLI_ARGS,
     ) -> list[str]:
         command = ["log", "--no-graph", "-r", revset, "-T", template]
         if limit is not None:
             command.extend(["--limit", str(limit)])
-        stdout = self._run_jj(command)
+        stdout = self._run_jj(command, cli_args=cli_args)
         return [stripped for line in stdout.splitlines() if (stripped := line.strip())]
 
     def _run_jj(
@@ -1158,6 +1061,7 @@ class JjClient:
         *,
         manage_working_copy: bool = False,
         return_stderr: bool = False,
+        cli_args: JjCliArgs = _NO_CLI_ARGS,
     ) -> str:
         """Run jj without touching the working copy unless the caller explicitly requires it."""
 
@@ -1165,7 +1069,7 @@ class JjClient:
         self._initial_working_copy_snapshot_pending = False
         extra_args = () if use_working_copy else ("--ignore-working-copy",)
         return self._run_command(
-            ["jj", *self._cli_args.to_argv(), *extra_args, *args],
+            ["jj", *self._cli_args.to_argv(), *cli_args.to_argv(), *extra_args, *args],
             missing_tool_message=t"{ui.cmd('jj')} is not installed or is not on PATH.",
             detect_stale_workspace=True,
             return_stderr=return_stderr,
@@ -1397,11 +1301,11 @@ def _parse_json_lines[Row: BaseModel](
     )
 
 
-def _parse_bookmark_rows(stdout: str) -> tuple[_BookmarkRow, ...]:
+def _parse_bookmark_rows(stdout: str) -> tuple[Bookmark, ...]:
     return _parse_json_lines(
         stdout,
         command="jj bookmark list",
-        model=_BookmarkRow,
+        model=Bookmark,
     )
 
 
@@ -1470,7 +1374,7 @@ def _present_symbols_revset(symbols: Sequence[str]) -> str:
     )
 
 
-def _change_ids_revset(change_ids: Sequence[str]) -> str:
+def change_ids_revset(change_ids: Sequence[str]) -> str:
     """Union change IDs as `change_id(...)` terms.
 
     Every caller wants each change's visible copies, and a bare change-ID symbol fails outright

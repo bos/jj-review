@@ -254,6 +254,11 @@ def test_visible_pr_bookmark_does_not_block_broad_operations(
     assert selected.change_id == change_id
     assert selected.commit_id != commit_id
     assert not selected.divergent
+    raw = client.query_commits(f"change_id({change_id})")
+    assert client.query_commits_by_change_ids((change_id,))[change_id] == raw
+    assert len(raw) == 2
+    assert all(commit.divergent for commit in raw)
+    assert next(commit for commit in raw if commit.commit_id == commit_id).immutable
 
 
 @pytest.mark.parametrize("layout_flag", ("--colocate", "--no-colocate"))

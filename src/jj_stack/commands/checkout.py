@@ -41,7 +41,7 @@ from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR, TrackingState
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_matches_change
 from jj_stack.stack.divergence import divergence_recovery_hint
-from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
+from jj_stack.stack.observation import observe_pr_bookmarks
 from jj_stack.stack.pr_facts import duplicate_pr_claim_change_ids
 from jj_stack.stack.repo import observe_repo_paths
 from jj_stack.stack.selected import select_stack_path
@@ -97,12 +97,10 @@ def checkout(
             )
         )
         if result.stack.changes:
-            if result.adopted_count:
-                prepare_visible_pr_snapshots(
-                    jj_client=context.jj_client,
-                    state=context.state_store.load(),
-                )
-            context.jj_client.edit_commit(result.stack.head.commit_id)
+            edit_args, _snapshots = observe_pr_bookmarks(
+                jj_client=context.jj_client, state=context.state_store.load()
+            )
+            context.jj_client.edit_commit(result.stack.head.commit_id, cli_args=edit_args)
     if result.fetched_tip_commit is not None:
         console.output(ui.prefixed_line("Fetched tip commit: ", result.fetched_tip_commit))
     if result.adopted_count:

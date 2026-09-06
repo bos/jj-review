@@ -11,6 +11,7 @@ from jj_stack.jj.client import JjClient
 from jj_stack.models.github import GithubStackPR
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import TrackingState
+from jj_stack.stack.observation import observe_change_copies
 from jj_stack.stack.pr_branches import resolve_pr_branches
 from jj_stack.stack.selected import require_submittable_changes, select_stack_path
 
@@ -140,9 +141,9 @@ def confirm_orphaned_pr_snapshots(
         for matching_change_ids in change_ids_by_snapshot.values()
         for change_id in matching_change_ids
     )
-    _all_copies, off_trunk_copies = jj_client.query_commits_by_change_ids_with_off_trunk(
-        change_ids
-    )
+    off_trunk_copies = observe_change_copies(
+        jj_client=jj_client, state=state, change_ids=change_ids
+    ).copies(change_ids, off_trunk=True)
     return frozenset(
         snapshot
         for snapshot, matching_change_ids in change_ids_by_snapshot.items()

@@ -18,7 +18,7 @@ from jj_stack.models.tracking import (
     PRIdentity,
     TrackedPR,
 )
-from jj_stack.stack.pr_branches import prepare_visible_pr_snapshots
+from jj_stack.stack.observation import observe_change_copies
 from jj_stack.stack.trunk_evidence import CommitAncestry
 
 
@@ -90,8 +90,9 @@ async def observe_prs(
     if local_commits_snapshot is None:
 
         def observe_local_commits() -> dict[str, tuple[LocalCommit, ...]]:
-            prepare_visible_pr_snapshots(jj_client=context.jj_client, state=state)
-            return context.jj_client.query_commits_by_change_ids(tuple(tracked_prs))
+            return observe_change_copies(
+                jj_client=context.jj_client, state=state, change_ids=tuple(tracked_prs)
+            ).copies(tuple(tracked_prs))
 
         local_task = asyncio.create_task(asyncio.to_thread(observe_local_commits))
     else:
