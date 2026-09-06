@@ -8,6 +8,7 @@ import subprocess
 import sys
 from argparse import (
     SUPPRESS,
+    Action,
     ArgumentParser,
     ArgumentTypeError,
     HelpFormatter,
@@ -16,10 +17,9 @@ from argparse import (
 )
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
 from inspect import signature
 from pathlib import Path
-from typing import Any, NoReturn, cast
+from typing import Any, NoReturn, SupportsIndex, cast
 
 import jj_stack.bootstrap as bootstrap
 import jj_stack.commands.checkout as checkout_command
@@ -133,7 +133,6 @@ _COMMAND_ALIASES: dict[str, tuple[str, ...]] = {
     "view": ("status", "st", "v"),
     "list": ("ls",),
 }
-_VIEW_COMMANDS = frozenset(("view", *_COMMAND_ALIASES["view"]))
 _KNOWN_COMMANDS = frozenset(
     name
     for _, entries in _TOP_LEVEL_HELP_GROUPS
@@ -167,6 +166,37 @@ class _TitleCaseHelpFormatter(HelpFormatter):
         return super().add_usage(usage, actions, groups, prefix="Usage: ")
 
 
+class _OrderedArgument(str):
+    """Keep argv position through argparse's slicing and partitioning of attached values."""
+
+    position: int
+
+    def __new__(cls, value: str, position: int):
+        result = super().__new__(cls, value)
+        result.position = position
+        return result
+
+    def __getitem__(self, key: SupportsIndex | slice) -> _OrderedArgument:
+        return _OrderedArgument(super().__getitem__(key), self.position)
+
+    def partition(self, sep: str) -> tuple[_OrderedArgument, _OrderedArgument, _OrderedArgument]:
+        before, separator, after = super().partition(sep)
+        return (
+            _OrderedArgument(before, self.position),
+            _OrderedArgument(separator, self.position),
+            _OrderedArgument(after, self.position),
+        )
+
+
+class _ViewSelectorAction(Action):
+    def __call__(self, parser, namespace, values, option_string=None):  # noqa: ARG002
+        kind = "pr" if option_string else "revset"
+        for value in [values] if option_string else values:
+            namespace.selectors += (
+                (value.position, view_command.ViewSelector(kind=kind, value=str(value))),
+            )
+
+
 class _CommandArgumentParser(ArgumentParser):
     """ArgumentParser with title-cased built-in help headings."""
 
@@ -178,6 +208,18 @@ class _CommandArgumentParser(ArgumentParser):
 
     def error(self, message: str) -> NoReturn:
         raise _cli_parse_error(message, prog=self.prog)
+
+    def _parse_known_args(self, arg_strings, namespace, intermixed):
+        if not any(isinstance(action, _ViewSelectorAction) for action in self._actions):
+            return super()._parse_known_args(arg_strings, namespace, intermixed)
+        # Python 3.14's shared engine collects intermixed positionals after options. Tag
+        # this leaf's input before argparse splits attached values, then restore argv order.
+        ordered_args: list[str] = [
+            _OrderedArgument(value, position) for position, value in enumerate(arg_strings)
+        ]
+        parsed, extras = super()._parse_known_args(ordered_args, namespace, intermixed=True)
+        parsed.selectors = tuple(selector for _, selector in sorted(parsed.selectors))
+        return parsed, extras
 
 
 def build_parser() -> ArgumentParser:
@@ -327,29 +369,32 @@ def build_parser() -> ArgumentParser:
             "existing pull request"
         ),
     )
-    view_parser = _add_revset_command(
+    view_parser = _add_command_parser(
         subcommands,
         command="view",
         aliases=_COMMAND_ALIASES["view"],
         help_text=normalized_help_text(view_command.HELP),
         description_text=view_command.__doc__ or "",
-        handler=_forward_handler(
-            view_command.view,
-            *_VIEW_HANDLER_ARGS,
-            selectors=lambda args: args.view_selectors,
-        ),
-        revset_help=(
+        handler=_forward_handler(view_command.view, *_VIEW_HANDLER_ARGS),
+    )
+    view_parser.set_defaults(selectors=())
+    add_help_argument(
+        view_parser,
+        "selectors",
+        metavar="revset",
+        nargs="*",
+        action=_ViewSelectorAction,
+        help=(
             t"Select a stack by its head revset or by any change ID it contains. Combine either "
             t"with {ui.option('--pull-request')}; defaults to the current stack"
         ),
-        revset_nargs="*",
     )
     add_help_argument(
         view_parser,
         *_PR_OPTION_STRINGS,
-        dest="pr",
+        dest="selectors",
         metavar="PR",
-        action="append",
+        action=_ViewSelectorAction,
         help=(
             "Inspect the full stack containing this PR number or URL; repeat to inspect "
             "several stacks"
@@ -768,13 +813,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     cli_args = JjCliArgs()
     normalized_argv = list(sys.argv[1:] if argv is None else argv)
-    view_args: _ParsedViewCommandArgs | None = None
     try:
         cli_args, stripped_argv = _extract_config_overrides(normalized_argv)
         normalized_argv = _normalize_cli_args(stripped_argv)
-        view_args = _parse_view_command_args(normalized_argv)
-        if view_args is not None:
-            normalized_argv = list(view_args.argv)
         args = parser.parse_args(normalized_argv)
     except CliError as error:
         _print_early_cli_error(
@@ -785,8 +826,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         return resolve_exit_code(error)
     args.cli_args = cli_args
     args.normalized_argv = tuple(normalized_argv)
-    if args.command in _VIEW_COMMANDS:
-        args.view_selectors = () if view_args is None else view_args.selectors
     effective_color = "never" if args.command == "in-use" else args.color
     try:
         if effective_color is None:
@@ -828,124 +867,10 @@ def _default_view_handler(args: Namespace) -> int:
         cli_args=args.cli_args,
         debug=args.debug,
         as_json=False,
-        pr=None,
         repo=args.repo,
-        revset=None,
         selectors=(),
         verbose=False,
     )
-
-
-@dataclass(frozen=True)
-class _ParsedViewCommandArgs:
-    argv: tuple[str, ...]
-    selectors: tuple[view_command.ViewSelector, ...]
-
-
-def _parse_view_command_args(argv: Sequence[str]) -> _ParsedViewCommandArgs | None:
-    """Rewrite `view` argv and preserve explicit selector order."""
-
-    command_index = _find_subcommand_index(argv)
-    if command_index is None or argv[command_index] not in _VIEW_COMMANDS:
-        return None
-
-    prefix = list(argv[: command_index + 1])
-    command_argv = argv[command_index + 1 :]
-    options: list[str] = []
-    revsets: list[str] = []
-    selectors: list[view_command.ViewSelector] = []
-    index = 0
-    while index < len(command_argv):
-        arg = command_argv[index]
-        if arg == "--":
-            trailing_revsets = command_argv[index + 1 :]
-            revsets.extend(trailing_revsets)
-            selectors.extend(
-                view_command.ViewSelector(kind="revset", value=value)
-                for value in trailing_revsets
-            )
-            break
-        if arg in {*_PR_OPTION_STRINGS, "--repository", "--color"}:
-            if index + 1 >= len(command_argv):
-                options.extend(command_argv[index:])
-                break
-            value = command_argv[index + 1]
-            options.extend((arg, value))
-            if arg in _PR_OPTION_STRINGS:
-                selectors.append(
-                    view_command.ViewSelector(
-                        kind="pr",
-                        value=value,
-                    )
-                )
-            index += 2
-            continue
-        if (
-            arg.startswith("--pull-request=")
-            or (arg.startswith("-p") and len(arg) > 2)
-            or arg.startswith("--repository=")
-            or arg.startswith("--color=")
-        ):
-            options.append(arg)
-            if arg.startswith("--pull-request="):
-                value = arg.partition("=")[2]
-            elif arg.startswith("-p") and len(arg) > 2:
-                value = arg[2:].removeprefix("=")
-            else:
-                value = None
-            if value is not None:
-                selectors.append(
-                    view_command.ViewSelector(
-                        kind="pr",
-                        value=value,
-                    )
-                )
-            index += 1
-            continue
-        if arg in _VIEW_SELECTOR_FLAGS or (
-            arg.startswith("-") and not arg.startswith("--") and set(arg[1:]) <= {"f", "v", "h"}
-        ):
-            options.append(arg)
-            index += 1
-            continue
-        if arg.startswith("-"):
-            options.append(arg)
-            index += 1
-            continue
-        revsets.append(arg)
-        selectors.append(view_command.ViewSelector(kind="revset", value=arg))
-        index += 1
-    normalized = [*prefix, *options]
-    if revsets:
-        normalized.extend(["--", *revsets])
-    return _ParsedViewCommandArgs(argv=tuple(normalized), selectors=tuple(selectors))
-
-
-_VIEW_SELECTOR_FLAGS = frozenset({"-v", "--verbose", "-h", "--help", "--debug", "--time-output"})
-
-
-def _find_subcommand_index(argv: Sequence[str]) -> int | None:
-    """Return the index of the top-level subcommand, if present."""
-
-    index = 0
-    while index < len(argv):
-        arg = argv[index]
-        if arg == "--":
-            return None
-        if arg in {"--version", *_HELP_FLAGS, *_REORDERABLE_GLOBAL_FLAGS}:
-            index += 1
-            continue
-        if arg in _REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES:
-            index += 2
-            continue
-        if any(arg.startswith(f"{opt}=") for opt in _REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES):
-            index += 1
-            continue
-        if arg.startswith("-"):
-            index += 1
-            continue
-        return index
-    return None
 
 
 def _add_command_parser(
@@ -983,7 +908,6 @@ def _add_revset_command(
     help_text: str,
     description_text: str,
     handler: Callable[[Namespace], int],
-    revset_nargs: str | int | None = "?",
     revset_help: ui.Message | str = "Revset selecting the stack to operate on",
 ) -> ArgumentParser:
     parser = _add_command_parser(
@@ -994,7 +918,7 @@ def _add_revset_command(
         description_text=description_text,
         handler=handler,
     )
-    add_help_argument(parser, "revset", nargs=revset_nargs, help=revset_help)
+    add_help_argument(parser, "revset", nargs="?", help=revset_help)
     return parser
 
 

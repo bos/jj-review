@@ -88,14 +88,12 @@ def _prepare(
     lookup: PRLookup,
     remote_target: str | None,
     state: TrackingState,
-    recovered_target: str | None = None,
 ):
     return prepare_submit_changes(
         branch_resolutions=(
             ResolvedPRBranch(
                 branch=branch,
                 change_id=change.change_id,
-                recovered_target=recovered_target,
             ),
         ),
         lookups={branch: lookup},
@@ -115,20 +113,6 @@ def test_prepare_submit_changes_rejects_unclaimed_existing_branch() -> None:
             branch="jj-stack/feature-abcdefgh",
             lookup=PRLookup(pr=None, open_prs_on_branch=()),
             remote_target="another-commit",
-            state=TrackingState(),
-        )
-
-
-def test_prepare_submit_changes_requires_recovered_branch_lease_to_stay_exact() -> None:
-    change = make_change(commit_id="current-commit", change_id="abcdefghijk", description="f\n")
-
-    with pytest.raises(CliError, match="changed while submit was running"):
-        _prepare(
-            change,
-            branch="jj-stack/older-title-abcdefgh",
-            lookup=PRLookup(pr=None, open_prs_on_branch=()),
-            recovered_target="interrupted-commit",
-            remote_target="external-commit",
             state=TrackingState(),
         )
 

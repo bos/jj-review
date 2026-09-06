@@ -59,17 +59,9 @@ def prepare_submit_changes(
     for resolution, change in zip(branch_resolutions, stack.changes, strict=True):
         remote_target = remote_targets.get(resolution.branch)
         observed_target: str | None | Unobserved = remote_target
-        if resolution.recovered_target is not None:
+        if resolution.recovered:
             # An interrupted first submit left this branch, and its commit's change-ID header
             # already proved it belongs to this change.
-            if remote_target != resolution.recovered_target:
-                raise DriftError(
-                    t"PR branch "
-                    t"{ui.bookmark(f'{resolution.branch}@{remote.name}')} changed while submit "
-                    t"was running.",
-                    condition="remote_branch_moved",
-                    hint="Inspect the branch and retry.",
-                )
             observed_target = UNOBSERVED
         tracked = state.tracked_pr(change.change_id)
         lookup = lookups[resolution.branch]

@@ -371,7 +371,7 @@ def _recover_interrupted_first_submissions(
             if pr_branch_matches_change(branch, resolution.change_id)
         }
 
-    replacements: dict[str, tuple[str, str]] = {}
+    replacements: dict[str, str] = {}
     for resolution in unresolved:
         candidates = candidates_by_change[resolution.change_id]
         if not candidates:
@@ -394,14 +394,14 @@ def _recover_interrupted_first_submissions(
                 t"{ui.change_id(resolution.change_id)}.",
                 hint="Inspect or remove that branch, then retry the submission.",
             )
-        replacements[resolution.change_id] = branch, target
+        replacements[resolution.change_id] = branch
 
     recovered = tuple(
         (
             ResolvedPRBranch(
-                branch=replacements[resolution.change_id][0],
+                branch=replacements[resolution.change_id],
                 change_id=resolution.change_id,
-                recovered_target=replacements[resolution.change_id][1],
+                recovered=True,
             )
             if resolution.change_id in replacements
             else resolution
@@ -638,7 +638,7 @@ async def run_submit_async(
                 resolution.branch
                 for resolution in branch_resolutions
                 if resolution.change_id not in state.pr_identities
-                and resolution.recovered_target is None
+                and not resolution.recovered
                 and resolution.branch in visible_bookmarks
             )
             if collisions:

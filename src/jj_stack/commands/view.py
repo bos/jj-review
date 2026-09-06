@@ -22,7 +22,6 @@ Common examples:
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -107,10 +106,8 @@ def view(
     as_json: bool,
     cli_args: JjCliArgs,
     debug: bool,
-    pr: str | Sequence[str] | None,
     repo: Path | None,
-    revset: str | Sequence[str] | None,
-    selectors: Sequence[ViewSelector] | None = None,
+    selectors: tuple[ViewSelector, ...],
     verbose: bool,
 ) -> int:
     """CLI entrypoint for `view`."""
@@ -122,11 +119,7 @@ def view(
     )
     return _run_status(
         context=context,
-        selectors=_normalize_status_selectors(
-            pr=pr,
-            revset=revset,
-            selectors=selectors,
-        ),
+        selectors=selectors,
         as_json=as_json,
         verbose=verbose,
     )
@@ -231,29 +224,6 @@ def _run_status(
         )
         return exit_code
     return exit_code
-
-
-def _normalize_status_selectors(
-    *,
-    pr: str | Sequence[str] | None,
-    revset: str | Sequence[str] | None,
-    selectors: Sequence[ViewSelector] | None,
-) -> tuple[ViewSelector, ...]:
-    if selectors is not None:
-        return tuple(selectors)
-
-    ordered: list[ViewSelector] = []
-    if pr is not None:
-        if isinstance(pr, str):
-            ordered.append(ViewSelector(kind="pr", value=pr))
-        else:
-            ordered.extend(ViewSelector(kind="pr", value=value) for value in pr)
-    if revset is not None:
-        if isinstance(revset, str):
-            ordered.append(ViewSelector(kind="revset", value=revset))
-        else:
-            ordered.extend(ViewSelector(kind="revset", value=value) for value in revset)
-    return tuple(ordered)
 
 
 def _resolve_status_selector(

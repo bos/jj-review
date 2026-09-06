@@ -91,9 +91,7 @@ def test_view_skips_duplicate_stack(
         as_json=False,
         cli_args=JjCliArgs(),
         debug=False,
-        pr=None,
         repo=tmp_path,
-        revset=None,
         selectors=(
             view_module.ViewSelector(kind="revset", value="foo"),
             view_module.ViewSelector(kind="revset", value="bar"),
@@ -157,9 +155,7 @@ def test_view_continues_after_selector_error(
             as_json=False,
             cli_args=JjCliArgs(),
             debug=False,
-            pr=None,
             repo=tmp_path,
-            revset=None,
             selectors=(
                 view_module.ViewSelector(kind="revset", value="good"),
                 view_module.ViewSelector(kind="revset", value="bad"),
@@ -231,9 +227,7 @@ def test_view_json_continues_after_selector_error(
             as_json=True,
             cli_args=JjCliArgs(),
             debug=False,
-            pr=None,
             repo=tmp_path,
-            revset=None,
             selectors=(
                 view_module.ViewSelector(kind="revset", value="good"),
                 view_module.ViewSelector(kind="revset", value="bad"),

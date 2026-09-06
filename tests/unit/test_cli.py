@@ -200,7 +200,7 @@ def test_help_all_keeps_terminal_top_level_contract(capsys) -> None:
     assert "Usage: jj-stack submit" not in captured.out
 
 
-def test_main_preserves_view_selector_order(
+def test_main_preserves_view_selector_order_and_end_of_options(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed: dict[str, object] = {}
@@ -211,43 +211,21 @@ def test_main_preserves_view_selector_order(
 
     monkeypatch.setattr("jj_stack.cli.view_command.view", fake_view)
 
-    exit_code = main(["view", "foo", "--pull-request", "17", "bar"])
+    exit_code = main(
+        ["view", "foo", "-vp17", "bar", "-vp", "18", "baz", "--", "--pull-request", "7"]
+    )
 
     assert exit_code == 0
     assert observed["selectors"] == (
         ViewSelector(kind="revset", value="foo"),
         ViewSelector(kind="pr", value="17"),
         ViewSelector(kind="revset", value="bar"),
+        ViewSelector(kind="pr", value="18"),
+        ViewSelector(kind="revset", value="baz"),
+        ViewSelector(kind="revset", value="--pull-request"),
+        ViewSelector(kind="revset", value="7"),
     )
-
-
-@pytest.mark.parametrize(
-    ("argv", "expected_revsets"),
-    [
-        (["view", "--", "--pull-request", "7"], ["--pull-request", "7"]),
-        (["view", "foo", "--", "-f"], ["foo", "-f"]),
-    ],
-)
-def test_main_preserves_view_positional_escape_for_dash_prefixed_revsets(
-    monkeypatch: pytest.MonkeyPatch,
-    argv: list[str],
-    expected_revsets: list[str],
-) -> None:
-    observed: dict[str, object] = {}
-
-    def fake_view(**kwargs) -> int:
-        observed.update(kwargs)
-        return 0
-
-    monkeypatch.setattr("jj_stack.cli.view_command.view", fake_view)
-
-    exit_code = main(argv)
-
-    assert exit_code == 0
-    assert observed["revset"] == expected_revsets
-    assert observed["selectors"] == tuple(
-        ViewSelector(kind="revset", value=value) for value in expected_revsets
-    )
+    assert observed["verbose"] is True
 
 
 @pytest.mark.parametrize("argv", [["pants"], ["pants", "-h"], ["help", "pants"]])

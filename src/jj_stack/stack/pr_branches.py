@@ -22,7 +22,7 @@ class ResolvedPRBranch:
 
     branch: str
     change_id: str
-    recovered_target: str | None = None
+    recovered: bool = False
 
 
 def prepare_visible_pr_snapshots(
