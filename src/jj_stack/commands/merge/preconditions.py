@@ -29,8 +29,7 @@ def merge_precondition_error(
     expected_trunk_branch: str,
     observation: RepoFacts,
     remote_name: str,
-    changes: tuple[MergeChange, ...],
-    inactive_allowed: frozenset[str] = frozenset(),
+    change: MergeChange,
 ) -> MergePrecondition | None:
     """Explain why fresh facts do not permit the next mutation."""
 
@@ -49,15 +48,7 @@ def merge_precondition_error(
         return MergePrecondition(
             "GitHub no longer reports the planned trunk branch as its default"
         )
-    for change in changes:
-        error = _merge_change_precondition_error(
-            observation=observation,
-            planned=change,
-            inactive_allowed=change.change_id in inactive_allowed,
-        )
-        if error is not None:
-            return error
-    return None
+    return _merge_change_precondition_error(observation=observation, planned=change)
 
 
 def explain_precondition(
@@ -102,13 +93,12 @@ def _merge_change_precondition_error(
     *,
     observation: RepoFacts,
     planned: MergeChange,
-    inactive_allowed: bool,
 ) -> MergePrecondition | None:
     """Explain why the pull request, or the local copy behind it, does not match the plan.
 
     GitHub's report of the pull request comes first: a merged pull request is a stop by itself,
     wherever its branch and the local copy have ended up since. Only a candidate that can still
-    merge, or a completed merge being finished, goes on to the commit comparison.
+    merge goes on to the commit comparison.
     """
 
     observed = observation.prs[planned.change_id]
@@ -126,12 +116,12 @@ def _merge_change_precondition_error(
         raise AssertionError("Merge planning looks up every saved pull request.")
     pr = state.pr
     pr_number = format_pr_number(pr.number, url=pr.html_url)
-    if pr.state != "open" and not inactive_allowed:
+    if pr.state != "open":
         return MergePrecondition(
             t"pull request {pr_number} is {pr.state}",
             recovery="sync" if pr.state == "merged" else "inspect",
         )
-    if pr.is_draft and not inactive_allowed:
+    if pr.is_draft:
         return MergePrecondition(t"pull request {pr_number} is now a draft")
     shape_error = _local_shape_error(observed.local_commits, label=label)
     if shape_error is not None:

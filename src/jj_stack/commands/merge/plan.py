@@ -36,7 +36,7 @@ def build_merge_plan(
             expected_trunk_branch=trunk_branch,
             observation=observation,
             remote_name=remote_name,
-            changes=(change,),
+            change=change,
         )
         if error is not None:
             boundary = _boundary(

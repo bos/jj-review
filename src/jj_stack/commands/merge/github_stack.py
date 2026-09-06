@@ -12,11 +12,9 @@ from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubStack, GithubStackMerge
 from jj_stack.stack.github_stack_safety import selected_github_stack
-from jj_stack.stack.pr_facts import RepoFacts
 from jj_stack.ui import Message
 
 from .models import MergeAction, MergeChange, MergeExecutionInputs, MergePlan, MergeResult
-from .preconditions import merge_precondition_error
 
 _MERGE_POLL_TIMEOUT_SECONDS = 600.0
 _MAX_MERGE_POLL_INTERVAL_SECONDS = 30.0
@@ -64,14 +62,12 @@ class AsyncMergePlan:
 def build_async_merge_plan(
     merge_plan: MergePlan,
     stacks: tuple[GithubStack, ...],
-    target_change_id: str | None,
     execution: MergeExecutionInputs,
-    observation: RepoFacts,
 ) -> AsyncMergePlan:
-    by_pr = {change.identity.pr_number: change for change in merge_plan.linked_changes}
-    resource = selected_github_stack(execution.repo, tuple(by_pr), stacks)
+    pr_numbers = {change.identity.pr_number for change in merge_plan.linked_changes}
+    resource = selected_github_stack(execution.repo, pr_numbers, stacks)
     if resource is None:
-        if len(by_pr) > 1 and merge_plan.planned_changes:
+        if len(pr_numbers) > 1 and merge_plan.planned_changes:
             raise CliError(
                 "GitHub did not report a stack for these pull requests.",
                 hint=t"Run {ui.cmd('jj-stack submit')} before merging.",
@@ -97,26 +93,6 @@ def build_async_merge_plan(
             merge_plan.boundary_action,
             merge_plan.planned_changes,
         )
-    historical = tuple(
-        by_pr[number] for number in resource.historical_pr_numbers if number in by_pr
-    )
-    change_ids = tuple(change.change_id for change in historical)
-    stop = len(historical) if target_change_id is None else 0
-    if target_change_id in change_ids:
-        stop = change_ids.index(target_change_id) + 1
-    # A merge GitHub already completed is finished from here only while every local copy and PR
-    # branch still names the merged commit; otherwise the plan's own stop stands, naming sync.
-    if stop and merge_plan.linked_changes[: len(historical)] == historical:
-        error = merge_precondition_error(
-            inactive_allowed=frozenset(change_ids[:stop]),
-            expected_repo=execution.repo,
-            expected_trunk_branch=execution.trunk_branch,
-            observation=observation,
-            remote_name=execution.remote_name,
-            changes=historical[:stop],
-        )
-        if error is None:
-            return AsyncMergePlan(resource, None, historical[:stop])
     return AsyncMergePlan(resource, merge_plan.boundary_action, ())
 
 

@@ -55,7 +55,6 @@ class PreparedMerge:
 class MergeExecutionInputs:
     """Mutation dependencies independent of normal stack/status preparation."""
 
-    remote_name: str
     repo: GithubRepoAddress
     selected_revset: str
     trunk_branch: str

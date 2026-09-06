@@ -174,7 +174,12 @@ def test_merge_preconditions_reject_repo_drift() -> None:
         expected_trunk_branch="main",
         observation=observation,
         remote_name="origin",
-        changes=(),
+        change=MergeChange(
+            base_ref="main",
+            change_id="a" * 32,
+            commit_id="c" * 40,
+            identity=PRIdentity(pr_number=1, head_ref="jj-stack/feature-aaaaaaaa"),
+        ),
     )
 
     assert error is not None
@@ -229,13 +234,11 @@ def test_merge_preconditions_name_a_closed_pull_request() -> None:
         expected_trunk_branch="main",
         observation=observation,
         remote_name="origin",
-        changes=(
-            MergeChange(
-                base_ref="main",
-                change_id=change.change_id,
-                commit_id=change.commit_id,
-                identity=identity,
-            ),
+        change=MergeChange(
+            base_ref="main",
+            change_id=change.change_id,
+            commit_id=change.commit_id,
+            identity=identity,
         ),
     )
 

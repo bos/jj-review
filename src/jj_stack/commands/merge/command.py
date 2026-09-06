@@ -284,15 +284,12 @@ async def _stream_merge_async(
         )
         stacks = await stacks_task
         execution = MergeExecutionInputs(
-            remote_name=remote.name,
             repo=github_client.repo,
             selected_revset=prepared.stack.selected_revset,
             trunk_branch=trunk_branch,
             trunk_subject=prepared.stack.trunk.subject,
         )
-        async_merge = build_async_merge_plan(
-            plan, stacks, prepared_merge.target_change_id, execution, observation
-        )
+        async_merge = build_async_merge_plan(plan, stacks, execution)
         if prepared_merge.dry_run:
             if async_merge.planned:
                 action = async_merge.action(

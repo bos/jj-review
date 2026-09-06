@@ -322,7 +322,7 @@ def test_stack_merge_terminal_failure_is_atomic(
     assert state_store.load() == state_before
 
 
-def test_stack_merge_recovers_only_from_a_terminal_retry(
+def test_stack_merge_recovers_with_sync_after_a_lost_response(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -374,11 +374,12 @@ def test_stack_merge_recovers_only_from_a_terminal_retry(
 
     _complete_stack_merge(fake_repo, fake_repo.stack_merge_operations[2])
     assert tuple(pr.state for pr in fake_repo.prs.values()) == ("closed", "closed")
-    assert run_main(repo, config_path, "merge") == 0
+    assert run_main(repo, config_path, "merge") == 1
     completed = capsys.readouterr()
-    assert "final trunk commit" in completed.out
+    assert "jj-stack sync" in " ".join(completed.out.split())
     assert len(fake_repo.stack_merge_requests) == 1
     assert tuple(pr.state for pr in fake_repo.prs.values()) == ("closed", "closed")
+    assert run_main(repo, config_path, "sync") == 0
     assert state_store.load().pr_identities == {}
     assert JjClient(repo).resolve_commit("@").parents == (
         read_remote_ref(fake_repo.git_dir, "main"),
