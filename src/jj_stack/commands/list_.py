@@ -3,6 +3,9 @@
 It shows one row per locally known stack, including the head change ID, stack size, PR state,
 and description of the head change. It does not discover stacks that exist only on GitHub.
 
+In terminals with hyperlink support, click the PR label in a row to open it on GitHub. A count
+such as `5 PRs` links to the topmost PR in that stack.
+
 It also shows orphaned PRs: tracked PRs whose local change is no longer part of any current
 stack. Close them and remove their branches, comments, and saved links with
 `jj-stack cleanup --pull-request orphans --close`.

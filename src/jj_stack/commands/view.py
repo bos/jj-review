@@ -3,6 +3,9 @@
 By default it summarizes the submitted and unsubmitted changes in each selected stack;
 `--verbose` expands those summaries.
 
+In terminals with hyperlink support, click a PR label to open it on GitHub. The PR in the
+"Submitted stack" heading links to the topmost submitted PR.
+
 It reads pull request state from GitHub, but finds the changes in a stack locally by walking
 parents from the selected change down to your local `trunk()`. If your local copy of trunk is
 behind, that list of changes can be stale even though the pull request state is current. Run

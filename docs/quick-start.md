@@ -106,6 +106,11 @@ jj-stack submit
 `submit` creates one pull request for each of your changes, links your pull requests in the same
 order, and creates your stack on GitHub.
 
+In a terminal with hyperlink support, the PR labels in the output open GitHub. Click the PR
+beside `Top of stack` to open the top PR; `jj-stack view` offers the same link in its
+`Submitted stack` heading, and `jj-stack list` links a count such as `5 PRs` to that PR.
+Use your terminal's usual gesture for opening links.
+
 ## Revise normally
 
 After submitting, `@` is still the empty scratch working copy above the `C: add UI` change. To

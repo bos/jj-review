@@ -3,6 +3,9 @@
 This pushes or updates the PR branches for that stack, then opens or refreshes one pull
 request per change from bottom to top. The selected changes must have no unresolved conflicts.
 
+In terminals with hyperlink support, the PR labels in the output are clickable links to GitHub.
+The PR beside "Top of stack" opens the top PR in the submitted stack.
+
 A pull request title comes from a change's subject line, and its body from the rest of the
 description. When a description has no body, `jj-stack` uses the repo's pull request template
 (`.github/PULL_REQUEST_TEMPLATE.md`, `PULL_REQUEST_TEMPLATE.md`, or

@@ -6,6 +6,9 @@ selected stack's submitted commits are not present locally, the command fetches 
 automatically. It records which pull request belongs to each local change, then runs `jj edit` on
 the selected change.
 
+In terminals with hyperlink support, the PR beside "Top" in each GitHub stack's `--pick` entry
+is a clickable link. Open it to inspect that stack on GitHub before choosing an entry.
+
 `jj-stack` changes the working copy only after validating the entire stack and saving any new
 pull request links. `checkout` does not rebase changes or modify GitHub. To create a new change
 on top of the checked-out change, run `jj new` afterward.

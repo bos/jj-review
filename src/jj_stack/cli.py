@@ -71,6 +71,11 @@ Running `jj-stack` with no command shows the current stack. A typical workflow i
 `jj-stack submit`, `jj-stack view`, then `jj-stack merge`. When GitHub merges immediately,
 `jj-stack merge` also updates the local stack. When the merge finishes later, through a merge
 queue or outside `jj-stack`, run `jj-stack sync`.
+
+In terminals with hyperlink support, PR labels such as `PR #123` and `#123` are clickable
+links to GitHub when the PR's URL is known. Look for them in command results, status output,
+and diagnostics. Stack summaries in `submit`, `view`, and `list` link through the top PR;
+`list` makes counts such as `5 PRs` clickable too. `--color=never` disables these links.
 """
 _REORDERABLE_GLOBAL_FLAGS = frozenset({"--debug", "--time-output"})
 _REORDERABLE_GLOBAL_OPTIONS_WITH_VALUES = frozenset({"--repository", "--color"})
