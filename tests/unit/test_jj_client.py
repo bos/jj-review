@@ -665,6 +665,8 @@ def _template() -> str:
 def _runner(responses: dict[tuple[str, ...], str]):
     def run(command: Sequence[str], **kwargs) -> subprocess.CompletedProcess[str]:
         key = tuple(command)
+        if key[1:3] == ("--config", "ui.log-word-wrap=false"):
+            key = (key[0], *key[3:])
         response_key = (
             (key[0], *key[2:]) if len(key) > 1 and key[1] == "--ignore-working-copy" else key
         )

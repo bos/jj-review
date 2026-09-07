@@ -150,6 +150,13 @@ class _CommitScan(BaseModel):
     membership: tuple[bool, ...]
 
 
+class _CommitDiffStat(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    commit_id: CommitId
+    diffstat: str
+
+
 UnsupportedStackReason = Literal[
     "divergent_change",
     "empty_change",
@@ -430,15 +437,20 @@ class JjClient:
 
         self._initial_working_copy_snapshot_pending = True
 
-    def show_with_stat(self, revset: str) -> str:
-        """Return raw stdout from ``jj show --stat -r <revset>``.
+    def diffstats(self, commit_ids: Sequence[str]) -> dict[str, str]:
+        """Return plain diffstats for exact commits without rendering their descriptions."""
 
-        Raises `JjCommandError` if jj fails. The caller is responsible for
-        parsing the diffstat out of the output and framing any user-facing
-        error message.
-        """
-
-        return self._run_jj(("show", "--stat", "-r", revset))
+        template = (
+            r'"{\"commit_id\":" ++ json(commit_id) ++ '
+            r'",\"diffstat\":" ++ json(stringify(self.diff().stat())) ++ "}\n"'
+        )
+        result: dict[str, str] = {}
+        for chunk in batched(commit_ids, QUERY_BATCH_SIZE, strict=False):
+            revset = " | ".join(quote_revset_symbol(commit_id) for commit_id in chunk)
+            for line in self._query_template_lines(revset, template):
+                row = _parse_json_line(line, command="jj log", model=_CommitDiffStat)
+                result[row.commit_id] = row.diffstat.rstrip()
+        return result
 
     def resolve_color_when(
         self,
@@ -1055,7 +1067,11 @@ class JjClient:
         command = ["log", "--no-graph", "-r", revset, "-T", template]
         if limit is not None:
             command.extend(["--limit", str(limit)])
-        stdout = self._run_jj(command, cli_args=cli_args)
+        # JSON records must remain whole even when the user's display log wraps lines.
+        stdout = self._run_jj(
+            command,
+            cli_args=JjCliArgs((*cli_args.argv, "--config", "ui.log-word-wrap=false")),
+        )
         return [stripped for line in stdout.splitlines() if (stripped := line.strip())]
 
     def _run_jj(

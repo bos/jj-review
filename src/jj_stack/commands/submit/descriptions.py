@@ -10,14 +10,13 @@ import sys
 import tempfile
 import tomllib
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError, UsageError
-from jj_stack.jj.client import JjClient, JjCommandError, quote_revset_symbol
+from jj_stack.jj.client import JjClient, JjCommandError
 from jj_stack.models.github import GithubPR
 from jj_stack.models.stack import LocalCommit
 
@@ -499,60 +498,21 @@ def _build_stack_description_input(
     jj_client: JjClient,
     changes: tuple[LocalCommit, ...],
 ) -> dict[str, object]:
-    diffstats = _describe_with_diffstats(jj_client=jj_client, changes=changes)
+    try:
+        diffstats = jj_client.diffstats(tuple(change.commit_id for change in changes))
+    except JjCommandError as error:
+        raise CliError(t"Could not collect diffstats for the selected stack: {error}") from error
     return {
         "changes": [
             {
                 "body": generated_descriptions[change.change_id].body,
                 "change_id": change.change_id,
-                "diffstat": diffstats[change.change_id],
+                "diffstat": diffstats[change.commit_id],
                 "title": generated_descriptions[change.change_id].title,
             }
             for change in changes
         ]
     }
-
-
-def _describe_with_diffstats(
-    *,
-    jj_client: JjClient,
-    changes: tuple[LocalCommit, ...],
-) -> dict[str, str]:
-    if not changes:
-        return {}
-    if len(changes) == 1:
-        change = changes[0]
-        return {change.change_id: _describe_with_diffstat(jj_client=jj_client, change=change)}
-
-    def describe_change(change: LocalCommit) -> tuple[str, str]:
-        return (
-            change.change_id,
-            _describe_with_diffstat(jj_client=jj_client, change=change),
-        )
-
-    with ThreadPoolExecutor(max_workers=min(len(changes), 10)) as pool:
-        return dict(pool.map(describe_change, changes))
-
-
-def _describe_with_diffstat(*, jj_client: JjClient, change: LocalCommit) -> str:
-    # A change with a visible PR bookmark has two visible commits, and jj rejects a bare
-    # change-ID symbol for it, so name the exact commit this submit is describing.
-    try:
-        stdout = jj_client.show_with_stat(quote_revset_symbol(change.commit_id))
-    except JjCommandError as error:
-        raise CliError(
-            t"Could not collect diffstat for {ui.change_id(change.change_id)}: {error}"
-        ) from error
-
-    lines = stdout.rstrip().splitlines()
-    diffstat_lines: list[str] = []
-    for line in reversed(lines):
-        if not line.strip():
-            if diffstat_lines:
-                break
-            continue
-        diffstat_lines.append(line)
-    return "\n".join(reversed(diffstat_lines))
 
 
 def _run_description_command(

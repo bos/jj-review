@@ -76,6 +76,41 @@ def test_paired_ancestor_membership_ignores_an_unavailable_target(tmp_path: Path
     assert matching == {ancestor}
 
 
+def test_diffstats_batch_preserves_each_commits_files_and_jj_formatting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = init_repo(tmp_path)
+    commit_file(repo, "first", '日本語 "quoted".txt')
+    first = jj_commit_id(repo, "@-")
+    commit_file(repo, "second", "second.txt")
+    second = jj_commit_id(repo, "@-")
+    monkeypatch.setenv("COLUMNS", "45")
+    run_command(["jj", "config", "set", "--repo", "ui.color", "always"], repo)
+    run_command(["jj", "config", "set", "--repo", "ui.log-word-wrap", "true"], repo)
+    assert JjClient(repo).resolve_commit(first).subject == "first"
+    expected = {
+        commit_id: run_command(
+            ["jj", "--color", "never", "show", "--stat", "-T", '""', "-r", commit_id],
+            repo,
+        ).stdout.rstrip()
+        for commit_id in (first, second)
+    }
+    calls = []
+    run = subprocess.run
+
+    def counted_run(command, **kwargs):
+        calls.append(command)
+        return run(command, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", counted_run)
+    diffstats = JjClient(repo).diffstats((first, second))
+
+    assert diffstats == expected
+    # Batching removes per-change process startup without replacing jj's diff formatter.
+    assert len(calls) == 1
+
+
 def test_list_git_remotes_preserves_distinct_fetch_and_push_urls(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     run_command(
