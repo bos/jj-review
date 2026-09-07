@@ -45,11 +45,9 @@ class OperationLock:
         self,
         *,
         file,
-        holder: OperationLockHolder,
         holder_path: Path,
     ) -> None:
         self._file = file
-        self.holder = holder
         self._holder_path = holder_path
         self._released = False
 
@@ -70,9 +68,7 @@ class OperationLock:
         if self._released:
             return
         self._released = True
-        current = read_operation_lock_holder(self._holder_path.parent)
-        if current == self.holder:
-            self._holder_path.unlink(missing_ok=True)
+        self._holder_path.unlink(missing_ok=True)
         _unlock_file(self._file)
         self._file.close()
 
@@ -151,7 +147,7 @@ def try_acquire_operation_lock(
             f"Could not use jj-stack data directory {state_dir}: {error}",
             hint="Resolve the filesystem error above, then rerun the command.",
         ) from error
-    return OperationLock(file=lock_file, holder=holder, holder_path=holder_path)
+    return OperationLock(file=lock_file, holder_path=holder_path)
 
 
 def read_operation_lock_holder(state_dir: Path) -> OperationLockHolder | None:
