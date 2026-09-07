@@ -14,7 +14,7 @@ view --pull-request <pr> --json
 view <head-change-id>
 ```
 
-`view` and `list` may exit 10 with valid output when inspection is incomplete or needs attention;
+`view` and `list` may exit 10 with valid output when inspection is incomplete;
 read the JSON before deciding. After interruption or in a multi-stack repo, never rely on
 the default selection. Preview the chosen mutation with `--dry-run` when supported.
 
@@ -85,11 +85,13 @@ To start fresh PRs for the same changes, follow the closing and cleanup procedur
 `SKILL.md`, then run `submit <head-change-id>`. There is no restart flag; submitting before
 cleanup does not replace the saved PRs.
 
-For an orphan reported by `list`, first inspect its exact PR and verify its current live state. If
-it is open and the user wants it removed, close it, then run
-`cleanup --pull-request <pr> --dry-run` and `cleanup --pull-request <pr>`. After closing every
-verified orphan, use `cleanup --pull-request orphans`. Orphan rows come from saved tracking and
-do not by themselves prove live PR state.
+For an orphan reported by `list`, inspect its exact PR and verify its current live state. If the
+user wants closure and cleanup, run `cleanup --pull-request <pr> --close --dry-run`, then
+`cleanup --pull-request <pr> --close`. Resolve any grouping or dependent-PR blocker named by the
+preview before retrying. Already closed or merged PRs do not need `--close`.
+Use `cleanup --pull-request orphans --close` only when the user requested all saved orphans, and
+preview that same selection first. Orphan rows come from saved tracking and do not by themselves
+prove live PR state.
 
 ## Diagnose local setup
 

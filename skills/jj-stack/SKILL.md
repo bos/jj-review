@@ -21,7 +21,7 @@ its GitHub tracking state (PR branches, PRs, merging, cleanup).
 repo, confirm it with `--help`, and reuse it for the whole conversation:
 
 1. An invocation named by the user or project instructions.
-2. `uv run jj-stack` inside the jj-stack source repo itself.
+2. `just run` inside the jj-stack source repo itself.
 3. `jj-stack`, then `jj stack`.
 4. An alias from `jj --ignore-working-copy config list aliases` whose value
    delegates to `jj-stack` (commonly via `["util", "exec", "--", ...]`);
@@ -48,7 +48,9 @@ it may describe a different release, and do not fetch it for routine stack opera
    use `jj-stack unstack` for GitHub stack grouping.
 2. **Honor local adoption.** `jj-stack in-use` exits 0 without output when this local repo
    has valid jj-stack tracking, 1 without output when it does not, and 11 with an error when the
-   result cannot be determined. A successful probe makes jj-stack the owner of stack-level PR
+   result cannot be determined. If a runner collapses nonzero exit codes, inspect the underlying
+   command's exit code in its diagnostic before treating exit 1 as no adoption.
+   A successful probe makes jj-stack the owner of stack-level PR
    work in that repo: status, submit, refresh, base/head changes caused by stack rewrites,
    merging, cleanup, importing, relinking, and recovery. Exit 1 does not prevent an explicit
    request to start using jj-stack. Do not substitute `view` or `list`; they report tracking
@@ -64,9 +66,10 @@ it may describe a different release, and do not fetch it for routine stack opera
    multi-stack repo, pass a change ID, revset, or `--pull-request` selector.
    Prefer change IDs in user-facing summaries; use commit IDs only when a
    concrete immutable snapshot matters.
-5. **Stay non-interactive.** Do not use `submit --edit`, `checkout --pick`, or
-   an interactive `--describe-with` helper; those open an editor or prompt on
-   stdin for humans. Pass `--describe` files and explicit selectors instead.
+5. **Stay non-interactive.** Do not use `submit --edit`, `submit --resume-edit`,
+   `checkout --pick`, or an interactive `--describe-with` helper; those open an editor or prompt
+   on stdin for humans. Pass `--describe` files and explicit selectors instead. A noninteractive
+   `--describe-with` helper can supply titles as well as bodies.
 
 ## Load references when needed
 
@@ -85,8 +88,9 @@ it may describe a different release, and do not fetch it for routine stack opera
 
 **Collaboration writes are fine when the user asks**: comments, reviews,
 labels, assignees, milestones, reviewer requests, draft/ready state, and
-title or body edits (a later `submit` may overwrite generated title/body
-text). The user may also ask you to edit a comment containing
+title or body edits. Ordinary `submit` preserves PR text edited on GitHub when it differs from
+the last automated description; explicitly supplied text still replaces the corresponding fields.
+The user may also ask you to edit a comment containing
 `<!-- jj-stack-overview -->`; preserve that marker so `jj-stack` can keep managing and moving the
 overview. Never delete the marker or the managed comment by hand.
 
@@ -95,12 +99,12 @@ Inspect the stack first, use explicit PR numbers, and leave jj-stack's saved
 links in place so `cleanup` can verify what it removes. Remove GitHub stack
 grouping with `jj-stack unstack` before closing all of a stack's PRs.
 
-**Other structural and lifecycle writes are not**: merging a PR; retargeting
+**Route other structural and lifecycle writes through jj-stack**: merging a PR; retargeting
 base or head; deleting or force-pushing a PR branch; creating a replacement
 PR; changing GitHub stack membership outside `jj-stack`; or equivalent `gh api`
-mutations. These desync local changes, PR branches, and tracking data. Map
-the intent to a jj-stack command instead; use `gh` only if the user explicitly
-confirms after you explain that risk.
+mutations. Direct writes can leave local changes, PR branches, and tracking out of agreement.
+If the user explicitly requests a direct GitHub operation, explain the tracking implications and
+use the recovery reference to reconcile afterward. Existing explicit authorization is sufficient.
 
 ## Everyday flow
 
@@ -108,7 +112,8 @@ confirms after you explain that risk.
    put a dependency in the same change or a lower one, and unrelated work in
    a separate stack.
 2. Confirm the shape with `view` (`--json` for machine-readable output; it reads GitHub but
-   does not fetch); `list` shows the repo-wide inventory. For ordinary inspection, run
+   does not fetch); `list` inventories paths with tracked changes and saved orphans, not wholly
+   untracked stacks. For ordinary inspection, run
    `jj git fetch` first only when local trunk may be behind. For an externally completed merge,
    follow the recovery workflow instead of this ordinary inspection step.
 3. `submit --dry-run`, then `submit` to create or refresh PRs. There is no `refresh`
@@ -121,6 +126,8 @@ confirms after you explain that risk.
    higher change to avoid touching a lower one.
 5. When bottom changes are ready, run `merge --dry-run`, then `merge`. It selects
    consecutive open, non-draft PRs from the bottom and requires their exact submitted commits.
+   To merge only through a particular PR, use `merge --pull-request <pr>`; automatic sync still
+   covers the surviving changes above it in the containing stack.
    GitHub decides approvals, checks, conflicts, and repo policy. A completed direct merge
    updates the local stack automatically; it never pushes trunk. After a queued merge, run
    `sync <head-change-id>` once GitHub finishes.
@@ -130,25 +137,31 @@ confirms after you explain that risk.
 
 ## Closing and cleanup
 
-To close the PRs in a stack without merging, inspect it, run
-`unstack --dry-run <head-change-id>` and
-`unstack <head-change-id>`, then close each explicit PR with `gh pr close <pr>`. Preserve saved
-links until `cleanup --dry-run <head-change-id>` and `cleanup <head-change-id>` verify and remove
-the closed PRs' branches, managed comments, and tracking.
+When the user requests both closure and cleanup, inspect the stack and record its explicit PR
+numbers. Run `unstack --dry-run <head-change-id>`, then `unstack <head-change-id>`.
+From the top PR downward, run `cleanup --pull-request <pr> --close --dry-run`, then
+`cleanup --pull-request <pr> --close` for each PR. Each command retargets the PR to trunk before
+closing it and removes its eligible branch, overview comment, and tracking. Working downward
+frees each lower branch from its dependents before cleanup. The flag requires `--pull-request`;
+it cannot be used with a stack revset.
 
-Run `cleanup --dry-run`, then `cleanup`, to collect eligible closed or already-synced merged
-leftovers across the repo. Open PRs, open orphans, mismatched identities, unavailable
-GitHub state, and branches still needed as PR bases remain untouched.
+For closure alone, use the supported `gh pr close` flow above and retain branches and tracking.
+If cleanup later reports a dependent PR, follow its diagnostic; a closed PR whose head branch
+still exists can protect its base branch too. Never delete that base branch by hand.
+
+For requested repo-wide cleanup, run `cleanup --dry-run`, then `cleanup`, to collect eligible
+closed or already-synced merged leftovers. For one stack, pass its head selector. Without
+`--close`, open PRs and open orphans remain untouched. Mismatched identities, unavailable GitHub
+state, and branches still needed as PR bases block cleanup of the affected records.
 
 ## Exit codes
 
-0 success; 1 any other failure, including a blocked action; 2 selection is
-not a supported stack; 3 unresolved conflicts; 4 GitHub auth/API failure;
-5 invalid arguments; 6 ambiguous selector (fails closed — use `relink` to
-repair an incorrect attachment or select explicitly); 10 `view`/`list` printed a report
-that is incomplete or needs attention (the output is still valid — read it); 11 `in-use`
-could not determine its result;
-130 interrupted.
+0 success; 1 `in-use` found no adoption, otherwise any other failure, including a blocked action;
+2 selection is not a supported stack; 3 unresolved conflicts; 4 GitHub auth/API failure;
+5 invalid arguments; 6 ambiguous selector (fails closed — use `relink` to repair an incorrect
+attachment or select explicitly); 10 `view`/`list` printed an incomplete
+report (the output is still valid — read it; ordinary warnings can also appear with exit 0);
+11 `in-use` could not determine its result; 130 interrupted.
 
 ## When something goes wrong
 

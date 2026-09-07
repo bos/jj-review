@@ -14,12 +14,16 @@ Use `list` for the repo-wide inventory and `view <head-change-id>` for each affe
 path. Select every mutation explicitly. Inspection may show one local path whose tracked changes
 belong to several GitHub stacks; do not assume the displayed path is one GitHub stack.
 
-At a fork, a bare change ID or linked PR for the shared ancestor is ambiguous because it asks for
-the complete containing path and several descendant heads exist. The concrete choices are the
-descendant heads.
-To end a command exactly at the parent-stack head, pass an explicit revset such as
-`change_id("<full-parent-head-change-id>")`; an arbitrary revset selects that exact commit
-instead of searching for a containing head.
+Selection depends on the command. `view <change-id>` and `view --pull-request <pr>` inspect the
+complete containing path, so a shared ancestor at a fork is ambiguous. Select a descendant head
+to inspect that path, or use `view 'change_id("<full-parent-head-change-id>")'` to inspect exactly
+through the parent head.
+
+Positional selectors for `submit`, `sync`, `merge`, `unstack`, and `cleanup` select an exact head,
+including when the selector is a bare change ID. In particular, `submit <lower-change-id>` does
+not refresh its descendants just because `view <lower-change-id>` displayed them.
+`sync --pull-request` selects the containing stack; `merge --pull-request` also selects that
+stack but merges only through the named PR. `cleanup --pull-request` selects only that saved PR.
 
 ## Start or refresh a child stack
 
@@ -78,9 +82,9 @@ an explicit refresh.
 
 ## Handle grouping stops
 
-`merge`, `sync`, and ordinary `unstack` require the active GitHub stack members they touch to
-belong to one selected local parent chain. A non-maximal or partially overlapping selection may
-stop rather than truncate another valid stack.
+`merge`, `sync`, and ordinary `unstack` require all active members of the GitHub stack they touch
+to belong to the selected local parent chain. A selection spanning multiple active GitHub stacks,
+or omitting active members of one, stops rather than truncating another valid stack.
 
 When a diagnostic says the remote grouping no longer maps to one local path, follow its exact
 `unstack --stack <number>` instruction after reading [recovery workflows](recovery.md). Do not
