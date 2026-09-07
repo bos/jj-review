@@ -88,10 +88,10 @@ need separate forwarding tests.
 Prefer focused fixtures, direct setup, and clear assertions. Avoid tests that primarily:
 
 - pin presentation that is not a machine or recovery contract
-- prove that a wrapper forwards arguments to a mocked helper
+- check only that a wrapper forwards arguments to a mocked helper
 - restate private implementation details
 - snapshot generated text when semantic assertions would suffice
-- exercise only a trivial happy path while the real risk is failure handling
+- exercise only a trivial happy path while leaving failure handling untested
 
 Test names should state the protected rule, not merely list setup details. A failure should be
 understandable from the name and assertions without reconstructing the entire fixture.

@@ -1,7 +1,6 @@
 # jj-stack design
 
 This document defines the product rules for `jj-stack`. See
-[implementation-strategy.md](implementation-strategy.md) for architecture and
 [testing-philosophy.md](testing-philosophy.md) for testing guidance. Command syntax and usage
 belong in the [user guide](../README.md) and built-in `--help`.
 
@@ -11,10 +10,9 @@ belong in the [user guide](../README.md) and built-in `--help`.
 stack topology; local tracking connects each change to its PR and last submitted commit. Change
 IDs and PR branch names stay stable across rewrites.
 
-Each invocation supports one Git remote and one repo on GitHub's public API, with one PR per
-change and a GitHub stack for a selection of two or more PRs. Cross-repo stacks and nonlinear
-local stacks are unsupported. Inspection can still report some unsupported histories to help
-users repair them.
+Each invocation supports one Git remote and one GitHub repo, with one PR per change. Cross-repo
+stacks and nonlinear local stacks are unsupported. Inspection can still report some unsupported
+histories to help users repair them.
 
 ## From local changes to pull requests
 
@@ -32,21 +30,6 @@ PR for B: head jj-stack/B, base jj-stack/A
 PR for A: head jj-stack/A, base trunk
 ```
 
-The actual branch names include a subject slug and change-ID suffix. They give GitHub stable PR
-heads; the `jj` parent relation determines each PR's base.
-
-The normal lifecycle is:
-
-1. Use `jj` to create, reorder, split, squash, or rebase local changes.
-2. Use `jj-stack view` to inspect the stack, and `jj-stack list` to see tracked stacks.
-3. Use `jj-stack submit` to create or refresh the PRs for that selected stack.
-4. After another local rewrite, run `submit` again; existing PRs follow their change IDs.
-5. Use `jj-stack merge` to ask GitHub to merge a submitted prefix from the bottom. When GitHub
-   merges immediately rather than through a queue (a **direct merge**), the same command fetches
-   the result and updates the remaining local changes and pull requests.
-6. After a queued merge, a merge completed outside `jj-stack`, or a native GitHub stack rebase,
-   run `jj-stack sync` for that selected stack once GitHub has finished.
-
 ## Core concepts
 
 ### Change
@@ -54,9 +37,9 @@ The normal lifecycle is:
 A logical change is identified by its full `change_id`, which survives rewrites. A commit ID
 identifies one immutable snapshot of that change.
 
-Publishing requires a change in `visible()` and `mutable()`, with one visible mutable copy, a
-nonblank description, a nonempty diff, and no unresolved conflicts. Recovery and inspection have
-different requirements, described in their command policies below.
+Publishing requires a visible, mutable change with a nonblank description, a nonempty diff, and
+no divergence or unresolved conflicts. Recovery and inspection have different requirements,
+described in their command policies below.
 
 ### Local stack
 
@@ -65,17 +48,9 @@ A local stack is a linear chain of changes from a selected head back to the near
 the stack. A submitted side parent of a merge change on trunk therefore remains in the selected
 path until `sync` reconciles it.
 
-`submit --base B H` selects only the changes above `B` through `H`, written `(B, H]`. It uses `B`
-as read-only base context. The [submit policy](#submit-and-branch-transport) defines the checks
-and the required transition after `B` lands.
-
 Mutating commands that select a local path require a single-parent chain. Other children
 elsewhere in the DAG do not invalidate that chain. A local rewrite can propagate to those
 children under ordinary `jj` rules; their PRs wait for a command selecting their own path.
-
-`view` can show a first-parent path through a merge change with a warning. It also shows empty,
-undescribed, conflicted, and divergent changes when selection can resolve them. These inspection
-exceptions do not make those changes submittable.
 
 ### Tracking
 
@@ -95,15 +70,13 @@ Two checks recur below:
 - **Snapshot match**: an identity match whose PR head SHA also equals the submitted baseline.
 
 An identity match establishes which PR to act on. A snapshot match also establishes which version
-GitHub reports. Each command requires further checks before mutation.
+GitHub reports. [Tracking and recovery](#tracking-and-recovery) defines which commands update
+these records.
 
 ### PR branches and PR bases
 
 GitHub pull requests are branch-based: every PR needs one head branch and one base branch. The
-`jj` DAG supplies neither, so `jj-stack` maintains remote branches purely as transport.
-
-Each tracked change has exactly one Git branch used as its GitHub PR head. These branches
-normally stay remote-only and outside the local `jj` view.
+`jj` DAG supplies neither, so `jj-stack` maintains remote branches to hold the submitted commits.
 
 The initial name is:
 
@@ -121,9 +94,7 @@ The slug is lowercase ASCII derived from the first description line. The change-
 the branch to the logical change. If two selected changes resolve to the same
 name, `submit` stops.
 
-The subject is only used once, when creating the initial name for a branch. Once a PR is
-tracked, the branch name stays stable. Commands do not rename or replace it because the
-description changed.
+The branch name stays stable after creation, even if the change's description changes.
 
 The GitHub base branch for a change is:
 
@@ -132,9 +103,9 @@ The GitHub base branch for a change is:
 - otherwise the trunk branch
 
 `trunk()` defines the lower bound of a stack without specifying a GitHub branch name. GitHub's
-reported default branch is used unless a different branch at local `trunk()` proves that choice
-inconsistent. If GitHub reports no default, exactly one branch on the selected remote must point
-at `trunk()`. A `trunk()` that falls back to `root()` cannot be resolved this way.
+reported default branch is used unless a different branch at local `trunk()` contradicts that
+choice. If GitHub reports no default, exactly one branch on the selected remote must point at
+`trunk()`. A `trunk()` that falls back to `root()` cannot be resolved this way.
 
 ### The reserved branch namespace
 
@@ -160,8 +131,9 @@ one local rewrite are both visible, the submitted commit is treated as the submi
 rather than a second local candidate.
 
 An unknown or mismatched bookmark creates no ownership. It remains untouched and does not block an
-independent stack. `submit` refuses to claim a colliding visible name for a new PR, while live
-remote target checks and exact leases continue to guard moves and deletion of tracked branches.
+independent stack. `submit` refuses to claim a colliding visible name for a new PR, while remote
+target checks and Git leases still prevent updating or deleting a tracked branch that changed
+after inspection.
 
 ### GitHub stack objects
 
@@ -173,7 +145,7 @@ creates an ordinary PR. When a later `submit` extends that stack to two or more 
 `jj-stack` registers the ordered PRs in a GitHub stack. An existing GitHub stack may later have
 only one active member because GitHub retains merged members as history.
 
-GitHub reports merged members as a historical bottom prefix. This document calls the remaining
+GitHub lists merged PRs first in the stack. This document calls the remaining
 members **active members**, regardless of whether an individual PR is open, draft, or closed. A
 GitHub stack that lists a merged member above an active one stops only the commands that select
 it; `unstack --stack <number>` still removes it.
@@ -193,16 +165,17 @@ If `jj` reports that a workspace is stale, the command stops and tells the user 
 ## Command responsibilities
 
 The command policies below define eligibility and mutation rules. This table identifies which
-command owns each operation.
+command owns each operation. A **direct merge** is one GitHub completes immediately rather than
+through a merge queue.
 
 | Command | Responsibility |
 |---|---|
 | `view` | Inspect selected local stacks and their current GitHub state. |
 | `list` | List local paths with tracked changes, plus orphaned tracked PRs. |
 | `submit` | Create PRs and refresh the selected stack; only this command publishes new changes. |
-| `sync` | Reconcile a selected stack after a merge or native GitHub stack rebase. |
+| `sync` | Update a local stack after a merge or native GitHub stack rebase. |
 | `sync --all` | Sync stacks after merges and finish eligible PRs without local copies. |
-| `merge` | Request a GitHub merge; run selected sync after a direct merge completes. |
+| `merge` | Request a GitHub merge; run sync after a direct merge completes. |
 | `unstack` | Remove a GitHub stack grouping; `--local` instead forgets local tracking. |
 | `cleanup` | Remove eligible artifacts and links; optionally close explicitly selected PRs. |
 | `checkout` | Adopt existing PRs and edit the selected change in the current workspace. |
@@ -214,10 +187,9 @@ command owns each operation.
 `jj` owns general history editing. There is no standalone `jj-stack rebase` command.
 
 `sync` and `merge` fetch before planning, including during `--dry-run`. A direct merge fetches
-again after GitHub completes it. `checkout --pull-request` fetches when the selected PR's exact
-head commit is not already local. Other commands do not fetch. **Fetched trunk** means `trunk()`
-as evaluated after the command's relevant fetch; a command that does not fetch uses the locally
-available trunk.
+again after GitHub completes it. `checkout --pull-request` fetches when the selected PR's head
+commit is not already local. Other commands do not fetch. Commands evaluate `trunk()` after any
+fetch they perform; without a fetch, they use the locally available trunk.
 
 A dry run previews planned changes without applying them. It does not promise an untouched local
 repo: the fetches above and ordinary `jj` working-copy snapshots can still occur.
@@ -239,18 +211,29 @@ Within the supported scope, these rules are ordered; a lower rule never weakens 
    inspect the surrounding GitHub stack. Repo-wide cleanup and the other exceptions are listed
    under [Selection](#selection).
 6. **Forget deliberately.** Remove tracking only through `unstack --local` or eligible cleanup.
-   Cleanup may retire closed PRs without trunk evidence; merged local changes must first be
-   reconciled by `sync`. Keep links that another local path still needs.
 
 Most stops and warnings should also name a runnable next step when the right action is clear and
 the condition is reasonably likely to occur. This UX requirement never weakens a safety rule.
 
 ## Tracking and recovery
 
-Tracking stores no topology, desired bases, current PR state, or operation progress. Each command
-observes the relevant `jj` DAG, remote refs, GitHub state, and saved tracking again. GitHub
-reports PR lifecycle and stack membership; ancestry in fetched trunk establishes whether submitted
-work reached this repo's trunk.
+PR creation, `relink`, and `checkout` create or replace a saved PR identity. `unstack --local`
+and cleanup remove it; `sync` uses cleanup to remove eligible records.
+
+The submitted baseline changes only after:
+
+- `submit` or `sync` successfully updates a PR
+- `sync` adopts commits rewritten by GitHub, or replaces a GitHub-rebased stack with equivalent
+  commits that retain the local change IDs
+- `relink` records the observed PR branch target
+- `checkout` imports an existing PR
+
+A GitHub merge request does not update the baseline; the automatic sync afterward may do so.
+
+Commands use the current `jj` DAG, remote refs, GitHub state, and saved tracking. GitHub reports
+PR state and stack membership; ancestry checks establish whether submitted work reached trunk.
+Tracking stores no topology, desired bases, current PR state, operation progress, or aliases
+between GitHub commits and local change IDs.
 
 Commands do not automatically replace a tracked missing, closed, moved, or ambiguous PR. A merged
 PR directs the user to `sync`; other broken links require explicit repair or cleanup. Once cleanup
@@ -260,9 +243,7 @@ still requires `relink`.
 The first tracking write creates the repo's state file. That file remains after its last record is
 removed, so `in-use` continues to report adoption. `view`, `list`, and `in-use` never create it.
 An unreadable or invalid file blocks commands that load it and names the path to move aside before
-using `checkout` or `relink` to restore links. A newer unsupported schema requires an upgrade;
-[storage implementation](implementation-strategy.md#authority-and-stored-state) describes
-migration and atomic writes.
+using `checkout` or `relink` to restore links. A newer unsupported schema requires an upgrade.
 
 Mutating commands serialize per repo. An interruption can leave completed external effects even
 if the command reports failure. A retry computes what remains from current observations; it never
@@ -283,17 +264,16 @@ Stack lifecycle commands default to `@` when the working-copy change has a nonbl
 and contents, and to `@-` otherwise. This default does not discard an explicitly selected empty
 or undescribed change; publication checks and inspection warnings apply to that selection.
 
-`view` may accept several selectors. An arbitrary revset selects the exact commit
-it resolves to as the stack head. A bare change ID, including a prefix that identifies one
-logical change, or a linked pull request identifies the complete local stack containing that
-change. The containing stack ends at the unique visible head descended from the selected change;
-several such heads are ambiguous and selection fails closed.
+`view` accepts several selectors. A bare change ID, an unambiguous prefix, or a linked PR selects
+the whole local stack containing that change. If several stack heads descend from it, selection
+is ambiguous and stops. Other revsets select the stack ending at the specified revision.
 
 When the selector is a change ID or linked PR, selection prefers the unique mutable copy outside
-fetched trunk's first-parent path. A submitted side parent left by a stack merge remains
-selectable until `sync`. Other commands retain their own selection boundary; for example,
-`merge --pull-request` merges only through the selected PR, and `relink` requires both the change
-and PR.
+trunk's first-parent path.
+
+`merge <revset>` selects the stack ending at the specified revision. `merge --pull-request`
+selects the complete local stack containing the named PR, but merges only through that PR.
+`relink` requires both a change and a PR.
 
 These modes use a different scope:
 
@@ -303,15 +283,14 @@ These modes use a different scope:
   `cleanup --pull-request orphans`, which selects all such PRs
 - `unstack --stack <number>`, which selects one GitHub stack without requiring local tracking
 
-Apart from these modes, PR mutations stay within the selected stack. Local rewrites may still
-propagate to descendants. Ambiguous selectors stop with an error.
+Apart from these modes, PR mutations stay within the selected stack. Ambiguous selectors stop
+with an error.
 
 ### Identity and mutation preconditions
 
 Before the first mutation, a command validates the identity on which every planned selected
 mutation depends. This prevents a pre-existing mismatch from being discovered only after an
-earlier selected PR has changed. It does not make a sequence of GitHub requests
-transactional: an interruption or later GitHub rejection can leave earlier mutations in place.
+earlier selected PR has changed.
 
 The command-specific planning requirements are:
 
@@ -326,65 +305,39 @@ The command-specific planning requirements are:
 - cleanup requires an identity match before closing a PR, deleting artifacts, or removing saved
   links.
 
-When the platform supports a conditional write or lease, the mutation is bound to the identity
-and version observed while planning. A renamed head, missing PR, unexpected branch target, or
-competing PR found during planning stops the command and names `relink` or `unstack --local`,
-depending on whether the user needs to repair or forget the saved link.
-
-Only PR creation, `relink`, and `checkout` create or replace identity. `unstack --local`
-deletes it explicitly. Cleanup is the only operation that deletes identity after checking live
-evidence and removing PR artifacts; `sync` and `sync --all` invoke that operation rather than
-deleting tracking themselves.
-
-Only commands that successfully send or adopt a specific submitted commit may replace
-`SubmittedBaseline` for the same PR identity:
-
-- `submit` and `sync`, after a remaining change's PR update succeeds
-- `sync`, when adopting an exact surviving GitHub stack commit
-- `sync`, after replacing a GitHub-rebased stack with equivalent commits that retain the original
-  change IDs
-- `relink`, from the observed remote target
-- `checkout`, when adopting an existing PR
-
-The GitHub merge request itself never advances a baseline. Its automatic sync may do so under the
-rules above. `cleanup`, `view`, and `list` never advance one.
+A renamed head, missing PR, unexpected branch target, or competing PR found during planning
+stops the command and names `relink` or `unstack --local`, depending on whether the user needs to
+repair or forget the saved link.
 
 ### Submit and branch transport
 
 `submit` publishes only the selected stack, bottom-up. It creates missing PRs, moves existing
 PR branches, updates PR bases and content, and refreshes GitHub stack membership.
 
-Before any remote mutation, `submit` confirms that the repo is reachable and the GitHub
-Stacks API is available, then observes PRs and complete stack membership. An unavailable Stacks
-API stops the command before any PR branch or pull request changes.
+Before any remote mutation, `submit` requires a reachable repo and an available GitHub Stacks
+API, then observes PRs and complete stack membership.
 
-`submit --base B H` publishes only `(B, H]`. `B` must be an ancestor of `H` on the exact
-single-parent path and is excluded from every mutation. The base is accepted only when its local
-commit, submitted baseline, remote PR branch, and live PR head are the same commit; its saved
-identity must uniquely match an open live PR. The bottom selected PR targets that PR branch.
-A one-change selection remains an ordinary PR, while two or more selected PRs form their own
-native GitHub stack.
+`submit --base B H` publishes the changes above `B` through `H`, written `(B, H]`. `B` must be
+an ancestor of `H` on the selected single-parent path and is excluded from every mutation. Its
+local commit, submitted baseline, PR branch, and live PR head must be the same commit, and its
+saved identity must match an open PR.
 
 An externally moved or missing base PR branch is never overwritten by `submit`. `jj-stack`
-cannot repair it automatically: the user must externally restore that exact branch to its saved
-immutable submitted commit before retrying. The retry revalidates the base from live
-observations.
+cannot repair it automatically: the user must restore that branch to its saved submitted commit
+before retrying.
 
-No boundary is stored or inferred. A later child refresh repeats `--base`; omitting it invokes
-ordinary trunk-bounded submit and may include or regroup the parent path. One command never
-updates the parent PR or another child. The exact named base alone controls the lifecycle:
-while its PR remains open, a child refresh repeats the same `--base`; once it lands, even if a
-higher change in the parent stack survives, `submit --base` stops. After syncing the parent, the
-user rebases exactly the child range onto `trunk()`, runs ordinary `submit` without `--base`, and
-can then merge that PR. `submit` never cascades this transition across related pull requests.
+No boundary is stored or inferred. Repeat `--base` on each refresh; omitting it selects the stack
+back to trunk and may include or regroup the parent path. Once the base PR merges, `submit --base`
+stops, even if a higher PR in the parent stack remains open. The user syncs the parent, then
+rebases the child and its descendants onto `trunk()` and submits the child without `--base`
+before merging it. Other child stacks wait for the user to select them.
 
 `submit` rebuilds GitHub grouping under the [membership rules](#github-stack-membership). When
-only one active PR remains, it becomes an ordinary PR. A rerun observes any grouping changes that
-completed before an interruption.
+only one active PR remains in its selection, it becomes an ordinary PR.
 
-All selected PR branches move in one atomic push. Every update carries the exact target
+All selected PR branches move in one atomic push. Every update carries the target
 `jj-stack` observed for that GitHub branch, including expected absence for a new branch. The
-push binds each update to that target with an exact Git lease. If any ref moved, the whole push
+push binds each update to that target with a Git lease. If any ref moved, the whole push
 fails; there is no sequential fallback. An untracked branch is accepted only for first-submit
 recovery after an interrupted push: exactly one managed branch may end in the selected short
 change ID, and its commit must carry the full change-ID header.
@@ -399,35 +352,27 @@ the desired parent; a rerun finishes the update without replacing PRs.
 
 An open PR currently in a merge queue is not updated. `submit` stops the selected stack before
 moving any PR branch or changing any PR, and tells the user to wait for GitHub to merge it.
-This does not restrict commands on independent stacks.
 
 ### Merge
 
-`merge` considers a contiguous prefix from the bottom of the selected stack. Candidates must be
-open and non-draft, with a unique visible local copy and no unresolved local conflicts. The first
-draft or closed-unmerged PR blocks itself and everything above. `--pull-request` truncates the
-candidate prefix at the selected linked PR.
+`merge` considers consecutive PRs from the bottom of the selected stack. Each PR must be open
+and non-draft. Its local change must still exist and have no divergence or unresolved conflicts.
+The first draft or closed, unmerged PR ends the sequence.
 
-A pull request selector still selects the complete local stack containing that PR; it changes
-only the merge boundary. After a direct prefix merge, automatic reconciliation therefore covers
-the unmerged changes above that boundary too, including remaining commits GitHub rewrote. An exact
-revset retains its ordinary exact-head selection and cannot omit active members of
-the GitHub stack.
-
-GitHub receives one asynchronous merge request for the selected prefix, whether it contains one
+GitHub receives one asynchronous merge request for the selected PRs, whether it contains one
 PR or several. A multi-PR request acts on the matching GitHub stack. Every request passes the
-exact expected head commit of the top selected PR.
+expected head commit of the top selected PR.
 
 Before the request, `merge` asks whether the trunk branch has a merge queue, using GitHub's merge
 queue object or a `MERGE_QUEUE` branch rule. If that lookup fails, `merge` follows the ordinary
 direct-merge path and lets the merge request report any policy rejection. It sends the explicit
 action `merge_queue` when a queue is found and `direct_merge` otherwise.
 
-A terminal `merged` result means a direct merge completed. `merge` then fetches and runs selected
-stack reconciliation before returning. A terminal `enqueued` result means GitHub accepted the
-selected PRs into the queue; it is successful but does not imply that trunk changed or that
-`sync` should run yet. A rejection does not rewrite local changes; a later command observes
-whatever GitHub reports.
+A `merged` result means a direct merge completed; `merge` then fetches and syncs the whole
+selected stack before returning, including changes above the last merged PR and commits GitHub
+rewrote. An `enqueued` result means GitHub accepted the selected PRs into the queue. The command
+succeeds, but the user must wait for the queued merge to finish before running `sync`. A rejection
+leaves local changes unchanged.
 
 Automatic reconciliation identifies the containing stack by the full change ID of the head
 resolved before the merge request. It does not reinterpret the original revset
@@ -435,8 +380,7 @@ after fetching the changed trunk.
 
 GitHub merge success and local reconciliation are separate outcomes. If GitHub completes the
 merge but the automatic sync stops, `merge` returns the sync failure status, says that the GitHub
-merge must not be retried, and leaves recovery to a later `sync`. That command rereads GitHub,
-fetched trunk, the local DAG, and tracking rather than resuming saved operation state.
+merge must not be retried, and leaves recovery to a later `sync`.
 
 For a direct merge, the merge method comes from `--method`, otherwise from `merge_method` in
 repo configuration. Without either choice, `merge` uses the repo's only allowed method when
@@ -452,17 +396,14 @@ A configured method the repo does not allow is refused by name before any reques
 A merge queue chooses its own method, so the request omits it and signed stacks need no explicit
 method; an explicit `--method` produces a warning and is ignored.
 
-Immediately before merging or enqueueing an ordinary PR, `jj-stack` retargets the candidate to
-trunk.
-
-Trunk advancing under a submitted stack does not itself block `merge`. GitHub decides whether the
-commits and repo policy allow the merge. An ordinary PR is retargeted to trunk by branch name and
-sent with its expected head commit; this does not depend on trunk staying at one commit. A one-PR
-prefix selected from a larger GitHub stack remains a stack merge and is not retargeted this way.
+Before merging or enqueueing an ordinary PR, `jj-stack` retargets it to the trunk branch and
+sends its expected head commit. Trunk advancing does not block the merge because the request
+depends on the branch name, not its commit. One PR selected from a larger GitHub stack remains
+a stack merge and is not retargeted this way.
 
 A submitted change GitHub already merged is still a stop, decided from the pull request's own
-reported state rather than from trunk position. The diagnostic names `sync`, which checks fetched
-trunk before removing the local copy.
+reported state rather than from trunk position. The diagnostic names `sync`, which checks trunk
+before removing the local copy.
 
 ### Repo policy
 
@@ -480,33 +421,29 @@ again for a conflict; address the failing check or repo rule on GitHub otherwise
 
 ### Trunk evidence and sync
 
-Two observations prove that submitted work reached trunk. GitHub reporting a pull request as
-merged is not one of them, because it says nothing about the trunk this repo fetched:
+There are two ways to check that submitted work reached trunk. Both compare the PR with its
+saved record and check commit ancestry; a PR's merged state alone does not establish that its
+work reached this repo's trunk:
 
-- **Exact submitted commit on trunk**: the baseline is an ancestor of fetched trunk and the live
+- **Submitted commit on trunk**: the baseline is an ancestor of trunk and the live
   PR is a snapshot match. A PR belonging to a GitHub stack must also report merged before `sync`
   may act on it.
 - **Selected PR's rewritten merge result on trunk**: the saved PR is an identity match, reports
   merged, still reports the submitted head, and reports a merge-result commit that is an ancestor
-  of fetched trunk. This covers squash and rebase results.
+  of trunk. This covers squash and rebase results.
 
-`sync` may use either proof. `sync --all` uses each rewritten merge result to select and reconcile
-its affected local paths; it does not apply one PR's evidence to unrelated work. It continues with
-independent stacks when one is blocked. If no local copy remains, it uses that evidence only for
-ordinary cleanup. A native GitHub stack rebase without a merge requires selected `sync`;
-`sync --all` discovers work from merge evidence.
+`sync` may use either result. `sync --all` uses each rewritten merge result to select and
+reconcile its affected local paths; it does not apply one PR's evidence to unrelated work. It
+continues with independent stacks when one is blocked. If no local copy remains, it uses that
+evidence only for ordinary cleanup. A native GitHub stack rebase without a merge requires `sync`
+for that stack; `sync --all` discovers work from merge evidence.
 
-A PR merely reporting merged, or a merge result no longer reachable from fetched trunk,
-permits no change. Local changes, identity, and baseline remain untouched until a later sync can
-prove the result on fetched trunk.
-
-When an unmerged local change sits below a submitted change whose submitted work is proven on
-fetched trunk, `sync` stops without mutation. Rebasing would silently decide whether that local
-change belongs before or after the merged work. The diagnostic names the changes and the exact
-submitted, local, and fetched-trunk commits, then gives a `jj log` command for inspecting both
-histories. The user chooses the intended order with ordinary `jj`. Afterward they inspect the
-remaining local pull requests, sync a remaining mutable submitted head, or run cleanup when no
-submitted local copy remains.
+When an unmerged local change sits below a submitted change whose submitted commit or merge result
+is on trunk, `sync` stops without mutation. Rebasing would silently decide whether that local
+change belongs before or after the merged work. The diagnostic names the changes and the
+submitted, local, and trunk commits, then gives a `jj log` command for inspecting both histories.
+The user orders the changes with `jj`, then syncs a remaining mutable submitted head or runs
+cleanup if no submitted local copy remains.
 
 Here unpublished local work means a mutable, non-empty change whose commit is not its submitted
 baseline. An empty change modifies no files relative to its parent, so removing it discards no
@@ -514,22 +451,21 @@ content.
 
 #### Updating local changes after a merge
 
-`sync` reconciles the unmerged suffix only when:
+`sync` updates the remaining local changes only when:
 
-- rewriting it would not discard unpublished local work
+- rewriting them would not discard unpublished local work
 - no surviving change has multiple mutable local copies (a fetched GitHub rewrite is immutable)
 - no unsubmitted change sits between remaining submitted changes
 - every surviving pull request outside a GitHub stack's active members is open and still at the
   submitted or local commit; a moved or missing PR branch stops `sync` before any rewrite and
-  names the repair. This preflight stop leaves local changes and PRs untouched; a later failure
-  may leave completed mutations. Changes GitHub rewrote as part of a stack merge or rebase follow
-  the rules below.
+  names the repair. Changes GitHub rewrote as part of a stack merge or rebase follow the rules
+  below.
 
 If any selected open PR is still in a merge queue, `sync` leaves the selected stack unchanged.
 Once GitHub no longer reports it queued, ordinary trunk evidence determines whether `sync`
 reconciles merged work or has nothing to do.
 
-It rebases surviving changes onto fetched trunk even when they contain conflicts. If a submitted
+It rebases surviving changes onto trunk even when they contain conflicts. If a submitted
 change remains conflicted, the local rebase stays in place but its PR is not updated. The
 user resolves the conflict with `jj` and runs `submit` for the remaining stack.
 
@@ -538,31 +474,27 @@ change. Its diagnostic identifies the workspace and gives commands to move it to
 it and move its directory to the trash. A workspace on a surviving child does not block its
 ordinary rebase.
 
-Rewriting a selected change may also rebase its local descendants under ordinary `jj` rules. If
-another local path still depends on a merged change after that rewrite, `sync` leaves the
-change and its tracking in place and names each other stack that still needs `sync`. It never
-updates pull requests outside the selected chain.
+If another local path still depends on a merged change after the rebase, `sync` leaves the
+change and its tracking in place and names each other stack that still needs `sync`.
 
-After updates to the remaining PRs succeed, `sync` invokes cleanup for merged pull requests that
-no local path still needs. Cleanup removes each eligible PR branch and managed overview comment
-before it removes the corresponding tracking. A blocked or failed cleanup leaves tracking for a
-retry. A failure after the local update leaves completed work in place. Later commands observe the
-current DAG, tracking, and GitHub state instead of replaying saved operation state. `sync` never
-rebases merely because trunk advanced. Ordinary `jj rebase` owns that workflow. Its output
-describes reconciliation and cleanup, not submission, including when no pull requests survive.
+After updating the remaining PRs, `sync` invokes [cleanup](#unstack-and-cleanup) for merged PRs
+that no local path still needs. Its output describes local updates and cleanup, including when
+no PRs remain.
+
+`sync` never rebases merely because trunk advanced. Ordinary `jj rebase` owns that workflow.
 
 GitHub preserves `jj`'s `change-id` commit header through rebase merges of PRs, but not squash
-merges. A matching full change ID on fetched trunk identifies the successor rather than
-an arbitrary visible side copy. When fetched trunk has no matching change ID, `sync` retires the
-old local change without relabeling that commit or storing an alias.
+merges. A matching full change ID on trunk identifies the successor rather than
+an arbitrary visible side copy. When trunk has no matching change ID, `sync` removes the
+old local change without relabeling that commit.
 
-When a GitHub stack merge rewrites active members above the merged prefix, GitHub's rewrite of
+When GitHub merges part of a stack and rewrites the remaining PRs, GitHub's rewrite of
 each remaining change starts from its submitted baseline. If every remaining local change is still
-at its baseline, `sync` adopts the exact commits GitHub reports rather than replaying equivalent
+at its baseline, `sync` uses the commits GitHub reports rather than replaying equivalent
 diffs; if any remaining change has local edits, `sync` adopts none, rebases the remaining changes
-onto fetched trunk, records GitHub's reported heads as their baselines, and republishes them. It
-accepts those heads and bases only while a merged tracked member of the same GitHub stack proves
-the transition.
+onto trunk, records GitHub's reported heads as their baselines, and republishes them. It
+accepts those heads and bases only while a merged PR in the same GitHub stack matches its saved
+record and its merge result is on trunk.
 
 #### Native GitHub stack rebase
 
@@ -574,27 +506,25 @@ local changes. `sync` recognizes this result only when all of these observations
   order
 - every PR still uses its saved head branch and the expected base branch
 - every PR head and PR branch moved from its submitted baseline to the same reported commit
-- the reported commits form one first-parent chain rooted at fetched trunk
+- the reported commits form one first-parent chain rooted at trunk
 - none of the selected local changes is divergent
 
 `sync` then computes a rebase of the original local changes without first changing the local DAG.
 The computed change IDs must remain the selected change IDs, conflicts are rejected, and each
 computed commit tree must exactly equal the corresponding GitHub commit tree. This comparison is
-also the recovery proof when a previous run integrated the local rebase but failed before moving
+also the recovery check when a previous run integrated the local rebase but failed before moving
 the PR branches.
 
-After the proof succeeds, `sync` integrates the local rebase, atomically replaces every rewritten
-PR branch using the observed GitHub heads as exact leases, and records the resulting local
-commits as the submitted baselines. A changed lease leaves the local rebase in place and advances
-no baseline; a retry proves its trees against the freshly observed stack. No alias from a GitHub
-commit to a local change ID is stored.
+After these checks pass, `sync` integrates the local rebase, atomically replaces every rewritten
+PR branch with leases requiring each branch to remain at its observed GitHub head, and records the
+resulting local commits as the submitted baselines. A changed lease leaves the local rebase in
+place and advances no baseline; a retry compares its trees with the current GitHub stack.
 
 ### GitHub stack membership
 
-`merge`, selected `sync`, and locally selected `unstack` require every active member of the GitHub
-stack they touch to belong to the selected local parent chain. `unstack --stack` selects the
-GitHub resource directly and does not require a local chain. Cleanup instead checks each candidate
-and never deletes a branch needed by an active GitHub stack member.
+`merge`, `sync`, and locally selected `unstack` stop before mutation if the selection spans two
+active GitHub stacks or leaves out an active member of a stack it touches. The diagnostic names
+`jj-stack unstack --stack <number>` when removing the grouping would allow the command to proceed.
 
 `submit` reconciles GitHub grouping from the selected local path. It may dissolve any number of
 GitHub stacks whose active members are all selected. It may also dissolve one partially selected
@@ -611,22 +541,16 @@ destination path.
 Merged members do not have to be selected. If selected PRs appear only as history, one matching
 GitHub stack may be observed without mutation; more than one is ambiguous and stops the command.
 
-For `merge`, selected `sync`, and locally selected `unstack`, an active unselected member or two
-active GitHub stacks in one selection causes a stop before mutation. The diagnostic names the
-exact `jj-stack unstack --stack <number>` command when removing the grouping can unblock the
-operation.
-
 Changing the base of an active GitHub stack member requires dissolving that GitHub stack first
-because GitHub offers no single-member removal. `jj-stack` asks GitHub to dissolve the exact
-observed resource. If GitHub retains a queued or otherwise locked active member, the operation
+because GitHub offers no single-member removal. `jj-stack` asks GitHub to dissolve the GitHub
+stack it inspected. If GitHub retains a queued or otherwise locked active member, the operation
 stops before changing any branch or base. Historical merged members may remain in the resource;
 they do not block the mutation because they are no longer active.
 
 ### Derived artifacts
 
 A subsequent submit refreshes a PR description only if it still matches the last automated PR
-description. Otherwise it is preserved; explicitly supplied text still takes effect. PR text is
-not stored locally and never determines topology; see
+description. Otherwise it is preserved; explicitly supplied text still takes effect. See
 [pull request descriptions](../reference/descriptions.md).
 
 When a submit supplies no stack overview, the existing overview text is preserved and moves to
@@ -661,37 +585,32 @@ Markdown block boundaries, code, tables, and explicit hard line breaks remain un
 
 ### Unstack and cleanup
 
-`unstack` removes one exact GitHub stack grouping and leaves every pull request, PR branch,
-overview comment, and tracking record unchanged. With `--stack <number>`, GitHub is the source of
-the selected resource and no local tracking is required. Otherwise the selected local stack must
-identify one coherent GitHub stack. Rerunning it after the grouping is gone is safe.
+`unstack` removes the selected GitHub stack grouping and leaves every pull request, PR branch,
+overview comment, and tracking record unchanged. Rerunning it after the grouping is gone is safe.
 
 `unstack --local` removes tracking for the selected local stack without checking PR lifecycle or
-trunk evidence. It leaves GitHub and local history unchanged. Cleanup, by comparison, checks
-eligibility and removes PR artifacts before forgetting the link.
+trunk evidence. It leaves GitHub and local history unchanged.
 
-Closing pull requests through GitHub's UI or `gh pr close` is supported. It leaves local tracking
-in place, so `submit` does not silently reuse a closed PR and `cleanup` can still prove which
-branches and comments belong to it. Starting over means closing the old pull requests,
-running selected cleanup, and then submitting again.
+Closing pull requests through GitHub's UI or `gh pr close` is supported and leaves tracking in
+place. To create new PRs for the same changes, close the old PRs, run cleanup, then submit again.
 
 `cleanup --pull-request <pr> --close` and `cleanup --pull-request orphans --close` combine closure
 and cleanup for an explicit saved selection. The flag is invalid without `--pull-request`.
 Identity, PR-branch ownership, open dependents, GitHub stack membership, and the managed overview
 comment are all checked before closing an open PR. Explicit cleanup first retargets the PR to
 trunk so that GitHub can still reopen it once its base branch is deleted. `sync` closes a PR whose
-exact submitted work is proven on trunk without retargeting: GitHub rejects changing a PR's base
+submitted commit is on trunk without retargeting: GitHub rejects changing a PR's base
 to a branch that already contains its head, and reopening already-landed work protects nothing.
-A PR already closed or merged skips closure and follows ordinary cleanup. A closure failure stops
-later selected mutations; a rerun observes the current PR state.
+A PR already closed or merged skips closure and follows ordinary cleanup. A closure failure
+stops later selected mutations.
 
-Cleanup acts only on one complete identity/baseline pair, whether it runs directly or at the end
-of `sync`. It may remove the managed overview comment, the saved PR branch ref at the commit
-observed while planning, and the tracking record.
+Cleanup removes the managed overview comment and the saved PR branch at its observed commit
+before removing the tracking record. These rules apply whether cleanup runs directly or at the
+end of `sync`.
 
-A pair is eligible only when:
+A PR is eligible for cleanup only when:
 
-- GitHub reports the exact saved PR closed or merged
+- GitHub reports the saved PR closed or merged
 - for a merged PR, no visible mutable local copy still needs `sync`
 - no PR in the same repo that is open, or closed but still reopenable, uses the saved head ref
   as its base
@@ -702,10 +621,7 @@ base branch or retarget it while it is closed, so deleting its base would requir
 branch to reopen it. If its head branch is already absent, cleanup no longer treats that PR as a
 dependent needing the base. Merged PRs do not count as dependents.
 
-Local descendants do not substitute for the base check. A visible mutable copy of merged work is
-evidence for `sync`, not deletion of a GitHub branch or tracking.
-
-Identity and baseline are removed only after artifact cleanup succeeds. A PR that cannot be
+Branch dependencies come from PR bases on GitHub, not local descendants. A PR that cannot be
 inspected is skipped. Once mutation starts, a failure stops cleanup and leaves later records for
 a rerun.
 
@@ -734,7 +650,7 @@ identify another change is refused; `relink` cannot transfer a PR to a replaceme
 
 The remote target must equal the local commit or saved baseline. `--replace-remote` waives only
 this check: it records the remote commit as the baseline so a later `submit` can replace it. It
-does not waive identity or branch checks. The new identity and baseline are saved together.
+does not waive identity or branch checks.
 
 `doctor` observes setup, GitHub Stacks API availability, and local leftovers from interrupted
 `checkout` or `sync`. It changes nothing without `--fix`; its repairs are restoring the reserved
@@ -756,8 +672,8 @@ Both commands project paths from the local `jj` DAG. One projected path may ther
 changes that explicit submit boundaries placed in several native GitHub stacks. Inspection does
 not segment the path by GitHub resource or infer an omitted submit boundary.
 
-Both report whether an open PR currently has a merge-queue entry. Queue presence is a transient
-GitHub observation, not saved tracking; position and intermediate queue phases are not modeled.
+Both report whether an open PR has a merge-queue entry; position and intermediate queue phases
+are not modeled.
 
 Neither command guesses. A change with no saved PR identity is reported as not submitted,
 even if a PR happens to use the branch name that change would generate. A saved PR is always
@@ -783,45 +699,29 @@ raw remote targets, or tracking records.
 
 ### Rewrite behavior
 
-Most rewrites follow directly from stable change IDs and DAG-derived topology. Two cases need
-explicit rules:
-
-- **Abandon**: the change leaves every current local stack and descendants attach to its parent.
-  Its PR becomes orphaned. Surviving stacks never close, reuse, or retarget it. Explicit closure
-  and cleanup use `cleanup --pull-request <pr> --close`.
-- **Split**: new logical changes get new change IDs and normally new PRs. The change retaining the
-  original change ID retains its PR.
+Abandoning a change leaves its PR orphaned; other stacks leave that PR unchanged. Close it and
+remove its branch and saved link with
+`cleanup --pull-request <pr> --close`.
 
 #### Cross-stack rewrites
 
-- **Move changes between stacks**: submit the source path first, then the destination path. The
-  first submit dissolves grouping that still includes the moved change; the second joins the
-  complete destination stack. Moved changes retain their PRs and recalculate bases from their new
-  parents. A trunk-based result uses ordinary `submit`; a result whose lower bound is submitted
-  change `B` uses `submit --base B H`. Destination-first submission stops before mutation.
-- **Split one stack into several**: each maximal linear path appears separately in repo
-  inventory. The paths may contain the same observed submitted ancestors; tracking annotates those
-  paths but does not put a shared PR in several GitHub stacks. The shared fork remains in its
-  parent stack; each outgoing child is submitted as `(fork, head]` with explicit `--base`.
-  Submitting the first bounded path dissolves the old grouping and rebuilds that path; each other
-  path waits for its own submit.
-- **Join several stacks into one**: submitting the resulting chain dissolves every completely
-  selected GitHub stack and creates the joined grouping. It reuses pull requests by change ID,
-  recalculates every base, and produces one overview comment on the new head.
+The [membership rules](#github-stack-membership) determine which GitHub groupings a submit
+replaces:
 
-Stacks not yet resubmitted may still show old overview comments. That is expected:
-`submit` does not mutate stacks outside its selection. `list` identifies stale PRs across the
-repo by comparing each baseline with the current change and naming the stack to refresh.
-Close orphaned PRs and remove their leftovers with `cleanup --pull-request <pr> --close`.
+- **Move changes**: submit the source stack before the destination so the moved PRs leave their
+  old grouping first.
+- **Split a stack**: keep the shared fork in the parent stack and submit each child separately
+  with `--base`. The first child submit dissolves the old grouping; the other children wait for
+  their own submits.
+- **Join stacks**: submit the resulting local chain to replace the old groupings with one stack.
+
+Stacks not yet resubmitted may still show old overview comments. `list` finds PRs that need a
+refresh by comparing each submitted baseline with the current local commit and naming the stack.
 
 ## CLI contract
 
-Built-in `--help` and the user guide own exact parser syntax and aliases. This specification owns
-enduring selection rules, command effects, and exit meanings.
-
 `help --all` adds advanced commands and hidden global options to ordinary top-level help.
-`help --all-in-one` emits the complete command reference as deterministic Markdown; see
-[documentation generation](implementation-strategy.md#documentation-generation).
+`help --all-in-one` emits the complete command reference as Markdown.
 
 Running the executable without a subcommand is equivalent to `view` without arguments.
 
@@ -830,8 +730,8 @@ Running the executable without a subcommand is equivalent to `view` without argu
 Exit codes are a public interface; their table lives in
 [automation](../reference/automation.md#exit-codes) and their implementation in
 [`errors.py`](../../src/jj_stack/errors.py). Codes 7–9 remain reserved for `gh stack` meanings
-that have no `jj-stack` equivalent. A nonzero exit does not imply that no mutation occurred;
-lifecycle commands must distinguish a planning stop from a failure after completed work.
+that have no `jj-stack` equivalent. Errors must distinguish a planning stop from a failure after
+completed work.
 
 ## References
 

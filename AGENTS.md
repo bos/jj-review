@@ -48,7 +48,7 @@
   commit the corresponding website update in that repository as well; preserve unrelated work in
   either working copy.
 - Active internal docs use ordinary technical language too. Introduce a project-specific term
-  only when it names a real type, field, or enduring rule, define it at first use, and prefer
+  only when it names an existing type, field, or enduring rule, define it at first use, and prefer
   describing concrete inputs and effects.
 - Internal design and strategy documents describe the current product and architecture. Keep
   implementation history in `jj` commits.
@@ -56,8 +56,8 @@
   workflow, or makes an existing statement inaccurate. A bug fix alone does not require a docs
   change. Documentation reviews and corrections can also address clarity, duplication, and gaps.
 - When documentation is required, update only the affected source: `design.md` for an enduring
-  product rule, user docs or `--help` for user guidance, and `implementation-strategy.md` for an
-  architecture, tooling, or test-layer strategy change.
+  product rule, user docs or `--help` for user guidance, and the relevant testing document for
+  test strategy.
 
 # Behaviour changes
 

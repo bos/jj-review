@@ -14,10 +14,10 @@ Pay attention to rewrites, relinks, divergence, and local deletion; these can le
 different states. Verify that unrelated history does not block a selected stack and that cleanup
 does not remove something another PR or local path still needs.
 
-Distinguish supported compatibility from speculative scaffolding. Released tracking schemas have
-an explicit [migration boundary](implementation-strategy.md#authority-and-stored-state), and
-public JSON has a [schema](../json-output.schema.json). Preserve supported interfaces or make an
-intentional, documented compatibility change. Do not preserve abandoned internal mechanisms.
+Distinguish supported compatibility from speculative scaffolding. Supported tracking migrations
+live in [`state/migrations.py`](../../src/jj_stack/state/migrations.py), and public JSON has a
+[schema](../json-output.schema.json). Preserve supported interfaces or make an intentional,
+documented compatibility change. Do not preserve abandoned internal mechanisms.
 
 ## Keep fixes simple
 
@@ -71,7 +71,7 @@ async protocols, or untrusted-JSON boundaries; narrow them there. Flag `Any`, `o
 Follow [testing-philosophy.md](testing-philosophy.md) and, for generated cases,
 [property-testing.md](property-testing.md). Identify the distinct failure each case protects and
 check for overlapping coverage. Require the narrowest layer that demonstrates the risk, including
-an integration case when the bug depends on real DAG or cross-system behavior.
+an integration case when the bug depends on jj DAG behavior or interactions between systems.
 
 Avoid large matrices, private request-order assertions, and speculative race schedules. Ordering
 assertions are warranted when they protect an actual safety requirement, such as validating all

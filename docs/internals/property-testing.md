@@ -32,9 +32,9 @@ The harness must check these properties where applicable:
 - Retrying an interrupted submit reaches the intended state without duplicate PRs or lost PR
   identity.
 
-The families cover stack edits, joins, moves, failed-submit retries, external drift, and completed
-command lifecycles. Merge and sync use a bounded lifecycle family: enumerate the important
-transitions instead of expanding the general stack-edit generator.
+The scenario families cover stack edits, joins, moves, failed-submit retries, external drift, and
+sequences of completed commands. Merge and sync enumerate the transitions they test in a separate
+family instead of expanding the general stack-edit generator.
 
 ## Reproducibility and size
 
@@ -66,6 +66,6 @@ just property 500 --seed 8675309 -n 1 -- -x -k CASE_ID
 Replace `CASE_ID` with the failed case's pytest ID. Preserve the original seed and family counts
 from the printed reproduction command so collection includes the same scenario.
 
-When a generated scenario catches a real bug, keep a reduced representative in the fixed set, or
+When a generated scenario catches a bug, keep a reduced representative in the fixed set, or
 add a focused test if the failure belongs at a narrower boundary. Consolidate overlapping cases
 and stay within the checked-in test and code-size limits.

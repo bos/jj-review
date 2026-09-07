@@ -8,8 +8,6 @@ Each internal document answers a different question:
 
 - [Design](design.md): What does the product promise, and what must it refuse? Read before
   changing behavior, starting with the summary, core concepts, and safety rules.
-- [Implementation strategy](implementation-strategy.md): Where does the code live, and how do
-  observation, policy, mutations, and storage fit together?
 - [Testing philosophy](testing-philosophy.md): Which risks deserve tests, and at which layer?
   Read before changing tests or fixtures.
 - [Generated integration testing](property-testing.md): How does the scenario harness work, and
