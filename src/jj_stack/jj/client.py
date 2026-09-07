@@ -1184,19 +1184,8 @@ class JjClient:
                 self._run_jj(("git", "export"))
         finally:
             raw_target = self.pr_branch_temp_ref_target()
-            try:
-                if raw_target is not None:
-                    self._run_git(("update-ref", "-d", _PR_BRANCH_TEMP_REF, raw_target))
-            finally:
-                if self.pr_branch_temp_ref_target() is not None:
-                    raise JjCommandError(
-                        t"Could not remove temporary Git ref {ui.code(_PR_BRANCH_TEMP_REF)}."
-                    )
-
-        if self._local_bookmark_targets(_PR_BRANCH_TEMP_BOOKMARK):
-            raise JjCommandError(
-                t"Could not forget temporary bookmark {ui.bookmark(_PR_BRANCH_TEMP_BOOKMARK)}."
-            )
+            if raw_target is not None:
+                self._run_git(("update-ref", "-d", _PR_BRANCH_TEMP_REF, raw_target))
 
     def _run_command(
         self,
