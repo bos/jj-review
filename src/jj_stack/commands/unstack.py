@@ -20,6 +20,7 @@ import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext, bootstrap_context
 from jj_stack.commands._cleanup_actions import check_tracked_pr
+from jj_stack.commands.cleanup.shared import CleanupAction
 from jj_stack.errors import CliError, UsageError
 from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
@@ -231,14 +232,13 @@ async def _check_selected_prs(
     for change_id in change_ids:
         candidate = state.prs.get(change_id)
         assert candidate is not None
-        _state, blocker = check_tracked_pr(
-            allowed_states=frozenset({"open", "closed", "merged"}),
+        state_or_blocker = check_tracked_pr(
             candidate=candidate,
             change_id=change_id,
             observation=observation,
         )
-        if blocker is not None:
-            raise CliError(plain_text(blocker.body))
+        if isinstance(state_or_blocker, CleanupAction):
+            raise CliError(plain_text(state_or_blocker.body))
 
 
 def _run_local_unstack(
