@@ -425,8 +425,6 @@ def _observe_trunk_branch(
     """Resolve the branch an open PR is retargeted to before closing, as sync does."""
 
     trunk_commit_id = jj_client.resolve_commit("trunk()").commit_id
-    if observation.github_repo is None:
-        raise AssertionError("Closing a pull request requires GitHub repo state.")
     trunk_branch, _targets = resolve_trunk_branch(
         branches_at_trunk=jj_client.remote_bookmarks_at_commit(
             remote=remote.name,

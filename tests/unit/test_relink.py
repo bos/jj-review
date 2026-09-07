@@ -12,7 +12,7 @@ from jj_stack.commands.relink import (
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient
 from jj_stack.github.resolution import GithubRepoAddress
-from jj_stack.models.github import GithubBranchRef, GithubPR
+from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead
 from jj_stack.models.tracking import SubmittedBaseline, TrackedPR, TrackingState
 from tests.support.tracking import make_pr_identity
 
@@ -79,13 +79,14 @@ class _GithubClientStub:
 def _pr(*, head_owner: str, state: str) -> GithubPR:
     branch = "jj-stack/manual-feature-feature1"
     return GithubPR(
-        base=GithubBranchRef(label="octo-org:main", ref="main"),
-        head=GithubBranchRef(
+        base=GithubBranchRef(ref="main"),
+        head=GithubPRHead(
             label=f"{head_owner}:{branch}",
             ref=branch,
             sha="feature1commit",
         ),
         html_url="https://github.test/octo-org/stacked-prs/pull/1",
+        node_id="PR_1",
         number=1,
         state=state,
         title="manual title",

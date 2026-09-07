@@ -15,6 +15,7 @@ def _graphql_pr_payload(
         "headRefOid": "head-commit-id",
         "headRepositoryOwner": {"login": "octo-org"},
         "mergeQueueEntry": None,
+        "id": "PR_1",
         "number": 1,
         "reviewDecision": review_decision,
         "state": "OPEN",

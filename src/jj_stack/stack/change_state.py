@@ -337,7 +337,7 @@ class PRHeadMoved(Stop, WithPR):
 
     @property
     def reason(self) -> Message:
-        head = self.pr.head.sha or "?"
+        head = self.pr.head.sha
         return (
             t"{_pr_label(self.pr)} is at {ui.commit_id(head)}, not at this change or its last "
             t"submitted commit; the PR branch was updated outside this repo"
@@ -387,7 +387,7 @@ class BranchDisagrees(Stop, WithPR):
 
     @property
     def reason(self) -> Message:
-        head = self.pr.head.sha or "?"
+        head = self.pr.head.sha
         target = self.remote_target if isinstance(self.remote_target, str) else "?"
         return (
             t"{_pr_label(self.pr)} is at {ui.commit_id(head)} but PR branch "
@@ -542,15 +542,15 @@ def _classify_open(
     baseline = o.tracked.submitted_baseline.commit_id
     head = pr.head.sha
     remote = o.remote_target
-    if head is not None and head != baseline and head not in _local_commit_ids(o):
+    if head != baseline and head not in _local_commit_ids(o):
         return PRHeadMoved(**with_pr)
-    if not isinstance(remote, Unobserved) and head is not None and remote != head:
+    if not isinstance(remote, Unobserved) and remote != head:
         return BranchDisagrees(**with_pr)
     # A queued pull request whose head and branch still agree with what was submitted waits
     # for GitHub; one that no longer agrees is reported as moved first.
     if pr.is_queued:
         return Queued(**with_pr)
-    if head is not None and head != baseline:
+    if head != baseline:
         return PushedUnrecorded(**with_pr)
     local_commit = _selected_commit_id(o)
     if local_commit is not None and local_commit != baseline:

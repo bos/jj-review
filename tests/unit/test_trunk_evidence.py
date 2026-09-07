@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from jj_stack.models.github import GithubBranchRef, GithubPR
+from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
 from jj_stack.stack.trunk_evidence import classify_exact_snapshot, classify_rewritten_result
@@ -19,13 +19,14 @@ def _candidate() -> TrackedPR:
 def _pr(**updates: object) -> GithubPR:
     pr = GithubPR(
         base=GithubBranchRef(ref="main"),
-        head=GithubBranchRef(
+        head=GithubPRHead(
             label="octo-org:jj-stack/change-1",
             ref="jj-stack/change-1",
             sha="submitted-1",
         ),
         html_url="https://github.test/octo-org/stacked-prs/pull/1",
         merged_at=None,
+        node_id="PR_1",
         number=1,
         state="open",
         title="change 1",
@@ -41,13 +42,13 @@ def test_exact_snapshot_evidence_is_identity_and_ancestry_bound() -> None:
         ("unresolved", _pr(), False),
         (
             "on_trunk",
-            _pr(head=GithubBranchRef(ref="other", sha="submitted-1")),
+            _pr(head=GithubPRHead(ref="other", sha="submitted-1")),
             False,
         ),
         (
             "on_trunk",
             _pr(
-                head=GithubBranchRef(
+                head=GithubPRHead(
                     label="octo-org:jj-stack/change-1",
                     ref="jj-stack/change-1",
                     sha="other",
@@ -74,13 +75,13 @@ def test_exact_snapshot_evidence_is_identity_and_ancestry_bound() -> None:
 def test_rewritten_result_requires_a_reachable_concrete_merge_result() -> None:
     rows = (
         (
-            _pr(head=GithubBranchRef(ref="other", sha="submitted-1")),
+            _pr(head=GithubPRHead(ref="other", sha="submitted-1")),
             None,
             False,
         ),
         (
             _pr(
-                head=GithubBranchRef(
+                head=GithubPRHead(
                     label="octo-org:jj-stack/change-1",
                     ref="jj-stack/change-1",
                     sha="other",

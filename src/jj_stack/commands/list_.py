@@ -87,7 +87,7 @@ class OrphanRow:
 
     branch: str
     change_id: str
-    pr: dict[str, object] | None
+    pr: dict[str, object]
     pr_label: ui.Message
     state: ui.Message
     subject: str
@@ -321,16 +321,14 @@ def _json_stack_row(row: StackRow) -> dict[str, object]:
 
 
 def _json_orphan_row(row: OrphanRow) -> dict[str, object]:
-    payload: dict[str, object] = {
+    return {
         "branch": row.branch,
         "change_id": row.change_id,
+        "pr": row.pr,
         "status": ui.plain_text(row.state),
         "subject": row.subject,
         "type": "orphan",
     }
-    if row.pr is not None:
-        payload["pr"] = row.pr
-    return payload
 
 
 def _emit_orphan_hint(orphan_rows: tuple[OrphanRow, ...]) -> None:

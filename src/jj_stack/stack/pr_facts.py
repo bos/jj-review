@@ -38,7 +38,7 @@ class RepoFacts:
     """Fresh pull request facts shared by mutation policies."""
 
     configured_repo: github_resolution.GithubRepoAddress | None
-    github_repo: GithubRepo | None
+    github_repo: GithubRepo
     prs_by_base: Mapping[str, tuple[GithubPR, ...]] | None
     remote: GitRemote | None
     repo: github_resolution.GithubRepoAddress

@@ -36,21 +36,11 @@ class _ElapsedFormatter(logging.Formatter):
 
 
 @dataclass(slots=True, frozen=True)
-class RuntimeOptions:
-    """Command-line options that influence bootstrap behavior."""
-
-    cli_args: JjCliArgs
-    debug: bool
-    repo: Path | None
-
-
-@dataclass(slots=True, frozen=True)
 class CommandContext:
     """Typed runtime state shared by command handlers."""
 
     config: AppConfig
     jj_client: JjClient
-    options: RuntimeOptions
     repo_root: Path
     state_store: TrackingStore
 
@@ -75,11 +65,6 @@ def bootstrap_context(
     return CommandContext(
         config=config,
         jj_client=jj_client,
-        options=RuntimeOptions(
-            cli_args=cli_args,
-            debug=debug,
-            repo=repo,
-        ),
         repo_root=repo_root,
         state_store=TrackingStore.for_repo(repo_root),
     )

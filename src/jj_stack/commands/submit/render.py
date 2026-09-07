@@ -51,12 +51,12 @@ def print_submit_result(result: SubmitResult) -> None:
     ):
         console.output(line, soft_wrap=True)
     if not result.dry_run:
-        top = result.changes[-1]
-        if top.pr_number is not None and top.pr_url is not None:
+        top_pr = result.changes[-1].pr
+        if top_pr is not None:
             console.output(
                 ui.prefixed_line(
                     "Top of stack: ",
-                    format_pr_label(top.pr_number, url=top.pr_url),
+                    format_pr_label(top_pr.number, url=top_pr.html_url),
                 )
             )
         if result.github_stack_actions:
@@ -90,13 +90,13 @@ def _render_submit_change_lines(
         else:
             parts.append("pushed")
 
-    if change.pr_number is None:
+    if change.pr is None:
         parts.append("new PR")
     else:
         label = format_pr_label(
-            change.pr_number,
-            is_draft=bool(change.pr_is_draft),
-            url=change.pr_url,
+            change.pr.number,
+            is_draft=change.pr.is_draft,
+            url=change.pr.html_url,
         )
         if change.pr_action == "created":
             parts.append(label)

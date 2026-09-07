@@ -5,9 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
-from jj_stack.bootstrap import CommandContext, RuntimeOptions
+from jj_stack.bootstrap import CommandContext
 from jj_stack.config import AppConfig
-from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import JjClient
 from jj_stack.models.tracking import TrackingState
 from jj_stack.state.store import TrackingStore
@@ -39,7 +38,6 @@ def fake_command_context(
     return CommandContext(
         config=config if config is not None else AppConfig(),
         jj_client=jj_client if jj_client is not None else JjClient(repo_root),
-        options=RuntimeOptions(cli_args=JjCliArgs(), debug=False, repo=repo_root),
         repo_root=repo_root,
         state_store=cast(
             TrackingStore,

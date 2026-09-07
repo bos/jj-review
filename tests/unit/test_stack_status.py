@@ -136,9 +136,11 @@ def test_pr_lookup_falls_back_to_exact_remembered_pr_number() -> None:
                         "head": {
                             "label": "octo-org:jj-stack/old-branch",
                             "ref": "jj-stack/old-branch",
+                            "sha": "head-commit",
                         },
                         "html_url": "https://github.test/octo-org/stacked-prs/pull/7",
                         "merged_at": "2026-03-16T12:00:00Z",
+                        "node_id": "PR_7",
                         "number": 7,
                         "state": "closed",
                         "title": "feature 7",
@@ -177,8 +179,13 @@ def test_pr_lookup_reports_the_saved_pr_when_another_open_pr_uses_its_branch() -
         return GithubPR.model_validate(
             {
                 "base": {"ref": "main"},
-                "head": {"label": "octo-org:jj-stack/branch", "ref": "jj-stack/branch"},
+                "head": {
+                    "label": "octo-org:jj-stack/branch",
+                    "ref": "jj-stack/branch",
+                    "sha": "head-commit",
+                },
                 "html_url": f"https://github.test/octo-org/stacked-prs/pull/{number}",
+                "node_id": f"PR_{number}",
                 "number": number,
                 "state": state,
                 "title": f"feature {number}",

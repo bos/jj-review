@@ -9,7 +9,7 @@ from jj_stack.commands.merge.preconditions import merge_precondition_error
 from jj_stack.errors import EXIT_USAGE, CliError
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.git import GitRemote
-from jj_stack.models.github import GithubBranchRef, GithubPR, GithubRepo
+from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead, GithubRepo
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
 from jj_stack.stack.pr_facts import PRFacts, RepoFacts
 from jj_stack.ui import plain_text
@@ -201,8 +201,9 @@ def test_merge_preconditions_name_a_closed_pull_request() -> None:
     change = make_change(change_id="abcdefghijkl", commit_id="submitted", description="feature\n")
     closed_pr = GithubPR(
         base=GithubBranchRef(ref="main"),
-        head=GithubBranchRef(ref=identity.head_ref, sha=change.commit_id),
+        head=GithubPRHead(ref=identity.head_ref, sha=change.commit_id),
         html_url="https://github.test/acme/widgets/pull/1",
+        node_id="PR_1",
         number=1,
         state="closed",
         title="feature",

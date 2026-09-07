@@ -25,16 +25,15 @@ class GithubBranchRef(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    label: str | None = None
     ref: str
-    sha: str | None = None
 
 
-class GithubStackPRHead(BaseModel):
-    """Exact PR branch head embedded in a GitHub stack response."""
+class GithubPRHead(BaseModel):
+    """Exact PR branch head, with its owner label when available."""
 
     model_config = ConfigDict(extra="ignore")
 
+    label: str | None = None
     ref: str
     sha: str
 
@@ -44,7 +43,7 @@ class GithubStackPR(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    head: GithubStackPRHead
+    head: GithubPRHead
     number: int
     merged_at: str | None = None
 
@@ -126,7 +125,7 @@ class GithubPR(BaseModel):
     base: GithubBranchRef
     body: str | None = None
     check_rollup_status: CheckRollupStatus | None = None
-    head: GithubBranchRef
+    head: GithubPRHead
     # GitHub reports a null `headRef` once the head branch is deleted; REST payloads say
     # nothing, so they keep the safe default.
     head_branch_exists: bool = True
@@ -135,7 +134,7 @@ class GithubPR(BaseModel):
     is_queued: bool = False
     merge_commit_sha: str | None = None
     merged_at: str | None = None
-    node_id: str | None = None
+    node_id: str
     number: int
     review_decision: str | None = None
     state: str
@@ -226,21 +225,19 @@ def _graphql_head_label(raw_pr: Mapping[str, object]) -> str | None:
         parts = _GraphqlHeadLabelParts.model_validate(raw_pr)
     except ValidationError as error:
         raise ValueError("GitHub pull request GraphQL response had invalid head data.") from error
-    if parts.head_repo_owner is None or parts.head_repo_owner.login is None:
-        return None
-    if parts.head_ref_name is None:
+    if parts.head_repo_owner is None:
         return None
     return f"{parts.head_repo_owner.login}:{parts.head_ref_name}"
 
 
 class _GraphqlHeadRepoOwner(BaseModel):
-    login: str | None = None
+    login: str
 
 
 class _GraphqlHeadLabelParts(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    head_ref_name: str | None = Field(default=None, alias="headRefName")
+    head_ref_name: str = Field(alias="headRefName")
     head_repo_owner: _GraphqlHeadRepoOwner | None = Field(
         default=None,
         alias="headRepositoryOwner",

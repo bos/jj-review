@@ -5,7 +5,7 @@ from io import StringIO
 import jj_stack.commands.view as view_module
 import jj_stack.console as console_module
 import jj_stack.ui as ui_module
-from jj_stack.models.github import GithubBranchRef, GithubPR
+from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
 from jj_stack.stack.change_state import UNOBSERVED, ChangeObservation, classify
 from jj_stack.stack.status import (
@@ -20,8 +20,9 @@ from tests.support.tracking import make_pr_identity
 def _pr(*, base_ref: str = "main", number: int, state: str) -> GithubPR:
     return GithubPR(
         base=GithubBranchRef(ref=base_ref),
-        head=GithubBranchRef(ref="jj-stack/feature"),
+        head=GithubPRHead(ref="jj-stack/feature", sha="commit-1"),
         html_url=f"https://github.test/octo-org/repo/pull/{number}",
+        node_id=f"PR_{number}",
         number=number,
         state=state,
         title="feature",
@@ -125,9 +126,7 @@ def test_view_advises_submit_when_selected_stack_changed_since_submit() -> None:
             pr_lookup=_lookup(
                 pr=_pr(number=number, state="open").model_copy(
                     update={
-                        "head": GithubBranchRef(
-                            ref="jj-stack/feature", sha=f"submitted-{change_id}"
-                        )
+                        "head": GithubPRHead(ref="jj-stack/feature", sha=f"submitted-{change_id}")
                     }
                 )
             ),
@@ -149,7 +148,7 @@ def test_view_advises_submit_when_selected_stack_changed_since_submit() -> None:
 
 def test_view_advises_checkout_or_replace_when_a_pr_branch_moved() -> None:
     pr = _pr(number=7, state="open").model_copy(
-        update={"head": GithubBranchRef(ref="jj-stack/feature", sha="f" * 40)}
+        update={"head": GithubPRHead(ref="jj-stack/feature", sha="f" * 40)}
     )
     lines = _render_lines(
         *view_module.render_status_advisory_lines(

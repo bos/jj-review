@@ -18,7 +18,7 @@ from jj_stack.commands.submit.descriptions import (
 from jj_stack.commands.submit.models import GeneratedDescription
 from jj_stack.errors import CliError
 from jj_stack.jj.client import JjClient
-from jj_stack.models.github import GithubBranchRef, GithubPR
+from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead
 from tests.support.change_helpers import make_change
 
 
@@ -295,8 +295,9 @@ def _live_pr(*, body: str, title: str) -> GithubPR:
     return GithubPR(
         base=GithubBranchRef(ref="main"),
         body=body,
-        head=GithubBranchRef(label=f"octo-org:{branch}", ref=branch, sha="head-commit"),
+        head=GithubPRHead(label=f"octo-org:{branch}", ref=branch, sha="head-commit"),
         html_url="https://github.test/octo-org/repo/pull/1",
+        node_id="PR_1",
         number=1,
         state="open",
         title=title,

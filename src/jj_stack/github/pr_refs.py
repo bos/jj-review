@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError, UsageError
-from jj_stack.formatting import format_pr_label, format_pr_number
+from jj_stack.formatting import format_pr_number
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.github import GithubPR
@@ -48,12 +48,6 @@ def require_managed_pr_head(*, pr: GithubPR, repo: GithubRepoAddress) -> str:
             t"Pull request {pr_number_label} head "
             t"{ui.bookmark(pr.head.ref)} is not a jj-stack PR branch; its name does not start "
             t"with {ui.bookmark(namespace.branch_prefix)}."
-        )
-    if pr.head.sha is None:
-        pr_label = format_pr_label(pr.number, url=pr.html_url)
-        raise CliError(
-            t"GitHub did not report a head commit for {pr_label}.",
-            hint="Refresh the pull request on GitHub, then retry.",
         )
     return pr.head.sha
 

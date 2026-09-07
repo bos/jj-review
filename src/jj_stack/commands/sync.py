@@ -218,8 +218,6 @@ async def _run_global_plan(
         trunk_branch = None
         if required:
             repo_state = facts.pr_facts.github_repo
-            if repo_state is None:
-                raise AssertionError("Global sync requires GitHub repo state.")
             trunk_branch, _targets = resolve_trunk_branch(
                 branches_at_trunk=context.jj_client.remote_bookmarks_at_commit(
                     remote=target.remote.name,
@@ -343,8 +341,6 @@ async def _run_selected_convergence(
             if not queued and complete:
                 progress.update("Planning local sync")
                 repo_state = observation.github_repo
-                if repo_state is None:
-                    raise AssertionError("Sync observation requires GitHub repo state.")
                 if trunk_branch is None:
                     trunk_branch, _trunk_targets = resolve_trunk_branch(
                         branches_at_trunk=context.jj_client.remote_bookmarks_at_commit(

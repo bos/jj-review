@@ -58,14 +58,12 @@ def pr_json(
                 "url": pr.html_url,
             }
         )
-    return saved_pr_json(change.tracked.pr_identity if change.tracked is not None else None)
+    return saved_pr_json(change.tracked.pr_identity) if change.tracked is not None else None
 
 
 def saved_pr_json(
-    pr_identity: PRIdentity | None,
-) -> dict[str, object] | None:
-    if pr_identity is None:
-        return None
+    pr_identity: PRIdentity,
+) -> dict[str, object]:
     return {"number": pr_identity.pr_number}
 
 
@@ -110,5 +108,5 @@ def _live_pr_status(pr: GithubPR) -> str:
     return "open"
 
 
-def _json_object(values: dict[str, object | None]) -> dict[str, object]:
+def _json_object(values: dict[str, object]) -> dict[str, object]:
     return {key: value for key, value in values.items() if value is not None}

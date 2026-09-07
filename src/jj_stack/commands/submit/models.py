@@ -56,9 +56,8 @@ class SubmittedChange:
 
     prepared: PreparedSubmitChange
     pr_action: PRAction
-    pr_is_draft: bool | None
-    pr_number: int | None
-    pr_url: str | None
+    # A new PR has no GitHub result during a dry run.
+    pr: GithubPR | None
 
     @property
     def change_id(self) -> str:

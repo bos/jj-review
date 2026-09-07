@@ -25,6 +25,7 @@ from jj_stack.models.github import (
     GithubBranchRef,
     GithubIssueComment,
     GithubPR,
+    GithubPRHead,
     GithubPRRevision,
 )
 from jj_stack.models.stack import LocalCommit, LocalStack
@@ -178,12 +179,13 @@ def test_pr_plan_prefers_cli_metadata_over_config() -> None:
                 pr=GithubPR(
                     base=GithubBranchRef(ref="main"),
                     body="",
-                    head=GithubBranchRef(
+                    head=GithubPRHead(
                         label=f"octo-org:{branch}",
                         ref=branch,
                         sha="head-commit",
                     ),
                     html_url="https://github.test/octo-org/repo/pull/17",
+                    node_id="PR_17",
                     number=17,
                     state="open",
                     title="feature",

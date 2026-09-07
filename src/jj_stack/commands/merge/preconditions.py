@@ -41,7 +41,6 @@ def merge_precondition_error(
             "the configured Git remote no longer names the planned GitHub repo"
         )
     github_repo = observation.github_repo
-    assert github_repo is not None
     if github_repo.full_name.casefold() != expected_repo.full_name.casefold():
         return MergePrecondition("GitHub no longer reports the planned repo")
     if github_repo.default_branch not in (None, "", expected_trunk_branch):

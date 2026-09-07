@@ -143,9 +143,7 @@ async def _sync_pr(
     return SubmittedChange(
         prepared=prepared_change,
         pr_action=action,
-        pr_is_draft=(pr.is_draft if pr is not None else None),
-        pr_number=(pr.number if pr is not None else None),
-        pr_url=(pr.html_url if pr is not None else None),
+        pr=pr,
     )
 
 
@@ -164,8 +162,6 @@ async def _apply_draft_action(
         else t"Could not mark draft pull request {pr_number} ready for review for "
         t"{github_client.repo.full_name}"
     )
-    if pr.node_id is None:
-        raise CliError((message, ": GitHub did not return a node ID."))
     request = (
         github_client.convert_pr_to_draft(pr_id=pr.node_id)
         if action == "draft"

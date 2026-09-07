@@ -490,9 +490,7 @@ async def _apply_planned_submit(
             run=run,
         )
     if not run.dry_run:
-        pr_numbers = tuple(
-            pr_number for change in submitted if (pr_number := change.pr_number) is not None
-        )
+        pr_numbers = tuple(change.pr.number for change in submitted if change.pr is not None)
         if len(pr_numbers) != len(submitted):
             raise AssertionError("GitHub stack submit requires concrete pull request numbers.")
         grouped = await apply_github_stack_plan(
