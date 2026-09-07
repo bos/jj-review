@@ -57,9 +57,10 @@ from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import JjClient, PRRefUpdate
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR, GithubRepo, GithubStack
-from jj_stack.models.stack import LocalStack
+from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import TrackedPR
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_matches_change
+from jj_stack.stack.change_state import ChangeObservation
 from jj_stack.stack.github_stack_safety import dissolve_github_stack
 from jj_stack.stack.pr_branches import (
     ResolvedPRBranch,
@@ -69,7 +70,7 @@ from jj_stack.stack.pr_branches import (
 from jj_stack.stack.selection import (
     parse_comma_separated_flag_values,
 )
-from jj_stack.stack.status import PRLookup, discover_pr_lookups
+from jj_stack.stack.status import discover_pr_lookups
 from jj_stack.state.operation_lock import operation_lock_if_mutating
 
 from . import auto_close
@@ -321,11 +322,11 @@ def _desired_draft_state(
 
 def _github_inspection_results(
     *,
-    lookups: dict[str, PRLookup] | BaseException,
+    lookups: dict[str, ChangeObservation] | BaseException,
     repo: GithubRepo | BaseException,
     repo_name: str,
     stacks: tuple[GithubStack, ...] | BaseException,
-) -> tuple[GithubRepo, dict[str, PRLookup], tuple[GithubStack, ...]]:
+) -> tuple[GithubRepo, dict[str, ChangeObservation], tuple[GithubStack, ...]]:
     for kind, result in (("repo", repo), ("stacks", stacks), ("prs", lookups)):
         if not isinstance(result, BaseException):
             continue
@@ -341,7 +342,7 @@ def _github_inspection_results(
         raise result
     return (
         cast(GithubRepo, repo),
-        cast(dict[str, PRLookup], lookups),
+        cast(dict[str, ChangeObservation], lookups),
         cast(tuple[GithubStack, ...], stacks),
     )
 
@@ -573,15 +574,25 @@ async def run_submit_async(
         tracked_prs=state.prs,
     )
 
-    def tracked_by_branch(
+    def observations_by_branch(
         resolutions: tuple[ResolvedPRBranch, ...],
-    ) -> dict[str, TrackedPR | None]:
-        by_branch = {
-            resolution.branch: state.prs.get(resolution.change_id) for resolution in resolutions
+    ) -> dict[str, ChangeObservation]:
+        changes: dict[str, LocalCommit] = {change.change_id: change for change in stack.changes}
+        branches = {resolution.branch: resolution.change_id for resolution in resolutions}
+        if explicit_base is not None and base_branch is not None:
+            changes[explicit_base.change_id] = explicit_base
+            branches[base_branch] = explicit_base.change_id
+        return {
+            branch: ChangeObservation(
+                change_id=change_id,
+                tracked=state.prs.get(change_id),
+                branch=branch,
+                remote_name=remote.name,
+                local=(changes[change_id],),
+                selected=changes[change_id],
+            )
+            for branch, change_id in branches.items()
         }
-        if tracked_base is not None:
-            by_branch[tracked_base.pr_identity.head_ref] = tracked_base
-        return by_branch
 
     submitted_changes: tuple[SubmittedChange, ...] = ()
     generated_edit_path: Path | None = None
@@ -605,7 +616,7 @@ async def run_submit_async(
                 github_client.get_repo(),
                 discover_pr_lookups(
                     github_client=github_client,
-                    tracked_by_branch=tracked_by_branch(branch_resolutions),
+                    observations=observations_by_branch(branch_resolutions),
                 ),
                 github_client.list_stacks(),
                 return_exceptions=True,
@@ -650,7 +661,7 @@ async def run_submit_async(
             if pr_branches != initial_pr_branches:
                 lookups_result = await discover_pr_lookups(
                     github_client=github_client,
-                    tracked_by_branch=tracked_by_branch(branch_resolutions),
+                    observations=observations_by_branch(branch_resolutions),
                 )
             github_repo_state, lookups, observed_stacks = _github_inspection_results(
                 lookups=lookups_result,
@@ -672,9 +683,7 @@ async def run_submit_async(
             existing_only=options.existing_only,
             lookups=lookups,
             remote_targets=remote_targets,
-            remote=remote,
             stack=stack,
-            state=state,
         )
         if not dry_run:
             state_store.require_writable()

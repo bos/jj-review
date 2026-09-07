@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
@@ -32,6 +32,7 @@ from jj_stack.stack.change_state import (
     UNOBSERVED,
     ChangeObservation,
     ChangeState,
+    ObservationFailed,
     classify,
     live_pr,
     report_incomplete,
@@ -39,16 +40,6 @@ from jj_stack.stack.change_state import (
 from jj_stack.stack.selected import select_stack_path, select_stack_path_containing_change
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True, slots=True)
-class PRLookup:
-    """Raw GitHub facts for one saved PR branch, before classification."""
-
-    # The saved pull request looked up by number; None when GitHub reports none.
-    pr: GithubPR | None
-    open_prs_on_branch: tuple[GithubPR, ...]
-    error: ErrorMessage | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,7 +328,7 @@ def prepare_stack_for_status(
 def build_status_changes_for_prepared_stack(
     prepared: PreparedStack,
     *,
-    pr_lookups: dict[str, PRLookup] | None = None,
+    pr_lookups: dict[str, ChangeObservation] | None = None,
 ) -> tuple[StackStatusChange, ...]:
     """Classify every prepared change, using the GitHub lookups the caller has."""
 
@@ -359,25 +350,33 @@ def build_status_changes_for_prepared_stack(
 def _status_change(
     prepared_change: PreparedChange,
     *,
-    lookup: PRLookup | None,
+    lookup: ChangeObservation | None,
     remote_name: str | None,
 ) -> StackStatusChange:
     change = prepared_change.change
-    observation = ChangeObservation(
+    observation = (
+        replace(lookup, remote_name=remote_name, local=(change,), selected=change)
+        if lookup is not None
+        else _prepared_observation(prepared_change, remote_name=remote_name)
+    )
+    return StackStatusChange(
+        change=change,
+        tracked=prepared_change.tracked,
+        state=classify(observation),
+    )
+
+
+def _prepared_observation(
+    prepared_change: PreparedChange, *, remote_name: str | None
+) -> ChangeObservation:
+    change = prepared_change.change
+    return ChangeObservation(
         change_id=change.change_id,
         tracked=prepared_change.tracked,
         branch=prepared_change.branch,
         remote_name=remote_name,
         local=(change,),
         selected=change,
-        pr=UNOBSERVED if lookup is None else lookup.pr,
-        open_prs_on_branch=UNOBSERVED if lookup is None else lookup.open_prs_on_branch,
-        lookup_error=None if lookup is None else lookup.error,
-    )
-    return StackStatusChange(
-        change=change,
-        tracked=prepared_change.tracked,
-        state=classify(observation),
     )
 
 
@@ -397,7 +396,9 @@ async def _iter_status_changes_with_github(
     async with build_github_client(repo=github_repo) as github_client:
         pr_lookups = await discover_pr_lookups(
             github_client=github_client,
-            tracked_by_branch=_tracked_by_branch(ordered_prepared_changes),
+            observations=_observations_by_branch(
+                ordered_prepared_changes, remote_name=remote_name
+            ),
         )
         for prepared_change in ordered_prepared_changes:
             branch = _required_branch(prepared_change)
@@ -420,7 +421,7 @@ def lookup_pr_lookups(
     github_repo: GithubRepoAddress,
     on_progress: Callable[[int], None],
     prepared_changes: tuple[PreparedChange, ...],
-) -> dict[str, PRLookup]:
+) -> dict[str, ChangeObservation]:
     """Return pull-request lookups for saved branches."""
 
     return asyncio.run(
@@ -437,13 +438,13 @@ async def lookup_pr_lookups_async(
     github_repo: GithubRepoAddress,
     on_progress: Callable[[int], None],
     prepared_changes: tuple[PreparedChange, ...],
-) -> dict[str, PRLookup]:
+) -> dict[str, ChangeObservation]:
     """Return pull-request lookups for saved branches."""
 
     async with build_github_client(repo=github_repo) as github_client:
         pr_lookups = await discover_pr_lookups(
             github_client=github_client,
-            tracked_by_branch=_tracked_by_branch(prepared_changes),
+            observations=_observations_by_branch(prepared_changes, remote_name=None),
         )
         if pr_lookups:
             on_progress(len(pr_lookups))
@@ -456,11 +457,11 @@ def _required_branch(change: PreparedChange) -> str:
     return change.branch
 
 
-def _tracked_by_branch(
-    prepared_changes: tuple[PreparedChange, ...],
-) -> dict[str, TrackedPR]:
+def _observations_by_branch(
+    prepared_changes: tuple[PreparedChange, ...], *, remote_name: str | None
+) -> dict[str, ChangeObservation]:
     return {
-        _required_branch(change): change.tracked
+        _required_branch(change): _prepared_observation(change, remote_name=remote_name)
         for change in prepared_changes
         if change.tracked is not None
     }
@@ -469,15 +470,15 @@ def _tracked_by_branch(
 async def discover_pr_lookups(
     *,
     github_client: GithubClient,
-    tracked_by_branch: Mapping[str, TrackedPR | None],
-) -> dict[str, PRLookup]:
+    observations: Mapping[str, ChangeObservation],
+) -> dict[str, ChangeObservation]:
     """Fetch the open pull requests on each branch, then each saved PR that is not one of them.
 
     A branch with no saved pull request yields only the open pull requests GitHub reports for
     it, which is what a first submit needs to know.
     """
 
-    branches = tuple(tracked_by_branch)
+    branches = tuple(observations)
     if not branches:
         return {}
 
@@ -495,48 +496,51 @@ async def discover_pr_lookups(
             ) from error
         lookup_error = github_action_error_message(action="pull request lookup", error=error)
         return {
-            branch: PRLookup(pr=None, open_prs_on_branch=(), error=lookup_error)
+            branch: replace(
+                observations[branch], open_prs_on_branch=ObservationFailed(lookup_error)
+            )
             for branch in branches
         }
 
-    def saved_open_pr(branch: str) -> GithubPR | None:
-        tracked = tracked_by_branch[branch]
-        if tracked is None:
-            return None
-        number = tracked.pr_identity.pr_number
-        return next(
-            (pr for pr in open_prs_by_branch.get(branch, ()) if pr.number == number),
+    saved_open = {
+        branch: next(
+            (
+                pr
+                for pr in open_prs_by_branch.get(branch, ())
+                if pr.number == tracked.pr_identity.pr_number
+            ),
             None,
         )
-
+        for branch, observation in observations.items()
+        if (tracked := observation.tracked) is not None
+    }
     # The saved PR number is the one reported. Look it up directly when it is not among the
     # open pull requests on its branch.
     remembered = {
         branch: tracked.pr_identity.pr_number
-        for branch, tracked in tracked_by_branch.items()
-        if tracked is not None and saved_open_pr(branch) is None
+        for branch, observation in observations.items()
+        if (tracked := observation.tracked) is not None and saved_open[branch] is None
     }
-    remembered_prs: dict[int, GithubPR | None] = {}
-    remembered_error: ErrorMessage | None = None
+    remembered_prs: Mapping[int, GithubPR | None | ObservationFailed] = {}
     if remembered:
         try:
             remembered_prs = await github_client.get_prs_by_numbers(
                 pr_numbers=tuple(remembered.values()),
             )
         except GithubClientError as error:
-            remembered_error = github_action_error_message(
-                action="saved pull request lookup",
-                error=error,
+            failure = ObservationFailed(
+                github_action_error_message(action="saved pull request lookup", error=error)
             )
+            remembered_prs = dict.fromkeys(remembered.values(), failure)
     return {
-        branch: PRLookup(
+        branch: replace(
+            observation,
             pr=(
-                saved_open_pr(branch)
-                if branch not in remembered
-                else remembered_prs.get(remembered[branch])
+                remembered_prs.get(number)
+                if (number := remembered.get(branch)) is not None
+                else saved_open.get(branch, UNOBSERVED)
             ),
             open_prs_on_branch=open_prs_by_branch.get(branch, ()),
-            error=remembered_error if branch in remembered else None,
         )
-        for branch in branches
+        for branch, observation in observations.items()
     }

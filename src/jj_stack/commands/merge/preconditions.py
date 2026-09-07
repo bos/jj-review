@@ -16,7 +16,6 @@ from jj_stack.stack.change_state import (
     PRMissing,
     WithPR,
     classify,
-    observe_pr_facts,
 )
 from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.pr_facts import RepoFacts
@@ -105,7 +104,7 @@ def _merge_change_precondition_error(
         (commit for commit in observed.local_commits if commit.commit_id == planned.commit_id),
         None,
     )
-    state = classify(observe_pr_facts(observation, planned.change_id, selected=selected))
+    state = classify(observed, selected=selected)
     if isinstance(state, (PRMissing, PRIdentityMismatch)):
         return MergePrecondition(t"{state.reason}; {state.repair}", recovery="explained")
     if not isinstance(state, WithPR):

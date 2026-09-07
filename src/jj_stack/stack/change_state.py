@@ -13,9 +13,9 @@ copies. This module classifies the change's relationship to GitHub, not its loca
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from string.templatelib import Interpolation, Template
-from typing import TYPE_CHECKING, TypedDict
+from typing import TypedDict
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError, DriftCondition, DriftError
@@ -31,9 +31,6 @@ from jj_stack.stack.trunk_evidence import (
 )
 from jj_stack.ui import Message
 
-if TYPE_CHECKING:
-    from jj_stack.stack.pr_facts import RepoFacts
-
 
 @dataclass(frozen=True, slots=True)
 class Unobserved:
@@ -41,6 +38,13 @@ class Unobserved:
 
 
 UNOBSERVED = Unobserved()
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationFailed:
+    """A requested fact could not be observed; it says nothing about presence or absence."""
+
+    error: Message
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -57,14 +61,21 @@ class ChangeObservation:
     # The copy in the selected stack, when the command selected one.
     selected: LocalCommit | None = None
     # The saved pull request looked up by number; None when GitHub reports none.
-    pr: GithubPR | None | Unobserved = UNOBSERVED
-    open_prs_on_branch: tuple[GithubPR, ...] | Unobserved = UNOBSERVED
+    pr: GithubPR | None | Unobserved | ObservationFailed = UNOBSERVED
+    open_prs_on_branch: tuple[GithubPR, ...] | Unobserved | ObservationFailed = UNOBSERVED
     # The commit at branch@remote; None when the branch is absent.
     remote_target: str | None | Unobserved = UNOBSERVED
     # Whether the submitted work is proven on fetched trunk, from `trunk_evidence`.
     trunk_evidence: TrunkEvidenceKind | None | Unobserved = UNOBSERVED
     trunk_evidence_reason: Message | None = None
-    lookup_error: Message | None = None
+
+    @property
+    def local_commits(self) -> tuple[LocalCommit, ...]:
+        """The visible copies, for commands that requested local observation."""
+
+        if isinstance(self.local, Unobserved):
+            raise AssertionError("Local commits were not observed.")
+        return self.local
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -460,10 +471,22 @@ class _WithPRCommon(_Common):
     unproven: Message | None
 
 
-def classify(observation: ChangeObservation) -> ChangeState:
+def classify(
+    observation: ChangeObservation,
+    *,
+    selected: LocalCommit | None = None,
+    ancestries: Mapping[str, CommitAncestry] | None = None,
+) -> ChangeState:
     """Derive one state from one observation; unobserved facts never produce a stop."""
 
     o = observation
+    if selected is not None:
+        o = replace(o, selected=selected)
+    if ancestries is not None and o.tracked is not None and isinstance(o.pr, GithubPR):
+        evidence, reason = classify_proven_kind(
+            ancestries=ancestries, candidate=o.tracked, change_id=o.change_id, pr=o.pr
+        )
+        o = replace(o, trunk_evidence=evidence, trunk_evidence_reason=reason)
     common = _Common(
         change_id=o.change_id,
         tracked=o.tracked,
@@ -472,11 +495,13 @@ def classify(observation: ChangeObservation) -> ChangeState:
         local=o.local,
         selected=o.selected,
     )
+    if isinstance(o.pr, ObservationFailed):
+        return LookupFailed(**common, error=o.pr.error)
+    if isinstance(o.open_prs_on_branch, ObservationFailed):
+        return LookupFailed(**common, error=o.open_prs_on_branch.error)
     open_prs = () if isinstance(o.open_prs_on_branch, Unobserved) else o.open_prs_on_branch
     if o.tracked is None:
         return _classify_untracked(o, common, open_prs)
-    if o.lookup_error is not None:
-        return LookupFailed(**common, error=o.lookup_error)
     if isinstance(o.pr, Unobserved):
         return NotInspected(**common)
     if o.pr is None:
@@ -576,47 +601,6 @@ def _local_commit_ids(o: ChangeObservation) -> frozenset[str]:
     if o.selected is not None:
         ids.add(o.selected.commit_id)
     return frozenset(ids)
-
-
-def observe_pr_facts(
-    facts: RepoFacts,
-    change_id: str,
-    *,
-    ancestries: Mapping[str, CommitAncestry] | None = None,
-    selected: LocalCommit | None = None,
-) -> ChangeObservation:
-    """Project one change out of the facts a mutating command observed.
-
-    With `ancestries` from fetched trunk, the observation also carries whether the submitted
-    work is proven on it.
-    """
-
-    item = facts.prs[change_id]
-    tracked = item.tracked
-    trunk_evidence: TrunkEvidenceKind | None | Unobserved = UNOBSERVED
-    trunk_evidence_reason: Message | None = None
-    if ancestries is not None and tracked is not None and item.pr is not None:
-        trunk_evidence, trunk_evidence_reason = classify_proven_kind(
-            ancestries=ancestries,
-            candidate=tracked,
-            change_id=change_id,
-            pr=item.pr,
-        )
-    return ChangeObservation(
-        change_id=change_id,
-        tracked=tracked,
-        branch=tracked.pr_identity.head_ref if tracked is not None else None,
-        remote_name=facts.remote.name if facts.remote is not None else None,
-        local=item.local_commits,
-        selected=selected,
-        pr=item.pr if tracked is not None else UNOBSERVED,
-        open_prs_on_branch=item.open_head_prs if facts.observed_open_head_prs else UNOBSERVED,
-        remote_target=(
-            item.remote_pr_branch_target if facts.observed_remote_targets else UNOBSERVED
-        ),
-        trunk_evidence=trunk_evidence,
-        trunk_evidence_reason=trunk_evidence_reason,
-    )
 
 
 def live_pr(state: ChangeState) -> GithubPR | None:

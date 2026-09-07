@@ -11,6 +11,7 @@ from jj_stack.models.github import GithubPR
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import SubmittedBaseline, TrackedPR, TrackingState
 from jj_stack.stack import status as status_module
+from jj_stack.stack.change_state import ChangeObservation
 from jj_stack.stack.status import (
     PreparedChange,
     PreparedStatus,
@@ -155,11 +156,18 @@ def test_pr_lookup_reports_the_saved_pr_when_another_open_pr_uses_its_branch() -
     lookup = asyncio.run(
         status_module.discover_pr_lookups(
             github_client=cast(GithubClient, FakeGithubClient()),
-            tracked_by_branch={prepared_change.branch or "": prepared_change.tracked},
+            observations={
+                "jj-stack/branch": ChangeObservation(
+                    change_id=prepared_change.change.change_id,
+                    tracked=prepared_change.tracked,
+                    branch=prepared_change.branch,
+                )
+            },
         )
     )["jj-stack/branch"]
 
-    assert lookup.pr is not None and lookup.pr.number == 155
+    assert isinstance(lookup.pr, GithubPR) and lookup.pr.number == 155
+    assert isinstance(lookup.open_prs_on_branch, tuple)
     assert tuple(pr.number for pr in lookup.open_prs_on_branch) == (180,)
 
 

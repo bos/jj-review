@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 
 from jj_stack.bootstrap import CommandContext
+from jj_stack.concurrency import wait_for_read_tasks
 from jj_stack.github.client import GithubClient
-from jj_stack.models.github import GithubStack
+from jj_stack.models.github import GithubPR, GithubStack
 from jj_stack.models.stack import LocalCommit
+from jj_stack.stack.change_state import ChangeObservation
 from jj_stack.stack.pr_facts import (
-    PRFacts,
     RepoFacts,
     observe_prs,
 )
@@ -65,23 +67,25 @@ async def complete_sync_observation(
     identities = tuple(
         item.tracked.pr_identity for item in prs.values() if item.tracked is not None
     )
-    targets = (
-        await github.get_branch_targets(
-            branches=tuple(item.head_ref for item in identities),
-        )
-        if identities
-        else {}
-    )
+    heads = tuple(identity.head_ref for identity in identities)
+    targets_task = asyncio.create_task(github.get_branch_targets(branches=heads))
+    open_prs_task = asyncio.create_task(github.get_open_prs_by_head_refs(head_refs=heads))
+    await wait_for_read_tasks(targets_task, open_prs_task)
+    targets, open_prs = targets_task.result(), open_prs_task.result()
     observation = replace(
         initial,
-        observed_remote_targets=True,
         prs={
             change_id: replace(
                 item,
-                remote_pr_branch_target=(
+                remote_target=(
                     targets.get(item.tracked.pr_identity.head_ref)
                     if item.tracked is not None
-                    else None
+                    else item.remote_target
+                ),
+                open_prs_on_branch=(
+                    open_prs.get(item.tracked.pr_identity.head_ref, ())
+                    if item.tracked is not None
+                    else item.open_prs_on_branch
                 ),
             )
             for change_id, item in prs.items()
@@ -99,7 +103,7 @@ def queued_pr_numbers(
         pr.number
         for change in selected
         if (observed := observation.prs.get(change.change_id)) is not None
-        and (pr := observed.pr) is not None
+        and isinstance(pr := observed.pr, GithubPR)
         and pr.state == "open"
         and pr.is_queued
     )
@@ -139,19 +143,19 @@ def dependent_path_heads(
 
 
 def _pr_changed(
-    observed: PRFacts,
+    observed: ChangeObservation,
     *,
     include_remote_target: bool = True,
 ) -> bool:
     pr = observed.pr
     if (tracked := observed.tracked) is None:
         return False
-    if pr is None:
+    if not isinstance(pr, GithubPR):
         return True
     baseline = tracked.submitted_baseline.commit_id
     return (
         pr.state == "merged"
         or pr.head.sha != baseline
-        or (include_remote_target and observed.remote_pr_branch_target != baseline)
+        or (include_remote_target and observed.remote_target != baseline)
         or any(commit.immutable for commit in observed.local_commits)
     )

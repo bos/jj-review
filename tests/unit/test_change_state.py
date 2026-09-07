@@ -21,6 +21,7 @@ from jj_stack.stack.change_state import (
     LookupFailed,
     Merged,
     NotInspected,
+    ObservationFailed,
     PRAmbiguous,
     PRHeadMoved,
     PRIdentityMismatch,
@@ -100,7 +101,7 @@ _REPRESENTATIVES: tuple[tuple[str, dict[str, object], type], ...] = (
     ),
     ("untracked, open PR on the branch", {"tracked": None}, UntrackedPRExists),
     ("tracked, GitHub not consulted", {"pr": UNOBSERVED}, NotInspected),
-    ("lookup failed", {"lookup_error": "GitHub returned 502"}, LookupFailed),
+    ("lookup failed", {"pr": ObservationFailed("GitHub returned 502")}, LookupFailed),
     ("saved PR gone", {"pr": None, "open_prs_on_branch": ()}, PRMissing),
     (
         "saved PR gone, two open PRs on the branch",

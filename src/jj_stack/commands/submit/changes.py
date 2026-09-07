@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError, DriftError
@@ -10,7 +11,7 @@ from jj_stack.formatting import format_pr_label
 from jj_stack.identifiers import CommitId, short_change_id
 from jj_stack.models.git import GitRemote
 from jj_stack.models.stack import LocalCommit, LocalStack
-from jj_stack.models.tracking import TrackedPR, TrackingState
+from jj_stack.models.tracking import TrackedPR
 from jj_stack.stack.change_state import (
     UNOBSERVED,
     BranchDisagrees,
@@ -31,7 +32,6 @@ from jj_stack.stack.change_state import (
     stop_error,
 )
 from jj_stack.stack.pr_branches import ResolvedPRBranch
-from jj_stack.stack.status import PRLookup
 from jj_stack.ui import Message
 
 from .models import PreparedSubmitChange
@@ -40,11 +40,9 @@ from .models import PreparedSubmitChange
 def prepare_submit_changes(
     *,
     branch_resolutions: tuple[ResolvedPRBranch, ...],
-    lookups: Mapping[str, PRLookup],
+    lookups: Mapping[str, ChangeObservation],
     remote_targets: Mapping[str, CommitId],
-    remote: GitRemote,
     stack: LocalStack,
-    state: TrackingState,
     existing_only: bool = False,
 ) -> tuple[PreparedSubmitChange, ...]:
     """Classify every selected change and describe the one atomic remote update.
@@ -63,21 +61,8 @@ def prepare_submit_changes(
             # An interrupted first submit left this branch, and its commit's change-ID header
             # already proved it belongs to this change.
             observed_target = UNOBSERVED
-        tracked = state.prs.get(change.change_id)
-        lookup = lookups[resolution.branch]
         change_state = classify(
-            ChangeObservation(
-                change_id=change.change_id,
-                tracked=tracked,
-                branch=resolution.branch,
-                remote_name=remote.name,
-                local=(change,),
-                selected=change,
-                pr=lookup.pr if tracked is not None else UNOBSERVED,
-                open_prs_on_branch=lookup.open_prs_on_branch,
-                remote_target=observed_target,
-                lookup_error=lookup.error,
-            )
+            replace(lookups[resolution.branch], remote_target=observed_target)
         )
         _require_submittable(change_state, head_change_id=head, existing_only=existing_only)
         prepared.append(
@@ -141,7 +126,7 @@ def _not_open_error(state: WithPR, *, hint: Message) -> DriftError:
 def require_published_base(
     *,
     base: LocalCommit,
-    lookup: PRLookup,
+    lookup: ChangeObservation,
     merged_hint: Message,
     remote: GitRemote,
     remote_target: str | None,
@@ -155,20 +140,7 @@ def require_published_base(
     """
 
     branch = tracked_base.pr_identity.head_ref
-    state = classify(
-        ChangeObservation(
-            change_id=base.change_id,
-            tracked=tracked_base,
-            branch=branch,
-            remote_name=remote.name,
-            local=(base,),
-            selected=base,
-            pr=lookup.pr,
-            open_prs_on_branch=lookup.open_prs_on_branch,
-            remote_target=remote_target,
-            lookup_error=lookup.error,
-        )
-    )
+    state = classify(replace(lookup, selected=base, remote_target=remote_target))
     if isinstance(state, (Published, Queued)):
         return
     if isinstance(state, (PRHeadMoved, BranchMissing, BranchDisagrees)):

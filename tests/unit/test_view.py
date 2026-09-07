@@ -7,9 +7,13 @@ import jj_stack.console as console_module
 import jj_stack.ui as ui_module
 from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead, PRState
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
-from jj_stack.stack.change_state import UNOBSERVED, ChangeObservation, classify
+from jj_stack.stack.change_state import (
+    UNOBSERVED,
+    ChangeObservation,
+    Unobserved,
+    classify,
+)
 from jj_stack.stack.status import (
-    PRLookup,
     StackStatusChange,
     StatusResult,
 )
@@ -26,14 +30,6 @@ def _pr(*, base_ref: str = "main", number: int, state: PRState) -> GithubPR:
         number=number,
         state=state,
         title="feature",
-    )
-
-
-def _lookup(*, pr: GithubPR | None = None, error: str | None = None) -> PRLookup:
-    return PRLookup(
-        pr=pr,
-        open_prs_on_branch=(pr,) if pr is not None and pr.state == "open" else (),
-        error=error,
     )
 
 
@@ -57,7 +53,8 @@ def _status_change(
     *,
     change_id: str,
     commit_id: str = "commit-1",
-    pr_lookup: PRLookup | None = None,
+    pr: GithubPR | None | Unobserved = UNOBSERVED,
+    competitors: tuple[GithubPR, ...] = (),
     pr_identity: PRIdentity | None = None,
     submitted_baseline: SubmittedBaseline | None = None,
     subject: str = "feature",
@@ -71,15 +68,17 @@ def _status_change(
         if pr_identity is not None
         else None
     )
+    open_prs = (pr,) if isinstance(pr, GithubPR) and pr.state == "open" else ()
     observation = ChangeObservation(
         change_id=change_id,
         tracked=tracked,
         branch=pr_identity.head_ref if pr_identity is not None else None,
         local=(change,),
         selected=change,
-        pr=UNOBSERVED if pr_lookup is None else pr_lookup.pr,
-        open_prs_on_branch=UNOBSERVED if pr_lookup is None else pr_lookup.open_prs_on_branch,
-        lookup_error=None if pr_lookup is None else pr_lookup.error,
+        pr=pr,
+        open_prs_on_branch=(
+            UNOBSERVED if isinstance(pr, Unobserved) else (*open_prs, *competitors)
+        ),
     )
     return StackStatusChange(change=change, tracked=tracked, state=classify(observation))
 
@@ -96,7 +95,7 @@ def test_view_advises_cleanup_and_rebase_when_merged_pr_remains_in_stack() -> No
     merged_change = _status_change(
         change_id="abcdefghijkl",
         pr_identity=make_pr_identity(head_ref="jj-stack/feature", pr_number=5),
-        pr_lookup=_lookup(pr=_pr(base_ref="team/feature-base", number=5, state="merged")),
+        pr=_pr(base_ref="team/feature-base", number=5, state="merged"),
     )
 
     lines = _render_lines(
@@ -122,12 +121,10 @@ def test_view_advises_submit_when_selected_stack_changed_since_submit() -> None:
             commit_id=f"rewritten-{change_id}",
             pr_identity=make_pr_identity(head_ref="jj-stack/feature", pr_number=number),
             submitted_baseline=SubmittedBaseline(commit_id=f"submitted-{change_id}"),
-            pr_lookup=_lookup(
-                pr=_pr(number=number, state="open").model_copy(
-                    update={
-                        "head": GithubPRHead(ref="jj-stack/feature", sha=f"submitted-{change_id}")
-                    }
-                )
+            pr=_pr(number=number, state="open").model_copy(
+                update={
+                    "head": GithubPRHead(ref="jj-stack/feature", sha=f"submitted-{change_id}")
+                }
             ),
         )
         for change_id, number in (("abcdefghijkl", 1), ("bcdefghijklm", 2))
@@ -157,7 +154,7 @@ def test_view_advises_checkout_or_replace_when_a_pr_branch_moved() -> None:
                         change_id="abcdefghijkl",
                         commit_id="local-commit",
                         pr_identity=make_pr_identity(head_ref="jj-stack/feature", pr_number=7),
-                        pr_lookup=_lookup(pr=pr),
+                        pr=pr,
                         submitted_baseline=SubmittedBaseline(commit_id="submitted-commit"),
                     ),
                 ),
@@ -176,7 +173,7 @@ def test_view_closed_pr_advisory_guides_reopen_relink_or_cleanup() -> None:
     change = _status_change(
         change_id="loqvlqrqabcdefghijkl",
         pr_identity=make_pr_identity(head_ref="jj-stack/feature", pr_number=21216),
-        pr_lookup=_lookup(pr=_pr(number=21216, state="closed")),
+        pr=_pr(number=21216, state="closed"),
     )
 
     lines = _render_lines(
@@ -201,7 +198,7 @@ def test_view_missing_pr_advisory_guides_relinking_an_open_pr() -> None:
             pr_number=42,
         ),
         change_id="abcdefgh1234",
-        pr_lookup=_lookup(),
+        pr=None,
     )
 
     lines = _render_lines(

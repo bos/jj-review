@@ -12,27 +12,15 @@ from jj_stack.bootstrap import CommandContext
 from jj_stack.concurrency import wait_for_read_tasks
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError
-from jj_stack.identifiers import CommitId
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR, GithubRepo, GithubStack
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import (
     PRIdentity,
-    TrackedPR,
 )
+from jj_stack.stack.change_state import UNOBSERVED, ChangeObservation, Unobserved
 from jj_stack.stack.observation import observe_change_copies
 from jj_stack.stack.trunk_evidence import CommitAncestry
-
-
-@dataclass(frozen=True, slots=True)
-class PRFacts:
-    """Fresh facts for one change ID; no field decides whether a mutation is safe."""
-
-    tracked: TrackedPR | None
-    open_head_prs: tuple[GithubPR, ...]
-    local_commits: tuple[LocalCommit, ...]
-    pr: GithubPR | None
-    remote_pr_branch_target: CommitId | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,13 +29,10 @@ class RepoFacts:
 
     configured_repo: github_resolution.GithubRepoAddress | None
     github_repo: GithubRepo
-    prs_by_base: Mapping[str, tuple[GithubPR, ...]] | None
+    prs_by_base: Mapping[str, tuple[GithubPR, ...]] | Unobserved
     remote: GitRemote | None
     repo: github_resolution.GithubRepoAddress
-    prs: Mapping[str, PRFacts]
-    # Whether the optional facts were requested; only then does an absent value mean absent.
-    observed_open_head_prs: bool = False
-    observed_remote_targets: bool = False
+    prs: Mapping[str, ChangeObservation]
 
 
 def duplicate_pr_claim_change_ids(
@@ -109,13 +94,13 @@ async def observe_prs(
         remote_targets_request = asyncio.sleep(0, result={})
     numbered_task = asyncio.create_task(github_client.get_prs_by_numbers(pr_numbers=pr_numbers))
     open_heads_task = asyncio.create_task(open_heads_request)
-    by_base_task: asyncio.Task[dict[str, tuple[GithubPR, ...]] | None]
+    by_base_task: asyncio.Task[dict[str, tuple[GithubPR, ...]] | Unobserved]
     if include_dependents:
         by_base_task = asyncio.create_task(
             github_client.get_prs_by_base_refs(base_refs=head_refs)
         )
     else:
-        by_base_task = asyncio.create_task(asyncio.sleep(0, result=None))
+        by_base_task = asyncio.create_task(asyncio.sleep(0, result=UNOBSERVED))
     repo_task = asyncio.create_task(
         github_client.get_repo()
         if github_repo_snapshot is None
@@ -138,13 +123,22 @@ async def observe_prs(
     github_repo = repo_task.result()
     remote_targets = remote_targets_task.result()
     prs = {
-        change_id: PRFacts(
+        change_id: ChangeObservation(
+            change_id=change_id,
+            branch=identity.head_ref if identity is not None else None,
+            remote_name=remote.name if remote is not None else None,
             tracked=tracked,
-            open_head_prs=(by_head.get(identity.head_ref, ()) if identity is not None else ()),
-            local_commits=matches,
-            pr=(numbered.get(identity.pr_number) if identity is not None else None),
-            remote_pr_branch_target=(
-                remote_targets.get(identity.head_ref) if identity is not None else None
+            open_prs_on_branch=(
+                by_head.get(identity.head_ref, ())
+                if include_open_head_prs and identity is not None
+                else UNOBSERVED
+            ),
+            local=matches,
+            pr=(numbered.get(identity.pr_number) if identity is not None else UNOBSERVED),
+            remote_target=(
+                remote_targets.get(identity.head_ref)
+                if include_remote_targets and remote is not None and identity is not None
+                else UNOBSERVED
             ),
         )
         for change_id, tracked in tracked_prs.items()
@@ -159,8 +153,6 @@ async def observe_prs(
         remote=remote,
         repo=repo,
         prs=prs,
-        observed_open_head_prs=include_open_head_prs,
-        observed_remote_targets=include_remote_targets and remote is not None,
     )
 
 
@@ -196,7 +188,7 @@ def classify_observed_commit_ancestries(
             for item in observation.prs.values()
             for commit_id in (
                 item.tracked.submitted_baseline.commit_id if item.tracked is not None else None,
-                item.pr.merge_commit_sha if item.pr is not None else None,
+                item.pr.merge_commit_sha if isinstance(item.pr, GithubPR) else None,
             )
         ),
         context=context,

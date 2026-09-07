@@ -5,6 +5,7 @@ from __future__ import annotations
 import jj_stack.ui as ui
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.identifiers import short_change_id
+from jj_stack.models.github import GithubPR
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackingState
 from jj_stack.stack.pr_facts import RepoFacts
@@ -96,7 +97,7 @@ def _merge_change(
 ) -> MergeChange | None:
     candidate = state.prs.get(change.change_id)
     pr = observation.prs[change.change_id].pr
-    if candidate is None or pr is None:
+    if candidate is None or not isinstance(pr, GithubPR):
         return None
     return MergeChange(
         base_ref=pr.base.ref,

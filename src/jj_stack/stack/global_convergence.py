@@ -23,7 +23,6 @@ from jj_stack.stack.change_state import (
     Stop,
     WithPR,
     classify,
-    observe_pr_facts,
     unproven_reason,
 )
 from jj_stack.stack.convergence_models import (
@@ -151,7 +150,7 @@ def _classify_global_candidate(
     tracked_pr_numbers: frozenset[int],
 ) -> tuple[Message | None, PRFinishPlan | None, tuple[str, ...]]:
     ancestry = facts.ancestries[candidate.submitted_baseline.commit_id]
-    state = classify(observe_pr_facts(facts.pr_facts, change_id, ancestries=facts.ancestries))
+    state = classify(facts.pr_facts.prs[change_id], ancestries=facts.ancestries)
     heads = _candidate_path_heads(change_id, facts=facts)
     rewritten = isinstance(state, Landed) and state.evidence == "rewritten"
     affected = ancestry == "on_trunk" or rewritten

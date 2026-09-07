@@ -20,7 +20,6 @@ from jj_stack.stack.change_state import (
     Stop,
     WithPR,
     classify,
-    observe_pr_facts,
     stop_error,
     unproven_reason,
 )
@@ -228,9 +227,7 @@ def _member_state(
             t"link the intended PR with "
             t"{ui.cmd(f'jj-stack relink PR {short_change_id(change_id)}')}.",
         )
-    state = classify(
-        observe_pr_facts(observation, change_id, ancestries=ancestries, selected=selected)
-    )
+    state = classify(observed, ancestries=ancestries, selected=selected)
     # GitHub itself moves the heads of a stack's active members when it merges or rebases the
     # stack; `_validate_active_member` and the adoption proofs judge those moves. Any other
     # survivor whose PR branch moved or disappeared stops sync before it rewrites anything.
@@ -456,7 +453,7 @@ def _validate_active_member(
             hint=t"Check the PR with {ui.cmd(f'jj-stack view {short_change_id(change_id)}')}. "
             t"Once GitHub reports the merge, rerun {ui.cmd('jj-stack sync HEAD')}.",
         )
-    if pr.head.sha != member.head.sha or observed.remote_pr_branch_target != member.head.sha:
+    if pr.head.sha != member.head.sha or observed.remote_target != member.head.sha:
         raise CliError(
             t"{pr_label}, its PR branch, and GitHub stack #{stack.number} point to different "
             t"commits.",
@@ -507,7 +504,7 @@ def _finish_plan(
     allowed: bool,
 ) -> PRFinishPlan:
     pr = observation.prs[change_id].pr
-    if not allowed or pr is None or pr.state != "open":
+    if not allowed or not isinstance(pr, GithubPR) or pr.state != "open":
         return SkipPRFinish(change_id, candidate)
     return FinishPR(change_id, candidate, pr)
 

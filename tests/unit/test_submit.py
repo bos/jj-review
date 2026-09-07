@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import Mock
 
 import pytest
 
@@ -30,11 +31,9 @@ from jj_stack.models.github import (
     GithubPRRevision,
 )
 from jj_stack.models.stack import LocalCommit, LocalStack
-from jj_stack.models.tracking import (
-    TrackingState,
-)
+from jj_stack.stack.change_state import ChangeObservation
 from jj_stack.stack.pr_branches import ResolvedPRBranch
-from jj_stack.stack.status import PRLookup
+from jj_stack.stack.status import discover_pr_lookups
 from tests.support.change_helpers import make_change
 from tests.support.contexts import fake_command_context
 
@@ -87,9 +86,8 @@ def _prepare(
     change: LocalCommit,
     *,
     branch: str,
-    lookup: PRLookup,
+    lookup: ChangeObservation,
     remote_target: str,
-    state: TrackingState,
 ):
     return prepare_submit_changes(
         branch_resolutions=(
@@ -100,9 +98,7 @@ def _prepare(
         ),
         lookups={branch: lookup},
         remote_targets={branch: CommitId(remote_target)},
-        remote=_REMOTE,
         stack=_local_stack(change),
-        state=state,
     )
 
 
@@ -113,10 +109,44 @@ def test_prepare_submit_changes_rejects_unclaimed_existing_branch() -> None:
         _prepare(
             change,
             branch="jj-stack/feature-abcdefgh",
-            lookup=PRLookup(pr=None, open_prs_on_branch=()),
+            lookup=ChangeObservation(
+                change_id=change.change_id,
+                branch="jj-stack/feature-abcdefgh",
+                tracked=None,
+                local=(change,),
+                selected=change,
+                open_prs_on_branch=(),
+            ),
             remote_target="another-commit",
-            state=TrackingState(),
         )
+
+
+def test_first_submit_stops_when_github_rejects_the_open_pr_lookup() -> None:
+    change = make_change(commit_id="current", change_id="abcdefghijk", description="feature\n")
+    branch = "jj-stack/feature-abcdefgh"
+
+    github = Mock(spec=GithubClient)
+    github.get_open_prs_by_head_refs.side_effect = GithubClientError(
+        "invalid lookup", status_code=422
+    )
+
+    lookup = asyncio.run(
+        discover_pr_lookups(
+            github_client=github,
+            observations={
+                branch: ChangeObservation(
+                    change_id=change.change_id,
+                    branch=branch,
+                    tracked=None,
+                    selected=change,
+                    local=(change,),
+                )
+            },
+        )
+    )[branch]
+
+    with pytest.raises(CliError, match="GitHub 422"):
+        _prepare(change, branch=branch, lookup=lookup, remote_target=change.commit_id)
 
 
 def test_preflight_private_commits_rejects_blocked_change() -> None:

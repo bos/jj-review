@@ -14,6 +14,7 @@ from jj_stack.github.overview_comments import (
     STACK_OVERVIEW_COMMENT_LABEL,
     delete_stack_overview_comment,
 )
+from jj_stack.identifiers import CommitId
 from jj_stack.jj.client import JjClient, PRRefUpdate
 from jj_stack.models.github import GithubIssueComment, GithubPR, GithubStack
 from jj_stack.models.tracking import TrackedPR
@@ -23,9 +24,9 @@ from jj_stack.stack.change_state import (
     PRAmbiguous,
     PRIdentityMismatch,
     PRMissing,
+    Unobserved,
     classify,
     live_pr,
-    observe_pr_facts,
 )
 from jj_stack.stack.pr_facts import RepoFacts
 from jj_stack.ui import Message
@@ -51,7 +52,7 @@ def check_tracked_pr(
             t"rerun the same command",
             status="blocked",
         )
-    state = classify(observe_pr_facts(observation, change_id))
+    state = classify(observation.prs[change_id])
     if isinstance(state, (PRMissing, PRAmbiguous, PRIdentityMismatch)):
         return None, CleanupAction(
             kind="pull request",
@@ -71,7 +72,7 @@ def check_tracked_pr(
     if not require_no_dependents:
         return state, None
     prs_by_base = observation.prs_by_base
-    assert prs_by_base is not None
+    assert not isinstance(prs_by_base, Unobserved)
     observed_dependents = prs_by_base.get(pr_identity.head_ref, ())
     dependents = tuple(
         item
@@ -266,13 +267,15 @@ def plan_pr_cleanup(
                 status="blocked",
             ),
         )
-    remote_target = observation.prs[change_id].remote_pr_branch_target
+    remote_target = observation.prs[change_id].remote_target
+    if isinstance(remote_target, Unobserved):
+        raise AssertionError("Branch cleanup requires an observed remote target.")
     update = (
         None
         if remote_target is None
         else PRRefUpdate(
             branch=branch,
-            expected_target=remote_target,
+            expected_target=CommitId(remote_target),
             desired_target=None,
         )
     )

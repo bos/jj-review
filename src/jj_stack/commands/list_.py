@@ -42,6 +42,7 @@ from jj_stack.github.resolution import (
 from jj_stack.identifiers import short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.stack.change_state import (
+    ChangeObservation,
     ChangeState,
     Closed,
     Landed,
@@ -59,7 +60,6 @@ from jj_stack.stack.pr_branches import duplicate_pr_branch_claims
 from jj_stack.stack.repo import observe_repo_paths
 from jj_stack.stack.status import (
     PreparedStack,
-    PRLookup,
     StackStatusChange,
     build_status_changes_for_prepared_stack,
     lookup_pr_lookups,
@@ -405,7 +405,7 @@ def _build_row(
     github_repo: GithubRepoAddress | None,
     is_current: bool,
     prepared_stack: PreparedStack,
-    pr_lookups: dict[str, PRLookup],
+    pr_lookups: dict[str, ChangeObservation],
 ) -> StackRow:
     stack = prepared_stack.stack
     changes = build_status_changes_for_prepared_stack(
@@ -590,7 +590,7 @@ def _load_pr_lookups(
     excluded_branches: frozenset[str],
     github_target: GithubTarget | UnresolvedGithubTarget,
     prepared_discovered: tuple[_PreparedDiscoveredStack, ...],
-) -> tuple[dict[str, PRLookup], ErrorMessage | None]:
+) -> tuple[dict[str, ChangeObservation], ErrorMessage | None]:
     if not isinstance(github_target, GithubTarget):
         return {}, None
 
