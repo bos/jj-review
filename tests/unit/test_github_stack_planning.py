@@ -120,9 +120,9 @@ def test_github_stack_plan_classifies_selected_membership(
     (
         ((1, 1), True, (), ("same pull request",), ()),
         (
-            (1, 2),
+            (1, 2, 3),
             True,
-            (_stack(7, 1, 2), _stack(9, 2, 3)),
+            (_stack(7, 1, 2), _stack(9, 3, 4)),
             ("pull requests in GitHub stack #9",),
             ("local stack that contains the rest of",),
         ),
