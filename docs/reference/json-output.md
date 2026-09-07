@@ -65,9 +65,9 @@ Known change statuses are:
 - `closed`: PR is closed without being merged
 - `missing`: tracking data names a PR, but GitHub did not report that PR for the branch
 - `ambiguous`: more than one matching PR was found
-- `branch_moved`: the open PR's branch was updated outside jj-stack; it is at neither this change
-  nor the last submitted commit
-- `divergent`: multiple visible commits exist for the same change
+- `link_mismatch`: the saved PR has a different or missing head branch, or another PR uses it
+- `branch_moved`: the PR head moved outside jj-stack, or GitHub and the remote branch disagree
+- `divergent`: multiple visible commits exist for the same unmerged change
 - `unknown`: GitHub lookup failed for this change
 
 ## `view --json`
