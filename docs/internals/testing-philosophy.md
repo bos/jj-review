@@ -1,7 +1,7 @@
 # Testing philosophy
 
-Tests should protect behavior or constraints that would matter if they broke. The goal is a small,
-high-signal suite, not a catalog of every state the code can represent.
+Tests should protect behavior or constraints that would matter if they broke. Keep a focused
+suite whose failures identify useful regressions.
 
 ## Gate for every test
 
@@ -19,9 +19,10 @@ Before adding or retaining a case:
 3. Explain what distinct bug this case would catch.
 4. Choose the cheapest layer that exposes that bug.
 
-If another test would fail for the same reason, consolidate them. Parameter rows and fixed
-generated scenarios count as separate cases. Fixtures, helpers, and generators are justified by
-the useful cases they enable, not by their own implementation complexity.
+Consolidate cases that exercise the same decision at the same layer. Keep coverage at another
+layer only when it catches an additional integration or adapter risk. Parameter rows and fixed
+generated scenarios count as separate cases. Fixtures, helpers, and generators must support useful
+cases; their own complexity does not justify more tests.
 
 ## Prefer realistic failures
 
@@ -71,8 +72,11 @@ Existing tests are evidence of past intent, not a reason to keep unnecessary beh
   server. Use them when confidence depends on revsets, DAG or workspace behavior, subprocesses,
   or cross-system transitions.
 
-Live GitHub checks are an opt-in release gate; they do not replace deterministic local coverage.
-Record any known fake-server difference beside the affected fake behavior and test.
+Live GitHub checks are a release gate, invoked separately from `just check` and CI's local tests.
+They create and delete a disposable GitHub repo; see
+[releasing.md](releasing.md#qualify-the-candidate) for prerequisites. They supplement
+deterministic local coverage. Record known fake-server differences beside the affected behavior
+and test.
 
 If a behavior has both component and integration risk, keep one representative integration test
 and only the unit cases that protect additional decisions. CLI parsing tests are useful when
@@ -92,6 +96,7 @@ Prefer focused fixtures, direct setup, and clear assertions. Avoid tests that pr
 Test names should state the protected rule, not merely list setup details. A failure should be
 understandable from the name and assertions without reconstructing the entire fixture.
 
-Checked-in complexity and test-count limits live in `complexity-budget.toml` and are enforced by
-`tools/check_complexity.py`. A new test beyond a limit must replace overlapping coverage in the
-same change. More tests do not compensate for an unnecessarily complicated design.
+Code-size and test-count limits live in [`complexity-budget.toml`](../../complexity-budget.toml).
+Consolidate overlapping coverage to stay within them; increases require the design review defined
+in the root [complexity policy](../../AGENTS.md#complexity-control). More tests do not compensate
+for an unnecessarily complicated design.

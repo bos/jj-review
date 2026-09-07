@@ -1,14 +1,14 @@
-## Complexity control
+# Complexity control
 
 - A replacement is incomplete until it deletes the mechanism it supersedes in the same change.
-  Do not add a temporary parallel model with a promise to remove it in a later cleanup slice.
-- Define each jj-stack-owned durable policy fact once and store it one way. Shared observation or
-  storage code must not create a second path for deciding or changing it.
+  Do not keep a parallel model for a later cleanup.
+- Store each persistent fact in one form, with one owner. Shared observation and storage code
+  must not introduce competing policy decisions.
 - Batch independent read-only facts, but keep dependent mutations in order. Bind an irreversible
   external mutation to the identity and version observed while planning when the platform
   supports a conditional write or lease. Re-observe only when an earlier mutation invalidates a
   precondition or when an observed trigger or platform contract requires it.
-- Apply the cumulative complexity budgets after every code slice. Run `just complexity` locally
+- Check the cumulative complexity budgets after each code change. Run `just complexity` locally
   when the pinned `tokei` is installed; CI invokes the underlying checker. A budget increase is a
   design stop that requires explicit review, not routine maintenance of the budget file.
 - If the same subsystem needs a third consecutive hardening change, stop patching it and
@@ -38,9 +38,10 @@
 
 # Documentation
 
-- User-facing docs live in `docs/`. See [docs/AGENTS.md](docs/AGENTS.md) for the vocabulary
-  rules and the public/internal split. Built-in `--help` text is held to the same standard as
-  the user docs: assume jj/git familiarity, avoid `jj-stack` internal design jargon.
+- User-facing docs live in `docs/`, except for contributor notes in `docs/internals/`. See
+  [docs/AGENTS.md](docs/AGENTS.md) for the vocabulary rules and the public/internal split.
+  Built-in `--help` text is held to the same standard as the user docs: assume jj/git familiarity,
+  avoid `jj-stack` internal design jargon.
 - The web version of the user docs normally lives in the sibling jj repository at
   `$(jj root)/../website`. When user-facing docs change here, run `just website`, inspect the
   corresponding website changes, and update them as needed. If the change here is committed,
@@ -49,11 +50,11 @@
 - Active internal docs use ordinary technical language too. Introduce a project-specific term
   only when it names a real type, field, or enduring rule, define it at first use, and prefer
   describing concrete inputs and effects.
-- `design.md` and `implementation-strategy.md` describe the current product and architecture, not
-  completed slices or abandoned mechanisms. Keep implementation history in `jj` commits.
-- Default to code and tests only. Update documentation only when a change intentionally adds or
-  changes a supported product rule or user workflow, or makes a specific existing statement
-  materially inaccurate. A bug and its fix are not by themselves a documentation trigger.
+- Internal design and strategy documents describe the current product and architecture. Keep
+  implementation history in `jj` commits.
+- For implementation work, update documentation when a change adds or alters a supported rule or
+  workflow, or makes an existing statement inaccurate. A bug fix alone does not require a docs
+  change. Documentation reviews and corrections can also address clarity, duplication, and gaps.
 - When documentation is required, update only the affected source: `design.md` for an enduring
   product rule, user docs or `--help` for user guidance, and `implementation-strategy.md` for an
   architecture, tooling, or test-layer strategy change.
@@ -67,8 +68,9 @@
   the other way around: evaluate a documented behavior on its merits before extending it, and
   prefer deleting case-specific rules that follow from the principles over adding new ones. Never
   add durable transaction or replay state; recovery is observational (see design.md).
-- Preserve the core invariants: the `jj` DAG determines stack topology, local cache is sparse,
-  GitHub pull requests are derived from the local `jj` stack, and ambiguous linkage fails closed.
+- Preserve the core invariants: the `jj` DAG determines stack topology, tracking stores only PR
+  links and submitted commits, GitHub PRs follow the local stack, and ambiguous linkage stops
+  mutation.
 
 # Testing
 

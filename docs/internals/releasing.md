@@ -1,119 +1,114 @@
 # Release process
 
-A release is built from a `v<version>`-tagged commit on `main`. The tag workflow builds and tests
-both distributions, publishes them to PyPI, and creates the matching GitHub Release. A manual
-workflow run publishes to TestPyPI unless it names an existing release tag to retry.
+A release is built from a `v<version>` tag on a commit reachable from `main`. The
+[release workflow](../../.github/workflows/release.yml) verifies the tag and notes, runs local
+tests, builds and tests both distributions, publishes to PyPI, then creates the GitHub Release.
+A manual run without `release_tag` publishes to TestPyPI; naming an existing release tag retries
+production publication.
+
+Run the commands below from the jj-stack checkout unless a subshell explicitly changes directory.
 
 ## Write the release notes
 
-Create `release-notes/v<version>.md`, using the same version as `pyproject.toml`. This file is the
-source for the GitHub Release body and must be part of the tagged commit. The production workflow
-fails before publishing if the file is absent or empty. On a retry, it also fails if an existing
-GitHub Release does not contain exactly the notes from the tagged commit.
+Create `release-notes/v<version>.md` with the version from `pyproject.toml` and include it in the
+tagged commit. The production workflow rejects a missing or empty file before publication. The
+file supplies the GitHub Release body.
 
-### Choose what belongs
+Read the changes since the previous tag and the affected user docs. Use commit history to find
+candidates, then organize the notes around reasons to upgrade or actions users must take:
 
-Read the changes since the previous tag and the affected user documentation before drafting. Use
-the commit history to find candidates, not as the outline for the notes. A change belongs only
-when it gives someone a concrete reason to upgrade or requires them to act:
+- New workflows or capabilities.
+- Changes to installation requirements, commands, configuration, or public output formats.
+- Fixes for recognizable symptoms, especially blocked recovery or risk of lost work.
+- Substantial guides that help users complete a workflow.
 
-- a new user workflow or capability;
-- a change to installation requirements, a command, configuration, or a documented
-  machine-readable interface;
-- a fix for a symptom users could recognize, especially one that blocked recovery or risked losing
-  work; or
-- a substantial new guide that helps users complete a workflow.
+Omit internal refactors, dependencies, tests, CI, and routine hardening unless their user-visible
+consequence matters. Combine commits that solve the same problem into one outcome.
 
-Omit internal refactors, dependency substitutions, test and CI work, routine hardening, and small
-normalization or diagnostic changes unless their user-visible consequence is important. Do not
-give a bullet to a detail merely because it took significant engineering work. Collapse several
-commits that solve the same user problem into one outcome. Prefer a short set of meaningful notes
-over a comprehensive inventory.
+### Structure and wording
 
-### Write from the user's situation
+Open with one or two sentences naming the most useful changes. Group entries under headings such
+as `Breaking changes`, `Highlights`, `Fixes`, and `Documentation`, omitting empty sections. Put
+breaking changes first: identify the affected users, what stops working, and the migration or
+workaround. End with a `Full changelog` link comparing the previous and new tags.
 
-Write for someone deciding whether to upgrade, not for someone reconstructing the commit history:
+Each bullet should describe one outcome a user can recognize. Explain the old symptom when it
+helps show why a fix matters, and include a command when the reader must act. Keep entries
+self-contained even when they link to an issue or PR. Do not paste commit subjects or list
+implementation mechanisms.
 
-- Open with one or two sentences that name the release's theme and its most important user-visible
-  benefits. Describe problems solved, not mechanisms added.
-- Group changes by user impact. Use headings such as `Breaking changes`, `Highlights`, `Fixes`,
-  and `Documentation`, but omit empty sections.
-- Put breaking changes first. State which users are affected, what stops working after upgrading,
-  how they can recognize the situation, and the exact migration or workaround.
-- Lead each bullet with a situation or outcome the reader can recognize. Add the old symptom or
-  risk when it explains why the change matters, and give an exact command when the reader must
-  act.
-- Use the same ordinary `jj`, Git, and GitHub vocabulary as the user guides. Do not make readers
-  understand implementation terms such as classifiers, remote heads, survivors, leases,
-  convergence, or mutations. A public command, option, configuration key, or JSON value may be
-  named exactly when it is relevant to that audience.
-- Make each bullet describe one observable outcome. Combine implementation changes that produce
-  the same outcome, and split unrelated outcomes rather than joining them into a grab bag.
-- Explain important fixes in terms of the symptom that is gone. Do not paste commit subjects,
-  internal type names, or an automatically generated pull request list.
-- End with a comparison link from the previous tag to the new tag, labeled `Full changelog`.
+Use the vocabulary of the user guides. For example, replace “`sync` detects moved survivor
+branches before rewriting local history” with “If a remaining PR branch changed on GitHub, `sync`
+now stops before rebasing your local changes and tells you how to recover.” Name public commands,
+options, configuration keys, and JSON values when they help the reader act.
 
-For example, do not write “`sync` detects moved survivor branches before rewriting local
-history.” Write “If a remaining PR branch changed on GitHub, `sync` now stops before rebasing
-your local changes and tells you how to recover.” Omit an item such as “configured reviewer
-values are normalized like command-line values” unless that change breaks a real workflow; if it
-does, put it under `Breaking changes` with the affected audience and migration.
+Delete an entry if it does not make clear who benefits or what they must do. Fact-check claims
+against the released behavior, verify commands safely or against `--help`, and check links and the
+rendered Markdown before tagging.
 
-### Edit for value and clarity
-
-For every bullet, answer “Who cares?” and “What can they now do, or what must they do?”
-Delete the bullet if the answers are not clear from its text. Check that the opening and first
-few bullets capture the strongest reasons to upgrade; minor fixes must not crowd out the
-release's main value. Read the result as someone familiar with `jj` and Git but unfamiliar with
-the jj-stack source. Add missing context and replace unexplained internal nouns.
-
-Do not word-wrap release-note prose. Keep each paragraph and list item on one physical line, even
-when it exceeds the repository's usual 98-column limit. GitHub preserves those source line breaks
-in Release bodies, which makes hard-wrapped notes render awkwardly.
-
-Keep the notes self-contained even when they link to a pull request or issue. Fact-check every
-claim against the released behavior, proofread the rendered Markdown, verify every command in a
-safe environment or against `--help`, and check every link before tagging. A release with no
-breaking changes does not need a `Breaking changes` heading.
+Do not hard-wrap release-note prose: each paragraph or list item stays on one physical line.
+GitHub preserves source line breaks in Release bodies. This is an exception to the repo's usual
+98-column wrap.
 
 ## Qualify the candidate
 
-Set the intended version in `pyproject.toml`, finish the release changes and release notes, and
-run the release gates:
+Set the version in `pyproject.toml` and finish the release changes and notes. Run both local
+gates:
 
 ```console
 just release-check
+just artifact-check
 ```
 
-The live test requires a `gh` login that can create and delete a private repo, push to it, and
-manage its pull requests.
+`release-check` runs the standard checks, complexity checker, and live GitHub suite. It requires
+the `tokei` version pinned in [the complexity checker](../../tools/check_complexity.py), plus a
+`gh` login that can create and delete a private repo, push to it, and manage its PRs. The live
+runner creates a disposable repo and attempts deletion even on failure; retain its output to
+identify any cleanup failure. `just live --help` describes runner options.
+
+`artifact-check` builds the wheel and source distribution and smoke-tests both outside the source
+tree. It is a separate recipe; `release-check` does not include it. CI repeats the artifact checks
+before publishing.
 
 Check the website snapshot and production build:
 
 ```console
 just website-check
-cd ../website
-just check
+(cd ../website && just check)
 ```
 
-If the snapshot is out of date, run `just website` from the jj-stack checkout, review and commit
-the website change, then rerun the checks. Push the release changes to `main` before creating the
-tag. A manual run of the release workflow is the optional TestPyPI smoke test.
+If the snapshot is stale, run `just website`, review and commit the website update, then rerun
+these checks. Push the release changes to `main` before tagging. A manual release workflow run
+without `release_tag` is an optional TestPyPI smoke test; it publishes packages, so use a version
+that TestPyPI will accept.
 
 ## Publish the tag
 
-Create the version tag and push it explicitly:
+From the jj-stack checkout, tag the checked release commit and push the tag explicitly:
 
 ```console
-jj tag set v0.1.0 -r main
-jj git push --tag v0.1.0
+jj tag set v0.1.3 -r main
+jj git push --tag v0.1.3
 ```
 
-Use the version from `pyproject.toml` in place of `0.1.0`. After the workflow succeeds, verify the
-GitHub Release contains the authored notes and downloadable distributions. PyPI has no separate
-per-version release-notes field; its project page exposes the GitHub Releases page through the
-standard `Changelog` project link. Verify that link along with the package page, publish the
-already-checked website with `just publish`, and verify the live quick start and install command.
+Replace `0.1.3` with the intended version. Confirm that `main` names the checked commit before
+running these commands. After the workflow succeeds, verify the GitHub Release has the authored
+notes and downloadable distributions, and that the PyPI package page links to GitHub Releases
+through `Changelog`.
 
-Never move or reuse a published version tag. A failed workflow can be rerun against the same tag;
-a source change requires a new version and tag.
+Publish the checked website, then verify its live quick start and install command:
+
+```console
+(cd ../website && just publish)
+```
+
+## Retry a failed publication
+
+Never move a published tag or reuse a published version for changed source. Rerun the workflow
+against the same tag, or dispatch it with that `release_tag`. A source change requires a new
+version and tag.
+
+Publication is sequential: a GitHub Release failure can occur after PyPI has accepted the
+packages. When a GitHub Release already exists, the final job compares its body with the tagged
+notes and verifies its assets rather than overwriting them. A mismatch fails that job; it does
+not undo PyPI publication. Inspect the failed job before retrying.

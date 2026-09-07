@@ -13,7 +13,8 @@ discussion.
 
 ## Development setup
 
-You need `uv`, `jj` 0.45.1 or newer, and `just`. Then:
+You need `uv`, Git, `jj` 0.45.1 or newer, and `just`. The project requires Python 3.14 or newer;
+`uv` can provide the interpreter when it creates the locked development environment:
 
 ```console
 just setup
@@ -30,7 +31,8 @@ virtualenv path directly:
 just run view
 ```
 
-Run the standard Ruff, type-check, and test pass before you finish:
+Before finishing a code change, run the standard Ruff, type-check, and test pass. Docs-only edits
+under `docs/` do not require it:
 
 ```console
 just check
@@ -46,7 +48,7 @@ CI also enforces the cumulative complexity budgets. Check them locally with `jus
 when the pinned `tokei` is installed. Raising a budget is a design decision, not routine
 maintenance — say why in the pull request.
 
-If your change touches user-facing documentation, refresh the website snapshot with
+If your change touches user-facing guides or references, refresh the website snapshot with
 `just website` and include the resulting change in the sibling `website` repository.
 
 ## Conventions
@@ -62,8 +64,8 @@ The short version:
 - Explain *why* the change exists in the body, wrapped at 72 columns.
 - Add tests at the narrowest layer that covers a distinct risk; consolidate overlapping coverage
   rather than adding parallel cases.
-- Update documentation only when a change adds or alters a supported rule or workflow, or makes
-  an existing statement inaccurate.
+- For code changes, update docs when supported rules, workflows, or existing statements change.
+  Documentation corrections and editorial improvements are welcome independently.
 
 ## Submitting
 

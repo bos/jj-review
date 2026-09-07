@@ -1,85 +1,56 @@
-# Agent guidance for docs/
+# Documentation guidance
 
-## What this directory is
+`docs/` contains user guides and references. `docs/internals/` contains contributor notes, with
+additional [internal guidance](internals/AGENTS.md). The public vocabulary rules below apply to
+user docs, built-in help, diagnostics, and other user-facing output.
 
-`docs/` is the user-facing documentation set for `jj-stack`. These files are
-read by real users — people (and agents) who are learning the tool, looking up
-a workflow step, or troubleshooting a problem. Write them accordingly.
+## Audience and vocabulary
 
-## Tone and vocabulary
+Assume readers know `jj`, Git, and GitHub. Use standard terms such as revset, bookmark, `@-`,
+`trunk()`, change ID, and working copy without teaching them again.
 
-Readers know `jj` and `git`. Standard jj terms are fine: revset, bookmark,
-`@-`, `trunk()`, change ID, working copy. Don't over-explain those.
-
-Use the product nouns precisely:
+Use product nouns consistently:
 
 - A **pull request** or **PR** is the GitHub object.
-- A **PR branch** is a git branch intended to be a PR head.
-- A **stack** is an ordered chain of local changes or the corresponding GitHub grouping.
-- **Review** means human review activity: comments, approvals, requested changes, reviewers,
-  and review feedback. Do not use it as a synonym for a PR, PR branch, or stack.
+- A **PR branch** is a Git branch intended to be a PR head. "Remote PR branch" is redundant.
+- A **stack** is an ordered local chain or the corresponding GitHub grouping. Specify which when
+  the distinction matters.
+- **Review** means human review activity: comments, approvals, requested changes, reviewers, and
+  feedback. It is not a synonym for a PR, branch, or stack.
+- A **saved pull request link**, shortened to **saved link**, connects a PR to a local change.
+  The collection is **tracking data**. Use the verbs **link** and **relink**, rather than attach,
+  adopt, or claim, in user guidance.
+- A **direct merge** is one GitHub performs immediately rather than through a merge queue. Define
+  it the first time a page or help text uses the term.
 
-What to avoid is vocabulary that comes from `jj-stack`'s own design docs and
-implementation — terms a jj user would not know without reading the source:
+Name commands in full in hints and messages: `jj-stack relink`, not `relink`.
 
-- Not "ready prefix" → "the changes at the bottom of your stack that are ready"
-- Not "ancestry shape" → describe what happened: "your remaining changes are
-  still based on the old history"
-- Not "materialized locally" → "set up local tracking for"
-- When mentioning persisted records, say "tracking data" or describe the
-  effect, e.g. "jj-stack doesn't know about these PRs yet"
-- Not "local-history repair path" → just say what the command does
-- Not "remote PR branches" → "PR branches" is fine
-- Not "outstanding incomplete operation" → "failed command" or "interrupted command"
+Describe concrete actions and effects instead of internal mechanisms:
 
-The distinction is between standard jj/git vocabulary (fine) and
-`jj-stack`-specific design prose that leaked into the wrong layer (not fine).
+- "The changes at the bottom of the stack that are ready", not "ready prefix".
+- "Your remaining changes are still based on the old history", not "ancestry shape".
+- "Set up local tracking for", not "materialize locally".
+- "Failed command" or "interrupted command", not "outstanding incomplete operation".
+- Describe what a recovery command does instead of calling it a "local-history repair path".
 
-Use one name for each recurring concept, in docs, help, and hints alike:
+Do not expose internal record names or implementation phases in user instructions. When internal
+design reasoning is needed, put it in `docs/internals/` and link to it.
 
-- The record that connects a pull request to a local change is its **saved pull request link**
-  (or "saved link"); the collection is **tracking data**. Do not call it PR identity, saved
-  tracking, or a remembered PR. The verbs are **link** and **relink**, not attach, adopt, or
-  claim.
-- A **direct merge** is one GitHub performs immediately rather than through a merge queue. Say
-  so the first time a page or help text uses the term.
-- Name commands in full in hints and messages: `jj-stack relink`, not `relink`.
+## Help and references
 
-## What belongs here vs. docs/internals/
+Built-in `--help` is the flag reference. Its source lives in `src/jj_stack/cli.py` and
+`src/jj_stack/commands/`, including command subpackages. Guides explain when and why to use a
+command, rather than copying its option list. Apply the same vocabulary to command docstrings,
+flag descriptions, and recovery hints.
 
-**`docs/`** — user-facing guides. These files should explain what to do and
-why, not how the tool is built. If a section starts sounding like it is
-explaining implementation decisions, move that reasoning to `docs/internals/`.
+## Where to edit
 
-**`docs/internals/`** — internal notes read primarily by agents and
-contributors. Design decisions, implementation strategy, and test philosophy.
-These files freely use internal vocabulary and can reference code structure,
-data models, and architectural tradeoffs. Most users will never open this
-directory.
+Follow the root [documentation policy](../AGENTS.md#documentation) and edit the closest source:
 
-## Built-in `--help` text
+- `docs/troubleshooting.md` for recurring symptoms and recovery.
+- `docs/guides/` when workflow steps or decisions change.
+- `docs/reference/` for supported interfaces and settings.
+- `docs/README.md` when navigation or the command overview changes.
 
-The `--help` output for every command is held to the same standard as these
-docs. Command docstrings and flag descriptions live in
-`src/jj_stack/commands/*.py` and in `src/jj_stack/cli.py`. Apply the same
-vocabulary rules there: standard jj/git terms are fine; `jj-stack` internal
-design-doc language is not.
-
-Specific patterns to watch for in help text:
-
-- Not "ready prefix" — say "the ready changes at the bottom of the stack"
-- Say "readiness checks" or describe the checks directly
-- Say "what would be undone" when previewing cleanup or reset behavior
-- For persisted records, say "tracking data" or describe the effect
-- Say "tracking" rather than naming jj-stack's local tracking implementation
-
-## Routing user documentation changes
-
-When the root documentation gate is met, update only the closest relevant location:
-
-- Add to `docs/troubleshooting.md` only for a recurring user-visible symptom and recovery.
-- Change a guide under `docs/guides/` only when its workflow steps or decisions change.
-- Change `docs/README.md` only when the documentation overview or command set changes.
-
-The `--help` output is the canonical flag reference. User docs should explain
-*when* and *why* to use a command, not duplicate the flag list.
+For website synchronization, follow the root policy. Internal notes and agent instructions are
+not part of the public documentation snapshot.

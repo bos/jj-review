@@ -1,131 +1,138 @@
-# jj-stack implementation strategy
+# Implementation strategy
 
-[design.md](design.md) records enduring product rules. This document records the architectural
-choices that are not obvious from reading the source tree.
+[design.md](design.md) defines product behavior. This document explains how the code separates
+observation, policy, external effects, and storage.
+
+## Source map
+
+Paths below are relative to `src/jj_stack/`.
+
+| Location | Responsibility |
+|---|---|
+| `cli.py`, `bootstrap.py`, `config.py` | Parse arguments and construct command context. |
+| `jj/client.py`, `github/client.py` | Run subprocesses and HTTP requests; return typed results. |
+| `stack/selected.py`, `stack/repo.py`, `stack/path.py` | Observe and select local paths. |
+| `stack/change_state.py` | Classify a change's relationship to its PR and submitted commit. |
+| `stack/trunk_evidence.py` | Establish whether submitted work reached fetched trunk. |
+| `stack/convergence*.py`, `stack/global_convergence.py` | Plan updates after GitHub changes. |
+| `commands/` | Coordinate each command's planning, mutations, and output. |
+| `models/tracking.py`, `state/` | Validate, migrate, lock, and persist tracking data. |
 
 ## Authority and stored state
 
-The `jj` DAG is the only authority for local stack topology. Tracking may annotate a change with
-its GitHub PR, but it must never save parent relationships, stack membership, or a replay
-path. Repo-wide and selected-stack discovery therefore start from current `jj`
-observations.
+The DAG determines local topology. Tracking contains one `TrackedPR` per full change ID, pairing
+`PRIdentity` (PR number and head branch) with `SubmittedBaseline` (the last submitted or adopted
+commit). The GitHub repo comes from command context; it is not stored in each record. See
+[tracking rules](design.md#tracking) for the meaning and allowed updates of these fields.
 
-Tracking stores one atomic pair per tracked change:
+All workspaces for one `jj` repo share a state file and operation lock. The canonical `.jj/repo`
+storage path identifies the repo, including when a workspace's `.jj/repo` is a pointer file.
+`state/store.py` hashes that resolved path to form the storage location:
 
-- the repo, pull request, and head branch that identify the PR
-- the exact commit last successfully submitted or explicitly adopted
+```text
+${XDG_STATE_HOME:-~/.local/state}/jj-stack/repos/<repo-path-hash>/state.json
+```
 
-The pair is enough to reject uncertain mutations and prove which submitted snapshot is being
-discussed. Everything else is observed again. There is no transaction journal, operation phase,
-saved selector, or recovery state machine.
+No tracking file is written into the working tree or `.jj/`. Moving the underlying repo storage
+changes the lookup key; a new clone has separate tracking even when it uses the same remote.
 
-All workspaces for one `jj` repo share the same state file and operation lock. Repo
-identity comes from the canonical `.jj/repo` storage path, not the workspace path. State writes
-use atomic file replacement; the lock coordinates processes but does not make GitHub, Git, and
-local storage transactional.
+`TrackingStore` validates complete records and writes them by atomic file replacement. Released
+schemas migrate in memory before validation; read-only loads never rewrite the file. The next
+tracking mutation persists the current schema. The top-level version is the only migration key;
+[`state/migrations.py`](../../src/jj_stack/state/migrations.py) defines supported versions. Keep
+migration at this boundary rather than retaining old models in command logic.
 
-Released tracking schemas migrate forward in memory before validation. Read-only commands do not
-rewrite the state file; the next tracking mutation persists the current schema through the normal
-atomic write. The document's top-level version is the only migration key.
+The OS operation lock serializes mutating jj-stack processes for the repo. Its holder file records
+the command, PID, and start time for diagnostics. The lock does not coordinate other clients or
+make GitHub, Git, and local storage transactional. No operation phase, replay plan, selector, or
+transaction state is persisted.
 
 ## Observation, planning, and mutation
 
-Commands keep five concerns separate:
+Commands separate five concerns:
 
-1. observe typed local, remote-ref, GitHub, and tracking state
-2. classify that state without side effects
-3. build the complete plan required before the first mutation
-4. apply dependent mutations in order
-5. save and render only completed outcomes
+1. Observe typed local commits, remote refs, GitHub objects, and tracking.
+2. Classify those facts without side effects.
+3. Validate selected targets and prerequisites before the first mutation.
+4. Apply dependent mutations in order, planning later steps from completed results when needed.
+5. Save acknowledged results and report completed work, including partial failure.
 
-Shared code may observe or classify facts for several commands. It must not become a second place
-that decides command policy. Command-specific planning stays with the command, while product rules
-remain in [design.md](design.md).
+Shared observation code gathers facts; it must not introduce competing definitions of command
+policy. Planning code decides what a command may do with those facts.
 
-Every command classifies a change's relationship to its pull request, PR branch, and fetched trunk
-through one function, `classify` in `stack/change_state.py`. It takes one `ChangeObservation`, in
-which a fact the command did not look up is marked unobserved rather than treated as absent, and
-returns one `ChangeState`. A stop state carries the explanation and repair every command shares; a
-command decides only which states it acts on, tolerates, or stops on, and supplies the command to
-rerun. Trunk evidence is part of the observation, derived from fetched-trunk ancestries. The
-classifier does not describe the change itself: conflicts, emptiness, divergence, and working
-copies stay fields of `LocalCommit`, and stack-shape rules stay with selection and planning.
+The shared `classify` function in `stack/change_state.py` takes a `ChangeObservation` and returns
+a `ChangeState`. A fact the caller did not query is `Unobserved`, distinct from an absent PR or
+branch. Stop states carry a shared explanation and repair; callers supply the command to rerun
+and decide which states they can act on or tolerate. Callers must obtain the observations their
+operation requires: an unobserved fact is not permission to mutate.
 
-Independent reads should be batched or run concurrently. A mutation is re-planned only when an
-earlier mutation changes one of its inputs or the external API requires another observation.
-Irreversible writes use the identity or version observed during planning whenever the platform
-supports a conditional request or lease.
+Trunk evidence is derived from fetched-trunk ancestry and included in the observation. The
+classifier does not describe local conflicts, emptiness, divergence, or working copies; those
+remain fields of `LocalCommit`. Selection and planning enforce stack-shape rules.
 
-PR-branch changes for one submit use one atomic Git push with an exact lease for every ref,
-including expected absence for a new branch. There is no sequential fallback. GitHub mutations
-cannot be made atomic with that push or with the state file, so retry safety comes from fresh
-observation and the saved PR pair.
+Batch or concurrently read independent facts. Re-observe when a preceding mutation invalidates
+an input or an external API requires it. Bind irreversible writes to the observed identity and
+version wherever the platform supports a conditional request or lease.
+
+One submit moves its selected PR branches in an atomic Git push, with an exact lease for each ref
+and expected absence for each new branch. There is no sequential fallback. GitHub updates and
+tracking writes happen separately. Reruns use current observations and the saved PR record to
+recognize completed work; they do not assume the previous command did nothing.
 
 ## External boundaries
 
-The client invokes `jj` and Git as subprocesses rather than linking to `jj-lib`. Machine-readable
-`jj` templates are preferred over parsing display output. Direct Git access is limited to remote
-inspection and leased ref mutation that `jj` does not expose with enough precision.
+The jj client invokes `jj` and Git as subprocesses. It reads machine-readable `jj` templates,
+rather than display output. Direct Git access is limited to remote inspection and leased ref
+mutation that `jj` does not expose with enough precision.
 
-The jj client returns raw commit and bookmark facts. Stack observation distinguishes fetched
-submitted snapshots from local rewrites and derives the reserved-bookmark immutability exception.
-That subprocess configuration is an explicit value, passed to observations and local mutations;
-observing a stack does not change later client queries.
+The client returns commit and bookmark facts. Stack observation distinguishes fetched submitted
+snapshots from local rewrites and derives the reserved-bookmark immutability exception. That
+subprocess configuration is passed explicitly to observations and mutations; observing a stack
+does not change later client queries.
 
-Read-only setup and presentation calls may ignore the working copy. Operations that fetch or
-rewrite preserve normal `jj` snapshot and checkout behavior. Remote PR branch refs are inspected
-without importing them into the ordinary `jj` view; commands that must attach a remote commit use
-a temporary ref and remove it before returning.
+Setup and presentation reads may ignore the working copy. Fetches and rewrites preserve normal
+`jj` snapshot and checkout behavior. PR branch refs are inspected without importing them into the
+ordinary `jj` view. Commands that need a remote commit use a temporary ref and remove it
+afterward; interruption can leave it for the repairs described under
+[adoption](design.md#adoption-and-repair).
 
-When correctness depends on the result of a local rebase before that rebase is allowed to affect
-the repo, the jj client uses `--no-integrate-operation`. It inspects the candidate DAG with
-`--at-op` and integrates that exact operation only after the caller's proof succeeds. Operation
-IDs are transient values within one command and are never saved as recovery state.
+When a rebase must be checked before it changes the repo, the client uses
+`--no-integrate-operation`. It inspects the candidate DAG with `--at-op` and integrates that exact
+operation only after the caller's checks pass. Operation IDs exist only within the command and
+are never stored for recovery.
 
 GitHub transport owns authentication, pagination, bounded retries, batching, response validation,
-and error decoding. It returns typed observations and mutation results but does not decide stack
-topology, selection, branch names, or mutation eligibility.
+and error decoding. It returns typed observations and mutation results. Stack topology,
+selection, branch naming, and mutation eligibility belong outside the transport.
 
-Configuration is read through `jj config` so user, repo, workspace, `--config`, and
-`--config-file` precedence stay identical to `jj`'s. Python does not implement a second merge of
-those scopes.
+Configuration is read through `jj config`, preserving user, repo, workspace, `--config`, and
+`--config-file` precedence. Python does not merge those scopes again. Supported settings belong
+in the [configuration reference](../reference/configuration.md).
 
-Serialized and untrusted data uses `pydantic` models. In-process plans and results use typed
-dataclasses where practical. Public `--json` output is a separate interface governed by
-[`docs/json-output.schema.json`](../json-output.schema.json), not by the tracking or GitHub
-models.
+Serialized and untrusted data uses Pydantic models. In-process plans and results use typed
+dataclasses where practical. Public `--json` output has its own
+[schema](../json-output.schema.json); tracking and GitHub models are not public output formats.
 
 ## Documentation generation
 
-The CLI parser and help text are the source for both terminal help and the complete online CLI
-reference. `jj-stack help --all-in-one` renders a Markdown fragment with semantic HTML classes;
-it does not add site navigation or styling. The website invokes that renderer from the same
-jj-stack checkout whose canonical user guides it snapshots, then owns the generated page's front
-matter, CSS, and publication.
+The CLI parser and help text supply terminal help and the complete online command reference.
+`jj-stack help --all-in-one` emits Markdown with semantic HTML classes. The website runs that
+renderer from the same checkout it uses for the user-guide snapshot, then adds front matter,
+CSS, navigation, and publication.
 
-## Development workflows
+## Development and testing
 
-The root `justfile` is the contributor entry point for setup, local CLI execution, formatting,
-focused tests, standard checks, complexity checks, generated scenarios, live GitHub qualification,
-website documentation synchronization, and release artifacts. Recipes delegate substantive
-behavior to existing scripts, including the website-owned documentation sync and the check scripts
-shared with CI; they do not reimplement them. The README points contributors to `just` instead of
-duplicating the underlying commands.
+The root [`justfile`](../../justfile) is the entry point for setup, CLI execution, checks,
+generated scenarios, live qualification, website synchronization, and release artifacts. Its
+recipes delegate to scripts shared with CI or owned by the website. Contributor commands belong
+in [CONTRIBUTING.md](../../CONTRIBUTING.md); release gates belong in [releasing.md](releasing.md).
 
-## Test boundaries
+Local integration tests use real `jj` and Git repos with a FastAPI fake GitHub server. The fake's
+branch and ancestry assertions use a real backing Git repo. Implement the GitHub behavior the
+client needs, and document known differences beside the affected fake behavior and tests.
 
-The local integration environment uses real `jj` and Git repos with a purpose-built
-FastAPI GitHub server. The fake implements only behavior the client needs, and its branch and
-ancestry assertions use a real backing Git repo rather than mocked JSON alone.
-
-Fake behavior should match observed GitHub behavior, including surprising behavior. A known
-difference must be documented beside the fake and affected tests.
-
-[testing-philosophy.md](testing-philosophy.md) defines which tests are worth keeping, and
-[property-testing.md](property-testing.md) explains the generated integration harness.
-
-## Complexity limits
-
-`complexity-budget.toml` and `tools/check_complexity.py` enforce cumulative production, test,
-recovery-module, complexity, and marked-test limits. Increasing a limit requires a design review.
-Moving the same policy into another helper or module is not a reduction in complexity.
+[testing-philosophy.md](testing-philosophy.md) defines which tests to retain;
+[property-testing.md](property-testing.md) describes the generated harness. Complexity limits are
+set in [`complexity-budget.toml`](../../complexity-budget.toml), enforced by
+[`tools/check_complexity.py`](../../tools/check_complexity.py), and governed by the root
+[complexity policy](../../AGENTS.md#complexity-control).

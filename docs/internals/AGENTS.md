@@ -1,30 +1,20 @@
-# Agent guidance for docs/internals/
+# Internal documentation guidance
 
-## What this directory is
+These documents are for contributors and maintainers. The [index](README.md) identifies the
+source for product rules, architecture, tests, reviews, and releases. Keep each rule in its owning
+document and link to it elsewhere.
 
-`docs/internals/` contains design notes, implementation strategy, and test philosophy. These files
-are written for contributors and maintainers. Most users will never open this directory.
+Use ordinary technical language. Project-specific terms are useful when they name a real type,
+field, module, or enduring rule; define them at first use. Prefer concrete inputs, checks, and
+effects to metaphors, new taxonomies, and unexplained shorthand.
 
-## What belongs here
+Describe the current system. Keep implementation history in `jj` commits and task progress in the
+conversation, not in these documents. Retain the reason for a non-obvious rule when a future
+contributor would need it to avoid a mistake.
 
-- `design.md` — enduring product rules, not an exhaustive catalog of observable behavior.
-- `implementation-strategy.md` — component boundaries, tooling, and test strategy. It is not a
-  changelog.
-- `testing-philosophy.md` — what kinds of tests to write and why.
+When code, tests, and docs disagree, check the supported workflow and intended rule before
+editing. Do not turn an accidental implementation detail into product policy, or silently change
+policy while correcting prose.
 
-## Vocabulary
-
-Internal files may use standard `jj`, Git, GitHub, and software terms. Project-specific terms are
-appropriate only when they name a real type, field, module, or enduring rule. Define them at first
-use and prefer concrete inputs, checks, and effects over a new taxonomy.
-
-Active design and strategy documents describe the current system. Do not make readers learn names
-for abandoned mechanisms or completed slices; keep that history in `jj` commits. Do not use
-internal terminology as permission to make user-facing docs or help harder to understand. See
-`docs/AGENTS.md` for the stricter public vocabulary rules.
-
-## What not to put here
-
-These files are not a changelog, a commit log summary, or a task list for the
-current conversation. Use jj commit messages for history and the task tools
-for in-conversation tracking.
+The [public vocabulary rules](../AGENTS.md#audience-and-vocabulary) apply to user-facing docs and
+help; internal type names do not belong there merely because they appear here.

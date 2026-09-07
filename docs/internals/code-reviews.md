@@ -1,113 +1,78 @@
 # Code review guidelines
 
-Use this guide for reviews of code, tests, and documentation in this repo.
+Use this guide when reviewing code, tests, or documentation. Prioritize lost work, mutation of the
+wrong PR or branch, surprising behavior, failed recovery, unnecessary complexity, and significant
+performance regressions.
 
-## What a review should find
+## Establish the intended behavior
 
-Prioritize issues that could cause:
+Read [design.md](design.md) and the root [AGENTS.md](../../AGENTS.md) before reviewing a behavior
+change. Trace the affected workflow through local commits, remote refs, GitHub, and tracking.
+Check what happens if it stops partway through and the user follows the recovery instructions.
 
-- lost work or mutation of the wrong pull request or branch
-- surprising user-visible behavior
-- violations of the invariants in [design.md](design.md)
-- broken or unclear recovery after a partial failure
-- unnecessary complexity or poor component boundaries
-- meaningful performance regressions
+Pay attention to rewrites, relinks, divergence, and local deletion; these can leave the systems in
+different states. Verify that unrelated history does not block a selected stack and that cleanup
+does not remove something another PR or local path still needs.
 
-Do not spend the review budget on compatibility scaffolding. The project is under active
-development and has no legacy formats or behavior to preserve.
-
-## Start with the product rules
-
-Read [design.md](design.md) and the repo's [AGENTS.md](../../AGENTS.md) before reviewing a
-behavior change. A change can be internally consistent and still be too complicated, surprising,
-or hard for a `jj` user to understand.
-
-Pay particular attention to interactions among the local `jj` DAG, remote refs, GitHub, and local
-tracking. Common failures include:
-
-- an interrupted command leaving some mutations applied and others pending
-- tracking that no longer agrees with `jj`, a remote ref, or GitHub
-- recovery that cannot reach a safe state on a rerun
-- unusual DAG shapes after rewrites, relinks, local deletion, or divergence
-- a stack-scoped command being affected by unrelated history
-- cleanup deleting an artifact that another PR still needs
+Distinguish supported compatibility from speculative scaffolding. Released tracking schemas have
+an explicit [migration boundary](implementation-strategy.md#authority-and-stored-state), and
+public JSON has a [schema](../json-output.schema.json). Preserve supported interfaces or make an
+intentional, documented compatibility change. Do not preserve abandoned internal mechanisms.
 
 ## Keep fixes simple
 
-Before asking for another guard, saved field, or recovery path, check whether the mechanism that
-creates the troublesome state can be removed or simplified. Use these questions:
+Before requesting another guard, saved field, or recovery path, ask:
 
-1. Can an ordinary supported workflow, observed failure, or documented platform behavior reach
-   this state? If not, do not add code or a test for it.
-2. Is an existing rule merely missing at one call site? Share that rule instead of creating a
-   variant.
-3. Would deleting the proposed or existing mechanism also delete the failure mode?
+1. Can a supported workflow, observed failure, or documented platform behavior reach this state?
+   If not, do not add code or a test for it.
+2. Is one call site missing an existing rule? Share the rule instead of adding a variant.
+3. Could removing or simplifying a mechanism also remove the failure mode?
 4. Does a persisted field have one owner, one representation, and a clear deletion rule? New
-   durable state requires a design change, not a local defensive patch.
-5. Does every fail-closed error give a concrete next step when recovery is possible?
-6. Is this the third consecutive hardening change in the same subsystem? If so, revisit the
-   design instead of adding another patch.
-7. Does a replacement remove the old path in the same change?
+   durable state requires a design change.
+5. Does a refusal give a concrete next step when recovery is possible?
 
-Match safeguards to the harm they prevent. The priority order is lost commits, mutation of the
-wrong PR or ref, guessed linkage, then inconsistencies in reconstructible metadata. Do not build
-an elaborate recovery system to protect data that can be observed again.
+Apply the root [complexity policy](../../AGENTS.md#complexity-control), including removing
+replaced mechanisms in the same change and reconsidering a subsystem after repeated hardening.
+Moving logic into another helper does not reduce its complexity. Review budget, governed-path, and
+test marker changes as carefully as production code.
 
-The limits in `complexity-budget.toml` are design constraints. Review changes to the limits,
-governed paths, and test markers as carefully as production code. Run `just complexity` locally
-when the pinned `tokei` version is installed; CI invokes the underlying checker.
-Moving the same logic into a helper or neighboring module is not a reduction in complexity.
+Match safeguards to the harm they prevent. Protect commits and PR identity before reconstructible
+metadata. An elaborate recovery system is rarely justified for data that can be observed again.
 
-## Review the user experience
+## Review the user experience and docs
 
-Assume the user knows `jj`, Git, and GitHub, but not this tool's implementation.
+Assume readers know `jj`, Git, and GitHub. Check docs, help, diagnostics, and output for:
 
-Treat docs, help, diagnostics, and ordinary output as part of correctness. Check for:
+- disagreement with supported behavior or with each other
+- missing context about what happened, what changed, or what to do next
+- wording that overstates guarantees or destructive effects
+- implementation jargon, repeated explanations, or inconsistent names
+- examples that omit prerequisites, run in the wrong repo, or cannot be followed as written
 
-- an unclear explanation of what happened or what to do next
-- implementation terminology in user-facing text
-- wording that overstates destructive behavior
-- noisy output or inconsistent behavior across similar commands
-- disagreement among the code, help, and documentation
+Internal docs need plain language too. Keep each rule in its owning document, define necessary
+project terms, and replace metaphors with concrete checks and effects. Do not retain a statement
+just because it sounds consistent with the surrounding prose; verify it against its source.
 
-Internal docs should also use plain English. Project-specific terms are useful only when they
-name a real type or enduring rule and are defined where they first appear.
+## Check performance and maintainability
 
-## Check performance
+Flag avoidable history-wide scans, repeated subprocess or API calls, and serial network requests
+with no dependency. Account for `jj` process startup and network latency, not just Python work.
+Check how queries and algorithms grow with stack and repo size.
 
-Flag work that adds visible latency or scales poorly with repo size, including:
+Look for dead code, duplicated logic, policy in adapters or rendering, vague names, and forwarding
+layers that add no useful separation. Validation should serve a demonstrated need.
 
-- history-wide scans where a bounded query would work
-- repeated `jj` or GitHub calls that could be batched or run concurrently
-- serial network requests with no ordering dependency
-- algorithms that grow poorly with stack or repo size
-
-Account for `jj` process startup and GitHub latency, not just in-process cost.
-
-## Check maintainability
-
-Look for:
-
-- dead or nearly dead code
-- duplicate non-trivial logic
-- policy in adapters or rendering code
-- vague names or modules that contain only one small forwarding layer
-- validation that has no demonstrated user need
-
-Prefer precise types in domain APIs. Dynamic types and casts are sometimes necessary at argparse,
-async-protocol, or untrusted-JSON boundaries; they should be narrowed immediately. Flag `Any`,
-`object`, `cast`, or `getattr` when they leak into domain logic or conceal a missing model.
+Use precise types in domain APIs. Dynamic types and casts can be necessary at argument parsing,
+async protocols, or untrusted-JSON boundaries; narrow them there. Flag `Any`, `object`, `cast`, or
+`getattr` when they hide a missing model or spread into domain logic.
 
 ## Review tests by risk
 
-Follow [testing-philosophy.md](testing-philosophy.md). Give extra scrutiny to changes involving:
+Follow [testing-philosophy.md](testing-philosophy.md) and, for generated cases,
+[property-testing.md](property-testing.md). Identify the distinct failure each case protects and
+check for overlapping coverage. Require the narrowest layer that demonstrates the risk, including
+an integration case when the bug depends on real DAG or cross-system behavior.
 
-- states produced by supported commands or documented external actions
-- configuration lookup failures, invalid values, or settings inconsistent with the repo
-- unusual DAG topology and stack selection
-- consistency among `jj`, remote refs, GitHub, and local tracking
-- interrupted operations and recovery
-
-Require coverage for a distinct, plausible failure at the narrowest useful layer. Do not ask for
-large matrices, exact request-order assertions, or speculative race schedules without an observed
-trigger or documented platform contract.
+Avoid large matrices, private request-order assertions, and speculative race schedules. Ordering
+assertions are warranted when they protect an actual safety requirement, such as validating all
+selected identities before changing the first PR.
