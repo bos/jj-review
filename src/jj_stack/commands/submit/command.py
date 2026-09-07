@@ -63,6 +63,7 @@ from jj_stack.stack.pr_branches import (
     ResolvedPRBranch,
     ensure_new_pr_branches_unclaimed,
     ensure_unique_pr_branches,
+    resolve_pr_branches,
 )
 from jj_stack.stack.selection import (
     parse_comma_separated_flag_values,
@@ -432,7 +433,10 @@ async def run_submit_async(
         )
 
     github_repo = require_github_repo(remote)
-    branch_resolutions = prepared_inputs.branch_resolutions
+    branch_resolutions = resolve_pr_branches(
+        changes=stack.changes,
+        tracked_prs=state.prs,
+    )
     visible_bookmarks = client.visible_pr_bookmark_targets()
     initial_pr_branches = _submit_pr_branches(
         base_branch=base_branch,

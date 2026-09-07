@@ -12,7 +12,6 @@ from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackingState
-from jj_stack.stack.pr_branches import ResolvedPRBranch
 from jj_stack.state.store import TrackingStore
 
 PRAction = Literal["created", "unchanged", "updated"]
@@ -151,7 +150,6 @@ class PRSyncPlan:
 class PublicationInputs:
     """Local publication inputs prepared before GitHub mutations begin."""
 
-    branch_resolutions: tuple[ResolvedPRBranch, ...]
     client: JjClient
     generated_pr_descriptions: dict[str, GeneratedDescription]
     generated_stack_description: GeneratedDescription | None

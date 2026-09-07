@@ -13,7 +13,6 @@ from jj_stack.models.github import GithubStackPR
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import TrackingState
 from jj_stack.stack.observation import observe_change_copies
-from jj_stack.stack.pr_branches import resolve_pr_branches
 from jj_stack.stack.selected import require_submittable_changes, select_stack_path
 
 from .descriptions import resolve_generated_descriptions
@@ -99,10 +98,6 @@ def prepare_publication_inputs(
 ) -> PublicationInputs:
     client = context.jj_client
     require_submittable_changes(stack.changes)
-    branch_resolutions = resolve_pr_branches(
-        changes=stack.changes,
-        tracked_prs=state.prs,
-    )
     preflight_conflicted_changes(stack.changes)
     preflight_private_commits(client, stack.changes)
     (
@@ -123,7 +118,6 @@ def prepare_publication_inputs(
         )
     )
     return PublicationInputs(
-        branch_resolutions=branch_resolutions,
         client=client,
         generated_pr_descriptions=generated_pr_descriptions,
         generated_stack_description=generated_stack_description,
