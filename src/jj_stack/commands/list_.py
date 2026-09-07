@@ -29,7 +29,7 @@ from jj_stack.commands._json_status import (
 )
 from jj_stack.console import requested_color_mode
 from jj_stack.errors import EXIT_INCOMPLETE, CliError, ErrorMessage, error_message
-from jj_stack.formatting import format_pr_label
+from jj_stack.formatting import format_pr_label, pr_url
 from jj_stack.github.error_messages import remote_and_github_unavailable_messages
 from jj_stack.github.resolution import (
     GithubRepoAddress,
@@ -582,7 +582,7 @@ def _pr_references_from_changes(
             continue
         if change.tracked is not None:
             references.setdefault(change.tracked.pr_identity.pr_number, None)
-    return tuple(sorted(references.items()))
+    return tuple(references.items())
 
 
 def _load_pr_lookups(
@@ -636,7 +636,10 @@ def _format_pr_summary(
             repo=repo,
             url=url,
         )
-    return f"{len(references)} PRs"
+    number, url = references[-1]
+    url = pr_url(number, repo=repo, url=url)
+    text = f"{len(references)} PRs"
+    return ui.hyperlink(text, url) if url is not None else text
 
 
 def _stack_table(

@@ -41,7 +41,7 @@ class GithubRepoRenderTarget(Protocol):
     def full_name(self) -> str: ...
 
 
-def _pr_url(
+def pr_url(
     pr_number: int,
     *,
     repo: GithubRepoRenderTarget | None,
@@ -58,7 +58,7 @@ def format_pr_number(
 ) -> ui.Message:
     """Render a pull request number, linking it when its repo or URL is known."""
 
-    url = _pr_url(pr_number, repo=repo, url=url)
+    url = pr_url(pr_number, repo=repo, url=url)
     text = f"#{pr_number}"
     return ui.hyperlink(text, url) if url is not None else text
 
@@ -74,7 +74,7 @@ def format_pr_label(
 ) -> ui.Message:
     """Render a pull request label for CLI output."""
 
-    url = _pr_url(pr_number, repo=repo, url=url)
+    url = pr_url(pr_number, repo=repo, url=url)
     text = f"PR {'#' if include_hash else ''}{pr_number}"
     label: ui.Message = ui.hyperlink(text, url) if url is not None else text
     if is_draft:

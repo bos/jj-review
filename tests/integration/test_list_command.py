@@ -174,26 +174,29 @@ def test_list_treats_a_visible_submitted_predecessor_as_published(
     assert [change["change_id"] for change in payload["rows"][0]["changes"]] == [change_id]
 
 
-def test_list_extends_tracked_stack_through_unsubmitted_local_descendant(
+def test_list_links_top_pr_below_unsubmitted_local_descendant(
     tmp_path,
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
 
-    commit_file(repo, "feature 2", "feature-2.txt")
+    # PR numbers no longer follow stack order after a local reorder.
+    bottom, top = selected_stack(repo).changes
+    run_command(["jj", "rebase", "-r", bottom.change_id, "-A", top.change_id], repo)
+    commit_file(repo, "feature 3", "feature-3.txt")
     head_change_id = selected_stack(repo).head.change_id
 
-    exit_code = run_main(repo, config_path, "ls")
+    exit_code = run_main(repo, config_path, "ls", "--color=always")
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert head_change_id[:8] in captured.out
-    assert "feature 2" in captured.out
-    assert "2 changes" in captured.out
-    assert "PR" in captured.out
-    assert "1" in captured.out
+    assert "feature 3" in captured.out
+    assert "3 changes" in captured.out
+    assert "2 PRs" in captured.out
+    assert "https://github.test/octo-org/stacked-prs/pull/1" in captured.out
+    assert "https://github.test/octo-org/stacked-prs/pull/2" not in captured.out
 
     exit_code = run_main(repo, config_path, "list", "--json")
     captured = capsys.readouterr()
