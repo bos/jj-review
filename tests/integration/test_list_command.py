@@ -422,24 +422,6 @@ def test_list_falls_back_when_github_unavailable(
     assert "feature 1" in captured.out
 
 
-def test_list_marks_stale_saved_pr_link_and_exits_nonzero(
-    tmp_path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    fake_repo.prs.clear()
-
-    exit_code = run_main(repo, config_path, "list")
-    captured = capsys.readouterr()
-
-    assert exit_code == EXIT_INCOMPLETE
-    assert "missing PR" in captured.out
-    assert "PR 1" in captured.out
-
-
 def test_list_and_view_agree_that_a_divergent_change_is_an_incomplete_report(
     tmp_path,
     monkeypatch,

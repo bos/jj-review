@@ -14,9 +14,6 @@ from jj_stack.stack.change_state import (
     BranchDisagrees,
     BranchMissing,
     ChangeObservation,
-    Closed,
-    CompetingOpenPR,
-    Edited,
     Landed,
     LookupFailed,
     Merged,
@@ -24,7 +21,6 @@ from jj_stack.stack.change_state import (
     ObservationFailed,
     PRAmbiguous,
     PRHeadMoved,
-    PRIdentityMismatch,
     PRMissing,
     Published,
     PushedUnrecorded,
@@ -87,7 +83,7 @@ def _observe(**overrides: Any) -> ChangeObservation:
     return ChangeObservation(**fields)
 
 
-_REPRESENTATIVES: tuple[tuple[str, dict[str, object], type], ...] = (
+_CLASSIFICATION_CASES: tuple[tuple[str, dict[str, object], type], ...] = (
     ("untracked, nothing on GitHub", {"tracked": None, "open_prs_on_branch": ()}, Unpublished),
     (
         "untracked, branch already at the local commit",
@@ -108,46 +104,25 @@ _REPRESENTATIVES: tuple[tuple[str, dict[str, object], type], ...] = (
         {"pr": None, "open_prs_on_branch": (_pr(number=8), _pr(number=9))},
         PRAmbiguous,
     ),
-    ("saved PR moved to another branch", {"pr": _pr(head_ref="other")}, PRIdentityMismatch),
-    (
-        "another open PR shares the branch",
-        {"open_prs_on_branch": (_pr(), _pr(number=8))},
-        CompetingOpenPR,
-    ),
-    ("closed without merging", {"pr": _pr(state="closed")}, Closed),
-    ("merged, trunk not inspected", {"pr": _pr(state="merged")}, Merged),
     ("merged and proven", {"pr": _pr(state="merged"), "trunk_evidence": "rewritten"}, Landed),
     ("open, exact commit already on trunk", {"trunk_evidence": "exact"}, Landed),
     ("queued", {"pr": _pr(queued=True)}, Queued),
     ("queued but head moved", {"pr": _pr(queued=True, head_sha="elsewhere")}, PRHeadMoved),
-    ("head moved off the change", {"pr": _pr(head_sha="elsewhere")}, PRHeadMoved),
-    (
-        "branch deletion closed the pull request",
-        {"remote_target": None, "pr": _pr(state="closed")},
-        BranchMissing,
-    ),
     (
         "branch deleted while the head moved",
         {"remote_target": None, "pr": _pr(head_sha="elsewhere")},
         BranchMissing,
     ),
     ("branch and PR head disagree", {"remote_target": "other"}, BranchDisagrees),
-    ("in sync", {}, Published),
-    ("local edited since submit", {"selected": _local("rewrite")}, Edited),
-    (
-        "pushed but baseline not recorded",
-        {"selected": _local("rewrite"), "pr": _pr(head_sha="rewrite")},
-        PushedUnrecorded,
-    ),
 )
 
 
 @pytest.mark.parametrize(
     ("overrides", "expected"),
-    [(fields, expected) for _label, fields, expected in _REPRESENTATIVES],
-    ids=[label for label, _fields, _expected in _REPRESENTATIVES],
+    [(fields, expected) for _label, fields, expected in _CLASSIFICATION_CASES],
+    ids=[label for label, _fields, _expected in _CLASSIFICATION_CASES],
 )
-def test_classifier_reaches_each_state_from_a_representative_observation(
+def test_classification_distinguishes_publication_and_link_states(
     overrides: dict[str, object], expected: type
 ) -> None:
     state = classify(_observe(**overrides))

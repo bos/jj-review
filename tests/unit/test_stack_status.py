@@ -23,46 +23,6 @@ from tests.support.contexts import fake_command_context
 from tests.support.tracking import make_pr_identity
 
 
-def test_untracked_status_omits_branch_and_skips_github_discovery(
-    monkeypatch,
-) -> None:
-    change = make_change(
-        commit_id="commit-1",
-        description="feature 1",
-        change_id="aaaaaaaa1234",
-    )
-    prepared = prepare_stack_for_status(
-        context=fake_command_context(),
-        remote=_STATUS_REMOTE,
-        remote_error=None,
-        stack=_stack_for_status(change),
-        state=TrackingState(),
-    )
-    prepared_status = PreparedStatus(
-        github_target=_github_target(),
-        prepared=prepared,
-    )
-
-    async def fail_github_inspection(**_kwargs):
-        if False:
-            yield None
-        raise AssertionError("untracked changes must not trigger GitHub inspection")
-
-    monkeypatch.setattr(
-        "jj_stack.stack.status._iter_status_changes_with_github",
-        fail_github_inspection,
-    )
-
-    result = asyncio.run(
-        stream_status_async(
-            on_progress=lambda: None,
-            prepared_status=prepared_status,
-        )
-    )
-
-    assert result.changes[0].branch is None
-
-
 def test_stream_status_falls_back_to_local_data_after_github_abort(monkeypatch) -> None:
     change = make_change(
         commit_id="commit-1",

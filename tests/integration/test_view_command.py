@@ -37,6 +37,11 @@ def test_view_json_reports_public_stack_status(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     change_id = selected_stack(repo).head.change_id
     fake_repo.prs[1].check_rollup_state = "SUCCESS"
+    fake_repo.prs[1].state = "closed"
+    fake_repo.prs[1].merged_at = "2026-03-16T12:00:00Z"
+
+    assert run_main(repo, config_path, "view") == 0
+    assert "PR #1 merged, sync needed" in capsys.readouterr().out
 
     exit_code = run_main(repo, config_path, "view", "--json")
     captured = capsys.readouterr()
@@ -67,7 +72,7 @@ def test_view_json_reports_public_stack_status(
     }
     assert change["change_id"] == change_id
     assert change["branch"].startswith("jj-stack/feature-1-")
-    assert change["status"] == "open"
+    assert change["status"] == "merged"
     assert change["subject"] == "feature 1"
     assert change["pr"]["number"] == 1
     assert change["pr"]["checks"] == "passed"
@@ -520,7 +525,7 @@ def test_view_reports_unsubmitted_after_state_loss(
     assert "branch" not in change
 
 
-def test_view_preserves_saved_pr_link_when_github_reports_missing(
+def test_list_and_view_report_a_missing_pr_without_forgetting_its_link(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -547,24 +552,7 @@ def test_view_preserves_saved_pr_link_when_github_reports_missing(
     assert change_id[:8] in captured.out
     assert refreshed_state.prs[change_id].pr_identity.pr_number == 1
 
-
-def test_view_reports_merged_pr_state(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    stack = selected_stack(repo)
-    change_id = stack.changes[-1].change_id
-    state_store = TrackingStore.for_repo(repo)
-    fake_repo.prs[1].state = "closed"
-    fake_repo.prs[1].merged_at = "2026-03-16T12:00:00Z"
-
-    exit_code = run_main(repo, config_path, "view", change_id)
-    captured = capsys.readouterr()
-    state_store.load()
-
-    assert exit_code == 0
-    assert "PR #1 merged, sync needed" in captured.out
+    assert run_main(repo, config_path, "list") == EXIT_INCOMPLETE
+    listed = capsys.readouterr()
+    assert "missing PR" in listed.out
+    assert "PR 1" in listed.out
