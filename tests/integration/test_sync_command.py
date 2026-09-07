@@ -114,7 +114,7 @@ def test_sync_dry_run_previews_rebase_and_skips_submit_preview(
     assert fake_repo.prs[2].base_ref == original_base_ref
 
 
-def test_sync_reconciles_a_fork_child_after_its_whole_parent_stack_merged(
+def test_sync_recovers_an_unrecorded_fork_after_its_parent_stack_merged(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -129,6 +129,23 @@ def test_sync_reconciles_a_fork_child_after_its_whole_parent_stack_merged(
     fork = selected_stack(repo).head
     submit_exit = run_main(repo, config_path, "submit", "--base", first.change_id, fork.change_id)
     assert submit_exit == 0, capsys.readouterr()
+    baseline = state_store.load().prs[fork.change_id].submitted_baseline.commit_id
+    run_command(["jj", "describe", "-r", fork.change_id, "-m", "amended fork work"], repo)
+    pushed = JjClient(repo).resolve_commit(fork.change_id).commit_id
+
+    def fail_acknowledgement(*_args, **_kwargs):
+        raise CliError("injected submit acknowledgement failure")
+
+    with monkeypatch.context() as interrupted_submit:
+        interrupted_submit.setattr(TrackingStore, "relink_pr", fail_acknowledgement)
+        submit_exit = run_main(
+            repo, config_path, "submit", "--base", first.change_id, fork.change_id
+        )
+    interrupted = capsys.readouterr()
+    assert submit_exit == 1
+    assert "injected submit acknowledgement failure" in interrupted.err
+    assert state_store.load().prs[fork.change_id].submitted_baseline.commit_id == baseline
+    assert fake_repo.prs[3].head_sha == pushed != baseline
     fake_repo.apply_merge_commit((fake_repo.prs[1], fake_repo.prs[2]))
 
     exit_code = run_main(repo, config_path, "sync")
@@ -137,6 +154,7 @@ def test_sync_reconciles_a_fork_child_after_its_whole_parent_stack_merged(
     assert exit_code == 0, (captured.out, captured.err)
     jj = JjClient(repo)
     rewritten_fork = jj.resolve_commit(fork.change_id)
+    assert rewritten_fork.commit_id != pushed
     assert rewritten_fork.parents == (read_remote_ref(fake_repo.git_dir, "main"),)
     assert jj.resolve_commit("@").parents == (rewritten_fork.commit_id,)
     state = state_store.load()
@@ -746,12 +764,12 @@ def test_sync_retries_stack_adoption_after_survivor_submit_fails(
     on_trunk, survivor = selected_stack(repo).changes
     baseline_before = state_store.load().prs[survivor.change_id].submitted_baseline
     remote_survivor = _simulate_stack_partial_merge(fake_repo)
-    real_run_submit = sync_apply.run_submit_async
+    real_refresh = sync_apply.refresh_selected_prs
 
-    async def fail_submit(**_kwargs):
+    async def fail_refresh(**_kwargs):
         raise CliError("injected survivor submit failure")
 
-    monkeypatch.setattr(sync_apply, "run_submit_async", fail_submit)
+    monkeypatch.setattr(sync_apply, "refresh_selected_prs", fail_refresh)
     exit_code = run_main(repo, config_path, "sync", survivor.change_id)
     failed = capsys.readouterr()
 
@@ -765,7 +783,7 @@ def test_sync_retries_stack_adoption_after_survivor_submit_fails(
     assert remote_survivor != baseline_before.commit_id
     assert JjClient(repo).resolve_commit(survivor.change_id).commit_id == remote_survivor
 
-    monkeypatch.setattr(sync_apply, "run_submit_async", real_run_submit)
+    monkeypatch.setattr(sync_apply, "refresh_selected_prs", real_refresh)
     retry_exit_code = run_main(repo, config_path, "sync", survivor.change_id)
     retry = capsys.readouterr()
 

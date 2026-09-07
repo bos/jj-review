@@ -39,7 +39,7 @@ class OnTrunkChange:
 @dataclass(frozen=True, slots=True)
 class ConvergenceActions:
     on_trunk: tuple[OnTrunkChange, ...]
-    submitted_survivors: tuple[LocalCommit, ...]
+    submitted_survivors: dict[str, GithubPR]
     survivors: tuple[LocalCommit, ...]
     working_copy_children: tuple[LocalCommit, ...]
 
@@ -49,7 +49,7 @@ class AdoptedSurvivor:
     change_id: str
     candidate: TrackedPR
     local_change: LocalCommit
-    remote_commit_id: CommitId
+    pr: GithubPR
 
 
 @dataclass(frozen=True, slots=True)

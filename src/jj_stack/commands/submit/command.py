@@ -37,16 +37,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
 import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext, bootstrap_context
-from jj_stack.concurrency import DEFAULT_BOUNDED_CONCURRENCY
 from jj_stack.errors import CliError
-from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
+from jj_stack.github.client import GithubClientError, build_github_client
 from jj_stack.github.resolution import (
     require_github_repo,
     resolve_trunk_branch,
@@ -54,14 +52,13 @@ from jj_stack.github.resolution import (
 from jj_stack.github.stack_availability import github_stacks_unavailable_error
 from jj_stack.identifiers import CommitId, short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
-from jj_stack.jj.client import JjClient, PRRefUpdate
+from jj_stack.jj.client import JjClient
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR, GithubRepo, GithubStack
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import TrackedPR
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_matches_change
 from jj_stack.stack.change_state import ChangeObservation
-from jj_stack.stack.github_stack_safety import dissolve_github_stack
 from jj_stack.stack.pr_branches import (
     ResolvedPRBranch,
     ensure_new_pr_branches_unclaimed,
@@ -73,34 +70,20 @@ from jj_stack.stack.selection import (
 from jj_stack.stack.status import discover_pr_lookups
 from jj_stack.state.operation_lock import operation_lock_if_mutating
 
-from . import auto_close
-from .auto_close import retarget_pr_bases_before_branch_push
 from .changes import prepare_submit_changes, require_published_base
-from .comments import sync_submit_comments
 from .descriptions import edit_prs_in_editor, preserve_external_pr_text
-from .github_stack import (
-    GithubStackPlan,
-    apply_github_stack_plan,
-    omitted_active_stack_prs,
-    plan_github_stack,
-)
-from .inputs import confirm_orphaned_pr_snapshots, prepare_submit_inputs
+from .inputs import prepare_submit_inputs
 from .models import (
-    GeneratedDescription,
-    PreparedSubmitChange,
-    PreparedSubmitInputs,
     PRMetadataAction,
-    PRSyncPlan,
     SubmitDraftMode,
-    SubmitMutationRun,
     SubmitOptions,
     SubmitResult,
     SubmittedChange,
 )
 from .prs import (
     load_re_request_reviewers,
-    sync_prs,
 )
+from .publication import plan_pr_updates, publish_prepared
 from .render import print_selected_line, print_submit_result
 
 HELP = "Create or update PRs for a jj stack"
@@ -209,7 +192,6 @@ def _submit_options_from_cli(
         ),
         dry_run=dry_run,
         edit=edit,
-        existing_only=False,
         labels=parse_comma_separated_flag_values(labels),
         re_request=re_request,
         reviewers=parse_comma_separated_flag_values(reviewers),
@@ -252,56 +234,15 @@ def _build_submit_result(
     )
 
 
-def _pr_sync_plans(
-    *,
-    bottom_base_branch: str,
-    context: CommandContext,
-    drafts: dict[str, bool],
-    generated_descriptions: dict[str, GeneratedDescription],
-    options: SubmitOptions,
-    prepared_changes: tuple[PreparedSubmitChange, ...],
-    prior_reviewers: Mapping[int, list[str]],
-) -> tuple[PRSyncPlan, ...]:
-    """Build one final desired-state plan after optional editing."""
-
+def _pr_metadata(*, context: CommandContext, options: SubmitOptions) -> PRMetadataAction:
     config = context.config
-    labels = config.labels if options.labels is None else options.labels
-    reviewers = config.reviewers if options.reviewers is None else options.reviewers
-    team_reviewers = (
-        config.team_reviewers if options.team_reviewers is None else options.team_reviewers
+    return PRMetadataAction(
+        labels=config.labels if options.labels is None else options.labels,
+        reviewers=config.reviewers if options.reviewers is None else options.reviewers,
+        team_reviewers=(
+            config.team_reviewers if options.team_reviewers is None else options.team_reviewers
+        ),
     )
-    # An explicitly empty override, such as --reviewers '', asks for no reviewers rather
-    # than for the configured labels and team reviewers to be written to an unchanged PR.
-    explicit_metadata = bool(options.labels or options.reviewers or options.team_reviewers)
-    base_branches = (
-        bottom_base_branch,
-        *(change.branch for change in prepared_changes[:-1]),
-    )
-    plans: list[PRSyncPlan] = []
-    for prepared, base_branch in zip(prepared_changes, base_branches, strict=True):
-        pr = prepared.pr
-        plan = PRSyncPlan(
-            base_branch=base_branch,
-            discovered_pr=pr,
-            draft=drafts[prepared.change.change_id],
-            generated_description=generated_descriptions[prepared.change.change_id],
-            metadata=None,
-            prepared=prepared,
-        )
-        prior = prior_reviewers.get(pr.number, ()) if pr else ()
-        merged_reviewers = list(dict.fromkeys((*reviewers, *prior)))
-        full_metadata = plan.action != "unchanged" or explicit_metadata
-        if full_metadata or merged_reviewers != reviewers:
-            plan = replace(
-                plan,
-                metadata=PRMetadataAction(
-                    labels=labels if full_metadata else [],
-                    reviewers=merged_reviewers,
-                    team_reviewers=team_reviewers if full_metadata else [],
-                ),
-            )
-        plans.append(plan)
-    return tuple(plans)
 
 
 def _desired_draft_state(
@@ -451,77 +392,6 @@ def _submit_remote_branch_queries(
     return exact_branches, recovery_suffixes
 
 
-async def _apply_planned_submit(
-    *,
-    github_client: GithubClient,
-    github_stack_plan: GithubStackPlan,
-    prepared_inputs: PreparedSubmitInputs,
-    pr_plans: tuple[PRSyncPlan, ...],
-    pr_branch_ref_updates: tuple[PRRefUpdate, ...],
-    retarget_plans: tuple[PRSyncPlan, ...],
-    run: SubmitMutationRun,
-    stacks_to_dissolve: tuple[GithubStack, ...],
-    trunk_branch: str,
-) -> tuple[SubmittedChange, ...]:
-    if not run.dry_run:
-        for github_stack in stacks_to_dissolve:
-            await dissolve_github_stack(github_client=github_client, stack=github_stack)
-        # GitHub has no transaction spanning PR branches, pull requests, and stack
-        # membership. An external stack edit can race this mutation, and submit accepts that
-        # narrow window rather than pretending another non-atomic observation closes it.
-        if retarget_plans:
-            await retarget_pr_bases_before_branch_push(
-                github_client=github_client,
-                plans=retarget_plans,
-                trunk_branch=trunk_branch,
-            )
-        with console.spinner(description="Pushing PR branches"):
-            prepared_inputs.client.mutate_remote_pr_branch_refs(
-                remote=prepared_inputs.remote.name,
-                updates=pr_branch_ref_updates,
-            )
-    with console.progress(
-        description="Syncing pull requests",
-        total=len(pr_plans),
-    ) as progress:
-        submitted = await sync_prs(
-            github_client=github_client,
-            on_progress=progress.advance,
-            plans=pr_plans,
-            run=run,
-        )
-    if not run.dry_run:
-        pr_numbers = tuple(change.pr.number for change in submitted if change.pr is not None)
-        if len(pr_numbers) != len(submitted):
-            raise AssertionError("GitHub stack submit requires concrete pull request numbers.")
-        grouped = await apply_github_stack_plan(
-            github_client=github_client,
-            plan=github_stack_plan,
-            pr_numbers=pr_numbers,
-        )
-        actions = [f"dissolved GitHub stack #{stack.number}" for stack in stacks_to_dissolve]
-        if grouped is not None:
-            verb = "extended" if github_stack_plan.action == "append" else "created"
-            actions.append(f"{verb} GitHub stack #{grouped.number}")
-        run.github_stack_actions = tuple(actions)
-        submitted_force_pushes_by_pr = {
-            pr_number: (expected_target, change.prepared.change.commit_id)
-            for change, pr_number in zip(submitted, pr_numbers, strict=True)
-            if change.pr_action != "created"
-            and change.prepared.remote_action == "pushed"
-            and (expected_target := change.prepared.expected_remote_target) is not None
-        }
-        await sync_submit_comments(
-            base_is_another_pr=pr_plans[0].base_branch != trunk_branch,
-            concurrency=DEFAULT_BOUNDED_CONCURRENCY,
-            generated_stack_description=prepared_inputs.generated_stack_description,
-            github_client=github_client,
-            pr_numbers=pr_numbers,
-            submitted_force_pushes_by_pr=submitted_force_pushes_by_pr,
-        )
-    return submitted
-
-
 async def run_submit_async(
     *,
     context: CommandContext,
@@ -594,7 +464,6 @@ async def run_submit_async(
             for branch, change_id in branches.items()
         }
 
-    submitted_changes: tuple[SubmittedChange, ...] = ()
     generated_edit_path: Path | None = None
     async with build_github_client(repo=github_repo) as github_client:
         generated_descriptions = prepared_inputs.generated_pr_descriptions
@@ -680,17 +549,9 @@ async def run_submit_async(
             )
         prepared_changes = prepare_submit_changes(
             branch_resolutions=branch_resolutions,
-            existing_only=options.existing_only,
             lookups=lookups,
             remote_targets=remote_targets,
             stack=stack,
-        )
-        if not dry_run:
-            state_store.require_writable()
-        mutation_run = SubmitMutationRun(
-            dry_run=dry_run,
-            state=state,
-            state_store=state_store,
         )
         bottom_base_branch = trunk_branch
         if explicit_base is not None and tracked_base is not None and base_branch is not None:
@@ -750,105 +611,29 @@ async def run_submit_async(
             if options.re_request and not dry_run
             else {}
         )
-        pr_plans = _pr_sync_plans(
+        pr_plans = plan_pr_updates(
             bottom_base_branch=bottom_base_branch,
-            context=context,
             drafts=drafts,
             generated_descriptions=generated_descriptions,
-            options=options,
+            metadata=_pr_metadata(context=context, options=options),
+            explicit_metadata=bool(options.labels or options.reviewers or options.team_reviewers),
             prepared_changes=prepared_changes,
             prior_reviewers=re_request_reviewers,
         )
-        pushes_pr_branches = any(change.remote_action == "pushed" for change in prepared_changes)
-        planned_branches = {change.branch for change in prepared_changes}
-        observed_base_refs = tuple(
-            dict.fromkeys(
-                pr.base.ref
-                for plan in pr_plans
-                if (pr := plan.discovered_pr) is not None
-                and pr.state == "open"
-                and pr.base.ref not in planned_branches
-                and pr.base.ref not in trunk_targets
-                and pr.base.ref not in remote_targets
-            )
-        )
-        observed_base_targets = await github_client.get_branch_targets(
-            branches=observed_base_refs,
-        )
-        retarget_plans = (
-            auto_close.predict_prs_auto_closed_by_push(
-                jj_client=client,
-                plans=pr_plans,
-                prepared_changes=prepared_changes,
-                remote_targets={**trunk_targets, **remote_targets, **observed_base_targets},
-            )
-            if pushes_pr_branches
-            else ()
-        )
-        desired_pr_numbers = tuple(
-            plan.discovered_pr.number if plan.discovered_pr is not None else None
-            for plan in pr_plans
-        )
-        omitted_stack_prs = (
-            omitted_active_stack_prs(
-                desired=desired_pr_numbers,
-                observed_stacks=observed_stacks,
-            )
-            if not prepared_inputs.is_maximal_path
-            else ()
-        )
-        orphaned_pr_snapshots = confirm_orphaned_pr_snapshots(
-            candidates=omitted_stack_prs,
-            jj_client=client,
-            state=state,
-        )
-        github_stack_plan = plan_github_stack(
-            desired=desired_pr_numbers,
-            is_maximal_path=prepared_inputs.is_maximal_path,
-            observed_stacks=observed_stacks,
-            orphaned_pr_snapshots=orphaned_pr_snapshots,
-            pr_numbers_requiring_base_update={
-                pr.number
-                for plan in pr_plans
-                if (pr := plan.discovered_pr) is not None
-                and (pr.base.ref != plan.base_branch or plan in retarget_plans)
-            },
-            repo=github_client.repo,
-        )
-        stacks_to_dissolve = (
-            github_stack_plan.affected_stacks if github_stack_plan.action == "replace" else ()
-        )
-        if stacks_to_dissolve:
-            github_stack_plan = GithubStackPlan("create" if len(pr_plans) > 1 else "none")
-        pr_branch_ref_updates = tuple(
-            PRRefUpdate(
-                branch=prepared.branch,
-                expected_target=prepared.expected_remote_target,
-                desired_target=prepared.change.commit_id,
-            )
-            for prepared in prepared_changes
-        )
-
-        submitted_changes = await _apply_planned_submit(
+        result = await publish_prepared(
+            context=context,
             github_client=github_client,
-            github_stack_plan=github_stack_plan,
             prepared_inputs=prepared_inputs,
             pr_plans=pr_plans,
-            pr_branch_ref_updates=pr_branch_ref_updates,
-            retarget_plans=retarget_plans,
-            run=mutation_run,
-            stacks_to_dissolve=stacks_to_dissolve,
+            remote_targets=remote_targets,
+            observed_stacks=observed_stacks,
             trunk_branch=trunk_branch,
+            trunk_targets=trunk_targets,
+            dry_run=dry_run,
         )
     if generated_edit_path is not None:
         try:
             generated_edit_path.unlink(missing_ok=True)
         except OSError:
             pass
-    return _build_submit_result(
-        client=client,
-        dry_run=dry_run,
-        changes=submitted_changes,
-        github_stack_actions=mutation_run.github_stack_actions,
-        stack=stack,
-    )
+    return result

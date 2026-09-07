@@ -31,7 +31,6 @@ class SubmitOptions:
     draft_mode: SubmitDraftMode
     dry_run: bool
     edit: bool | Path
-    existing_only: bool
     labels: list[str] | None
     re_request: bool
     reviewers: list[str] | None
@@ -45,10 +44,13 @@ class PreparedSubmitChange:
 
     branch: str
     expected_remote_target: CommitId | None
-    remote_action: RemoteBranchAction
     change: LocalCommit
     # The saved pull request GitHub reports, or None when submit creates one.
     pr: GithubPR | None
+
+    @property
+    def remote_action(self) -> RemoteBranchAction:
+        return "up to date" if self.expected_remote_target == self.change.commit_id else "pushed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,8 +148,8 @@ class PRSyncPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class PreparedSubmitInputs:
-    """Local submit inputs prepared before GitHub mutations begin."""
+class PublicationInputs:
+    """Local publication inputs prepared before GitHub mutations begin."""
 
     branch_resolutions: tuple[ResolvedPRBranch, ...]
     client: JjClient

@@ -25,7 +25,6 @@ from jj_stack.stack.change_state import (
     Queued,
     Stop,
     Unobserved,
-    Unpublished,
     WithPR,
     classify,
     live_pr,
@@ -43,7 +42,6 @@ def prepare_submit_changes(
     lookups: Mapping[str, ChangeObservation],
     remote_targets: Mapping[str, CommitId],
     stack: LocalStack,
-    existing_only: bool = False,
 ) -> tuple[PreparedSubmitChange, ...]:
     """Classify every selected change and describe the one atomic remote update.
 
@@ -64,12 +62,11 @@ def prepare_submit_changes(
         change_state = classify(
             replace(lookups[resolution.branch], remote_target=observed_target)
         )
-        _require_submittable(change_state, head_change_id=head, existing_only=existing_only)
+        _require_submittable(change_state, head_change_id=head)
         prepared.append(
             PreparedSubmitChange(
                 branch=resolution.branch,
                 expected_remote_target=remote_target,
-                remote_action=("up to date" if remote_target == change.commit_id else "pushed"),
                 change=change,
                 pr=live_pr(change_state),
             )
@@ -81,7 +78,6 @@ def _require_submittable(
     state: ChangeState,
     *,
     head_change_id: str,
-    existing_only: bool,
 ) -> None:
     short = short_change_id(state.change_id)
     head = short_change_id(head_change_id)
@@ -105,11 +101,6 @@ def _require_submittable(
                 else t"Reopen the PR, or run {ui.cmd(f'jj-stack cleanup {short}')} before "
                 t"submitting a new PR."
             ),
-        )
-    if existing_only and isinstance(state, Unpublished):
-        raise CliError(
-            t"Cannot sync {ui.change_id(state.change_id)} without its existing pull request.",
-            hint=t"Repair the PR link with {ui.cmd('jj-stack relink')} before retrying.",
         )
 
 

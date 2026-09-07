@@ -48,6 +48,7 @@ governed = [
   "src/jj_stack/commands/merge",
   "src/jj_stack/commands/sync.py",
   "src/jj_stack/commands/sync_apply.py",
+  "src/jj_stack/commands/sync_prs.py",
   "src/jj_stack/models/tracking.py",
   "src/jj_stack/state/migrations.py",
   "src/jj_stack/state/store.py",

@@ -88,6 +88,7 @@ def build_selected_convergence_plan(
     active_ids = {item.change_id for item in adopted}
     on_trunk = list(history)
     survivors: list[LocalCommit] = []
+    surviving_prs = {item.change_id: item.pr for item in adopted}
     rerun = f"jj-stack sync {short_change_id(selected[-1].change_id)}"
     for change in (item for item in selected if item.change_id not in history_ids):
         candidate = state.prs.get(change.change_id)
@@ -113,6 +114,7 @@ def build_selected_convergence_plan(
             )
         if not isinstance(change_state, Landed):
             survivors.append(change)
+            surviving_prs[change.change_id] = change_state.pr
             continue
         evidence_kind = change_state.evidence
         if survivors:
@@ -151,7 +153,7 @@ def build_selected_convergence_plan(
 
     _require_no_unpublished_edits(tuple(on_trunk))
     _require_no_checked_out_merged_changes(tuple(on_trunk))
-    submitted = _submitted_survivors(survivors=tuple(survivors), state=state)
+    submitted = _submitted_survivors(survivors=tuple(survivors), prs=surviving_prs)
     local_head = selected[-1]
     working_copy_children = tuple(
         commit
@@ -182,14 +184,14 @@ def build_selected_convergence_plan(
 def _submitted_survivors(
     *,
     survivors: tuple[LocalCommit, ...],
-    state: TrackingState,
-) -> tuple[LocalCommit, ...]:
+    prs: dict[str, GithubPR],
+) -> dict[str, GithubPR]:
     """Return the tracked survivors, which must sit below every untracked one."""
 
-    submitted: list[LocalCommit] = []
+    submitted: dict[str, GithubPR] = {}
     saw_unsubmitted = False
     for change in survivors:
-        if state.prs.get(change.change_id) is None:
+        if (pr := prs.get(change.change_id)) is None:
             saw_unsubmitted = True
             continue
         if saw_unsubmitted:
@@ -199,8 +201,8 @@ def _submitted_survivors(
                 hint=t"Submit the complete stack with {ui.cmd('jj-stack submit HEAD')}, or "
                 t"select a stack that ends below the unsubmitted change.",
             )
-        submitted.append(change)
-    return tuple(submitted)
+        submitted[change.change_id] = pr
+    return submitted
 
 
 def _member_state(
@@ -353,6 +355,12 @@ def _classify_github_stack(
         local = selected_by_id[change_id]
         if isinstance(member_state, Closed):
             raise _closed_error(member_state)
+        if pr.state == "merged":
+            raise CliError(
+                t"PR #{pr.number} is merged, but GitHub stack #{stack.number} still lists "
+                t"it as active.",
+                hint="Wait for GitHub to update the stack, then rerun sync.",
+            )
         _validate_active_member(
             expected_base=expected_base,
             merge_mode=merge_mode,
@@ -362,13 +370,12 @@ def _classify_github_stack(
             selected_change=local,
             stack=stack,
         )
-        adopted.append(AdoptedSurvivor(change_id, candidate, local, member.head.sha))
+        adopted.append(AdoptedSurvivor(change_id, candidate, local, pr))
         expected_base = candidate.pr_identity.head_ref
     result = tuple(adopted)
     if not merge_mode:
         if any(
-            item.remote_commit_id == item.candidate.submitted_baseline.commit_id
-            for item in result
+            item.pr.head.sha == item.candidate.submitted_baseline.commit_id for item in result
         ):
             raise _unproven_rewrite_error(stack)
         return _GithubStackRebase(result)

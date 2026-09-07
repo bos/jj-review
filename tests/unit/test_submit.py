@@ -6,15 +6,9 @@ from unittest.mock import Mock
 import pytest
 
 from jj_stack.commands.submit.changes import prepare_submit_changes
-from jj_stack.commands.submit.command import (
-    _pr_sync_plans,
-)
+from jj_stack.commands.submit.command import _pr_metadata
 from jj_stack.commands.submit.inputs import preflight_private_commits
-from jj_stack.commands.submit.models import (
-    GeneratedDescription,
-    PreparedSubmitChange,
-    SubmitOptions,
-)
+from jj_stack.commands.submit.models import SubmitOptions
 from jj_stack.commands.submit.overview_comments import sync_stack_overview_comments
 from jj_stack.commands.submit.revision_comments import _include_submitted_force_push
 from jj_stack.config import AppConfig
@@ -22,12 +16,8 @@ from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.identifiers import CommitId
-from jj_stack.models.git import GitRemote
 from jj_stack.models.github import (
-    GithubBranchRef,
     GithubIssueComment,
-    GithubPR,
-    GithubPRHead,
     GithubPRRevision,
 )
 from jj_stack.models.stack import LocalCommit, LocalStack
@@ -36,9 +26,6 @@ from jj_stack.stack.pr_branches import ResolvedPRBranch
 from jj_stack.stack.status import discover_pr_lookups
 from tests.support.change_helpers import make_change
 from tests.support.contexts import fake_command_context
-
-_REMOTE_URL = "https://github.test/octo-org/repo.git"
-_REMOTE = GitRemote(name="origin", fetch_url=_REMOTE_URL, push_url=_REMOTE_URL)
 
 
 def test_overview_comment_move_keeps_source_when_head_creation_fails() -> None:
@@ -82,47 +69,9 @@ def test_overview_comment_move_keeps_source_when_head_creation_fails() -> None:
     assert client.deleted_comment_ids == []
 
 
-def _prepare(
-    change: LocalCommit,
-    *,
-    branch: str,
-    lookup: ChangeObservation,
-    remote_target: str,
-):
-    return prepare_submit_changes(
-        branch_resolutions=(
-            ResolvedPRBranch(
-                branch=branch,
-                change_id=change.change_id,
-            ),
-        ),
-        lookups={branch: lookup},
-        remote_targets={branch: CommitId(remote_target)},
-        stack=_local_stack(change),
-    )
-
-
-def test_prepare_submit_changes_rejects_unclaimed_existing_branch() -> None:
-    change = make_change(commit_id="current-commit", change_id="abcdefghijk", description="f\n")
-
-    with pytest.raises(CliError, match="already exists"):
-        _prepare(
-            change,
-            branch="jj-stack/feature-abcdefgh",
-            lookup=ChangeObservation(
-                change_id=change.change_id,
-                branch="jj-stack/feature-abcdefgh",
-                tracked=None,
-                local=(change,),
-                selected=change,
-                open_prs_on_branch=(),
-            ),
-            remote_target="another-commit",
-        )
-
-
 def test_first_submit_stops_when_github_rejects_the_open_pr_lookup() -> None:
     change = make_change(commit_id="current", change_id="abcdefghijk", description="feature\n")
+    trunk = make_change(commit_id="trunk", change_id="trunk-change", description="base\n")
     branch = "jj-stack/feature-abcdefgh"
 
     github = Mock(spec=GithubClient)
@@ -146,7 +95,18 @@ def test_first_submit_stops_when_github_rejects_the_open_pr_lookup() -> None:
     )[branch]
 
     with pytest.raises(CliError, match="GitHub 422"):
-        _prepare(change, branch=branch, lookup=lookup, remote_target=change.commit_id)
+        prepare_submit_changes(
+            branch_resolutions=(ResolvedPRBranch(branch=branch, change_id=change.change_id),),
+            lookups={branch: lookup},
+            remote_targets={branch: change.commit_id},
+            stack=LocalStack(
+                base_parent=trunk,
+                head=change,
+                changes=(change,),
+                selected_revset=change.change_id,
+                trunk=trunk,
+            ),
+        )
 
 
 def test_preflight_private_commits_rejects_blocked_change() -> None:
@@ -167,26 +127,15 @@ def test_preflight_private_commits_rejects_blocked_change() -> None:
         preflight_private_commits(PrivateCommitClient(), (private,))
 
 
-def test_pr_plan_prefers_cli_metadata_over_config() -> None:
-    context = fake_command_context(
-        config=AppConfig(
-            labels=["config-label"],
-            reviewers=["config-user"],
-            team_reviewers=["config-team"],
+def test_submit_metadata_prefers_cli_values_over_config() -> None:
+    metadata = _pr_metadata(
+        context=fake_command_context(
+            config=AppConfig(
+                labels=["config-label"],
+                reviewers=["config-user"],
+                team_reviewers=["config-team"],
+            ),
         ),
-    )
-
-    change = make_change(
-        commit_id="current-commit",
-        change_id="abcdefghijk",
-        description="feature\n",
-    )
-    branch = "jj-stack/feature-abcdefgh"
-    plans = _pr_sync_plans(
-        bottom_base_branch="main",
-        context=context,
-        drafts={change.change_id: False},
-        generated_descriptions={change.change_id: GeneratedDescription(body="", title="feature")},
         options=SubmitOptions(
             base_revset=None,
             descriptions=(),
@@ -194,59 +143,17 @@ def test_pr_plan_prefers_cli_metadata_over_config() -> None:
             draft_mode="default",
             dry_run=False,
             edit=False,
-            existing_only=False,
             labels=["cli-label"],
             re_request=False,
             reviewers=["cli-user"],
             revset="@",
             team_reviewers=None,
         ),
-        prepared_changes=(
-            PreparedSubmitChange(
-                branch=branch,
-                expected_remote_target=CommitId("old-commit"),
-                remote_action="pushed",
-                change=change,
-                pr=GithubPR(
-                    base=GithubBranchRef(ref="main"),
-                    body="",
-                    head=GithubPRHead(
-                        label=f"octo-org:{branch}",
-                        ref=branch,
-                        sha="head-commit",
-                    ),
-                    html_url="https://github.test/octo-org/repo/pull/17",
-                    node_id="PR_17",
-                    number=17,
-                    state="open",
-                    title="feature",
-                ),
-            ),
-        ),
-        prior_reviewers={},
     )
 
-    plan = plans[0]
-    assert plan.action == "unchanged"
-    assert plan.metadata is not None
-    assert plan.metadata.labels == ["cli-label"]
-    assert plan.metadata.reviewers == ["cli-user"]
-    assert plan.metadata.team_reviewers == ["config-team"]
-
-
-def _local_stack(*changes: LocalCommit) -> LocalStack:
-    trunk = make_change(
-        commit_id="trunk",
-        change_id="trunk-change",
-        description="base\n",
-    )
-    return LocalStack(
-        base_parent=trunk,
-        head=changes[-1],
-        changes=changes,
-        selected_revset=changes[-1].change_id,
-        trunk=trunk,
-    )
+    assert metadata.labels == ["cli-label"]
+    assert metadata.reviewers == ["cli-user"]
+    assert metadata.team_reviewers == ["config-team"]
 
 
 def test_revision_history_fills_only_the_force_push_github_has_not_indexed() -> None:

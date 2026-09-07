@@ -8,6 +8,7 @@ from jj_stack.errors import CliError, ConflictedStackError, UsageError
 from jj_stack.github.resolution import select_submit_remote
 from jj_stack.identifiers import short_change_id
 from jj_stack.jj.client import JjClient
+from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubStackPR
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import TrackingState
@@ -18,8 +19,8 @@ from jj_stack.stack.selected import require_submittable_changes, select_stack_pa
 from .descriptions import resolve_generated_descriptions
 from .github_stack import GithubStackPRSnapshot, github_stack_pr_snapshot
 from .models import (
-    PreparedSubmitInputs,
     PrivateCommitFinder,
+    PublicationInputs,
     SubmitOptions,
 )
 
@@ -29,7 +30,7 @@ def prepare_submit_inputs(
     context: CommandContext,
     options: SubmitOptions,
     state: TrackingState,
-) -> PreparedSubmitInputs:
+) -> PublicationInputs:
     """Load local submit state before any GitHub mutation begins."""
 
     client = context.jj_client
@@ -70,6 +71,33 @@ def prepare_submit_inputs(
                 t"refresh it using its usual submit command, "
                 t"then run {retry}.",
             )
+    if options.edit and options.describe_with is not None:
+        raise UsageError(
+            t"{ui.cmd('--describe-with')} cannot be combined with {ui.cmd('--edit')} or "
+            t"{ui.cmd('--resume-edit')}."
+        )
+    return prepare_publication_inputs(
+        context=context,
+        stack=stack,
+        remote=remote,
+        state=state,
+        is_maximal_path=path.is_maximal,
+        descriptions=options.descriptions,
+        describe_with=options.describe_with,
+    )
+
+
+def prepare_publication_inputs(
+    *,
+    context: CommandContext,
+    stack: LocalStack,
+    remote: GitRemote,
+    state: TrackingState,
+    is_maximal_path: bool,
+    descriptions: tuple[str, ...] = (),
+    describe_with: str | None = None,
+) -> PublicationInputs:
+    client = context.jj_client
     require_submittable_changes(stack.changes)
     branch_resolutions = resolve_pr_branches(
         changes=stack.changes,
@@ -77,17 +105,12 @@ def prepare_submit_inputs(
     )
     preflight_conflicted_changes(stack.changes)
     preflight_private_commits(client, stack.changes)
-    if options.edit and options.describe_with is not None:
-        raise UsageError(
-            t"{ui.cmd('--describe-with')} cannot be combined with {ui.cmd('--edit')} or "
-            t"{ui.cmd('--resume-edit')}."
-        )
     (
         generated_pr_descriptions,
         generated_stack_description,
     ) = resolve_generated_descriptions(
-        descriptions=options.descriptions,
-        describe_with=options.describe_with,
+        descriptions=descriptions,
+        describe_with=describe_with,
         jj_client=client,
         selected_revset=stack.selected_revset,
         changes=stack.changes,
@@ -99,12 +122,12 @@ def prepare_submit_inputs(
             if change.change_id in state.prs
         )
     )
-    return PreparedSubmitInputs(
+    return PublicationInputs(
         branch_resolutions=branch_resolutions,
         client=client,
         generated_pr_descriptions=generated_pr_descriptions,
         generated_stack_description=generated_stack_description,
-        is_maximal_path=path.is_maximal,
+        is_maximal_path=is_maximal_path,
         remote=remote,
         stack=stack,
         state=state,

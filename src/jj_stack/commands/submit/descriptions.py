@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Literal
@@ -95,7 +95,7 @@ def resolve_generated_descriptions(
 def preserve_external_pr_text(
     *,
     descriptions: dict[str, GeneratedDescription],
-    prs: dict[str, GithubPR | None],
+    prs: Mapping[str, GithubPR | None],
     repo_root: Path,
     submitted_commits: dict[str, LocalCommit],
 ) -> dict[str, GeneratedDescription]:

@@ -10,16 +10,15 @@ import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
 from jj_stack.commands.cleanup.command import cleanup_tracked_prs
-from jj_stack.commands.submit.command import run_submit_async
-from jj_stack.commands.submit.models import SubmitOptions
-from jj_stack.commands.submit.render import print_submit_result
-from jj_stack.errors import CliError, ConflictedStackError
+from jj_stack.commands.sync_prs import refresh_selected_prs
+from jj_stack.errors import CliError
 from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubTarget
 from jj_stack.identifiers import ChangeId, CommitId, short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import PRRefUpdate
+from jj_stack.models.github import GithubPR, GithubStack
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import SubmittedBaseline, TrackedPR
 from jj_stack.stack.convergence import divergent_change_error
@@ -109,6 +108,8 @@ async def apply_selected_convergence(
     dry_run: bool,
     github: GithubClient,
     plan: SelectedConvergencePlan,
+    github_stacks: tuple[GithubStack, ...],
+    trunk_branch: str,
     target: GithubTarget,
     trunk_commit_id: CommitId,
 ) -> int:
@@ -136,13 +137,15 @@ async def apply_selected_convergence(
         remote_name=target.remote.name,
         trunk_commit_id=trunk_commit_id,
     )
-    update_result = await _refresh_selected_prs(
+    await refresh_selected_prs(
         actions=actions,
         context=context,
         dry_run=dry_run,
+        github=github,
+        github_stacks=github_stacks,
+        target=target,
+        trunk_branch=trunk_branch,
     )
-    if update_result != 0:
-        return update_result
     return await _cleanup_reconciled_prs(
         context=context,
         dry_run=dry_run,
@@ -183,9 +186,9 @@ def _apply_local_convergence(
         replaced = tuple(
             item.local_change.commit_id
             for item in rewritten
-            if item.local_change.commit_id != item.remote_commit_id
+            if item.local_change.commit_id != item.pr.head.sha
         )
-        destination = top.remote_commit_id
+        destination = top.pr.head.sha
         attachment = context.jj_client.import_remote_pr_branch_ref(
             remote=remote_name,
             branch=top.candidate.pr_identity.head_ref,
@@ -194,7 +197,7 @@ def _apply_local_convergence(
             expected_chain=tuple(
                 (
                     item.candidate.pr_identity.head_ref,
-                    item.remote_commit_id,
+                    item.pr.head.sha,
                     item.change_id,
                 )
                 for item in rewritten
@@ -232,7 +235,7 @@ def _apply_local_convergence(
                 replacements={
                     item.change_id: TrackedPR(
                         pr_identity=item.candidate.pr_identity,
-                        submitted_baseline=SubmittedBaseline(commit_id=item.remote_commit_id),
+                        submitted_baseline=SubmittedBaseline(commit_id=item.pr.head.sha),
                     )
                     for item in rewritten
                 },
@@ -253,11 +256,11 @@ def _apply_github_stack_rebase(
     with context.jj_client.import_remote_pr_branch_ref(
         remote=remote_name,
         branch=top.candidate.pr_identity.head_ref,
-        expected_target=top.remote_commit_id,
+        expected_target=top.pr.head.sha,
         expected_chain=tuple(
             (
                 item.candidate.pr_identity.head_ref,
-                item.remote_commit_id,
+                item.pr.head.sha,
                 (None, item.change_id),
             )
             for item in adopted
@@ -278,7 +281,7 @@ def _apply_github_stack_rebase(
             updates=tuple(
                 PRRefUpdate(
                     branch=item.candidate.pr_identity.head_ref,
-                    expected_target=item.remote_commit_id,
+                    expected_target=item.pr.head.sha,
                     desired_target=desired_by_change[item.change_id].commit_id,
                 )
                 for item in adopted
@@ -344,7 +347,7 @@ def _verified_local_rebase(
         expected_parent = change.commit_id
     desired_by_change: dict[str, LocalCommit] = {item.change_id: item for item in desired}
     tree_pairs = tuple(
-        (desired_by_change[item.change_id].commit_id, item.remote_commit_id) for item in adopted
+        (desired_by_change[item.change_id].commit_id, item.pr.head.sha) for item in adopted
     )
     trees = context.jj_client.git_tree_ids(
         tuple(commit_id for pair in tree_pairs for commit_id in pair)
@@ -385,60 +388,13 @@ def _single_visible_change_ids(
     return change_ids, observed.cli_args
 
 
-async def _refresh_selected_prs(
-    *, actions: ConvergenceActions, context: CommandContext, dry_run: bool
-) -> int:
-    if not actions.on_trunk:
-        return 0
-    if actions.survivors and dry_run:
-        short = short_change_id(actions.survivors[-1].change_id)
-        console.output(
-            t"Run {ui.cmd(f'jj-stack sync {short}')} to apply the "
-            t"rebase and update the remaining pull requests."
-        )
-        return 0
-    if not actions.submitted_survivors:
-        if actions.survivors:
-            console.output("The remaining changes have no pull requests; they stay local.")
-        return 0
-    head_change_id = actions.submitted_survivors[-1].change_id
-    try:
-        result = await run_submit_async(
-            context=context,
-            on_prepared=None,
-            options=SubmitOptions(
-                base_revset=None,
-                descriptions=(),
-                describe_with=None,
-                draft_mode="default",
-                dry_run=dry_run,
-                edit=False,
-                existing_only=True,
-                labels=None,
-                re_request=False,
-                reviewers=None,
-                revset=head_change_id,
-                team_reviewers=None,
-            ),
-        )
-    except ConflictedStackError as error:
-        raise ConflictedStackError(
-            error.message,
-            hint=t"The local rebase is complete. Resolve the conflicts with {ui.cmd('jj')}, "
-            t"then update the remaining pull requests with "
-            t"{ui.cmd(f'jj-stack submit {short_change_id(head_change_id)}')}",
-        ) from error
-    print_submit_result(result)
-    return 0
-
-
 async def _cleanup_reconciled_prs(
     *,
     context: CommandContext,
     dry_run: bool,
     finish_results: tuple[PRFinishResult, ...],
     github: GithubClient,
-    submitted_survivors: tuple[LocalCommit, ...],
+    submitted_survivors: dict[str, GithubPR],
     dependencies: dict[str, tuple[LocalCommit, ...]],
     target: GithubTarget,
 ) -> int:
@@ -462,18 +418,13 @@ async def _cleanup_reconciled_prs(
             )
             continue
         cleanup_change_ids.append(result.change_id)
-    tracked_prs = context.state_store.load().prs
     cleanup = await cleanup_tracked_prs(
         change_ids=tuple(cleanup_change_ids),
         context=context,
         dry_run=dry_run,
         github_client=github,
         github_target=target,
-        planned_detached_dependents=frozenset(
-            tracked.pr_identity.pr_number
-            for change in submitted_survivors
-            if (tracked := tracked_prs.get(change.change_id)) is not None
-        ),
+        planned_detached_dependents=frozenset(pr.number for pr in submitted_survivors.values()),
         planned_local_removals=frozenset(cleanup_change_ids),
     )
     return 1 if any(action.status == "blocked" for action in cleanup.actions) else 0
