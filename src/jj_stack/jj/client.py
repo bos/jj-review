@@ -27,6 +27,7 @@ from jj_stack.errors import (
     ErrorMessage,
     UsageError,
 )
+from jj_stack.identifiers import ChangeId, CommitId
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.models.git import GitRemote
 from jj_stack.models.stack import LocalCommit
@@ -91,8 +92,8 @@ class PRRefUpdate:
     """One exact leased PR branch update in a complete remote mutation set."""
 
     branch: str
-    expected_target: str | None
-    desired_target: str | None
+    expected_target: CommitId | None
+    desired_target: CommitId | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -730,10 +731,10 @@ class JjClient:
         *,
         remote: str,
         branch: str,
-        expected_target: str,
+        expected_target: CommitId,
         expected_change_id: str | None = None,
-        expected_chain: Sequence[tuple[str, str, ExpectedGitChangeId]] = (),
-        expected_parent_commit_id: str | None = None,
+        expected_chain: Sequence[tuple[str, CommitId, ExpectedGitChangeId]] = (),
+        expected_parent_commit_id: CommitId | None = None,
     ) -> Iterator[LocalCommit]:
         """Import one exact remote PR branch ref, then remove all temporary artifacts.
 
@@ -896,7 +897,7 @@ class JjClient:
             command.append(f"{desired}:{ref}")
         self._run_git(command)
 
-    def edit_commit(self, commit_id: str, *, cli_args: JjCliArgs = _NO_CLI_ARGS) -> None:
+    def edit_commit(self, commit_id: CommitId, *, cli_args: JjCliArgs = _NO_CLI_ARGS) -> None:
         """Set the current workspace's working-copy change to one exact commit."""
 
         self._run_jj(("edit", commit_id), manage_working_copy=True, cli_args=cli_args)
@@ -904,8 +905,8 @@ class JjClient:
     def rebase_changes(
         self,
         *,
-        change_ids: Sequence[str],
-        destination: str,
+        change_ids: Sequence[ChangeId],
+        destination: CommitId,
         cli_args: JjCliArgs = _NO_CLI_ARGS,
     ) -> None:
         """Rebase the current visible commits of the named changes onto one destination.
@@ -926,8 +927,8 @@ class JjClient:
     def prepare_rebase_changes(
         self,
         *,
-        change_ids: Sequence[str],
-        destination: str,
+        change_ids: Sequence[ChangeId],
+        destination: CommitId,
         cli_args: JjCliArgs = _NO_CLI_ARGS,
     ) -> str:
         """Compute a rebase in an unintegrated operation and return its operation ID."""
@@ -1011,15 +1012,17 @@ class JjClient:
             raise JjCommandError(t"{ui.cmd('git rev-parse')} returned incomplete tree data.")
         return dict(zip(ordered_commit_ids, tree_ids, strict=True))
 
-    def abandon_changes(
-        self, revsets: Sequence[str], *, cli_args: JjCliArgs = _NO_CLI_ARGS
+    def abandon_commits(
+        self, commit_ids: Sequence[CommitId], *, cli_args: JjCliArgs = _NO_CLI_ARGS
     ) -> None:
-        """Abandon changes; jj rebases descendants and drops pointing bookmarks."""
+        """Abandon exact commits; jj rebases descendants and drops pointing bookmarks."""
 
-        ordered_revsets = tuple(revsets)
-        if not ordered_revsets:
+        ordered_commit_ids = tuple(commit_ids)
+        if not ordered_commit_ids:
             return
-        self._run_jj(("abandon", *ordered_revsets), manage_working_copy=True, cli_args=cli_args)
+        self._run_jj(
+            ("abandon", *ordered_commit_ids), manage_working_copy=True, cli_args=cli_args
+        )
 
     def _query_commits(self, revset: str, *, limit: int | None = None) -> list[LocalCommit]:
         lines = self._query_template_lines(revset, _COMMIT_TEMPLATE, limit=limit)

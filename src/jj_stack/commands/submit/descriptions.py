@@ -42,7 +42,7 @@ def resolve_generated_descriptions(
 
     if describe_with is None:
         template = _read_pr_template(jj_client.repo_root)
-        default_descriptions = {
+        default_descriptions: dict[str, GeneratedDescription] = {
             change.change_id: GeneratedDescription(
                 body=default_pr_body(change.description, template=template),
                 title=change.subject,
@@ -62,7 +62,7 @@ def resolve_generated_descriptions(
             }
         return default_descriptions, stack_description
 
-    generated_descriptions = {
+    generated_descriptions: dict[str, GeneratedDescription] = {
         change.change_id: _run_description_command(
             command=describe_with,
             kind="pr",

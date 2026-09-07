@@ -10,6 +10,7 @@ import pytest
 
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
+from jj_stack.identifiers import CommitId
 
 
 def _github_client(handler) -> GithubClient:
@@ -459,7 +460,7 @@ def test_github_client_observes_exact_and_suffix_matched_branch_targets() -> Non
             request=request,
         )
 
-    async def run_test() -> tuple[dict[str, str], dict[str, str]]:
+    async def run_test() -> tuple[dict[str, CommitId], dict[str, CommitId]]:
         async with _github_client(handler) as client:
             exact = await client.get_branch_targets(
                 branches=("jj-stack/current", "jj-stack/missing"),

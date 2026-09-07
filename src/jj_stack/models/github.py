@@ -5,6 +5,8 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from jj_stack.identifiers import CommitId
+
 CheckRollupStatus = Literal["failed", "passed", "pending"]
 
 
@@ -35,7 +37,7 @@ class GithubPRHead(BaseModel):
 
     label: str | None = None
     ref: str
-    sha: str
+    sha: CommitId
 
 
 class GithubStackPR(BaseModel):
@@ -132,7 +134,7 @@ class GithubPR(BaseModel):
     html_url: str
     is_draft: bool = Field(default=False, alias="draft")
     is_queued: bool = False
-    merge_commit_sha: str | None = None
+    merge_commit_sha: CommitId | None = None
     merged_at: str | None = None
     node_id: str
     number: int

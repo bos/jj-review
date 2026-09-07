@@ -11,6 +11,7 @@ from jj_stack.errors import CliError, UsageError
 from jj_stack.formatting import format_pr_number
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
+from jj_stack.identifiers import CommitId
 from jj_stack.models.github import GithubPR
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace
 
@@ -32,7 +33,7 @@ async def load_pr(*, github_client: GithubClient, pr_number: int) -> GithubPR:
         raise CliError(t"Could not load pull request {pr_label}") from error
 
 
-def require_managed_pr_head(*, pr: GithubPR, repo: GithubRepoAddress) -> str:
+def require_managed_pr_head(*, pr: GithubPR, repo: GithubRepoAddress) -> CommitId:
     """Return the head commit of a PR owned by this repo and branch namespace."""
 
     namespace = current_pr_branch_namespace()

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, NamedTuple, Protocol
 
+from jj_stack.identifiers import CommitId
 from jj_stack.jj.client import JjClient
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR
@@ -43,7 +44,7 @@ class PreparedSubmitChange:
     """PR branch state gathered before remote and GitHub mutation."""
 
     branch: str
-    expected_remote_target: str | None
+    expected_remote_target: CommitId | None
     remote_action: RemoteBranchAction
     change: LocalCommit
     # The saved pull request GitHub reports, or None when submit creates one.

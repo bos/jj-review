@@ -6,7 +6,7 @@ import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError
 from jj_stack.formatting import format_pr_label
-from jj_stack.identifiers import short_change_id
+from jj_stack.identifiers import CommitId, short_change_id
 from jj_stack.models.github import GithubPR, GithubStack, GithubStackPR
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackedPR, TrackingState
@@ -53,7 +53,7 @@ class CheckedOutMergedChangeError(CliError):
 class _GithubStackMerge:
     history: tuple[OnTrunkChange, ...]
     adopted: tuple[AdoptedSurvivor, ...]
-    merge_result_commit_id: str | None
+    merge_result_commit_id: CommitId | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -291,7 +291,7 @@ def _classify_github_stack(
     state: TrackingState,
     trunk_branch: str,
 ) -> _GithubStackEffect:
-    selected_by_id = {change.change_id: change for change in selected}
+    selected_by_id: dict[str, LocalCommit] = {change.change_id: change for change in selected}
     by_pr = {
         candidate.pr_identity.pr_number: change_id
         for change_id, candidate in sorted(state.prs.items())
@@ -318,7 +318,7 @@ def _classify_github_stack(
     history: list[OnTrunkChange] = []
     adopted: list[AdoptedSurvivor] = []
     expected_base = trunk_branch
-    merge_result: str | None = None
+    merge_result: CommitId | None = None
     rerun = f"jj-stack sync {short_change_id(selected[-1].change_id)}"
     for member in stack.prs:
         change_id = by_pr.get(member.number)

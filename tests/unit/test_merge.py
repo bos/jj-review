@@ -7,6 +7,7 @@ from jj_stack.commands.merge.models import MergeChange
 from jj_stack.commands.merge.preconditions import merge_precondition_error
 from jj_stack.errors import CliError
 from jj_stack.github.resolution import GithubRepoAddress
+from jj_stack.identifiers import ChangeId, CommitId
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead, GithubRepo
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
@@ -157,8 +158,8 @@ def test_merge_preconditions_reject_repo_drift() -> None:
         remote_name="origin",
         change=MergeChange(
             base_ref="main",
-            change_id="a" * 32,
-            commit_id="c" * 40,
+            change_id=ChangeId("a" * 32),
+            commit_id=CommitId("c" * 40),
             identity=PRIdentity(pr_number=1, head_ref="jj-stack/feature-aaaaaaaa"),
         ),
     )

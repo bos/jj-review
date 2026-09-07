@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from jj_stack.errors import EXIT_GITHUB, SummarizedError
 from jj_stack.github.auth import github_token, github_token_from_env
 from jj_stack.github.resolution import GithubRepoAddress
+from jj_stack.identifiers import CommitId
 from jj_stack.models.github import (
     GithubIssueComment,
     GithubPR,
@@ -154,7 +155,7 @@ class _GraphqlPageInfo(BaseModel):
 
 
 class _GraphqlGitObject(BaseModel):
-    oid: str
+    oid: CommitId
 
 
 class _GraphqlRef(BaseModel):
@@ -234,11 +235,11 @@ class GithubClient:
         self,
         *,
         branches: Sequence[str],
-    ) -> dict[str, str]:
+    ) -> dict[str, CommitId]:
         """Return exact GitHub branch targets without advertising unrelated refs."""
 
         ordered = tuple(dict.fromkeys(branches))
-        targets: dict[str, str] = {}
+        targets: dict[str, CommitId] = {}
         for chunk in batched(ordered, _GRAPHQL_PR_BATCH_SIZE, strict=False):
             query, branch_variables = _branch_targets_query(chunk)
             payload = await self._graphql_query(
@@ -267,11 +268,11 @@ class GithubClient:
         *,
         branch_prefix: str,
         suffixes: Sequence[str],
-    ) -> dict[str, str]:
+    ) -> dict[str, CommitId]:
         """Find branch targets under one namespace by exact name suffix."""
 
         ordered = tuple(dict.fromkeys(suffixes))
-        targets: dict[str, str] = {}
+        targets: dict[str, CommitId] = {}
         for chunk in batched(ordered, _GRAPHQL_PR_BATCH_SIZE, strict=False):
             pending: tuple[tuple[str, str | None], ...] = tuple(
                 (suffix, None) for suffix in chunk
@@ -740,7 +741,7 @@ class GithubClient:
     async def submit_stack_merge(
         self,
         *,
-        expected_head_sha: str,
+        expected_head_sha: CommitId,
         merge_action: str,
         merge_method: str | None,
         pr_number: int,
@@ -1448,7 +1449,7 @@ def _branch_target_from_graphql(
     raw_ref: object,
     *,
     response_name: str,
-) -> tuple[str, str]:
+) -> tuple[str, CommitId]:
     parsed = _validate_graphql_model(
         raw_ref,
         model=_GraphqlRef,
@@ -1457,7 +1458,7 @@ def _branch_target_from_graphql(
     return _branch_target(parsed)
 
 
-def _branch_target(ref: _GraphqlRef) -> tuple[str, str]:
+def _branch_target(ref: _GraphqlRef) -> tuple[str, CommitId]:
     qualified = f"{ref.prefix}{ref.name}"
     if not qualified.startswith("refs/heads/"):
         raise GithubClientError("GitHub branch lookup returned a non-branch ref.")

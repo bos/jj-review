@@ -8,6 +8,7 @@ from jj_stack.github.resolution import (
     resolve_trunk_branch,
     select_submit_remote,
 )
+from jj_stack.identifiers import CommitId
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubRepo
 
@@ -126,7 +127,7 @@ def test_resolve_trunk_branch_prefers_the_default_branch_when_it_is_one_of_the_m
         branches_at_trunk=("main", "stable"),
         github_repo_state=_github_repo(default_branch="main"),
         remote=_remote("origin"),
-        trunk_commit_id="trunk123",
+        trunk_commit_id=CommitId("trunk123"),
     )
 
     assert branch == "main"
@@ -138,7 +139,7 @@ def test_resolve_trunk_branch_uses_the_default_when_no_remote_bookmark_is_at_tru
         branches_at_trunk=(),
         github_repo_state=_github_repo(default_branch="main"),
         remote=_remote("origin"),
-        trunk_commit_id="trunk123",
+        trunk_commit_id=CommitId("trunk123"),
     )
 
     assert branch == "main"
@@ -150,7 +151,7 @@ def test_resolve_trunk_branch_rejects_a_default_branch_that_is_not_trunk() -> No
             branches_at_trunk=("main",),
             github_repo_state=_github_repo(default_branch="develop"),
             remote=_remote("origin"),
-            trunk_commit_id="trunk123",
+            trunk_commit_id=CommitId("trunk123"),
         )
 
 
@@ -159,7 +160,7 @@ def test_resolve_trunk_branch_falls_back_to_unique_non_pr_remote_branch() -> Non
         branches_at_trunk=("main", "jj-stack/feature-abcdefgh"),
         github_repo_state=_github_repo(default_branch=""),
         remote=_remote("origin"),
-        trunk_commit_id="trunk123",
+        trunk_commit_id=CommitId("trunk123"),
     )
 
     assert branch == "main"
@@ -175,7 +176,7 @@ def test_resolve_trunk_branch_rejects_ambiguous_remote_branches() -> None:
             branches_at_trunk=("main", "stable"),
             github_repo_state=_github_repo(default_branch=""),
             remote=_remote("origin"),
-            trunk_commit_id="trunk123",
+            trunk_commit_id=CommitId("trunk123"),
         )
 
 

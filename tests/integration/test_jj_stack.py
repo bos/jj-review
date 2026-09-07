@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from jj_stack.identifiers import CommitId
 from jj_stack.jj.client import JjClient, JjCommandError, PRRefUpdate
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR, TrackingState
 from jj_stack.stack.selected import select_stack_path
@@ -211,7 +212,7 @@ def test_visible_pr_bookmark_does_not_block_broad_operations(
         with client.import_remote_pr_branch_ref(
             remote="origin",
             branch=branch,
-            expected_target=commit_id,
+            expected_target=CommitId(commit_id),
             expected_change_id=change_id,
         ) as imported:
             assert imported.commit_id == commit_id
@@ -256,8 +257,8 @@ def test_direct_git_pr_branch_ref_operations_use_the_backing_store(
     run_command(["jj", "git", "init", layout_flag, str(repo)], tmp_path)
     commit_file(repo, "base", "base.txt")
     commit_file(repo, "feature", "feature.txt")
-    old_commit = jj_commit_id(repo, "@--")
-    new_commit = jj_commit_id(repo, "@-")
+    old_commit = CommitId(jj_commit_id(repo, "@--"))
+    new_commit = CommitId(jj_commit_id(repo, "@-"))
     new_change_id = _change_id(repo, "@-")
     run_command(["jj", "git", "remote", "add", "origin", str(remote)], repo)
     run_command(["jj", "bookmark", "create", "seed", "-r", "@--"], repo)

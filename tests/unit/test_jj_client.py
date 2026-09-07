@@ -14,6 +14,7 @@ from jj_stack.errors import (
     CliError,
     resolve_exit_code,
 )
+from jj_stack.identifiers import CommitId
 from jj_stack.jj.client import (
     _BOOKMARK_TEMPLATE,
     _COMMIT_TEMPLATE,
@@ -276,8 +277,8 @@ def test_remote_failure_redacts_http_userinfo_without_changing_subprocess_argv(
             updates=(
                 PRRefUpdate(
                     branch="jj-stack/feat",
-                    expected_target="abc123",
-                    desired_target="def456",
+                    expected_target=CommitId("abc123"),
+                    desired_target=CommitId("def456"),
                 ),
             ),
         )
@@ -500,13 +501,13 @@ def test_remote_pr_branch_ref_mutation_uses_one_atomic_exact_lease_push(
         updates=(
             PRRefUpdate(
                 branch=old_branch,
-                expected_target="old",
-                desired_target="updated",
+                expected_target=CommitId("old"),
+                desired_target=CommitId("updated"),
             ),
             PRRefUpdate(
                 branch=new_branch,
                 expected_target=None,
-                desired_target="created",
+                desired_target=CommitId("created"),
             ),
         ),
     )

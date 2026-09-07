@@ -71,6 +71,7 @@ from jj_stack.github.resolution import (
     resolve_github_target,
     resolve_trunk_branch,
 )
+from jj_stack.identifiers import CommitId
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import UnsupportedStackError
 from jj_stack.models.github import GithubStack
@@ -193,7 +194,7 @@ async def _run_global_plan(
     context: CommandContext,
     dry_run: bool,
     target: GithubTarget,
-    trunk_commit_id: str,
+    trunk_commit_id: CommitId,
 ) -> tuple[int, tuple[str, ...], str | None]:
     async with build_github_client(repo=target.repo) as github:
         with console.spinner(description="Inspecting tracked pull requests"):

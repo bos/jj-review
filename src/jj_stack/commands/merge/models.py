@@ -7,6 +7,7 @@ from typing import Literal
 
 from jj_stack.bootstrap import CommandContext
 from jj_stack.github.resolution import GithubRepoAddress
+from jj_stack.identifiers import ChangeId, CommitId
 from jj_stack.models.tracking import PRIdentity
 from jj_stack.stack.status import PreparedStatus
 from jj_stack.ui import Message
@@ -91,8 +92,8 @@ class MergeChange:
     """One selected change plus its GitHub link."""
 
     base_ref: str
-    change_id: str
-    commit_id: str
+    change_id: ChangeId
+    commit_id: CommitId
     identity: PRIdentity
 
 

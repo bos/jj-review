@@ -11,6 +11,7 @@ import jj_stack.github.resolution as github_resolution
 from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError
+from jj_stack.identifiers import CommitId
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR, GithubRepo, GithubStack
 from jj_stack.models.stack import LocalCommit
@@ -30,7 +31,7 @@ class PRFacts:
     open_head_prs: tuple[GithubPR, ...]
     local_commits: tuple[LocalCommit, ...]
     pr: GithubPR | None
-    remote_pr_branch_target: str | None
+    remote_pr_branch_target: CommitId | None
 
 
 @dataclass(frozen=True, slots=True)

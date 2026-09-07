@@ -1,5 +1,12 @@
 """Shared representations of jj-stack identifiers."""
 
+from typing import NewType
+
+# Logical changes survive rewrites; commit IDs name exact immutable snapshots. Keep those
+# identities distinct through observations and mutation plans without changing their wire format.
+ChangeId = NewType("ChangeId", str)
+CommitId = NewType("CommitId", str)
+
 SHORT_CHANGE_ID_LENGTH = 8
 SHORT_COMMIT_ID_LENGTH = 8
 

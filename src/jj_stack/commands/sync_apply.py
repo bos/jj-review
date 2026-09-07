@@ -17,7 +17,7 @@ from jj_stack.errors import CliError, ConflictedStackError
 from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubTarget
-from jj_stack.identifiers import short_change_id
+from jj_stack.identifiers import ChangeId, CommitId, short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import PRRefUpdate
 from jj_stack.models.stack import LocalCommit
@@ -108,7 +108,7 @@ async def apply_selected_convergence(
     github: GithubClient,
     plan: SelectedConvergencePlan,
     target: GithubTarget,
-    trunk_commit_id: str,
+    trunk_commit_id: CommitId,
 ) -> int:
     """Apply one complete selected convergence plan in dependency order."""
 
@@ -158,7 +158,7 @@ def _apply_local_convergence(
     dry_run: bool,
     plan: SelectedConvergencePlan,
     remote_name: str,
-    trunk_commit_id: str,
+    trunk_commit_id: CommitId,
 ) -> dict[str, tuple[LocalCommit, ...]]:
     actions = plan.actions
     rewritten = plan.adopted_survivors if isinstance(plan, GithubStackMergePlan) else ()
@@ -214,7 +214,7 @@ def _apply_local_convergence(
                 jj_client=context.jj_client, state=context.state_store.load()
             )
         if replaced:
-            context.jj_client.abandon_changes(replaced, cli_args=rewrite_args)
+            context.jj_client.abandon_commits(replaced, cli_args=rewrite_args)
         dependencies = _observe_removal_dependencies(context=context, actions=actions)
         abandoned = tuple(
             change.change.commit_id
@@ -224,7 +224,7 @@ def _apply_local_convergence(
             and not dependencies.get(change.change_id)
         )
         if abandoned:
-            context.jj_client.abandon_changes(abandoned, cli_args=rewrite_args)
+            context.jj_client.abandon_commits(abandoned, cli_args=rewrite_args)
         if rewritten:
             context.state_store.relink_prs(
                 replacements={
@@ -244,7 +244,7 @@ def _apply_github_stack_rebase(
     dry_run: bool,
     plan: GithubStackRebasePlan,
     remote_name: str,
-    trunk_commit_id: str,
+    trunk_commit_id: CommitId,
 ) -> None:
     adopted = plan.adopted_survivors
     top = adopted[-1]
@@ -299,7 +299,7 @@ def _verified_local_rebase(
     *,
     context: CommandContext,
     plan: GithubStackRebasePlan,
-    trunk_commit_id: str,
+    trunk_commit_id: CommitId,
 ) -> tuple[dict[str, LocalCommit], str | None]:
     adopted = plan.adopted_survivors
     local = plan.actions.survivors
@@ -339,7 +339,7 @@ def _verified_local_rebase(
                 t"intended pull requests.",
             )
         expected_parent = change.commit_id
-    desired_by_change = {item.change_id: item for item in desired}
+    desired_by_change: dict[str, LocalCommit] = {item.change_id: item for item in desired}
     tree_pairs = tuple(
         (desired_by_change[item.change_id].commit_id, item.remote_commit_id) for item in adopted
     )
@@ -364,7 +364,7 @@ def _all_at_baseline(items: tuple[AdoptedSurvivor, ...]) -> bool:
 
 def _single_visible_change_ids(
     context: CommandContext, changes: tuple[LocalCommit, ...]
-) -> tuple[tuple[str, ...], JjCliArgs]:
+) -> tuple[tuple[ChangeId, ...], JjCliArgs]:
     """Require one visible commit per change right before rewriting it.
 
     Planning observed these changes before the GitHub round-trips; one that became divergent

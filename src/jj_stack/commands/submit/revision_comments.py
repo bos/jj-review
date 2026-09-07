@@ -5,7 +5,7 @@ from __future__ import annotations
 import jj_stack.console as console
 from jj_stack.concurrency import run_bounded_tasks
 from jj_stack.github.client import GithubClient
-from jj_stack.identifiers import short_commit_id
+from jj_stack.identifiers import CommitId, short_commit_id
 from jj_stack.models.github import GithubIssueComment, GithubPRRevision
 
 from .managed_comments import upsert_managed_comment
@@ -13,7 +13,7 @@ from .managed_comments import upsert_managed_comment
 REVISION_HISTORY_COMMENT_LABEL = "revision history comment"
 REVISION_HISTORY_COMMENT_MARKER = "<!-- jj-stack-revision-history -->"
 REVISION_HISTORY_VERSION_LIMIT = 20
-type SubmittedForcePush = tuple[str, str]
+type SubmittedForcePush = tuple[CommitId, CommitId]
 
 
 async def sync_revision_history_comments(

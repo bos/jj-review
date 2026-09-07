@@ -7,6 +7,7 @@ from jj_stack.concurrency import DEFAULT_BOUNDED_CONCURRENCY, run_bounded_tasks
 from jj_stack.errors import CliError
 from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError
+from jj_stack.identifiers import CommitId
 from jj_stack.jj.client import JjClient
 
 from .models import PreparedSubmitChange, PRSyncPlan
@@ -36,7 +37,7 @@ def predict_prs_auto_closed_by_push(
     jj_client: JjClient,
     plans: tuple[PRSyncPlan, ...],
     prepared_changes: tuple[PreparedSubmitChange, ...],
-    remote_targets: dict[str, str],
+    remote_targets: dict[str, CommitId],
 ) -> tuple[PRSyncPlan, ...]:
     """Pending PRs that GitHub will auto-close (as merged) after the planned push.
 
@@ -77,10 +78,10 @@ def predict_prs_auto_closed_by_push(
 
 def _resolve_post_push_commit(
     *,
-    push_targets: dict[str, str],
+    push_targets: dict[str, CommitId],
     ref: str,
-    remote_targets: dict[str, str],
-) -> str | None:
+    remote_targets: dict[str, CommitId],
+) -> CommitId | None:
     """Resolve the commit ID a ref will point at after the planned push lands."""
 
     if ref in push_targets:

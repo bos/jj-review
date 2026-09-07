@@ -20,6 +20,7 @@ from jj_stack.config import AppConfig
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubRepoAddress
+from jj_stack.identifiers import CommitId
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import (
     GithubBranchRef,
@@ -98,7 +99,7 @@ def _prepare(
             ),
         ),
         lookups={branch: lookup},
-        remote_targets={branch: remote_target},
+        remote_targets={branch: CommitId(remote_target)},
         remote=_REMOTE,
         stack=_local_stack(change),
         state=state,
@@ -173,7 +174,7 @@ def test_pr_plan_prefers_cli_metadata_over_config() -> None:
         prepared_changes=(
             PreparedSubmitChange(
                 branch=branch,
-                expected_remote_target="old-commit",
+                expected_remote_target=CommitId("old-commit"),
                 remote_action="pushed",
                 change=change,
                 pr=GithubPR(
@@ -227,13 +228,13 @@ def test_revision_history_fills_only_the_force_push_github_has_not_indexed() -> 
     indexed = (revision(2, "c1", "c2", current=True),)
 
     assert _include_submitted_force_push(indexed, None) == indexed
-    assert _include_submitted_force_push(indexed, ("c1", "c2")) == indexed
+    assert _include_submitted_force_push(indexed, (CommitId("c1"), CommitId("c2"))) == indexed
     # A push that does not continue the indexed history is not this PR's next revision.
-    assert _include_submitted_force_push(indexed, ("c9", "c3")) == indexed
-    assert _include_submitted_force_push(indexed, ("c2", "c3")) == (
+    assert _include_submitted_force_push(indexed, (CommitId("c9"), CommitId("c3"))) == indexed
+    assert _include_submitted_force_push(indexed, (CommitId("c2"), CommitId("c3"))) == (
         revision(2, "c1", "c2", current=False),
         revision(3, "c2", "c3", current=True),
     )
-    assert _include_submitted_force_push((), ("c1", "c2")) == (
+    assert _include_submitted_force_push((), (CommitId("c1"), CommitId("c2"))) == (
         revision(2, "c1", "c2", current=True),
     )

@@ -59,7 +59,7 @@ from jj_stack.github.resolution import (
     resolve_trunk_branch,
 )
 from jj_stack.github.stack_availability import github_stacks_unavailable_error
-from jj_stack.identifiers import short_change_id
+from jj_stack.identifiers import CommitId, short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import JjClient, PRRefUpdate
 from jj_stack.models.git import GitRemote
@@ -352,7 +352,7 @@ def _recover_interrupted_first_submissions(
     *,
     client: JjClient,
     remote: GitRemote,
-    remote_targets: Mapping[str, str],
+    remote_targets: Mapping[str, CommitId],
     resolutions: tuple[ResolvedPRBranch, ...],
     tracked_prs: Mapping[str, TrackedPR],
 ) -> tuple[ResolvedPRBranch, ...]:
@@ -615,8 +615,8 @@ async def run_submit_async(
             if isinstance(recovery_targets_result, BaseException):
                 raise recovery_targets_result
             remote_targets = {
-                **cast(dict[str, str], exact_remote_targets_result),
-                **cast(dict[str, str], recovery_targets_result),
+                **cast(dict[str, CommitId], exact_remote_targets_result),
+                **cast(dict[str, CommitId], recovery_targets_result),
             }
             branch_resolutions = _recover_interrupted_first_submissions(
                 client=client,
@@ -706,7 +706,7 @@ async def run_submit_async(
                 tracked_base=tracked_base,
             )
             bottom_base_branch = base_branch
-        drafts = {
+        drafts: dict[str, bool] = {
             prepared.change.change_id: _desired_draft_state(
                 draft_mode=options.draft_mode,
                 pr=prepared.pr,

@@ -7,7 +7,7 @@ from collections.abc import Mapping
 import jj_stack.ui as ui
 from jj_stack.errors import CliError, DriftError
 from jj_stack.formatting import format_pr_label
-from jj_stack.identifiers import short_change_id
+from jj_stack.identifiers import CommitId, short_change_id
 from jj_stack.models.git import GitRemote
 from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import TrackedPR, TrackingState
@@ -41,7 +41,7 @@ def prepare_submit_changes(
     *,
     branch_resolutions: tuple[ResolvedPRBranch, ...],
     lookups: Mapping[str, PRLookup],
-    remote_targets: Mapping[str, str],
+    remote_targets: Mapping[str, CommitId],
     remote: GitRemote,
     stack: LocalStack,
     state: TrackingState,

@@ -78,7 +78,7 @@ def project_selected_path(observation: SelectedPathObservation) -> SelectedStack
             stack=stack,
         )
 
-    commits_by_id = {
+    commits_by_id: dict[str, LocalCommit] = {
         commit.commit_id: commit
         for commit in sorted(observation.commits, key=lambda item: item.commit_id)
     }
@@ -120,7 +120,7 @@ def project_repo_paths(
 ) -> RepoStackPaths:
     """Derive maximal parent-connected paths from ordinary visible candidates."""
 
-    commits_by_id = {
+    commits_by_id: dict[str, LocalCommit] = {
         commit.commit_id: commit
         for commit in sorted(observation.commits, key=lambda item: item.commit_id)
     }

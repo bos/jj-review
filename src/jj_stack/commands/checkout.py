@@ -33,7 +33,7 @@ from jj_stack.github.resolution import (
     select_submit_remote,
 )
 from jj_stack.github.stack_availability import github_stacks_unavailable_error
-from jj_stack.identifiers import short_change_id
+from jj_stack.identifiers import CommitId, short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import JjClient, UnsupportedStackError
 from jj_stack.models.github import GithubPR, GithubStack
@@ -383,7 +383,7 @@ def _save_checkout_tracking(
     *,
     context: CommandContext,
     prs: tuple[GithubPR, ...],
-    remote_targets: dict[str, str],
+    remote_targets: dict[str, CommitId],
     repo: GithubRepoAddress,
     stack: LocalStack,
     state: TrackingState,

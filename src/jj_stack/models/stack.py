@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+from jj_stack.identifiers import ChangeId, CommitId
+
 
 class LocalCommit(BaseModel):
     """A commit with the fields needed for stack discovery."""
 
     model_config = ConfigDict(frozen=True)
 
-    change_id: str
-    commit_id: str
+    change_id: ChangeId
+    commit_id: CommitId
     conflict: bool = False
     current_working_copy: bool
     description: str
@@ -19,7 +21,7 @@ class LocalCommit(BaseModel):
     empty: bool
     hidden: bool
     immutable: bool
-    parents: tuple[str, ...]
+    parents: tuple[CommitId, ...]
     working_copy_workspaces: tuple[str, ...] = ()
 
     @property

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from jj_stack.identifiers import CommitId
 from jj_stack.models.github import GithubPR
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackedPR
@@ -48,7 +49,7 @@ class AdoptedSurvivor:
     change_id: str
     candidate: TrackedPR
     local_change: LocalCommit
-    remote_commit_id: str
+    remote_commit_id: CommitId
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +62,7 @@ class GithubStackMergePlan:
     actions: ConvergenceActions
     adopted_survivors: tuple[AdoptedSurvivor, ...]
     # The commit GitHub rooted the rewritten survivors at: the merged prefix's merge result.
-    expected_parent_commit_id: str
+    expected_parent_commit_id: CommitId
 
 
 @dataclass(frozen=True, slots=True)

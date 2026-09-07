@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from jj_stack.identifiers import CommitId
+
 if TYPE_CHECKING:
     from jj_stack.models.github import GithubPR
 
@@ -29,7 +31,7 @@ class SubmittedBaseline(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    commit_id: str
+    commit_id: CommitId
 
 
 class TrackedPR(BaseModel):
