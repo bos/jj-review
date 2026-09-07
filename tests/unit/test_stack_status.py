@@ -161,6 +161,7 @@ def test_pr_lookup_reports_the_saved_pr_when_another_open_pr_uses_its_branch() -
                     change_id=prepared_change.change.change_id,
                     tracked=prepared_change.tracked,
                     branch=prepared_change.branch,
+                    local=(prepared_change.change,),
                 )
             },
         )

@@ -393,7 +393,7 @@ def _historical_member(
     """Turn a merged stack member into its on-trunk entry, or stop when it cannot be removed."""
 
     mutable_copies = tuple(
-        item for item in observation.prs[change_id].local_commits if not item.immutable
+        item for item in observation.prs[change_id].local if not item.immutable
     )
     if selected is None and len(mutable_copies) > 1:
         raise CliError(
@@ -442,9 +442,7 @@ def _validate_active_member(
     observed = observation.prs[change_id]
     pr_label = format_pr_label(pr.number, url=pr.html_url)
     expected = {selected_change.commit_id, member.head.sha}
-    if any(
-        not item.immutable and item.commit_id not in expected for item in observed.local_commits
-    ):
+    if any(not item.immutable and item.commit_id not in expected for item in observed.local):
         raise CliError(
             t"Cannot sync {ui.change_id(change_id)} because it has more than one "
             t"mutable local copy.",

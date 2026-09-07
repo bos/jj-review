@@ -157,5 +157,5 @@ def _pr_changed(
         pr.state == "merged"
         or pr.head.sha != baseline
         or (include_remote_target and observed.remote_target != baseline)
-        or any(commit.immutable for commit in observed.local_commits)
+        or any(commit.immutable for commit in observed.local)
     )

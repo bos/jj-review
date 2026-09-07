@@ -101,7 +101,7 @@ def _merge_change_precondition_error(
     if observed.tracked is None or observed.tracked.pr_identity != planned.identity:
         return MergePrecondition(f"the saved pull request link for {label} changed")
     selected = next(
-        (commit for commit in observed.local_commits if commit.commit_id == planned.commit_id),
+        (commit for commit in observed.local if commit.commit_id == planned.commit_id),
         None,
     )
     state = classify(observed, selected=selected)
@@ -118,7 +118,7 @@ def _merge_change_precondition_error(
         )
     if pr.is_draft:
         return MergePrecondition(t"pull request {pr_number} is now a draft")
-    shape_error = _local_shape_error(observed.local_commits, label=label)
+    shape_error = _local_shape_error(observed.local, label=label)
     if shape_error is not None:
         return shape_error
     if isinstance(state, (PRHeadMoved, BranchMissing, BranchDisagrees)):

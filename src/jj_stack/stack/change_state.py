@@ -57,7 +57,7 @@ class ChangeObservation:
     branch: str | None
     remote_name: str | None = None
     # Every visible copy of the change; empty when none remains.
-    local: tuple[LocalCommit, ...] | Unobserved = UNOBSERVED
+    local: tuple[LocalCommit, ...]
     # The copy in the selected stack, when the command selected one.
     selected: LocalCommit | None = None
     # The saved pull request looked up by number; None when GitHub reports none.
@@ -69,14 +69,6 @@ class ChangeObservation:
     trunk_evidence: TrunkEvidenceKind | None | Unobserved = UNOBSERVED
     trunk_evidence_reason: Message | None = None
 
-    @property
-    def local_commits(self) -> tuple[LocalCommit, ...]:
-        """The visible copies, for commands that requested local observation."""
-
-        if isinstance(self.local, Unobserved):
-            raise AssertionError("Local commits were not observed.")
-        return self.local
-
 
 @dataclass(frozen=True, kw_only=True)
 class _State:
@@ -84,7 +76,7 @@ class _State:
     tracked: TrackedPR | None
     branch: str | None
     remote_name: str | None
-    local: tuple[LocalCommit, ...] | Unobserved
+    local: tuple[LocalCommit, ...]
     selected: LocalCommit | None
 
     @property
@@ -93,9 +85,7 @@ class _State:
 
         if self.selected is not None and self.selected.divergent:
             return True
-        return not isinstance(self.local, Unobserved) and any(
-            commit.divergent for commit in self.local
-        )
+        return any(commit.divergent for commit in self.local)
 
     @property
     def has_local_edits(self) -> bool:
@@ -461,7 +451,7 @@ class _Common(TypedDict):
     tracked: TrackedPR | None
     branch: str | None
     remote_name: str | None
-    local: tuple[LocalCommit, ...] | Unobserved
+    local: tuple[LocalCommit, ...]
     selected: LocalCommit | None
 
 
@@ -591,13 +581,13 @@ def _classify_open(
 def _selected_commit_id(o: ChangeObservation) -> str | None:
     if o.selected is not None:
         return o.selected.commit_id
-    if not isinstance(o.local, Unobserved) and len(o.local) == 1:
+    if len(o.local) == 1:
         return o.local[0].commit_id
     return None
 
 
 def _local_commit_ids(o: ChangeObservation) -> frozenset[str]:
-    ids = set() if isinstance(o.local, Unobserved) else {commit.commit_id for commit in o.local}
+    ids = {commit.commit_id for commit in o.local}
     if o.selected is not None:
         ids.add(o.selected.commit_id)
     return frozenset(ids)

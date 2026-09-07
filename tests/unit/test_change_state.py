@@ -161,7 +161,6 @@ def test_classifier_reaches_each_state_from_a_representative_observation(
 def test_unobserved_facts_never_produce_a_stop() -> None:
     state = classify(
         _observe(
-            local=UNOBSERVED,
             selected=None,
             open_prs_on_branch=UNOBSERVED,
             remote_target=UNOBSERVED,

@@ -531,7 +531,7 @@ def _preflight_tracked_pr_cleanup(
     preview_detached_dependents: frozenset[int],
     preview_local_removals: frozenset[str],
 ) -> CleanupPreflight:
-    local_commits = initial_observation.prs[change_id].local_commits
+    local_commits = initial_observation.prs[change_id].local
     state, blocker = check_tracked_pr(
         allowed_states=frozenset({"open", "closed", "merged"}),
         candidate=candidate,
