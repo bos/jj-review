@@ -100,7 +100,7 @@ def queued_pr_numbers(
         for change in selected
         if (observed := observation.prs.get(change.change_id)) is not None
         and (pr := observed.pr) is not None
-        and pr.normalize_state().state == "open"
+        and pr.state == "open"
         and pr.is_queued
     )
 
@@ -150,7 +150,7 @@ def _pr_changed(
         return True
     baseline = tracked.submitted_baseline.commit_id
     return (
-        pr.normalize_state().state == "merged"
+        pr.state == "merged"
         or pr.head.sha != baseline
         or (include_remote_target and observed.remote_pr_branch_target != baseline)
         or any(commit.immutable for commit in observed.local_commits)

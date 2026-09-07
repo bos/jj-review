@@ -648,10 +648,9 @@ def _picker_choices(
 
 
 def _picker_pr_status(pr: GithubPR) -> str:
-    normalized = pr.normalize_state()
-    if normalized.state == "open" and normalized.is_draft:
+    if pr.state == "open" and pr.is_draft:
         return "draft"
-    return normalized.state
+    return pr.state
 
 
 def _picker_pr_is_adoptable(

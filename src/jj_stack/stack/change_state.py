@@ -483,7 +483,7 @@ def classify(observation: ChangeObservation) -> ChangeState:
         if len(open_prs) > 1:
             return PRAmbiguous(**common, open_prs_on_branch=open_prs)
         return PRMissing(**common, open_prs_on_branch=open_prs)
-    return _classify_pr(o, common, open_prs, o.pr.normalize_state())
+    return _classify_pr(o, common, open_prs, o.pr)
 
 
 def _classify_pr(

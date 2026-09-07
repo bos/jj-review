@@ -53,6 +53,27 @@ def test_graphql_pr_statuses_normalize_known_states_and_drop_unknown() -> None:
     assert unknown.check_rollup_status is None
 
 
+def test_rest_merged_prs_have_the_same_state_as_graphql() -> None:
+    merged_at = "2026-07-23T12:00:00Z"
+    rest = GithubPR.model_validate(
+        {
+            "base": {"ref": "main"},
+            "head": {"ref": "jj-stack/feature-1", "sha": "head-commit-id"},
+            "html_url": "https://github.test/octo-org/stacked-prs/pull/1",
+            "merged_at": merged_at,
+            "node_id": "PR_1",
+            "number": 1,
+            "state": "closed",
+            "title": "feature 1",
+        }
+    )
+    graphql = GithubPR.model_validate(
+        _graphql_pr_payload(None) | {"state": "MERGED", "mergedAt": merged_at}
+    )
+
+    assert rest.state == graphql.state == "merged"
+
+
 def test_github_stack_splits_history_and_reports_a_merged_member_above_an_active_one() -> None:
     historical = {
         "head": {"ref": "jj-stack/one", "sha": "head-one"},

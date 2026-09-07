@@ -5,7 +5,7 @@ from io import StringIO
 import jj_stack.commands.view as view_module
 import jj_stack.console as console_module
 import jj_stack.ui as ui_module
-from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead
+from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead, PRState
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
 from jj_stack.stack.change_state import UNOBSERVED, ChangeObservation, classify
 from jj_stack.stack.status import (
@@ -17,7 +17,7 @@ from tests.support.change_helpers import make_change
 from tests.support.tracking import make_pr_identity
 
 
-def _pr(*, base_ref: str = "main", number: int, state: str) -> GithubPR:
+def _pr(*, base_ref: str = "main", number: int, state: PRState) -> GithubPR:
     return GithubPR(
         base=GithubBranchRef(ref=base_ref),
         head=GithubPRHead(ref="jj-stack/feature", sha="commit-1"),

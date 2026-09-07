@@ -12,7 +12,7 @@ from jj_stack.commands.relink import (
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient
 from jj_stack.github.resolution import GithubRepoAddress
-from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead
+from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead, PRState
 from jj_stack.models.tracking import SubmittedBaseline, TrackedPR, TrackingState
 from tests.support.tracking import make_pr_identity
 
@@ -26,7 +26,7 @@ from tests.support.tracking import make_pr_identity
 )
 def test_relink_requires_open_same_repo_pr(
     head_owner: str,
-    state: str,
+    state: PRState,
     message: str,
 ) -> None:
     pr = _pr(head_owner=head_owner, state=state)
@@ -76,7 +76,7 @@ class _GithubClientStub:
         return self.pr
 
 
-def _pr(*, head_owner: str, state: str) -> GithubPR:
+def _pr(*, head_owner: str, state: PRState) -> GithubPR:
     branch = "jj-stack/manual-feature-feature1"
     return GithubPR(
         base=GithubBranchRef(ref="main"),

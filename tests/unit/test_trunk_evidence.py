@@ -25,7 +25,6 @@ def _pr(**updates: object) -> GithubPR:
             sha="submitted-1",
         ),
         html_url="https://github.test/octo-org/stacked-prs/pull/1",
-        merged_at=None,
         node_id="PR_1",
         number=1,
         state="open",
@@ -92,14 +91,13 @@ def test_rewritten_result_requires_a_reachable_concrete_merge_result() -> None:
         ),
         (_pr(), None, False),
         (
-            _pr(state="closed", merged_at="2026-07-21T12:00:00Z"),
+            _pr(state="merged"),
             None,
             False,
         ),
         (
             _pr(
-                state="closed",
-                merged_at="2026-07-21T12:00:00Z",
+                state="merged",
                 merge_commit_sha="merge-1",
             ),
             "unresolved",
@@ -107,8 +105,7 @@ def test_rewritten_result_requires_a_reachable_concrete_merge_result() -> None:
         ),
         (
             _pr(
-                state="closed",
-                merged_at="2026-07-21T12:00:00Z",
+                state="merged",
                 merge_commit_sha="merge-1",
             ),
             "not_on_trunk",
@@ -116,8 +113,7 @@ def test_rewritten_result_requires_a_reachable_concrete_merge_result() -> None:
         ),
         (
             _pr(
-                state="closed",
-                merged_at="2026-07-21T12:00:00Z",
+                state="merged",
                 merge_commit_sha="merge-1",
             ),
             "on_trunk",

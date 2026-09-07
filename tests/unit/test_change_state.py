@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 
 import jj_stack.ui as ui
-from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead
+from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead, PRState
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import SubmittedBaseline, TrackedPR
 from jj_stack.stack.change_state import (
@@ -47,7 +47,7 @@ _TRACKED = TrackedPR(
 def _pr(
     *,
     number: int = 7,
-    state: str = "open",
+    state: PRState = "open",
     head_ref: str = _BRANCH,
     head_sha: str = "baseline",
     queued: bool = False,
@@ -57,10 +57,9 @@ def _pr(
         head=GithubPRHead(ref=head_ref, sha=head_sha),
         html_url=f"https://github.test/octo/repo/pull/{number}",
         is_queued=queued,
-        merged_at="2026-05-09T12:00:00Z" if state == "merged" else None,
         node_id=f"PR_{number}",
         number=number,
-        state="closed" if state == "merged" else state,
+        state=state,
         title="feature",
     )
 

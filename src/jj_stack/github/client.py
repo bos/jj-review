@@ -44,7 +44,7 @@ _RATE_LIMIT_NOTICE_SECONDS = 5.0
 
 
 class GithubClientError(SummarizedError):
-    """Raised when GitHub returns a non-success response."""
+    """Raised when a GitHub request fails or returns an unusable response."""
 
     exit_code = EXIT_GITHUB
 
@@ -227,8 +227,10 @@ class GithubClient:
 
     async def get_repo(self) -> GithubRepo:
         response = await self._request("GET", self._repo_path)
-        return GithubRepo.model_validate(
-            self._expect_json_payload(response, response_name="repo lookup")
+        return _validate_model(
+            self._expect_json_payload(response, response_name="repo lookup"),
+            model=GithubRepo,
+            error_context="GitHub repo lookup response had invalid data",
         )
 
     async def get_branch_targets(
@@ -291,11 +293,11 @@ class GithubClient:
                 repo = _graphql_repo_payload(payload, response_name="branch suffix lookup")
                 next_page: list[tuple[str, str]] = []
                 for index, (suffix, _cursor) in enumerate(pending):
-                    connection = _validate_graphql_model(
+                    connection = _validate_model(
                         repo.get(f"suffix_{index}"),
                         model=_GraphqlRefConnection,
-                        error_message=(
-                            "GitHub branch suffix lookup response had invalid ref data."
+                        error_context=(
+                            "GitHub branch suffix lookup response had invalid ref data"
                         ),
                     )
                     for raw_ref in connection.nodes:
@@ -379,8 +381,10 @@ class GithubClient:
             "GET",
             f"{self._repo_path}/pulls/{pr_number}",
         )
-        return GithubPR.model_validate(
-            self._expect_json_payload(response, response_name="pull request lookup")
+        return _validate_model(
+            self._expect_json_payload(response, response_name="pull request lookup"),
+            model=GithubPR,
+            error_context="GitHub pull request lookup response had invalid data",
         )
 
     async def get_prs_by_numbers(
@@ -411,12 +415,12 @@ class GithubClient:
                 if raw_pr is None:
                     results[number] = None
                     continue
-                results[number] = _validate_graphql_model(
+                results[number] = _validate_model(
                     raw_pr,
                     model=GithubPR,
-                    error_message=(
+                    error_context=(
                         "GitHub pull request batch lookup response had invalid pull request "
-                        f"payload for #{number}."
+                        f"payload for #{number}"
                     ),
                 )
         return results
@@ -489,8 +493,10 @@ class GithubClient:
                 "title": title,
             },
         )
-        return GithubPR.model_validate(
-            self._expect_json_payload(response, response_name="pull request creation")
+        return _validate_model(
+            self._expect_json_payload(response, response_name="pull request creation"),
+            model=GithubPR,
+            error_context="GitHub pull request creation response had invalid data",
         )
 
     async def list_pr_reviews(
@@ -502,7 +508,14 @@ class GithubClient:
             f"{self._repo_path}/pulls/{pr_number}/reviews",
             response_name="pull request reviews",
         )
-        return tuple(GithubPRReview.model_validate(item) for item in payload)
+        return tuple(
+            _validate_model(
+                item,
+                model=GithubPRReview,
+                error_context="GitHub pull request reviews response had invalid data",
+            )
+            for item in payload
+        )
 
     async def find_issue_comments_by_body_marker(
         self,
@@ -679,8 +692,10 @@ class GithubClient:
             f"{self._repo_path}/pulls/{pr_number}",
             json={name: value for name, value in fields.items() if value is not None},
         )
-        return GithubPR.model_validate(
-            self._expect_json_payload(response, response_name="pull request update")
+        return _validate_model(
+            self._expect_json_payload(response, response_name="pull request update"),
+            model=GithubPR,
+            error_context="GitHub pull request update response had invalid data",
         )
 
     async def mark_pr_ready_for_review(
@@ -775,7 +790,11 @@ class GithubClient:
             )
         return GithubStackMergeSubmission(
             already_pending=already_pending,
-            result=_validate_stack_merge_payload(payload),
+            result=_validate_model(
+                payload,
+                model=GithubStackMerge,
+                error_context="GitHub stack merge response had invalid data",
+            ),
         )
 
     async def poll_stack_merge(
@@ -788,8 +807,10 @@ class GithubClient:
             "GET",
             f"{self._repo_path}/pulls/{pr_number}/merge-async/{operation_uuid}",
         )
-        return _validate_stack_merge_payload(
-            self._expect_json_payload(response, response_name="stack merge poll")
+        return _validate_model(
+            self._expect_json_payload(response, response_name="stack merge poll"),
+            model=GithubStackMerge,
+            error_context="GitHub stack merge response had invalid data",
         )
 
     async def close_pr(
@@ -1068,10 +1089,10 @@ def _graphql_mutation_pr_payload(
         raise GithubClientError(
             f"GitHub {response_name} response was missing a pull request payload."
         )
-    return _validate_graphql_model(
+    return _validate_model(
         raw_pr,
         model=GithubPR,
-        error_message=f"GitHub {response_name} response had invalid mutation data.",
+        error_context=f"GitHub {response_name} response had invalid mutation data",
     )
 
 
@@ -1430,11 +1451,11 @@ def _pr_connection_from_graphql(
     expected_head_label: str | None = None,
     response_name: str,
 ) -> tuple[GithubPR, ...]:
-    parsed = _validate_graphql_model(
+    parsed = _validate_model(
         connection,
         model=_GraphqlPRConnection,
-        error_message=(
-            f"GitHub {response_name} response had invalid connection payload for {alias}."
+        error_context=(
+            f"GitHub {response_name} response had invalid connection payload for {alias}"
         ),
     )
     prs: list[GithubPR] = []
@@ -1450,10 +1471,10 @@ def _branch_target_from_graphql(
     *,
     response_name: str,
 ) -> tuple[str, CommitId]:
-    parsed = _validate_graphql_model(
+    parsed = _validate_model(
         raw_ref,
         model=_GraphqlRef,
-        error_message=f"GitHub {response_name} response had invalid ref data.",
+        error_context=f"GitHub {response_name} response had invalid ref data",
     )
     return _branch_target(parsed)
 
@@ -1491,11 +1512,11 @@ def _pr_history_from_graphql(
 ) -> _GraphqlPRHistory | None:
     if raw_pr is None:
         return None
-    return _validate_graphql_model(
+    return _validate_model(
         raw_pr,
         model=_GraphqlPRHistory,
-        error_message=(
-            f"GitHub {response_name} response had invalid pull request payload for {alias}."
+        error_context=(
+            f"GitHub {response_name} response had invalid pull request payload for {alias}"
         ),
     )
 
@@ -1541,33 +1562,25 @@ def _revisions_from_graphql(
 
 
 def _validate_stack_payload(payload: object, *, response_name: str) -> GithubStack:
-    try:
-        return GithubStack.model_validate(payload)
-    except ValidationError as error:
-        number = payload.get("number") if isinstance(payload, dict) else None
-        named = f"stack #{number}" if isinstance(number, int) else "one stack"
-        reasons = "; ".join(
-            detail["msg"].removeprefix("Value error, ") for detail in error.errors()
-        )
-        raise GithubClientError(
-            f"GitHub {response_name} response had unusable data for {named}: {reasons}."
-        ) from error
+    number = payload.get("number") if isinstance(payload, dict) else None
+    named = f"stack #{number}" if isinstance(number, int) else "one stack"
+    return _validate_model(
+        payload,
+        model=GithubStack,
+        error_context=f"GitHub {response_name} response had unusable data for {named}",
+    )
 
 
-def _validate_stack_merge_payload(payload: object) -> GithubStackMerge:
-    try:
-        return GithubStackMerge.model_validate(payload)
-    except ValidationError as error:
-        raise GithubClientError("GitHub stack merge response had invalid data.") from error
-
-
-def _validate_graphql_model[GraphqlModel: BaseModel](
+def _validate_model[ResponseModel: BaseModel](
     payload: object,
     *,
-    model: type[GraphqlModel],
-    error_message: str,
-) -> GraphqlModel:
+    model: type[ResponseModel],
+    error_context: str,
+) -> ResponseModel:
     try:
         return model.model_validate(payload)
     except ValidationError as error:
-        raise GithubClientError(error_message) from error
+        reasons = "; ".join(
+            detail["msg"].removeprefix("Value error, ") for detail in error.errors()
+        )
+        raise GithubClientError(f"{error_context}: {reasons}.") from error

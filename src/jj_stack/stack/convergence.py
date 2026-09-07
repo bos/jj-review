@@ -507,7 +507,7 @@ def _finish_plan(
     allowed: bool,
 ) -> PRFinishPlan:
     pr = observation.prs[change_id].pr
-    if not allowed or pr is None or pr.normalize_state().state != "open":
+    if not allowed or pr is None or pr.state != "open":
         return SkipPRFinish(change_id, candidate)
     return FinishPR(change_id, candidate, pr)
 

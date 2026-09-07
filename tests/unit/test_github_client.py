@@ -145,11 +145,18 @@ def test_github_client_does_not_retry_non_rate_limited_errors() -> None:
     assert attempts == 1
 
 
-def test_github_client_rejects_a_success_response_that_is_not_json() -> None:
+@pytest.mark.parametrize(
+    ("body", "reason"),
+    (
+        ("<html>Proxy authentication required</html>", "was not valid JSON"),
+        ('{"full_name": null}', "had invalid data"),
+    ),
+)
+def test_github_client_rejects_an_unusable_success_response(body: str, reason: str) -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(
             200,
-            text="<html><body>Proxy authentication required</body></html>",
+            text=body,
             request=request,
         )
 
@@ -157,7 +164,7 @@ def test_github_client_rejects_a_success_response_that_is_not_json() -> None:
         async with _github_client(handler) as client:
             await client.get_repo()
 
-    with pytest.raises(GithubClientError, match="repo lookup response was not valid JSON"):
+    with pytest.raises(GithubClientError, match=f"repo lookup response {reason}"):
         asyncio.run(run_test())
 
 
@@ -348,7 +355,7 @@ def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
                             "mergedAt": "2026-03-16T12:00:00Z",
                             "id": "PR_9",
                             "number": 9,
-                            "state": "CLOSED",
+                            "state": "MERGED",
                             "title": "nine",
                             "url": "https://github.test/octo-org/stacked-prs/pull/9",
                         },
@@ -387,7 +394,7 @@ def test_github_client_batches_pr_lookup_by_number_with_graphql() -> None:
 
     assert asyncio.run(run_test()) == (
         "jj-stack/seven",
-        "closed",
+        "merged",
         "octo-org:jj-stack/seven",
         True,
         "passed",

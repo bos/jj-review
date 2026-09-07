@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from jj_stack.identifiers import CommitId
 
 CheckRollupStatus = Literal["failed", "passed", "pending"]
+PRState = Literal["open", "closed", "merged"]
 
 
 class GithubRepo(BaseModel):
@@ -120,7 +121,7 @@ class GithubStackMergeSubmission(BaseModel):
 
 
 class GithubPR(BaseModel):
-    """Subset of pull request fields used by the client."""
+    """Pull request fields with one lifecycle across REST and GraphQL responses."""
 
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
@@ -139,13 +140,14 @@ class GithubPR(BaseModel):
     node_id: str
     number: int
     review_decision: str | None = None
-    state: str
+    state: PRState
     title: str
 
-    def normalize_state(self) -> Self:
-        if self.state != "closed" or self.merged_at is None:
-            return self
-        return self.model_copy(update={"state": "merged"})
+    @model_validator(mode="after")
+    def _normalize_merged_state(self) -> Self:
+        if self.state == "closed" and self.merged_at is not None:
+            self.state = "merged"
+        return self
 
     @model_validator(mode="before")
     @classmethod

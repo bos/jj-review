@@ -77,10 +77,9 @@ def classify_rewritten_result(
     mismatch = _snapshot_mismatch(candidate, change_id, pr)
     if mismatch is not None:
         return TrunkEvidence.unproven(mismatch)
-    lifecycle = pr.normalize_state().state
     pr_label = format_pr_label(pr.number, url=pr.html_url)
-    if lifecycle != "merged":
-        return TrunkEvidence.unproven(t"{pr_label} is {lifecycle} without a result on trunk")
+    if pr.state != "merged":
+        return TrunkEvidence.unproven(t"{pr_label} is {pr.state} without a result on trunk")
     merge_commit_id = pr.merge_commit_sha
     if merge_commit_id is None:
         return TrunkEvidence.unproven(
