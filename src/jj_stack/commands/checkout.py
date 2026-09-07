@@ -23,6 +23,7 @@ from pathlib import Path
 import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext, bootstrap_context
+from jj_stack.concurrency import wait_for_read_tasks
 from jj_stack.errors import CliError, UsageError
 from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
@@ -185,14 +186,19 @@ async def _checkout_pr_stack(
             pr=top_pr,
             repo=repo,
         )
-        observed_top_targets, prs = await asyncio.gather(
-            github_client.get_branch_targets(branches=(top_pr.head.ref,)),
+        targets_task = asyncio.create_task(
+            github_client.get_branch_targets(branches=(top_pr.head.ref,))
+        )
+        chain_task = asyncio.create_task(
             _load_pr_chain(
                 github_client=github_client,
                 repo=repo,
                 top=top_pr,
             ),
         )
+        await wait_for_read_tasks(targets_task, chain_task)
+        observed_top_targets = targets_task.result()
+        prs = chain_task.result()
         observed_top = observed_top_targets.get(top_pr.head.ref)
         if observed_top != top_head_sha:
             pr_label = format_pr_label(top_pr.number, url=top_pr.html_url)

@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 import jj_stack.github.resolution as github_resolution
 from jj_stack.bootstrap import CommandContext
+from jj_stack.concurrency import wait_for_read_tasks
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.identifiers import CommitId
@@ -106,27 +107,36 @@ async def observe_prs(
         remote_targets_request = github_client.get_branch_targets(branches=head_refs)
     else:
         remote_targets_request = asyncio.sleep(0, result={})
+    numbered_task = asyncio.create_task(github_client.get_prs_by_numbers(pr_numbers=pr_numbers))
+    open_heads_task = asyncio.create_task(open_heads_request)
+    by_base_task: asyncio.Task[dict[str, tuple[GithubPR, ...]] | None]
+    if include_dependents:
+        by_base_task = asyncio.create_task(
+            github_client.get_prs_by_base_refs(base_refs=head_refs)
+        )
+    else:
+        by_base_task = asyncio.create_task(asyncio.sleep(0, result=None))
+    repo_task = asyncio.create_task(
+        github_client.get_repo()
+        if github_repo_snapshot is None
+        else asyncio.sleep(0, result=github_repo_snapshot)
+    )
+    remote_targets_task = asyncio.create_task(remote_targets_request)
     try:
-        results = await asyncio.gather(
-            github_client.get_prs_by_numbers(pr_numbers=pr_numbers),
-            open_heads_request,
-            (
-                github_client.get_prs_by_base_refs(base_refs=head_refs)
-                if include_dependents
-                else asyncio.sleep(0, result=None)
-            ),
-            (
-                github_client.get_repo()
-                if github_repo_snapshot is None
-                else asyncio.sleep(0, result=github_repo_snapshot)
-            ),
-            remote_targets_request,
+        await wait_for_read_tasks(
+            numbered_task, open_heads_task, by_base_task, repo_task, remote_targets_task
         )
         local_commits = await asyncio.shield(local_task)
     except BaseException:
+        # Cancelling to_thread cannot stop the worker or its jj subprocess. Join it before
+        # the caller closes its resources and releases the repo operation lock.
         await asyncio.gather(asyncio.shield(local_task), return_exceptions=True)
         raise
-    numbered, by_head, by_base, github_repo, remote_targets = results
+    numbered = numbered_task.result()
+    by_head = open_heads_task.result()
+    by_base = by_base_task.result()
+    github_repo = repo_task.result()
+    remote_targets = remote_targets_task.result()
     prs = {
         change_id: PRFacts(
             tracked=tracked,

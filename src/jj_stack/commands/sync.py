@@ -56,6 +56,7 @@ from jj_stack.bootstrap import CommandContext, bootstrap_context
 from jj_stack.commands.cleanup.command import cleanup_tracked_prs
 from jj_stack.commands.submit.render import print_selected_line
 from jj_stack.commands.sync_apply import apply_pr_finishes, apply_selected_convergence
+from jj_stack.concurrency import wait_for_read_tasks
 from jj_stack.errors import (
     CliError,
     UsageError,
@@ -311,16 +312,19 @@ async def _run_selected_convergence(
     plan: SelectedConvergencePlan | None = None
     async with build_github_client(repo=target.repo) as github:
         with console.spinner(description="Inspecting pull requests") as progress:
-            observation, observed_stacks = await asyncio.gather(
+            prs_task = asyncio.create_task(
                 observe_prs(
                     change_ids=tuple(change.change_id for change in selected),
                     context=context,
                     github_client=github,
                     include_remote_targets=False,
                     remote_name=target.remote.name,
-                ),
-                observe_github_stacks(github=github),
+                )
             )
+            stacks_task = asyncio.create_task(observe_github_stacks(github=github))
+            await wait_for_read_tasks(prs_task, stacks_task)
+            observation = prs_task.result()
+            observed_stacks = stacks_task.result()
             queued = queued_pr_numbers(observation, selected)
             if not queued:
                 progress.update("Checking PR branches")

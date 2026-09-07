@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from jj_stack.bootstrap import CommandContext
+from jj_stack.concurrency import wait_for_read_tasks
 from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient
 from jj_stack.models.github import GithubStack
@@ -87,7 +88,7 @@ async def observe_global_sync(
         if anchors
         else ()
     )
-    pr_observations, stacks = await asyncio.gather(
+    prs_task = asyncio.create_task(
         observe_prs(
             change_ids=change_ids,
             context=context,
@@ -95,9 +96,12 @@ async def observe_global_sync(
             include_remote_targets=False,
             local_commits_snapshot=all_copies,
             remote_name=remote_name,
-        ),
-        observe_github_stacks(github=github),
+        )
     )
+    stacks_task = asyncio.create_task(observe_github_stacks(github=github))
+    await wait_for_read_tasks(prs_task, stacks_task)
+    pr_observations = prs_task.result()
+    stacks = stacks_task.result()
     return GlobalSyncFacts(
         ancestries=classify_observed_commit_ancestries(
             context=context,

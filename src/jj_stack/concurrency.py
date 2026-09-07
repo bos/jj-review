@@ -1,4 +1,4 @@
-"""Helpers for bounded async task execution."""
+"""Helpers for owned async task execution."""
 
 from __future__ import annotations
 
@@ -15,6 +15,27 @@ class _Missing(Enum):
 
 
 _MISSING: Literal[_Missing.MISSING] = _Missing.MISSING
+
+
+async def wait_for_read_tasks(*tasks: asyncio.Task[object]) -> None:
+    """Wait for reads, cancelling and joining siblings after a failure or cancellation.
+
+    Callers retain their typed tasks and read results only after this returns. Mutations use
+    ``run_bounded_tasks`` so already-started writes can finish after a sibling fails.
+    """
+
+    pending = set(tasks)
+    try:
+        while pending:
+            # wait does not propagate caller cancellation. Only this scope cancels its
+            # children, so a nested read can finish cleanup without a second cancellation.
+            done, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
+    finally:
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def run_bounded_tasks[TaskItemT, TaskResultT](
