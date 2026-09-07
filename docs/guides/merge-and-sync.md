@@ -16,17 +16,6 @@ For a queued merge, you run `sync` yourself after GitHub finishes.
 
 ## Before merging
 
-For a direct merge, choose `--method merge`, `--method rebase`, or `--method squash`, or set a
-repo default once:
-
-```console
-jj config set --repo jj-stack.merge_method squash
-```
-
-Choose a method your repo allows. If the repo permits only one method, `merge` uses it
-automatically. If it permits several, you need to choose one before merging. A merge queue
-chooses its own method, so `--method` has no effect there.
-
 If you rewrote one of your changes after submitting it, submit your stack again, even if that
 change's diff is unchanged:
 
@@ -38,6 +27,26 @@ jj-stack merge <head-change-id>
 `jj-stack merge` checks that the changes to merge still match the commits you last submitted and
 that their PR branches and pull requests have not moved unexpectedly. GitHub decides whether
 checks, approvals, conflicts, and repo rules allow the merge.
+
+## Choose a merge method
+
+Direct merges happen immediately on GitHub. If your repo allows only one merge method, `merge`
+uses it automatically. With several allowed methods and an unsigned stack, it prefers rebase,
+then squash, then a merge commit. Choose an allowed method with `--method`, or set a default once:
+
+```console
+jj config set --repo jj-stack.merge_method squash
+```
+
+When several methods are allowed and your stack contains signed commits, choose a method with
+`--method` or `jj-stack.merge_method` because merging can discard commit signatures. This also
+covers changes you aren't merging yet: GitHub may rewrite them when earlier changes are merged.
+
+Rebase and squash replace the original commits and their signatures. GitHub may sign a squash
+result with its own key. A merge commit preserves the commits being merged. Choosing a method
+does not guarantee that all signatures in the stack survive.
+
+A merge queue chooses its own method, including for signed stacks; `--method` is ignored.
 
 ## Choose how much of your stack to merge
 

@@ -439,11 +439,18 @@ merge must not be retried, and leaves recovery to a later `sync`. That command r
 fetched trunk, the local DAG, and tracking rather than resuming saved operation state.
 
 For a direct merge, the merge method comes from `--method`, otherwise from `merge_method` in
-repo configuration, otherwise from the repo's only allowed method. GitHub reports which methods a
-repo allows but never which to prefer, so a repo allowing several with none configured stops
-rather than choosing one. A configured method the repo does not
-allow is refused by name before any request goes out. A merge queue chooses its own method, so the
-request omits it; an explicit `--method` produces a warning and is ignored.
+repo configuration. Without either choice, `merge` uses the repo's only allowed method when
+there is just one. If several methods are allowed, it prefers `rebase`, then `squash`, then
+`merge`, unless any change in the complete selected local stack has a commit signature. Because
+merging can discard commit signatures, a signed stack requires an explicit flag or setting when
+several methods are allowed. This includes changes not being merged yet, which GitHub may rewrite
+when earlier changes are merged. Signature presence is observed from the selected commits
+without verifying trust or storing it in tracking. This requirement makes the merge method an
+explicit user choice; it does not promise signature preservation.
+
+A configured method the repo does not allow is refused by name before any request goes out.
+A merge queue chooses its own method, so the request omits it and signed stacks need no explicit
+method; an explicit `--method` produces a warning and is ignored.
 
 Immediately before merging or enqueueing an ordinary PR, `jj-stack` retargets the candidate to
 trunk.

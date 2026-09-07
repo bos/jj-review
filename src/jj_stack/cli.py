@@ -478,8 +478,11 @@ def build_parser() -> ArgumentParser:
         metavar="METHOD",
         help=(
             t"GitHub merge method: {ui.metavar('merge')}, {ui.metavar('rebase')}, or "
-            t"{ui.metavar('squash')}. Defaults to {ui.code('jj-stack.merge_method')}, or to "
-            t"the repo's only allowed method"
+            t"{ui.metavar('squash')}. Defaults to {ui.code('jj-stack.merge_method')}, or the "
+            t"repo's only allowed method. Otherwise prefers rebase, squash, then merge. "
+            t"For signed commits, choose a method if several are allowed: merging can discard "
+            t"signatures. "
+            t"Merge queues choose their own method"
         ),
     )
     unstack_parser = _add_revset_command(

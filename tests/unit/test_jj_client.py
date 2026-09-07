@@ -184,6 +184,7 @@ def test_find_private_commits_returns_matching_changes(monkeypatch: pytest.Monke
                 "hidden": False,
                 "immutable": False,
                 "parents": ["parent"],
+                "signed": False,
                 "working_copy_workspaces": [],
             },
             separators=(",", ":"),

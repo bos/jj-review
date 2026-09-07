@@ -452,6 +452,17 @@ def commit_file(repo: Path, message: str, filename: str) -> None:
     run_command(["jj", "commit", "-m", message], repo)
 
 
+def sign_commit(repo: Path, revset: str) -> None:
+    """Sign a test commit with a disposable SSH key, without configuring trust."""
+
+    key = repo.parent / "signing-key"
+    run_command(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], repo)
+    run_command(
+        ["jj", "--config", "signing.backend=ssh", "sign", "-r", revset, "--key", str(key)],
+        repo,
+    )
+
+
 def jj_commit_id(repo: Path, revset: str) -> str:
     return run_command(
         ["jj", "log", "--no-graph", "-r", revset, "-T", "commit_id"],

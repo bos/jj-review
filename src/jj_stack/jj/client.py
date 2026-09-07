@@ -47,6 +47,7 @@ _CHANGE_JSON_FIELDS = dedent(
     ",\"working_copy_workspaces\":" ++ json(working_copies.map(|wc| wc.name())) ++
     ",\"hidden\":" ++ json(self.hidden()) ++
     ",\"immutable\":" ++ json(immutable) ++
+    ",\"signed\":" ++ json(if(self.signature(), true, false)) ++
     ",\"conflict\":" ++ json(self.conflict())
     """
 ).strip()

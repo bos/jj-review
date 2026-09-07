@@ -26,6 +26,7 @@ Common examples:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from pathlib import Path
 
 import jj_stack.console as console
@@ -39,6 +40,7 @@ from jj_stack.github.client import GithubClient, GithubClientError, build_github
 from jj_stack.github.resolution import resolve_trunk_branch
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.models.github import GithubRepo
+from jj_stack.models.stack import LocalCommit
 from jj_stack.stack.pr_facts import observe_github_stacks, observe_prs
 from jj_stack.stack.selection import (
     resolve_linked_change_for_pr,
@@ -262,6 +264,7 @@ async def _stream_merge_async(
         else:
             merge_action = "direct_merge"
             resolved_merge_method = _resolve_merge_method(
+                changes=prepared.stack.changes,
                 configured=prepared_merge.context.config.merge_method,
                 merge_method=prepared_merge.merge_method,
                 repo_state=github_repo_state,
@@ -320,20 +323,17 @@ async def _stream_merge_async(
 
 def _resolve_merge_method(
     *,
+    changes: Sequence[LocalCommit],
     configured: MergeMethod | None,
     merge_method: str | None,
     repo_state: GithubRepo,
 ) -> str:
-    """Choose the merge method, preferring this run's flag over the repo's configuration.
-
-    GitHub reports which methods a repo allows but never which one to prefer, so a repo that
-    allows several needs the choice made here.
-    """
+    """Honor explicit choices; require one for signed stacks with several allowed methods."""
 
     settings = {
-        "merge": repo_state.allow_merge_commit,
         "rebase": repo_state.allow_rebase_merge,
         "squash": repo_state.allow_squash_merge,
+        "merge": repo_state.allow_merge_commit,
     }
     chosen = merge_method or configured
     if any(allowed is None for allowed in settings.values()):
@@ -343,7 +343,7 @@ def _resolve_merge_method(
             "GitHub did not report which merge methods this repo allows.",
             hint=t"Pass {ui.cmd('--method')} or set {ui.code('jj-stack.merge_method')}.",
         )
-    allowed_methods = sorted(method for method, allowed in settings.items() if allowed)
+    allowed_methods = [method for method, allowed in settings.items() if allowed]
     if not allowed_methods:
         raise CliError(
             "This repo does not allow any pull request merge method.",
@@ -360,8 +360,11 @@ def _resolve_merge_method(
         return chosen
     if len(allowed_methods) == 1:
         return allowed_methods[0]
-    raise CliError(
-        t"This repo allows more than one merge method ({ui.join(ui.cmd, allowed_methods)}).",
-        hint=t"Pass {ui.cmd('--method')}, or set it once with "
-        t"{ui.cmd('jj config set --repo jj-stack.merge_method squash')}.",
-    )
+    signed = tuple(change.change_id for change in changes if change.signed)
+    if signed:
+        raise CliError(
+            t"Stack contains signed commits: {ui.join(ui.change_id, signed)}.",
+            hint=t"Choose a merge method with {ui.cmd('--method')} or "
+            t"{ui.code('jj-stack.merge_method')}.",
+        )
+    return allowed_methods[0]

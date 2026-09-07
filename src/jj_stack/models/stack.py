@@ -22,6 +22,7 @@ class LocalCommit(BaseModel):
     hidden: bool
     immutable: bool
     parents: tuple[CommitId, ...]
+    signed: bool
     working_copy_workspaces: tuple[str, ...] = ()
 
     @property

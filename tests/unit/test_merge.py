@@ -33,83 +33,71 @@ def _repo(
 
 
 @pytest.mark.merge_recovery
-def test_resolve_merge_method_uses_the_only_allowed_method() -> None:
+@pytest.mark.parametrize(
+    ("rebase", "squash", "expected"),
+    ((True, True, "rebase"), (False, True, "squash")),
+)
+def test_resolve_merge_method_prefers_rebase_then_squash_then_merge(
+    rebase: bool,
+    squash: bool,
+    expected: str,
+) -> None:
+    repo = _repo(
+        allow_merge_commit=True,
+        allow_rebase_merge=rebase,
+        allow_squash_merge=squash,
+    )
+
+    assert (
+        _resolve_merge_method(changes=(), configured=None, merge_method=None, repo_state=repo)
+        == expected
+    )
+
+
+@pytest.mark.merge_recovery
+def test_signed_stack_uses_the_only_allowed_method() -> None:
     repo = _repo(
         allow_merge_commit=False,
         allow_rebase_merge=False,
         allow_squash_merge=True,
     )
+    signed = make_change(
+        commit_id="submitted", change_id="signed-change", description="feature\n"
+    ).model_copy(update={"signed": True})
 
-    assert _resolve_merge_method(configured=None, merge_method=None, repo_state=repo) == "squash"
-
-
-@pytest.mark.merge_recovery
-@pytest.mark.parametrize(
-    ("repo", "message"),
-    (
-        (
-            _repo(
-                allow_merge_commit=True,
-                allow_rebase_merge=True,
-                allow_squash_merge=False,
-            ),
-            "more than one merge method",
-        ),
-        (
-            _repo(
-                allow_merge_commit=None,
-                allow_rebase_merge=None,
-                allow_squash_merge=None,
-            ),
-            "did not report which merge methods",
-        ),
-        (
-            _repo(
-                allow_merge_commit=False,
-                allow_rebase_merge=False,
-                allow_squash_merge=False,
-            ),
-            "does not allow any pull request merge method",
-        ),
-    ),
-)
-def test_resolve_merge_method_rejects_ambiguous_or_absent_settings(
-    repo: GithubRepo,
-    message: str,
-) -> None:
-    with pytest.raises(CliError, match=message):
-        _resolve_merge_method(configured=None, merge_method=None, repo_state=repo)
+    assert (
+        _resolve_merge_method(
+            changes=(signed,), configured=None, merge_method=None, repo_state=repo
+        )
+        == "squash"
+    )
 
 
 @pytest.mark.merge_recovery
-def test_resolve_merge_method_prefers_the_flag_over_configuration() -> None:
-    """A repo allowing several methods is the normal case, so config has to settle it.
-
-    GitHub reports which methods it allows but never which to prefer, so without a configured
-    default every merge in such a repo needs the flag typed out.
-    """
-
+def test_resolve_merge_method_rejects_a_repo_with_no_allowed_method() -> None:
     repo = _repo(
-        allow_merge_commit=True,
-        allow_rebase_merge=True,
-        allow_squash_merge=True,
+        allow_merge_commit=False,
+        allow_rebase_merge=False,
+        allow_squash_merge=False,
     )
 
-    assert (
-        _resolve_merge_method(configured="squash", merge_method=None, repo_state=repo) == "squash"
-    )
-    assert (
-        _resolve_merge_method(configured="squash", merge_method="merge", repo_state=repo)
-        == "merge"
-    )
-    # A repo whose allowed methods GitHub does not report is still configured.
-    unreported = _repo(
+    with pytest.raises(CliError, match="does not allow any pull request merge method"):
+        _resolve_merge_method(changes=(), configured=None, merge_method=None, repo_state=repo)
+
+
+@pytest.mark.merge_recovery
+def test_unreported_merge_methods_require_an_explicit_choice() -> None:
+    repo = _repo(
         allow_merge_commit=None,
         allow_rebase_merge=None,
         allow_squash_merge=None,
     )
+
+    with pytest.raises(CliError, match="did not report which merge methods"):
+        _resolve_merge_method(changes=(), configured=None, merge_method=None, repo_state=repo)
+
     assert (
-        _resolve_merge_method(configured="squash", merge_method=None, repo_state=unreported)
+        _resolve_merge_method(changes=(), configured="squash", merge_method=None, repo_state=repo)
         == "squash"
     )
 
@@ -123,7 +111,7 @@ def test_resolve_merge_method_rejects_a_method_the_repo_disallows() -> None:
     )
 
     with pytest.raises(CliError, match="does not allow"):
-        _resolve_merge_method(configured="rebase", merge_method=None, repo_state=repo)
+        _resolve_merge_method(changes=(), configured="rebase", merge_method=None, repo_state=repo)
 
 
 @pytest.mark.merge_recovery

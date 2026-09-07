@@ -79,10 +79,14 @@ combine locally with a megamerge.
 `jj-spr land` squash-merges one pull request. You then fetch, rebase your remaining local
 changes, and resubmit any dependent PRs yourself.
 
-`jj-stack merge` merges ready PRs from the bottom of the stack using the repo's configured
-merge method. It also updates your remaining local changes and PRs and cleans up unused
-branches. If a merge finishes through GitHub or a merge queue, `jj-stack sync` handles that
-follow-up work. See [Merge and sync](guides/merge-and-sync.md) for the workflow.
+`jj-stack merge` merges ready PRs from the bottom of the stack. For direct merges, which GitHub
+performs immediately, it uses your explicit method or prefers rebase, then squash, then a merge
+commit among the allowed methods. When several methods are allowed, signed stacks require an
+explicit choice because merging can discard signatures.
+
+It also updates your remaining local changes and PRs and cleans up unused branches. If a merge
+finishes through GitHub or a merge queue, `jj-stack sync` handles that follow-up work. See
+[Merge and sync](guides/merge-and-sync.md) for the workflow.
 
 ## `jj-stack` and `jj-gh`
 

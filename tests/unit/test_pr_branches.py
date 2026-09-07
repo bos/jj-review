@@ -126,4 +126,5 @@ def _change(*, change_id: str, description: str) -> LocalCommit:
         hidden=False,
         immutable=False,
         parents=("parent",),
+        signed=False,
     )
