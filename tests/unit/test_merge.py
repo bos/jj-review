@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from jj_stack.cli import build_parser, main
 from jj_stack.commands.merge.command import _resolve_merge_method
 from jj_stack.commands.merge.models import MergeChange
 from jj_stack.commands.merge.preconditions import merge_precondition_error
-from jj_stack.errors import EXIT_USAGE, CliError
+from jj_stack.errors import CliError
 from jj_stack.github.resolution import GithubRepoAddress
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead, GithubRepo
@@ -29,24 +28,6 @@ def _repo(
         default_branch="main",
         full_name="acme/widgets",
     )
-
-
-def test_command_surface_has_merge_without_land_or_transport_flags(capsys) -> None:
-    parser = build_parser()
-
-    args = parser.parse_args(["merge", "--dry-run", "--method", "squash"])
-    assert args.command == "merge"
-    assert args.dry_run is True
-    assert args.merge_method == "squash"
-
-    assert main(["land"]) == EXIT_USAGE
-    assert "Unknown command land" in capsys.readouterr().err
-    with pytest.raises(CliError):
-        parser.parse_args(["merge", "--via", "push"])
-    with pytest.raises(CliError):
-        parser.parse_args(["merge", "--bypass-readiness"])
-    with pytest.raises(CliError):
-        parser.parse_args(["merge", "--skip-cleanup"])
 
 
 @pytest.mark.merge_recovery

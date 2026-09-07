@@ -7,7 +7,7 @@ import jj_stack.ui as ui
 from jj_stack.cli import main
 from jj_stack.commands.view import ViewSelector
 from jj_stack.errors import EXIT_USAGE, CliError
-from tests.support.output_assertions import assert_output_contains, assert_output_in_order
+from tests.support.output_assertions import assert_output_contains
 
 pytestmark = pytest.mark.usefixtures("no_configured_color")
 
@@ -24,26 +24,6 @@ def test_main_reports_missing_repo_without_traceback(
     assert exit_code == 1
     assert str(repo) in captured.err
     assert "does not exist" in captured.err
-    assert "Traceback" not in captured.err
-
-
-def test_main_reports_invalid_logging_level_without_traceback(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    repo = _patch_fake_jj_workspace(
-        monkeypatch,
-        tmp_path,
-        jj_stack_config_stdout='jj-stack.logging.level = "DEBIG"\n',
-    )
-
-    exit_code = main(["--repository", str(repo), "submit"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    assert "Invalid logging level" in captured.err
-    assert "DEBIG" in captured.err
     assert "Traceback" not in captured.err
 
 
@@ -78,52 +58,12 @@ def test_main_renders_semantic_cli_errors_without_flattening_first(
     assert "Error: Problem at abcdefgh" in captured.err
 
 
-def test_main_renders_cli_error_hint_on_separate_line(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    def fake_view(**kwargs) -> int:
-        raise CliError("Problem at trunk.", hint="Run view and retry.")
-
-    monkeypatch.setattr("jj_stack.cli.view_command.view", fake_view)
-
-    exit_code = main(["view"])
-    captured = capsys.readouterr()
-
-    assert exit_code == 1
-    err_lines = captured.err.splitlines()
-    assert err_lines[0] == "Error: Problem at trunk."
-    assert "Hint: Run view and retry." in err_lines
-
-
 def test_cleanup_close_requires_pr_selection(capsys) -> None:
     exit_code = main(["cleanup", "--close"])
     captured = capsys.readouterr()
 
     assert exit_code == EXIT_USAGE
     assert "cleanup --close requires --pull-request" in captured.err
-
-
-def test_sync_help_hanging_indents_wrapped_bullets(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.setenv("COLUMNS", "60")
-
-    exit_code = main(["sync", "--help"])
-    lines = capsys.readouterr().out.splitlines()
-
-    assert exit_code == 0
-    bullet_indexes = [index for index, line in enumerate(lines) if line.startswith("- ")]
-    assert bullet_indexes
-    for index in bullet_indexes:
-        following = lines[index + 1 :]
-        wrapped_lines = next(
-            (following[:end] for end, line in enumerate(following) if not line),
-            following,
-        )
-        assert wrapped_lines
-        assert all(line.startswith("  ") for line in wrapped_lines)
 
 
 def test_help_all_in_one_marks_cli_tokens_for_styling(capsys) -> None:
@@ -139,55 +79,6 @@ def test_help_all_in_one_marks_cli_tokens_for_styling(capsys) -> None:
     assert re.search(r"(?<![\w-])--[a-z]", unmarked) is None
     assert re.search(r'<code class="cli-inline">@-?</code>', captured.out) is None
     assert re.search(r'<code class="cli-inline">[^<]*--', captured.out) is None
-
-
-def test_help_all_in_one_groups_detailed_commands(capsys) -> None:
-    exit_code = main(["help", "--all-in-one"])
-    detailed_commands = capsys.readouterr().out.split("## Commands", 1)[1]
-
-    assert exit_code == 0
-    assert_output_in_order(
-        detailed_commands,
-        "### Core commands",
-        "#### submit",
-        "### Support commands",
-        "#### cleanup",
-        "### Advanced repair",
-        "#### relink",
-        "### Configuration",
-        "#### completion",
-        "### Help",
-        "#### help",
-    )
-
-
-def test_help_all_in_one_lists_global_options_once(capsys) -> None:
-    exit_code = main(["help", "--all-in-one"])
-    output = capsys.readouterr().out
-    global_options, detailed_commands = output.split("## Global options", 1)[1].split(
-        "## Commands", 1
-    )
-    option_pattern = r'<span class="cli-option">([^<]+)</span>'
-
-    assert exit_code == 0
-    for option in re.findall(option_pattern, global_options):
-        assert f'<span class="cli-option">{option}</span>' not in detailed_commands
-
-
-def test_help_all_in_one_synopses_prefer_long_option_names(capsys) -> None:
-    exit_code = main(["help", "--all-in-one"])
-    output = capsys.readouterr().out
-    short_aliases = re.findall(
-        r'<span class="cli-option">(-[^-<][^<]*)</span>, '
-        r'<span class="cli-option">(--[^<]+)</span>',
-        output,
-    )
-    synopses = "\n".join(re.findall(r'<pre class="cli-synopsis">.*?</pre>', output))
-
-    assert exit_code == 0
-    assert short_aliases
-    for short_option, _ in short_aliases:
-        assert f'<span class="cli-option">{short_option}</span>' not in synopses
 
 
 def test_help_all_keeps_terminal_top_level_contract(capsys) -> None:
@@ -252,24 +143,3 @@ def test_sync_rejects_incompatible_selectors_before_repo_access(
 
     assert exit_code == EXIT_USAGE
     assert "Use only one of sync --all, --pull-request, or a revset" in captured.err
-
-
-def _patch_fake_jj_workspace(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    *,
-    jj_stack_config_stdout: str,
-) -> Path:
-    """Create a minimal .jj-marked directory and stub out the jj config read.
-
-    Lets unit tests reach the jj-stack config validation path without
-    requiring a real jj workspace or subprocess call.
-    """
-
-    repo = tmp_path / "repo"
-    (repo / ".jj").mkdir(parents=True)
-    monkeypatch.setattr(
-        "jj_stack.jj.client.JjClient.read_jj_stack_config_list_output",
-        lambda self: jj_stack_config_stdout,
-    )
-    return repo

@@ -41,7 +41,7 @@ def test_checkout_pick_fetches_github_stack_then_adopts_and_edits_selected_chang
     client.fetch_remote(remote="origin")
     run_command(["jj", "bookmark", "create", "main", "-r", "main@origin"], repo)
     assert client.query_commits_by_ids((expected_head.commit_id,)) == ()
-    TrackingStore.for_repo(repo).relink_prs(replacements=expected.prs)
+    assert TrackingStore.for_repo(repo).load().prs == {}
     capsys.readouterr()
 
     monkeypatch.setattr("sys.stdin", io.StringIO("1\n"))

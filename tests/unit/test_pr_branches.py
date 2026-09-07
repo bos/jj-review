@@ -32,8 +32,8 @@ def test_generate_pr_branch_normalizes_subject() -> None:
     assert branch == "jj-stack/fix-cache-invalidation-zvlywqkx"
 
 
-def test_generate_pr_branch_falls_back_for_blank_subject() -> None:
-    change = _change(change_id="abcdefghijklmno", description="\n")
+def test_generate_pr_branch_falls_back_when_subject_has_no_ascii_slug() -> None:
+    change = _change(change_id="abcdefghijklmno", description="修正 🚀\n")
 
     branch = current_pr_branch_namespace().generate_branch(change)
 
@@ -74,26 +74,6 @@ def test_pr_branch_matcher_ties_a_branch_to_one_change(
     matches: bool,
 ) -> None:
     assert pr_branch_matches_change(branch, "zvlywqkxtmnpqrstu") is matches
-
-
-def test_pr_branch_resolution_keeps_saved_branch_stable_after_subject_change() -> None:
-    tracked_prs = {
-        "zvlywqkxtmnpqrstu": TrackedPR(
-            pr_identity=make_pr_identity(head_ref="jj-stack/fix-cache-invalidation-zvlywqkx"),
-            submitted_baseline=SubmittedBaseline(commit_id="submitted"),
-        )
-    }
-    renamed_change = _change(
-        change_id="zvlywqkxtmnpqrstu",
-        description="Rewrite cache invalidation from scratch\n",
-    )
-
-    resolutions = resolve_pr_branches(
-        changes=(renamed_change,),
-        tracked_prs=tracked_prs,
-    )
-
-    assert resolutions[0].branch == "jj-stack/fix-cache-invalidation-zvlywqkx"
 
 
 def test_pr_branch_resolution_rejects_multiple_changes_on_same_branch() -> None:

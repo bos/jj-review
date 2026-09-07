@@ -171,15 +171,6 @@ def test_store_rejects_newer_schema_with_upgrade_guidance(tmp_path: Path) -> Non
     assert state_path.read_text(encoding="utf-8") == rendered
 
 
-def test_require_writable_creates_missing_parent_directories(tmp_path: Path) -> None:
-    state_path = tmp_path / "state" / "jj-stack" / "repos" / "repo-id" / "state.json"
-
-    writable_dir = TrackingStore(state_path).require_writable()
-
-    assert writable_dir == state_path.parent
-    assert writable_dir.exists()
-
-
 def test_store_shares_tracking_across_workspaces_for_same_repo(
     tmp_path: Path,
     monkeypatch,

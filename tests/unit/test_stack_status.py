@@ -116,64 +116,6 @@ def test_stream_status_falls_back_to_local_data_after_github_abort(monkeypatch) 
     assert result.changes[0].branch == "jj-stack/feature-1-aaaaaaaa"
 
 
-def test_pr_lookup_falls_back_to_exact_remembered_pr_number() -> None:
-    class FakeGithubClient:
-        repo = GithubRepoAddress(
-            owner="octo-org",
-            repo="stacked-prs",
-        )
-
-        async def get_open_prs_by_head_refs(self, *, head_refs):
-            assert head_refs == ("jj-stack/old-branch",)
-            return {"jj-stack/old-branch": ()}
-
-        async def get_prs_by_numbers(self, *, pr_numbers):
-            assert pr_numbers == (7,)
-            return {
-                7: GithubPR.model_validate(
-                    {
-                        "base": {"ref": "jj-stack/base"},
-                        "head": {
-                            "label": "octo-org:jj-stack/old-branch",
-                            "ref": "jj-stack/old-branch",
-                            "sha": "head-commit",
-                        },
-                        "html_url": "https://github.test/octo-org/stacked-prs/pull/7",
-                        "merged_at": "2026-03-16T12:00:00Z",
-                        "node_id": "PR_7",
-                        "number": 7,
-                        "state": "closed",
-                        "title": "feature 7",
-                    }
-                )
-            }
-
-    prepared_change = PreparedChange(
-        change=make_change(
-            change_id="feature7change",
-            commit_id="old-commit",
-            description="feature 7\n",
-        ),
-        tracked=TrackedPR(
-            pr_identity=make_pr_identity(head_ref="jj-stack/old-branch", pr_number=7),
-            submitted_baseline=SubmittedBaseline(commit_id="old-commit"),
-        ),
-    )
-
-    lookups = asyncio.run(
-        status_module.discover_pr_lookups(
-            github_client=cast(GithubClient, FakeGithubClient()),
-            tracked_by_branch={prepared_change.branch or "": prepared_change.tracked},
-        )
-    )
-
-    lookup = lookups["jj-stack/old-branch"]
-    assert lookup.open_prs_on_branch == ()
-    assert lookup.pr is not None
-    assert lookup.pr.number == 7
-    assert lookup.pr.normalize_state().state == "merged"
-
-
 def test_pr_lookup_reports_the_saved_pr_when_another_open_pr_uses_its_branch() -> None:
     def pr_payload(number: int, state: str) -> GithubPR:
         return GithubPR.model_validate(

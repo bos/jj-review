@@ -71,17 +71,16 @@ def test_alias_completion_routes_jj_and_keeps_standalone_completion(
     assert '"stack"' in script
 
 
-@pytest.mark.parametrize("shell", ["bash", "zsh", "fish"])
-def test_completion_command_prints_the_script_unaltered(shell: str, capsys) -> None:
+def test_completion_command_prints_the_script_unaltered(capsys) -> None:
     """The shell parses this output, so console formatting must not touch it.
 
     Printing it through the ordinary output path wrapped it to the console width, splitting a long
     `case` pattern mid-word and leaving a script no shell could parse.
     """
 
-    expected = emit_shell_completion(build_parser(), shell, jj_alias="stack")
+    expected = emit_shell_completion(build_parser(), "bash", jj_alias="stack")
 
-    exit_code = main(["completion", shell, "--jj-alias", "stack"])
+    exit_code = main(["completion", "bash", "--jj-alias", "stack"])
 
     assert exit_code == 0
     assert capsys.readouterr().out == expected

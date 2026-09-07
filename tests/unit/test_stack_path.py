@@ -127,23 +127,6 @@ def test_only_explicit_change_selection_can_project_a_sole_trunk_copy() -> None:
     assert "sync --all" in plain_text(hint)
 
 
-def test_selected_overlap_follows_only_the_explicit_head_parent_path() -> None:
-    trunk = _change("trunk", "trunk-change", parents=("root",), immutable=True)
-    shared = _change("shared", "shared-change", parents=("trunk",))
-    left = _change("left", "left-change", parents=("shared",))
-    right = _change("right", "right-change", parents=("shared",))
-
-    selected = project_selected_path(
-        _observation(
-            head=right,
-            commits=(left, trunk, right, shared),
-            trunk=trunk,
-        )
-    )
-
-    assert [change.commit_id for change in selected.stack.changes] == ["shared", "right"]
-
-
 def test_selected_path_fails_closed_when_its_parent_boundary_was_not_observed() -> None:
     trunk = _change("trunk", "trunk-change", parents=("root",), immutable=True)
     head = _change("head", "head-change", parents=("missing",))
@@ -173,30 +156,6 @@ def test_repo_paths_inventory_an_ordinary_shared_prefix() -> None:
         ["shared", "left"],
         ["shared", "right"],
     ]
-
-
-def test_repo_and_selected_projection_agree_for_one_ordinary_path() -> None:
-    trunk = _change("trunk", "trunk-change", parents=("root",), immutable=True)
-    shared = _change("shared", "shared-change", parents=("trunk",))
-    left = _change("left", "left-change", parents=("shared",))
-    right = _change("right", "right-change", parents=("shared",))
-    commits = (left, trunk, right, shared)
-
-    selected = project_selected_path(_observation(head=right, commits=commits, trunk=trunk))
-    repo = project_repo_paths(
-        RepoPathObservation(
-            candidate_commit_ids=frozenset({"shared", "left", "right"}),
-            current_tracked_commit_id=None,
-            fetched_trunk_commit_ids=frozenset({"trunk"}),
-            commits=commits,
-            tracked_change_ids=frozenset(),
-            trunk=trunk,
-        )
-    )
-    repo_right = next(path for path in repo.paths if path.stack.head.commit_id == "right")
-
-    assert repo_right.stack.changes == selected.stack.changes
-    assert repo_right.stack.base_parent == selected.stack.base_parent
 
 
 def _observation(

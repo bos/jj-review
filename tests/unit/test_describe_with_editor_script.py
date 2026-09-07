@@ -17,31 +17,15 @@ describe_with_editor = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(describe_with_editor)
 
 
-def test_initial_editor_text_uses_readable_helper_comment_block() -> None:
-    text = describe_with_editor.initial_editor_text(
+def test_parse_edited_description_ignores_helper_comment_blocks() -> None:
+    context = describe_with_editor.initial_editor_text(
         context_lines=["commit title", "", "commit body"],
         mode="pr",
         revset="abc",
     )
-
-    assert "<!-- jj-stack:\n" in text
-    assert "Commit description for abc:\ncommit title\n\ncommit body\n-->" in text
-
-
-def test_parse_edited_description_ignores_helper_comment_blocks() -> None:
     parsed = describe_with_editor.parse_edited_description(
-        "\n".join(
-            [
-                "<!-- jj-stack:",
-                "commit context",
-                "-->",
-                "",
-                "# Markdown title",
-                "",
-                "Body with **formatting**.",
-                "<!-- jj-stack: more context -->",
-            ]
-        )
+        f"{context}\n# Markdown title\n\nBody with **formatting**.\n"
+        "<!-- jj-stack: more context -->"
     )
 
     assert parsed == ("# Markdown title", "Body with **formatting**.")

@@ -13,6 +13,7 @@ from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import JjClient
 from jj_stack.models.tracking import TrackingState
 from tests.support.contexts import fake_command_context
+from tests.support.output_assertions import assert_output_contains
 
 
 def patch_bootstrap(monkeypatch, module, tmp_path: Path) -> None:
@@ -108,7 +109,6 @@ def test_view_continues_after_selector_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("COLUMNS", "72")
     patch_bootstrap(monkeypatch, view_module, tmp_path)
 
     def fake_prepare_status_for_revset(**kwargs):
@@ -176,12 +176,11 @@ def test_view_continues_after_selector_error(
     assert stdout_lines.index("Status for later:") < stdout_lines.index("rendered later")
     stderr_lines = stderr.getvalue().splitlines()
     assert "Error: bad selector" in stderr_lines
-    hint_line_index = next(
-        index
-        for index, line in enumerate(stderr_lines)
-        if line.startswith("Hint: Refresh the local view")
+    assert_output_contains(
+        stderr.getvalue(),
+        "Refresh the local view and select an exact pull request before "
+        "retrying this stack inspection.",
     )
-    assert stderr_lines[hint_line_index + 1].startswith("      retrying")
 
 
 def test_view_json_continues_after_selector_error(

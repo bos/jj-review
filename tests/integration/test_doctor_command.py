@@ -47,27 +47,6 @@ def _configure_doctor_environment(
     return write_fake_github_config(tmp_path)
 
 
-def test_doctor_exits_zero_for_healthy_repo(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = _configure_doctor_environment(monkeypatch, tmp_path, fake_repo)
-    JjClient(repo).ensure_pr_branch_fetch_isolation(
-        remote="origin",
-    )
-
-    exit_code = run_main(repo, config_path, "doctor")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "GitHub auth" in captured.out
-    assert "Stacks API available" in captured.out
-    assert "checkout/sync leftovers" in captured.out
-    assert "Traceback" not in captured.out + captured.err
-
-
 def test_doctor_reports_when_github_stacks_are_unavailable(
     tmp_path: Path,
     monkeypatch,
@@ -138,25 +117,6 @@ def test_doctor_fix_forgets_fetched_pr_bookmarks_and_leftovers(
     run_command(["jj", "describe", "-r", change.change_id, "-m", "editable again"], repo)
 
 
-def test_doctor_reports_runnable_missing_fetch_isolation_recovery(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = _configure_doctor_environment(monkeypatch, tmp_path, fake_repo)
-
-    exit_code = run_main(repo, config_path, "doctor")
-    output = " ".join(capsys.readouterr().out.split())
-
-    assert exit_code == 0
-    glob = current_pr_branch_namespace().branch_glob
-    assert f"jj git fetch does not skip {glob} branches" in output
-    assert "multiple" not in output
-    assert "jj-stack doctor --fix" in output
-    assert "without --dry-run" not in output
-
-
 def test_doctor_distinguishes_duplicate_fetch_exclusions(
     tmp_path: Path,
     monkeypatch,
@@ -186,6 +146,13 @@ def test_doctor_distinguishes_duplicate_fetch_exclusions(
     assert "keep one with jj-stack doctor --fix" in output
     assert "missing" not in output
 
+    assert run_main(repo, config_path, "doctor", "--fix") == 0
+    refspecs = run_command(
+        ["git", "config", "--get-all", "remote.origin.fetch"], repo
+    ).stdout.splitlines()
+    assert refspecs.count(current_pr_branch_namespace().fetch_refspec) == 1
+    assert "+refs/heads/*:refs/remotes/origin/*" in refspecs
+
 
 def test_doctor_fix_applies_the_pr_branch_fetch_exclusion(
     tmp_path: Path,
@@ -196,7 +163,12 @@ def test_doctor_fix_applies_the_pr_branch_fetch_exclusion(
     config_path = _configure_doctor_environment(monkeypatch, tmp_path, fake_repo)
 
     assert run_main(repo, config_path, "doctor") == 0
-    capsys.readouterr()
+    output = " ".join(capsys.readouterr().out.split())
+    glob = current_pr_branch_namespace().branch_glob
+    assert f"jj git fetch does not skip {glob} branches" in output
+    assert "multiple" not in output
+    assert "jj-stack doctor --fix" in output
+    assert "without --dry-run" not in output
 
     assert run_main(repo, config_path, "doctor", "--fix") == 0
     fixed_output = " ".join(capsys.readouterr().out.split())
@@ -206,6 +178,7 @@ def test_doctor_fix_applies_the_pr_branch_fetch_exclusion(
     assert run_main(repo, config_path, "doctor") == 0
     rerun_output = " ".join(capsys.readouterr().out.split())
     assert "jj-stack doctor --fix" not in rerun_output
+    assert "Stacks API available" in rerun_output
 
 
 def test_doctor_shows_skipped_checks_when_remote_fails(

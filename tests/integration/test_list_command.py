@@ -225,9 +225,13 @@ def test_list_keeps_one_stack_when_saved_tracking_is_sparse_in_the_middle(
     capsys.readouterr()
 
     stack = selected_stack(repo)
-    middle_change_id = stack.changes[1].change_id
-    state_store = TrackingStore.for_repo(repo)
-    state_store.retire_pr(middle_change_id)
+    bottom, middle, top = stack.changes
+    # Forget the lower prefix, then reattach only its bottom PR. Tracking is sparse while
+    # the jj parent chain still connects all three changes.
+    assert run_main(repo, config_path, "unstack", "--local", middle.change_id) == 0
+    assert run_main(repo, config_path, "relink", "1", bottom.change_id) == 0
+    assert set(TrackingStore.for_repo(repo).load().prs) == {bottom.change_id, top.change_id}
+    capsys.readouterr()
 
     exit_code = run_main(repo, config_path, "list")
     captured = capsys.readouterr()
@@ -314,19 +318,21 @@ def test_list_reports_partial_approval_for_ready_prefix_only(
     assert "1 approved, open, checks failed" in captured.out
 
 
-def test_list_reports_no_stacks_when_state_is_empty(
+def test_list_omits_wholly_untracked_local_stacks(
     tmp_path,
     monkeypatch,
     capsys,
 ) -> None:
     repo, fake_repo = init_fake_github_repo(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    commit_file(repo, "unsubmitted feature", "feature.txt")
 
     exit_code = run_main(repo, config_path, "list")
     captured = capsys.readouterr()
 
     assert exit_code == 0
     assert "No stacks." in captured.out
+    assert "unsubmitted feature" not in captured.out
 
 
 def test_list_does_not_extend_through_undescribed_working_copy(

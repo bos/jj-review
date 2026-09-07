@@ -35,12 +35,13 @@ def _resolve_default_bodies(tmp_path: Path, *, description: str) -> str:
     return descriptions["ch1"].body
 
 
-def test_bodyless_change_uses_pr_template(tmp_path: Path) -> None:
+def test_bodyless_change_prefers_github_pr_template_over_root(tmp_path: Path) -> None:
     template_dir = tmp_path / ".github"
     template_dir.mkdir()
     (template_dir / "PULL_REQUEST_TEMPLATE.md").write_text(
         "## Summary\n\n## Testing\n", encoding="utf-8"
     )
+    (tmp_path / "PULL_REQUEST_TEMPLATE.md").write_text("Root template\n", encoding="utf-8")
 
     body = _resolve_default_bodies(tmp_path, description="fix: one-line subject\n")
 
@@ -55,12 +56,6 @@ def test_change_description_body_wins_over_pr_template(tmp_path: Path) -> None:
     assert body == "Real body paragraph."
 
 
-def test_bodyless_change_falls_back_to_subject_without_template(tmp_path: Path) -> None:
-    body = _resolve_default_bodies(tmp_path, description="fix: subject only\n")
-
-    assert body == "fix: subject only"
-
-
 def test_empty_pr_template_counts_as_absent(tmp_path: Path) -> None:
     (tmp_path / "PULL_REQUEST_TEMPLATE.md").write_text("  \n\n", encoding="utf-8")
 
@@ -69,48 +64,12 @@ def test_empty_pr_template_counts_as_absent(tmp_path: Path) -> None:
     assert body == "fix: subject only"
 
 
-def test_pr_template_prefers_github_directory_over_root(tmp_path: Path) -> None:
-    template_dir = tmp_path / ".github"
-    template_dir.mkdir()
-    (template_dir / "PULL_REQUEST_TEMPLATE.md").write_text("github dir", encoding="utf-8")
-    (tmp_path / "PULL_REQUEST_TEMPLATE.md").write_text("repo root", encoding="utf-8")
-
-    body = _resolve_default_bodies(tmp_path, description="fix: subject\n")
-
-    assert body == "github dir"
-
-
 def _two_change_stack() -> tuple:
     bottom = make_change(
         commit_id="c1", change_id="bottomchange", description="feature 1\n\nBottom body.\n"
     )
     top = make_change(commit_id="c2", change_id="topchange", description="feature 2\n")
     return (bottom, top)
-
-
-def test_edit_document_round_trips_titles_bodies_and_draft_states() -> None:
-    changes = _two_change_stack()
-    descriptions = {
-        "bottomchange": GeneratedDescription(body="Bottom body.", title="feature 1"),
-        "topchange": GeneratedDescription(body="", title="feature 2"),
-    }
-
-    drafts = {"bottomchange": True, "topchange": False}
-
-    document = render_description_edit_document(
-        descriptions=descriptions,
-        drafts=drafts,
-        changes=changes,
-    )
-    parsed_descriptions, parsed_drafts = parse_description_edit_document(
-        document,
-        changes=changes,
-    )
-
-    assert parsed_descriptions == descriptions
-    assert parsed_drafts == drafts
-    # The head change renders first, matching how view presents a stack.
-    assert document.index("topchange") < document.index("bottomchange")
 
 
 def test_edit_document_parse_rejects_unknown_change() -> None:

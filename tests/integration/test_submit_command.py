@@ -116,7 +116,11 @@ def test_submit_uses_configured_namespace_and_adds_stack_only_when_needed(
     capsys.readouterr()
 
     assert tuple(fake_repo.prs) == (1, 2)
-    assert fake_repo.prs[2].head_ref.startswith("team-prs/")
+    assert JjClient(repo).visible_pr_bookmark_targets() == {}
+    for number, change in enumerate(selected_stack(repo).changes, start=1):
+        branch = f"team-prs/feature-{number}-{change.change_id[:8]}"
+        assert fake_repo.prs[number].head_ref == branch
+        assert read_remote_ref(fake_repo.git_dir, branch) == change.commit_id
     assert fake_repo.github_stacks == {1: (1, 2)}
     assert all(issue_comments(fake_repo, number) == [] for number in (1, 2))
 
@@ -1047,26 +1051,6 @@ def test_submit_cross_stack_move_rejects_destination_first_without_mutation(
     assert remote_refs(fake_repo.git_dir) == refs_before
 
 
-def test_submit_uses_readable_pr_branch_names(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    commit_file(repo, "feature 2", "feature-2.txt")
-    stack = selected_stack(repo)
-
-    assert run_main(repo, config_path, "submit") == 0
-    state = TrackingStore.for_repo(repo).load()
-    assert JjClient(repo).visible_pr_bookmark_targets() == {}
-
-    for change, subject in zip(stack.changes, ("feature-1", "feature-2"), strict=True):
-        branch = state.prs[change.change_id].pr_identity.head_ref
-        assert branch == f"jj-stack/{subject}-{change.change_id[:8]}"
-        assert f"refs/heads/{branch}" in remote_refs(fake_repo.git_dir)
-
-
 def test_submit_draft_new_does_not_convert_published_prs_back_to_draft(
     tmp_path: Path,
     monkeypatch,
@@ -1756,27 +1740,6 @@ def test_submit_reports_stack_overview_comment_update_failures_without_traceback
     assert "Traceback" not in captured.err
 
 
-def test_submit_reports_up_to_date_when_remote_branch_and_pr_already_match(
-    tmp_path: Path,
-    monkeypatch,
-    capsys,
-) -> None:
-    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
-    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    first_refs = remote_refs(fake_repo.git_dir)
-    first_prs = {number: pr.title for number, pr in fake_repo.prs.items()}
-
-    exit_code = run_main(repo, config_path, "submit")
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "already pushed" in captured.out
-    assert "unchanged" in captured.out
-    assert remote_refs(fake_repo.git_dir) == first_refs
-    assert {number: pr.title for number, pr in fake_repo.prs.items()} == first_prs
-
-
 def test_submit_refreshes_unchanged_pr_text_and_preserves_github_edits(
     tmp_path: Path,
     monkeypatch,
@@ -2193,7 +2156,7 @@ def test_submit_open_marks_existing_draft_prs_ready_for_review(
     assert not fake_repo.prs[1].is_draft
 
 
-def test_submit_checkpoints_successful_in_flight_pr_before_failure(
+def test_submit_retry_keeps_a_pr_created_while_another_request_failed(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -2261,6 +2224,20 @@ def test_submit_checkpoints_successful_in_flight_pr_before_failure(
     }
     assert len(pushed_pr_branch_refs) == 2
     assert set(pushed_pr_branch_refs.values()) == {change.commit_id for change in stack.changes}
+
+    patch_github_client_builders(
+        monkeypatch,
+        app=app,
+        fake_repo=fake_repo,
+        modules=("jj_stack.commands.submit.command",),
+    )
+    assert run_main(repo, config_path, "submit") == 0
+    retried = capsys.readouterr()
+    assert "relink" not in retried.out + retried.err
+    assert TrackingStore.for_repo(repo).load().prs[change_id_1] == state.prs[change_id_1]
+    assert len(fake_repo.prs) == 2
+    assert fake_repo.github_stacks == {1: (1, 2)}
+    _assert_stack_prs_match_dag(fake_repo=fake_repo, repo=repo, stack=selected_stack(repo))
 
 
 def test_submit_rerun_converges_pr_metadata_after_partial_create_failure(
@@ -2361,6 +2338,8 @@ def test_submit_unchanged_rerun_skips_pr_metadata_writes(
     capsys.readouterr()
 
     metadata_write_calls: list[str] = []
+    refs_before = remote_refs(fake_repo.git_dir)
+    prs_before = {number: asdict(pr) for number, pr in fake_repo.prs.items()}
 
     class NoMetadataWritesClient(GithubClient):
         async def request_reviewers(
@@ -2386,7 +2365,11 @@ def test_submit_unchanged_rerun_skips_pr_metadata_writes(
     )
 
     assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
+    output = capsys.readouterr().out
+    assert "already pushed" in output
+    assert "unchanged" in output
+    assert remote_refs(fake_repo.git_dir) == refs_before
+    assert {number: asdict(pr) for number, pr in fake_repo.prs.items()} == prs_before
 
     # An explicitly empty reviewer override is not a request to write configured metadata.
     assert run_main(repo, config_path, "submit", "--reviewers", "") == 0

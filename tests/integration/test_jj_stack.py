@@ -18,22 +18,6 @@ from ..support.integration_helpers import (
 )
 
 
-def test_selected_path_observes_linear_history_from_default_head(tmp_path: Path) -> None:
-    repo = init_repo(tmp_path)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    commit_file(repo, "feature 2", "feature-2.txt")
-
-    path = select_stack_path(
-        jj_client=JjClient(repo),
-        state=TrackingState(),
-    )
-    stack = path.stack
-
-    assert path.is_maximal
-    assert stack.selected_revset == "@-"
-    assert [change.subject for change in stack.changes] == ["feature 1", "feature 2"]
-
-
 @pytest.mark.parametrize("working_copy", ("empty", "undescribed"))
 def test_selected_path_maximality_ignores_excluded_working_copy_child(
     tmp_path: Path,

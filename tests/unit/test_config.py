@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from jj_stack.config import load_config, parse_jj_stack_config_toml
+from jj_stack.config import load_config
 from jj_stack.errors import CliError
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import JjClient
@@ -52,6 +52,7 @@ def test_load_config_parses_and_normalizes_the_resolved_jj_stack_section(
             'jj-stack.team_reviewers = ["platform", ""]',
             'jj-stack.labels = ["", "needs-review", "needs-review"]',
             'jj-stack.logging.level = "info"',
+            'jj-stack.potato = "round"',
             "",
         ]
     )
@@ -63,17 +64,6 @@ def test_load_config_parses_and_normalizes_the_resolved_jj_stack_section(
     assert config.reviewers == ["octocat"]
     assert config.team_reviewers == ["platform"]
     assert config.labels == ["needs-review"]
-
-
-def test_load_config_ignores_unknown_keys_inside_jj_stack_section(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    stdout = 'jj-stack.potato = "round"\n'
-
-    _patch_config_output(monkeypatch, tmp_path, stdout)
-    config = load_config(jj_client=JjClient(tmp_path))
-
-    assert config.labels == []
 
 
 def test_load_config_rejects_likely_top_level_typo(
@@ -115,21 +105,6 @@ def test_load_config_rejects_invalid_logging_level(
 
     with pytest.raises(CliError, match="Invalid logging level"):
         load_config(jj_client=JjClient(tmp_path))
-
-
-def test_parse_jj_stack_config_toml_extracts_nested_tables() -> None:
-    stdout = "\n".join(
-        [
-            'jj-stack.labels = ["needs-review"]',
-            'jj-stack.logging.level = "INFO"',
-            "",
-        ]
-    )
-    parsed = parse_jj_stack_config_toml(stdout)
-    assert parsed == {
-        "labels": ["needs-review"],
-        "logging": {"level": "INFO"},
-    }
 
 
 def test_load_config_wraps_jj_command_failure_with_user_facing_message(
