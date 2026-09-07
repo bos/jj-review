@@ -288,12 +288,9 @@ class FakeGithubRepo:
         *,
         branch_heads: dict[str, str] | None = None,
     ) -> None:
-        # Known idealization: this fake marks an open PR merged whenever its
-        # head commits become reachable from its base, on every refresh. Real
-        # GitHub's merged-detection may not fire on a base retarget after a
-        # direct push, so the closed-but-not-merged finalization family is
-        # untestable against this fake. Do not infer real GitHub behavior from
-        # this transition without an approved live experiment.
+        # GitHub eventually detects a pushed head reachable from its existing base. This fake
+        # observes it synchronously; base edits separately reject an already-reachable head.
+        # Live evidence: voxel-ai/jj-stack-native-stacks-test#351, 2026-09-07.
         if not self.auto_merge_reachable_heads or pr.state != "open":
             return
         if branch_heads is None:
@@ -306,6 +303,7 @@ class FakeGithubRepo:
             return
         if pr.merged_at is None:
             pr.merged_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        pr.merge_commit_sha = head_commit
         self.update_pr_state(
             pr,
             state="closed",
@@ -1083,7 +1081,17 @@ def _register_pr_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
         body = (_optional_string(payload, "body") or "") if "body" in payload else None
         base_ref = _require_string(payload, "base") if "base" in payload else None
         if base_ref is not None:
-            _require_branch(repo, base_ref)
+            base_commit = _require_branch(repo, base_ref)
+            if pr.state != "open":
+                raise HTTPException(
+                    status_code=422,
+                    detail="Cannot change the base branch of a closed pull request.",
+                )
+            head_commit = repo.ref_target(pr.head_ref) or pr.head_sha
+            if repo.is_ancestor(head_commit, base_commit):
+                raise HTTPException(
+                    status_code=422, detail="There are no new commits between base and head."
+                )
         if title is not None:
             pr.title = title
         if body is not None:
@@ -1093,7 +1101,6 @@ def _register_pr_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
                 pr,
                 base_ref=base_ref,
             )
-        repo.refresh_pr_state(pr)
         return pr.to_payload(repo=repo, web_origin=fake_state.web_origin)
 
     @app.put("/repos/{owner}/{repo_name}/pulls/{pr_number}/merge-async")
@@ -1190,6 +1197,12 @@ def _register_pr_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
         state = _require_string(payload, "state")
         if state not in {"open", "closed"}:
             raise HTTPException(status_code=422, detail="Unsupported issue state.")
+        if state == "open" and (
+            pr.merged_at is not None
+            or repo.ref_target(pr.head_ref) is None
+            or repo.ref_target(pr.base_ref) is None
+        ):
+            raise HTTPException(status_code=422, detail="Validation Failed")
         repo.update_pr_state(
             pr,
             state=state,
@@ -1469,11 +1482,12 @@ def _complete_stack_merge(
         operation.status = "enqueued"
         operation.message = "Pull requests were added to the merge queue."
         return
+    base_ref = candidates[0].base_ref
     for pr in candidates:
-        if pr.base_ref != repo.default_branch:
+        if pr.base_ref != base_ref:
             repo.update_pr_base(
                 pr,
-                base_ref=repo.default_branch or "main",
+                base_ref=base_ref,
             )
     if operation.merge_method == "merge":
         repo.apply_merge_commit(candidates)
@@ -1484,7 +1498,7 @@ def _complete_stack_merge(
                 pr,
                 merge_method=operation.merge_method,
             )
-    previous_base = repo.default_branch or "main"
+    previous_base = base_ref
     for pr_number in survivors:
         pr = repo.prs[pr_number]
         repo.rewrite_pr_onto_base(
@@ -1492,7 +1506,7 @@ def _complete_stack_merge(
             base_ref=previous_base,
         )
         previous_base = pr.head_ref
-    operation.final_sha = repo.ref_target(repo.default_branch or "main")
+    operation.final_sha = repo.ref_target(base_ref)
     operation.status = "merged"
 
 
@@ -1532,22 +1546,10 @@ def _validate_stack_members(
             )
 
 
-def _require_branch(repo: FakeGithubRepo, branch: str) -> None:
-    completed = subprocess.run(
-        [
-            "git",
-            "--git-dir",
-            str(repo.git_dir),
-            "show-ref",
-            "--verify",
-            f"refs/heads/{branch}",
-        ],
-        capture_output=True,
-        check=False,
-        text=True,
-    )
-    if completed.returncode == 0:
-        return
+def _require_branch(repo: FakeGithubRepo, branch: str) -> str:
+    target = repo.ref_target(branch)
+    if target is not None:
+        return target
     raise HTTPException(status_code=422, detail=f"Branch {branch!r} does not exist.")
 
 

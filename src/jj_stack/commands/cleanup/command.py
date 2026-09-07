@@ -422,7 +422,7 @@ def _observe_trunk_branch(
     observation: RepoFacts,
     remote: GitRemote,
 ) -> str:
-    """Resolve the branch an open PR is retargeted to before closing, as sync does."""
+    """Resolve the branch an open PR is retargeted to before explicit closure."""
 
     trunk_commit_id = jj_client.resolve_commit("trunk()").commit_id
     trunk_branch, _targets = resolve_trunk_branch(

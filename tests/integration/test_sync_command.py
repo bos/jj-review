@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -11,7 +10,7 @@ import jj_stack.commands.sync_apply as sync_apply
 from jj_stack.errors import EXIT_GITHUB, EXIT_INCOMPLETE, CliError
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.jj.client import JjClient
-from jj_stack.state.store import TrackingStore, resolve_state_path
+from jj_stack.state.store import TrackingStore
 
 from ..support.integration_helpers import (
     commit_file,
@@ -1118,7 +1117,7 @@ def test_sync_requires_every_surviving_pr_before_rewriting(
     assert set(fake_repo.prs) == {1}
 
 
-def test_sync_all_isolates_an_unavailable_snapshot_from_an_exact_pr(
+def test_sync_all_finishes_exact_prs_after_an_external_fast_forward(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1127,53 +1126,31 @@ def test_sync_all_isolates_an_unavailable_snapshot_from_an_exact_pr(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     first, second = selected_stack(repo).changes
     state_store = TrackingStore.for_repo(repo)
-    initial_state = state_store.load()
-    git_dir = str(fake_repo.git_dir)
-    remote_tree = run_command(
-        ["git", "--git-dir", git_dir, "rev-parse", f"{first.commit_id}^{{tree}}"],
-        fake_repo.git_dir.parent,
-    ).stdout.strip()
-    unavailable_commit_id = run_command(
-        [
-            "git",
-            "-c",
-            "user.name=External User",
-            "-c",
-            "user.email=external@example.com",
-            "--git-dir",
-            git_dir,
-            "commit-tree",
-            remote_tree,
-            "-p",
-            first.commit_id,
-            "-m",
-            "external PR head",
-        ],
-        fake_repo.git_dir.parent,
-    ).stdout.strip()
-    update_remote_ref(
-        fake_repo,
-        branch=initial_state.prs[first.change_id].pr_identity.head_ref,
-        target=unavailable_commit_id,
-    )
-    state_path = resolve_state_path(repo)
-    raw_state = json.loads(state_path.read_text(encoding="utf-8"))
-    raw_state["prs"][first.change_id]["submitted_baseline"]["commit_id"] = unavailable_commit_id
-    write_file(state_path, json.dumps(raw_state))
-
-    fake_repo.auto_merge_reachable_heads = False
-    fake_repo.github_stacks = {}
+    identities = {number: pr.head_ref for number, pr in fake_repo.prs.items()}
+    assert run_main(repo, config_path, "unstack", second.change_id) == 0
     update_remote_ref(fake_repo, branch="main", target=second.commit_id)
+    capsys.readouterr()
 
     exit_code = run_main(repo, config_path, "sync", "--all")
     captured = capsys.readouterr()
 
+    # The top PR's old base does not contain its head. Retargeting it to trunk would return
+    # 422, so sync closes the already-landed work on its existing base instead.
     assert exit_code == 1, (captured.out, captured.err)
-    assert "PR #1" in captured.err
-    assert first.change_id[:8] in captured.err
-    assert "submitted commit is unavailable locally" in captured.err
-    state = state_store.load()
-    assert first.change_id in state.prs
-    assert second.change_id not in state.prs
-    assert fake_repo.prs[1].state == "open"
     assert fake_repo.prs[2].state == "closed"
+    assert fake_repo.prs[2].merged_at is None
+    assert fake_repo.prs[2].base_ref == identities[1]
+    assert fake_repo.ref_target(identities[2]) is None
+    assert second.change_id not in state_store.load().prs
+    # The initial cleanup observation still protects the bottom branch while the closed
+    # top PR has a head. Its successful deletion makes a fresh cleanup safe on the rerun.
+    assert first.change_id in state_store.load().prs
+    assert "preserve PR #1's branch" in " ".join(captured.out.split())
+
+    retry = run_main(repo, config_path, "sync", "--all")
+    retried = capsys.readouterr()
+
+    assert retry == 0, (retried.out, retried.err)
+    assert state_store.load().prs == {}
+    assert all(fake_repo.ref_target(branch) is None for branch in identities.values())
+    assert fake_repo.ref_target("main") == second.commit_id

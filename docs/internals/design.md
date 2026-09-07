@@ -769,10 +769,12 @@ running selected cleanup, and then submitting again.
 `cleanup --pull-request <pr> --close` and `cleanup --pull-request orphans --close` combine closure
 and cleanup for an explicit saved selection. The flag is invalid without `--pull-request`.
 Identity, PR-branch ownership, open dependents, GitHub stack membership, and the managed overview
-comment are all checked before closing an open PR. Whether `sync` or cleanup closes a PR, it first
-retargets the PR to trunk so that GitHub can still reopen it once its base branch is deleted. A PR
-already closed or merged skips closure and follows ordinary cleanup. A closure failure stops later
-selected mutations; a rerun observes the current PR state.
+comment are all checked before closing an open PR. Explicit cleanup first retargets the PR to
+trunk so that GitHub can still reopen it once its base branch is deleted. `sync` closes a PR whose
+exact submitted work is proven on trunk without retargeting: GitHub rejects changing a PR's base
+to a branch that already contains its head, and reopening already-landed work protects nothing.
+A PR already closed or merged skips closure and follows ordinary cleanup. A closure failure stops
+later selected mutations; a rerun observes the current PR state.
 
 Cleanup acts only on one complete identity/baseline pair, whether it runs directly or at the end
 of `sync`. It may remove the managed overview comment, the saved PR branch ref at the commit

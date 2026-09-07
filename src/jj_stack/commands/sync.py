@@ -214,9 +214,8 @@ async def _run_global_plan(
         for change_id, candidate, reason in plan.blocked:
             pr_label = format_pr_label(candidate.pr_identity.pr_number, repo=facts.pr_facts.repo)
             console.warning(t"Skipped {pr_label} for {ui.change_id(change_id)}: {reason}.")
-        required = bool(plan.finishes or plan.sync_change_ids)
         trunk_branch = None
-        if required:
+        if plan.sync_change_ids:
             repo_state = facts.pr_facts.github_repo
             trunk_branch, _targets = resolve_trunk_branch(
                 branches_at_trunk=context.jj_client.remote_bookmarks_at_commit(
@@ -227,15 +226,10 @@ async def _run_global_plan(
                 remote=target.remote,
                 trunk_commit_id=trunk_commit_id,
             )
-        results = (
-            await apply_pr_finishes(
-                plans=plan.finishes,
-                dry_run=dry_run,
-                github=github,
-                trunk_branch=trunk_branch,
-            )
-            if trunk_branch is not None
-            else ()
+        results = await apply_pr_finishes(
+            plans=plan.finishes,
+            dry_run=dry_run,
+            github=github,
         )
         cleanup = await cleanup_tracked_prs(
             change_ids=tuple(
@@ -388,7 +382,6 @@ async def _run_selected_convergence(
             github=github,
             plan=plan,
             target=target,
-            trunk_branch=trunk_branch,
             trunk_commit_id=prepared.stack.trunk.commit_id,
         )
 

@@ -9,14 +9,13 @@ from typing import Literal
 import jj_stack.console as console
 import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
-from jj_stack.commands._cleanup_actions import close_pr_on_trunk
 from jj_stack.commands.cleanup.command import cleanup_tracked_prs
 from jj_stack.commands.submit.command import run_submit_async
 from jj_stack.commands.submit.models import SubmitOptions
 from jj_stack.commands.submit.render import print_submit_result
 from jj_stack.errors import CliError, ConflictedStackError
 from jj_stack.formatting import format_pr_label
-from jj_stack.github.client import GithubClient
+from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.resolution import GithubTarget
 from jj_stack.identifiers import short_change_id
 from jj_stack.jj.cli_args import JjCliArgs
@@ -51,7 +50,6 @@ async def apply_pr_finishes(
     plans: tuple[PRFinishPlan, ...],
     dry_run: bool,
     github: GithubClient,
-    trunk_branch: str,
 ) -> tuple[PRFinishResult, ...]:
     results: list[PRFinishResult] = []
     for plan in plans:
@@ -60,7 +58,6 @@ async def apply_pr_finishes(
                 plan=plan,
                 dry_run=dry_run,
                 github=github,
-                trunk_branch=trunk_branch,
             )
         )
     visible = tuple(result for result in results if result.outcome != "already_terminal")
@@ -86,7 +83,7 @@ async def apply_pr_finishes(
 
 
 async def _apply_pr_finish(
-    *, plan: PRFinishPlan, dry_run: bool, github: GithubClient, trunk_branch: str
+    *, plan: PRFinishPlan, dry_run: bool, github: GithubClient
 ) -> PRFinishResult:
     candidate = plan.candidate
     if isinstance(plan, SkipPRFinish):
@@ -95,12 +92,13 @@ async def _apply_pr_finish(
         return PRFinishResult(plan.change_id, candidate, "finished")
     pr_label = format_pr_label(plan.pr.number, url=plan.pr.html_url)
     console.output(t"Finishing {pr_label} for {plan.change_id}...")
-    reason = await close_pr_on_trunk(github_client=github, pr=plan.pr, trunk_branch=trunk_branch)
-    return (
-        PRFinishResult(plan.change_id, candidate, "skipped", reason)
-        if reason
-        else PRFinishResult(plan.change_id, candidate, "finished")
-    )
+    try:
+        await github.close_pr(pr_number=plan.pr.number)
+    except GithubClientError as error:
+        return PRFinishResult(
+            plan.change_id, candidate, "skipped", t"cannot close {pr_label}: {error}"
+        )
+    return PRFinishResult(plan.change_id, candidate, "finished")
 
 
 async def apply_selected_convergence(
@@ -110,7 +108,6 @@ async def apply_selected_convergence(
     github: GithubClient,
     plan: SelectedConvergencePlan,
     target: GithubTarget,
-    trunk_branch: str,
     trunk_commit_id: str,
 ) -> int:
     """Apply one complete selected convergence plan in dependency order."""
@@ -129,7 +126,6 @@ async def apply_selected_convergence(
         plans=tuple(change.finish for change in actions.on_trunk),
         dry_run=dry_run,
         github=github,
-        trunk_branch=trunk_branch,
     )
     dependencies = _apply_local_convergence(
         context=context,
