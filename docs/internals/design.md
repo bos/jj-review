@@ -759,7 +759,7 @@ neither the local commit nor the submitted baseline is reported as moved, not as
 
 Inspection tolerates fetched side copies of merged changes. `view` walks past immutable or
 divergent side copies when a supported path remains, and shows merged local work as
-`cleanup needed` with a `sync` hint. If no path remains, it returns a targeted selection error.
+`sync needed` with a `sync` hint. If no path remains, it returns a targeted selection error.
 
 Empty, undescribed, conflicted, and merge changes produce warnings, but do not by themselves make
 a report incomplete. A merge warning states that only the first-parent path is shown.

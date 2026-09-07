@@ -541,7 +541,7 @@ def test_view_preserves_saved_pr_link_when_github_reports_missing(
     refreshed_state = state_store.load()
 
     assert exit_code == EXIT_INCOMPLETE
-    assert "Missing GitHub PR" in captured.out
+    assert "missing PR" in captured.out
     assert "saved PR #1" in captured.out
     assert_output_contains(captured.out, "jj-stack relink")
     assert change_id[:8] in captured.out

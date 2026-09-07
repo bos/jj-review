@@ -55,6 +55,7 @@
         "closed",
         "missing",
         "ambiguous",
+        "link_mismatch",
         "branch_moved",
         "divergent",
         "unknown"

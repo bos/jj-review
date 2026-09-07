@@ -152,7 +152,6 @@ def test_list_warns_when_tracked_stack_was_rewritten_without_moving(
     assert change_id[:8] in captured.err
     assert "changed since its last submit" in captured.err
     assert f"jj-stack view {change_id[:8]}" in normalized_err
-    assert f"jj-stack submit {change_id[:8]}" in normalized_err
 
 
 def test_list_treats_a_visible_submitted_predecessor_as_published(
@@ -437,7 +436,7 @@ def test_list_marks_stale_saved_pr_link_and_exits_nonzero(
     captured = capsys.readouterr()
 
     assert exit_code == EXIT_INCOMPLETE
-    assert "stale link" in captured.out
+    assert "missing PR" in captured.out
     assert "PR 1" in captured.out
 
 
@@ -474,4 +473,4 @@ def test_list_and_view_agree_that_a_divergent_change_is_an_incomplete_report(
     assert list_exit_code == EXIT_INCOMPLETE
     assert view_exit_code == EXIT_INCOMPLETE
     assert "jj converge -r" in view_output.out
-    assert "divergent" in view_output.err
+    assert "divergent" in view_output.out

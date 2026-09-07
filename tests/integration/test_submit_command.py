@@ -1617,7 +1617,7 @@ def test_submit_rejects_divergence_kept_immutable_by_another_remote_bookmark(
     captured = capsys.readouterr()
     assert "feature rewritten" in captured.out
     assert "jj converge -r" in captured.out
-    assert "divergent" in captured.err
+    assert "divergent" in captured.out
 
 
 def test_submit_does_not_claim_a_visible_bookmark_for_an_untracked_change(

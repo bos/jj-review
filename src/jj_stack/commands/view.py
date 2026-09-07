@@ -50,22 +50,8 @@ from jj_stack.jj.client import (
     UnsupportedStackError,
     divergent_change_id_from_error,
 )
-from jj_stack.models.github import GithubPR
-from jj_stack.stack.change_state import (
-    ChangeState,
-    Closed,
-    CompetingOpenPR,
-    Landed,
-    LookupFailed,
-    Merged,
-    NotInspected,
-    PRAmbiguous,
-    PRHeadMoved,
-    PRIdentityMismatch,
-    PRMissing,
-    WithPR,
-)
 from jj_stack.stack.divergence import divergence_recovery_hint
+from jj_stack.stack.reporting import report_change, status_label
 from jj_stack.stack.selected import is_change_id_prefix
 from jj_stack.stack.selection import resolve_linked_change_for_pr
 from jj_stack.stack.status import (
@@ -317,11 +303,6 @@ def _local_history_warnings(prepared_status: PreparedStatus) -> tuple[ui.Message
             warnings.append(
                 t"Change {change_id} has no description. Before submitting, describe it with "
                 t"{ui.cmd(f'jj describe {short_change_id(change.change_id)}')}."
-            )
-        if change.divergent:
-            warnings.append(
-                t"Change {change_id} is divergent. Showing the selected commit; resolve the "
-                t"divergence before changing the stack with jj-stack."
             )
         if change.conflict:
             warnings.append(
@@ -609,33 +590,40 @@ def render_status_advisory_lines(
 ) -> tuple[ui.Renderable, ...]:
     """Render any advisories that follow the status stack output."""
 
+    reports = {change.change_id: report_change(change.state) for change in result.changes}
     cleanup_changes = [
-        change for change in result.changes if isinstance(change.state, (Landed, Merged))
+        change for change in result.changes if reports[change.change_id].needs_sync
     ]
     divergent_changes = [
+        change for change in result.changes if reports[change.change_id].divergent
+    ]
+    repair_changes = [
+        change for change in result.changes if reports[change.change_id].repair is not None
+    ]
+    closed_changes = [
         change
         for change in result.changes
-        if change.state.divergent and not isinstance(change.state, (Landed, Merged))
+        if reports[change.change_id].lifecycle == "closed"
+        and reports[change.change_id].repair is None
     ]
-    link_changes = [
-        change for change in result.changes if _link_advisory_kind(change.state) is not None
-    ]
-    moved_changes = [change for change in result.changes if isinstance(change.state, PRHeadMoved)]
-    # A moved PR branch stops submit, so "submit needed" would be the wrong next step.
+    # A repair anywhere in the selected stack stops submit for the whole stack.
     submitted_disagreements = (
         ()
-        if moved_changes
+        if repair_changes
+        or divergent_changes
+        or closed_changes
+        or any(report.lifecycle == "queued" for report in reports.values())
         else tuple(
             change.change_id
             for change in reversed(result.changes)
-            if change.state.has_local_edits
+            if reports[change.change_id].needs_submit
         )
     )
     if (
         not cleanup_changes
         and not divergent_changes
-        and not link_changes
-        and not moved_changes
+        and not repair_changes
+        and not closed_changes
         and not submitted_disagreements
     ):
         return ()
@@ -731,45 +719,45 @@ def render_status_advisory_lines(
                 )
             )
 
-    if moved_changes:
-        single = len(moved_changes) == 1
-        noun = "PR branch" if single else "PR branches"
+    if closed_changes:
         rows.append(
             (
-                f"{noun} moved",
+                "Closed GitHub PR" if len(closed_changes) == 1 else "Closed GitHub PRs",
                 (
-                    f"The {noun} of the change{'' if single else 's'} shown above "
-                    f"{'was' if single else 'were'} updated outside this repo, for example by "
-                    "another clone, a reviewer's commit, or a GitHub stack rebase or merge. "
-                    f"Submit and merge stop until {'it is' if single else 'they are'} resolved. "
-                    "If GitHub rewrote the stack, ",
-                    ui.cmd(f"jj-stack sync {result.selected_revset}"),
-                    " applies its result (preview with ",
-                    ui.option("--dry-run"),
-                    "); otherwise choose below.",
+                    "Reopen the PR on GitHub to continue using it, link an open replacement "
+                    "with jj-stack relink, or clean up with ",
+                    ui.cmd(f"jj-stack cleanup {result.selected_revset}"),
+                    " before submitting again.",
                 ),
             )
         )
-        for change in moved_changes:
-            state = change.state
-            if not isinstance(state, PRHeadMoved):
-                raise AssertionError("A moved PR branch advisory requires a moved head.")
-            rows.append((ui.change_id(change.change_id), (state.reason, "; ", state.repair)))
-
-    if link_changes:
+    for change in repair_changes:
+        report = reports[change.change_id]
         rows.append(
-            _link_advisory_summary_row(
-                link_changes=tuple(link_changes),
-                selected_revset=result.selected_revset,
+            (
+                ui.change_id(change.change_id),
+                (
+                    status_label(report.status),
+                    ": ",
+                    report.reason or "",
+                    "; ",
+                    report.repair or "",
+                ),
             )
         )
-        for change in link_changes:
-            rows.append(
+    if any(report.problem == "branch_moved" for report in reports.values()):
+        rows.append(
+            (
+                "GitHub stack rebase",
                 (
-                    ui.change_id(change.change_id),
-                    _describe_link_advisory(change.state, repo=result.github_repo),
-                )
+                    "If GitHub rewrote the stack, apply its result with ",
+                    ui.cmd(f"jj-stack sync {result.selected_revset}"),
+                    " (preview with ",
+                    ui.option("--dry-run"),
+                    ").",
+                ),
             )
+        )
 
     for change in divergent_changes:
         rows.append(
@@ -797,76 +785,6 @@ def render_status_advisory_lines(
     )
 
 
-def _link_advisory_summary_row(
-    *,
-    link_changes: tuple[StackStatusChange, ...],
-    selected_revset: str,
-) -> tuple[ui.TableCell, ui.TableCell]:
-    states = {_link_advisory_kind(change.state) for change in link_changes}
-    change_phrase = (
-        "the change shown above" if len(link_changes) == 1 else "one or more changes shown above"
-    )
-    cleanup_command = ui.cmd(f"jj-stack cleanup {selected_revset}")
-    if states == {"closed"}:
-        label = "Closed GitHub PR" if len(link_changes) == 1 else "Closed GitHub PRs"
-        closed_phrase = "a closed PR" if len(link_changes) == 1 else "closed PRs"
-        detail = (
-            f"GitHub reports {closed_phrase} for {change_phrase}; submit will not "
-            "reuse closed pull requests. Reopen the PR on GitHub to continue using it, "
-            "link an open replacement with jj-stack relink, or clean up with ",
-            cleanup_command,
-            " before submitting again.",
-        )
-        return label, detail
-    if states == {"missing"}:
-        label = "Missing GitHub PR" if len(link_changes) == 1 else "Missing GitHub PRs"
-        detail = (
-            f"GitHub did not report a PR for the saved PR branch of {change_phrase}. "
-            "Inspect the saved PR on GitHub. To link an existing open PR, use ",
-            ui.cmd("jj-stack relink"),
-            ".",
-        )
-        return label, detail
-    if states == {"ambiguous"}:
-        label = "Ambiguous GitHub PR" if len(link_changes) == 1 else "Ambiguous GitHub PRs"
-        detail = (
-            f"GitHub reports multiple PRs for the saved PR branch of {change_phrase}. "
-            "Inspect those PRs on GitHub, then use ",
-            ui.cmd("jj-stack relink"),
-            " to link the intended open PR.",
-        )
-        return label, detail
-    if states == {"saved"}:
-        label = "Saved GitHub PR" if len(link_changes) == 1 else "Saved GitHub PRs"
-        detail = (
-            f"Submit cannot use the saved PR of {change_phrase} as it stands; see its row. "
-            "Inspect the PRs on GitHub, then use ",
-            ui.cmd("jj-stack relink"),
-            " to link the intended open PR.",
-        )
-        return label, detail
-    detail = (
-        "GitHub reports closed, missing, or ambiguous PR state for one or more "
-        "changes shown above. Inspect their PRs on GitHub and the details below before "
-        "choosing a repair command.",
-    )
-    return "GitHub PRs need repair", detail
-
-
-def _link_advisory_kind(state: ChangeState) -> str | None:
-    """Name the repair advisory a state needs, or None when its saved link is sound."""
-
-    if isinstance(state, PRAmbiguous) or (isinstance(state, CompetingOpenPR) and state.ambiguous):
-        return "ambiguous"
-    if isinstance(state, (PRIdentityMismatch, CompetingOpenPR)):
-        return "saved"
-    if isinstance(state, PRMissing):
-        return "missing"
-    if isinstance(state, Closed):
-        return "closed"
-    return None
-
-
 def _render_summary_change_lines(
     *,
     change: StackStatusChange,
@@ -890,50 +808,32 @@ def _format_status_summary(
     *,
     repo: GithubRepoAddress | None,
 ) -> ui.Message:
-    state = change.state
-    saved_label = (
-        format_pr_label(change.tracked.pr_identity.pr_number, prefix="saved ", repo=repo)
-        if change.tracked is not None
-        else None
-    )
-    saved: ui.Message = saved_label if saved_label is not None else "saved PR"
-    summary: ui.Message
-    if isinstance(state, WithPR):
-        summary = _format_live_pr_summary(state.pr)
-    elif isinstance(state, NotInspected):
-        summary = saved
-    elif isinstance(state, PRMissing):
-        summary = t"{saved}, no PR found for branch"
-    elif isinstance(state, (LookupFailed, PRAmbiguous)):
-        summary = t"{saved}, {ui.plain_text(state.reason)}"
+    report = report_change(change.state)
+    pr = change.pr
+    if pr is not None:
+        pr_label = format_pr_label(
+            pr.number, is_draft=pr.state == "open" and pr.is_draft, url=pr.html_url
+        )
+        if report.needs_sync:
+            summary: ui.Message = t"{pr_label} merged, sync needed"
+        elif report.lifecycle in {"open", "draft"}:
+            summary = pr_label
+        elif report.lifecycle == "merged":
+            summary = t"{pr_label} merged"
+        else:
+            summary = t"{pr_label} {status_label(report.lifecycle)}"
+        if pr.state == "open" and pr.check_rollup_status is not None:
+            summary = t"{summary}, checks {pr.check_rollup_status}"
+    elif change.tracked is not None:
+        summary = format_pr_label(
+            change.tracked.pr_identity.pr_number, prefix="saved ", repo=repo
+        )
     else:
-        # Untracked changes are never inspected, so the remaining states are Unpublished.
         summary = "not submitted"
-    if isinstance(state, PRHeadMoved):
-        summary = t"{summary}, PR branch moved"
-    if state.divergent and not isinstance(state, (Landed, Merged)):
-        summary = t"{summary}, multiple visible commits"
-    return summary
-
-
-def _format_live_pr_summary(pr: GithubPR) -> ui.Message:
-    pr_label = format_pr_label(
-        pr.number, is_draft=pr.state == "open" and pr.is_draft, url=pr.html_url
-    )
-    if pr.state == "merged":
-        return t"{pr_label} merged, sync needed"
-    if pr.state == "closed":
-        return t"{pr_label} closed"
-    summary: ui.Message = pr_label
-    if pr.is_queued:
-        summary = t"{summary} queued"
-    elif not pr.is_draft:
-        if pr.review_decision == "approved":
-            summary = t"{summary} approved"
-        elif pr.review_decision == "changes_requested":
-            summary = t"{summary} changes requested"
-    if pr.check_rollup_status is not None:
-        summary = t"{summary}, checks {pr.check_rollup_status}"
+    if report.problem is not None:
+        summary = t"{summary}, {status_label(report.problem)}"
+    if report.divergent:
+        summary = t"{summary}, {status_label('divergent')}"
     return summary
 
 
@@ -942,25 +842,3 @@ def _emit_lines(
 ) -> None:
     for line in lines:
         emitter(line, soft_wrap=soft_wrap)
-
-
-def _describe_link_advisory(
-    state: ChangeState,
-    *,
-    repo: GithubRepoAddress | None,
-) -> ui.Message:
-    if isinstance(state, (PRIdentityMismatch, CompetingOpenPR, PRAmbiguous)):
-        return state.reason
-    if isinstance(state, PRMissing):
-        if state.tracked is None:
-            return "GitHub did not report a pull request for this branch"
-        saved_label = format_pr_label(
-            state.tracked.pr_identity.pr_number,
-            prefix="saved ",
-            repo=repo,
-        )
-        return t"GitHub did not report {saved_label} for this branch"
-    if isinstance(state, Closed):
-        pr_label = format_pr_label(state.pr.number, url=state.pr.html_url)
-        return t"{pr_label} is closed; submit will not reuse a closed pull request automatically"
-    raise AssertionError(f"Unexpected link advisory state: {type(state).__name__}")

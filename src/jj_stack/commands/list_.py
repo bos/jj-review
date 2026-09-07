@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import sys
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,20 +45,14 @@ from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.stack.change_state import (
     ChangeObservation,
     ChangeState,
-    Closed,
-    Landed,
-    LookupFailed,
-    Merged,
     OrphanedRecord,
-    PRAmbiguous,
-    PRHeadMoved,
-    PRMissing,
     WithPR,
     enumerate_orphaned_records,
 )
 from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.pr_branches import duplicate_pr_branch_claims
 from jj_stack.stack.repo import observe_repo_paths
+from jj_stack.stack.reporting import report_change, status_label
 from jj_stack.stack.status import (
     PreparedStack,
     StackStatusChange,
@@ -270,8 +265,8 @@ def _run_list(
         )
     )
     _emit_orphan_hint(orphan_rows)
-    _emit_divergence_hints(prepared_discovered)
-    _emit_stale_stacks_advisory(prepared_discovered)
+    _emit_divergence_hints(rows)
+    _emit_stale_stacks_advisory(rows)
     return EXIT_INCOMPLETE if incomplete else 0
 
 
@@ -340,15 +335,13 @@ def _emit_orphan_hint(orphan_rows: tuple[OrphanRow, ...]) -> None:
     console.note(t"To close orphaned PRs and clean up, run {command}; add --dry-run to preview.")
 
 
-def _emit_divergence_hints(
-    prepared_discovered: tuple[_PreparedDiscoveredStack, ...],
-) -> None:
+def _emit_divergence_hints(rows: tuple[StackRow, ...]) -> None:
     change_ids = tuple(
         dict.fromkeys(
             change.change_id
-            for item in prepared_discovered
-            for change in item.prepared.stack.changes
-            if change.divergent
+            for row in rows
+            for change in row.changes
+            if report_change(change.state).divergent
         )
     )
     for change_id in change_ids:
@@ -357,24 +350,13 @@ def _emit_divergence_hints(
         )
 
 
-def _emit_stale_stacks_advisory(
-    prepared_discovered: tuple[_PreparedDiscoveredStack, ...],
-) -> None:
-    """Hint that tracked stacks have changed since their last successful submit.
-
-    Submitted-state disagreement means the saved baseline from the last successful
-    submit no longer matches the live DAG. The right follow-up can depend on the specific
-    stack state, so this advisory directs the user to inspect each stack rather
-    than naming one mutation.
-    """
+def _emit_stale_stacks_advisory(rows: tuple[StackRow, ...]) -> None:
+    """Direct changed stacks to inspection, where repairs can precede another submit."""
 
     stale_heads = tuple(
-        item.prepared.stack.head.change_id
-        for item in prepared_discovered
-        if any(
-            change.state.has_local_edits
-            for change in build_status_changes_for_prepared_stack(item.prepared)
-        )
+        row.head_change_id
+        for row in rows
+        if any(change.state.has_local_edits for change in row.changes)
     )
     if not stale_heads:
         return
@@ -383,8 +365,7 @@ def _emit_stale_stacks_advisory(
         console.warning(
             (
                 "Tracked stack has changed since its last submit; ",
-                t"inspect with {ui.cmd(f'jj-stack view {head}')} or refresh with "
-                t"{ui.cmd(f'jj-stack submit {head}')}.",
+                t"inspect with {ui.cmd(f'jj-stack view {head}')}.",
             )
         )
         return
@@ -392,8 +373,7 @@ def _emit_stale_stacks_advisory(
     console.warning(
         (
             "Tracked stacks have changed since their last submit; ",
-            t"inspect with {ui.cmd('jj-stack view <head>')} or refresh with "
-            t"{ui.cmd('jj-stack submit <head>')}: ",
+            t"inspect with {ui.cmd('jj-stack view <head>')}: ",
             *heads_fragments,
         )
     )
@@ -415,8 +395,6 @@ def _build_row(
     states = tuple(change.state for change in changes)
     prs = _format_pr_summary(changes, repo=github_repo)
     local_fragments: list[ui.Message] = []
-    if any(change.divergent for change in stack.changes):
-        local_fragments.append(ui.semantic_text("divergent", "error", "heading"))
     if any(change.conflict for change in stack.changes):
         local_fragments.append(ui.semantic_text("conflicted", "error", "heading"))
     state = _state_from_status(
@@ -477,86 +455,21 @@ def _status_fragments(
     if github_error is not None or remote_error is not None:
         fragments.append(ui.semantic_text("GitHub unavailable", "warning", "heading"))
 
-    def count(kinds: type | tuple[type, ...]) -> int:
-        return sum(1 for state in states if isinstance(state, kinds))
-
-    merged_ancestors = count((Landed, Merged))
-    if merged_ancestors:
-        label = (
-            "sync needed" if merged_ancestors == 1 else f"{merged_ancestors} merged, sync needed"
-        )
-        fragments.append(ui.semantic_text(label, "warning", "heading"))
-
-    closed = count(Closed)
-    if closed:
-        label = "closed" if closed == 1 else f"{closed} closed"
-        fragments.append(ui.semantic_text(label, "warning", "heading"))
-
-    moved = count(PRHeadMoved)
-    if moved:
-        label = "PR branch moved" if moved == 1 else f"{moved} PR branches moved"
-        fragments.append(ui.semantic_text(label, "warning", "heading"))
-
-    stale_links = count(PRMissing)
-    if stale_links:
-        label = "stale link" if stale_links == 1 else f"{stale_links} stale links"
-        fragments.append(ui.semantic_text(label, "warning", "heading"))
-
-    ambiguous = count(PRAmbiguous)
-    if ambiguous:
-        label = "ambiguous PR" if ambiguous == 1 else f"{ambiguous} ambiguous PRs"
-        fragments.append(ui.semantic_text(label, "warning", "heading"))
-
-    lookup_failures = count(LookupFailed)
-    if lookup_failures:
-        label = (
-            "GitHub lookup failed"
-            if lookup_failures == 1
-            else f"{lookup_failures} GitHub lookups failed"
-        )
-        fragments.append(ui.semantic_text(label, "warning", "heading"))
+    reports = tuple(report_change(state) for state in states)
+    counts = Counter(report.status for report in reports)
+    # Unsubmitted changes have their own local stack rows.
+    for status, count in counts.items():
+        if status not in {"unsubmitted", "submitted"}:
+            label = status_label(status, count=count)
+            if status == "approved" and count == 1 and len(reports) > 1:
+                label = t"1 {label}"
+            fragments.append(label)
 
     open_prs = tuple(
-        state.pr for state in states if isinstance(state, WithPR) and state.pr.state == "open"
+        state.pr
+        for state, report in zip(states, reports, strict=True)
+        if isinstance(state, WithPR) and report.problem is None and state.pr.state == "open"
     )
-    queued = sum(1 for pr in open_prs if pr.is_queued)
-    if queued:
-        label = "queued" if queued == 1 else f"{queued} queued"
-        fragments.append(ui.semantic_text(label, "hint", "heading"))
-
-    drafts = sum(1 for pr in open_prs if pr.is_draft and not pr.is_queued)
-    if drafts:
-        label = "draft" if drafts == 1 else f"{drafts} drafts"
-        fragments.append(ui.semantic_text(label, "hint", "heading"))
-
-    open_non_draft_decisions = tuple(
-        pr.review_decision for pr in open_prs if not pr.is_draft and not pr.is_queued
-    )
-    changes_requested = sum(
-        1 for decision in open_non_draft_decisions if decision == "changes_requested"
-    )
-    if changes_requested:
-        label = (
-            "changes requested"
-            if changes_requested == 1
-            else f"{changes_requested} changes requested"
-        )
-        fragments.append(ui.semantic_text(label, "warning", "heading"))
-
-    approved = sum(1 for decision in open_non_draft_decisions if decision == "approved")
-    open_neutral = sum(
-        1
-        for decision in open_non_draft_decisions
-        if decision not in {"approved", "changes_requested"}
-    )
-    total_open = approved + changes_requested + drafts + open_neutral
-    if approved:
-        label = "approved" if approved == total_open else f"{approved} approved"
-        fragments.append(ui.semantic_text(label, "hint", "heading"))
-    if open_neutral:
-        label = "open" if open_neutral == 1 else f"{open_neutral} open"
-        fragments.append(label)
-
     check_rollup_statuses = {
         pr.check_rollup_status for pr in open_prs if pr.check_rollup_status is not None
     }

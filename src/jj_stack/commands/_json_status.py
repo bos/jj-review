@@ -2,25 +2,8 @@
 
 from __future__ import annotations
 
-from jj_stack.models.github import GithubPR
 from jj_stack.models.tracking import PRIdentity
-from jj_stack.stack.change_state import (
-    BranchClaimed,
-    ChangeState,
-    Closed,
-    CompetingOpenPR,
-    Landed,
-    LookupFailed,
-    Merged,
-    NotInspected,
-    PRAmbiguous,
-    PRHeadMoved,
-    PRMissing,
-    Queued,
-    Unpublished,
-    UntrackedPRExists,
-    WithPR,
-)
+from jj_stack.stack.reporting import report_change
 from jj_stack.stack.status import StackStatusChange
 
 
@@ -33,7 +16,7 @@ def stack_change_json(
 
     payload: dict[str, object] = {
         "change_id": change.change_id,
-        "status": _change_status(change.state),
+        "status": report_change(change.state).status,
         "subject": change.subject,
     }
     if change.branch is not None:
@@ -65,47 +48,6 @@ def saved_pr_json(
     pr_identity: PRIdentity,
 ) -> dict[str, object]:
     return {"number": pr_identity.pr_number}
-
-
-_FLAT_STATUS: dict[type, str] = {
-    PRHeadMoved: "branch_moved",
-    PRAmbiguous: "ambiguous",
-    PRMissing: "missing",
-    LookupFailed: "unknown",
-    Landed: "merged",
-    Merged: "merged",
-    Closed: "closed",
-    Queued: "queued",
-    NotInspected: "submitted",
-    Unpublished: "unsubmitted",
-    UntrackedPRExists: "unsubmitted",
-    BranchClaimed: "unsubmitted",
-}
-
-
-def _change_status(state: ChangeState) -> str:
-    if state.divergent:
-        return "divergent"
-    if isinstance(state, CompetingOpenPR) and state.ambiguous:
-        return "ambiguous"
-    flat = _FLAT_STATUS.get(type(state))
-    if flat is not None:
-        return flat
-    if isinstance(state, WithPR):
-        return _live_pr_status(state.pr)
-    raise AssertionError(f"Unmapped change state {type(state).__name__}.")
-
-
-def _live_pr_status(pr: GithubPR) -> str:
-    if pr.state != "open":
-        return pr.state
-    if pr.is_queued:
-        return "queued"
-    if pr.is_draft:
-        return "draft"
-    if pr.review_decision in {"approved", "changes_requested"}:
-        return pr.review_decision
-    return "open"
 
 
 def _json_object(values: dict[str, object]) -> dict[str, object]:

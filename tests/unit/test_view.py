@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from io import StringIO
 
+import pytest
+
+import jj_stack.commands.list_ as list_module
 import jj_stack.commands.view as view_module
 import jj_stack.console as console_module
 import jj_stack.ui as ui_module
+from jj_stack.commands._json_status import stack_change_json
 from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead, PRState
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
 from jj_stack.stack.change_state import (
@@ -53,13 +57,18 @@ def _status_change(
     *,
     change_id: str,
     commit_id: str = "commit-1",
+    divergent: bool = False,
     pr: GithubPR | None | Unobserved = UNOBSERVED,
     competitors: tuple[GithubPR, ...] = (),
     pr_identity: PRIdentity | None = None,
     submitted_baseline: SubmittedBaseline | None = None,
     subject: str = "feature",
 ) -> StackStatusChange:
-    change = make_change(change_id=change_id, commit_id=commit_id, description=f"{subject}\n")
+    change = make_change(
+        change_id=change_id,
+        commit_id=commit_id,
+        description=f"{subject}\n",
+    ).model_copy(update={"divergent": divergent})
     tracked = (
         TrackedPR(
             pr_identity=pr_identity,
@@ -91,12 +100,24 @@ def _render_lines(*lines: ui_module.Renderable) -> tuple[str, ...]:
     return tuple(stdout.getvalue().splitlines())
 
 
-def test_view_advises_cleanup_and_rebase_when_merged_pr_remains_in_stack() -> None:
+def test_reporting_advises_sync_for_merged_divergent_copies() -> None:
     merged_change = _status_change(
         change_id="abcdefghijkl",
+        divergent=True,
         pr_identity=make_pr_identity(head_ref="jj-stack/feature", pr_number=5),
         pr=_pr(base_ref="team/feature-base", number=5, state="merged"),
     )
+
+    assert stack_change_json(merged_change)["status"] == "merged"
+    summary = ui_module.plain_text(
+        list_module._status_fragments(
+            github_error=None,
+            remote_error=None,
+            states=(merged_change.state,),
+        )
+    )
+    assert "sync needed" in summary
+    assert "divergent" not in summary
 
     lines = _render_lines(
         *view_module.render_status_advisory_lines(
@@ -141,6 +162,18 @@ def test_view_advises_submit_when_selected_stack_changed_since_submit() -> None:
     assert "abcdefgh" in normalized_lines
     assert "bcdefghi" in normalized_lines
 
+    queued = _status_change(
+        change_id="cdefghijklmn",
+        pr_identity=make_pr_identity(head_ref="jj-stack/feature", pr_number=3),
+        pr=_pr(number=3, state="open").model_copy(update={"is_queued": True}),
+    )
+    waiting_lines = _render_lines(
+        *view_module.render_status_advisory_lines(
+            result=_status_result(changes=(*edited, queued)),
+        )
+    )
+    assert "Submit needed" not in " ".join(waiting_lines)
+
 
 def test_view_advises_checkout_or_replace_when_a_pr_branch_moved() -> None:
     pr = _pr(number=7, state="open").model_copy(
@@ -184,31 +217,45 @@ def test_view_closed_pr_advisory_guides_reopen_relink_or_cleanup() -> None:
     normalized_lines = " ".join(" ".join(line.split()) for line in lines)
 
     assert "Closed GitHub PR" in normalized_lines
-    assert "GitHub reports a closed PR for the change shown above" in normalized_lines
     assert "Reopen the PR on GitHub to continue using it" in normalized_lines
     assert "jj-stack relink" in normalized_lines
     assert "jj-stack cleanup @" in normalized_lines
     assert "changes below" not in normalized_lines
 
 
-def test_view_missing_pr_advisory_guides_relinking_an_open_pr() -> None:
+@pytest.mark.parametrize(
+    ("status", "label"),
+    (("link_mismatch", "saved PR needs repair"), ("ambiguous", "ambiguous PR")),
+)
+def test_reporting_surfaces_broken_links_before_suggesting_submit(
+    status: str, label: str
+) -> None:
+    pr = _pr(number=7, state="open")
+    if status == "link_mismatch":
+        pr = pr.model_copy(update={"head": GithubPRHead(ref="other", sha="commit-1")})
     change = _status_change(
-        pr_identity=make_pr_identity(
-            head_ref="jj-stack/feature-8-abcdefgh",
-            pr_number=42,
-        ),
         change_id="abcdefgh1234",
-        pr=None,
+        commit_id="rewritten",
+        submitted_baseline=SubmittedBaseline(commit_id="commit-1"),
+        pr_identity=make_pr_identity(head_ref="jj-stack/feature", pr_number=7),
+        pr=pr,
+        competitors=(_pr(number=8, state="open"),) if status == "ambiguous" else (),
     )
 
-    lines = _render_lines(
-        *view_module.render_status_advisory_lines(
-            result=_status_result(changes=(change,)),
+    assert stack_change_json(change)["status"] == status
+    assert label in ui_module.plain_text(
+        list_module._status_fragments(
+            github_error=None,
+            remote_error=None,
+            states=(change.state,),
         )
     )
-    normalized_lines = " ".join(" ".join(line.split()) for line in lines)
-
-    assert "Missing GitHub PR" in normalized_lines
-    assert "GitHub did not report a PR for the saved PR branch" in normalized_lines
-    assert "jj-stack relink" in normalized_lines
-    assert "GitHub did not report saved PR #42 for this branch" in normalized_lines
+    assert label in ui_module.plain_text(view_module._format_status_summary(change, repo=None))
+    advisory = " ".join(
+        " ".join(line.split())
+        for line in _render_lines(
+            *view_module.render_status_advisory_lines(result=_status_result(changes=(change,))),
+        )
+    )
+    assert "jj-stack relink" in advisory
+    assert "Submit needed" not in advisory
