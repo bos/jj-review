@@ -88,7 +88,6 @@ def test_github_stack_splits_history_and_reports_a_merged_member_above_an_active
 
     stack = GithubStack.model_validate({"number": 7, "pull_requests": [historical, active]})
 
-    assert stack.historical_pr_numbers == (1,)
     assert stack.active_pr_numbers == (2,)
     assert stack.has_merged_prefix
     reversed_stack = GithubStack.model_validate(
@@ -109,4 +108,3 @@ def test_github_stack_defaults_missing_merge_state_to_active() -> None:
     )
 
     assert stack.active_pr_numbers == (1, 2)
-    assert stack.historical_pr_numbers == ()

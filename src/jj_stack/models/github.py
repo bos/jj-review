@@ -72,10 +72,6 @@ class GithubStack(BaseModel):
         return tuple(pr for pr in self.prs if pr.is_historical)
 
     @property
-    def historical_pr_numbers(self) -> tuple[int, ...]:
-        return tuple(pr.number for pr in self.historical_prs)
-
-    @property
     def active_pr_numbers(self) -> tuple[int, ...]:
         return tuple(pr.number for pr in self.prs if not pr.is_historical)
 

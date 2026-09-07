@@ -27,13 +27,6 @@ class GithubStackPlan:
         if self.action == "append" and len(self.affected_stacks) != 1:
             raise ValueError("A GitHub stack append requires exactly one existing stack.")
 
-    @property
-    def membership_key(
-        self,
-    ) -> tuple[str, tuple[tuple[int, tuple[int, ...]], ...]]:
-        stacks = tuple((stack.number, stack.pr_numbers) for stack in self.affected_stacks)
-        return self.action, stacks
-
 
 def plan_github_stack(
     *,
@@ -110,56 +103,26 @@ def plan_github_stack(
     return GithubStackPlan("replace", affected)
 
 
-def _membership_error(message: str) -> CliError:
-    return CliError(
-        message,
-        hint=t"Retry the same {ui.cmd('jj-stack submit')} command. It will check the current "
-        t"GitHub stack before continuing.",
-    )
-
-
 async def apply_github_stack_plan(
     *,
     github_client: GithubClient,
     plan: GithubStackPlan,
     pr_numbers: tuple[int, ...],
 ) -> GithubStack | None:
-    """Apply a create or append plan and return the resulting GitHub stack."""
+    """Apply the validated create or append plan and return the resulting GitHub stack."""
 
     if plan.action == "none":
         return None
-    assert plan.action != "replace"
     try:
-        current_plan = plan_github_stack(
-            desired=pr_numbers,
-            is_maximal_path=True,
-            observed_stacks=await github_client.list_stacks(),
-            orphaned_pr_snapshots=frozenset(),
-            pr_numbers_requiring_base_update=frozenset(),
-            repo=github_client.repo,
-        )
-        if current_plan.membership_key != plan.membership_key:
-            raise _membership_error("GitHub stack membership changed during submit.")
-        if current_plan.action == "create":
-            updated = await github_client.create_stack(pr_numbers=pr_numbers)
-            expected_number = updated.number
-            expected_members = pr_numbers
-        elif current_plan.action == "append":
-            stack = current_plan.affected_stacks[0]
-            updated = await github_client.append_to_stack(
+        if plan.action == "create":
+            return await github_client.create_stack(pr_numbers=pr_numbers)
+        if plan.action == "append":
+            stack = plan.affected_stacks[0]
+            return await github_client.append_to_stack(
                 stack_number=stack.number,
                 pr_numbers=pr_numbers[len(stack.active_pr_numbers) :],
             )
-            expected_number = stack.number
-            expected_members = (*stack.historical_pr_numbers, *pr_numbers)
-        else:
-            raise AssertionError(f"Cannot apply GitHub stack plan {current_plan.action!r}.")
-        if (updated.number, updated.pr_numbers) != (
-            expected_number,
-            expected_members,
-        ):
-            raise _membership_error("GitHub returned unexpected stack membership.")
-        return updated
+        raise AssertionError(f"Cannot apply GitHub stack plan {plan.action!r}.")
     except GithubClientError as error:
         raise CliError(
             "Could not update the GitHub stack",
