@@ -110,9 +110,10 @@ rebases.
 
 ## `merge` did not merge your whole stack
 
-`jj-stack merge` selects consecutive submitted, open, non-draft PRs from the bottom of the
-stack. A draft, closed PR, or change that no longer matches its submitted commit stops that
-selection. GitHub then applies its merge requirements to the selected PRs.
+**How this can happen:** `merge` selects consecutive open, non-draft PRs from the bottom of your
+stack that still match what you submitted. A draft or a changed local commit can limit that
+selection. GitHub then accepts or rejects the selected group as a whole. If a check or approval
+blocks it, `jj-stack` does not automatically retry with a smaller group.
 
 Use the reason in the output to choose the next step:
 
@@ -124,7 +125,11 @@ Use the reason in the output to choose the next step:
   retry `jj-stack merge`.
 - If that pull request was already merged separately, run `jj-stack sync <head-change-id>`.
 
-Rebase when you need to resolve a conflict or GitHub requires the stack to be up to date.
+To land a smaller group whose checks and approvals are ready, use
+`jj-stack merge --pull-request <last-pr-to-merge>`.
+
+If all that happened was that trunk advanced, you may not need to rebase. GitHub can merge your
+stack while its base is behind trunk when it has no conflicts.
 
 ## GitHub merged your stack, but `merge` ended with an error
 

@@ -1,72 +1,130 @@
 ---
 title: How jj-stack works
 linkTitle: How it works
-description: See how local jj changes become GitHub pull requests.
+description: Understand which changes form a stack, how PRs follow them, and when to sync.
 navGroup: Start here
 weight: 20
 ---
 
-Create and rearrange your changes with `jj`, then run `jj-stack submit` to bring their pull
-requests up to date on GitHub. Each change becomes one PR, and the local parent order determines
-the PR order.
+A stack is a linear chain of local `jj` changes. Use `jj` to write and rearrange those changes,
+then run `jj-stack submit` to create or update one GitHub pull request per change.
 
-## The whole workflow
+## One change, one pull request
+
+Suppose you refactor a model in A, build an API on it in B, and add a UI in C. Submitting that
+chain produces three pull requests in the same order:
 
 ```mermaid
-flowchart LR
-  JJ["1. Work with jj<br/>create and rearrange changes"]
-  SUBMIT["2. Run jj-stack submit<br/>create or update one PR per change"]
-  GH["3. Review and merge<br/>review on GitHub; merge with jj-stack"]
-  JJ --> SUBMIT --> GH
+---
+config:
+  block:
+    padding: 32
+---
+block-beta
+  columns 3
+  L["Local jj"] space G["GitHub"]
+  C["C: UI"] space P3["PR #3"]
+  B["B: API"] space P2["PR #2"]
+  A["A: model"] space P1["PR #1"]
+  T["trunk()"] space M["main"]
+  T --> A
+  A --> B
+  B --> C
+  M --> P1
+  P1 --> P2
+  P2 --> P3
+  A -.-> P1
+  B -.-> P2
+  C -.-> P3
+  style L fill:none,stroke:none
+  style G fill:none,stroke:none
 ```
 
-### Local work
+The bottom PR targets trunk, usually `main`, and each PR above it targets the PR branch below.
+This means PR #2's diff shows just the API changes added in B, since the refactor in A is
+already in its base. Reviewers can consider each change separately while you keep working on
+the changes that depend on it.
 
-Use familiar `jj` commands to create, split, squash, reorder, rebase, or abandon your changes.
-Their order determines the order of your pull requests on GitHub.
+GitHub needs a branch for every PR. `jj-stack` creates and updates those PR branches for you,
+and they normally stay out of local bookmark output. When you submit two or more changes,
+`jj-stack` also groups their PRs into a GitHub stack. A single change gets an ordinary PR.
 
-### Each of your changes becomes one pull request
+## Select a stack by its head
 
-The stack runs from the selected top change back to trunk. Each change must have one parent,
-a description, and a non-empty diff. Two or more changes produce a GitHub stack; a single change
-produces an ordinary pull request.
+The head is the top change in your stack. When you select C, `jj-stack` follows its parents
+back to trunk to find the whole chain, A → B → C. Trunk is the base of the stack and is not
+included. You don't need bookmarks to define the stack, and adding one to B won't divide it.
 
-The bottom PR targets trunk. Each PR above it targets the PR branch below, so its diff shows
-only that change. Select a stack by its top change when working on
-[multiple stacks](guides/multiple-stacks.md).
+If you don't specify a head, `jj-stack` starts from your working copy (`@`), provided it has
+both a description and changes. Otherwise, it uses the parent (`@-`). With an empty working
+copy above C, for example, `jj-stack submit` submits the chain ending at C.
 
-### Review on GitHub, merge with jj-stack
+If you edit B directly, select C explicitly to update the whole stack:
 
-Use GitHub for comments, approvals, and checks. `jj-stack merge` merges the ready PRs from the
-bottom upward, respecting the repo's rules and merge queue. If GitHub completes the merge
-immediately, the command also updates your local stack. After a queued merge finishes, or if you
-merge on GitHub, run `jj-stack sync`. See [merge and sync](guides/merge-and-sync.md).
+```console
+jj edit <B-change-id>
+# edit files
+jj-stack submit <C-change-id>
+```
+
+The change you're editing is B, but the stack still ends at C. Passing C's ID to `submit`
+selects the whole A → B → C stack. You can inspect it with `jj-stack view <C-change-id>`.
+Use `jj-stack list` to find the heads of stacks you've already submitted.
+
+See [bookmarks and selection](reference/bookmarks-and-selection.md) for exact selection rules,
+or [multiple stacks](guides/multiple-stacks.md#start-a-dependent-stack) to submit dependent work
+separately with `--base`.
 
 ## Editing a change keeps its pull request
 
-`jj-stack` follows each change ID across rewrites. Editing or reordering a change updates its
-existing PR on the next submit, even though the commit ID has changed.
+A `jj` change keeps its change ID when you edit or reorder it, even though rewriting it gives
+it a new Git commit ID. `jj-stack` uses the change ID to find the existing PR, so submitting
+again preserves the PR number, discussion, and review history.
 
 ```mermaid
-flowchart LR
-  Before["before<br/>change puvuntsm<br/>commit 2b9f83a1<br/>PR 42"]
-  Edit["edit with jj"]
-  After["after<br/>change puvuntsm<br/>new commit 761b55c9<br/>same PR 42"]
+flowchart TB
+  Before["change puvuntsm<br/>commit 2b9f83a1<br/>PR #2"]
+  Edit["edit with jj<br/>then submit"]
+  After["same change puvuntsm<br/>new commit 761b55c9<br/>same PR #2"]
   Before --> Edit --> After
 ```
 
-In this example, the existing comments and review history stay on PR 42 even though the Git
-commit ID has changed.
+When you edit B, `jj` also rebases C onto the new B. Submitting the stack updates both PR
+branches. See [edit and rearrange](guides/revise.md) for splitting, squashing, or abandoning
+submitted changes.
 
-## You do not manage PR branches
+## Submit, review, merge, and sync
 
-GitHub requires a branch for every pull request. `jj-stack` creates and updates these PR branches
-for you; their names stay stable across edits. `jj-stack doctor --fix` configures your repo to
-keep them out of ordinary fetches and local bookmark output.
+```mermaid
+flowchart TB
+  Local["Work with jj"] -->|submit| Review["Review on GitHub"]
+  Review -->|feedback| Local
+  Review -->|merge| Landed["Work reaches trunk"]
+  Landed -->|sync| Continue["Continue with remaining changes"]
+```
+
+After you publish your changes with `jj-stack submit`, review takes place on GitHub as usual.
+When you're ready to land the stack, `jj-stack merge` asks GitHub to merge it from the bottom.
+Use `--pull-request <pr>` to stop at an earlier PR. GitHub decides whether its checks and
+review rules allow the requested group to merge.
+
+Once the PRs have merged, `jj-stack sync` rebases your remaining changes onto the updated
+trunk and updates their PRs to match. It also removes merged PR branches that are no longer
+needed.
+
+If GitHub merges immediately, without a merge queue, this is called a **direct merge**.
+`jj-stack merge` runs the sync automatically in this case. For a queued merge or a merge made
+through GitHub's UI, wait for GitHub to finish, then run `jj-stack sync <head-change-id>`
+yourself. You also need to run it after GitHub's **Rebase stack** action finishes.
+
+Use `sync` to bring these completed GitHub merges and stack rebases back into your local work.
+To rebase onto newer trunk changes at any other time, use `jj rebase`, then publish the result
+with `jj-stack submit`. See
+[merge and sync](guides/merge-and-sync.md) for partial merges and queues.
 
 ## When jj-stack is unsure, it stops
 
-`jj-stack` saves the link between each local change and its PR. Before updating a PR, it checks
-that the saved link still matches GitHub. If the match is ambiguous or a PR branch has changed
-unexpectedly, the command stops with guidance. See [troubleshooting](troubleshooting.md) for
-recovery steps.
+Before updating a PR, `jj-stack` checks that it can safely match it to the intended local change.
+If more than one PR could match, or a branch has moved unexpectedly, it stops and explains what
+to do next. See [working on GitHub](guides/working-on-github.md) for which edits you can make
+there and how they interact with your local work.

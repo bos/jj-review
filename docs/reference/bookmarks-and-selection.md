@@ -14,17 +14,8 @@ bookmarks for individual changes or for the stack as a whole.
 Suppose your local history looks like this:
 
 ```mermaid
----
-config:
-  block:
-    padding: 32
----
-block-beta
-  columns 4
-  T["&nbsp;trunk()&nbsp;"] A["A"] B["B"] C["C"]
-  T --> A
-  A --> B
-  B --> C
+flowchart BT
+  T["trunk()"] --> A["A"] --> B["B"] --> C["C"]
 ```
 
 If `C` is selected as the head, `jj-stack` walks back through its parents until it reaches
@@ -53,9 +44,11 @@ config:
     padding: 32
 ---
 block-beta
-  columns 4
-  T["trunk()"] A["A"] B["B"] C["C"]
-  space:2 FEATURE["feature-b"] space
+  columns 3
+  C["C"] space:2
+  B["B"] space FEATURE["feature-b"]
+  A["A"] space:2
+  T["trunk()"] space:2
   T --> A
   A --> B
   B --> C
@@ -92,17 +85,19 @@ jj-stack view feature-b
 
 shows only `A` and `B` because the bookmark selects `B` as the exact head.
 
-If two stack heads descend from `B`, both stacks contain it. `jj-stack view` then asks you to
-choose a head explicitly. Pass that head's change ID, a bookmark, or another revset resolving to
-it.
+If two visible stack heads descend from `B`, both stacks contain it. In that case, `view`
+stops and asks for a more precise selection. You can pass the change ID of your intended head,
+or pass a bookmark or other revision expression that resolves to that exact head.
 
-For `jj-stack submit`, a middle change ID selects only the lower part of the stack, just as a
-bookmark does. Submit stops if GitHub already groups the whole stack as one. Use the head change
-ID to refresh the complete stack.
+For `submit`, select the stack by its head change ID. A middle change or a bookmark selects only
+the lower part of the stack, and `submit` stops if GitHub already groups the whole stack as one.
 
-To merge only the bottom portion of a submitted stack, use `jj-stack merge --pull-request <pr>`.
-It selects that PR as the last one to merge while keeping the rest of the stack available for
-the update afterward. See [merge and sync](../guides/merge-and-sync.md).
+For a partial merge, use `jj-stack merge --pull-request <pr>`. It merges from the bottom of
+the stack through the named PR and leaves the PRs above it open. If GitHub merges
+immediately, without a merge queue, this is called a **direct merge**. `jj-stack` then updates
+the remaining local changes and their PRs automatically. A revset naming a middle change
+would leave the upper changes out of the selected stack, so the command refuses it if GitHub
+groups those PRs in the same stack.
 
 ## PR branches are separate from your bookmarks
 

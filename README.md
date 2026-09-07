@@ -16,75 +16,110 @@ Install with `uv`:
 uv tool install jj-stack
 ```
 
-Inside your `jj` repo, check the setup and configure fetches to skip the PR branches that
-`jj-stack` manages:
+### Submit your first stack
+
+Start with a linear series of local `jj` changes on top of `trunk()`. Authenticate with
+`gh auth login`, or supply a token in `GITHUB_TOKEN` or `GH_TOKEN`. Check the repo setup and
+apply the safe local fixes:
 
 ```bash
 jj-stack doctor --fix
 ```
 
-Start with a linear series of described, non-empty changes above `trunk()`. Inspect the stack,
-then create one PR per change:
+Inspect the stack that ends at your working copy:
 
 ```bash
 jj-stack
+```
+
+Create one GitHub PR per local change:
+
+```bash
 jj-stack submit
 ```
 
-By default, these commands select `@` when it has a description and changes, or `@-` otherwise.
-Use `jj-stack list` to see all tracked stacks in the repo.
+Revise the changes locally with `jj` and rerun `jj-stack submit` whenever the stack is ready to
+refresh. Use `jj-stack list` to see every tracked stack in the repo.
 
-The [quick start](https://www.serpentine.com/software/jj-stack/quick-start/) walks through a
-complete example, alternative installation methods, and setup for the `jj stack` alias and shell
-completion. To upgrade a `uv` installation, run `uv tool upgrade jj-stack`.
-
-### Use `jj stack` with tab completion
-
-Add this alias with `jj config edit --user`:
-
-```toml
-[aliases]
-stack = ["util", "exec", "--", "jj-stack"]
-```
-
-Also set up completion for the alias. For zsh, add this to `~/.zshrc` after your shell and `jj`
-completion setup:
-
-```zsh
-eval "$(jj-stack completion zsh --jj-alias stack)"
-```
-
-`--jj-alias stack` updates `jj`'s completion so `jj stack s<TAB>` offers `submit`, `sync`, and
-other matching commands. It also enables completion for `jj-stack`. See
-[shell completion](https://www.serpentine.com/software/jj-stack/reference/configuration/#shell-completion)
-for bash and fish instructions.
-
-## How it works
+## Mental model
 
 Your local `jj` history determines which changes form a stack and their order. On GitHub, each
-change gets a stable PR branch and a PR. The bottom PR targets trunk; each PR above it targets
-the PR branch below:
+change gets a stable PR branch and a PR. The bottom PR targets trunk by default, and each PR
+above it targets the PR branch below:
 
 ```text
 Local changes:  trunk() <- A     <- B     <- C
 GitHub PRs:     main    <- PR #1 <- PR #2 <- PR #3
 ```
 
-Each PR shows only its own change's diff. `jj-stack` manages the PR branches, so you can keep
-using ordinary `jj` commands to arrange your work.
+Each PR's diff shows only the changes it adds on top of its base, so reviewers can consider
+one change at a time. `jj-stack` manages the PR branches for you, and they normally stay out
+of your local bookmark view.
+
+When you rewrite a change, its change ID still connects it to the same PR. Submitting again
+updates that PR and the PRs for any dependent changes, preserving their discussions.
+
+To select a stack, pass the change ID of its head (the top change). `jj-stack` follows the
+head's parents back to trunk to find the rest. If you don't name a head, it uses your working
+copy when it has both a description and changes, or its parent otherwise. After editing a
+lower change, pass the head's ID to `jj-stack submit` so the update includes the changes above
+your edit.
 
 ## Everyday workflow
 
 1. Write code as a series of local `jj` changes.
-2. Run `jj-stack submit` to open the PRs.
-3. Revise your changes as reviews come in, then run `jj-stack submit` again.
-4. Run `jj-stack merge` when the PRs at the bottom are ready. If GitHub completes the merge
-   immediately, the command also updates your local stack.
-5. After a queued merge finishes, or if you merge on GitHub, run `jj-stack sync`.
+2. Run `jj-stack submit`.
+3. Revise, add, remove, or reorder the changes locally as reviews come in.
+4. Run `jj-stack submit` again to refresh GitHub.
+5. Run `jj-stack merge --pull-request <last-pr-to-merge> --method squash` when the bottom
+   portion is ready. Choose a merge method your repo allows. Queues choose their own method.
+6. After a queued merge or a merge made through GitHub finishes, run
+   `jj-stack sync <head-change-id>`.
 
-Pass a stack's top change ID to `view`, `submit`, `merge`, or `sync` to work on that stack without
-switching your working copy. Add `--dry-run` to `submit`, `merge`, or `sync` to preview what the
-command would do.
+`view`, `submit`, `merge`, and `sync` accept a change ID when you need to select a stack other
+than the one ending at the working copy.
+
+See the [user guide](https://www.serpentine.com/software/jj-stack/) for drafts, descriptions,
+merge queues, cleanup, and working with multiple stacks.
+
+## Optional setup
+
+### Invoke it as `jj stack`
+
+Add a command alias to your user configuration with `jj config edit --user`:
+
+```toml
+[aliases]
+stack = ["util", "exec", "--", "jj-stack"]
+```
+
+For tab completion of both `jj-stack` and `jj stack`, add the output of `jj-stack completion` to
+your shell startup file:
+
+```bash
+eval "$(jj-stack completion zsh --jj-alias stack)"
+```
+
+`bash` and `fish` work the same way. See
+[Configuration](https://www.serpentine.com/software/jj-stack/reference/configuration/) for more
+setup options.
+
+### Other installation options
+
+`pipx` provides another isolated installation:
+
+```bash
+pipx install jj-stack
+```
+
+You can also use `pip` inside an activated virtual environment:
+
+```bash
+python -m pip install jj-stack
+```
+
+To upgrade an installation made with `uv`, rerun its command with `--force`. If the command is
+not on your shell `PATH`, run `uv tool update-shell`.
 
 ## Learn more
 

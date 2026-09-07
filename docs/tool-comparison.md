@@ -6,63 +6,100 @@ navGroup: Look things up
 weight: 115
 ---
 
-## Choose the workflow you want
+## jj-stack is opinionated
 
-`jj-stack` is for a linear stack of `jj` changes, with one pull request per change. You edit the
-history with `jj`; `jj-stack` handles PR branches, submission, merging, and updates after a merge.
-If you want several local commits in one PR or prefer to manage PR bookmarks yourself, another
-workflow may fit better.
+On GitHub, a pull request is the head of a graph of commits. A GitHub stack builds on this: a
+stack is a linear chain of PRs. This makes a stack an odd structure, a chain whose links are
+themselves graphs of commits.
 
-| Tool | How you organize the work |
-| --- | --- |
-| `jj-stack` | One `jj` change per PR; local parent order determines the stack. |
-| [`jj-spr`][jj-spr] | Publish `jj` changes with an incremental commit for each PR update. |
-| [`jj-gh`][jj-gh] | Use bookmarks for PRs and choose individual GitHub helper commands. |
-| [`gh stack`][gh-stack] | Build a stack of named Git branches, with one PR per branch. |
+`jj-stack` takes a simpler stance: it requires each PR in a stack to be a single `jj` change.
+Supporting multi-commit PRs in a stack would add complexity that exists mainly for backwards
+compatibility with branch-based workflows, and I don't think it has merit of its own.
 
-Use one tool to update a given set of PRs and PR branches. Switching between tools on the same
-PRs can leave their tracking data inconsistent.
+This is also why `jj-stack` manages the refs that keep the PRs in a stack alive. They're not
+valuable, they're merely `git` plumbing getting in your way.
+
+However, while these opinions make for a much nicer default experience, they close some doors:
+if you genuinely want to produce weird stacks-of-DAGs that `gh stack` would handle, `jj-stack`
+may prevent that. If you think naming your PR branches is a good use of your time, `jj-stack`
+will get in your way! I can imagine a world in which these opinions are too narrow and should be
+revised, so if there's enough pressure to rethink them, I may do so.
+
+## How the tools differ
+
+All of the tools below can turn local work into GitHub pull requests. They disagree about what
+you should manage yourself and how much of the workflow the tool should own.
+
+`jj-stack` manages a stack as a unit, and works with GitHub's native stack concept. The parent
+order visible in `jj log` determines the PR order, and the same tool handles submission,
+merging, local updates after a merge, and cleanup.
+
+The main reasons to consider an alternative are:
+
+- [`jj-spr`][jj-spr] keeps each submitted version in the PR's commit history, so reviewers can
+  follow updates through GitHub's commit list.
+- [`jj-gh`][jj-gh] adds GitHub commands to your own bookmark workflow, including PR and CI
+  information in `jj log`.
+- [`gh stack`][gh-stack] manages native GitHub stacks built from named Git branches, with room
+  for several commits in each PR.
+
+Do not use more than one of these tools to update the same pull requests or PR branches. Each
+tool makes different assumptions about who owns those branches.
 
 ## `jj-stack` and `jj-spr`
 
-Both tools keep a change linked to its PR when you amend or rebase it. The main difference is
-how they publish revisions for review.
+`jj-spr` is the closest comparison. Both tools let you amend and rebase a `jj` change
+without opening a replacement pull request. Both create generated branches on GitHub and can
+publish one pull request per change. Only `jj-stack` manages native GitHub stacks.
 
-`jj-spr` adds a commit to the PR branch for each update, preserving the previous submitted
-versions in that branch's history. Reviewers can inspect the incremental diffs in GitHub's commit
-list. `jj-spr land` squash-merges the final result and fetches it; you rebase locally afterward.
-See the [`jj-spr` workflow][jj-spr].
+### How reviewers see updates
 
-`jj-stack` updates the PR branch to your current local commit. GitHub records the force-push,
-and a [PR history comment](guides/review-a-stack.md#review-revisions) links to recent versions and
-their diffs from the preceding version. Use those links to review revisions. `jj-stack merge`
-supports merge, rebase, or squash according to your configuration and the repo's rules. When
-GitHub completes the merge immediately, it also updates your local stack. After a queued or
-externally initiated merge, run `jj-stack sync`.
+`jj-spr` adds a commit to the PR branch for each submitted update, along with an update message
+from the author. Reviewers can use GitHub's commit list to follow each version and see what
+changed. Those update commits are squash-merged into one commit when the PR lands.
 
-For independent changes arranged in a local chain, `jj-spr` offers `--cherry-pick` to publish them
-as separate PRs against trunk. With `jj-stack`, put independent work in
-[separate local stacks](guides/multiple-stacks.md). You can combine those stacks in a local
-megamerge for testing without submitting the merge change itself.
+`jj-stack` force-pushes the current version of your change and maintains a PR history comment
+with links to earlier versions and the differences between them. You don't need to write an
+update-commit message, but reviewers must use that comment to compare versions: GitHub's
+"Changes since your last review" view is empty with this approach.
+
+### Dependent and independent changes
+
+`jj-spr` can publish dependent PRs, but GitHub does not treat them as a native stack. Its
+cherry-pick mode also lets you publish changes from a local chain as independent PRs that can
+land in any order.
+
+`jj-stack` turns a chain of two or more changes into a native GitHub stack and lands it from the
+bottom upward. You rearrange the changes with `jj`, then run `jj-stack submit` to update GitHub.
+Independent work belongs in [separate local stacks](guides/multiple-stacks.md), which you can
+combine locally with a megamerge.
+
+### Landing and cleanup
+
+`jj-spr land` squash-merges one pull request. You then fetch, rebase your remaining local
+changes, and resubmit any dependent PRs yourself.
+
+`jj-stack merge` merges ready PRs from the bottom of the stack using the repo's configured
+merge method. It also updates your remaining local changes and PRs and cleans up unused
+branches. If a merge finishes through GitHub or a merge queue, `jj-stack sync` handles that
+follow-up work. See [Merge and sync](guides/merge-and-sync.md) for the workflow.
 
 ## `jj-stack` and `jj-gh`
 
-`jj-gh` provides GitHub commands through `jj` aliases. It can create and edit PRs, show PR and CI
-status in `jj log`, fetch PRs from forks, enable auto-merge, and update PR bases after you
-rearrange local history. See the [`jj-gh` commands][jj-gh].
+`jj-gh` is a set of focused GitHub helpers installed as `jj` aliases. It creates and edits PRs,
+adds PR and CI information to `jj log`, and offers conveniences such as retrying CI and enabling
+auto-merge.
 
-Its bookmark workflow gives you control over which commits belong in each PR. For example,
-`jj pr restack` lets you inspect and adjust the proposed PR bases before it updates GitHub.
+You work with bookmarks, and each PR can contain several commits. `jj-gh` can update PR bases
+after you rearrange local history, but you continue to decide when and how to push bookmarks.
 
-`jj-stack` makes the PR boundaries follow your changes: each change is one PR. A single
-`jj-stack submit` updates the selected stack, including its GitHub stack grouping. Use `jj-gh`
-when you want individual GitHub helpers around your own bookmark workflow; use `jj-stack` when
-you want submission and merging to follow a linear chain of changes.
+It suits a workflow where you want individual GitHub commands while keeping control of your
+bookmarks. `jj-stack` takes on more of that work: it manages PR branches, submits the stack as a
+unit, and handles merging and cleanup. It does not replace `jj-gh`'s log and CI conveniences.
 
 ## `jj-stack` and `gh stack`
 
-Both tools create native GitHub stacks, so reviewers use GitHub's stack navigation and review
-controls with either tool.
+Both `gh stack` and `jj-stack` create native GitHub stacks. Their local models are different.
 
 `gh stack` organizes work as named Git branches. A branch can contain several commits, and
 `gh stack` creates one PR per branch. Its commands and interactive editor help you add,
@@ -72,10 +109,7 @@ With `jj-stack`, you make those edits using `jj` commands such as `jj split`, `j
 `jj arrange`. There is no separate list of stack branches to maintain: submitting reads the
 current local history and updates GitHub to match.
 
-Choose `gh stack` for a Git branch workflow or multi-commit PRs. Choose `jj-stack` if you already
-use `jj` and want each change to remain the unit you edit, submit, and merge.
-
-## Sources
+## Research notes
 
 The linked project documentation was checked on September 6, 2026. These tools are changing;
 check their current guides for requirements and detailed command behavior.
