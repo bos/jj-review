@@ -174,9 +174,9 @@ def prepare_status(
             state=state,
         )
     if selected_path.stack.head.hidden:
-        # An exact commit ID resolves a hidden predecessor, while `change_id()` does not. Only
+        # A commit ID resolves a hidden predecessor, while `change_id()` does not. Only
         # visible changes are stack members, so refuse both selector forms alike. `checkout`
-        # selects its own path because it re-materializes a hidden imported snapshot on purpose.
+        # selects its own path because it makes an imported hidden commit visible again.
         selected_revset = ui.revset(selected_path.stack.selected_revset)
         restore = ui.cmd(f"jj new {selected_path.stack.head.commit_id}")
         raise UnsupportedStackError(
@@ -453,7 +453,7 @@ async def lookup_pr_lookups_async(
 
 def _required_branch(change: PreparedChange) -> str:
     if change.branch is None:
-        raise AssertionError("GitHub inspection requires an exact saved PR branch.")
+        raise AssertionError("GitHub inspection requires a saved PR branch.")
     return change.branch
 
 

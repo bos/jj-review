@@ -476,7 +476,7 @@ class FakeGithubRepo:
         *,
         base_ref: str,
     ) -> str:
-        """Model GitHub retargeting and replaying an active stack survivor."""
+        """Model GitHub changing an unmerged PR's base and rebasing its commit."""
 
         heads = self.branch_heads()
         rewritten = self._replay_commit(
@@ -1460,14 +1460,14 @@ def _complete_stack_merge(
     stack_number = repo.stack_number_for_pr(operation.pr_number)
     if stack_number is None:
         candidate_numbers = (operation.pr_number,)
-        survivors: tuple[int, ...] = ()
+        remaining_pr_numbers: tuple[int, ...] = ()
     else:
         stack = GithubStack.model_validate(
             _stack_payload(repo, stack_number, _github_stacks(repo)[stack_number])
         )
         target_index = stack.active_pr_numbers.index(operation.pr_number)
         candidate_numbers = stack.active_pr_numbers[: target_index + 1]
-        survivors = stack.active_pr_numbers[len(candidate_numbers) :]
+        remaining_pr_numbers = stack.active_pr_numbers[len(candidate_numbers) :]
     candidates = tuple(repo.prs[number] for number in candidate_numbers)
     if any(
         pr.state != "open" or pr.is_draft or pr.number in repo.unmergeable_pr_numbers
@@ -1499,7 +1499,7 @@ def _complete_stack_merge(
                 merge_method=operation.merge_method,
             )
     previous_base = base_ref
-    for pr_number in survivors:
+    for pr_number in remaining_pr_numbers:
         pr = repo.prs[pr_number]
         repo.rewrite_pr_onto_base(
             pr,

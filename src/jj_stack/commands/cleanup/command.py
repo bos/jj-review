@@ -352,7 +352,7 @@ async def _run_tracked_pr_cleanup_pass(
     preview_local_removals: frozenset[str] = frozenset(),
     record_action: Callable[[CleanupAction], None],
 ) -> None:
-    """Clean exact closed-PR records while preserving open or ambiguous ones."""
+    """Clean up closed PRs, skipping open PRs and ambiguous links."""
 
     if not candidates:
         return
@@ -620,7 +620,7 @@ async def _apply_tracked_pr_cleanup(
     if prepared_cleanup.dry_run:
         record_action(action)
     else:
-        prepared_cleanup.context.state_store.retire_pr(
+        prepared_cleanup.context.state_store.remove_pr(
             change_id,
         )
         record_action(action)

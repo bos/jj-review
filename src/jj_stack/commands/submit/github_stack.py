@@ -132,7 +132,7 @@ async def apply_github_stack_plan(
 
 
 def github_stack_pr_snapshot(pr: GithubStackPR) -> GithubStackPRSnapshot:
-    """Return the exact stack-member identity and head observed from GitHub."""
+    """Return the PR number, branch, and commit GitHub reports for this stack member."""
 
     return pr.number, pr.head.ref, pr.head.sha
 

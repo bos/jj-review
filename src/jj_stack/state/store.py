@@ -40,7 +40,7 @@ class TrackingStore:
         return cls(resolve_state_path(repo_root))
 
     def require_writable(self) -> Path:
-        """Create the data directory when absent; the lock and writes prove it is usable."""
+        """Create the data directory; later lock and write operations report access failures."""
 
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -113,7 +113,7 @@ class TrackingStore:
             _require_identity_matches_change(tracked.pr_identity, change_id)
         return self._persist(TrackingState(prs={**self._load_state().prs, **replacements}))
 
-    def retire_pr(self, change_id: str) -> None:
+    def remove_pr(self, change_id: str) -> None:
         """Atomically remove one complete pull request record."""
 
         state = self._load_state()

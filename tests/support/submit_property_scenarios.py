@@ -72,7 +72,7 @@ def generate_lifecycle_scenarios(*, count: int, seed: int) -> tuple[LifecycleSce
         return LIFECYCLE_SCENARIOS[:count]
 
     # Whole-stack merges (merged_prefix == stack_size) restate the parametrized pre-merge
-    # retirement integration test, so generated rows keep survivors and exercise the
+    # cleanup integration test, so generated rows keep remaining changes and exercise the
     # reparenting that only this family covers.
     fixed_direct = LIFECYCLE_SCENARIOS[-1]
     duplicate = (

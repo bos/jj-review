@@ -2,7 +2,7 @@
 
 Every lifecycle command observes the same facts about a tracked change: the saved tracking
 pair, the live pull request, the PR branch on the remote, the visible local copies, and whether
-the submitted work is proven on fetched trunk. `classify` turns one `ChangeObservation` into one
+the submitted work reached trunk. `classify` turns one `ChangeObservation` into one
 `ChangeState`. A `Stop` state carries the one explanation and repair every command shares, so a
 command decides only which states it acts on.
 
@@ -27,7 +27,7 @@ from jj_stack.models.tracking import PRIdentity, TrackedPR, TrackingState
 from jj_stack.stack.trunk_evidence import (
     CommitAncestry,
     TrunkEvidenceKind,
-    classify_proven_kind,
+    classify_trunk_evidence,
 )
 from jj_stack.ui import Message
 
@@ -65,7 +65,7 @@ class ChangeObservation:
     open_prs_on_branch: tuple[GithubPR, ...] | Unobserved | ObservationFailed = UNOBSERVED
     # The commit at branch@remote; None when the branch is absent.
     remote_target: str | None | Unobserved = UNOBSERVED
-    # Whether the submitted work is proven on fetched trunk, from `trunk_evidence`.
+    # Whether PR and ancestry checks found the submitted work on trunk.
     trunk_evidence: TrunkEvidenceKind | None | Unobserved = UNOBSERVED
     trunk_evidence_reason: Message | None = None
 
@@ -109,9 +109,9 @@ class WithPR(_State):
     pr: GithubPR
     # The commit at branch@remote, when observed; None when the branch is absent.
     remote_target: str | None | Unobserved
-    # Why the submitted work is not proven on fetched trunk, when the command looked and it
-    # is not; None when it is proven or trunk was not inspected.
-    unproven: Message | None = None
+    # Why PR or ancestry checks did not confirm the submitted work on trunk.
+    # None when those checks passed or trunk was not inspected.
+    trunk_evidence_reason: Message | None = None
 
 
 class Stop:
@@ -170,14 +170,14 @@ class Queued(WithPR):
 
 @dataclass(frozen=True, kw_only=True)
 class Landed(WithPR):
-    """The submitted work is proven on fetched trunk, whatever the pull request says."""
+    """PR and ancestry checks confirm that the submitted work reached trunk."""
 
     evidence: TrunkEvidenceKind
 
 
 @dataclass(frozen=True, kw_only=True)
 class Merged(WithPR):
-    """GitHub reports the pull request merged, but no observation proved it on fetched trunk."""
+    """GitHub reports the PR merged, but checks have not confirmed its work on trunk."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -458,7 +458,7 @@ class _Common(TypedDict):
 class _WithPRCommon(_Common):
     pr: GithubPR
     remote_target: str | None | Unobserved
-    unproven: Message | None
+    trunk_evidence_reason: Message | None
 
 
 def classify(
@@ -473,7 +473,7 @@ def classify(
     if selected is not None:
         o = replace(o, selected=selected)
     if ancestries is not None and o.tracked is not None and isinstance(o.pr, GithubPR):
-        evidence, reason = classify_proven_kind(
+        evidence, reason = classify_trunk_evidence(
             ancestries=ancestries, candidate=o.tracked, change_id=o.change_id, pr=o.pr
         )
         o = replace(o, trunk_evidence=evidence, trunk_evidence_reason=reason)
@@ -514,7 +514,7 @@ def _classify_pr(
         **common,
         pr=pr,
         remote_target=o.remote_target,
-        unproven=(
+        trunk_evidence_reason=(
             o.trunk_evidence_reason
             if evidence is None and not isinstance(evidence, Unobserved)
             else None
@@ -599,11 +599,11 @@ def live_pr(state: ChangeState) -> GithubPR | None:
     return state.pr if isinstance(state, WithPR) else None
 
 
-def unproven_reason(state: WithPR) -> Message:
-    """Why this pull request's work is not proven on fetched trunk."""
+def trunk_evidence_reason(state: WithPR) -> Message:
+    """Explain why the PR and ancestry checks did not confirm that its work reached trunk."""
 
-    if state.unproven is not None:
-        return state.unproven
+    if state.trunk_evidence_reason is not None:
+        return state.trunk_evidence_reason
     if isinstance(state, Stop):
         return state.reason
     return "no merge result is on trunk"

@@ -83,11 +83,11 @@ shows `A`, `B`, and `C`, while:
 jj-stack view feature-b
 ```
 
-shows only `A` and `B` because the bookmark selects `B` as the exact head.
+shows only `A` and `B` because the bookmark selects `B` as the head.
 
 If two visible stack heads descend from `B`, both stacks contain it. In that case, `view`
 stops and asks for a more precise selection. You can pass the change ID of your intended head,
-or pass a bookmark or other revision expression that resolves to that exact head.
+or pass a bookmark or other revision expression that resolves to that head.
 
 For `submit`, select the stack by its head change ID. A middle change or a bookmark selects only
 the lower part of the stack, and `submit` stops if GitHub already groups the whole stack as one.

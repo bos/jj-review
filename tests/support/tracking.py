@@ -10,7 +10,7 @@ def make_pr_identity(
     head_ref: str = "jj-stack/example-abcdefgh",
     pr_number: int = 1,
 ) -> PRIdentity:
-    """Build one complete nominal PR identity."""
+    """Build a saved PR number and head branch."""
 
     return PRIdentity(
         pr_number=pr_number,

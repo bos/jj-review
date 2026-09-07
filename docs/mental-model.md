@@ -71,7 +71,7 @@ The change you're editing is B, but the stack still ends at C. Passing C's ID to
 selects the whole A → B → C stack. You can inspect it with `jj-stack view <C-change-id>`.
 Use `jj-stack list` to find the heads of stacks you've already submitted.
 
-See [bookmarks and selection](reference/bookmarks-and-selection.md) for exact selection rules,
+See [bookmarks and selection](reference/bookmarks-and-selection.md) for selection rules,
 or [multiple stacks](guides/multiple-stacks.md#start-a-dependent-stack) to submit dependent work
 separately with `--base`.
 

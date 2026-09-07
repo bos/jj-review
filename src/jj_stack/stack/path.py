@@ -1,4 +1,4 @@
-"""Pure projection of one ordinary selected stack path."""
+"""Select local stacks from observed commits without reading external state."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ class SelectedPathObservation:
 
     candidate_commit_ids: frozenset[str]
     current_working_copy_commit_id: str | None
-    fetched_trunk_commit_ids: frozenset[str]
+    trunk_first_parent_ids: frozenset[str]
     commits: tuple[LocalCommit, ...]
     selected_revset: str
     selector_commits: tuple[LocalCommit, ...]
@@ -27,7 +27,7 @@ class SelectedPathObservation:
 
 @dataclass(frozen=True, slots=True)
 class SelectedStackPath:
-    """One ordinary selected parent path."""
+    """A selected local stack and whether its head has further descendants."""
 
     is_maximal: bool
     stack: LocalStack
@@ -43,11 +43,11 @@ class RepoStackPath:
 
 @dataclass(frozen=True, slots=True)
 class RepoPathObservation:
-    """Immutable facts needed to derive ordinary repo paths."""
+    """Observed commits and tracking needed to find local stacks."""
 
     candidate_commit_ids: frozenset[str]
     current_tracked_commit_id: str | None
-    fetched_trunk_commit_ids: frozenset[str]
+    trunk_first_parent_ids: frozenset[str]
     commits: tuple[LocalCommit, ...]
     tracked_change_ids: frozenset[str]
     trunk: LocalCommit
@@ -55,7 +55,7 @@ class RepoPathObservation:
 
 @dataclass(frozen=True, slots=True)
 class RepoStackPaths:
-    """Ordinary maximal paths observed from one bounded repo scope."""
+    """Local stacks ending at the heads in the observed part of the repo."""
 
     current_tracked_commit_id: str | None
     paths: tuple[RepoStackPath, ...]
@@ -65,7 +65,7 @@ def project_selected_path(observation: SelectedPathObservation) -> SelectedStack
     """Derive a parent-connected path without consulting external state."""
 
     selected = _select_commit(observation)
-    if selected.commit_id in observation.fetched_trunk_commit_ids:
+    if selected.commit_id in observation.trunk_first_parent_ids:
         stack = LocalStack(
             base_parent=selected,
             head=selected,
@@ -86,14 +86,14 @@ def project_selected_path(observation: SelectedPathObservation) -> SelectedStack
 
     head_first: list[LocalCommit] = []
     current = selected
-    while current.commit_id not in observation.fetched_trunk_commit_ids:
+    while current.commit_id not in observation.trunk_first_parent_ids:
         head_first.append(current)
         parent_commit_id = current.parents[0]
         parent = commits_by_id.get(parent_commit_id)
         if parent is None:
             raise CliError(
-                "Could not resolve the complete selected parent path: "
-                f"commit {current.commit_id} has unobserved parent {parent_commit_id}."
+                "Could not follow the selected stack back to trunk: "
+                f"commit {current.commit_id} has unreadable parent commit {parent_commit_id}."
             )
         current = parent
 
@@ -214,7 +214,7 @@ def _select_commit(observation: SelectedPathObservation) -> LocalCommit:
         off_trunk = tuple(
             commit
             for commit in candidates
-            if commit.commit_id not in observation.fetched_trunk_commit_ids
+            if commit.commit_id not in observation.trunk_first_parent_ids
         )
         mutable = tuple(commit for commit in off_trunk if not commit.immutable)
         if len(mutable) > 1:
@@ -231,7 +231,7 @@ def _select_commit(observation: SelectedPathObservation) -> LocalCommit:
             raise AmbiguousSelectionError("The selector resolved to more than one commit.")
         if off_trunk:
             # A stack merge side parent is immutable to jj but remains outside
-            # the fetched trunk's first-parent path until sync retires it.
+            # trunk's first-parent path until sync removes it.
             return off_trunk[0]
         raise UnsupportedStackError(
             "This change is already on trunk, so it is not part of a local stack.",

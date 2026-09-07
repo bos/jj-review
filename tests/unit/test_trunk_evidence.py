@@ -66,7 +66,7 @@ def test_exact_snapshot_evidence_is_identity_and_ancestry_bound() -> None:
         )
 
         assert result.on_trunk is on_trunk
-        # An unproven verdict always explains itself, so no caller has to invent a message.
+        # An unsuccessful check includes a reason for the caller to report.
         assert on_trunk or result.reason is not None
 
 

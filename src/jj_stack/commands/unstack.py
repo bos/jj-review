@@ -230,10 +230,8 @@ async def _check_selected_prs(
         raise CliError("Could not inspect the selected pull requests.") from error
 
     for change_id in change_ids:
-        candidate = state.prs.get(change_id)
-        assert candidate is not None
         state_or_blocker = check_tracked_pr(
-            candidate=candidate,
+            candidate=state.prs[change_id],
             change_id=change_id,
             observation=observation,
         )
@@ -265,7 +263,7 @@ def _run_local_unstack(
         )
     if actions and not dry_run:
         for change_id in forgotten:
-            context.state_store.retire_pr(change_id)
+            context.state_store.remove_pr(change_id)
     return LocalUnstackResult(actions=tuple(actions), dry_run=dry_run)
 
 

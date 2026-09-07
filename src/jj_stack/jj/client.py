@@ -90,7 +90,7 @@ class PRBranchFetchIsolation:
 
 @dataclass(frozen=True, slots=True)
 class PRRefUpdate:
-    """One exact leased PR branch update in a complete remote mutation set."""
+    """A PR branch update with the expected old commit and desired new commit."""
 
     branch: str
     expected_target: CommitId | None
@@ -109,7 +109,7 @@ class GitCommitMetadata:
 
 @dataclass(frozen=True, slots=True)
 class PRTempArtifacts:
-    """Observed fixed PR branch import artifacts without applying recovery."""
+    """Targets of the temporary ref and bookmark used to import PR branches."""
 
     bookmark_targets: tuple[str, ...]
     ref_target: str | None
@@ -439,7 +439,7 @@ class JjClient:
         self._initial_working_copy_snapshot_pending = True
 
     def diffstats(self, commit_ids: Sequence[str]) -> dict[str, str]:
-        """Return plain diffstats for exact commits without rendering their descriptions."""
+        """Return diffstats for the given commits without rendering their descriptions."""
 
         template = (
             r'"{\"commit_id\":" ++ json(commit_id) ++ '
@@ -725,7 +725,7 @@ class JjClient:
         return _parse_bookmark_rows(stdout)
 
     def pr_branch_temp_ref_target(self) -> str | None:
-        """Return the exact temporary PR branch import ref target, if it exists."""
+        """Return the temporary PR branch import ref target, if it exists."""
 
         target = self._run_git(
             ("rev-parse", "--verify", "--quiet", _PR_BRANCH_TEMP_REF),
@@ -752,7 +752,7 @@ class JjClient:
         expected_chain: Sequence[tuple[str, CommitId, ExpectedGitChangeId]] = (),
         expected_parent_commit_id: CommitId | None = None,
     ) -> Iterator[LocalCommit]:
-        """Import one exact remote PR branch ref, then remove all temporary artifacts.
+        """Import a PR branch at its expected commit, then remove the temporary ref and bookmark.
 
         An expected chain guards every member's raw Git change ID and first-parent ancestry. A
         tuple accepts any listed ID, including a missing change-ID header represented by `None`.
@@ -820,7 +820,7 @@ class JjClient:
         remote: str,
         commit_id: str,
     ) -> GitCommitMetadata:
-        """Inspect one exact remote Git commit, fetching it without a ref when it is absent."""
+        """Read a Git commit by ID, fetching it without a ref when it is absent."""
 
         if re.fullmatch(r"[0-9a-f]{40}(?:[0-9a-f]{24})?", commit_id) is None:
             raise ValueError("remote commit ID must be a full SHA-1 or SHA-256 object ID")
@@ -882,7 +882,7 @@ class JjClient:
         remote: str,
         updates: Sequence[PRRefUpdate],
     ) -> None:
-        """Atomically apply a complete PR branch update set with exact leases."""
+        """Update PR branches atomically, checking each branch against its expected commit."""
 
         ordered_updates = tuple(updates)
         if not ordered_updates:
@@ -914,7 +914,7 @@ class JjClient:
         self._run_git(command)
 
     def edit_commit(self, commit_id: CommitId, *, cli_args: JjCliArgs = _NO_CLI_ARGS) -> None:
-        """Set the current workspace's working-copy change to one exact commit."""
+        """Edit the given commit in the current workspace."""
 
         self._run_jj(("edit", commit_id), manage_working_copy=True, cli_args=cli_args)
 
@@ -1015,7 +1015,7 @@ class JjClient:
         self._run_jj(("workspace", "update-stale"), manage_working_copy=True)
 
     def git_tree_ids(self, commit_ids: Sequence[str]) -> dict[str, str]:
-        """Return backing-Git tree IDs for exact commits."""
+        """Return Git tree IDs for the given commits."""
 
         ordered_commit_ids = tuple(dict.fromkeys(commit_ids))
         if not ordered_commit_ids:
@@ -1031,7 +1031,7 @@ class JjClient:
     def abandon_commits(
         self, commit_ids: Sequence[CommitId], *, cli_args: JjCliArgs = _NO_CLI_ARGS
     ) -> None:
-        """Abandon exact commits; jj rebases descendants and drops pointing bookmarks."""
+        """Abandon commits, rebasing descendants and removing bookmarks that point to them."""
 
         ordered_commit_ids = tuple(commit_ids)
         if not ordered_commit_ids:
@@ -1114,7 +1114,7 @@ class JjClient:
         )
 
     def _backing_git_root(self) -> Path:
-        """Resolve the exact Git object store used by this jj repo."""
+        """Resolve the Git object store used by this jj repo."""
 
         if self._git_root is None:
             rendered = self._run_jj(("git", "root")).strip()
@@ -1162,7 +1162,7 @@ class JjClient:
         )
 
     def _local_bookmark_targets(self, bookmark: str) -> tuple[str, ...]:
-        """Return targets of one exact local bookmark, excluding remote entries."""
+        """Return targets of the named local bookmark, excluding remote entries."""
 
         stdout = self._run_jj(("bookmark", "list", "-T", _BOOKMARK_TEMPLATE, bookmark))
         targets: list[str] = []

@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 class PRIdentity(BaseModel):
-    """Pinned nominal identity for one pull request."""
+    """The pull request number and head branch saved for a local change."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -21,13 +21,13 @@ class PRIdentity(BaseModel):
     head_ref: str
 
     def matches_pr(self, pr: GithubPR) -> bool:
-        """Whether live GitHub data is the exact pull request saved by this identity."""
+        """Whether the PR number and head branch match the saved link."""
 
         return pr.number == self.pr_number and pr.head.ref == self.head_ref
 
 
 class SubmittedBaseline(BaseModel):
-    """Exact snapshot most recently acknowledged for one pull request."""
+    """The commit most recently submitted or explicitly linked to a pull request."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -43,7 +43,7 @@ class TrackedPR(BaseModel):
     submitted_baseline: SubmittedBaseline
 
     def matches_snapshot(self, pr: GithubPR) -> bool:
-        """Whether live GitHub data matches this exact saved pull request snapshot."""
+        """Whether the PR matches the saved link and points to the submitted commit."""
 
         return (
             self.pr_identity.matches_pr(pr) and pr.head.sha == self.submitted_baseline.commit_id

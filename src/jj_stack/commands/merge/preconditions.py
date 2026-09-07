@@ -30,7 +30,7 @@ def merge_precondition_error(
     remote_name: str,
     change: MergeChange,
 ) -> MergePrecondition | None:
-    """Explain why fresh facts do not permit the next mutation."""
+    """Explain which observed precondition prevents the next action."""
 
     remote = observation.remote
     if remote is None or remote.name != remote_name:

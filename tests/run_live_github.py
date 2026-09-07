@@ -189,7 +189,7 @@ class LiveGithubSuite:
         _find_pr(merged, "prerelease top change")
         self._jj_stack(self.primary, "sync", "--all")
 
-        self._section("external merge followed by selected sync")
+        self._section("external merge followed by sync of the affected stack")
         external_change = self._commit_change(
             title="prerelease external merge",
             filename="external.txt",

@@ -27,22 +27,22 @@ stack but merges only through the named PR. `cleanup --pull-request` selects onl
 
 ## Start or refresh a child stack
 
-Use an exact submitted ancestor as a read-only boundary:
+Use `--base` to name a submitted ancestor that the command must leave unchanged:
 
 ```text
 submit --base <parent-change-id> <child-head-change-id>
 ```
 
-This submits only `(parent, child-head]`; it does not update the parent PR. The parent must
-be an exact open snapshot: its local commit, saved baseline, remote PR branch, and PR head
-must match. Repeat `--base` on every refresh because jj-stack stores no boundary.
+This submits only `(parent, child-head]`; it does not update the parent PR. The parent PR must
+be open, and its local commit, saved baseline, PR branch, and PR head must match.
+Repeat `--base` on every refresh because jj-stack stores no boundary.
 
 If the submitted base branch moved or disappeared, stop. jj-stack will not overwrite it. Report
-the immutable submitted commit named by the diagnostic and require the user to restore that exact
-remote branch externally before repeating the same bounded submit. Never restore it to the
+the submitted commit named by the diagnostic and require the user to restore the named branch
+to that commit before repeating the same `submit --base` command. Never restore it to the
 parent's mutable change ID or guess from current local history.
 
-When the user explicitly requests every sibling, use one bounded submit per sibling child. Keep
+When the user explicitly requests every sibling, run `submit --base` for each child stack. Keep
 the shared fork in the parent stack. Do not merge a child stack while its bottom PR targets the
 parent PR branch. After the parent PR lands:
 
@@ -70,7 +70,7 @@ unstack, close, recreate, or push PR branches unless a jj-stack diagnostic direc
 ## Split or join stacks
 
 - To split at a fork, treat each maximal linear path separately. Keep the fork in the parent
-  stack and submit every child path with its explicit submitted base. The first bounded submit
+  stack and submit every child path with its explicit submitted base. The first `submit --base`
   may dissolve the old grouping; submit the other paths individually.
 - To join linear stacks, rewrite them into one local chain and submit its resulting head. The
   submit reuses PRs by change ID, recalculates bases, dissolves completely selected old GitHub
@@ -86,6 +86,6 @@ an explicit refresh.
 to belong to the selected local parent chain. A selection spanning multiple active GitHub stacks,
 or omitting active members of one, stops rather than truncating another valid stack.
 
-When a diagnostic says the remote grouping no longer maps to one local path, follow its exact
+When a diagnostic says the remote grouping no longer maps to one local path, follow its
 `unstack --stack <number>` instruction after reading [recovery workflows](recovery.md). Do not
 guess a stack number or alter membership with `gh`.

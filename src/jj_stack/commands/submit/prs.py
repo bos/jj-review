@@ -88,7 +88,7 @@ async def _sync_pr(
     action = plan.action
     base_update, body_update, title_update = plan.content_updates
 
-    if action == "created":
+    if pr is None:
         if not run.dry_run:
             pr = await _github_request(
                 github_client.create_pr(
@@ -104,7 +104,6 @@ async def _sync_pr(
         any(update is not None for update in (base_update, body_update, title_update))
         and not run.dry_run
     ):
-        assert pr is not None
         pr_number = format_pr_number(pr.number, url=pr.html_url)
         pr = await _github_request(
             github_client.update_pr(

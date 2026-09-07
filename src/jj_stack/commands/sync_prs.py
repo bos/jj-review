@@ -31,18 +31,18 @@ async def refresh_selected_prs(
 ) -> None:
     if not actions.on_trunk:
         return
-    if actions.survivors and dry_run:
-        short = short_change_id(actions.survivors[-1].change_id)
+    if actions.remaining_changes and dry_run:
+        short = short_change_id(actions.remaining_changes[-1].change_id)
         console.output(
             t"Run {ui.cmd(f'jj-stack sync {short}')} to apply the "
             t"rebase and update the remaining pull requests."
         )
         return
-    if not actions.submitted_survivors:
-        if actions.survivors:
+    if not actions.remaining_prs:
+        if actions.remaining_changes:
             console.output("The remaining changes have no pull requests; they stay local.")
         return
-    selected_ids = tuple(actions.submitted_survivors)
+    selected_ids = tuple(actions.remaining_prs)
     state = context.state_store.load()
     # The rebase changed local commits. PR identities and remote refs are still valid.
     path = select_stack_path(jj_client=context.jj_client, state=state, revset=selected_ids[-1])
@@ -68,7 +68,7 @@ async def refresh_selected_prs(
     drafts: dict[str, bool] = {}
     for change in path.stack.changes:
         change_id = change.change_id
-        pr = actions.submitted_survivors[change_id]
+        pr = actions.remaining_prs[change_id]
         prepared.append(
             PreparedSubmitChange(
                 branch=pr.head.ref,
@@ -83,7 +83,7 @@ async def refresh_selected_prs(
     changes = tuple(prepared)
     descriptions = preserve_external_pr_text(
         descriptions=inputs.generated_pr_descriptions,
-        prs=actions.submitted_survivors,
+        prs=actions.remaining_prs,
         repo_root=context.repo_root,
         submitted_commits=inputs.submitted_commits,
     )

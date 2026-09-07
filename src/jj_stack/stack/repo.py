@@ -1,4 +1,4 @@
-"""Observe ordinary repo paths for the pure path projection."""
+"""Read commits and tracking to find local stacks."""
 
 from __future__ import annotations
 
@@ -21,11 +21,10 @@ def observe_repo_paths(
     state: TrackingState,
     descendant_of: Sequence[str] = (),
 ) -> RepoStackPaths:
-    """Batch the visible facts for ordinary maximal paths.
+    """Read the commits needed to find local stacks in one batch.
 
-    With no anchors this observes the repo inventory. Exact commit anchors narrow the
-    observation to the anchors' descendants; callers then keep the paths that contain their
-    anchor, so a wider scope costs only query work.
+    With no descendant_of IDs, inspect the whole repo. Otherwise, inspect descendants of those
+    commits. Callers keep only the stacks containing their requested commit.
     """
 
     trunk_path = "first_ancestors(trunk())"
@@ -63,7 +62,7 @@ def observe_repo_paths(
                 commit.commit_id for commit, flags in rows if flags[1]
             ),
             current_tracked_commit_id=current_tracked_commit_id,
-            fetched_trunk_commit_ids=frozenset(
+            trunk_first_parent_ids=frozenset(
                 commit.commit_id for commit, flags in rows if flags[2]
             ),
             commits=tuple(commit for commit, _flags in rows),

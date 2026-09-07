@@ -32,7 +32,7 @@ class GithubBranchRef(BaseModel):
 
 
 class GithubPRHead(BaseModel):
-    """Exact PR branch head, with its owner label when available."""
+    """PR head branch and commit, with the owner label when available."""
 
     model_config = ConfigDict(extra="ignore")
 

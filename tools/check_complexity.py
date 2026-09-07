@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BUDGET = ROOT / "complexity-budget.toml"
 # Pinned because counters disagree: tokei 12 miscounts this tree's comment lines by one and its
-# code lines by nineteen, and the budgets below are baselined against one exact counter.
+# code lines by nineteen, and the budgets below were measured with this version.
 TOKEI_VERSION = "15.0.0"
 
 

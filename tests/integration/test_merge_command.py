@@ -32,8 +32,8 @@ from .submit_command_helpers import (
     run_main,
 )
 
-# Every case in this file is part of the bounded merge and post-merge convergence
-# corpus described in docs/internals/property-testing.md.
+# Every case in this file counts toward the merge/recovery test limit in
+# complexity-budget.toml.
 pytestmark = pytest.mark.merge_recovery
 
 
@@ -270,7 +270,7 @@ def test_stack_merge_preserves_advanced_trunk_and_syncs_the_resolved_head(
 
 
 @pytest.mark.parametrize("merge_method", ("rebase", "squash"))
-def test_stack_rewriting_merge_automatically_retires_pre_merge_copies(
+def test_stack_rewriting_merge_automatically_removes_pre_merge_copies(
     tmp_path: Path,
     monkeypatch,
     capsys,

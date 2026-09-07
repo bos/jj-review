@@ -58,7 +58,7 @@ HELP = "Check out an existing stack of pull requests"
 
 @dataclass(frozen=True, slots=True)
 class CheckoutResult:
-    """Outcome of attaching one exact pull-request stack."""
+    """Result of checking out a stack and saving its PR links."""
 
     adopted_count: int
     fetched_tip_commit: str | None
@@ -352,7 +352,7 @@ async def _load_pr_chain(
     repo: GithubRepoAddress,
     top: GithubPR,
 ) -> tuple[GithubPR, ...]:
-    """Walk exact managed base refs from the selected PR to trunk."""
+    """Follow PR base branches from the selected PR to trunk."""
 
     namespace = current_pr_branch_namespace()
     top_down = [top]

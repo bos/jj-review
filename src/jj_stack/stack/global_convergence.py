@@ -1,4 +1,4 @@
-"""Observe and classify repo-wide convergence without mutating it."""
+"""Plan sync for stacks affected by merges across the repo."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from jj_stack.stack.change_state import (
     Stop,
     WithPR,
     classify,
-    unproven_reason,
+    trunk_evidence_reason,
 )
 from jj_stack.stack.convergence_models import (
     FinishPR,
@@ -167,7 +167,7 @@ def _classify_global_candidate(
     if ancestry == "unresolved":
         return "the submitted commit is unavailable locally", None, ()
     if isinstance(state, (PRIdentityMismatch, Closed, Merged)):
-        return unproven_reason(state), None, ()
+        return trunk_evidence_reason(state), None, ()
     return None, None, ()
 
 
@@ -188,7 +188,7 @@ def _affected_candidate_plan(
             return state.reason, None, ()
         raise AssertionError("Global sync looks up every saved pull request.")
     if not isinstance(state, Landed):
-        return unproven_reason(state), None, ()
+        return trunk_evidence_reason(state), None, ()
     stack_reason, historical = _detached_stack_blocker(
         candidate=candidate,
         facts=facts,
@@ -230,7 +230,7 @@ def _detached_stack_blocker(
         return None, False
     pr_label = format_pr_label(number, repo=facts.pr_facts.repo)
     if not matching[0].is_historical:
-        return t"GitHub still lists {pr_label} as an active member of its stack", False
+        return t"GitHub still lists {pr_label} among the unmerged PRs in its stack", False
     blocked = any(
         number in stack.pr_numbers
         and not set(stack.active_pr_numbers).isdisjoint(tracked_pr_numbers)
@@ -238,7 +238,7 @@ def _detached_stack_blocker(
     )
     return (
         (
-            t"{pr_label} is in a GitHub stack that still has active members tracked here"
+            t"{pr_label} is in a GitHub stack with unmerged PRs still linked to local changes"
             if blocked
             else None
         ),

@@ -21,10 +21,9 @@ from jj_stack.stack.change_state import (
     WithPR,
     classify,
     stop_error,
-    unproven_reason,
+    trunk_evidence_reason,
 )
 from jj_stack.stack.convergence_models import (
-    AdoptedSurvivor,
     ConvergenceActions,
     FinishPR,
     GithubStackMergePlan,
@@ -32,6 +31,7 @@ from jj_stack.stack.convergence_models import (
     OnTrunkChange,
     OrdinaryConvergencePlan,
     PRFinishPlan,
+    RewrittenPRChange,
     SelectedConvergencePlan,
     SkipPRFinish,
 )
@@ -51,13 +51,13 @@ class CheckedOutMergedChangeError(CliError):
 @dataclass(frozen=True, slots=True)
 class _GithubStackMerge:
     history: tuple[OnTrunkChange, ...]
-    adopted: tuple[AdoptedSurvivor, ...]
+    adopted: tuple[RewrittenPRChange, ...]
     merge_result_commit_id: CommitId | None
 
 
 @dataclass(frozen=True, slots=True)
 class _GithubStackRebase:
-    adopted: tuple[AdoptedSurvivor, ...]
+    adopted: tuple[RewrittenPRChange, ...]
 
 
 type _GithubStackEffect = _GithubStackMerge | _GithubStackRebase | None
@@ -87,13 +87,13 @@ def build_selected_convergence_plan(
     history_ids = {item.change_id for item in history}
     active_ids = {item.change_id for item in adopted}
     on_trunk = list(history)
-    survivors: list[LocalCommit] = []
+    remaining_changes: list[LocalCommit] = []
     surviving_prs = {item.change_id: item.pr for item in adopted}
     rerun = f"jj-stack sync {short_change_id(selected[-1].change_id)}"
     for change in (item for item in selected if item.change_id not in history_ids):
         candidate = state.prs.get(change.change_id)
         if candidate is None or change.change_id in active_ids:
-            survivors.append(change)
+            remaining_changes.append(change)
             continue
         change_state = _member_state(
             change_id=change.change_id,
@@ -108,21 +108,21 @@ def build_selected_convergence_plan(
         if isinstance(change_state, Merged):
             raise CliError(
                 t"Cannot remove {ui.change_id(change.change_id)}: "
-                t"{unproven_reason(change_state)}.",
+                t"{trunk_evidence_reason(change_state)}.",
                 hint=t"Check that {ui.revset('trunk()')} selects the branch the PR merged "
                 t"into, then rerun {ui.cmd(rerun)}.",
             )
         if not isinstance(change_state, Landed):
-            survivors.append(change)
+            remaining_changes.append(change)
             surviving_prs[change.change_id] = change_state.pr
             continue
         evidence_kind = change_state.evidence
-        if survivors:
+        if remaining_changes:
             raise CliError(
                 t"Cannot sync submitted {ui.change_id(change.change_id)} because these "
                 t"unmerged local changes are its parents: "
-                t"{ui.join(lambda item: ui.change_id(item.change_id), tuple(survivors))}. "
-                t"The submitted change is already on trunk, so jj-stack cannot decide "
+                t"{ui.join(lambda item: ui.change_id(item.change_id), tuple(remaining_changes))}"
+                t". The submitted change is already on trunk, so jj-stack cannot decide "
                 t"whether those local changes belong before or after it.\n"
                 t"Submitted commit: "
                 t"{ui.semantic_text(candidate.submitted_baseline.commit_id, 'commit_id')}\n"
@@ -153,7 +153,9 @@ def build_selected_convergence_plan(
 
     _require_no_unpublished_edits(tuple(on_trunk))
     _require_no_checked_out_merged_changes(tuple(on_trunk))
-    submitted = _submitted_survivors(survivors=tuple(survivors), prs=surviving_prs)
+    submitted = _remaining_submitted_prs(
+        remaining_changes=tuple(remaining_changes), prs=surviving_prs
+    )
     local_head = selected[-1]
     working_copy_children = tuple(
         commit
@@ -162,17 +164,17 @@ def build_selected_convergence_plan(
     )
     actions = ConvergenceActions(
         on_trunk=tuple(on_trunk),
-        submitted_survivors=submitted,
-        survivors=tuple(survivors),
+        remaining_prs=submitted,
+        remaining_changes=tuple(remaining_changes),
         working_copy_children=working_copy_children,
     )
-    _require_no_divergent_survivors(actions, adopted=adopted)
+    _require_no_divergent_remaining_changes(actions, adopted=adopted)
     if isinstance(effect, _GithubStackRebase):
-        return GithubStackRebasePlan(actions=actions, adopted_survivors=adopted)
+        return GithubStackRebasePlan(actions=actions, rewritten_changes=adopted)
     if isinstance(effect, _GithubStackMerge):
         return GithubStackMergePlan(
             actions=actions,
-            adopted_survivors=adopted,
+            rewritten_changes=adopted,
             # Without a reported merge result, the trunk tip is the only commit left to expect;
             # the import still verifies the chain against it.
             expected_parent_commit_id=effect.merge_result_commit_id
@@ -181,16 +183,16 @@ def build_selected_convergence_plan(
     return OrdinaryConvergencePlan(actions=actions)
 
 
-def _submitted_survivors(
+def _remaining_submitted_prs(
     *,
-    survivors: tuple[LocalCommit, ...],
+    remaining_changes: tuple[LocalCommit, ...],
     prs: dict[str, GithubPR],
 ) -> dict[str, GithubPR]:
-    """Return the tracked survivors, which must sit below every untracked one."""
+    """Return the remaining submitted PRs; unsubmitted changes must come after them."""
 
     submitted: dict[str, GithubPR] = {}
     saw_unsubmitted = False
-    for change in survivors:
+    for change in remaining_changes:
         if (pr := prs.get(change.change_id)) is None:
             saw_unsubmitted = True
             continue
@@ -231,8 +233,8 @@ def _member_state(
         )
     state = classify(observed, ancestries=ancestries, selected=selected)
     # GitHub itself moves the heads of a stack's active members when it merges or rebases the
-    # stack; `_validate_active_member` and the adoption proofs judge those moves. Any other
-    # survivor whose PR branch moved or disappeared stops sync before it rewrites anything.
+    # stack; `_validate_active_member` and the commit and ancestry checks validate those changes.
+    # Any other PR branch that moved or disappeared stops sync before it rewrites anything.
     github_moved = (
         member is not None
         and not member.is_historical
@@ -265,13 +267,13 @@ def _closed_error(state: Closed) -> CliError:
     )
 
 
-def _require_no_divergent_survivors(
+def _require_no_divergent_remaining_changes(
     actions: ConvergenceActions,
     *,
-    adopted: tuple[AdoptedSurvivor, ...],
+    adopted: tuple[RewrittenPRChange, ...],
 ) -> None:
     expected_remote_copies = {item.change_id for item in adopted}
-    for change in actions.survivors:
+    for change in actions.remaining_changes:
         if change.divergent and change.change_id not in expected_remote_copies:
             raise divergent_change_error(change.change_id)
 
@@ -321,7 +323,7 @@ def _classify_github_stack(
         )
     merge_mode = _is_stack_merge(stack=stack, by_pr=by_pr)
     history: list[OnTrunkChange] = []
-    adopted: list[AdoptedSurvivor] = []
+    adopted: list[RewrittenPRChange] = []
     expected_base = trunk_branch
     merge_result: CommitId | None = None
     rerun = f"jj-stack sync {short_change_id(selected[-1].change_id)}"
@@ -370,14 +372,14 @@ def _classify_github_stack(
             selected_change=local,
             stack=stack,
         )
-        adopted.append(AdoptedSurvivor(change_id, candidate, local, pr))
+        adopted.append(RewrittenPRChange(change_id, candidate, local, pr))
         expected_base = candidate.pr_identity.head_ref
     result = tuple(adopted)
     if not merge_mode:
         if any(
             item.pr.head.sha == item.candidate.submitted_baseline.commit_id for item in result
         ):
-            raise _unproven_rewrite_error(stack)
+            raise _unmatched_rewrite_error(stack)
         return _GithubStackRebase(result)
     return _GithubStackMerge(tuple(history), result, merge_result)
 
@@ -408,7 +410,7 @@ def _historical_member(
         pr_label = format_pr_label(member_state.pr.number, url=member_state.pr.html_url)
         raise CliError(
             t"Cannot remove the saved link for merged {pr_label}: "
-            t"{unproven_reason(member_state)}.",
+            t"{trunk_evidence_reason(member_state)}.",
             hint=t"Check that {ui.revset('trunk()')} selects the branch the PR merged into, "
             t"then rerun {ui.cmd('jj-stack sync HEAD')}.",
         )
@@ -424,7 +426,7 @@ def _historical_member(
 def _is_stack_merge(*, stack: GithubStack, by_pr: dict[int, str]) -> bool:
     merge_mode = any(member.number in by_pr for member in stack.historical_prs)
     if stack.historical_prs and not merge_mode:
-        raise _unproven_rewrite_error(stack)
+        raise _unmatched_rewrite_error(stack)
     return merge_mode
 
 
@@ -474,7 +476,7 @@ def _validate_active_member(
         )
 
 
-def _unproven_rewrite_error(stack: GithubStack) -> CliError:
+def _unmatched_rewrite_error(stack: GithubStack) -> CliError:
     return CliError(
         t"GitHub stack #{stack.number} changed, but jj-stack cannot verify a merge or a rebase "
         t"of the complete stack from the PRs tracked here.",

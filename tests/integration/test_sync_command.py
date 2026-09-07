@@ -28,8 +28,8 @@ from .submit_command_helpers import (
     run_main,
 )
 
-# Every case in this file is part of the bounded merge and post-merge convergence
-# corpus described in docs/internals/property-testing.md.
+# Every case in this file counts toward the merge/recovery test limit in
+# complexity-budget.toml.
 pytestmark = pytest.mark.merge_recovery
 
 
@@ -439,7 +439,7 @@ def test_sync_converges_stack_history_and_adopts_rewritten_survivor(
     assert remote_survivor != survivor.commit_id
 
 
-def test_sync_rejects_unselected_mutable_copy_of_proven_survivor(
+def test_sync_rejects_unselected_mutable_copy_after_github_rewrite(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -819,7 +819,7 @@ def test_sync_all_requires_terminal_stack_merge_for_exact_stack_member(
     blocked = capsys.readouterr()
 
     assert blocked_exit == 1
-    assert "GitHub still lists PR #1 as an active member" in " ".join(blocked.err.split())
+    assert "PR #1 among the unmerged PRs" in " ".join(blocked.err.split())
     assert first.change_id in state_store.load().prs
     assert fake_repo.prs[1].state == "open"
 

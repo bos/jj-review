@@ -418,10 +418,7 @@ async def run_submit_async(
     stack = prepared_inputs.stack
     state = prepared_inputs.state
     explicit_base = stack.base_parent if options.base_revset is not None else None
-    tracked_base = state.prs.get(explicit_base.change_id) if explicit_base else None
-    assert explicit_base is None or tracked_base is not None, (
-        "Prepared explicit base requires a tracked PR."
-    )
+    tracked_base = state.prs[explicit_base.change_id] if explicit_base is not None else None
     base_branch = tracked_base.pr_identity.head_ref if tracked_base is not None else None
 
     if not stack.changes:

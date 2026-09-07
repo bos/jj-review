@@ -24,7 +24,7 @@ to sync next.
 
 `jj-stack sync --all` updates every local stack affected by a completed merge and cleans up merged
 PRs whose local changes are gone. A blocked stack does not prevent it from syncing independent
-stacks. Use an explicit stack selection after GitHub's Rebase stack action.
+stacks. After GitHub's Rebase stack action, use `jj-stack sync <head-change-id>` instead.
 
 Use plain `jj rebase` when trunk merely advanced and GitHub did not rewrite the commits.
 """

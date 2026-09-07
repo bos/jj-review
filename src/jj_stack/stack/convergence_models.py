@@ -1,4 +1,4 @@
-"""Complete side-effect-free plans for selected convergence."""
+"""Plans for updating a local stack after GitHub merges or rebases its PRs."""
 
 from __future__ import annotations
 
@@ -39,13 +39,13 @@ class OnTrunkChange:
 @dataclass(frozen=True, slots=True)
 class ConvergenceActions:
     on_trunk: tuple[OnTrunkChange, ...]
-    submitted_survivors: dict[str, GithubPR]
-    survivors: tuple[LocalCommit, ...]
+    remaining_prs: dict[str, GithubPR]
+    remaining_changes: tuple[LocalCommit, ...]
     working_copy_children: tuple[LocalCommit, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class AdoptedSurvivor:
+class RewrittenPRChange:
     change_id: str
     candidate: TrackedPR
     local_change: LocalCommit
@@ -60,15 +60,15 @@ class OrdinaryConvergencePlan:
 @dataclass(frozen=True, slots=True)
 class GithubStackMergePlan:
     actions: ConvergenceActions
-    adopted_survivors: tuple[AdoptedSurvivor, ...]
-    # The commit GitHub rooted the rewritten survivors at: the merged prefix's merge result.
+    rewritten_changes: tuple[RewrittenPRChange, ...]
+    # The merge-result commit GitHub used as the parent of the remaining changes.
     expected_parent_commit_id: CommitId
 
 
 @dataclass(frozen=True, slots=True)
 class GithubStackRebasePlan:
     actions: ConvergenceActions
-    adopted_survivors: tuple[AdoptedSurvivor, ...]
+    rewritten_changes: tuple[RewrittenPRChange, ...]
 
 
 type SelectedConvergencePlan = (

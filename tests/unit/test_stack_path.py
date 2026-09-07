@@ -62,7 +62,7 @@ def test_selected_path_uses_mutable_copy_beside_fetched_rebase_result() -> None:
             selector_commits=(landed, local),
             select_mutable_copy=True,
             trunk=trunk,
-            fetched_trunk_commit_ids=frozenset({"old-trunk", "landed", "new-trunk"}),
+            trunk_first_parent_ids=frozenset({"old-trunk", "landed", "new-trunk"}),
         )
     )
 
@@ -131,7 +131,7 @@ def test_selected_path_fails_closed_when_its_parent_boundary_was_not_observed() 
     trunk = _change("trunk", "trunk-change", parents=("root",), immutable=True)
     head = _change("head", "head-change", parents=("missing",))
 
-    with pytest.raises(CliError, match="unobserved parent missing"):
+    with pytest.raises(CliError, match="parent commit missing"):
         project_selected_path(_observation(head=head, commits=(head, trunk), trunk=trunk))
 
 
@@ -145,7 +145,7 @@ def test_repo_paths_inventory_an_ordinary_shared_prefix() -> None:
         RepoPathObservation(
             candidate_commit_ids=frozenset({"shared", "left", "right"}),
             current_tracked_commit_id=None,
-            fetched_trunk_commit_ids=frozenset({"trunk"}),
+            trunk_first_parent_ids=frozenset({"trunk"}),
             commits=(right, trunk, shared, left),
             tracked_change_ids=frozenset({"left-change", "right-change"}),
             trunk=trunk,
@@ -163,7 +163,7 @@ def _observation(
     head: LocalCommit,
     commits: tuple[LocalCommit, ...],
     trunk: LocalCommit,
-    fetched_trunk_commit_ids: frozenset[str] | None = None,
+    trunk_first_parent_ids: frozenset[str] | None = None,
     select_mutable_copy: bool = False,
     selector_commits: tuple[LocalCommit, ...] | None = None,
 ) -> SelectedPathObservation:
@@ -172,7 +172,7 @@ def _observation(
             commit.commit_id for commit in commits if commit.commit_id != trunk.commit_id
         ),
         current_working_copy_commit_id=None,
-        fetched_trunk_commit_ids=fetched_trunk_commit_ids or frozenset({trunk.commit_id}),
+        trunk_first_parent_ids=trunk_first_parent_ids or frozenset({trunk.commit_id}),
         commits=commits,
         selected_revset=head.change_id,
         selector_commits=selector_commits or (head,),

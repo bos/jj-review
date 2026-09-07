@@ -1,8 +1,8 @@
 """Pure classification of whether a tracked pull request's work is on trunk.
 
-Two routes prove it: the exact submitted commit is an ancestor of fetched trunk, or GitHub
-rewrote it and the merge-result commit is. GitHub reporting a pull request as merged is not one of
-them, since that says nothing about the trunk this repo fetched.
+Check whether the submitted commit or GitHub's rewritten merge result is an ancestor of trunk.
+Both checks also compare the PR with its saved record. A PR's merged state alone does not show
+that its work reached this repo's trunk.
 """
 
 from __future__ import annotations
@@ -23,20 +23,20 @@ TrunkEvidenceKind = Literal["exact", "rewritten"]
 
 @dataclass(frozen=True, slots=True)
 class TrunkEvidence:
-    """Whether one pull request's work is proven to be on trunk, and why not when it is not.
+    """Whether the PR and commit ancestry checks confirm that submitted work reached trunk.
 
-    An unproven verdict always carries a reason to report to the user.
+    An unsuccessful check includes a reason to report to the user.
     """
 
     on_trunk: bool
     reason: Message | None = None
 
     @classmethod
-    def proven(cls) -> TrunkEvidence:
+    def confirmed(cls) -> TrunkEvidence:
         return cls(on_trunk=True)
 
     @classmethod
-    def unproven(
+    def not_confirmed(
         cls,
         reason: Message,
     ) -> TrunkEvidence:
@@ -53,16 +53,16 @@ def classify_exact_snapshot(
     change_id: str,
     pr: GithubPR,
 ) -> TrunkEvidence:
-    """Classify the repo-wide exact-snapshot gate without lifecycle policy."""
+    """Check that the submitted commit is on trunk and the PR still matches its saved record."""
 
     if ancestry != "on_trunk":
-        return TrunkEvidence.unproven(
+        return TrunkEvidence.not_confirmed(
             _ancestry_reason(ancestry, candidate.submitted_baseline.commit_id)
         )
     mismatch = _snapshot_mismatch(candidate, change_id, pr)
     if mismatch is not None:
-        return TrunkEvidence.unproven(mismatch)
-    return TrunkEvidence.proven()
+        return TrunkEvidence.not_confirmed(mismatch)
+    return TrunkEvidence.confirmed()
 
 
 def classify_rewritten_result(
@@ -76,34 +76,34 @@ def classify_rewritten_result(
 
     mismatch = _snapshot_mismatch(candidate, change_id, pr)
     if mismatch is not None:
-        return TrunkEvidence.unproven(mismatch)
+        return TrunkEvidence.not_confirmed(mismatch)
     pr_label = format_pr_label(pr.number, url=pr.html_url)
     if pr.state != "merged":
-        return TrunkEvidence.unproven(t"{pr_label} is {pr.state} without a result on trunk")
+        return TrunkEvidence.not_confirmed(t"{pr_label} is {pr.state} without a result on trunk")
     merge_commit_id = pr.merge_commit_sha
     if merge_commit_id is None:
-        return TrunkEvidence.unproven(
+        return TrunkEvidence.not_confirmed(
             t"GitHub did not report the commit produced by merging {pr_label}"
         )
     if merge_result_ancestry == "unresolved":
-        return TrunkEvidence.unproven(
+        return TrunkEvidence.not_confirmed(
             t"commit {ui.commit_id(merge_commit_id)} from GitHub's merge is unavailable locally",
         )
     if merge_result_ancestry != "on_trunk":
-        return TrunkEvidence.unproven(
+        return TrunkEvidence.not_confirmed(
             t"commit {ui.commit_id(merge_commit_id)} from GitHub's merge is not on trunk",
         )
-    return TrunkEvidence.proven()
+    return TrunkEvidence.confirmed()
 
 
-def classify_proven_kind(
+def classify_trunk_evidence(
     *,
     ancestries: Mapping[str, CommitAncestry],
     candidate: TrackedPR,
     change_id: str,
     pr: GithubPR,
 ) -> tuple[TrunkEvidenceKind | None, Message]:
-    """Classify both proof routes from one previously batched ancestry observation."""
+    """Check submitted-commit and merge-result ancestry using the supplied observations."""
 
     exact = classify_exact_snapshot(
         ancestry=ancestries[candidate.submitted_baseline.commit_id],

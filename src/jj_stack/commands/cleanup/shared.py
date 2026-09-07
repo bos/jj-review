@@ -39,7 +39,7 @@ class PreparedCleanup:
 
     context: CommandContext
     close_open_prs: bool
-    # None until plain cleanup proves it needs remote or GitHub state.
+    # None until cleanup needs to read remote or GitHub state.
     github_target: GithubTarget | UnresolvedGithubTarget | None
     dry_run: bool
     selected_change_ids: tuple[str, ...] | None

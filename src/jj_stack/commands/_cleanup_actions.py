@@ -261,7 +261,7 @@ def github_stack_cleanup_blockers(
     pr_numbers: tuple[int, ...],
     stacks: tuple[GithubStack, ...] | CliError,
 ) -> dict[int, CleanupAction]:
-    """Fail closed for every selected PR a stack with an active member still groups.
+    """Block cleanup of selected PRs still needed by a GitHub stack with unmerged PRs.
 
     A merged member's branch is the base of the member above it, so a stack that still holds
     an active member needs every branch it groups, not only the active ones.
@@ -297,7 +297,7 @@ def apply_remote_branch_cleanup(
     remote_name: str,
     update: PRRefUpdate | None,
 ) -> None:
-    """Execute one prechecked remote branch deletion with an exact lease.
+    """Delete a branch only if it still points to the commit checked during planning.
 
     A rejected lease raises, so there is no failure for callers to branch on.
     """

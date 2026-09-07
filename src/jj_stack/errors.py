@@ -142,7 +142,7 @@ type DriftCondition = Literal[
 
 
 class DriftError(CliError):
-    """Cross-system drift left PR identity unprovable, so the command fails closed."""
+    """Changed PR, branch, or stack state prevents the requested operation."""
 
     def __init__(
         self,

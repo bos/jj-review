@@ -17,8 +17,8 @@ its GitHub tracking state (PR branches, PRs, merging, cleanup).
 
 ## Resolving the command
 
-`jj-stack` below is a placeholder for the real invocation. Resolve one per
-repo, confirm it with `--help`, and reuse it for the whole conversation:
+`jj-stack` below stands for the command used in this repo. Resolve it once,
+confirm it with `--help`, and reuse it for the whole conversation:
 
 1. An invocation named by the user or project instructions.
 2. `just run` inside the jj-stack source repo itself.
@@ -32,7 +32,7 @@ command they use before any direct GitHub mutation.
 
 ## User documentation
 
-For exact syntax and installed-version behavior, use the resolved command's `--help`; the bundled
+For syntax and installed-version behavior, use the resolved command's `--help`; the bundled
 references below govern lifecycle safety and recovery. For installation, configuration, shell
 completion, automation, JSON output, or conceptual guidance not covered here, use the most
 relevant content-only Markdown page listed at
@@ -132,7 +132,7 @@ use the recovery reference to reconcile afterward. Existing explicit authorizati
    updates the local stack automatically; it never pushes trunk. After a queued merge, run
    `sync <head-change-id>` once GitHub finishes.
 6. If `trunk()` merely advanced and GitHub left the PR branches alone, use plain `jj rebase`.
-   Use `sync` after ancestors merge under exact or rewritten commit IDs, or after GitHub's
+   Use `sync` after PRs merge, including squash and rebase merges, or after GitHub's
    **Rebase stack** action rewrites the PR branches.
 
 ## Closing and cleanup
@@ -166,5 +166,5 @@ report (the output is still valid — read it; ordinary warnings can also appear
 ## When something goes wrong
 
 Use `jj workspace update-stale` for a stale workspace and `jj op log` or `jj undo` for local
-recovery; never use destructive Git commands. For every other abnormal lifecycle state, read
+recovery; never use destructive Git commands. For other recovery work, read
 [recovery workflows](references/recovery.md) before acting.

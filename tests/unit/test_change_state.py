@@ -104,7 +104,7 @@ _CLASSIFICATION_CASES: tuple[tuple[str, dict[str, object], type], ...] = (
         {"pr": None, "open_prs_on_branch": (_pr(number=8), _pr(number=9))},
         PRAmbiguous,
     ),
-    ("merged and proven", {"pr": _pr(state="merged"), "trunk_evidence": "rewritten"}, Landed),
+    ("merged and on trunk", {"pr": _pr(state="merged"), "trunk_evidence": "rewritten"}, Landed),
     ("open, exact commit already on trunk", {"trunk_evidence": "exact"}, Landed),
     ("queued", {"pr": _pr(queued=True)}, Queued),
     ("queued but head moved", {"pr": _pr(queued=True, head_sha="elsewhere")}, PRHeadMoved),
@@ -151,7 +151,7 @@ def test_merged_state_carries_the_reason_trunk_did_not_prove_it() -> None:
         _observe(pr=_pr(state="merged"), trunk_evidence=None, trunk_evidence_reason="why")
     )
 
-    assert isinstance(state, Merged) and state.unproven == "why"
+    assert isinstance(state, Merged) and state.trunk_evidence_reason == "why"
 
 
 def test_a_pr_head_visible_locally_is_pushed_work_not_a_moved_head() -> None:

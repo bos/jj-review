@@ -1,7 +1,7 @@
 # Recovery workflows
 
-Read this file for abnormal lifecycle state, repo-wide reconciliation, adoption, repair,
-or cleanup beyond the common flow. Keep the universal safety and GitHub-write rules from
+Read this file after interrupted commands or changes on GitHub, or for repo-wide sync,
+tracking repair, importing existing PRs, and cleanup. Keep the safety and GitHub-write rules from
 `SKILL.md` in force.
 
 ## Observe before choosing a repair
@@ -21,29 +21,30 @@ the default selection. Preview the chosen mutation with `--dry-run` when support
 Do not resume a remembered plan. Every retry must use current `jj`, tracking, remote, and GitHub
 observations. Use `jj op log` and `jj undo` for local recovery, never destructive Git commands.
 
-## Reconcile GitHub changes
+## Apply GitHub changes locally
 
 - After a queued or external merge finishes, run `sync --dry-run <head-change-id>`, then
-  `sync <head-change-id>`. It fetches, proves what reached trunk, removes merged ancestors,
-  rebases selected survivors, and updates only their existing PRs.
-- After GitHub's **Rebase stack** action finishes, use the same selected `sync` sequence. It
+  `sync <head-change-id>`. It fetches, checks which changes reached trunk, removes their local
+  copies, rebases the remaining selected changes, and updates only their existing PRs.
+- After GitHub's **Rebase stack** action finishes, use the same `sync` sequence. It
   verifies the rewritten PR branches and contents, rebases the original local changes, and
   restores their change IDs.
-- Use the full head change ID when a rewritten survivor has several visible commits. Let the
-  selected `sync` prove which commit GitHub produced; do not choose a `/0` or `/1` copy or
+- Use the full head change ID when a remaining change has several visible commits. Let
+  `sync` identify the commit GitHub produced; do not choose a `/0` or `/1` copy or
   abandon a copy before that dry run.
 - Do not run a separate `jj git fetch` merely to prepare this recovery. `sync` performs the
   required fetch itself; importing rewritten PR branches first can create avoidable local
   divergence.
 - If a direct merge completed but automatic sync failed, do not rerun `merge`; continue with the
-  explicit selected `sync` printed by the command.
+  `sync` command printed in the diagnostic.
 - If a queued PR is still waiting, do not submit or sync that stack. Independent stacks remain
   usable.
 - If trunk merely advanced, none of the stack merged, and GitHub left every PR branch alone, use
-  a bounded plain `jj rebase`; `sync` is not a general trunk-refresh command.
+  `jj rebase` with a selector for the affected stack; `sync` handles merges and GitHub rewrites.
 
-Use `sync --all --dry-run`, then `sync --all`, only for repo-wide reconciliation. It finds each
-local stack affected by a completed merge and applies the same selected `sync` workflow in turn.
+Use `sync --all --dry-run`, then `sync --all`, only when the user wants to sync all affected
+stacks in the repo. It finds each local stack affected by a completed merge and runs `sync` for
+each one.
 It may therefore rebase surviving changes and their descendants, update or close pull requests,
 delete unused PR branches and overview comments, and remove saved links. It never creates a pull
 request. A blocked stack does not prevent independent stacks from continuing; inspect its
@@ -77,21 +78,21 @@ from observed state; never rebuild changes or PRs by hand.
 
 ## Repair grouping and uncommon cleanup
 
-When GitHub grouping no longer maps to one local path, preview the exact stack number from the
-diagnostic with `unstack --dry-run --stack <number>`, then run `unstack --stack <number>`. This
+When GitHub grouping no longer maps to one local path, use the stack number from the diagnostic.
+Preview with `unstack --dry-run --stack <number>`, then run `unstack --stack <number>`. This
 removes grouping only and leaves PRs open. Never guess a stack number.
 
 To start fresh PRs for the same changes, follow the closing and cleanup procedure in
 `SKILL.md`, then run `submit <head-change-id>`. There is no restart flag; submitting before
 cleanup does not replace the saved PRs.
 
-For an orphan reported by `list`, inspect its exact PR and verify its current live state. If the
+For an orphan reported by `list`, inspect the named PR on GitHub. If the
 user wants closure and cleanup, run `cleanup --pull-request <pr> --close --dry-run`, then
 `cleanup --pull-request <pr> --close`. Resolve any grouping or dependent-PR blocker named by the
 preview before retrying. Already closed or merged PRs do not need `--close`.
 Use `cleanup --pull-request orphans --close` only when the user requested all saved orphans, and
 preview that same selection first. Orphan rows come from saved tracking and do not by themselves
-prove live PR state.
+report the PR's current state on GitHub.
 
 ## Diagnose local setup
 

@@ -135,14 +135,14 @@ def confirm_orphaned_pr_snapshots(
     jj_client: JjClient,
     state: TrackingState,
 ) -> frozenset[GithubStackPRSnapshot]:
-    """Confirm exact saved PR snapshots whose changes have no off-trunk copy."""
+    """Check saved PRs whose local changes have no visible copy outside trunk."""
 
     candidate_snapshots = {github_stack_pr_snapshot(candidate) for candidate in candidates}
     change_ids_by_snapshot: dict[GithubStackPRSnapshot, list[str]] = {}
     for change_id, tracked in sorted(state.prs.items()):
         # Do not add repository identity to this match. jj-stack operates on one configured
         # repository, and these candidates were observed through its GitHub client. PR number,
-        # branch, and submitted commit are the complete proof for this decision.
+        # branch, and submitted commit are the values this check must compare.
         snapshot = (
             tracked.pr_identity.pr_number,
             tracked.pr_identity.head_ref,

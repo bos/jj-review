@@ -1,4 +1,4 @@
-"""Apply complete sync convergence plans."""
+"""Apply planned local rebases, PR updates, and cleanup."""
 
 from __future__ import annotations
 
@@ -23,11 +23,11 @@ from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import SubmittedBaseline, TrackedPR
 from jj_stack.stack.convergence import divergent_change_error
 from jj_stack.stack.convergence_models import (
-    AdoptedSurvivor,
     ConvergenceActions,
     GithubStackMergePlan,
     GithubStackRebasePlan,
     PRFinishPlan,
+    RewrittenPRChange,
     SelectedConvergencePlan,
     SkipPRFinish,
 )
@@ -113,7 +113,7 @@ async def apply_selected_convergence(
     target: GithubTarget,
     trunk_commit_id: CommitId,
 ) -> int:
-    """Apply one complete selected convergence plan in dependency order."""
+    """Apply a stack sync plan in dependency order."""
 
     actions = plan.actions
     if isinstance(plan, GithubStackRebasePlan):
@@ -151,7 +151,7 @@ async def apply_selected_convergence(
         dry_run=dry_run,
         finish_results=results,
         github=github,
-        submitted_survivors=actions.submitted_survivors,
+        remaining_prs=actions.remaining_prs,
         dependencies=dependencies,
         target=target,
     )
@@ -166,14 +166,14 @@ def _apply_local_convergence(
     trunk_commit_id: CommitId,
 ) -> dict[str, tuple[LocalCommit, ...]]:
     actions = plan.actions
-    rewritten = plan.adopted_survivors if isinstance(plan, GithubStackMergePlan) else ()
-    # GitHub's rewrite of a survivor is its baseline, moved. Adopt those commits only while every
-    # survivor is still at its baseline; otherwise rebase them all and let the refresh republish.
+    rewritten = plan.rewritten_changes if isinstance(plan, GithubStackMergePlan) else ()
+    # GitHub rewrites each remaining PR from its submitted baseline. Use GitHub's commits only
+    # when every local change is still at that baseline; otherwise rebase and resubmit them all.
     adopt = _all_at_baseline(rewritten)
     adopted_ids = {item.change_id for item in rewritten} if adopt else set()
     rebased = (
         (
-            *(item for item in actions.survivors if item.change_id not in adopted_ids),
+            *(item for item in actions.remaining_changes if item.change_id not in adopted_ids),
             *actions.working_copy_children,
         )
         if actions.on_trunk
@@ -251,7 +251,7 @@ def _apply_github_stack_rebase(
     remote_name: str,
     trunk_commit_id: CommitId,
 ) -> None:
-    adopted = plan.adopted_survivors
+    adopted = plan.rewritten_changes
     top = adopted[-1]
     with context.jj_client.import_remote_pr_branch_ref(
         remote=remote_name,
@@ -306,8 +306,8 @@ def _verified_local_rebase(
     plan: GithubStackRebasePlan,
     trunk_commit_id: CommitId,
 ) -> tuple[dict[str, LocalCommit], str | None]:
-    adopted = plan.adopted_survivors
-    local = plan.actions.survivors
+    adopted = plan.rewritten_changes
+    local = plan.actions.remaining_changes
     desired = local
     operation_id: str | None = None
     if _all_at_baseline(adopted):
@@ -361,7 +361,7 @@ def _verified_local_rebase(
     return desired_by_change, operation_id
 
 
-def _all_at_baseline(items: tuple[AdoptedSurvivor, ...]) -> bool:
+def _all_at_baseline(items: tuple[RewrittenPRChange, ...]) -> bool:
     return all(
         item.local_change.commit_id == item.candidate.submitted_baseline.commit_id
         for item in items
@@ -394,7 +394,7 @@ async def _cleanup_reconciled_prs(
     dry_run: bool,
     finish_results: tuple[PRFinishResult, ...],
     github: GithubClient,
-    submitted_survivors: dict[str, GithubPR],
+    remaining_prs: dict[str, GithubPR],
     dependencies: dict[str, tuple[LocalCommit, ...]],
     target: GithubTarget,
 ) -> int:
@@ -424,7 +424,7 @@ async def _cleanup_reconciled_prs(
         dry_run=dry_run,
         github_client=github,
         github_target=target,
-        planned_detached_dependents=frozenset(pr.number for pr in submitted_survivors.values()),
+        planned_detached_dependents=frozenset(pr.number for pr in remaining_prs.values()),
         planned_local_removals=frozenset(cleanup_change_ids),
     )
     return 1 if any(action.status == "blocked" for action in cleanup.actions) else 0
@@ -448,7 +448,7 @@ def _observe_removal_dependencies(
         excluded_change_ids=frozenset(
             (
                 *(change.change_id for change in actions.on_trunk),
-                *(item.change_id for item in actions.survivors),
+                *(item.change_id for item in actions.remaining_changes),
             )
         ),
     )

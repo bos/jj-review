@@ -66,7 +66,7 @@ def observe_stack_commits(
 def observe_change_copies(
     *, jj_client: JjClient, state: TrackingState, change_ids: Sequence[str]
 ) -> StackObservation:
-    """Observe complete change-ID scopes in bounded batches using one bookmark observation."""
+    """Read all copies of the requested changes in batches, reading bookmarks once."""
 
     cli_args, expected = observe_pr_bookmarks(jj_client=jj_client, state=state)
     rows = tuple(

@@ -1,4 +1,4 @@
-"""Observe the additional repo facts needed to plan selected convergence."""
+"""Read the additional repo state needed to plan sync for a local stack."""
 
 from __future__ import annotations
 

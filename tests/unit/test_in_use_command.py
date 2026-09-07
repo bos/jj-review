@@ -38,7 +38,7 @@ def test_in_use_tracks_presence_of_valid_local_state(
         ),
         baseline=SubmittedBaseline(commit_id="abc123"),
     )
-    store.retire_pr(CHANGE_ID)
+    store.remove_pr(CHANGE_ID)
     assert store.load() == TrackingState()
 
     assert main(["--repository", str(repo), "in-use"]) == 0

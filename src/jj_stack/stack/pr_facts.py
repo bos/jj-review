@@ -1,4 +1,4 @@
-"""Fresh PR facts used to check mutations."""
+"""Read PR and branch state for command precondition checks."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from jj_stack.stack.trunk_evidence import CommitAncestry
 
 @dataclass(frozen=True, slots=True)
 class RepoFacts:
-    """Fresh pull request facts shared by mutation policies."""
+    """PR and branch observations used to check command preconditions."""
 
     configured_repo: github_resolution.GithubRepoAddress | None
     github_repo: GithubRepo
@@ -62,7 +62,7 @@ async def observe_prs(
     github_repo_snapshot: GithubRepo | None = None,
     local_commits_snapshot: Mapping[str, tuple[LocalCommit, ...]] | None = None,
 ) -> RepoFacts:
-    """Reload pull request facts, optionally deferring exact remote-ref observation."""
+    """Read PR state, optionally skipping branch target lookups."""
 
     remotes = context.jj_client.list_git_remotes()
     remote = next((item for item in remotes if item.name == remote_name), None)

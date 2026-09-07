@@ -45,7 +45,7 @@ def select_stack_path(
     state: TrackingState,
     revset: str | None = None,
 ) -> SelectedStackPath:
-    """Collect the bounded facts for one selector and project its parent path."""
+    """Read the commits needed to follow a selector back to trunk."""
 
     if revset is None:
         selector = "@ | @-"
@@ -308,7 +308,7 @@ def _project_rows(
                 row.commit.commit_id for row in rows if row.is_candidate
             ),
             current_working_copy_commit_id=current_working_copy_commit_id,
-            fetched_trunk_commit_ids=frozenset(
+            trunk_first_parent_ids=frozenset(
                 row.commit.commit_id for row in rows if row.is_trunk_path
             ),
             commits=tuple(row.commit for row in rows),

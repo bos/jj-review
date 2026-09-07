@@ -44,7 +44,7 @@ complexity:
 property *args:
     tests/run_submit_property_scenarios.py {{args}}
 
-# Run the opt-in release checks against a disposable real GitHub repository.
+# Run the opt-in release checks against a disposable GitHub repository.
 live *args:
     uv run python tests/run_live_github.py {{args}}
 
