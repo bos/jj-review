@@ -211,13 +211,11 @@ def _check_pr_branch_fetch_isolation(
                 t"{ui.cmd('jj git fetch')} does not skip {ui.bookmark(namespace.branch_glob)} "
                 t"branches; fix with {ui.cmd('jj-stack doctor --fix')}.",
             )
-        elif isolation.problem == "duplicate":
+        else:
             problem_detail = (
                 t"the fetch rule that skips {ui.bookmark(namespace.branch_glob)} branches is "
                 t"duplicated; keep one with {ui.cmd('jj-stack doctor --fix')}.",
             )
-        else:
-            raise AssertionError("required fetch isolation has no problem")
         return CheckResult("PR branch fetch", "warn", problem_detail)
     return CheckResult(
         "PR branch fetch",

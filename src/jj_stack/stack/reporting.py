@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, assert_never
+from typing import Literal
 
 import jj_stack.ui as ui
 from jj_stack.models.github import GithubPR
@@ -103,8 +103,6 @@ def report_change(state: ChangeState) -> ChangeReport:
                 problem = "branch_moved"
             elif isinstance(state, BranchMissing):
                 problem = "link_mismatch"
-        case _:
-            assert_never(state)
     needs_sync = isinstance(state, (Landed, Merged))
     divergent = state.divergent and not needs_sync
     return ChangeReport(

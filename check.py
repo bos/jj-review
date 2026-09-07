@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import shlex
@@ -88,6 +89,7 @@ def _build_checks(
                 )
             )
     return (
+        ("source-policy", ("-c", "import check; check._check_production_assertions()")),
         ("ruff", ("-m", "ruff", "check")),
         ("ruff-format", ("-m", "ruff", "format", "--check")),
         *type_checks,
@@ -181,6 +183,27 @@ def ensure_project_environment(type_checkers: Sequence[str]) -> None:
     )
     if completed.returncode != 0:
         raise SystemExit(completed.returncode)
+
+
+def _check_production_assertions() -> None:
+    """Keep runtime assertions out of production code, including explicit assertion errors."""
+
+    violations: set[str] = set()
+    for path in sorted((REPO_ROOT / "src").rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+            match node:
+                case (
+                    ast.Assert()
+                    | ast.Name(id="AssertionError" | "assert_never")
+                    | ast.Attribute(attr="AssertionError" | "assert_never")
+                    | ast.alias(name="AssertionError" | "assert_never")
+                ):
+                    violations.add(f"{path.relative_to(REPO_ROOT)}:{node.lineno}")
+    if violations:
+        raise SystemExit(
+            "Error: assertions are not allowed in src. Express required inputs in types "
+            "and handle reachable failures explicitly.\n" + "\n".join(sorted(violations))
+        )
 
 
 def _check_fragile_test_output_assertions() -> None:

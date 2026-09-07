@@ -14,14 +14,13 @@ from jj_stack.models.github import GithubStack
 from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackedPR, TrackingState
 from jj_stack.stack.change_state import (
-    ChangeState,
     Closed,
     Landed,
     Merged,
+    PRAmbiguous,
     PRIdentityMismatch,
     PRMissing,
-    Stop,
-    WithPR,
+    TrackedPRState,
     classify,
     trunk_evidence_reason,
 )
@@ -176,17 +175,15 @@ def _affected_candidate_plan(
     candidate: TrackedPR,
     facts: GlobalSyncFacts,
     heads: tuple[str, ...] | None,
-    state: ChangeState,
+    state: TrackedPRState,
     tracked_prs: frozenset[int],
 ) -> tuple[Message | None, PRFinishPlan | None, tuple[str, ...]]:
     if heads is None:
         return "local history is not a supported stack", None, ()
     if heads:
         return None, None, heads
-    if not isinstance(state, WithPR):
-        if isinstance(state, Stop):
-            return state.reason, None, ()
-        raise AssertionError("Global sync looks up every saved pull request.")
+    if isinstance(state, (PRMissing, PRAmbiguous)):
+        return state.reason, None, ()
     if not isinstance(state, Landed):
         return trunk_evidence_reason(state), None, ()
     stack_reason, historical = _detached_stack_blocker(

@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from typing import Literal
 
 from jj_stack.bootstrap import CommandContext
-from jj_stack.github.resolution import GithubRepoAddress
+from jj_stack.github.resolution import GithubRepoAddress, GithubTarget
 from jj_stack.identifiers import ChangeId, CommitId
-from jj_stack.models.tracking import PRIdentity
-from jj_stack.stack.status import PreparedStatus
+from jj_stack.models.stack import LocalStack
+from jj_stack.models.tracking import PRIdentity, TrackingState
 from jj_stack.ui import Message
 
 
@@ -48,7 +48,9 @@ class PreparedMerge:
     dry_run: bool
     context: CommandContext
     merge_method: str | None
-    prepared_status: PreparedStatus
+    stack: LocalStack
+    state: TrackingState
+    target: GithubTarget
     target_change_id: str | None
 
 

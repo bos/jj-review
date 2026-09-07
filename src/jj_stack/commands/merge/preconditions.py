@@ -11,10 +11,10 @@ from jj_stack.models.stack import LocalCommit
 from jj_stack.stack.change_state import (
     BranchDisagrees,
     BranchMissing,
+    PRAmbiguous,
     PRHeadMoved,
     PRIdentityMismatch,
     PRMissing,
-    WithPR,
     classify,
 )
 from jj_stack.stack.divergence import divergence_recovery_hint
@@ -96,19 +96,17 @@ def _merge_change_precondition_error(
     merge goes on to the commit comparison.
     """
 
-    observed = observation.prs[planned.change_id]
+    observed = observation.prs.get(planned.change_id)
     label = short_change_id(planned.change_id)
-    if observed.tracked is None or observed.tracked.pr_identity != planned.identity:
+    if observed is None or observed.tracked.pr_identity != planned.identity:
         return MergePrecondition(f"the saved pull request link for {label} changed")
     selected = next(
         (commit for commit in observed.local if commit.commit_id == planned.commit_id),
         None,
     )
     state = classify(observed, selected=selected)
-    if isinstance(state, (PRMissing, PRIdentityMismatch)):
+    if isinstance(state, (PRMissing, PRAmbiguous, PRIdentityMismatch)):
         return MergePrecondition(t"{state.reason}; {state.repair}", recovery="explained")
-    if not isinstance(state, WithPR):
-        raise AssertionError("Merge planning looks up every saved pull request.")
     pr = state.pr
     pr_number = format_pr_number(pr.number, url=pr.html_url)
     if pr.state != "open":

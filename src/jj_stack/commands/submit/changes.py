@@ -21,7 +21,6 @@ from jj_stack.stack.change_state import (
     Closed,
     Merged,
     PRHeadMoved,
-    Published,
     Queued,
     Stop,
     Unobserved,
@@ -132,8 +131,6 @@ def require_published_base(
 
     branch = tracked_base.pr_identity.head_ref
     state = classify(replace(lookup, selected=base, remote_target=remote_target))
-    if isinstance(state, (Published, Queued)):
-        return
     if isinstance(state, (PRHeadMoved, BranchMissing, BranchDisagrees)):
         remote_branch = ui.bookmark(f"{branch}@{remote.name}")
         expected = ui.semantic_text(tracked_base.submitted_baseline.commit_id, "commit_id")
@@ -154,4 +151,3 @@ def require_published_base(
             state,
             hint=t"Reopen the PR, or run {ui.cmd('jj-stack cleanup')} before submitting again.",
         )
-    raise AssertionError(f"An explicit base cannot be {type(state).__name__}.")

@@ -490,18 +490,9 @@ def render_trunk_status_lines(
 ) -> tuple[ui.Renderable, ...]:
     """Render the trunk footer with the user's `jj log` formatting."""
 
-    lines = render_commit_lines(raw_lines)
-    if len(lines) > 1 and _plain_terminal_text(lines[-1]) in {"|", "│", "┃"}:
-        return lines[:-1]
-    return lines
-
-
-def _plain_terminal_text(line: ui.Renderable) -> str:
-    """Return visible text from one ANSI-styled `jj log` line."""
-
-    if not isinstance(line, str):
-        raise AssertionError("Expected a plain `jj log` line without a status suffix.")
-    return Text.from_ansi(line).plain.strip()
+    if len(raw_lines) > 1 and Text.from_ansi(raw_lines[-1]).plain.strip() in {"|", "│", "┃"}:
+        return raw_lines[:-1]
+    return raw_lines
 
 
 def render_empty_status_lines(

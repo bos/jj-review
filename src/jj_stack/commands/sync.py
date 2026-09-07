@@ -295,7 +295,6 @@ async def _run_selected_convergence(
         return 0
     complete = False
     github_stacks: tuple[GithubStack, ...] = ()
-    plan: SelectedConvergencePlan | None = None
     async with build_github_client(repo=target.repo) as github:
         with console.spinner(description="Inspecting pull requests") as progress:
             prs_task = asyncio.create_task(
@@ -323,32 +322,6 @@ async def _run_selected_convergence(
                     stacks=observed_stacks,
                 )
                 queued = queued_pr_numbers(observation, selected)
-            if not queued and complete:
-                progress.update("Planning local sync")
-                repo_state = observation.github_repo
-                if trunk_branch is None:
-                    trunk_branch, _trunk_targets = resolve_trunk_branch(
-                        branches_at_trunk=context.jj_client.remote_bookmarks_at_commit(
-                            remote=target.remote.name,
-                            commit_id=prepared.stack.trunk.commit_id,
-                        ),
-                        github_repo_state=repo_state,
-                        remote=target.remote,
-                        trunk_commit_id=prepared.stack.trunk.commit_id,
-                    )
-                ancestries = classify_observed_commit_ancestries(
-                    context=context,
-                    observation=observation,
-                    trunk_commit_id=prepared.stack.trunk.commit_id,
-                )
-                plan = build_selected_convergence_plan(
-                    ancestries=ancestries,
-                    context=context,
-                    github_stacks=github_stacks,
-                    observation=observation,
-                    prepared_status=prepared_status,
-                    trunk_branch=trunk_branch,
-                )
         if queued:
             labels = ui.join(
                 lambda number: format_pr_label(number, repo=observation.repo),
@@ -362,10 +335,31 @@ async def _run_selected_convergence(
         if not complete:
             console.output("No completed merges or GitHub stack rebases to sync.")
             return 0
-        if plan is None:
-            raise AssertionError("Complete sync observation requires a convergence plan.")
-        if trunk_branch is None:
-            raise AssertionError("Complete sync observation requires a trunk branch.")
+        with console.spinner(description="Planning local sync"):
+            repo_state = observation.github_repo
+            if trunk_branch is None:
+                trunk_branch, _trunk_targets = resolve_trunk_branch(
+                    branches_at_trunk=context.jj_client.remote_bookmarks_at_commit(
+                        remote=target.remote.name,
+                        commit_id=prepared.stack.trunk.commit_id,
+                    ),
+                    github_repo_state=repo_state,
+                    remote=target.remote,
+                    trunk_commit_id=prepared.stack.trunk.commit_id,
+                )
+            ancestries = classify_observed_commit_ancestries(
+                context=context,
+                observation=observation,
+                trunk_commit_id=prepared.stack.trunk.commit_id,
+            )
+            plan = build_selected_convergence_plan(
+                ancestries=ancestries,
+                context=context,
+                github_stacks=github_stacks,
+                observation=observation,
+                prepared_status=prepared_status,
+                trunk_branch=trunk_branch,
+            )
         _render_selected_plan(dry_run=dry_run, plan=plan)
         return await apply_selected_convergence(
             context=context,

@@ -570,13 +570,14 @@ class GithubClient:
             pending_comments: dict[int, str | None] = (
                 {number: None for number in chunk} if markers else {}
             )
-            pending_revisions = set(chunk) if revision_limit is not None else set()
+            pending_revisions = (
+                dict.fromkeys(chunk, revision_limit) if revision_limit is not None else {}
+            )
             while pending_comments or pending_revisions:
-                request_numbers = sorted(pending_comments.keys() | pending_revisions)
+                request_numbers = sorted(pending_comments.keys() | pending_revisions.keys())
                 query, cursor_variables = _pr_history_query(
                     comments_cursors=pending_comments,
-                    revision_limit=revision_limit,
-                    revision_pr_numbers=pending_revisions,
+                    revision_limits=pending_revisions,
                 )
                 payload = await self._graphql_query(
                     query,
@@ -611,7 +612,7 @@ class GithubClient:
                             pending_comments[number] = cursor
                     if number in pending_revisions:
                         revisions_by_pr[number] = _revisions_from_graphql(history)
-                        pending_revisions.remove(number)
+                        del pending_revisions[number]
         return comments_by_marker, revisions_by_pr
 
     async def create_issue_comment(
@@ -832,7 +833,8 @@ class GithubClient:
         *,
         json: dict[str, object] | None = None,
     ) -> httpx2.Response:
-        for attempt in range(_DEFAULT_RATE_LIMIT_RETRIES + 1):
+        attempt = 0
+        while True:
             try:
                 response = await self._client.request(
                     method,
@@ -869,8 +871,7 @@ class GithubClient:
                     _DEFAULT_RATE_LIMIT_RETRIES,
                 )
             await asyncio.sleep(retry_after_seconds)
-
-        raise AssertionError("Rate-limit retry loop did not return a response.")
+            attempt += 1
 
     async def _get_paginated_json_array(
         self,
@@ -1247,12 +1248,11 @@ def _prs_by_ref_query(
 def _pr_history_query(
     *,
     comments_cursors: dict[int, str | None],
-    revision_limit: int | None,
-    revision_pr_numbers: set[int],
+    revision_limits: dict[int, int],
 ) -> tuple[str, dict[str, str]]:
     variables: dict[str, str] = {}
     selections: list[str] = []
-    numbers = sorted(comments_cursors.keys() | revision_pr_numbers)
+    numbers = sorted(comments_cursors.keys() | revision_limits.keys())
     for number in numbers:
         fields: list[str] = []
         if number in comments_cursors:
@@ -1277,14 +1277,12 @@ def _pr_history_query(
                     """
                 ).strip()
             )
-        if number in revision_pr_numbers:
-            if revision_limit is None:
-                raise AssertionError("Revision requests require a revision limit.")
+        if number in revision_limits:
             fields.append(
                 _graphql_document(
                     f"""
                     timelineItems(
-                      last: {revision_limit},
+                      last: {revision_limits[number]},
                       itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]
                     ) {{
                       filteredCount

@@ -220,11 +220,7 @@ def _member_state(
     """Classify one tracked change with its trunk evidence, stopping on a broken saved link."""
 
     observed = observation.prs.get(change_id)
-    if (
-        observed is None
-        or observed.tracked is None
-        or observed.tracked.pr_identity != candidate.pr_identity
-    ):
+    if observed is None or observed.tracked.pr_identity != candidate.pr_identity:
         raise CliError(
             t"The saved pull request link for {ui.change_id(change_id)} changed.",
             hint=t"Check it with {ui.cmd(f'jj-stack view {short_change_id(change_id)}')}, then "
@@ -242,8 +238,6 @@ def _member_state(
     )
     if isinstance(state, Stop) and not github_moved:
         raise stop_error(state, rerun=rerun)
-    if not isinstance(state, WithPR):
-        raise AssertionError("Sync planning looks up every saved pull request.")
     if member is not None and state.pr.head.ref != member.head.ref:
         pr_label = format_pr_label(member.number, repo=observation.repo)
         raise CliError(

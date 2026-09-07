@@ -61,7 +61,7 @@ async def sync_prs(
     plans: tuple[PRSyncPlan, ...],
     run: SubmitMutationRun,
     on_progress: Callable[[], None],
-) -> tuple[SubmittedChange, ...]:
+) -> tuple[SubmittedChange[GithubPR], ...]:
     submitted_changes = await run_bounded_tasks(
         concurrency=DEFAULT_BOUNDED_CONCURRENCY,
         items=plans,
@@ -80,7 +80,7 @@ async def _sync_pr(
     github_client: GithubClient,
     plan: PRSyncPlan,
     run: SubmitMutationRun,
-) -> SubmittedChange:
+) -> SubmittedChange[GithubPR]:
     prepared_change = plan.prepared
     branch = prepared_change.branch
     change_id = prepared_change.change.change_id
@@ -89,21 +89,17 @@ async def _sync_pr(
     base_update, body_update, title_update = plan.content_updates
 
     if pr is None:
-        if not run.dry_run:
-            pr = await _github_request(
-                github_client.create_pr(
-                    base=plan.base_branch,
-                    body=plan.generated_description.body,
-                    draft=plan.draft,
-                    head=branch,
-                    title=plan.generated_description.title,
-                ),
-                error_message=t"Could not create a pull request for branch {ui.bookmark(branch)}",
-            )
-    elif (
-        any(update is not None for update in (base_update, body_update, title_update))
-        and not run.dry_run
-    ):
+        pr = await _github_request(
+            github_client.create_pr(
+                base=plan.base_branch,
+                body=plan.generated_description.body,
+                draft=plan.draft,
+                head=branch,
+                title=plan.generated_description.title,
+            ),
+            error_message=t"Could not create a pull request for branch {ui.bookmark(branch)}",
+        )
+    elif any(update is not None for update in (base_update, body_update, title_update)):
         pr_number = format_pr_number(pr.number, url=pr.html_url)
         pr = await _github_request(
             github_client.update_pr(
@@ -115,29 +111,28 @@ async def _sync_pr(
             error_message=t"Could not update pull request {pr_number}",
         )
 
-    if pr is not None and not run.dry_run:
-        # Save the PR link as soon as GitHub acknowledges the pull request and the pushed
-        # branch. Draft state, labels and reviewers can be observed and rewritten on a
-        # rerun, but a pull request submit created and never recorded leaves the change
-        # untracked, and every retry then demands an explicit relink.
-        run.record_submission(
-            baseline=SubmittedBaseline(commit_id=prepared_change.change.commit_id),
-            change_id=change_id,
-            identity=PRIdentity(pr_number=pr.number, head_ref=branch),
-        )
-        pr = await _apply_draft_action(
-            action=plan.draft_action,
+    # Save the PR link as soon as GitHub acknowledges the pull request and the pushed
+    # branch. Draft state, labels and reviewers can be observed and rewritten on a
+    # rerun, but a pull request submit created and never recorded leaves the change
+    # untracked, and every retry then demands an explicit relink.
+    run.record_submission(
+        baseline=SubmittedBaseline(commit_id=prepared_change.change.commit_id),
+        change_id=change_id,
+        identity=PRIdentity(pr_number=pr.number, head_ref=branch),
+    )
+    pr = await _apply_draft_action(
+        action=plan.draft_action,
+        github_client=github_client,
+        pr=pr,
+    )
+    if plan.metadata is not None:
+        await _sync_pr_metadata(
             github_client=github_client,
-            pr=pr,
+            labels=plan.metadata.labels,
+            pr_number=pr.number,
+            reviewers=plan.metadata.reviewers,
+            team_reviewers=plan.metadata.team_reviewers,
         )
-        if plan.metadata is not None:
-            await _sync_pr_metadata(
-                github_client=github_client,
-                labels=plan.metadata.labels,
-                pr_number=pr.number,
-                reviewers=plan.metadata.reviewers,
-                team_reviewers=plan.metadata.team_reviewers,
-            )
 
     return SubmittedChange(
         prepared=prepared_change,

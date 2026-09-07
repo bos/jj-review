@@ -11,7 +11,7 @@ from jj_stack.concurrency import DEFAULT_BOUNDED_CONCURRENCY
 from jj_stack.github.client import GithubClient
 from jj_stack.identifiers import CommitId
 from jj_stack.jj.client import PRRefUpdate
-from jj_stack.models.github import GithubStack
+from jj_stack.models.github import GithubPR, GithubStack
 from jj_stack.stack.github_stack_safety import dissolve_github_stack
 
 from . import auto_close
@@ -96,7 +96,6 @@ async def publish_prepared(
     if not dry_run:
         context.state_store.require_writable()
     mutation_run = SubmitMutationRun(
-        dry_run=dry_run,
         state=state,
         state_store=context.state_store,
     )
@@ -117,7 +116,7 @@ async def publish_prepared(
     observed_base_targets = await github_client.get_branch_targets(
         branches=observed_base_refs,
     )
-    retarget_plans = (
+    retarget_prs = (
         auto_close.predict_prs_auto_closed_by_push(
             jj_client=client,
             plans=pr_plans,
@@ -152,15 +151,13 @@ async def publish_prepared(
             pr.number
             for plan in pr_plans
             if (pr := plan.discovered_pr) is not None
-            and (pr.base.ref != plan.base_branch or plan in retarget_plans)
+            and (pr.base.ref != plan.base_branch or pr in retarget_prs)
         },
         repo=github_client.repo,
     )
     stacks_to_dissolve = (
         github_stack_plan.affected_stacks if github_stack_plan.action == "replace" else ()
     )
-    if stacks_to_dissolve:
-        github_stack_plan = GithubStackPlan("create" if len(pr_plans) > 1 else "none")
     pr_branch_ref_updates = tuple(
         PRRefUpdate(
             branch=prepared.branch,
@@ -170,17 +167,23 @@ async def publish_prepared(
         for prepared in prepared_changes
     )
 
-    submitted_changes = await _apply_planned_submit(
-        github_client=github_client,
-        github_stack_plan=github_stack_plan,
-        prepared_inputs=prepared_inputs,
-        pr_plans=pr_plans,
-        pr_branch_ref_updates=pr_branch_ref_updates,
-        retarget_plans=retarget_plans,
-        run=mutation_run,
-        stacks_to_dissolve=stacks_to_dissolve,
-        trunk_branch=trunk_branch,
-    )
+    if dry_run:
+        submitted_changes = tuple(
+            SubmittedChange(prepared=plan.prepared, pr_action=plan.action, pr=plan.discovered_pr)
+            for plan in pr_plans
+        )
+    else:
+        submitted_changes = await _apply_planned_submit(
+            github_client=github_client,
+            github_stack_plan=github_stack_plan,
+            prepared_inputs=prepared_inputs,
+            pr_plans=pr_plans,
+            pr_branch_ref_updates=pr_branch_ref_updates,
+            retarget_prs=retarget_prs,
+            run=mutation_run,
+            stacks_to_dissolve=stacks_to_dissolve,
+            trunk_branch=trunk_branch,
+        )
     return SubmitResult(
         client=client,
         dry_run=dry_run,
@@ -197,28 +200,27 @@ async def _apply_planned_submit(
     prepared_inputs: PublicationInputs,
     pr_plans: tuple[PRSyncPlan, ...],
     pr_branch_ref_updates: tuple[PRRefUpdate, ...],
-    retarget_plans: tuple[PRSyncPlan, ...],
+    retarget_prs: tuple[GithubPR, ...],
     run: SubmitMutationRun,
     stacks_to_dissolve: tuple[GithubStack, ...],
     trunk_branch: str,
-) -> tuple[SubmittedChange, ...]:
-    if not run.dry_run:
-        for github_stack in stacks_to_dissolve:
-            await dissolve_github_stack(github_client=github_client, stack=github_stack)
-        # GitHub has no transaction spanning PR branches, pull requests, and stack
-        # membership. An external stack edit can race this mutation, and submit accepts that
-        # narrow window rather than pretending another non-atomic observation closes it.
-        if retarget_plans:
-            await retarget_pr_bases_before_branch_push(
-                github_client=github_client,
-                plans=retarget_plans,
-                trunk_branch=trunk_branch,
-            )
-        with console.spinner(description="Pushing PR branches"):
-            prepared_inputs.client.mutate_remote_pr_branch_refs(
-                remote=prepared_inputs.remote.name,
-                updates=pr_branch_ref_updates,
-            )
+) -> tuple[SubmittedChange[GithubPR], ...]:
+    for github_stack in stacks_to_dissolve:
+        await dissolve_github_stack(github_client=github_client, stack=github_stack)
+    # GitHub has no transaction spanning PR branches, pull requests, and stack
+    # membership. An external stack edit can race this mutation, and submit accepts that
+    # narrow window rather than pretending another non-atomic observation closes it.
+    if retarget_prs:
+        await retarget_pr_bases_before_branch_push(
+            github_client=github_client,
+            prs=retarget_prs,
+            trunk_branch=trunk_branch,
+        )
+    with console.spinner(description="Pushing PR branches"):
+        prepared_inputs.client.mutate_remote_pr_branch_refs(
+            remote=prepared_inputs.remote.name,
+            updates=pr_branch_ref_updates,
+        )
     with console.progress(
         description="Syncing pull requests",
         total=len(pr_plans),
@@ -229,33 +231,30 @@ async def _apply_planned_submit(
             plans=pr_plans,
             run=run,
         )
-    if not run.dry_run:
-        pr_numbers = tuple(change.pr.number for change in submitted if change.pr is not None)
-        if len(pr_numbers) != len(submitted):
-            raise AssertionError("GitHub stack submit requires concrete pull request numbers.")
-        grouped = await apply_github_stack_plan(
-            github_client=github_client,
-            plan=github_stack_plan,
-            pr_numbers=pr_numbers,
-        )
-        actions = [f"dissolved GitHub stack #{stack.number}" for stack in stacks_to_dissolve]
-        if grouped is not None:
-            verb = "extended" if github_stack_plan.action == "append" else "created"
-            actions.append(f"{verb} GitHub stack #{grouped.number}")
-        run.github_stack_actions = tuple(actions)
-        submitted_force_pushes_by_pr = {
-            pr_number: (expected_target, change.prepared.change.commit_id)
-            for change, pr_number in zip(submitted, pr_numbers, strict=True)
-            if change.pr_action != "created"
-            and change.prepared.remote_action == "pushed"
-            and (expected_target := change.prepared.expected_remote_target) is not None
-        }
-        await sync_submit_comments(
-            base_is_another_pr=pr_plans[0].base_branch != trunk_branch,
-            concurrency=DEFAULT_BOUNDED_CONCURRENCY,
-            generated_stack_description=prepared_inputs.generated_stack_description,
-            github_client=github_client,
-            pr_numbers=pr_numbers,
-            submitted_force_pushes_by_pr=submitted_force_pushes_by_pr,
-        )
+    pr_numbers = tuple(change.pr.number for change in submitted)
+    grouped = await apply_github_stack_plan(
+        github_client=github_client,
+        plan=github_stack_plan,
+        pr_numbers=pr_numbers,
+    )
+    actions = [f"dissolved GitHub stack #{stack.number}" for stack in stacks_to_dissolve]
+    if grouped is not None:
+        verb = "extended" if github_stack_plan.action == "append" else "created"
+        actions.append(f"{verb} GitHub stack #{grouped.number}")
+    run.github_stack_actions = tuple(actions)
+    submitted_force_pushes_by_pr = {
+        pr_number: (expected_target, change.prepared.change.commit_id)
+        for change, pr_number in zip(submitted, pr_numbers, strict=True)
+        if change.pr_action != "created"
+        and change.prepared.remote_action == "pushed"
+        and (expected_target := change.prepared.expected_remote_target) is not None
+    }
+    await sync_submit_comments(
+        base_is_another_pr=pr_plans[0].base_branch != trunk_branch,
+        concurrency=DEFAULT_BOUNDED_CONCURRENCY,
+        generated_stack_description=prepared_inputs.generated_stack_description,
+        github_client=github_client,
+        pr_numbers=pr_numbers,
+        submitted_force_pushes_by_pr=submitted_force_pushes_by_pr,
+    )
     return submitted

@@ -109,20 +109,20 @@ async def apply_github_stack_plan(
     plan: GithubStackPlan,
     pr_numbers: tuple[int, ...],
 ) -> GithubStack | None:
-    """Apply the validated create or append plan and return the resulting GitHub stack."""
+    """Create or append the desired grouping after any replaced stacks were dissolved."""
 
     if plan.action == "none":
         return None
     try:
-        if plan.action == "create":
-            return await github_client.create_stack(pr_numbers=pr_numbers)
         if plan.action == "append":
             stack = plan.affected_stacks[0]
             return await github_client.append_to_stack(
                 stack_number=stack.number,
                 pr_numbers=pr_numbers[len(stack.active_pr_numbers) :],
             )
-        raise AssertionError(f"Cannot apply GitHub stack plan {plan.action!r}.")
+        if len(pr_numbers) < 2:
+            return None
+        return await github_client.create_stack(pr_numbers=pr_numbers)
     except GithubClientError as error:
         raise CliError(
             "Could not update the GitHub stack",

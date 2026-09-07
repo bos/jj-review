@@ -9,6 +9,7 @@ from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.identifiers import CommitId
 from jj_stack.jj.client import JjClient
+from jj_stack.models.github import GithubPR
 
 from .models import PreparedSubmitChange, PRSyncPlan
 
@@ -16,17 +17,17 @@ from .models import PreparedSubmitChange, PRSyncPlan
 async def retarget_pr_bases_before_branch_push(
     *,
     github_client: GithubClient,
-    plans: tuple[PRSyncPlan, ...],
+    prs: tuple[GithubPR, ...],
     trunk_branch: str,
 ) -> None:
     """Move PR bases that would auto-close after the push to trunk first."""
 
     await run_bounded_tasks(
         concurrency=DEFAULT_BOUNDED_CONCURRENCY,
-        items=plans,
-        run_item=lambda plan: _retarget_pr_base_before_branch_push(
+        items=prs,
+        run_item=lambda pr: _retarget_pr_base_before_branch_push(
             github_client=github_client,
-            plan=plan,
+            pr=pr,
             trunk_branch=trunk_branch,
         ),
     )
@@ -38,7 +39,7 @@ def predict_prs_auto_closed_by_push(
     plans: tuple[PRSyncPlan, ...],
     prepared_changes: tuple[PreparedSubmitChange, ...],
     remote_targets: dict[str, CommitId],
-) -> tuple[PRSyncPlan, ...]:
+) -> tuple[GithubPR, ...]:
     """Pending PRs that GitHub will auto-close (as merged) after the planned push.
 
     GitHub auto-closes an open PR when its head ref becomes contained in its base
@@ -51,7 +52,7 @@ def predict_prs_auto_closed_by_push(
         prepared_change.branch: prepared_change.change.commit_id
         for prepared_change in prepared_changes
     }
-    candidates: list[tuple[str, str, PRSyncPlan]] = []
+    candidates: list[tuple[str, str, GithubPR]] = []
     for plan in plans:
         pr = plan.discovered_pr
         if pr is None or pr.state != "open":
@@ -66,14 +67,14 @@ def predict_prs_auto_closed_by_push(
         )
         if base_after_push is None:
             continue
-        candidates.append((head_after_push, base_after_push, plan))
+        candidates.append((head_after_push, base_after_push, pr))
 
     if not candidates:
         return ()
     auto_close_heads = jj_client.query_paired_ancestor_membership(
         tuple((head, base) for head, base, _ in candidates),
     )
-    return tuple(plan for head, _, plan in candidates if head in auto_close_heads)
+    return tuple(pr for head, _, pr in candidates if head in auto_close_heads)
 
 
 def _resolve_post_push_commit(
@@ -92,12 +93,9 @@ def _resolve_post_push_commit(
 async def _retarget_pr_base_before_branch_push(
     *,
     github_client: GithubClient,
-    plan: PRSyncPlan,
+    pr: GithubPR,
     trunk_branch: str,
 ) -> None:
-    pr = plan.discovered_pr
-    if pr is None:
-        raise AssertionError("Pre-push retarget requires a discovered pull request.")
     try:
         await github_client.update_pr(
             pr_number=pr.number,

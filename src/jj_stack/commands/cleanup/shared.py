@@ -10,7 +10,6 @@ from jj_stack.github.resolution import (
     GithubTarget,
     UnresolvedGithubTarget,
 )
-from jj_stack.models.git import GitRemote
 from jj_stack.models.tracking import TrackingState
 from jj_stack.ui import Message
 
@@ -44,9 +43,3 @@ class PreparedCleanup:
     dry_run: bool
     selected_change_ids: tuple[str, ...] | None
     state: TrackingState
-
-    @property
-    def remote(self) -> GitRemote | None:
-        """The selected Git remote, once remote context is loaded and one resolved."""
-
-        return self.github_target.remote if self.github_target is not None else None

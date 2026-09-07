@@ -11,7 +11,7 @@ from jj_stack.identifiers import ChangeId, CommitId
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead, GithubRepo
 from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
-from jj_stack.stack.change_state import UNOBSERVED, ChangeObservation
+from jj_stack.stack.change_state import TrackedPRObservation
 from jj_stack.stack.pr_facts import RepoFacts
 from jj_stack.ui import plain_text
 from tests.support.change_helpers import make_change
@@ -130,7 +130,7 @@ def test_merge_preconditions_reject_repo_drift() -> None:
             allow_rebase_merge=False,
             allow_squash_merge=True,
         ),
-        prs_by_base=UNOBSERVED,
+        prs_by_base={},
         remote=GitRemote(
             name="origin",
             fetch_url="https://github.test/acme/widgets.git",
@@ -184,11 +184,11 @@ def test_merge_preconditions_name_a_closed_pull_request() -> None:
         github_repo=_repo(
             allow_merge_commit=False, allow_rebase_merge=False, allow_squash_merge=True
         ),
-        prs_by_base=UNOBSERVED,
+        prs_by_base={},
         remote=remote,
         repo=repo,
         prs={
-            change.change_id: ChangeObservation(
+            change.change_id: TrackedPRObservation(
                 change_id=change.change_id,
                 branch=identity.head_ref,
                 remote_name=remote.name,

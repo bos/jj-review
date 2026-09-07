@@ -53,13 +53,13 @@ class PreparedSubmitChange:
 
 
 @dataclass(frozen=True, slots=True)
-class SubmittedChange:
+class SubmittedChange[PR: GithubPR | None = GithubPR | None]:
     """GitHub pull request result for one prepared change in the submitted stack."""
 
     prepared: PreparedSubmitChange
     pr_action: PRAction
     # A new PR has no GitHub result during a dry run.
-    pr: GithubPR | None
+    pr: PR
 
     @property
     def change_id(self) -> str:
@@ -164,7 +164,6 @@ class PublicationInputs:
 class SubmitMutationRun:
     """Mutable submit state shared by mutation phases."""
 
-    dry_run: bool
     state: TrackingState
     state_store: TrackingStore
     github_stack_actions: tuple[str, ...] = ()

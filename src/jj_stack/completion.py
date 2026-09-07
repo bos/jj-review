@@ -90,7 +90,9 @@ def validate_jj_alias(value: str) -> str:
 
 
 def _build_completion_spec(parser: ArgumentParser) -> CompletionSpec:
-    subparsers_action = _find_subparsers_action(parser)
+    subparsers_action = next(
+        action for action in parser._actions if isinstance(action, _SubParsersAction)
+    )
     commands: list[CompletionCommand] = []
     for choice_action in subparsers_action._choices_actions:
         name = choice_action.dest
@@ -120,13 +122,6 @@ def _build_completion_spec(parser: ArgumentParser) -> CompletionSpec:
         top_level_options=_extract_options(parser),
         commands=tuple(commands),
     )
-
-
-def _find_subparsers_action(parser: ArgumentParser) -> _SubParsersAction[ArgumentParser]:
-    for action in parser._actions:
-        if isinstance(action, _SubParsersAction):
-            return action
-    raise AssertionError("Expected parser to define subcommands.")
 
 
 def _extract_options(parser: ArgumentParser) -> tuple[CompletionOption, ...]:

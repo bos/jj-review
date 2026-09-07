@@ -121,15 +121,16 @@ class PreparedStack:
 
 
 @dataclass(frozen=True, slots=True)
-class PreparedChange:
+class PreparedChange[TrackingT: TrackedPR | None = TrackedPR | None]:
     """Local stack change with its saved tracking, if any."""
 
     change: LocalCommit
-    tracked: TrackedPR | None
+    tracked: TrackingT
 
     @property
     def branch(self) -> str | None:
-        return self.tracked.pr_identity.head_ref if self.tracked is not None else None
+        tracked: TrackedPR | None = self.tracked
+        return tracked.pr_identity.head_ref if tracked is not None else None
 
 
 def status_preparation_cli_error(error: UnsupportedStackError) -> CliError:
@@ -263,7 +264,9 @@ async def stream_status_async(
         return result((), github_repo=github_repo, remote=prepared.remote)
 
     prepared_changes_for_github = tuple(
-        change for change in prepared.status_changes if change.tracked is not None
+        PreparedChange(change=change.change, tracked=change.tracked)
+        for change in prepared.status_changes
+        if change.tracked is not None
     )
     if not prepared_changes_for_github:
         return result(fallback_changes, github_repo=github_repo, remote=prepared.remote)
@@ -389,7 +392,7 @@ def status_is_incomplete(changes: tuple[StackStatusChange, ...]) -> bool:
 async def _iter_status_changes_with_github(
     *,
     github_repo: GithubRepoAddress,
-    prepared_changes: tuple[PreparedChange, ...],
+    prepared_changes: tuple[PreparedChange[TrackedPR], ...],
     remote_name: str,
 ) -> AsyncIterator[StackStatusChange]:
     ordered_prepared_changes = tuple(reversed(prepared_changes))
@@ -401,7 +404,7 @@ async def _iter_status_changes_with_github(
             ),
         )
         for prepared_change in ordered_prepared_changes:
-            branch = _required_branch(prepared_change)
+            branch = prepared_change.tracked.pr_identity.head_ref
             status_change = _status_change(
                 prepared_change,
                 lookup=pr_lookups[branch],
@@ -451,17 +454,13 @@ async def lookup_pr_lookups_async(
         return pr_lookups
 
 
-def _required_branch(change: PreparedChange) -> str:
-    if change.branch is None:
-        raise AssertionError("GitHub inspection requires a saved PR branch.")
-    return change.branch
-
-
 def _observations_by_branch(
     prepared_changes: tuple[PreparedChange, ...], *, remote_name: str | None
 ) -> dict[str, ChangeObservation]:
     return {
-        _required_branch(change): _prepared_observation(change, remote_name=remote_name)
+        change.tracked.pr_identity.head_ref: _prepared_observation(
+            change, remote_name=remote_name
+        )
         for change in prepared_changes
         if change.tracked is not None
     }

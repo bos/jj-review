@@ -39,23 +39,21 @@ def check_tracked_pr(
 ) -> WithPR | CleanupAction:
     """Return the classified saved PR, or the reason its identity cannot be trusted."""
 
-    observed = observation.prs[change_id]
-    if observed.tracked != candidate:
+    observed = observation.prs.get(change_id)
+    if observed is None or observed.tracked != candidate:
         return CleanupAction(
             kind="tracking",
             body=t"tracking for {ui.change_id(change_id)} changed while this command ran; "
             t"rerun the same command",
             status="blocked",
         )
-    state = classify(observation.prs[change_id])
+    state = classify(observed)
     if isinstance(state, (PRMissing, PRAmbiguous, PRIdentityMismatch)):
         return CleanupAction(
             kind="pull request",
             body=t"{state.reason}; {state.repair}",
             status="blocked",
         )
-    if not isinstance(state, WithPR):
-        raise AssertionError("A tracked pull request lookup must report the pull request.")
     return state
 
 
@@ -186,9 +184,7 @@ def plan_pr_cleanup(
 
     pr = state.pr
     branch = pr.head.ref
-    prs_by_base = observation.prs_by_base
-    assert not isinstance(prs_by_base, Unobserved)
-    observed_dependents = prs_by_base.get(branch, ())
+    observed_dependents = observation.prs_by_base[branch]
     dependents = tuple(
         item
         for item in observed_dependents
@@ -226,8 +222,9 @@ def plan_pr_cleanup(
             ),
         )
     configured_repo = observation.configured_repo
+    remote_target = state.remote_target
     if (
-        observation.remote is None
+        isinstance(remote_target, Unobserved)
         or configured_repo is None
         or configured_repo != observation.repo
     ):
@@ -241,9 +238,6 @@ def plan_pr_cleanup(
                 status="blocked",
             ),
         )
-    remote_target = state.remote_target
-    if isinstance(remote_target, Unobserved):
-        raise AssertionError("Branch cleanup requires an observed remote target.")
     update = (
         None
         if remote_target is None

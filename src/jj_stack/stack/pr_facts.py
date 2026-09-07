@@ -18,7 +18,7 @@ from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import (
     PRIdentity,
 )
-from jj_stack.stack.change_state import UNOBSERVED, ChangeObservation, Unobserved
+from jj_stack.stack.change_state import UNOBSERVED, TrackedPRObservation
 from jj_stack.stack.observation import observe_change_copies
 from jj_stack.stack.trunk_evidence import CommitAncestry
 
@@ -29,10 +29,11 @@ class RepoFacts:
 
     configured_repo: github_resolution.GithubRepoAddress | None
     github_repo: GithubRepo
-    prs_by_base: Mapping[str, tuple[GithubPR, ...]] | Unobserved
+    # Contains an entry, possibly empty, for each branch whose dependents were observed.
+    prs_by_base: Mapping[str, tuple[GithubPR, ...]]
     remote: GitRemote | None
     repo: github_resolution.GithubRepoAddress
-    prs: Mapping[str, ChangeObservation]
+    prs: Mapping[str, TrackedPRObservation]
 
 
 def duplicate_pr_claim_change_ids(
@@ -67,11 +68,13 @@ async def observe_prs(
     remotes = context.jj_client.list_git_remotes()
     remote = next((item for item in remotes if item.name == remote_name), None)
     state = context.state_store.load()
-    tracked_prs = {change_id: state.prs.get(change_id) for change_id in dict.fromkeys(change_ids)}
+    tracked_prs = {
+        change_id: tracked
+        for change_id in dict.fromkeys(change_ids)
+        if (tracked := state.prs.get(change_id)) is not None
+    }
     repo = github_client.repo
-    known_identities = tuple(
-        tracked.pr_identity for tracked in tracked_prs.values() if tracked is not None
-    )
+    known_identities = tuple(tracked.pr_identity for tracked in tracked_prs.values())
     head_refs = tuple(dict.fromkeys(identity.head_ref for identity in known_identities))
     pr_numbers = tuple(dict.fromkeys(identity.pr_number for identity in known_identities))
     if local_commits_snapshot is None:
@@ -94,13 +97,13 @@ async def observe_prs(
         remote_targets_request = asyncio.sleep(0, result={})
     numbered_task = asyncio.create_task(github_client.get_prs_by_numbers(pr_numbers=pr_numbers))
     open_heads_task = asyncio.create_task(open_heads_request)
-    by_base_task: asyncio.Task[dict[str, tuple[GithubPR, ...]] | Unobserved]
+    by_base_task: asyncio.Task[dict[str, tuple[GithubPR, ...]]]
     if include_dependents:
         by_base_task = asyncio.create_task(
             github_client.get_prs_by_base_refs(base_refs=head_refs)
         )
     else:
-        by_base_task = asyncio.create_task(asyncio.sleep(0, result=UNOBSERVED))
+        by_base_task = asyncio.create_task(asyncio.sleep(0, result={}))
     repo_task = asyncio.create_task(
         github_client.get_repo()
         if github_repo_snapshot is None
@@ -123,26 +126,24 @@ async def observe_prs(
     github_repo = repo_task.result()
     remote_targets = remote_targets_task.result()
     prs = {
-        change_id: ChangeObservation(
+        change_id: TrackedPRObservation(
             change_id=change_id,
-            branch=identity.head_ref if identity is not None else None,
+            branch=identity.head_ref,
             remote_name=remote.name if remote is not None else None,
             tracked=tracked,
             open_prs_on_branch=(
-                by_head.get(identity.head_ref, ())
-                if include_open_head_prs and identity is not None
-                else UNOBSERVED
+                by_head.get(identity.head_ref, ()) if include_open_head_prs else UNOBSERVED
             ),
             local=matches,
-            pr=(numbered.get(identity.pr_number) if identity is not None else UNOBSERVED),
+            pr=numbered.get(identity.pr_number),
             remote_target=(
                 remote_targets.get(identity.head_ref)
-                if include_remote_targets and remote is not None and identity is not None
+                if include_remote_targets and remote is not None
                 else UNOBSERVED
             ),
         )
         for change_id, tracked in tracked_prs.items()
-        for identity in (tracked.pr_identity if tracked is not None else None,)
+        for identity in (tracked.pr_identity,)
         for matches in (local_commits.get(change_id, ()),)
     }
 
@@ -187,8 +188,8 @@ def classify_observed_commit_ancestries(
             commit_id
             for item in observation.prs.values()
             for commit_id in (
-                item.tracked.submitted_baseline.commit_id if item.tracked is not None else None,
-                item.pr.merge_commit_sha if isinstance(item.pr, GithubPR) else None,
+                item.tracked.submitted_baseline.commit_id,
+                item.pr.merge_commit_sha if item.pr is not None else None,
             )
         ),
         context=context,

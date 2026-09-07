@@ -89,15 +89,9 @@ def render_commit_lines(
 ) -> tuple[ui.Renderable, ...]:
     """Add an optional status suffix to a rendered `jj log` block."""
 
-    lines: list[ui.Renderable] = list(raw_lines)
-    if not lines:
-        raise AssertionError("Expected `jj log` to render at least one line for a change.")
-    if suffix is not None:
-        first_line = lines[0]
-        if not isinstance(first_line, str):
-            raise AssertionError("Expected the first `jj log` line to be text.")
-        lines[0] = ui.suffixed_line(first_line, suffix)
-    return tuple(lines)
+    if suffix is None:
+        return raw_lines
+    return (ui.suffixed_line(raw_lines[0], suffix), *raw_lines[1:])
 
 
 def render_commit_blocks(

@@ -13,9 +13,9 @@ copies. This module classifies the change's relationship to GitHub, not its loca
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from string.templatelib import Interpolation, Template
-from typing import TypedDict
+from typing import TypedDict, overload
 
 import jj_stack.ui as ui
 from jj_stack.errors import CliError, DriftCondition, DriftError
@@ -71,6 +71,15 @@ class ChangeObservation:
 
 
 @dataclass(frozen=True, kw_only=True)
+class TrackedPRObservation(ChangeObservation):
+    """A saved PR looked up successfully by number; None means GitHub reports it absent."""
+
+    tracked: TrackedPR
+    pr: GithubPR | None = field()
+    open_prs_on_branch: tuple[GithubPR, ...] | Unobserved = UNOBSERVED
+
+
+@dataclass(frozen=True, kw_only=True)
 class _State:
     change_id: str
     tracked: TrackedPR | None
@@ -106,6 +115,7 @@ class _State:
 class WithPR(_State):
     """A state GitHub reported a pull request for."""
 
+    tracked: TrackedPR
     pr: GithubPR
     # The commit at branch@remote, when observed; None when the branch is absent.
     remote_target: str | None | Unobserved
@@ -203,6 +213,7 @@ class LookupFailed(Stop, _State):
 
 @dataclass(frozen=True, kw_only=True)
 class PRMissing(Stop, _State):
+    tracked: TrackedPR
     open_prs_on_branch: tuple[GithubPR, ...]
 
     @property
@@ -211,8 +222,6 @@ class PRMissing(Stop, _State):
 
     @property
     def reason(self) -> Message:
-        if self.tracked is None:
-            raise AssertionError("A saved pull request label requires tracking.")
         saved_label = format_pr_label(self.tracked.pr_identity.pr_number)
         reason: Message = t"GitHub no longer reports {saved_label}"
         if self.open_prs_on_branch:
@@ -411,26 +420,24 @@ class BranchDisagrees(Stop, WithPR):
         )
 
 
-type ChangeState = (
-    Unpublished
-    | NotInspected
-    | Published
+type LinkedPRState = (
+    Published
     | Edited
     | PushedUnrecorded
     | Queued
     | Landed
     | Merged
     | Closed
-    | LookupFailed
-    | PRMissing
     | PRIdentityMismatch
-    | PRAmbiguous
     | CompetingOpenPR
-    | UntrackedPRExists
-    | BranchClaimed
     | PRHeadMoved
     | BranchMissing
     | BranchDisagrees
+)
+
+type TrackedPRState = LinkedPRState | PRMissing | PRAmbiguous
+type ChangeState = (
+    TrackedPRState | Unpublished | NotInspected | LookupFailed | UntrackedPRExists | BranchClaimed
 )
 
 _RELINK: Message = (
@@ -448,7 +455,6 @@ def _pr_label(pr: GithubPR) -> Message:
 
 class _Common(TypedDict):
     change_id: str
-    tracked: TrackedPR | None
     branch: str | None
     remote_name: str | None
     local: tuple[LocalCommit, ...]
@@ -456,9 +462,28 @@ class _Common(TypedDict):
 
 
 class _WithPRCommon(_Common):
+    tracked: TrackedPR
     pr: GithubPR
     remote_target: str | None | Unobserved
     trunk_evidence_reason: Message | None
+
+
+@overload
+def classify(
+    observation: TrackedPRObservation,
+    *,
+    selected: LocalCommit | None = None,
+    ancestries: Mapping[str, CommitAncestry] | None = None,
+) -> TrackedPRState: ...
+
+
+@overload
+def classify(
+    observation: ChangeObservation,
+    *,
+    selected: LocalCommit | None = None,
+    ancestries: Mapping[str, CommitAncestry] | None = None,
+) -> ChangeState: ...
 
 
 def classify(
@@ -479,26 +504,25 @@ def classify(
         o = replace(o, trunk_evidence=evidence, trunk_evidence_reason=reason)
     common = _Common(
         change_id=o.change_id,
-        tracked=o.tracked,
         branch=o.branch,
         remote_name=o.remote_name,
         local=o.local,
         selected=o.selected,
     )
     if isinstance(o.pr, ObservationFailed):
-        return LookupFailed(**common, error=o.pr.error)
+        return LookupFailed(**common, tracked=o.tracked, error=o.pr.error)
     if isinstance(o.open_prs_on_branch, ObservationFailed):
-        return LookupFailed(**common, error=o.open_prs_on_branch.error)
+        return LookupFailed(**common, tracked=o.tracked, error=o.open_prs_on_branch.error)
     open_prs = () if isinstance(o.open_prs_on_branch, Unobserved) else o.open_prs_on_branch
     if o.tracked is None:
         return _classify_untracked(o, common, open_prs)
     if isinstance(o.pr, Unobserved):
-        return NotInspected(**common)
+        return NotInspected(**common, tracked=o.tracked)
     if o.pr is None:
         if len(open_prs) > 1:
-            return PRAmbiguous(**common, open_prs_on_branch=open_prs)
-        return PRMissing(**common, open_prs_on_branch=open_prs)
-    return _classify_pr(o, common, open_prs, o.pr)
+            return PRAmbiguous(**common, tracked=o.tracked, open_prs_on_branch=open_prs)
+        return PRMissing(**common, tracked=o.tracked, open_prs_on_branch=open_prs)
+    return _classify_pr(o, common, open_prs, o.pr, o.tracked)
 
 
 def _classify_pr(
@@ -506,12 +530,12 @@ def _classify_pr(
     common: _Common,
     open_prs: tuple[GithubPR, ...],
     pr: GithubPR,
-) -> ChangeState:
-    if o.tracked is None:
-        raise AssertionError("Pull request classification requires tracking.")
+    tracked: TrackedPR,
+) -> LinkedPRState:
     evidence = o.trunk_evidence
     with_pr = _WithPRCommon(
         **common,
+        tracked=tracked,
         pr=pr,
         remote_target=o.remote_target,
         trunk_evidence_reason=(
@@ -520,7 +544,7 @@ def _classify_pr(
             else None
         ),
     )
-    if pr.head.ref != o.tracked.pr_identity.head_ref:
+    if pr.head.ref != tracked.pr_identity.head_ref:
         return PRIdentityMismatch(**with_pr)
     competitors = tuple(candidate for candidate in open_prs if candidate.number != pr.number)
     if competitors:
@@ -545,21 +569,19 @@ def _classify_untracked(
     open_prs: tuple[GithubPR, ...],
 ) -> ChangeState:
     if open_prs:
-        return UntrackedPRExists(**common, open_prs_on_branch=open_prs)
+        return UntrackedPRExists(**common, tracked=None, open_prs_on_branch=open_prs)
     remote = o.remote_target
     if isinstance(remote, str) and remote not in _local_commit_ids(o):
-        return BranchClaimed(**common, remote_target=remote)
-    return Unpublished(**common, remote_target=remote)
+        return BranchClaimed(**common, tracked=None, remote_target=remote)
+    return Unpublished(**common, tracked=None, remote_target=remote)
 
 
 def _classify_open(
     o: ChangeObservation,
     with_pr: _WithPRCommon,
     pr: GithubPR,
-) -> ChangeState:
-    if o.tracked is None:
-        raise AssertionError("Open pull request classification requires tracking.")
-    baseline = o.tracked.submitted_baseline.commit_id
+) -> LinkedPRState:
+    baseline = with_pr["tracked"].submitted_baseline.commit_id
     head = pr.head.sha
     remote = o.remote_target
     if head != baseline and head not in _local_commit_ids(o):

@@ -37,7 +37,7 @@ from jj_stack.config import MergeMethod
 from jj_stack.errors import CliError
 from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
-from jj_stack.github.resolution import resolve_trunk_branch
+from jj_stack.github.resolution import GithubTarget, resolve_trunk_branch
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.models.github import GithubRepo
 from jj_stack.models.stack import LocalCommit
@@ -112,7 +112,7 @@ def _run_merge(
         return 1
     if result.enqueued or not result.applied:
         return 0
-    sync_change_id = prepared_merge.prepared_status.prepared.stack.head.change_id
+    sync_change_id = prepared_merge.stack.head.change_id
     console.output("Updating the local stack after the completed merge:")
     try:
         exit_code = run_stack_convergence(
@@ -185,7 +185,8 @@ def _prepare_merge(
             hint=t"Configure one GitHub remote, then rerun. "
             t"{ui.cmd('jj-stack doctor')} reports what it found.",
         )
-    if prepared_status.github_repo is None:
+    target = prepared_status.github_target
+    if not isinstance(target, GithubTarget):
         message = prepared_status.github_repo_error or t"Could not resolve GitHub target."
         raise CliError(
             message,
@@ -199,7 +200,9 @@ def _prepare_merge(
         context=context,
         dry_run=dry_run,
         merge_method=merge_method,
-        prepared_status=prepared_status,
+        stack=prepared.stack,
+        state=prepared.state,
+        target=target,
         target_change_id=target_change_id,
     )
 
@@ -215,12 +218,9 @@ async def _stream_merge_async(
     *,
     prepared_merge: PreparedMerge,
 ) -> MergeResult:
-    prepared_status = prepared_merge.prepared_status
-    prepared = prepared_status.prepared
-    github_repo = prepared_status.github_repo
-    remote = prepared.remote
-    if github_repo is None or remote is None:
-        raise AssertionError("Prepared merge requires resolved GitHub and remote targets.")
+    stack = prepared_merge.stack
+    github_repo = prepared_merge.target.repo
+    remote = prepared_merge.target.remote
 
     async with build_github_client(repo=github_repo) as github_client:
         with console.spinner(description="Inspecting remotes"):
@@ -234,16 +234,16 @@ async def _stream_merge_async(
             trunk_branch, _trunk_targets = resolve_trunk_branch(
                 branches_at_trunk=prepared_merge.context.jj_client.remote_bookmarks_at_commit(
                     remote=remote.name,
-                    commit_id=prepared.stack.trunk.commit_id,
+                    commit_id=stack.trunk.commit_id,
                 ),
                 github_repo_state=github_repo_state,
                 remote=remote,
-                trunk_commit_id=prepared.stack.trunk.commit_id,
+                trunk_commit_id=stack.trunk.commit_id,
             )
         queue_task = asyncio.create_task(_observe_merge_queue(github_client, trunk_branch))
         prs_task = asyncio.create_task(
             observe_prs(
-                change_ids=tuple(change.change_id for change in prepared.stack.changes),
+                change_ids=tuple(change.change_id for change in stack.changes),
                 context=prepared_merge.context,
                 github_client=github_client,
                 github_repo_snapshot=github_repo_state,
@@ -264,7 +264,7 @@ async def _stream_merge_async(
         else:
             merge_action = "direct_merge"
             resolved_merge_method = _resolve_merge_method(
-                changes=prepared.stack.changes,
+                changes=stack.changes,
                 configured=prepared_merge.context.config.merge_method,
                 merge_method=prepared_merge.merge_method,
                 repo_state=github_repo_state,
@@ -280,17 +280,17 @@ async def _stream_merge_async(
             observation=observation,
             remote_name=remote.name,
             repo=github_repo,
-            changes=prepared.stack.changes,
-            state=prepared.state,
+            changes=stack.changes,
+            state=prepared_merge.state,
             target_change_id=prepared_merge.target_change_id,
             trunk_branch=trunk_branch,
         )
         stacks = await stacks_task
         execution = MergeExecutionInputs(
             repo=github_client.repo,
-            selected_revset=prepared.stack.selected_revset,
+            selected_revset=stack.selected_revset,
             trunk_branch=trunk_branch,
-            trunk_subject=prepared.stack.trunk.subject,
+            trunk_subject=stack.trunk.subject,
         )
         async_merge = build_async_merge_plan(plan, stacks, execution)
         if prepared_merge.dry_run:
