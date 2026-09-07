@@ -9,7 +9,7 @@ weight: 115
 ## jj-stack is opinionated
 
 On GitHub, a pull request is the head of a graph of commits. A GitHub stack builds on this: a
-stack is a linear chain of PRs. This makes a stack an odd structure, a chain whose links are
+stack is a linear chain of PRs. This makes a stack an odd structure: a chain whose links are
 themselves graphs of commits.
 
 `jj-stack` takes a simpler stance: it requires each PR in a stack to be a single `jj` change.
@@ -19,7 +19,7 @@ compatibility with branch-based workflows, and I don't think it has merit of its
 This is also why `jj-stack` manages the refs that keep the PRs in a stack alive. They're not
 valuable, they're merely `git` plumbing getting in your way.
 
-However, while these opinions make for a much nicer default experience, they close some doors:
+While these opinions make for a much nicer default experience, they close some doors:
 if you genuinely want to produce weird stacks-of-DAGs that `gh stack` would handle, `jj-stack`
 may prevent that. If you think naming your PR branches is a good use of your time, `jj-stack`
 will get in your way! I can imagine a world in which these opinions are too narrow and should be
@@ -27,7 +27,7 @@ revised, so if there's enough pressure to rethink them, I may do so.
 
 ## How the tools differ
 
-All of the tools below can turn local work into GitHub pull requests. They disagree about what
+Each of the tools below can turn local work into GitHub pull requests. They disagree about what
 you should manage yourself and how much of the workflow the tool should own.
 
 `jj-stack` manages a stack as a unit, and works with GitHub's native stack concept. The parent
