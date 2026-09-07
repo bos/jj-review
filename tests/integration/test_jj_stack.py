@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -81,7 +82,9 @@ def test_diffstats_batch_preserves_each_commits_files_and_jj_formatting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo = init_repo(tmp_path)
-    commit_file(repo, "first", '日本語 "quoted".txt')
+    # Windows forbids double quotes in filenames; keep JSON escaping coverage elsewhere.
+    filename = "日本語 'quoted'.txt" if os.name == "nt" else '日本語 "quoted".txt'
+    commit_file(repo, "first", filename)
     first = jj_commit_id(repo, "@-")
     commit_file(repo, "second", "second.txt")
     second = jj_commit_id(repo, "@-")
