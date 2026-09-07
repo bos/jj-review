@@ -18,7 +18,8 @@ VENV_PYTHON = (
     REPO_ROOT / ".venv" / (Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python"))
 )
 PytestJobs = int | Literal["auto"]
-_PYREFLY_TARGETS = ("src", "tests", "tools", "check.py")
+_TYPE_CHECK_TARGETS = ("src", "tests", "tools", "check.py")
+_TYPE_CHECKERS = ("pyrefly", "ty", "mypy")
 _FRAGILE_TEST_OUTPUT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "use output assertion helpers instead of exact captured output equality",
@@ -56,6 +57,7 @@ def _parse_pytest_jobs(value: str) -> PytestJobs:
 
 def _build_checks(
     *,
+    type_checkers: Sequence[str],
     pytest_jobs: PytestJobs | None,
     coverage: bool,
     concurrency_report: bool,
@@ -74,21 +76,21 @@ def _build_checks(
             "--cov-report=term",
             "--cov-report=html",
         )
+    type_checks: list[tuple[str, tuple[str, ...]]] = []
+    for checker in type_checkers:
+        command = ("-m", checker) if checker == "mypy" else ("-m", checker, "check")
+        type_checks.append((checker, (*command, *_TYPE_CHECK_TARGETS)))
+        if checker == "pyrefly":
+            type_checks.append(
+                (
+                    "pyrefly-windows",
+                    (*command, "--python-platform", "win32", *_TYPE_CHECK_TARGETS),
+                )
+            )
     return (
         ("ruff", ("-m", "ruff", "check")),
         ("ruff-format", ("-m", "ruff", "format", "--check")),
-        ("pyrefly", ("-m", "pyrefly", "check", *_PYREFLY_TARGETS)),
-        (
-            "pyrefly-windows",
-            (
-                "-m",
-                "pyrefly",
-                "check",
-                "--python-platform",
-                "win32",
-                *_PYREFLY_TARGETS,
-            ),
-        ),
+        *type_checks,
         ("pytest", pytest_command),
     )
 
@@ -101,11 +103,18 @@ def _pytest_basetemp_args() -> tuple[str, ...]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run Ruff, Pyrefly, and the test suite in sequence."""
+    """Run Ruff, the selected type checkers, and the test suite in sequence."""
 
     parser = ArgumentParser(
         prog="check.py",
-        description="Run the local Ruff, pyrefly, and pytest checks.",
+        description="Run Ruff, type checking (Pyrefly by default), and pytest.",
+    )
+    parser.add_argument(
+        "-t",
+        "--type-checker",
+        choices=_TYPE_CHECKERS,
+        action="append",
+        help="Choose a type checker instead of the default Pyrefly; repeat to run several.",
     )
     parser.add_argument(
         "-n",
@@ -131,11 +140,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         pytest_jobs = None if args.pytest_jobs is None else _parse_pytest_jobs(args.pytest_jobs)
     except ValueError as error:
         parser.error(str(error))
-    ensure_project_environment()
+    type_checkers = tuple(dict.fromkeys(args.type_checker or ("pyrefly",)))
+    ensure_project_environment(type_checkers)
     _check_fragile_test_output_assertions()
     command_env = _project_command_env()
 
     for name, command in _build_checks(
+        type_checkers=type_checkers,
         pytest_jobs=pytest_jobs,
         coverage=args.coverage,
         concurrency_report=args.pytest_concurrency_report,
@@ -154,10 +165,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def ensure_project_environment() -> None:
+def ensure_project_environment(type_checkers: Sequence[str]) -> None:
     """Refresh the project virtualenv before running the verification suite."""
 
-    sync_command = ("uv", "sync", "--locked")
+    groups = tuple(
+        arg for name in type_checkers if name != "pyrefly" for arg in ("--group", name)
+    )
+    sync_command = ("uv", "sync", "--locked", *groups)
     print(f"==> bootstrap: {shlex.join(sync_command)}", flush=True)
     completed = subprocess.run(
         sync_command,

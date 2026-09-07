@@ -52,13 +52,17 @@ GitHub preserves source line breaks in Release bodies. This is an exception to t
 
 ## Qualify the candidate
 
-Set the version in `pyproject.toml` and finish the release changes and notes. Run both local
-gates:
+Set the version in `pyproject.toml` and finish the release changes and notes. Pyrefly, ty, and
+mypy must all pass before publishing a release. Run all three type checkers and both local gates:
 
 ```console
+just check -t pyrefly -t ty -t mypy
 just release-check
 just artifact-check
 ```
+
+The combined check stops at the first failure. Resolve the reported type errors and rerun it
+until all three checkers pass. `just release-check` alone runs only the default Pyrefly checks.
 
 `release-check` runs the standard checks, complexity checker, and live GitHub suite. It requires
 the `tokei` version pinned in [the complexity checker](../../tools/check_complexity.py), plus a

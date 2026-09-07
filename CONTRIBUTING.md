@@ -38,6 +38,22 @@ under `docs/` do not require it:
 just check
 ```
 
+Pyrefly is the default type checker, including a second pass targeting Windows. To select ty
+or mypy for the current platform instead, use `--type-checker` or its short form, `-t`:
+
+```console
+just check -t ty
+just check -t mypy
+```
+
+Repeat the option to run several in the given order, for example
+`just check -t pyrefly -t ty -t mypy`. The runner installs the selected checkers from the lockfile,
+checks `src`, `tests`, `tools`, and `check.py`, and runs the usual Ruff and pytest checks. It stops
+at the first failed check. ty and mypy are optional during development and can report issues
+that Pyrefly does not; their failures are reported normally. Plain `just check` and CI continue
+to use Pyrefly. Before a release, follow the
+[requirement for all three type checkers to pass](docs/internals/releasing.md#qualify-the-candidate).
+
 Run focused tests while you iterate:
 
 ```console
