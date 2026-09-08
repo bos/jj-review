@@ -31,10 +31,9 @@ from .models import (
     PRSyncPlan,
     PublicationInputs,
     SubmitMutationRun,
-    SubmitResult,
-    SubmittedChange,
 )
 from .prs import sync_prs
+from .render import print_submit_preview, print_submitted_changes
 
 
 def plan_pr_updates(
@@ -89,7 +88,7 @@ async def publish_prepared(
     trunk_branch: str,
     trunk_targets: dict[str, CommitId],
     dry_run: bool,
-) -> SubmitResult:
+) -> None:
     client = prepared_inputs.client
     state = prepared_inputs.state
     if not dry_run:
@@ -167,28 +166,22 @@ async def publish_prepared(
     )
 
     if dry_run:
-        submitted_changes = tuple(
-            SubmittedChange(prepared=plan.prepared, pr_action=plan.action, pr=plan.prepared.pr)
-            for plan in pr_plans
-        )
-    else:
-        submitted_changes = await _apply_planned_submit(
-            github_client=github_client,
+        print_submit_preview(
+            inputs=prepared_inputs,
+            plans=pr_plans,
             github_stack_plan=github_stack_plan,
-            prepared_inputs=prepared_inputs,
-            pr_plans=pr_plans,
-            pr_branch_ref_updates=pr_branch_ref_updates,
-            retarget_prs=retarget_prs,
-            run=mutation_run,
-            stacks_to_dissolve=stacks_to_dissolve,
-            trunk_branch=trunk_branch,
         )
-    return SubmitResult(
-        client=client,
-        dry_run=dry_run,
-        changes=submitted_changes,
-        github_stack_actions=mutation_run.github_stack_actions,
-        trunk=prepared_inputs.stack.trunk,
+        return
+    await _apply_planned_submit(
+        github_client=github_client,
+        github_stack_plan=github_stack_plan,
+        prepared_inputs=prepared_inputs,
+        pr_plans=pr_plans,
+        pr_branch_ref_updates=pr_branch_ref_updates,
+        retarget_prs=retarget_prs,
+        run=mutation_run,
+        stacks_to_dissolve=stacks_to_dissolve,
+        trunk_branch=trunk_branch,
     )
 
 
@@ -203,7 +196,7 @@ async def _apply_planned_submit(
     run: SubmitMutationRun,
     stacks_to_dissolve: tuple[GithubStack, ...],
     trunk_branch: str,
-) -> tuple[SubmittedChange[GithubPR], ...]:
+) -> None:
     for github_stack in stacks_to_dissolve:
         await dissolve_github_stack(github_client=github_client, stack=github_stack)
     # GitHub has no transaction spanning PR branches, pull requests, and stack
@@ -230,23 +223,18 @@ async def _apply_planned_submit(
             plans=pr_plans,
             run=run,
         )
-    pr_numbers = tuple(change.pr.number for change in submitted)
+    pr_numbers = tuple(pr.number for _, pr in submitted)
     grouped = await apply_github_stack_plan(
         github_client=github_client,
         plan=github_stack_plan,
         pr_numbers=pr_numbers,
     )
-    actions = [f"dissolved GitHub stack #{stack.number}" for stack in stacks_to_dissolve]
-    if grouped is not None:
-        verb = "extended" if github_stack_plan.action == "append" else "created"
-        actions.append(f"{verb} GitHub stack #{grouped.number}")
-    run.github_stack_actions = tuple(actions)
     submitted_force_pushes_by_pr = {
-        pr_number: (expected_target, change.prepared.change.commit_id)
-        for change, pr_number in zip(submitted, pr_numbers, strict=True)
-        if change.pr_action != "created"
-        and change.prepared.remote_action == "pushed"
-        and (expected_target := change.prepared.expected_remote_target) is not None
+        pr.number: (expected_target, plan.prepared.change.commit_id)
+        for plan, pr in submitted
+        if plan.action != "created"
+        and plan.prepared.remote_action == "pushed"
+        and (expected_target := plan.prepared.expected_remote_target) is not None
     }
     await sync_submit_comments(
         base_is_another_pr=pr_plans[0].base_branch != trunk_branch,
@@ -256,4 +244,11 @@ async def _apply_planned_submit(
         pr_numbers=pr_numbers,
         submitted_force_pushes_by_pr=submitted_force_pushes_by_pr,
     )
-    return submitted
+    print_submitted_changes(inputs=prepared_inputs, changes=submitted)
+    actions = [f"dissolved GitHub stack #{stack.number}" for stack in stacks_to_dissolve]
+    if grouped is not None:
+        verb = "extended" if github_stack_plan.action == "append" else "created"
+        actions.append(f"{verb} GitHub stack #{grouped.number}")
+    if actions:
+        summary = ", ".join(actions)
+        console.output(f"{summary[0].upper()}{summary[1:]}.")

@@ -9,7 +9,6 @@ from jj_stack.commands.submit.descriptions import preserve_external_pr_text
 from jj_stack.commands.submit.inputs import prepare_publication_inputs
 from jj_stack.commands.submit.models import PreparedSubmitChange, PRMetadataAction
 from jj_stack.commands.submit.publication import plan_pr_updates, publish_prepared
-from jj_stack.commands.submit.render import print_submit_result
 from jj_stack.errors import CliError, ConflictedStackError
 from jj_stack.github.client import GithubClient
 from jj_stack.github.resolution import GithubTarget
@@ -99,7 +98,7 @@ async def refresh_selected_prs(
         prepared_changes=changes,
         prior_reviewers={},
     )
-    result = await publish_prepared(
+    await publish_prepared(
         context=context,
         github_client=github,
         prepared_inputs=inputs,
@@ -110,4 +109,3 @@ async def refresh_selected_prs(
         trunk_targets={trunk_branch: path.stack.trunk.commit_id},
         dry_run=False,
     )
-    print_submit_result(result)

@@ -815,6 +815,9 @@ def test_submit_stack_preflight_failures_recover_without_persisted_phase(
     remote_before = remote_refs(fake_repo.git_dir)
 
     assert run_main(repo, config_path, "submit", "--dry-run", reordered_head) == 0
+    preview = capsys.readouterr().out
+    assert "dissolve GitHub stack #1" in preview
+    assert "create a GitHub stack with 2 PRs" in preview
     assert fake_repo.github_stacks == {1: (1, 2)}
     assert run_main(repo, config_path, "submit", reordered_head) == EXIT_GITHUB
 
@@ -1495,17 +1498,17 @@ def test_submit_dry_run_does_not_mutate_local_remote_or_github_state(
     )
 
     initial_remote_refs = remote_refs(fake_repo.git_dir)
+    state_before = TrackingStore.for_repo(repo).load()
 
-    exit_code = run_main(repo, config_path, "submit", "--dry-run")
+    exit_code = run_main(repo, config_path, "submit", "--dry-run", "--draft")
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
-    assert "Planned changes:" in captured.out
-    assert "feature 1" in captured.out
-    assert ": new PR" in captured.out
+    assert "create draft PR against main" in captured.out
     assert fake_repo.prs == {}
+    assert fake_repo.github_stacks == {}
     assert remote_refs(fake_repo.git_dir) == initial_remote_refs
+    assert TrackingStore.for_repo(repo).load() == state_before
 
 
 def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
@@ -1520,17 +1523,27 @@ def test_submit_dry_run_reports_update_without_mutating_remote_or_github(
     change_id = stack.changes[-1].change_id
     state_before = TrackingStore.for_repo(repo).load()
     remote_refs_before = remote_refs(fake_repo.git_dir)
+    prs_before = deepcopy(fake_repo.prs)
+    fake_repo.create_pr_review(pr_number=1, reviewer_login="alice", state="APPROVED")
 
     run_command(["jj", "describe", "-r", change_id, "-m", "feature 1 renamed"], repo)
 
-    exit_code = run_main(repo, config_path, "submit", "--dry-run", change_id)
+    exit_code = run_main(
+        repo,
+        config_path,
+        "submit",
+        "--dry-run",
+        "--draft-all",
+        "--re-request",
+        change_id,
+    )
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Dry run: no local, remote, or GitHub changes applied." in captured.out
-    assert "pushed, PR #1 updated" in captured.out
-    assert "PR #1 updated" in captured.out
-    assert fake_repo.prs[1].title == "feature 1"
+    assert "title: feature 1 renamed" in captured.out
+    assert "convert to draft" in captured.out
+    assert "request reviewers: alice" in captured.out
+    assert fake_repo.prs == prs_before
     assert remote_refs(fake_repo.git_dir) == remote_refs_before
     assert TrackingStore.for_repo(repo).load() == state_before
 

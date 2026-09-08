@@ -53,35 +53,6 @@ class PreparedSubmitChange:
 
 
 @dataclass(frozen=True, slots=True)
-class SubmittedChange[PR: GithubPR | None = GithubPR | None]:
-    """GitHub pull request result for one prepared change in the submitted stack."""
-
-    prepared: PreparedSubmitChange
-    pr_action: PRAction
-    # A new PR has no GitHub result during a dry run.
-    pr: PR
-
-    @property
-    def change_id(self) -> str:
-        """The submitted change's change ID."""
-
-        return self.prepared.change.change_id
-
-
-@dataclass(frozen=True, slots=True)
-class SubmitResult:
-    """Remote branch and pull request state for the selected stack."""
-
-    client: JjClient
-    dry_run: bool
-    changes: tuple[SubmittedChange, ...]
-    trunk: LocalCommit
-    # GitHub stack changes this submit made, as phrases such as "dissolved GitHub
-    # stack #7".
-    github_stack_actions: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class GeneratedDescription:
     """Resolved text and the fields explicitly supplied for this submit."""
 
@@ -165,7 +136,6 @@ class SubmitMutationRun:
 
     state: TrackingState
     state_store: TrackingStore
-    github_stack_actions: tuple[str, ...] = ()
 
     def record_submission(
         self,

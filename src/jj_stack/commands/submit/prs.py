@@ -20,7 +20,6 @@ from .models import (
     PRDraftAction,
     PRSyncPlan,
     SubmitMutationRun,
-    SubmittedChange,
 )
 
 
@@ -61,7 +60,7 @@ async def sync_prs(
     plans: tuple[PRSyncPlan, ...],
     run: SubmitMutationRun,
     on_progress: Callable[[], None],
-) -> tuple[SubmittedChange[GithubPR], ...]:
+) -> tuple[tuple[PRSyncPlan, GithubPR], ...]:
     submitted_changes = await run_bounded_tasks(
         concurrency=DEFAULT_BOUNDED_CONCURRENCY,
         items=plans,
@@ -80,12 +79,11 @@ async def _sync_pr(
     github_client: GithubClient,
     plan: PRSyncPlan,
     run: SubmitMutationRun,
-) -> SubmittedChange[GithubPR]:
+) -> tuple[PRSyncPlan, GithubPR]:
     prepared_change = plan.prepared
     branch = prepared_change.branch
     change_id = prepared_change.change.change_id
     pr = plan.prepared.pr
-    action = plan.action
     base_update, body_update, title_update = plan.content_updates
 
     if pr is None:
@@ -134,11 +132,7 @@ async def _sync_pr(
             team_reviewers=plan.metadata.team_reviewers,
         )
 
-    return SubmittedChange(
-        prepared=prepared_change,
-        pr_action=action,
-        pr=pr,
-    )
+    return plan, pr
 
 
 async def _apply_draft_action(

@@ -64,13 +64,12 @@ from .models import (
     PRMetadataAction,
     SubmitDraftMode,
     SubmitOptions,
-    SubmitResult,
 )
 from .prs import (
     load_re_request_reviewers,
 )
 from .publication import plan_pr_updates, publish_prepared
-from .render import print_selected_line, print_submit_result
+from .render import print_selected_line, print_submit_rows
 
 HELP = "Create or update PRs for a jj stack"
 DESCRIPTION_HELP = """
@@ -147,7 +146,7 @@ def submit(
         command="submit",
         mutating=not dry_run,
     ):
-        result = asyncio.run(
+        asyncio.run(
             run_submit_async(
                 context=context,
                 # The selected line is only rendered when submit picked the
@@ -156,7 +155,6 @@ def submit(
                 options=options,
             )
         )
-    print_submit_result(result)
     return 0
 
 
@@ -373,7 +371,7 @@ async def run_submit_async(
     context: CommandContext,
     on_prepared: Callable[[str, str], None] | None,
     options: SubmitOptions,
-) -> SubmitResult:
+) -> None:
     dry_run = options.dry_run
     state_store = context.state_store
     state = state_store.load()
@@ -397,13 +395,8 @@ async def run_submit_async(
     base_branch = tracked_base.pr_identity.head_ref if tracked_base is not None else None
 
     if not stack.changes:
-        return SubmitResult(
-            client=client,
-            dry_run=dry_run,
-            changes=(),
-            github_stack_actions=(),
-            trunk=stack.trunk,
-        )
+        print_submit_rows(inputs=prepared_inputs, rows=(), heading="Submitted changes:")
+        return
 
     github_repo = require_github_repo(remote)
     branch_resolutions = resolve_pr_branches(
@@ -585,7 +578,7 @@ async def run_submit_async(
                 github_client=github_client,
                 prs=tuple(pr for prepared in prepared_changes if (pr := prepared.pr) is not None),
             )
-            if options.re_request and not dry_run
+            if options.re_request
             else {}
         )
         pr_plans = plan_pr_updates(
@@ -597,7 +590,7 @@ async def run_submit_async(
             prepared_changes=prepared_changes,
             prior_reviewers=re_request_reviewers,
         )
-        result = await publish_prepared(
+        await publish_prepared(
             context=context,
             github_client=github_client,
             prepared_inputs=prepared_inputs,
@@ -613,4 +606,3 @@ async def run_submit_async(
             generated_edit_path.unlink(missing_ok=True)
         except OSError:
             pass
-    return result
