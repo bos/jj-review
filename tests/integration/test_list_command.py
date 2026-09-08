@@ -214,17 +214,8 @@ def test_list_keeps_one_stack_when_saved_tracking_is_sparse_in_the_middle(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=3)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-
-    commit_file(repo, "feature 1", "feature-1.txt")
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
-
-    commit_file(repo, "feature 2", "feature-2.txt")
-    commit_file(repo, "feature 3", "feature-3.txt")
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
 
     stack = selected_stack(repo)
     bottom, middle, top = stack.changes

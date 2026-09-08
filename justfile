@@ -32,8 +32,8 @@ format: setup
 check *args:
     ./check.py {{args}}
 
-# Run a focused pytest selection after refreshing the environment.
-test *args: setup
+# Run all tests in parallel by default, or pass a focused pytest selection and options.
+test *args='-n auto': setup
     {{python}} -m pytest {{args}}
 
 # Check the cumulative code and test complexity budgets.

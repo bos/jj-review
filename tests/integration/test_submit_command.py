@@ -720,19 +720,12 @@ def test_submit_retargets_stale_pr_bases_before_pushing_reordered_stack(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=4)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    commit_file(repo, "feature 2", "feature-2.txt")
-    commit_file(repo, "feature 3", "feature-3.txt")
-    commit_file(repo, "feature 4", "feature-4.txt")
 
     initial_stack = selected_stack(repo)
     old_bottom_change_id = initial_stack.changes[0].change_id
     old_top_change_id = initial_stack.changes[-1].change_id
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
 
     run_command(["jj", "rebase", "-r", old_bottom_change_id, "-A", old_top_change_id], repo)
     reordered_stack = selected_stack(repo)
@@ -761,12 +754,8 @@ def test_submit_stack_preflight_failures_recover_without_persisted_phase(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    commit_file(repo, "feature 2", "feature-2.txt")
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
     app = create_app(FakeGithubState.single_repo(fake_repo))
     failure = "availability"
 
@@ -1024,14 +1013,9 @@ def test_submit_cross_stack_move_requires_source_then_destination(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=3)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "source 1", "source-1.txt")
-    commit_file(repo, "source 2", "source-2.txt")
-    commit_file(repo, "source 3", "source-3.txt")
     source = selected_stack(repo)
-    assert run_main(repo, config_path, "submit", source.head.change_id) == 0
-    capsys.readouterr()
 
     run_command(["jj", "new", "main"], repo)
     commit_file(repo, "destination", "destination.txt")
@@ -1099,13 +1083,8 @@ def test_submit_draft_all_converts_existing_published_stack_to_draft(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    commit_file(repo, "feature 2", "feature-2.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
     assert fake_repo.prs[1].is_draft is False
     assert fake_repo.prs[2].is_draft is False
 
@@ -1770,12 +1749,8 @@ def test_submit_refreshes_unchanged_pr_text_and_preserves_github_edits(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
 
     stack = selected_stack(repo)
     change_id = stack.changes[-1].change_id
@@ -2040,13 +2015,8 @@ def test_submit_fails_closed_when_saved_remote_branch_drifted_externally(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=3)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    commit_file(repo, "feature 2", "feature-2.txt")
-    commit_file(repo, "feature 3", "feature-3.txt")
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
 
     stack = selected_stack(repo)
     middle_change_id = stack.changes[1].change_id
@@ -2408,21 +2378,8 @@ def test_submit_explicit_metadata_applies_to_an_unchanged_pr(
     monkeypatch,
     capsys,
 ) -> None:
-    repo, fake_repo = init_fake_github_repo(tmp_path)
-    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state-home"))
-    config_path = write_fake_github_config(tmp_path)
-    commit_file(repo, "feature 1", "feature-1.txt")
-    app = create_app(FakeGithubState.single_repo(fake_repo))
-
-    patch_github_client_builders(
-        monkeypatch,
-        app=app,
-        fake_repo=fake_repo,
-        modules=("jj_stack.commands.submit.command",),
-    )
-
-    assert run_main(repo, config_path, "submit") == 0
-    capsys.readouterr()
+    repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
 
     assert (
         run_main(

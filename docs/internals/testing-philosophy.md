@@ -85,6 +85,18 @@ need separate forwarding tests.
 
 ## Keep the suite useful
 
+`just test` runs the full suite with parallel workers. Arguments replace that default, so
+`just test tests/unit/test_jj_client.py` runs a focused selection serially; add `-n auto` to
+parallelize a selection, or use `just test -n 0` for a serial full run. `just check` also runs
+the full suite in parallel, after linting and type checking.
+
+Measure idle workers with `just check --pytest-concurrency-report`, or use
+`just test -n auto --concurrency-report --durations=20 --randomly-seed=1234` to compare test
+changes with a fixed order. The concurrency report includes setup and teardown, identifies tests
+running while other workers are idle, and saves intervals under
+`.pytest_cache/jj-stack-concurrency/`. Compare elapsed time as well as worker utilization: keeping
+more workers busy need not finish the suite sooner.
+
 Prefer focused fixtures, direct setup, and clear assertions. Avoid tests that primarily:
 
 - pin presentation that is not a machine or recovery contract
