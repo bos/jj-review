@@ -11,17 +11,16 @@ from jj_stack.bootstrap import CommandContext
 from jj_stack.concurrency import DEFAULT_BOUNDED_CONCURRENCY
 from jj_stack.errors import CliError, error_message
 from jj_stack.formatting import format_pr_label
-from jj_stack.github.client import GithubClient
+from jj_stack.github.client import GithubClient, GithubClientError
+from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_MARKER
 from jj_stack.identifiers import CommitId
 from jj_stack.jj.client import PRRefUpdate
-from jj_stack.models.github import GithubPR, GithubStack
+from jj_stack.models.github import GithubStack
 from jj_stack.stack.github_stack_safety import dissolve_github_stack
 
 from . import auto_close
 from .auto_close import retarget_pr_bases_before_branch_push
-from .comments import sync_submit_comments
 from .github_stack import (
-    GithubStackPlan,
     apply_github_stack_plan,
     omitted_active_stack_prs,
     plan_github_stack,
@@ -35,8 +34,14 @@ from .models import (
     PublicationInputs,
     SubmitMutationRun,
 )
+from .overview_comments import plan_stack_overview, sync_stack_overview_comments
 from .prs import sync_prs
 from .render import print_submit_preview, print_submitted_changes
+from .revision_comments import (
+    REVISION_HISTORY_COMMENT_MARKER,
+    REVISION_HISTORY_VERSION_LIMIT,
+    sync_revision_history_comments,
+)
 
 
 def plan_pr_updates(
@@ -97,10 +102,6 @@ async def publish_prepared(
     state = prepared_inputs.state
     if not dry_run:
         context.state_store.require_writable()
-    mutation_run = SubmitMutationRun(
-        state=state,
-        state_store=context.state_store,
-    )
     prepared_changes = tuple(plan.prepared for plan in pr_plans)
     pushes_pr_branches = any(change.remote_action == "pushed" for change in prepared_changes)
     planned_branches = {change.branch for change in prepared_changes}
@@ -169,6 +170,38 @@ async def publish_prepared(
         for prepared in prepared_changes
     )
 
+    with console.spinner(description="Loading pull request comments"):
+        try:
+            (
+                comments_by_marker,
+                revisions_by_pr,
+            ) = await github_client.find_issue_comments_and_revisions(
+                body_markers=(
+                    STACK_OVERVIEW_COMMENT_MARKER,
+                    REVISION_HISTORY_COMMENT_MARKER,
+                ),
+                pr_numbers=tuple(number for number in desired_pr_numbers if number is not None),
+                revision_limit=REVISION_HISTORY_VERSION_LIMIT,
+            )
+        except GithubClientError as error:
+            raise CliError("Could not load pull request comments", hint=retry_hint) from error
+    overview_comments = comments_by_marker[STACK_OVERVIEW_COMMENT_MARKER]
+    try:
+        overview_body = plan_stack_overview(
+            comments=tuple(
+                overview_comments.get(number) if number is not None else None
+                for number in desired_pr_numbers
+            ),
+            generated_stack_description=prepared_inputs.generated_stack_description,
+            # A single selected PR based on another PR is still part of a larger stack.
+            is_lone_pr=len(pr_plans) == 1 and pr_plans[0].base_branch == trunk_branch,
+        )
+    except CliError as error:
+        raise CliError(
+            error_message(error),
+            hint=(error.hint, " ", retry_hint) if error.hint is not None else retry_hint,
+        ) from error
+
     if dry_run:
         print_submit_preview(
             inputs=prepared_inputs,
@@ -176,33 +209,6 @@ async def publish_prepared(
             github_stack_plan=github_stack_plan,
         )
         return
-    await _apply_planned_submit(
-        github_client=github_client,
-        github_stack_plan=github_stack_plan,
-        prepared_inputs=prepared_inputs,
-        pr_plans=pr_plans,
-        pr_branch_ref_updates=pr_branch_ref_updates,
-        retarget_prs=retarget_prs,
-        retry_hint=retry_hint,
-        run=mutation_run,
-        stacks_to_dissolve=stacks_to_dissolve,
-        trunk_branch=trunk_branch,
-    )
-
-
-async def _apply_planned_submit(
-    *,
-    github_client: GithubClient,
-    github_stack_plan: GithubStackPlan,
-    prepared_inputs: PublicationInputs,
-    pr_plans: tuple[PRSyncPlan, ...],
-    pr_branch_ref_updates: tuple[PRRefUpdate, ...],
-    retarget_prs: tuple[GithubPR, ...],
-    retry_hint: ui.Message,
-    run: SubmitMutationRun,
-    stacks_to_dissolve: tuple[GithubStack, ...],
-    trunk_branch: str,
-) -> None:
     for github_stack in stacks_to_dissolve:
         await dissolve_github_stack(github_client=github_client, stack=github_stack)
     # GitHub has no transaction spanning PR branches, pull requests, and stack
@@ -227,7 +233,7 @@ async def _apply_planned_submit(
             github_client=github_client,
             on_progress=progress.advance,
             plans=pr_plans,
-            run=run,
+            run=SubmitMutationRun(state=state, state_store=context.state_store),
         )
     pr_numbers = tuple(pr.number for _, pr in submitted)
     submitted_force_pushes_by_pr = {
@@ -243,12 +249,19 @@ async def _apply_planned_submit(
             plan=github_stack_plan,
             pr_numbers=pr_numbers,
         )
-        await sync_submit_comments(
-            base_is_another_pr=pr_plans[0].base_branch != trunk_branch,
+        await sync_stack_overview_comments(
+            comments_by_pr_number=overview_comments,
             concurrency=DEFAULT_BOUNDED_CONCURRENCY,
-            generated_stack_description=prepared_inputs.generated_stack_description,
+            overview_body=overview_body,
             github_client=github_client,
             pr_numbers=pr_numbers,
+        )
+        await sync_revision_history_comments(
+            comments_by_pr_number=comments_by_marker[REVISION_HISTORY_COMMENT_MARKER],
+            concurrency=DEFAULT_BOUNDED_CONCURRENCY,
+            github_client=github_client,
+            pr_numbers=pr_numbers,
+            revisions_by_pr=revisions_by_pr,
             submitted_force_pushes_by_pr=submitted_force_pushes_by_pr,
         )
     except CliError as error:

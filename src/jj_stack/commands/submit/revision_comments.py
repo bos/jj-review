@@ -35,11 +35,11 @@ async def sync_revision_history_comments(
             concurrency=concurrency,
             items=pr_numbers,
             run_item=lambda pr_number: _sync_revision_history_comment(
-                existing_comment=comments_by_pr_number[pr_number],
+                existing_comment=comments_by_pr_number.get(pr_number),
                 github_client=github_client,
                 pr_number=pr_number,
                 revisions=_include_submitted_force_push(
-                    revisions_by_pr[pr_number],
+                    revisions_by_pr.get(pr_number, ()),
                     submitted_force_pushes_by_pr.get(pr_number),
                 ),
             ),
@@ -73,7 +73,7 @@ def _include_submitted_force_push(
     revisions: tuple[GithubPRRevision, ...],
     submitted_force_push: SubmittedForcePush | None,
 ) -> tuple[GithubPRRevision, ...]:
-    """Fill a just-pushed revision that GitHub has not indexed yet."""
+    """Add this submit's force push to the history observed before publication."""
 
     if submitted_force_push is None:
         return revisions

@@ -1213,6 +1213,48 @@ def test_submit_blocks_unresolved_conflicted_rebase_without_mutation(
     assert fake_repo.prs == {}
 
 
+def test_submit_requires_a_combined_overview_before_publishing_joined_stacks(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    repo, fake_repo = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
+    config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
+    first_head = selected_stack(repo).head
+    description = tmp_path / "stack.md"
+    write_file(description, "First overview\n")
+    assert run_main(repo, config_path, "submit", "--describe", f"stack={description}") == 0
+
+    run_command(["jj", "new", "trunk()"], repo)
+    commit_file(repo, "second 1", "second-1.txt")
+    commit_file(repo, "second 2", "second-2.txt")
+    second_bottom = selected_stack(repo).changes[0]
+    write_file(description, "Second overview\n")
+    assert run_main(repo, config_path, "submit", "--describe", f"stack={description}") == 0
+    capsys.readouterr()
+
+    run_command(["jj", "rebase", "-s", second_bottom.change_id, "-d", first_head.change_id], repo)
+    commit_file(repo, "combined head", "combined.txt")
+    refs_before = remote_refs(fake_repo.git_dir)
+    stacks_before = dict(fake_repo.github_stacks)
+
+    for options in (("--dry-run",), ()):
+        assert run_main(repo, config_path, "submit", *options) == 1
+        assert "--describe stack=FILE" in " ".join(capsys.readouterr().err.split())
+        assert remote_refs(fake_repo.git_dir) == refs_before
+        assert fake_repo.github_stacks == stacks_before
+        assert set(fake_repo.prs) == {1, 2, 3, 4}
+        assert "First overview" in _overview_comments(fake_repo, 2)[0].body
+        assert "Second overview" in _overview_comments(fake_repo, 4)[0].body
+
+    write_file(description, "Combined overview\n")
+    assert run_main(repo, config_path, "submit", "--describe", f"stack={description}") == 0
+    assert list(fake_repo.github_stacks.values()) == [(1, 2, 3, 4, 5)]
+    assert "Combined overview" in _overview_comments(fake_repo, 5)[0].body
+    assert _overview_comments(fake_repo, 2) == []
+    assert _overview_comments(fake_repo, 4) == []
+
+
 def test_submit_describe_reads_files_and_preserves_stack_overview(
     tmp_path: Path,
     monkeypatch,

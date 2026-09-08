@@ -20,29 +20,21 @@ from .models import GeneratedDescription
 
 async def sync_stack_overview_comments(
     *,
-    base_is_another_pr: bool,
     comments_by_pr_number: dict[int, GithubIssueComment | None],
     concurrency: int,
-    generated_stack_description: GeneratedDescription | None,
+    overview_body: str | None,
     github_client: GithubClient,
     pr_numbers: tuple[int, ...],
 ) -> None:
-    """Synchronize the supplied stack-overview responsibilities."""
-
-    overview_bodies = _stack_overview_comment_bodies(
-        base_is_another_pr=base_is_another_pr,
-        comments_by_pr_number=comments_by_pr_number,
-        generated_stack_description=generated_stack_description,
-        pr_numbers=pr_numbers,
-    )
+    """Write the planned overview to the head before removing its old copies."""
     head_pr_number = pr_numbers[-1]
     with console.progress(
         description="Syncing stack overview comments",
         total=len(pr_numbers),
     ) as progress:
         await _sync_overview_comment(
-            comment_body=overview_bodies[head_pr_number],
-            existing_comment=comments_by_pr_number[head_pr_number],
+            comment_body=overview_body,
+            existing_comment=comments_by_pr_number.get(head_pr_number),
             github_client=github_client,
             pr_number=head_pr_number,
         )
@@ -51,8 +43,8 @@ async def sync_stack_overview_comments(
             concurrency=concurrency,
             items=pr_numbers[:-1],
             run_item=lambda pr_number: _sync_overview_comment(
-                comment_body=overview_bodies[pr_number],
-                existing_comment=comments_by_pr_number[pr_number],
+                comment_body=None,
+                existing_comment=comments_by_pr_number.get(pr_number),
                 github_client=github_client,
                 pr_number=pr_number,
             ),
@@ -60,35 +52,14 @@ async def sync_stack_overview_comments(
         )
 
 
-def _stack_overview_comment_bodies(
+def plan_stack_overview(
     *,
-    base_is_another_pr: bool,
-    comments_by_pr_number: dict[int, GithubIssueComment | None],
+    comments: tuple[GithubIssueComment | None, ...],
     generated_stack_description: GeneratedDescription | None,
-    pr_numbers: tuple[int, ...],
-) -> dict[int, str | None]:
-    head_pr_number = pr_numbers[-1]
-    overview_body = _stack_overview_body(
-        comments_by_pr_number=comments_by_pr_number,
-        generated_stack_description=generated_stack_description,
-        head_pr_number=head_pr_number,
-        # Only the selected pull requests are synchronized, so a single selected PR
-        # stacked on another PR is still part of a larger stack.
-        is_lone_pr=len(pr_numbers) <= 1 and not base_is_another_pr,
-    )
-    return {
-        pr_number: overview_body if pr_number == head_pr_number else None
-        for pr_number in pr_numbers
-    }
-
-
-def _stack_overview_body(
-    *,
-    comments_by_pr_number: dict[int, GithubIssueComment | None],
-    generated_stack_description: GeneratedDescription | None,
-    head_pr_number: int,
     is_lone_pr: bool,
 ) -> str | None:
+    """Choose the overview from comments ordered bottom to head, including new PRs."""
+
     if is_lone_pr:
         return None
     if generated_stack_description is not None:
@@ -99,13 +70,11 @@ def _stack_overview_body(
             else None
         )
 
-    head_comment = comments_by_pr_number[head_pr_number]
+    head_comment = comments[-1]
     if head_comment is not None:
         return head_comment.body
 
-    existing_bodies = {
-        comment.body for comment in comments_by_pr_number.values() if comment is not None
-    }
+    existing_bodies = {comment.body for comment in comments if comment is not None}
     if len(existing_bodies) > 1:
         raise CliError(
             "Could not preserve the stack overview because the selected pull requests "

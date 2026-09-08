@@ -8,7 +8,7 @@ import pytest
 from jj_stack.commands.submit.changes import prepare_submit_changes
 from jj_stack.commands.submit.command import _pr_metadata
 from jj_stack.commands.submit.inputs import preflight_private_commits
-from jj_stack.commands.submit.models import GeneratedDescription, SubmitOptions
+from jj_stack.commands.submit.models import SubmitOptions
 from jj_stack.commands.submit.overview_comments import sync_stack_overview_comments
 from jj_stack.commands.submit.revision_comments import _include_submitted_force_push
 from jj_stack.config import AppConfig
@@ -57,56 +57,15 @@ def test_overview_comment_move_keeps_source_when_head_creation_fails() -> None:
     with pytest.raises(CliError, match="Could not create a stack overview comment"):
         asyncio.run(
             sync_stack_overview_comments(
-                base_is_another_pr=False,
                 comments_by_pr_number={1: source_comment, 2: None},
                 concurrency=2,
-                generated_stack_description=None,
+                overview_body=source_comment.body,
                 github_client=client,
                 pr_numbers=(1, 2),
             )
         )
 
     assert client.deleted_comment_ids == []
-
-
-def test_conflicting_overviews_require_an_explicit_replacement_before_removing_sources() -> None:
-    comments = {
-        1: GithubIssueComment(body="<!-- jj-stack-overview -->\nFirst", databaseId=7),
-        2: GithubIssueComment(body="<!-- jj-stack-overview -->\nSecond", databaseId=8),
-        3: None,
-    }
-    github = Mock(spec=GithubClient)
-
-    with pytest.raises(CliError) as failure:
-        asyncio.run(
-            sync_stack_overview_comments(
-                base_is_another_pr=False,
-                comments_by_pr_number=comments,
-                concurrency=2,
-                generated_stack_description=None,
-                github_client=github,
-                pr_numbers=(1, 2, 3),
-            )
-        )
-    assert "--describe stack=FILE" in str(failure.value)
-    github.create_issue_comment.assert_not_awaited()
-    github.delete_issue_comment.assert_not_awaited()
-
-    asyncio.run(
-        sync_stack_overview_comments(
-            base_is_another_pr=False,
-            comments_by_pr_number=comments,
-            concurrency=2,
-            generated_stack_description=GeneratedDescription(title="", body="Combined overview"),
-            github_client=github,
-            pr_numbers=(1, 2, 3),
-        )
-    )
-    github.create_issue_comment.assert_awaited_once_with(
-        issue_number=3, body="<!-- jj-stack-overview -->\nCombined overview"
-    )
-    deleted = {call.kwargs["comment_id"] for call in github.delete_issue_comment.await_args_list}
-    assert deleted == {7, 8}
 
 
 def test_first_submit_stops_when_github_rejects_the_open_pr_lookup() -> None:
