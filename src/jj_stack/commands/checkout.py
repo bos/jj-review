@@ -54,9 +54,9 @@ from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_
 from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.observation import observe_pr_bookmarks
 from jj_stack.stack.pr_facts import duplicate_pr_claim_change_ids
+from jj_stack.stack.preparation import stack_preparation_cli_error
 from jj_stack.stack.repo import observe_repo_paths
 from jj_stack.stack.selected import select_stack_path
-from jj_stack.stack.status import status_preparation_cli_error
 from jj_stack.state.operation_lock import acquire_operation_lock
 
 HELP = "Check out an existing stack of pull requests"
@@ -349,7 +349,7 @@ def _discover_checkout_stack(
             state=state,
         ).stack
     except UnsupportedStackError as error:
-        raise status_preparation_cli_error(error) from error
+        raise stack_preparation_cli_error(error) from error
 
 
 async def _load_pr_chain(

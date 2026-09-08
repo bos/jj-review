@@ -51,16 +51,18 @@ from jj_stack.jj.client import (
     divergent_change_id_from_error,
 )
 from jj_stack.stack.divergence import divergence_recovery_hint
+from jj_stack.stack.preparation import (
+    PreparedLocalStack,
+    prepare_local_stack,
+    stack_preparation_cli_error,
+)
 from jj_stack.stack.reporting import report_change, status_label
 from jj_stack.stack.selected import is_change_id_prefix
 from jj_stack.stack.selection import resolve_linked_change_for_pr
 from jj_stack.stack.status import (
-    PreparedStatus,
     StackStatusChange,
     StatusResult,
     inspect_status,
-    prepare_status,
-    status_preparation_cli_error,
 )
 
 _SUMMARY_SECTION_HEAD_COUNT = 3
@@ -168,10 +170,8 @@ def _run_status(
                 printed_blocks += 1
             continue
 
-        change_ids = tuple(
-            change.change.change_id for change in prepared_status.prepared.status_changes
-        )
-        stack_key = (prepared_status.prepared.stack.base_parent.commit_id, *change_ids)
+        change_ids = tuple(change.change_id for change in prepared_status.stack.changes)
+        stack_key = (prepared_status.stack.base_parent.commit_id, *change_ids)
         if stack_key in rendered_stack_keys:
             continue
         rendered_stack_keys.add(stack_key)
@@ -269,10 +269,10 @@ def _prepare_status_with_spinner(
     containing_change_id: str | None = None,
     context: CommandContext,
     revset: str | None,
-) -> PreparedStatus:
+) -> PreparedLocalStack:
     with console.spinner(description="Inspecting jj stack"):
         try:
-            prepared_status = prepare_status(
+            prepared_status = prepare_local_stack(
                 context=context,
                 containing_change_id=containing_change_id,
                 fetch_remote_state=False,
@@ -280,17 +280,17 @@ def _prepare_status_with_spinner(
                 revset=revset,
             )
         except UnsupportedStackError as error:
-            raise status_preparation_cli_error(error) from error
+            raise stack_preparation_cli_error(error) from error
     for warning in _local_history_warnings(prepared_status):
         console.warning(warning)
     return prepared_status
 
 
-def _local_history_warnings(prepared_status: PreparedStatus) -> tuple[ui.Message, ...]:
+def _local_history_warnings(prepared_status: PreparedLocalStack) -> tuple[ui.Message, ...]:
     """Describe local states that inspection tolerates but stack mutation rejects."""
 
     warnings: list[ui.Message] = []
-    for change in prepared_status.prepared.stack.changes:
+    for change in prepared_status.stack.changes:
         change_id = ui.change_id(change.change_id)
         if len(change.parents) > 1:
             warnings.append(
@@ -318,14 +318,14 @@ def _status_heading(selector: ViewSelector) -> ui.Message:
     return t"Status for {ui.revset(selector.value)}:"
 
 
-def _inspect_prepared_status(prepared_status: PreparedStatus) -> StatusResult:
+def _inspect_prepared_status(prepared_status: PreparedLocalStack) -> StatusResult:
     with console.spinner(description="Inspecting GitHub"):
-        return inspect_status(prepared_status=prepared_status)
+        return inspect_status(prepared=prepared_status)
 
 
 def _json_prepared_status(
     *,
-    prepared_status: PreparedStatus,
+    prepared_status: PreparedLocalStack,
     selector: ViewSelector | None = None,
 ) -> tuple[dict[str, object], bool]:
     result = _inspect_prepared_status(prepared_status)
@@ -368,11 +368,11 @@ def _view_json_payload(
 
 def _json_status_result(
     *,
-    prepared_status: PreparedStatus,
+    prepared_status: PreparedLocalStack,
     result: StatusResult,
     selector: ViewSelector | None,
 ) -> dict[str, object]:
-    stack_model = prepared_status.prepared.stack
+    stack_model = prepared_status.stack
     current_change_ids = {
         change.change_id for change in stack_model.changes if change.current_working_copy
     }
@@ -392,13 +392,13 @@ def _json_status_result(
 
 def _render_prepared_status(
     *,
-    prepared_status: PreparedStatus,
+    prepared_status: PreparedLocalStack,
     verbose: bool,
 ) -> int:
     result = _inspect_prepared_status(prepared_status)
     warning_lines = _warn_about_unavailable_github(result)
 
-    if not prepared_status.prepared.status_changes:
+    if not prepared_status.stack.changes:
         _emit_lines(
             render_empty_status_lines(
                 prepared_status=prepared_status,
@@ -408,9 +408,9 @@ def _render_prepared_status(
 
     with console.spinner(description="Rendering jj log"):
         prerendered_blocks = _prefetch_commit_log_blocks(
-            client=prepared_status.prepared.client,
+            client=prepared_status.client,
             changes=result.changes,
-            trunk=prepared_status.prepared.stack.base_parent,
+            trunk=prepared_status.stack.base_parent,
         )
     _emit_lines(
         render_status_summary_lines(
@@ -422,7 +422,7 @@ def _render_prepared_status(
     )
     _emit_lines(
         render_trunk_status_lines(
-            prerendered_blocks[prepared_status.prepared.stack.base_parent.commit_id],
+            prerendered_blocks[prepared_status.stack.base_parent.commit_id],
         )
     )
     _emit_lines(
@@ -493,12 +493,12 @@ def render_trunk_status_lines(
 
 def render_empty_status_lines(
     *,
-    prepared_status: PreparedStatus,
+    prepared_status: PreparedLocalStack,
 ) -> tuple[ui.Renderable, ...]:
     """Render the empty-stack footer and explanation."""
 
-    trunk = prepared_status.prepared.stack.base_parent
-    blocks = render_commit_blocks(client=prepared_status.prepared.client, changes=(trunk,))
+    trunk = prepared_status.stack.base_parent
+    blocks = render_commit_blocks(client=prepared_status.client, changes=(trunk,))
     return (
         *render_trunk_status_lines(
             blocks[trunk.commit_id],

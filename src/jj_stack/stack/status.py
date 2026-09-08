@@ -8,7 +8,6 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 
 import jj_stack.ui as ui
-from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError, ErrorMessage, error_message
 from jj_stack.github.client import (
     GithubClient,
@@ -19,14 +18,11 @@ from jj_stack.github.error_messages import github_action_error_message
 from jj_stack.github.resolution import (
     GithubRepoAddress,
     GithubTarget,
-    UnresolvedGithubTarget,
-    resolve_github_target,
 )
-from jj_stack.jj.client import JjClient, UnsupportedStackError
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR
-from jj_stack.models.stack import LocalCommit, LocalStack
-from jj_stack.models.tracking import TrackedPR, TrackingState
+from jj_stack.models.stack import LocalCommit
+from jj_stack.models.tracking import TrackedPR
 from jj_stack.stack.change_state import (
     UNOBSERVED,
     ChangeObservation,
@@ -36,7 +32,7 @@ from jj_stack.stack.change_state import (
     live_pr,
     report_incomplete,
 )
-from jj_stack.stack.selected import select_stack_path, select_stack_path_containing_change
+from jj_stack.stack.preparation import PreparedLocalStack
 
 logger = logging.getLogger(__name__)
 
@@ -84,35 +80,6 @@ class StatusResult:
 
 
 @dataclass(frozen=True, slots=True)
-class PreparedStatus:
-    """Locally prepared status inputs before any GitHub inspection."""
-
-    github_target: GithubTarget | UnresolvedGithubTarget
-    prepared: PreparedStack
-
-    @property
-    def github_repo(self) -> GithubRepoAddress | None:
-        target = self.github_target
-        return target.repo if isinstance(target, GithubTarget) else None
-
-    @property
-    def github_repo_error(self) -> ErrorMessage | None:
-        return self.github_target.github_repo_error
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedStack:
-    """Prepared local stack inputs shared across inspection-driven commands."""
-
-    client: JjClient
-    remote: GitRemote | None
-    remote_error: ErrorMessage | None
-    stack: LocalStack
-    state: TrackingState
-    status_changes: tuple[PreparedChange, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class PreparedChange[TrackingT: TrackedPR | None = TrackedPR | None]:
     """Local stack change with its saved tracking, if any."""
 
@@ -125,95 +92,24 @@ class PreparedChange[TrackingT: TrackedPR | None = TrackedPR | None]:
         return tracked.pr_identity.head_ref if tracked is not None else None
 
 
-def status_preparation_cli_error(error: UnsupportedStackError) -> CliError:
-    """Translate stack-shape preparation failures into a user-facing CLI error."""
-
-    if error.hint is not None:
-        # An error that names its own recovery step already explains itself; prefixing it with
-        # a shape summary would bury the hint inside the message.
-        return CliError(error_message(error), hint=error.hint)
-    return CliError(t"Local history does not form a linear stack. {error}")
-
-
-def prepare_status(
-    *,
-    context: CommandContext,
-    fetch_remote_state: bool = False,
-    revset: str | None,
-    containing_change_id: str | None = None,
-    inspection_mode: bool = False,
-) -> PreparedStatus:
-    """Resolve local status inputs before any GitHub network inspection."""
-
-    jj_client = context.jj_client
-    state_store = context.state_store
-    state = state_store.load()
-    github_target = resolve_github_target(jj_client.list_git_remotes())
-    if fetch_remote_state and github_target.remote is not None:
-        jj_client.fetch_remote(remote=github_target.remote.name)
-
-    if containing_change_id is not None:
-        selected_path = select_stack_path_containing_change(
-            change_id=containing_change_id,
-            inspection_mode=inspection_mode,
-            jj_client=jj_client,
-            state=state,
-        )
-    else:
-        selected_path = select_stack_path(
-            inspection_mode=inspection_mode,
-            jj_client=jj_client,
-            revset=revset,
-            state=state,
-        )
-    if selected_path.stack.head.hidden:
-        # A commit ID resolves a hidden predecessor, while `change_id()` does not. Only
-        # visible changes are stack members, so refuse both selector forms alike. `checkout`
-        # selects its own path because it makes an imported hidden commit visible again.
-        selected_revset = ui.revset(selected_path.stack.selected_revset)
-        restore = ui.cmd(f"jj new {selected_path.stack.head.commit_id}")
-        raise UnsupportedStackError(
-            t"Revset {selected_revset} did not resolve to a visible commit.",
-            hint=t"Restore it with {restore}, or select a visible change.",
-            reason="hidden_commit",
-        )
-    prepared = prepare_stack_for_status(
-        context=context,
-        remote=github_target.remote,
-        remote_error=github_target.remote_error,
-        stack=selected_path.stack,
-        state=state,
-    )
-    logger.debug(
-        "status prepared: selected_revset=%s changes=%d remote=%s",
-        prepared.stack.selected_revset,
-        len(prepared.status_changes),
-        prepared.remote.name if prepared.remote is not None else "unavailable",
-    )
-    return PreparedStatus(
-        github_target=github_target,
-        prepared=prepared,
-    )
-
-
-def inspect_status(*, prepared_status: PreparedStatus) -> StatusResult:
+def inspect_status(*, prepared: PreparedLocalStack) -> StatusResult:
     """Inspect GitHub state for a prepared stack."""
 
-    return asyncio.run(inspect_status_async(prepared_status=prepared_status))
+    return asyncio.run(inspect_status_async(prepared=prepared))
 
 
-async def inspect_status_async(*, prepared_status: PreparedStatus) -> StatusResult:
-    prepared = prepared_status.prepared
-    github_repo = prepared_status.github_repo
-    github_error = prepared_status.github_repo_error
+async def inspect_status_async(*, prepared: PreparedLocalStack) -> StatusResult:
+    target = prepared.github_target
+    github_repo = target.repo if isinstance(target, GithubTarget) else None
+    github_error = target.github_repo_error
     pr_lookups: dict[str, ChangeObservation] | None = None
     if github_repo is not None and any(
-        change.tracked is not None for change in prepared.status_changes
+        change.change_id in prepared.state.prs for change in prepared.stack.changes
     ):
         try:
             pr_lookups = await lookup_pr_lookups_async(
                 github_repo=github_repo,
-                prepared_changes=prepared.status_changes,
+                prepared_changes=prepare_status_changes(prepared),
             )
         except CliError as error:
             github_error = error_message(error)
@@ -225,44 +121,31 @@ async def inspect_status_async(*, prepared_status: PreparedStatus) -> StatusResu
         github_error=github_error,
         github_repo=github_repo,
         incomplete=status_is_incomplete(changes),
-        remote=prepared.remote,
-        remote_error=prepared.remote_error,
+        remote=target.remote,
+        remote_error=target.remote_error,
         changes=changes,
         selected_revset=prepared.stack.selected_revset,
     )
 
 
-def prepare_stack_for_status(
-    *,
-    context: CommandContext,
-    remote: GitRemote | None,
-    remote_error: ErrorMessage | None,
-    stack: LocalStack,
-    state: TrackingState,
-) -> PreparedStack:
-    """Build prepared status inputs for one already-resolved local stack."""
+def prepare_status_changes(prepared: PreparedLocalStack) -> tuple[PreparedChange, ...]:
+    """Pair local changes with saved links when preparing a report."""
 
-    return PreparedStack(
-        client=context.jj_client,
-        remote=remote,
-        remote_error=remote_error,
-        stack=stack,
-        state=state,
-        status_changes=tuple(
-            PreparedChange(change=change, tracked=state.prs.get(change.change_id))
-            for change in stack.changes
-        ),
+    return tuple(
+        PreparedChange(change=change, tracked=prepared.state.prs.get(change.change_id))
+        for change in prepared.stack.changes
     )
 
 
 def build_status_changes_for_prepared_stack(
-    prepared: PreparedStack,
+    prepared: PreparedLocalStack,
     *,
     pr_lookups: dict[str, ChangeObservation] | None = None,
 ) -> tuple[StackStatusChange, ...]:
     """Classify every prepared change, using the GitHub lookups the caller has."""
 
-    remote_name = prepared.remote.name if prepared.remote is not None else None
+    remote = prepared.github_target.remote
+    remote_name = remote.name if remote is not None else None
     return tuple(
         _status_change(
             change,
@@ -273,7 +156,7 @@ def build_status_changes_for_prepared_stack(
             ),
             remote_name=remote_name,
         )
-        for change in prepared.status_changes
+        for change in prepare_status_changes(prepared)
     )
 
 

@@ -51,14 +51,14 @@ from jj_stack.stack.change_state import (
 )
 from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.pr_branches import duplicate_pr_branch_claims
+from jj_stack.stack.preparation import PreparedLocalStack
 from jj_stack.stack.repo import observe_repo_paths
 from jj_stack.stack.reporting import report_change, status_label
 from jj_stack.stack.status import (
-    PreparedStack,
     StackStatusChange,
     build_status_changes_for_prepared_stack,
     lookup_pr_lookups,
-    prepare_stack_for_status,
+    prepare_status_changes,
     status_is_incomplete,
 )
 
@@ -93,7 +93,7 @@ class OrphanRow:
 @dataclass(frozen=True, slots=True)
 class _PreparedDiscoveredStack:
     current: bool
-    prepared: PreparedStack
+    prepared: PreparedLocalStack
 
 
 def list_(
@@ -197,10 +197,9 @@ def _run_list(
         _PreparedDiscoveredStack(
             current=current_tracked_commit_id is not None
             and any(change.commit_id == current_tracked_commit_id for change in stack.changes),
-            prepared=prepare_stack_for_status(
-                context=context,
-                remote=github_target.remote,
-                remote_error=github_target.remote_error,
+            prepared=PreparedLocalStack(
+                client=context.jj_client,
+                github_target=github_target,
                 stack=stack,
                 state=state,
             ),
@@ -384,7 +383,7 @@ def _build_row(
     github_error: ErrorMessage | None,
     github_repo: GithubRepoAddress | None,
     is_current: bool,
-    prepared_stack: PreparedStack,
+    prepared_stack: PreparedLocalStack,
     pr_lookups: dict[str, ChangeObservation],
 ) -> StackRow:
     stack = prepared_stack.stack
@@ -400,7 +399,7 @@ def _build_row(
     state = _state_from_status(
         github_error=github_error,
         local_fragments=tuple(local_fragments),
-        remote_error=prepared_stack.remote_error,
+        remote_error=prepared_stack.github_target.remote_error,
         states=states,
     )
     return StackRow(
@@ -510,7 +509,7 @@ def _load_pr_lookups(
     prepared_changes_by_branch = {
         branch: change
         for item in prepared_discovered
-        for change in item.prepared.status_changes
+        for change in prepare_status_changes(item.prepared)
         if change.tracked is not None
         and (branch := change.branch) is not None
         and branch not in excluded_branches

@@ -59,26 +59,20 @@ def test_view_skips_duplicate_stack(
         revset = kwargs["revset"]
         change_ids = ("change-1", "change-2") if revset in {"foo", "bar"} else ("change-3",)
         return SimpleNamespace(
-            prepared=SimpleNamespace(
-                stack=SimpleNamespace(
-                    base_parent=SimpleNamespace(
-                        commit_id="shared-base" if revset in {"foo", "bar"} else f"base-{revset}"
-                    ),
-                    head=SimpleNamespace(change_id=change_ids[-1]),
-                    changes=(),
-                    selected_revset=revset,
+            stack=SimpleNamespace(
+                base_parent=SimpleNamespace(
+                    commit_id="shared-base" if revset in {"foo", "bar"} else f"base-{revset}"
                 ),
-                state=TrackingState(),
-                status_changes=tuple(
-                    SimpleNamespace(change=SimpleNamespace(change_id=change_id))
-                    for change_id in change_ids
-                ),
+                head=SimpleNamespace(change_id=change_ids[-1]),
+                changes=tuple(SimpleNamespace(change_id=change_id) for change_id in change_ids),
+                selected_revset=revset,
             ),
+            state=TrackingState(),
         )
 
     def fake_render_prepared_status(**kwargs) -> int:
         prepared_status = kwargs["prepared_status"]
-        rendered.append(prepared_status.prepared.stack.selected_revset)
+        rendered.append(prepared_status.stack.selected_revset)
         return 0
 
     monkeypatch.setattr(
@@ -122,22 +116,17 @@ def test_view_continues_after_selector_error(
                 ),
             )
         return SimpleNamespace(
-            prepared=SimpleNamespace(
-                stack=SimpleNamespace(
-                    base_parent=SimpleNamespace(commit_id=f"base-{revset}"),
-                    head=SimpleNamespace(change_id=f"{revset}-head"),
-                    changes=(),
-                    selected_revset=revset,
-                ),
-                state=TrackingState(),
-                status_changes=(
-                    SimpleNamespace(change=SimpleNamespace(change_id=f"{revset}-change")),
-                ),
+            stack=SimpleNamespace(
+                base_parent=SimpleNamespace(commit_id=f"base-{revset}"),
+                head=SimpleNamespace(change_id=f"{revset}-head"),
+                changes=(SimpleNamespace(change_id=f"{revset}-change"),),
+                selected_revset=revset,
             ),
+            state=TrackingState(),
         )
 
     def fake_render_prepared_status(**kwargs) -> int:
-        selected = kwargs["prepared_status"].prepared.stack.selected_revset
+        selected = kwargs["prepared_status"].stack.selected_revset
         console_module.output(f"rendered {selected}")
         return 0
 
@@ -195,17 +184,12 @@ def test_view_json_continues_after_selector_error(
             raise view_module.CliError("bad selector")
         return SimpleNamespace(
             selected_revset=revset,
-            prepared=SimpleNamespace(
-                stack=SimpleNamespace(
-                    base_parent=SimpleNamespace(commit_id=f"base-{revset}"),
-                    head=SimpleNamespace(change_id=f"{revset}-head"),
-                    changes=(),
-                ),
-                state=TrackingState(),
-                status_changes=(
-                    SimpleNamespace(change=SimpleNamespace(change_id=f"{revset}-change")),
-                ),
+            stack=SimpleNamespace(
+                base_parent=SimpleNamespace(commit_id=f"base-{revset}"),
+                head=SimpleNamespace(change_id=f"{revset}-head"),
+                changes=(SimpleNamespace(change_id=f"{revset}-change"),),
             ),
+            state=TrackingState(),
         )
 
     def fake_json_prepared_status(**kwargs):

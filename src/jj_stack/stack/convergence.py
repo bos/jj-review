@@ -38,7 +38,7 @@ from jj_stack.stack.convergence_models import (
 from jj_stack.stack.divergence import divergence_recovery_hint
 from jj_stack.stack.github_stack_safety import selected_github_stack
 from jj_stack.stack.pr_facts import RepoFacts
-from jj_stack.stack.status import PreparedStatus
+from jj_stack.stack.preparation import PreparedLocalStack
 from jj_stack.stack.trunk_evidence import CommitAncestry
 
 
@@ -69,11 +69,11 @@ def build_selected_convergence_plan(
     context: CommandContext,
     github_stacks: tuple[GithubStack, ...],
     observation: RepoFacts,
-    prepared_status: PreparedStatus,
+    prepared: PreparedLocalStack,
     trunk_branch: str,
 ) -> SelectedConvergencePlan:
-    selected = prepared_status.prepared.stack.changes
-    state = prepared_status.prepared.state
+    selected = prepared.stack.changes
+    state = prepared.state
     effect = _classify_github_stack(
         ancestries=ancestries,
         github_stacks=github_stacks,
@@ -128,9 +128,7 @@ def build_selected_convergence_plan(
                 t"{ui.semantic_text(candidate.submitted_baseline.commit_id, 'commit_id')}\n"
                 t"Local copy commit: {ui.semantic_text(change.commit_id, 'commit_id')}\n"
                 t"Trunk commit: "
-                t"{
-                    ui.semantic_text(prepared_status.prepared.stack.trunk.commit_id, 'commit_id')
-                }",
+                t"{ui.semantic_text(prepared.stack.trunk.commit_id, 'commit_id')}",
                 hint=t"Inspect the local and fetched histories with "
                 t"{
                     ui.cmd(f"jj log -r 'trunk() | (trunk()..{selected[-1].commit_id})'")
@@ -178,7 +176,7 @@ def build_selected_convergence_plan(
             # Without a reported merge result, the trunk tip is the only commit left to expect;
             # the import still verifies the chain against it.
             expected_parent_commit_id=effect.merge_result_commit_id
-            or prepared_status.prepared.stack.trunk.commit_id,
+            or prepared.stack.trunk.commit_id,
         )
     return OrdinaryConvergencePlan(actions=actions)
 

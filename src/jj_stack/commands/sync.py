@@ -82,8 +82,12 @@ from jj_stack.stack.pr_facts import (
     observe_github_stacks,
     observe_prs,
 )
+from jj_stack.stack.preparation import (
+    PreparedLocalStack,
+    prepare_local_stack,
+    stack_preparation_cli_error,
+)
 from jj_stack.stack.selection import resolve_linked_change_for_pr
-from jj_stack.stack.status import PreparedStatus, prepare_status, status_preparation_cli_error
 from jj_stack.state.operation_lock import operation_lock_if_mutating
 from jj_stack.ui import Message
 
@@ -251,23 +255,23 @@ def run_stack_convergence(
 ) -> int:
     with console.spinner(description="Inspecting local stack"):
         try:
-            prepared_status = prepare_status(
+            prepared = prepare_local_stack(
                 containing_change_id=containing_change_id,
                 context=context,
                 fetch_remote_state=fetch_remote_state,
                 revset=revset,
             )
         except UnsupportedStackError as error:
-            raise status_preparation_cli_error(error) from error
-    if print_selected and prepared_status.prepared.stack.changes:
-        head = prepared_status.prepared.stack.head
+            raise stack_preparation_cli_error(error) from error
+    if print_selected and prepared.stack.changes:
+        head = prepared.stack.head
         print_selected_line(head.change_id, head.subject)
     try:
         return asyncio.run(
             _run_selected_convergence(
                 context=context,
                 dry_run=dry_run,
-                prepared_status=prepared_status,
+                prepared=prepared,
                 trunk_branch=trunk_branch,
             )
         )
@@ -285,11 +289,10 @@ async def _run_selected_convergence(
     *,
     context: CommandContext,
     dry_run: bool,
-    prepared_status: PreparedStatus,
+    prepared: PreparedLocalStack,
     trunk_branch: str | None,
 ) -> int:
-    prepared = prepared_status.prepared
-    target, selected = _selected_target(prepared_status)
+    target, selected = _selected_target(prepared)
     if not selected:
         console.output("Nothing to sync: the selected change is already on trunk.")
         return 0
@@ -357,7 +360,7 @@ async def _run_selected_convergence(
                 context=context,
                 github_stacks=github_stacks,
                 observation=observation,
-                prepared_status=prepared_status,
+                prepared=prepared,
                 trunk_branch=trunk_branch,
             )
         _render_selected_plan(dry_run=dry_run, plan=plan)
@@ -374,11 +377,11 @@ async def _run_selected_convergence(
 
 
 def _selected_target(
-    prepared_status: PreparedStatus,
+    prepared: PreparedLocalStack,
 ) -> tuple[GithubTarget, tuple[LocalCommit, ...]]:
-    target = _require_github_target(prepared_status.github_target)
+    target = _require_github_target(prepared.github_target)
 
-    return target, prepared_status.prepared.stack.changes
+    return target, prepared.stack.changes
 
 
 def _require_github_target(

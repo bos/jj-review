@@ -42,10 +42,10 @@ from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.models.github import GithubRepo
 from jj_stack.models.stack import LocalCommit
 from jj_stack.stack.pr_facts import observe_github_stacks, observe_prs
+from jj_stack.stack.preparation import prepare_local_stack
 from jj_stack.stack.selection import (
     resolve_linked_change_for_pr,
 )
-from jj_stack.stack.status import prepare_status
 from jj_stack.state.operation_lock import operation_lock_if_mutating
 
 from .github_stack import build_async_merge_plan, execute_async_merge
@@ -171,23 +171,22 @@ def _prepare_merge(
     revset: str | None,
     target_change_id: str | None,
 ) -> PreparedMerge:
-    prepared_status = prepare_status(
+    prepared = prepare_local_stack(
         containing_change_id=target_change_id,
         context=context,
         fetch_remote_state=True,
         revset=revset,
     )
-    prepared = prepared_status.prepared
-    if prepared.remote is None:
-        message = prepared.remote_error or t"Could not determine which Git remote to use."
+    target = prepared.github_target
+    if target.remote is None:
+        message = target.remote_error or t"Could not determine which Git remote to use."
         raise CliError(
             message,
             hint=t"Configure one GitHub remote, then rerun. "
             t"{ui.cmd('jj-stack doctor')} reports what it found.",
         )
-    target = prepared_status.github_target
     if not isinstance(target, GithubTarget):
-        message = prepared_status.github_repo_error or t"Could not resolve GitHub target."
+        message = target.github_repo_error or t"Could not resolve GitHub target."
         raise CliError(
             message,
             hint=t"Point jj-stack at a GitHub remote, then rerun. "

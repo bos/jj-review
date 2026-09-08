@@ -12,11 +12,10 @@ from jj_stack.models.stack import LocalCommit, LocalStack
 from jj_stack.models.tracking import SubmittedBaseline, TrackedPR, TrackingState
 from jj_stack.stack import status as status_module
 from jj_stack.stack.change_state import ChangeObservation
+from jj_stack.stack.preparation import PreparedLocalStack
 from jj_stack.stack.status import (
     PreparedChange,
-    PreparedStatus,
     inspect_status_async,
-    prepare_stack_for_status,
 )
 from tests.support.change_helpers import make_change
 from tests.support.contexts import fake_command_context
@@ -37,16 +36,11 @@ def test_status_falls_back_to_local_data_after_github_abort(monkeypatch) -> None
             )
         }
     )
-    prepared = prepare_stack_for_status(
-        context=fake_command_context(),
-        remote=_STATUS_REMOTE,
-        remote_error=None,
+    prepared = PreparedLocalStack(
+        client=fake_command_context().jj_client,
+        github_target=_github_target(),
         stack=_stack_for_status(change),
         state=state,
-    )
-    prepared_status = PreparedStatus(
-        github_target=_github_target(),
-        prepared=prepared,
     )
 
     async def abort_github_inspection(**_kwargs):
@@ -59,7 +53,7 @@ def test_status_falls_back_to_local_data_after_github_abort(monkeypatch) -> None
 
     result = asyncio.run(
         inspect_status_async(
-            prepared_status=prepared_status,
+            prepared=prepared,
         )
     )
 
