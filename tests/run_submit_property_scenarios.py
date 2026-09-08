@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the opt-in stack property scenario suites."""
+"""Run generated jj-stack command sequences on parallel pytest workers."""
 
 from __future__ import annotations
 
@@ -9,237 +9,105 @@ import shlex
 import subprocess
 import sys
 from argparse import ArgumentParser, ArgumentTypeError
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PROPERTY_TEST_FILE = REPO_ROOT / "tests" / "property" / "test_submit_property_scenarios.py"
-DEFAULT_PROPERTY_SEED = 8675309
-PROPERTY_DRIFT_SCENARIOS_ENV = "JJ_STACK_SUBMIT_PROPERTY_DRIFT_SCENARIOS"
-PROPERTY_LIFECYCLE_SCENARIOS_ENV = "JJ_STACK_SUBMIT_PROPERTY_LIFECYCLE_SCENARIOS"
-PROPERTY_RETRY_SCENARIOS_ENV = "JJ_STACK_SUBMIT_PROPERTY_RETRY_SCENARIOS"
-PROPERTY_SCENARIOS_ENV = "JJ_STACK_SUBMIT_PROPERTY_SCENARIOS"
-PROPERTY_SEED_ENV = "JJ_STACK_SUBMIT_PROPERTY_SEED"
-PROPERTY_STACK_JOIN_SCENARIOS_ENV = "JJ_STACK_SUBMIT_PROPERTY_STACK_JOIN_SCENARIOS"
-PROPERTY_STACK_MOVE_SCENARIOS_ENV = "JJ_STACK_SUBMIT_PROPERTY_STACK_MOVE_SCENARIOS"
-_REPRODUCTION_SCENARIO_OPTIONS = (
-    (
-        "--stack-join-scenarios",
-        PROPERTY_STACK_JOIN_SCENARIOS_ENV,
-    ),
-    (
-        "--stack-move-scenarios",
-        PROPERTY_STACK_MOVE_SCENARIOS_ENV,
-    ),
-    ("--retry-scenarios", PROPERTY_RETRY_SCENARIOS_ENV),
-    ("--drift-scenarios", PROPERTY_DRIFT_SCENARIOS_ENV),
-    ("--lifecycle-scenarios", PROPERTY_LIFECYCLE_SCENARIOS_ENV),
-)
+EXAMPLES = int(os.environ.get("JJ_STACK_PROPERTY_EXAMPLES", "1"))
+STEPS = int(os.environ.get("JJ_STACK_PROPERTY_STEPS", "8"))
+SHARDS = int(os.environ.get("JJ_STACK_PROPERTY_SHARDS", "1"))
+SEED = int(os.environ.get("JJ_STACK_PROPERTY_SEED", "8675309"))
+
+
+def positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise ArgumentTypeError("expected a positive integer") from error
+    if parsed < 1:
+        raise ArgumentTypeError("expected a positive integer")
+    return parsed
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = ArgumentParser(
-        prog="tests/run_submit_property_scenarios.py",
-        description="Run opt-in stack property scenarios with pytest-xdist.",
-    )
+    parser = ArgumentParser(description=__doc__)
     parser.add_argument(
-        "scenarios",
+        "examples",
         nargs="?",
-        type=_positive_int,
-        default=100,
-        help="Number of generated stack-edit scenarios to run (default: 100).",
-    )
-    seed_group = parser.add_mutually_exclusive_group()
-    seed_group.add_argument(
-        "--seed",
-        type=int,
-        help="Deterministic scenario seed. Defaults to the harness seed.",
-    )
-    seed_group.add_argument(
-        "--random-seed",
-        action="store_true",
-        help="Generate and print one random seed for scenarios and pytest ordering.",
+        type=positive_int,
+        default=20,
+        help="Generated examples per shard (default: 20).",
     )
     parser.add_argument(
-        "--stack-join-scenarios",
-        type=_non_negative_int,
-        help=(
-            "Number of generated two-stack join scenarios to run "
-            "(default: 2, one row per join direction)."
-        ),
+        "--steps",
+        type=positive_int,
+        default=20,
+        help="Maximum actions per example (default: 20).",
     )
     parser.add_argument(
-        "--stack-move-scenarios",
-        type=_non_negative_int,
-        help=(
-            "Number of generated cross-stack single-change move scenarios to run "
-            "(default: max(4, scenarios // 10))."
-        ),
+        "--shards", type=positive_int, default=4, help="Independent seeded searches (default: 4)."
     )
-    parser.add_argument(
-        "--retry-scenarios",
-        type=_non_negative_int,
-        help=(
-            "Number of generated failed-submit retry scenarios to run "
-            "(default: max(4, scenarios // 10))."
-        ),
-    )
-    parser.add_argument(
-        "--drift-scenarios",
-        type=_non_negative_int,
-        help=(
-            "Number of generated external-drift scenarios to run "
-            "(default: max(20, scenarios // 5))."
-        ),
-    )
-    parser.add_argument(
-        "--lifecycle-scenarios",
-        type=_non_negative_int,
-        help="Number of completed-command lifecycle scenarios to run (default: all 3).",
-    )
-    parser.add_argument(
-        "-n",
-        "--jobs",
-        default="auto",
-        help="Number of pytest-xdist workers, or 'auto' (default: auto).",
-    )
-    parser.add_argument(
-        "--no-sync",
-        action="store_true",
-        help="Skip uv sync --locked before running pytest.",
-    )
+    seeds = parser.add_mutually_exclusive_group()
+    seeds.add_argument("--seed", type=int, default=None)
+    seeds.add_argument("--random-seed", action="store_true")
+    parser.add_argument("-n", "--jobs", default="auto", help="pytest workers (default: auto).")
+    parser.add_argument("--no-sync", action="store_true", help="Skip uv sync --locked.")
     arguments = list(sys.argv[1:] if argv is None else argv)
     separator = arguments.index("--") if "--" in arguments else len(arguments)
     args = parser.parse_args(arguments[:separator])
-    pytest_args = arguments[separator + 1 :] if separator < len(arguments) else []
-    _validate_jobs(args.jobs, parser)
-
+    pytest_args = arguments[separator + 1 :]
+    if args.jobs != "auto":
+        try:
+            positive_int(args.jobs)
+        except ArgumentTypeError as error:
+            parser.error(f"--jobs: {error}")
+    chosen_seed = secrets.randbits(32) if args.random_seed else args.seed
+    if chosen_seed is None:
+        chosen_seed = SEED
+    env = {key: value for key, value in os.environ.items() if key != "VIRTUAL_ENV"}
+    env.update(
+        {
+            "JJ_STACK_PROPERTY_EXAMPLES": str(args.examples),
+            "JJ_STACK_PROPERTY_STEPS": str(args.steps),
+            "JJ_STACK_PROPERTY_SHARDS": str(args.shards),
+            "JJ_STACK_PROPERTY_SEED": str(chosen_seed),
+        }
+    )
     if not args.no_sync:
-        sync_command = ("uv", "sync", "--locked")
-        print(f"==> bootstrap: {shlex.join(sync_command)}", flush=True)
-        completed = subprocess.run(sync_command, cwd=REPO_ROOT, env=_command_env())
-        if completed.returncode != 0:
-            return completed.returncode
-
-    env = _command_env()
-    env.setdefault("JJ_USER", "Test User")
-    env.setdefault("JJ_EMAIL", "test@example.com")
-    env[PROPERTY_SCENARIOS_ENV] = str(args.scenarios)
-    stack_join_scenarios = args.stack_join_scenarios
-    if stack_join_scenarios is None:
-        stack_join_scenarios = 2
-    env[PROPERTY_STACK_JOIN_SCENARIOS_ENV] = str(stack_join_scenarios)
-    stack_move_scenarios = args.stack_move_scenarios
-    if stack_move_scenarios is None:
-        stack_move_scenarios = max(4, args.scenarios // 10)
-    env[PROPERTY_STACK_MOVE_SCENARIOS_ENV] = str(stack_move_scenarios)
-    retry_scenarios = args.retry_scenarios
-    if retry_scenarios is None:
-        retry_scenarios = max(4, args.scenarios // 10)
-    env[PROPERTY_RETRY_SCENARIOS_ENV] = str(retry_scenarios)
-    drift_scenarios = args.drift_scenarios
-    if drift_scenarios is None:
-        drift_scenarios = max(20, args.scenarios // 5)
-    env[PROPERTY_DRIFT_SCENARIOS_ENV] = str(drift_scenarios)
-    lifecycle_scenarios = args.lifecycle_scenarios
-    env[PROPERTY_LIFECYCLE_SCENARIOS_ENV] = str(
-        3 if lifecycle_scenarios is None else lifecycle_scenarios
-    )
-    seed = secrets.randbits(32) if args.random_seed else args.seed
-    if seed is None:
-        seed = DEFAULT_PROPERTY_SEED
-    env[PROPERTY_SEED_ENV] = str(seed)
-
-    venv_python = (
-        REPO_ROOT
-        / ".venv"
-        / (Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python"))
-    )
-    command = [
-        str(venv_python),
-        "-m",
-        "pytest",
+        result = subprocess.run(("uv", "sync", "--locked"), cwd=REPO_ROOT, env=env)
+        if result.returncode:
+            return result.returncode
+    reproduce = [
+        "just",
+        "property",
+        str(args.examples),
+        "--steps",
+        str(args.steps),
+        "--shards",
+        str(args.shards),
+        "--seed",
+        str(chosen_seed),
         "-n",
         args.jobs,
-        f"--randomly-seed={seed}",
-        str(PROPERTY_TEST_FILE.relative_to(REPO_ROOT)),
-        *pytest_args,
     ]
-    reproduction_command = _build_reproduction_command(
-        env=env,
-        jobs=args.jobs,
-        no_sync=args.no_sync,
-        pytest_args=pytest_args,
-        scenarios=args.scenarios,
-        seed=seed,
-    )
-
-    print(f"==> property seed: {seed}", flush=True)
-    print(f"==> reproduce: {shlex.join(reproduction_command)}", flush=True)
-    print(f"==> property scenarios: {shlex.join(command)}", flush=True)
-    completed = subprocess.run(command, cwd=REPO_ROOT, env=env)
-    return completed.returncode
-
-
-def _build_reproduction_command(
-    *,
-    env: Mapping[str, str],
-    jobs: str,
-    no_sync: bool,
-    pytest_args: Sequence[str],
-    scenarios: int,
-    seed: int,
-) -> tuple[str, ...]:
-    command = [
-        "tests/run_submit_property_scenarios.py",
-        str(scenarios),
-        "--seed",
-        str(seed),
-        "--jobs",
-        jobs,
-    ]
-    for option, environment_name in _REPRODUCTION_SCENARIO_OPTIONS:
-        command.extend((option, env[environment_name]))
-    if no_sync:
-        command.append("--no-sync")
     if pytest_args:
-        command.extend(("--", *pytest_args))
-    return tuple(command)
-
-
-def _positive_int(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as error:
-        raise ArgumentTypeError("scenario count must be a positive integer") from error
-    if parsed < 1:
-        raise ArgumentTypeError("scenario count must be a positive integer")
-    return parsed
-
-
-def _non_negative_int(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as error:
-        raise ArgumentTypeError("scenario count must be a non-negative integer") from error
-    if parsed < 0:
-        raise ArgumentTypeError("scenario count must be a non-negative integer")
-    return parsed
-
-
-def _validate_jobs(value: str, parser: ArgumentParser) -> None:
-    if value == "auto":
-        return
-    try:
-        parsed = int(value)
-    except ValueError:
-        parser.error("--jobs must be a positive integer or 'auto'")
-    if parsed < 1:
-        parser.error("--jobs must be a positive integer or 'auto'")
-
-
-def _command_env() -> dict[str, str]:
-    return {key: value for key, value in os.environ.items() if key != "VIRTUAL_ENV"}
+        reproduce.extend(("--", *pytest_args))
+    print(f"Reproduce: {shlex.join(reproduce)}", flush=True)
+    python = REPO_ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    return subprocess.run(
+        [
+            str(python),
+            "-m",
+            "pytest",
+            "-n",
+            args.jobs,
+            f"--randomly-seed={chosen_seed}",
+            "tests/property/test_submit_property_scenarios.py",
+            *pytest_args,
+        ],
+        cwd=REPO_ROOT,
+        env=env,
+    ).returncode
 
 
 if __name__ == "__main__":

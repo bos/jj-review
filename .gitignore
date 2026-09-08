@@ -10,3 +10,5 @@ htmlcov/
 .uv-cache/
 .venv
 .venv/
+
+.hypothesis/

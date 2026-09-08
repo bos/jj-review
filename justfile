@@ -40,7 +40,7 @@ test *args: setup
 complexity:
     uv run tools/check_complexity.py
 
-# Run the opt-in generated submit scenarios; arguments pass through to the runner.
+# Run generated client and server command sequences; arguments pass through to the runner.
 property *args:
     tests/run_submit_property_scenarios.py {{args}}
 

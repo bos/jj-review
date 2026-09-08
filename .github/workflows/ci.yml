@@ -86,11 +86,6 @@ jobs:
       - name: Install jj
         run: echo "$(tools/install-jj-release.sh "$JJ_VERSION")" >> "$GITHUB_PATH"
 
-      - name: Run submit property smoke scenarios
+      - name: Run generated client and server sequences
         run: >-
-          tests/run_submit_property_scenarios.py 10 --random-seed -n auto
-          --stack-join-scenarios 5
-          --lifecycle-scenarios 10
-          --stack-move-scenarios 5
-          --retry-scenarios 5
-          --drift-scenarios 21
+          tests/run_submit_property_scenarios.py 10 --steps 20 --shards 4 --random-seed -n auto

@@ -41,6 +41,7 @@ jj-stack = "jj_stack.cli:main"
 [dependency-groups]
 dev = [
   "fastapi>=0.140.0,<0.142",
+  "hypothesis>=6.167.1,<7",
   "jsonschema>=4.25.1,<5",
   "pyrefly>=1.1.1,<1.3",
   "pytest-cov>=7.1.0,<8",
@@ -61,7 +62,7 @@ ty = [
 [tool.pytest.ini_options]
 addopts = "-ra"
 markers = [
-  "fixed_property: default generated fixed-point scenarios",
+  "fixed_property: fixed regressions and generated command sequences",
   "merge_recovery: bounded deterministic merge and recovery coverage",
 ]
 testpaths = ["tests"]
