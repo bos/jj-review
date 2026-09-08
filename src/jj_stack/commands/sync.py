@@ -60,7 +60,7 @@ from jj_stack.github.resolution import (
 )
 from jj_stack.identifiers import CommitId
 from jj_stack.jj.cli_args import JjCliArgs
-from jj_stack.jj.client import UnsupportedStackError
+from jj_stack.jj.client import UnsupportedStackError, quote_revset_symbol
 from jj_stack.models.github import GithubStack
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace
 from jj_stack.stack.convergence import (
@@ -357,8 +357,10 @@ async def _run_selected_convergence(
             )
             plan = build_selected_convergence_plan(
                 ancestries=ancestries,
-                context=context,
                 github_stacks=github_stacks,
+                head_children=context.jj_client.query_commits(
+                    f"children({quote_revset_symbol(selected[-1].commit_id)})"
+                ),
                 observation=observation,
                 prepared=prepared,
                 trunk_branch=trunk_branch,

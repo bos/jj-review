@@ -6,7 +6,7 @@ import json
 import re
 import shlex
 import subprocess
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -328,7 +328,16 @@ class JjClient:
     ) -> tuple[LocalCommit, ...]:
         """Return locally available commits for the supplied commit IDs in evaluation order."""
 
-        return self._query_commit_id_scopes(commit_ids, _present_symbols_revset)
+        ordered_commit_ids = tuple(dict.fromkeys(commit_ids))
+        if not ordered_commit_ids:
+            return ()
+
+        commits_by_id: dict[str, LocalCommit] = {}
+        for chunk in batched(ordered_commit_ids, QUERY_BATCH_SIZE, strict=False):
+            commits = self._query_commits(_present_symbols_revset(chunk))
+            for commit in commits:
+                commits_by_id.setdefault(commit.commit_id, commit)
+        return tuple(commits_by_id.values())
 
     def query_present_commit_ancestor_membership(
         self,
@@ -350,33 +359,6 @@ class JjClient:
             for commit, (is_ancestor,) in commits:
                 memberships[commit.commit_id] = is_ancestor
         return memberships
-
-    def query_descendant_commits(
-        self,
-        commit_ids: Sequence[str],
-    ) -> tuple[LocalCommit, ...]:
-        """Return descendants for the supplied commits, including the commits themselves."""
-
-        return self._query_commit_id_scopes(
-            commit_ids,
-            lambda chunk: f"{_union_revset_symbols(chunk)}::",
-        )
-
-    def _query_commit_id_scopes(
-        self,
-        commit_ids: Sequence[str],
-        revset_for_chunk: Callable[[tuple[str, ...]], str],
-    ) -> tuple[LocalCommit, ...]:
-        ordered_commit_ids = tuple(dict.fromkeys(commit_ids))
-        if not ordered_commit_ids:
-            return ()
-
-        commits_by_id: dict[str, LocalCommit] = {}
-        for chunk in batched(ordered_commit_ids, QUERY_BATCH_SIZE, strict=False):
-            commits = self._query_commits(revset_for_chunk(chunk))
-            for commit in commits:
-                commits_by_id.setdefault(commit.commit_id, commit)
-        return tuple(commits_by_id.values())
 
     def query_paired_ancestor_membership(
         self,

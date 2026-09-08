@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import jj_stack.ui as ui
-from jj_stack.bootstrap import CommandContext
 from jj_stack.errors import CliError
 from jj_stack.formatting import format_pr_label
 from jj_stack.identifiers import CommitId, short_change_id
@@ -66,8 +65,8 @@ type _GithubStackEffect = _GithubStackMerge | _GithubStackRebase | None
 def build_selected_convergence_plan(
     *,
     ancestries: dict[str, CommitAncestry],
-    context: CommandContext,
     github_stacks: tuple[GithubStack, ...],
+    head_children: tuple[LocalCommit, ...],
     observation: RepoFacts,
     prepared: PreparedLocalStack,
     trunk_branch: str,
@@ -157,7 +156,7 @@ def build_selected_convergence_plan(
     local_head = selected[-1]
     working_copy_children = tuple(
         commit
-        for commit in context.jj_client.query_descendant_commits((local_head.commit_id,))
+        for commit in head_children
         if commit.is_working_copy and commit.empty and commit.parents == (local_head.commit_id,)
     )
     actions = ConvergenceActions(
