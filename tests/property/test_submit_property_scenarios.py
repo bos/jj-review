@@ -40,16 +40,6 @@ def test_joining_submitted_stacks_preserves_both_sets_of_prs(machine: StackMachi
     machine.submit_path(0)
 
 
-def test_moving_between_stacks_refreshes_the_source_before_the_destination(
-    machine: StackMachine,
-) -> None:
-    machine.start(size=3, submitted=True)
-    machine.new_stack(2)
-    machine.submit_path(1)
-    machine.approve(machine.paths[1])
-    machine.move_between(0, 1, 1, 1, False)
-
-
 def test_submit_recovers_after_an_unacknowledged_push(machine: StackMachine) -> None:
     machine.start(size=3, submitted=False)
     machine.interrupted_submit(0, "after_remote_push", 0)
@@ -67,19 +57,6 @@ def test_cleanup_requires_sync_after_an_external_squash_merge(machine: StackMach
     machine.server_merge(0, 1, "squash")
     machine.cleanup_before_sync(0)
     machine.sync_path(0)
-
-
-def test_cleanup_of_a_closed_pr_allows_a_new_pr_for_the_same_change(
-    machine: StackMachine,
-) -> None:
-    machine.start(size=1, submitted=True)
-    old = machine.pr("c1").number
-    machine.drift("closed_pr", "c1")
-    machine.cleanup_label("c1")
-    machine.submit_path(0)
-    assert machine.pr("c1").number != old
-    assert machine.fake.prs[old].state == "closed"
-    assert machine.fake.prs[old].merged_at is None
 
 
 def test_partial_rebase_merge_preserves_surviving_ids_and_reviews(machine: StackMachine) -> None:

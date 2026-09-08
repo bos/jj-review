@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from copy import deepcopy
 from dataclasses import asdict
 from pathlib import Path
 
@@ -1018,7 +1019,7 @@ def test_submit_nonmaximal_path_dissolves_grouping_around_orphan(
     assert refreshed_state.prs[abandoned.change_id].pr_identity == abandoned_identity
 
 
-def test_submit_cross_stack_move_rejects_destination_first_without_mutation(
+def test_submit_cross_stack_move_requires_source_then_destination(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1027,6 +1028,7 @@ def test_submit_cross_stack_move_rejects_destination_first_without_mutation(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     commit_file(repo, "source 1", "source-1.txt")
     commit_file(repo, "source 2", "source-2.txt")
+    commit_file(repo, "source 3", "source-3.txt")
     source = selected_stack(repo)
     assert run_main(repo, config_path, "submit", source.head.change_id) == 0
     capsys.readouterr()
@@ -1038,17 +1040,40 @@ def test_submit_cross_stack_move_rejects_destination_first_without_mutation(
     capsys.readouterr()
 
     run_command(
-        ["jj", "rebase", "-r", source.head.change_id, "-A", destination.changes[0].change_id],
+        [
+            "jj",
+            "rebase",
+            "-r",
+            source.changes[1].change_id,
+            "-A",
+            destination.changes[0].change_id,
+        ],
         repo,
     )
-    moved_destination = selected_stack(repo, source.head.change_id)
+    moved_destination = selected_stack(repo, source.changes[1].change_id)
     state_before = TrackingStore.for_repo(repo).load()
+    fake_repo.create_pr_review(pr_number=2, reviewer_login="reviewer", state="APPROVED")
+    reviews_before = deepcopy(fake_repo.pr_reviews)
     refs_before = remote_refs(fake_repo.git_dir)
     assert run_main(repo, config_path, "submit", moved_destination.head.change_id) == 1
     assert "local stack that contains the rest of GitHub stack #1" in capsys.readouterr().err
-    assert fake_repo.github_stacks == {1: (1, 2)}
+    assert fake_repo.github_stacks == {1: (1, 2, 3)}
     assert TrackingStore.for_repo(repo).load() == state_before
     assert remote_refs(fake_repo.git_dir) == refs_before
+
+    fake_repo.pr_events.clear()
+    assert run_main(repo, config_path, "submit", source.head.change_id) == 0
+    assert run_main(repo, config_path, "submit", moved_destination.head.change_id) == 0
+    state_after = TrackingStore.for_repo(repo).load()
+    assert {cid: record.pr_identity for cid, record in state_after.prs.items()} == {
+        cid: record.pr_identity for cid, record in state_before.prs.items()
+    }
+    for head in (source.head.change_id, moved_destination.head.change_id):
+        _assert_stack_prs_match_dag(
+            fake_repo=fake_repo, repo=repo, stack=selected_stack(repo, head)
+        )
+    assert fake_repo.pr_reviews == reviews_before
+    assert all(event.kind != "state" for event in fake_repo.pr_events)
 
 
 def test_submit_draft_new_does_not_convert_published_prs_back_to_draft(

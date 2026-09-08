@@ -9,7 +9,7 @@ specification.
 [The property tests](../../tests/property/test_submit_property_scenarios.py) run fixed regressions
 and Hypothesis searches through the same
 [`StackMachine`](../../tests/support/stack_machine.py). The machine owns the expected local
-paths, change IDs, and submitted records. The small
+paths, change IDs, file contents, and submitted records. The small
 [edit model](../../tests/support/stack_edit_scenarios.py) predicts order changes independently of
 `jj`. Actions execute real `jj` commands and the CLI against cached repositories and the shared
 fake GitHub server.
@@ -17,9 +17,15 @@ fake GitHub server.
 Client commands and server events are separate actions. A server merge updates GitHub without
 syncing the local repository. Hypothesis can choose subsequent commands and events using the
 state left by earlier actions. Local edits, joins, cross-stack moves, interrupted submits, PR
-closure, branch deletion, external refs, metadata changes, approvals, merges, and sync share the
-same assertions. Cross-stack moves refresh the source before the destination, and interrupted
-submit actions complete the applicable retry or explicit relink.
+closure and reopening, orphan cleanup, branch deletion, external refs, metadata changes,
+approvals, merges, native GitHub rebases, and sync share the same assertions. Surviving changes
+can be amended between a server merge and sync. Trunk advances change file contents, including
+repeated updates to the same file. Cross-stack moves refresh the source before the destination,
+and interrupted submit actions complete the applicable retry or explicit relink.
+
+Both submitted and unsubmitted setups use the normal PR-branch fetch exclusion. Native rebase
+actions require a changed base; the model does not assume GitHub rewrites a stack that is already
+up to date.
 
 Check these properties at the boundaries where they apply:
 
@@ -35,6 +41,10 @@ Check these properties at the boundaries where they apply:
 - An interrupted submit can recover without duplicate PRs or lost links, including explicit
   relink when GitHub created a PR that the client did not acknowledge.
 - Merge and sync preserve surviving change IDs and reviews, and remove eligible merged artifacts.
+- Each surviving change retains its modeled file additions and contents after rewriting, moving,
+  squashing, or syncing. Merges preserve both the submitted contents and unrelated work on trunk.
+- A native GitHub rebase can be reconciled while preserving local change IDs. If trunk advances
+  again, sync refuses that stale rebase without rewriting local work or PR branches.
 
 The test model must predict these outcomes from the actions taken, rather than asking production
 planning code what to expect. Preconditions select applicable actions; deliberately unsafe
@@ -42,7 +52,7 @@ command attempts must remain available where refusal is the behavior under test.
 
 ## Running and reproducing searches
 
-`just check` runs eight fixed regressions and a small generated search. CI runs a larger search
+`just check` runs six fixed regressions and a small generated search. CI runs a larger search
 with a printed random seed. To explore more sequences locally:
 
 ```console

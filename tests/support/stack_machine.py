@@ -6,6 +6,7 @@ import io
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from copy import deepcopy
 from dataclasses import asdict
+from hashlib import sha1
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Literal, get_args
@@ -43,6 +44,7 @@ from .submit_faults import install_submit_fault
 
 Drift = Literal[
     "closed_pr",
+    "reopened_pr",
     "remote_branch_deleted",
     "foreign_branch_fetched",
     "pr_base_retargeted",
@@ -64,6 +66,11 @@ def pr_state(pr: FakeGithubPR) -> dict[str, object]:
     return {key: value for key, value in asdict(pr).items() if key != "head_sha"}
 
 
+def blob(contents: str) -> str:
+    data = contents.encode()
+    return sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
+
+
 class StackMachine(RuleBasedStateMachine):
     def __init__(self) -> None:
         super().__init__()
@@ -75,6 +82,8 @@ class StackMachine(RuleBasedStateMachine):
         self.submitted: dict[str, TrackedPR] = {}
         self.dirty: set[str] = set()
         self.foreign: set[str] = set()
+        self.contents: dict[str, dict[str, str]] = {}
+        self.rebased: dict[str, str] = {}
         self.pr_count = 0
         self.last_error: CliError | None = None
         config = self.root / "jj-config.toml"
@@ -103,6 +112,8 @@ class StackMachine(RuleBasedStateMachine):
         )
         self.fake.allow_rebase_merge = True
         self.jj = JjClient(self.repo)
+        self.jj.ensure_pr_branch_fetch_isolation(remote="origin")
+        self.trunk = self.trunk_files()
         self.store = TrackingStore.for_repo(self.repo)
         self.patch.setattr(cli_module, "_print_cli_error", self.record_error)
         if submitted:
@@ -110,6 +121,7 @@ class StackMachine(RuleBasedStateMachine):
             path = tuple(f"c{index}" for index in range(1, size + 1))
             self.ids = dict(zip(path, (change.change_id for change in changes), strict=True))
             self.paths.append(path)
+            self.contents = {label: {filename(label): subject(label) + "\n"} for label in path}
             state = self.store.load()
             self.submitted = {label: state.prs[cid] for label, cid in self.ids.items()}
             self.pr_count = size
@@ -144,6 +156,7 @@ class StackMachine(RuleBasedStateMachine):
             label = f"c{len(self.ids) + 1}"
             commit_file(self.repo, subject(label), filename(label))
             self.ids[label] = selected_stack(self.repo).head.change_id
+            self.contents[label] = {filename(label): subject(label) + "\n"}
             labels.append(label)
         self.paths.append(tuple(labels))
         self.dirty.update(labels)
@@ -171,7 +184,23 @@ class StackMachine(RuleBasedStateMachine):
         return [
             i
             for i, path in enumerate(self.paths)
-            if not self.merged_prefix(path) and not self.foreign.intersection(path)
+            if not self.merged_prefix(path)
+            and not self.foreign.intersection(path)
+            and not self.rebased.keys() & set(path)
+        ]
+
+    def edits(self) -> list[tuple[int, StackEditOperationKind]]:
+        return [
+            (i, kind)
+            for i, path in enumerate(self.paths)
+            if not self.foreign.intersection(path) and not self.rebased.keys() & set(path)
+            for kind in get_args(StackEditOperationKind)
+            if (
+                not self.merged_prefix(path)
+                or (kind == "rewrite" and self.merged_prefix(path) < len(path))
+            )
+            and (len(path) > 1 or kind in {"rewrite", "insert_after", "insert_before"})
+            and (len(path) < 8 or not kind.startswith("insert"))
         ]
 
     def ready(self) -> list[int]:
@@ -186,9 +215,19 @@ class StackMachine(RuleBasedStateMachine):
                 label in self.submitted
                 and self.pr(label).state == "open"
                 and not self.pr(label).is_draft
-                for label in self.paths[i]
+                and self.pr(label).base_ref
+                == ("main" if position == 0 else self.pr(self.paths[i][position - 1]).head_ref)
+                for position, label in enumerate(self.paths[i])
             )
+            and self.grouped(self.paths[i])
         ]
+
+    def grouped(self, path: tuple[str, ...]) -> bool:
+        numbers = tuple(self.pr(label).number for label in path)
+        return len(numbers) < 2 or numbers in (
+            tuple(number for number in members if self.fake.prs[number].merged_at is None)
+            for members in self.fake.github_stacks.values()
+        )
 
     def outside(self, selected: tuple[str, ...]) -> dict[str, object]:
         refs = remote_refs(self.fake.git_dir)
@@ -247,6 +286,8 @@ class StackMachine(RuleBasedStateMachine):
                     return {(1, "remote_branch_missing")}
                 if self.pr(label).state == "closed":
                     return {(1, "pr_not_open")}
+        if self.rebased.keys() & set(path):
+            return {(1, "remote_branch_moved")}
         return set()
 
     def accept_submit(
@@ -263,7 +304,6 @@ class StackMachine(RuleBasedStateMachine):
         )
         refs = remote_refs(self.fake.git_dir)
         base = "main"
-        numbers = []
         for label, change in zip(path, changes, strict=True):
             record = state.prs[self.ids[label]]
             if label in self.submitted:
@@ -279,12 +319,7 @@ class StackMachine(RuleBasedStateMachine):
             assert refs[f"refs/heads/{pr.head_ref}"] == change.commit_id
             assert record.submitted_baseline.commit_id == change.commit_id
             base = pr.head_ref
-            numbers.append(pr.number)
-        if len(numbers) > 1:
-            assert tuple(numbers) in (
-                tuple(number for number in members if self.fake.prs[number].merged_at is None)
-                for members in self.fake.github_stacks.values()
-            )
+        assert self.grouped(path)
         self.dirty.difference_update(path)
 
     def apply_edit(self, index: int, operation: StackEditOperation) -> None:
@@ -308,6 +343,7 @@ class StackMachine(RuleBasedStateMachine):
             run_command(args, self.repo)
             commit_file(self.repo, subject(new), filename(new))
             self.ids[new] = selected_stack(self.repo).head.change_id
+            self.contents[new] = {filename(new): subject(new) + "\n"}
             if operation.kind == "insert_after" and path.index(label) + 1 < len(path):
                 child = path[path.index(label) + 1]
                 run_command(
@@ -320,9 +356,11 @@ class StackMachine(RuleBasedStateMachine):
             run_command(["jj", "new", cid], self.repo)
             file = self.repo / filename(label)
             write_file(file, file.read_text() + "rewritten\n")
+            self.contents[label][filename(label)] += "rewritten\n"
             run_command(["jj", "squash", "--into", cid, "--use-destination-message"], self.repo)
         else:
             previous = path[path.index(label) - 1]
+            self.contents[previous].update(self.contents[label])
             run_command(
                 [
                     "jj",
@@ -377,27 +415,16 @@ class StackMachine(RuleBasedStateMachine):
 
     def drift(self, kind: Drift, label: str | None = None) -> None:
         if kind == "trunk_advanced":
-            head = self.fake.ref_target("main")
-            assert head is not None
-            tree = self.fake._run_backing_git("rev-parse", f"{head}^{{tree}}")
-            commit = self.fake._run_backing_git(
-                "-c",
-                "user.name=External",
-                "-c",
-                "user.email=external@example.com",
-                "commit-tree",
-                tree,
-                "-p",
-                head,
-                "-m",
-                "advance trunk",
-            )
-            update_remote_ref(self.fake, branch="main", target=commit)
+            contents = f"after {self.trunk.get('external.txt', 'initial')}\n"
+            self.fake.advance_branch("main", path="external.txt", contents=contents)
+            self.trunk["external.txt"] = blob(contents)
             return
         assert label is not None
         pr = self.pr(label)
         if kind == "closed_pr":
             self.fake.update_pr_state(pr, state="closed")
+        elif kind == "reopened_pr":
+            self.fake.update_pr_state(pr, state="open")
         elif kind == "remote_branch_deleted":
             self.fake._run_backing_git("update-ref", "-d", f"refs/heads/{pr.head_ref}")
             self.fake.update_pr_state(pr, state="closed")
@@ -433,10 +460,36 @@ class StackMachine(RuleBasedStateMachine):
         _complete_stack_merge(self.fake, operation)
         assert operation.status == "merged"
         assert self.store.load() == before
+        self.land(path[:count])
+
+    def land(self, labels: tuple[str, ...]) -> None:
+        for label in labels:
+            self.trunk.update({name: blob(text) for name, text in self.contents[label].items()})
+
+    def rebase_on_server(self, index: int) -> None:
+        path = self.paths[index]
+        stack = self.fake.stack_number_for_pr(self.pr(path[0]).number)
+        assert stack is not None
+        self.fake.rebase_stack_onto_base(stack, base_ref="main")
+        base = self.fake.ref_target("main")
+        assert base is not None
+        self.rebased[path[0]] = base
 
     def sync_path(self, index: int) -> None:
         path = self.paths[index]
         count = self.merged_prefix(path)
+        if self.rebased.keys() & set(path):
+            if self.rebased[path[0]] != self.fake.ref_target("main"):
+                run_command(["jj", "git", "fetch", "--remote", "origin"], self.repo)
+                before = self.snapshot()
+                code, output = self.cli("sync", self.ids[path[-1]])
+                assert code == 1, (self.last_error, output)
+                assert self.snapshot() == before
+                return
+            self.ok("sync", self.ids[path[-1]])
+            self.accept_submit(path)
+            del self.rebased[path[0]]
+            return
         assert count
         self.ok("sync", self.ids[path[-1]])
         self.accept_merge(index, count)
@@ -453,6 +506,7 @@ class StackMachine(RuleBasedStateMachine):
             "direct_merge",
             boundary.submitted_baseline.commit_id,
         )
+        self.land(path[:count])
         self.accept_merge(index, count)
 
     def accept_merge(self, index: int, count: int) -> None:
@@ -480,7 +534,7 @@ class StackMachine(RuleBasedStateMachine):
 
     def cleanup_label(self, label: str) -> None:
         pr = self.pr(label)
-        self.ok("cleanup", "--pull-request", str(pr.number))
+        self.ok("cleanup", "--pull-request", str(pr.number), "--close")
         assert self.fake.ref_target(pr.head_ref) is None
         del self.submitted[label]
         self.dirty.add(label)
@@ -504,10 +558,11 @@ class StackMachine(RuleBasedStateMachine):
                     "-r",
                     self.ids[label],
                     "-m",
-                    f"{subject(label)}\n\nupdated body",
+                    self.jj.resolve_commit(self.ids[label]).description + "\nupdated body",
                 ],
                 self.repo,
             )
+        numbers = set(self.fake.prs)
         with pytest.MonkeyPatch.context() as patch:
             install_submit_fault(patch, self.fake, point, subject(label))
             code, output = self.cli("submit", self.ids[path[-1]])
@@ -517,7 +572,11 @@ class StackMachine(RuleBasedStateMachine):
             code, _ = self.cli("submit", self.ids[path[-1]])
             assert code != 0
             assert self.snapshot() == before
-            pr = next(pr for pr in self.fake.prs.values() if pr.title == subject(label))
+            pr = next(
+                pr
+                for number, pr in self.fake.prs.items()
+                if number not in numbers and pr.title == subject(label)
+            )
             self.ok("relink", str(pr.number), self.ids[label])
         state = self.store.load()
         for item in path:
@@ -557,12 +616,30 @@ class StackMachine(RuleBasedStateMachine):
             self.jj._run_jj(("log", "--no-graph", "-r", "all()", "-T", "commit_id")),
         )
 
+    def trunk_files(self) -> dict[str, str]:
+        return {
+            name: entry.split()[2]
+            for line in self.fake._run_backing_git("ls-tree", "-r", "main").splitlines()
+            for entry, name in (line.split("\t"),)
+        }
+
+    def check_contents(self, label: str, commit: str) -> None:
+        diff = self.jj._run_git(("diff-tree", "--no-commit-id", "--no-abbrev", "-r", commit))
+        actual = {
+            name: (entry.split()[4], entry.split()[3])
+            for line in diff.splitlines()
+            for entry, name in (line.split("\t"),)
+        }
+        expected = {name: ("A", blob(text)) for name, text in self.contents[label].items()}
+        assert actual == expected, (label, actual, expected)
+
     @invariant()
     def model_matches(self) -> None:
         assert self.store.load().prs == {
             self.ids[label]: record for label, record in self.submitted.items()
         }
         assert len(self.fake.prs) == self.pr_count
+        assert self.trunk_files() == self.trunk
         for path in self.paths:
             if self.foreign.intersection(path):
                 continue
@@ -570,25 +647,19 @@ class StackMachine(RuleBasedStateMachine):
             assert tuple(change.change_id for change in changes) == tuple(
                 self.ids[label] for label in path
             )
+            for label, change in zip(path, changes, strict=True):
+                self.check_contents(label, change.commit_id)
 
     @precondition(lambda self: len(self.paths) < 3)
     @rule(size=st.integers(1, 3))
     def create_stack(self, size: int) -> None:
         self.new_stack(size)
 
-    @precondition(lambda self: bool(self.editable()))
-    @rule(kind=st.sampled_from(get_args(StackEditOperationKind)), data=st.data())
-    def edit(self, kind: StackEditOperationKind, data: st.DataObject) -> None:
-        eligible = [
-            i
-            for i in self.editable()
-            if (len(self.paths[i]) > 1 or kind in {"rewrite", "insert_after", "insert_before"})
-            and (len(self.paths[i]) < 8 or not kind.startswith("insert"))
-        ]
-        if not eligible:
-            return
-        index = data.draw(st.sampled_from(eligible), label="stack")
-        path = self.paths[index]
+    @precondition(lambda self: bool(self.edits()))
+    @rule(data=st.data())
+    def edit(self, data: st.DataObject) -> None:
+        index, kind = data.draw(st.sampled_from(self.edits()), label="edit")
+        path = self.paths[index][self.merged_prefix(self.paths[index]) :]
         target = None
         if kind in {"move_after", "move_before"}:
             candidates = (
@@ -646,21 +717,69 @@ class StackMachine(RuleBasedStateMachine):
         else:
             self.merge_path(index, count, method)
 
-    @precondition(lambda self: any(self.merged_prefix(p) for p in self.paths))
+    @precondition(
+        lambda self: bool(self.rebased) or any(self.merged_prefix(p) for p in self.paths)
+    )
     @rule(data=st.data())
     def sync(self, data: st.DataObject) -> None:
-        indices = [i for i, p in enumerate(self.paths) if self.merged_prefix(p)]
+        indices = [
+            i
+            for i, p in enumerate(self.paths)
+            if self.merged_prefix(p) or self.rebased.keys() & set(p)
+        ]
         self.sync_path(data.draw(st.sampled_from(indices), label="stack"))
 
-    @precondition(lambda self: bool(self.submitted))
+    def rebasable(self) -> list[int]:
+        return [
+            i
+            for i, path in enumerate(self.paths)
+            if i in self.ready() or path[0] in self.rebased
+            if tuple(self.pr(label).number for label in path) in self.fake.github_stacks.values()
+            if self.fake._run_backing_git("rev-parse", f"{self.pr(path[0]).head_ref}^")
+            != self.fake.ref_target("main")
+        ]
+
+    @precondition(lambda self: bool(self.rebasable()))
+    @rule(data=st.data())
+    def server_rebase(self, data: st.DataObject) -> None:
+        self.rebase_on_server(data.draw(st.sampled_from(self.rebasable()), label="stack"))
+
+    def cleanup_candidates(self) -> tuple[str, ...]:
+        live = {label for path in self.paths for label in path}
+        return tuple(
+            label
+            for label in self.submitted
+            if self.pr(label).merged_at is None
+            and label not in self.rebased
+            and (self.pr(label).state == "closed" or label not in live)
+            and self.fake.stack_number_for_pr(self.pr(label).number) is None
+            and not any(
+                other.base_ref == self.pr(label).head_ref
+                and other.merged_at is None
+                and self.fake.ref_target(other.head_ref) is not None
+                for other in self.fake.prs.values()
+            )
+        )
+
+    @precondition(lambda self: bool(self.cleanup_candidates()))
+    @rule(data=st.data())
+    def cleanup(self, data: st.DataObject) -> None:
+        self.cleanup_label(data.draw(st.sampled_from(self.cleanup_candidates()), label="change"))
+
     @rule(kind=st.sampled_from(get_args(Drift)), data=st.data())
     def server_change(self, kind: Drift, data: st.DataObject) -> None:
+        refs = self.fake.branch_heads() if kind == "reopened_pr" else {}
         labels = [
             label
             for p in self.paths
-            if not self.merged_prefix(p)
+            if not self.merged_prefix(p) and not self.rebased.keys() & set(p)
             for label in p
-            if label in self.submitted and self.pr(label).state == "open"
+            if label in self.submitted
+            and self.pr(label).state == ("closed" if kind == "reopened_pr" else "open")
+            and (
+                kind != "reopened_pr"
+                or (self.pr(label).head_ref in refs and self.pr(label).base_ref in refs)
+            )
         ]
         if kind == "trunk_advanced":
             self.drift(kind)
