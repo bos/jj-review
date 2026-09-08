@@ -64,7 +64,10 @@ def test_cleanup_requires_sync_after_an_external_squash_merge(machine: StackMach
 
 def test_partial_rebase_merge_preserves_surviving_ids_and_reviews(machine: StackMachine) -> None:
     machine.start(size=4, submitted=True)
-    machine.merge_path(0, 2, "rebase")
+    machine.apply_edit(0, StackEditOperation("insert_after", "c4", new_label="c5"))
+    machine.server_merge(0, 2, "rebase")
+    machine.apply_edit(0, StackEditOperation("rewrite", "c5"))
+    machine.sync_path(0)
 
 
 @pytest.mark.parametrize("shard", range(SHARDS))

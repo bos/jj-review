@@ -42,6 +42,8 @@ Check these properties at the boundaries where they apply:
 - An interrupted submit can recover without duplicate PRs or lost links, including explicit
   relink when GitHub created a PR that the client did not acknowledge.
 - Merge and sync preserve surviving change IDs and reviews, and remove eligible merged artifacts.
+- Merges can leave unpublished trailing changes. Sync preserves their contents without creating
+  PRs, and refuses local orderings with unpublished work below merged or surviving submitted work.
 - Each surviving change retains its modeled file additions and contents after rewriting, moving,
   squashing, or syncing. Merges preserve both the submitted contents and unrelated work on trunk.
 - A native GitHub rebase can be reconciled while preserving local change IDs. If trunk advances

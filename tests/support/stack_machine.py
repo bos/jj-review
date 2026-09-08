@@ -170,13 +170,11 @@ class StackMachine(RuleBasedStateMachine):
                 state="APPROVED",
             )
 
-    def merged_prefix(self, path: tuple[str, ...]) -> int:
-        count = 0
-        for label in path:
-            if label not in self.submitted or self.pr(label).merged_at is None:
-                break
-            count += 1
-        return count
+    def published(self, path: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(label for label in path if label in self.submitted)
+
+    def merged(self, path: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(label for label in self.published(path) if self.pr(label).merged_at)
 
     def pr(self, label: str):
         return self.fake.prs[self.submitted[label].pr_identity.pr_number]
@@ -194,24 +192,46 @@ class StackMachine(RuleBasedStateMachine):
         return [
             i
             for i, path in enumerate(self.paths)
-            if not self.merged_prefix(path)
+            if not self.merged(path)
             and not self.foreign.intersection(path)
             and not self.rebased.keys() & set(path)
         ]
 
-    def edits(self) -> list[tuple[int, StackEditOperationKind]]:
-        return [
-            (i, kind)
-            for i, path in enumerate(self.paths)
-            if not self.foreign.intersection(path) and not self.rebased.keys() & set(path)
-            for kind in get_args(StackEditOperationKind)
-            if (
-                not self.merged_prefix(path)
-                or (kind == "rewrite" and self.merged_prefix(path) < len(path))
-            )
-            and (len(path) > 1 or kind in {"rewrite", "insert_after", "insert_before"})
-            and (len(path) < 8 or not kind.startswith("insert"))
-        ]
+    def edits(self) -> list[tuple[int, StackEditOperation]]:
+        options = []
+        for i, path in enumerate(self.paths):
+            if self.foreign.intersection(path) or self.rebased.keys() & set(path):
+                continue
+            merged = self.merged(path)
+            for kind in get_args(StackEditOperationKind):
+                if kind.startswith("insert") and len(path) >= 8:
+                    continue
+                if kind == "abandon" and len(path) == 1:
+                    continue
+                pairs = (
+                    move_after_candidates(path)
+                    if kind == "move_after"
+                    else move_before_candidates(path)
+                    if kind == "move_before"
+                    else tuple(
+                        (label, None)
+                        for label in (
+                            path[1:]
+                            if kind == "squash_into_previous"
+                            else path[:-1]
+                            if kind == "move_to_top"
+                            else path
+                        )
+                    )
+                )
+                for label, target in pairs:
+                    if label in merged and not kind.startswith("insert"):
+                        continue
+                    if kind == "squash_into_previous" and path[path.index(label) - 1] in merged:
+                        continue
+                    new = f"c{len(self.ids) + 1}" if kind.startswith("insert") else None
+                    options.append((i, StackEditOperation(kind, label, new, target)))
+        return options
 
     def ready(self) -> list[int]:
         live = {label for path in self.paths for label in path}
@@ -220,16 +240,17 @@ class StackMachine(RuleBasedStateMachine):
         return [
             i
             for i in self.editable()
-            if not self.dirty.intersection(self.paths[i])
+            if (published := self.published(self.paths[i]))
+            and self.paths[i][: len(published)] == published
+            and not self.dirty.intersection(published)
             and all(
-                label in self.submitted
-                and self.pr(label).state == "open"
+                self.pr(label).state == "open"
                 and not self.pr(label).is_draft
                 and self.pr(label).base_ref
-                == ("main" if position == 0 else self.pr(self.paths[i][position - 1]).head_ref)
-                for position, label in enumerate(self.paths[i])
+                == ("main" if position == 0 else self.pr(published[position - 1]).head_ref)
+                for position, label in enumerate(published)
             )
-            and self.grouped(self.paths[i])
+            and self.grouped(published)
         ]
 
     def grouped(self, path: tuple[str, ...]) -> bool:
@@ -318,6 +339,7 @@ class StackMachine(RuleBasedStateMachine):
         *,
         fresh: set[str] | None = None,
         prior_numbers: set[int] | None = None,
+        publish: bool = True,
     ) -> None:
         state = self.store.load()
         changes = selected_stack(self.repo, self.ids[path[-1]]).changes
@@ -327,6 +349,9 @@ class StackMachine(RuleBasedStateMachine):
         refs = remote_refs(self.fake.git_dir)
         base = "main"
         for label, change in zip(path, changes, strict=True):
+            if not publish and label not in self.submitted:
+                assert self.ids[label] not in state.prs
+                continue
             record = state.prs[self.ids[label]]
             if label in self.submitted:
                 assert record.pr_identity == self.submitted[label].pr_identity
@@ -341,8 +366,8 @@ class StackMachine(RuleBasedStateMachine):
             assert refs[f"refs/heads/{pr.head_ref}"] == change.commit_id
             assert record.submitted_baseline.commit_id == change.commit_id
             base = pr.head_ref
-        assert self.grouped(path)
-        self.dirty.difference_update(path)
+        assert self.grouped(self.published(path))
+        self.dirty.difference_update(self.published(path))
 
     def apply_edit(self, index: int, operation: StackEditOperation) -> None:
         path = self.paths[index]
@@ -494,24 +519,48 @@ class StackMachine(RuleBasedStateMachine):
         assert base is not None
         self.rebased[path[0]] = base
 
+    def sync_blocked(self, path: tuple[str, ...]) -> bool:
+        merged = self.merged(path)
+        remaining = path[len(merged) :]
+        published = self.published(remaining)
+        selected = {self.pr(label).number for label in self.published(path)}
+        return (
+            path[: len(merged)] != merged
+            or remaining[: len(published)] != published
+            or any(
+                set(members) & selected
+                and any(
+                    number not in selected and self.fake.prs[number].merged_at is None
+                    for number in members
+                )
+                for members in self.fake.github_stacks.values()
+            )
+            or any(
+                self.jj.resolve_commit(self.ids[label]).commit_id
+                != self.submitted[label].submitted_baseline.commit_id
+                for label in merged
+            )
+            or bool(
+                self.rebased.keys() & set(path)
+                and self.rebased[path[0]] != self.fake.ref_target("main")
+            )
+        )
+
     def sync_path(self, index: int) -> None:
         path = self.paths[index]
-        count = self.merged_prefix(path)
-        if self.rebased.keys() & set(path):
-            if self.rebased[path[0]] != self.fake.ref_target("main"):
-                run_command(["jj", "git", "fetch", "--remote", "origin"], self.repo)
-                before = self.snapshot()
-                code, output = self.cli("sync", self.ids[path[-1]])
-                assert code == 1, (self.last_error, output)
-                assert self.snapshot() == before
-                return
-            self.ok("sync", self.ids[path[-1]])
-            self.accept_submit(path)
-            del self.rebased[path[0]]
+        if self.sync_blocked(path):
+            run_command(["jj", "git", "fetch", "--remote", "origin"], self.repo)
+            before = self.snapshot()
+            code, output = self.cli("sync", self.ids[path[-1]])
+            assert code == 1, (self.last_error, output)
+            assert self.snapshot() == before
             return
-        assert count
         self.ok("sync", self.ids[path[-1]])
-        self.accept_merge(index, count)
+        if self.rebased.keys() & set(path):
+            self.accept_submit(path, publish=False)
+            del self.rebased[path[0]]
+        else:
+            self.accept_merge(index, len(self.merged(path)))
 
     def merge_path(self, index: int, count: int, method: MergeMethod) -> None:
         path = self.paths[index]
@@ -547,7 +596,7 @@ class StackMachine(RuleBasedStateMachine):
         remaining = path[count:]
         if remaining:
             self.paths[index] = remaining
-            self.accept_submit(remaining)
+            self.accept_submit(remaining, publish=False)
         else:
             self.paths.pop(index)
 
@@ -683,32 +732,17 @@ class StackMachine(RuleBasedStateMachine):
     @precondition(lambda self: bool(self.edits()))
     @rule(data=st.data())
     def edit(self, data: st.DataObject) -> None:
-        index, kind = data.draw(st.sampled_from(self.edits()), label="edit")
-        path = self.paths[index][self.merged_prefix(self.paths[index]) :]
-        target = None
-        if kind in {"move_after", "move_before"}:
-            candidates = (
-                move_after_candidates(path)
-                if kind == "move_after"
-                else move_before_candidates(path)
-            )
-            label, target = data.draw(st.sampled_from(candidates), label="move")
-        else:
-            labels = (
-                path[1:]
-                if kind == "squash_into_previous"
-                else path[:-1]
-                if kind == "move_to_top"
-                else path
-            )
-            label = data.draw(st.sampled_from(labels), label="change")
-        new = f"c{len(self.ids) + 1}" if kind.startswith("insert") else None
-        self.apply_edit(index, StackEditOperation(kind, label, new, target))
+        options = self.edits()
+        kind = data.draw(st.sampled_from(sorted({op.kind for _, op in options})), label="edit")
+        index, operation = data.draw(
+            st.sampled_from([(i, op) for i, op in options if op.kind == kind]), label="change"
+        )
+        self.apply_edit(index, operation)
 
-    @precondition(lambda self: any(not self.merged_prefix(p) for p in self.paths))
+    @precondition(lambda self: any(not self.merged(p) for p in self.paths))
     @rule(data=st.data())
     def submit(self, data: st.DataObject) -> None:
-        indices = [i for i, p in enumerate(self.paths) if not self.merged_prefix(p)]
+        indices = [i for i, p in enumerate(self.paths) if not self.merged(p)]
         self.submit_path(data.draw(st.sampled_from(indices), label="stack"))
 
     @precondition(lambda self: len(self.ready()) >= 2)
@@ -735,21 +769,17 @@ class StackMachine(RuleBasedStateMachine):
     @rule(data=st.data(), method=st.sampled_from(get_args(MergeMethod)), external=st.booleans())
     def merge(self, data: st.DataObject, method: MergeMethod, external: bool) -> None:
         index = data.draw(st.sampled_from(self.ready()), label="stack")
-        count = data.draw(st.integers(1, len(self.paths[index])), label="prefix")
+        count = data.draw(st.integers(1, len(self.published(self.paths[index]))), label="prefix")
         if external:
             self.server_merge(index, count, method)
         else:
             self.merge_path(index, count, method)
 
-    @precondition(
-        lambda self: bool(self.rebased) or any(self.merged_prefix(p) for p in self.paths)
-    )
+    @precondition(lambda self: bool(self.rebased) or any(self.merged(p) for p in self.paths))
     @rule(data=st.data())
     def sync(self, data: st.DataObject) -> None:
         indices = [
-            i
-            for i, p in enumerate(self.paths)
-            if self.merged_prefix(p) or self.rebased.keys() & set(p)
+            i for i, p in enumerate(self.paths) if self.merged(p) or self.rebased.keys() & set(p)
         ]
         self.sync_path(data.draw(st.sampled_from(indices), label="stack"))
 
@@ -758,7 +788,8 @@ class StackMachine(RuleBasedStateMachine):
             i
             for i, path in enumerate(self.paths)
             if i in self.ready() or path[0] in self.rebased
-            if tuple(self.pr(label).number for label in path) in self.fake.github_stacks.values()
+            if tuple(self.pr(label).number for label in self.published(path))
+            in self.fake.github_stacks.values()
             if self.fake._run_backing_git("rev-parse", f"{self.pr(path[0]).head_ref}^")
             != self.fake.ref_target("main")
         ]
@@ -796,7 +827,7 @@ class StackMachine(RuleBasedStateMachine):
         labels = [
             label
             for p in self.paths
-            if not self.merged_prefix(p) and not self.rebased.keys() & set(p)
+            if not self.merged(p) and not self.rebased.keys() & set(p)
             for label in p
             if label in self.submitted
             and self.pr(label).state == ("closed" if kind == "reopened_pr" else "open")
