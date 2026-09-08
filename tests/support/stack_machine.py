@@ -346,9 +346,28 @@ class StackMachine(RuleBasedStateMachine):
         failures = self.submit_failures(path)
         if failures:
             before = self.snapshot()
+            selected = {self.pr(label).number for label in self.published(path)}
+            groups = {
+                number: {
+                    members,
+                    tuple(
+                        n
+                        for n in members
+                        if self.fake.prs[n].is_queued or self.fake.prs[n].merged_at
+                    ),
+                }
+                if not self.queued(path)
+                and selected.intersection(members)
+                and any(self.fake.prs[n].is_queued for n in members)
+                else {members}
+                for number, members in self.fake.github_stacks.items()
+            }
             code, output = self.cli("submit", head)
             assert (code, self.diagnosis()) in failures, (code, self.last_error, output)
-            assert self.snapshot() == before
+            after = self.snapshot()
+            assert after[:5] + after[6:] == before[:5] + before[6:]
+            assert self.fake.github_stacks.keys() == groups.keys()
+            assert all(self.fake.github_stacks[n] in members for n, members in groups.items())
             code, output = self.cli("view", head)
             assert code in {0, 2, 10}, (code, output)
             return
@@ -368,31 +387,40 @@ class StackMachine(RuleBasedStateMachine):
                 (2, "unsupported_stack:divergent_change"),
                 (2, "unsupported_stack:immutable_commit"),
             }
+        failures: set[tuple[int, str | None]] = set()
         if self.conflicts.intersection(path):
-            return {(3, None)}
+            failures.add((3, None))
         for label in path:
             if label in self.submitted:
-                if self.fake.ref_target(self.pr(label).head_ref) is None:
-                    return {(1, "remote_branch_missing")}
-                if self.pr(label).state == "closed":
-                    return {(1, "pr_not_open")}
-                if self.fake.ref_target(self.pr(label).head_ref) not in {
+                head = self.fake.ref_target(self.pr(label).head_ref)
+                if head is None:
+                    failures.add((1, "remote_branch_missing"))
+                elif self.pr(label).state == "closed":
+                    failures.add((1, "pr_not_open"))
+                elif head not in {
                     self.submitted[label].submitted_baseline.commit_id,
                     self.jj.resolve_commit(self.ids[label]).commit_id,
                 }:
-                    return {(1, "remote_branch_moved")}
+                    failures.add((1, "remote_branch_moved"))
             elif self.open_pr(label) is not None:
-                return {(1, "saved_pr_missing")}
+                failures.add((1, "saved_pr_missing"))
         if self.queued(path):
-            return {(1, None)}
+            failures.add((1, None))
         if self.rebased.keys() & set(path):
-            return {(1, "remote_branch_moved")}
+            failures.add((1, "remote_branch_moved"))
         selected = {self.pr(label).number for label in path if label in self.submitted}
         for members in self.fake.github_stacks.values():
             active = {number for number in members if self.fake.prs[number].merged_at is None}
-            if selected & active and active - selected and selected - set(members):
-                return {(1, None)}
-        return set()
+            if (
+                selected & active
+                and active - selected
+                and (
+                    selected - set(members)
+                    or any(self.fake.prs[number].is_queued for number in active - selected)
+                )
+            ):
+                failures.add((1, None))
+        return failures
 
     def accept_submit(
         self,
