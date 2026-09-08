@@ -58,9 +58,9 @@ from jj_stack.stack.status import (
     PreparedStatus,
     StackStatusChange,
     StatusResult,
+    inspect_status,
     prepare_status,
     status_preparation_cli_error,
-    stream_status,
 )
 
 _SUMMARY_SECTION_HEAD_COUNT = 3
@@ -319,12 +319,8 @@ def _status_heading(selector: ViewSelector) -> ui.Message:
 
 
 def _inspect_prepared_status(prepared_status: PreparedStatus) -> StatusResult:
-    progress_total = prepared_status.github_inspection_count()
-    with console.progress(description="Inspecting GitHub", total=progress_total) as progress:
-        return stream_status(
-            on_progress=progress.advance,
-            prepared_status=prepared_status,
-        )
+    with console.spinner(description="Inspecting GitHub"):
+        return inspect_status(prepared_status=prepared_status)
 
 
 def _json_prepared_status(

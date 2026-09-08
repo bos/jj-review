@@ -15,15 +15,15 @@ from jj_stack.stack.change_state import ChangeObservation
 from jj_stack.stack.status import (
     PreparedChange,
     PreparedStatus,
+    inspect_status_async,
     prepare_stack_for_status,
-    stream_status_async,
 )
 from tests.support.change_helpers import make_change
 from tests.support.contexts import fake_command_context
 from tests.support.tracking import make_pr_identity
 
 
-def test_stream_status_falls_back_to_local_data_after_github_abort(monkeypatch) -> None:
+def test_status_falls_back_to_local_data_after_github_abort(monkeypatch) -> None:
     change = make_change(
         commit_id="commit-1",
         description="feature 1",
@@ -48,30 +48,21 @@ def test_stream_status_falls_back_to_local_data_after_github_abort(monkeypatch) 
         github_target=_github_target(),
         prepared=prepared,
     )
-    progress_updates = 0
-
-    def on_progress() -> None:
-        nonlocal progress_updates
-        progress_updates += 1
 
     async def abort_github_inspection(**_kwargs):
-        if False:
-            yield None
         raise CliError("GitHub lookup failed")
 
     monkeypatch.setattr(
-        "jj_stack.stack.status._iter_status_changes_with_github",
+        "jj_stack.stack.status.lookup_pr_lookups_async",
         abort_github_inspection,
     )
 
     result = asyncio.run(
-        stream_status_async(
-            on_progress=on_progress,
+        inspect_status_async(
             prepared_status=prepared_status,
         )
     )
 
-    assert progress_updates == 1
     assert result.github_error == "GitHub lookup failed"
     assert result.incomplete is True
     assert result.changes[0].branch == "jj-stack/feature-1-aaaaaaaa"

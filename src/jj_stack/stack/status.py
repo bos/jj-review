@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 
 import jj_stack.ui as ui
@@ -22,7 +22,6 @@ from jj_stack.github.resolution import (
     UnresolvedGithubTarget,
     resolve_github_target,
 )
-from jj_stack.identifiers import short_change_id
 from jj_stack.jj.client import JjClient, UnsupportedStackError
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR
@@ -99,13 +98,6 @@ class PreparedStatus:
     @property
     def github_repo_error(self) -> ErrorMessage | None:
         return self.github_target.github_repo_error
-
-    def github_inspection_count(self) -> int:
-        """Return how many selected changes need live GitHub inspection."""
-
-        if self.github_repo is None:
-            return 0
-        return sum(1 for change in self.prepared.status_changes if change.tracked is not None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,105 +196,40 @@ def prepare_status(
     )
 
 
-def stream_status(
-    *,
-    prepared_status: PreparedStatus,
-    on_progress: Callable[[], None],
-) -> StatusResult:
-    """Inspect GitHub state for a prepared stack and report progress."""
+def inspect_status(*, prepared_status: PreparedStatus) -> StatusResult:
+    """Inspect GitHub state for a prepared stack."""
 
-    return asyncio.run(
-        stream_status_async(
-            on_progress=on_progress,
-            prepared_status=prepared_status,
-        )
-    )
+    return asyncio.run(inspect_status_async(prepared_status=prepared_status))
 
 
-async def stream_status_async(
-    *,
-    on_progress: Callable[[], None],
-    prepared_status: PreparedStatus,
-) -> StatusResult:
+async def inspect_status_async(*, prepared_status: PreparedStatus) -> StatusResult:
     prepared = prepared_status.prepared
     github_repo = prepared_status.github_repo
-    github_repo_error = prepared_status.github_repo_error
-
-    def result(
-        changes: tuple[StackStatusChange, ...],
-        *,
-        github_error: ErrorMessage | None = None,
-        github_repo: GithubRepoAddress | None = None,
-        remote: GitRemote | None = None,
-        remote_error: ErrorMessage | None = None,
-    ) -> StatusResult:
-        return StatusResult(
-            github_error=github_error,
-            github_repo=github_repo,
-            incomplete=status_is_incomplete(changes),
-            remote=remote,
-            remote_error=remote_error,
-            changes=changes,
-            selected_revset=prepared.stack.selected_revset,
-        )
-
-    def stream_local(changes: tuple[StackStatusChange, ...]) -> None:
-        for _change in changes:
-            on_progress()
-
-    fallback_changes = tuple(reversed(build_status_changes_for_prepared_stack(prepared)))
-    if prepared.remote is None:
-        stream_local(fallback_changes)
-        return result(fallback_changes, remote_error=prepared.remote_error)
-
-    if github_repo is None:
-        logger.debug("status github target unavailable: %s", github_repo_error)
-        stream_local(fallback_changes)
-        return result(fallback_changes, github_error=github_repo_error, remote=prepared.remote)
-
-    if not prepared.status_changes:
-        return result((), github_repo=github_repo, remote=prepared.remote)
-
-    prepared_changes_for_github = tuple(
-        PreparedChange(change=change.change, tracked=change.tracked)
-        for change in prepared.status_changes
-        if change.tracked is not None
-    )
-    if not prepared_changes_for_github:
-        return result(fallback_changes, github_repo=github_repo, remote=prepared.remote)
-
-    changes: list[StackStatusChange] = []
-    try:
-        async for change in _iter_status_changes_with_github(
-            github_repo=github_repo,
-            prepared_changes=prepared_changes_for_github,
-            remote_name=prepared.remote.name,
-        ):
-            changes.append(change)
-            on_progress()
-    except CliError as error:
-        github_error = error_message(error)
-        logger.debug("status github inspection failed: %s", github_error)
-        streamed_change_ids = {change.change_id for change in changes}
-        stream_local(
-            tuple(
-                change
-                for change in fallback_changes
-                if change.change_id not in streamed_change_ids
+    github_error = prepared_status.github_repo_error
+    pr_lookups: dict[str, ChangeObservation] | None = None
+    if github_repo is not None and any(
+        change.tracked is not None for change in prepared.status_changes
+    ):
+        try:
+            pr_lookups = await lookup_pr_lookups_async(
+                github_repo=github_repo,
+                prepared_changes=prepared.status_changes,
             )
-        )
-        return result(
-            fallback_changes,
-            github_error=github_error,
-            github_repo=github_repo,
-            remote=prepared.remote,
-        )
-
-    changes_by_change_id = {change.change_id: change for change in changes}
-    display_changes = tuple(
-        changes_by_change_id.get(change.change_id, change) for change in fallback_changes
+        except CliError as error:
+            github_error = error_message(error)
+            logger.debug("status github inspection failed: %s", github_error)
+    changes = tuple(
+        reversed(build_status_changes_for_prepared_stack(prepared, pr_lookups=pr_lookups))
     )
-    return result(display_changes, github_repo=github_repo, remote=prepared.remote)
+    return StatusResult(
+        github_error=github_error,
+        github_repo=github_repo,
+        incomplete=status_is_incomplete(changes),
+        remote=prepared.remote,
+        remote_error=prepared.remote_error,
+        changes=changes,
+        selected_revset=prepared.stack.selected_revset,
+    )
 
 
 def prepare_stack_for_status(
@@ -389,36 +316,6 @@ def status_is_incomplete(changes: tuple[StackStatusChange, ...]) -> bool:
     return any(report_incomplete(change.state) for change in changes)
 
 
-async def _iter_status_changes_with_github(
-    *,
-    github_repo: GithubRepoAddress,
-    prepared_changes: tuple[PreparedChange[TrackedPR], ...],
-    remote_name: str,
-) -> AsyncIterator[StackStatusChange]:
-    ordered_prepared_changes = tuple(reversed(prepared_changes))
-    async with build_github_client(repo=github_repo) as github_client:
-        pr_lookups = await discover_pr_lookups(
-            github_client=github_client,
-            observations=_observations_by_branch(
-                ordered_prepared_changes, remote_name=remote_name
-            ),
-        )
-        for prepared_change in ordered_prepared_changes:
-            branch = prepared_change.tracked.pr_identity.head_ref
-            status_change = _status_change(
-                prepared_change,
-                lookup=pr_lookups[branch],
-                remote_name=remote_name,
-            )
-            logger.debug(
-                "status change inspected: change_id=%s branch=%s state=%s",
-                short_change_id(prepared_change.change.change_id),
-                branch,
-                type(status_change.state).__name__,
-            )
-            yield status_change
-
-
 def lookup_pr_lookups(
     *,
     github_repo: GithubRepoAddress,
@@ -427,31 +324,29 @@ def lookup_pr_lookups(
 ) -> dict[str, ChangeObservation]:
     """Return pull-request lookups for saved branches."""
 
-    return asyncio.run(
+    pr_lookups = asyncio.run(
         lookup_pr_lookups_async(
             github_repo=github_repo,
-            on_progress=on_progress,
             prepared_changes=prepared_changes,
         )
     )
+    if pr_lookups:
+        on_progress(len(pr_lookups))
+    return pr_lookups
 
 
 async def lookup_pr_lookups_async(
     *,
     github_repo: GithubRepoAddress,
-    on_progress: Callable[[int], None],
     prepared_changes: tuple[PreparedChange, ...],
 ) -> dict[str, ChangeObservation]:
     """Return pull-request lookups for saved branches."""
 
     async with build_github_client(repo=github_repo) as github_client:
-        pr_lookups = await discover_pr_lookups(
+        return await discover_pr_lookups(
             github_client=github_client,
             observations=_observations_by_branch(prepared_changes, remote_name=None),
         )
-        if pr_lookups:
-            on_progress(len(pr_lookups))
-        return pr_lookups
 
 
 def _observations_by_branch(
