@@ -10,6 +10,8 @@ orphaned PRs in the repo. Both write JSON to standard output and diagnostics to 
 
 The published schema is
 [json-output.schema.json](https://github.com/bos/jj-stack/blob/main/docs/json-output.schema.json).
+Fields may be added; scripts should ignore fields they do not use. For schema validation, use
+the schema from the same jj-stack release as the CLI.
 
 An incomplete report is still valid JSON, but the command exits 10. Save both the output and exit
 code so you can distinguish a complete report from a partial one. Other failures may produce no
@@ -26,6 +28,8 @@ Stack changes use this shape:
   "branch": "jj-stack/add-json-output-zvlyxwvk",
   "subject": "add json output",
   "status": "open",
+  "needs_submit": false,
+  "needs_sync": false,
   "pr": {
     "checks": "passed",
     "number": 12,
@@ -35,6 +39,11 @@ Stack changes use this shape:
 ```
 
 `change_id` is the full jj change ID. `subject` is the first line of its description.
+
+`needs_submit` is true when local edits to a submitted change need publishing. It is false for
+unsubmitted changes, queued PRs, divergence, and lookup or saved-link problems. It does not
+establish that all requirements for submission are satisfied. `needs_sync` is true when the PR
+is merged and the change remains in the reported local stack.
 
 `current: true` is present when the change is the current working-copy change and omitted
 otherwise.
@@ -73,19 +82,23 @@ Known change statuses are:
 ## `view --json`
 
 `view --json` returns a `stacks` array. Within each stack, `changes` runs from the head down to
-the bottom, matching the text display. The head is the **first** entry.
+the bottom, matching the text display. `head_change_id` identifies the head, which is the
+**first** entry. For an empty stack, it identifies the resolved selection.
 
 ```json
 {
   "stacks": [
     {
       "selector": "PR 12",
+      "head_change_id": "zvlyxwvksmry...",
       "changes": [
         {
           "change_id": "zvlyxwvksmry...",
           "branch": "jj-stack/add-json-output-zvlyxwvk",
           "subject": "add json output",
           "status": "open",
+          "needs_submit": false,
+          "needs_sync": false,
           "pr": {
             "checks": "passed",
             "number": 12,
@@ -105,8 +118,9 @@ revset argument or `--pull-request`.
 
 `list --json` returns a `rows` array. Each row has a `type` of `stack` or `orphan`.
 
-In a stack row, `changes` runs from the bottom up to the head. The head is the **last** entry,
-and the row's `subject` is that head's subject. This order is the reverse of `view --json`.
+In a stack row, `changes` runs from the bottom up to the head. `head_change_id` identifies the
+head, which is the **last** entry, and the row's `subject` is that head's subject. This order is
+the reverse of `view --json`.
 
 An orphan row describes a saved pull request link whose local change is no longer part of a
 current stack. It has its own `change_id`, `branch`, and optional `pr`, without a `changes` array.
@@ -116,6 +130,7 @@ current stack. It has its own `change_id`, `branch`, and optional `pr`, without 
   "rows": [
     {
       "type": "stack",
+      "head_change_id": "zvlyxwvksmry...",
       "current": true,
       "subject": "add json output",
       "status": "1 approved, open, checks pending",
@@ -125,6 +140,8 @@ current stack. It has its own `change_id`, `branch`, and optional `pr`, without 
           "branch": "jj-stack/add-the-model-rlvmnowl",
           "subject": "add the model",
           "status": "approved",
+          "needs_submit": false,
+          "needs_sync": false,
           "pr": {
             "checks": "passed",
             "number": 11,
@@ -136,6 +153,8 @@ current stack. It has its own `change_id`, `branch`, and optional `pr`, without 
           "branch": "jj-stack/add-json-output-zvlyxwvk",
           "subject": "add json output",
           "status": "open",
+          "needs_submit": false,
+          "needs_sync": false,
           "pr": {
             "checks": "pending",
             "number": 12,

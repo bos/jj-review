@@ -300,6 +300,7 @@ def _json_list_payload(
 
 def _json_stack_row(row: StackRow) -> dict[str, object]:
     payload: dict[str, object] = {
+        "head_change_id": row.head_change_id,
         "changes": [
             stack_change_json(
                 change,

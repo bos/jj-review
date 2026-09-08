@@ -14,10 +14,13 @@ def stack_change_json(
 ) -> dict[str, object]:
     """Return the public JSON shape for one stack change."""
 
+    report = report_change(change.state)
     payload: dict[str, object] = {
         "change_id": change.change_id,
-        "status": report_change(change.state).status,
+        "status": report.status,
         "subject": change.subject,
+        "needs_submit": report.needs_submit,
+        "needs_sync": report.needs_sync,
     }
     if change.branch is not None:
         payload["branch"] = change.branch

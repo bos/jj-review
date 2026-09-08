@@ -377,6 +377,7 @@ def _json_status_result(
         change.change_id for change in stack_model.changes if change.current_working_copy
     }
     stack: dict[str, object] = {
+        "head_change_id": stack_model.head.change_id,
         "changes": [
             stack_change_json(
                 change,

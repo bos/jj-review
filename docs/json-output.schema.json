@@ -18,7 +18,9 @@
       "required": [
         "change_id",
         "subject",
-        "status"
+        "status",
+        "needs_submit",
+        "needs_sync"
       ],
       "properties": {
         "change_id": {
@@ -32,6 +34,12 @@
         },
         "status": {
           "$ref": "#/$defs/changeStatus"
+        },
+        "needs_submit": {
+          "type": "boolean"
+        },
+        "needs_sync": {
+          "type": "boolean"
         },
         "current": {
           "const": true
@@ -158,6 +166,7 @@
         "type",
         "subject",
         "status",
+        "head_change_id",
         "changes"
       ],
       "properties": {
@@ -173,6 +182,9 @@
         "status": {
           "type": "string",
           "description": "Human-readable stack summary; derive machine state from changes"
+        },
+        "head_change_id": {
+          "type": "string"
         },
         "changes": {
           "type": "array",
@@ -201,9 +213,13 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "head_change_id",
         "changes"
       ],
       "properties": {
+        "head_change_id": {
+          "type": "string"
+        },
         "selector": {
           "type": "string"
         },

@@ -35,7 +35,8 @@ def test_view_json_reports_public_stack_status(
 ) -> None:
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
-    change_id = selected_stack(repo).head.change_id
+    local_stack = selected_stack(repo)
+    change_id = local_stack.head.change_id
     fake_repo.prs[1].check_rollup_state = "SUCCESS"
     fake_repo.prs[1].state = "closed"
     fake_repo.prs[1].merged_at = "2026-03-16T12:00:00Z"
@@ -49,35 +50,23 @@ def test_view_json_reports_public_stack_status(
     assert exit_code == 0
     payload = json.loads(captured.out)
     assert_json_output_matches_schema(payload, "view")
-    assert set(payload) == {"stacks"}
-
     stack = payload["stacks"][0]
-    assert set(stack) == {"changes"}
-
+    assert stack["head_change_id"] == change_id
     change = stack["changes"][0]
-    assert {
-        "branch",
-        "change_id",
-        "pr",
-        "status",
-        "subject",
-    } <= set(change)
-    assert set(change) <= {
-        "branch",
-        "change_id",
-        "current",
-        "pr",
-        "status",
-        "subject",
-    }
     assert change["change_id"] == change_id
     assert change["branch"].startswith("jj-stack/feature-1-")
     assert change["status"] == "merged"
+    assert change["needs_sync"] is True
+    assert change["needs_submit"] is False
     assert change["subject"] == "feature 1"
     assert change["pr"]["number"] == 1
     assert change["pr"]["checks"] == "passed"
-    assert "remote_branch" not in change
-    assert "saved_pr" not in change
+
+    assert run_main(repo, config_path, "view", "trunk()", "--json") == 0
+    empty = json.loads(capsys.readouterr().out)
+    assert_json_output_matches_schema(empty, "view")
+    assert empty["stacks"][0]["changes"] == []
+    assert empty["stacks"][0]["head_change_id"] == local_stack.trunk.change_id
 
 
 def test_view_and_list_show_queued_prs(

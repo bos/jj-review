@@ -42,7 +42,6 @@ def test_list_reports_public_stack_rows_and_links_live_pr(
     assert exit_code == 0
     payload = json.loads(captured.out)
     assert_json_output_matches_schema(payload, "list")
-    assert set(payload) == {"rows"}
 
     row = payload["rows"][0]
     assert row["type"] == "stack"
@@ -56,9 +55,6 @@ def test_list_reports_public_stack_rows_and_links_live_pr(
     assert change["pr"]["number"] == 1
     assert change["pr"]["checks"] == "pending"
     assert change["status"] == "open"
-    assert "head_change_id" not in row
-    assert "review" not in row
-    assert "size" not in row
 
     run_command(["jj", "describe", "-r", change_id, "-m", "feature \x1bc"], repo)
     assert run_main(repo, config_path, "list", "--color=always") == 0
@@ -165,12 +161,16 @@ def test_list_treats_a_visible_submitted_predecessor_as_published(
     branch = TrackingStore.for_repo(repo).load().prs[change_id].pr_identity.head_ref
     run_command(["jj", "describe", "-r", change_id, "-m", "feature rewritten"], repo)
     run_command(["jj", "git", "fetch", "--remote", "origin", "--branch", branch], repo)
+    fake_repo.create_pr_review(pr_number=1, reviewer_login="alice", state="APPROVED")
 
     assert run_main(repo, config_path, "list", "--json") == 0
     payload = json.loads(capsys.readouterr().out)
 
     assert len(payload["rows"]) == 1
     assert [change["change_id"] for change in payload["rows"][0]["changes"]] == [change_id]
+    change = payload["rows"][0]["changes"][0]
+    assert change["status"] == "approved"
+    assert change["needs_submit"] is True
 
 
 def test_list_links_top_pr_below_unsubmitted_local_descendant(
@@ -203,9 +203,11 @@ def test_list_links_top_pr_below_unsubmitted_local_descendant(
     assert exit_code == 0
     payload = json.loads(captured.out)
     assert_json_output_matches_schema(payload, "list")
+    assert payload["rows"][0]["head_change_id"] == head_change_id
     changes = payload["rows"][0]["changes"]
     unsubmitted = next(change for change in changes if change["change_id"] == head_change_id)
     assert unsubmitted["status"] == "unsubmitted"
+    assert unsubmitted["needs_submit"] is False
     assert "branch" not in unsubmitted
 
 
