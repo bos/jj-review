@@ -190,9 +190,21 @@ After Ctrl-C, lost connectivity, or a terminal closing mid-command, inspect the 
 jj-stack view <head-change-id>
 ```
 
-If GitHub completed a merge, run `jj-stack sync <head-change-id>`. Otherwise, rerun the
-interrupted command with the same selection. jj-stack checks what already succeeded and
-continues from the current state.
+If `jj-stack submit --edit` fails after you edit the pull requests, you can retry without typing
+your edits again. jj-stack keeps the file you edited and prints its location after `Editor file:`
+or in the error's retry command. Use that location in this command:
+
+```console
+jj-stack submit <head-change-id> --resume-edit /path/to/saved-editor-file.md
+```
+
+`--resume-edit` opens your saved edits in the editor again. Use it instead of `--edit`, which
+opens a new file. Include any other options from your original command, such as `--base`.
+See [edit every PR at once](reference/descriptions.md#edit-every-pr-at-once) for more details.
+
+For other interruptions, if GitHub completed a merge, run `jj-stack sync <head-change-id>`.
+Otherwise, rerun your original command. jj-stack checks what already succeeded and continues
+from the current state.
 
 ## Your old PR branches remain
 
