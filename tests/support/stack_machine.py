@@ -180,6 +180,16 @@ class StackMachine(RuleBasedStateMachine):
     def queued(self, path: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(label for label in self.published(path) if self.pr(label).is_queued)
 
+    def dependents(self, label: str, excluding: tuple[str, ...] = ()) -> bool:
+        excluded = {self.pr(item).number for item in self.published(excluding)}
+        return any(
+            pr.number not in excluded
+            and pr.base_ref == self.pr(label).head_ref
+            and pr.merged_at is None
+            and self.fake.ref_target(pr.head_ref) is not None
+            for pr in self.fake.prs.values()
+        )
+
     def pr(self, label: str):
         return self.fake.prs[self.submitted[label].pr_identity.pr_number]
 
@@ -238,9 +248,6 @@ class StackMachine(RuleBasedStateMachine):
         return options
 
     def ready(self) -> list[int]:
-        live = {label for path in self.paths for label in path}
-        if set(self.submitted) - live:
-            return []
         return [
             i
             for i in self.editable()
@@ -569,6 +576,10 @@ class StackMachine(RuleBasedStateMachine):
         remaining = path[len(merged) :]
         published = self.published(remaining)
         selected = {self.pr(label).number for label in self.published(path)}
+        commits = {
+            change.change_id: change.commit_id
+            for change in selected_stack(self.repo, self.ids[path[-1]]).changes
+        }
         return (
             path[: len(merged)] != merged
             or remaining[: len(published)] != published
@@ -581,8 +592,7 @@ class StackMachine(RuleBasedStateMachine):
                 for members in self.fake.github_stacks.values()
             )
             or any(
-                self.jj.resolve_commit(self.ids[label]).commit_id
-                != self.submitted[label].submitted_baseline.commit_id
+                commits[self.ids[label]] != self.submitted[label].submitted_baseline.commit_id
                 for label in merged
             )
             or bool(
@@ -606,19 +616,64 @@ class StackMachine(RuleBasedStateMachine):
             assert code == 1, (self.last_error, output)
             assert self.snapshot() == before
             return
-        self.ok("sync", self.ids[path[-1]])
+        outside = self.outside(path)
+        code, output = self.cli("sync", self.ids[path[-1]])
+        assert code == int(any(self.dependents(label) for label in self.merged(path))), output
         if self.rebased.keys() & set(path):
             self.accept_submit(path, publish=False)
             del self.rebased[path[0]]
         else:
             self.accept_merge(index, len(self.merged(path)))
+        assert self.outside(path) == outside
+
+    def sync_all_paths(self) -> None:
+        live = {label for path in self.paths for label in path}
+        orphans = self.merged(tuple(set(self.submitted) - live))
+        finishes = tuple(
+            label
+            for label in orphans
+            if not any(
+                self.pr(label).number in members
+                and any(self.fake.prs[number].merged_at is None for number in members)
+                for members in self.fake.github_stacks.values()
+            )
+            and not self.dependents(label)
+        )
+        affected = [i for i, p in enumerate(self.paths) if self.merged(p) and not self.queued(p)]
+        ready = [i for i in affected if not self.sync_blocked(self.paths[i])]
+        selected = (*finishes, *(label for i in ready for label in self.paths[i]))
+        untouched = tuple(self.ids[label] for label in live if label not in selected)
+        blocked = (
+            len(ready) != len(affected)
+            or len(finishes) != len(orphans)
+            or any(self.dependents(label) for i in ready for label in self.merged(self.paths[i]))
+            or any(
+                self.pr(label).state == "closed" and self.pr(label).merged_at is None
+                for label in self.submitted
+            )
+        )
+        run_command(["jj", "git", "fetch", "--remote", "origin"], self.repo)
+        outside = self.outside(selected)
+        copies = self.jj.query_commits_by_change_ids(untouched)
+        code, output = self.cli("sync", "--all")
+        assert code == int(blocked), (self.last_error, output)
+        for i in reversed(ready):
+            self.accept_merge(i, len(self.merged(self.paths[i])))
+        for label in finishes:
+            assert self.fake.ref_target(self.pr(label).head_ref) is None
+            del self.submitted[label]
+        assert self.outside(selected) == outside
+        assert self.jj.query_commits_by_change_ids(untouched) == copies
 
     def merge_path(self, index: int, count: int, method: MergeMethod) -> None:
         path = self.paths[index]
         boundary = self.submitted[path[count - 1]]
-        self.ok(
+        outside = self.outside(path)
+        blocked = any(self.dependents(label, excluding=path) for label in path[:count])
+        code, output = self.cli(
             "merge", "--method", method, "--pull-request", str(boundary.pr_identity.pr_number)
         )
+        assert code == int(blocked), output
         assert self.fake.stack_merge_requests[-1] == (
             boundary.pr_identity.pr_number,
             method,
@@ -627,6 +682,7 @@ class StackMachine(RuleBasedStateMachine):
         )
         self.land(path[:count])
         self.accept_merge(index, count)
+        assert self.outside(path) == outside
 
     def accept_merge(self, index: int, count: int) -> None:
         path = self.paths[index]
@@ -634,7 +690,10 @@ class StackMachine(RuleBasedStateMachine):
         for label in path[:count]:
             pr = self.pr(label)
             assert pr.merged_at is not None
-            assert f"refs/heads/{pr.head_ref}" not in refs
+            retained = self.dependents(label)
+            assert refs.get(f"refs/heads/{pr.head_ref}") == (
+                self.submitted[label].submitted_baseline.commit_id if retained else None
+            )
             copies = self.jj.query_commits_by_change_ids((self.ids[label],))[self.ids[label]]
             assert not copies or (
                 len(copies) == 1
@@ -642,7 +701,8 @@ class StackMachine(RuleBasedStateMachine):
                 and not copies[0].divergent
                 and copies[0].commit_id == pr.merge_commit_sha
             )
-            del self.submitted[label]
+            if not retained:
+                del self.submitted[label]
             self.dirty.discard(label)
         remaining = path[count:]
         if remaining:
@@ -845,6 +905,11 @@ class StackMachine(RuleBasedStateMachine):
         ]
         self.sync_path(data.draw(st.sampled_from(indices), label="stack"))
 
+    @precondition(lambda self: bool(self.submitted))
+    @rule()
+    def sync_all(self) -> None:
+        self.sync_all_paths()
+
     @precondition(lambda self: any(pr.is_queued for pr in self.fake.prs.values()))
     @rule(data=st.data(), method=st.sampled_from((None, *get_args(MergeMethod))))
     def server_queue(self, data: st.DataObject, method: MergeMethod | None) -> None:
@@ -880,12 +945,7 @@ class StackMachine(RuleBasedStateMachine):
             and label not in self.rebased
             and (self.pr(label).state == "closed" or label not in live)
             and self.fake.stack_number_for_pr(self.pr(label).number) is None
-            and not any(
-                other.base_ref == self.pr(label).head_ref
-                and other.merged_at is None
-                and self.fake.ref_target(other.head_ref) is not None
-                for other in self.fake.prs.values()
-            )
+            and not self.dependents(label)
         )
 
     @precondition(lambda self: bool(self.cleanup_candidates()))

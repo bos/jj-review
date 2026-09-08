@@ -52,6 +52,9 @@ Check these properties at the boundaries where they apply:
   squashing, or syncing. Merges preserve both the submitted contents and unrelated work on trunk.
 - A native GitHub rebase can be reconciled while preserving local change IDs. If trunk advances
   again, sync refuses that stale rebase without rewriting local work or PR branches.
+- `sync --all` progresses independent stacks despite blocked paths or unrelated orphan PRs.
+  Blocked and unaffected paths retain their commits, PRs, branches, and tracking. A native rebase
+  alone does not make a path eligible for this command.
 
 The test model must predict these outcomes from the actions taken, rather than asking production
 planning code what to expect. Preconditions select applicable actions; deliberately unsafe
