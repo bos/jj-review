@@ -62,7 +62,8 @@ from jj_stack.stack.selection import resolve_linked_change_for_pr
 from jj_stack.stack.status import (
     StackStatusChange,
     StatusResult,
-    inspect_status,
+    build_status_result,
+    observe_status,
 )
 
 _SUMMARY_SECTION_HEAD_COUNT = 3
@@ -79,13 +80,6 @@ class ViewSelector:
 
     kind: ViewSelectorKind
     value: str
-
-
-@dataclass(frozen=True, slots=True)
-class _ResolvedViewSelector:
-    note: ui.Message | None
-    revset: str | None
-    containing_change_id: str | None
 
 
 def view(
@@ -124,80 +118,77 @@ def _run_status(
             context=context,
             revset=None,
         )
+        with console.spinner(description="Inspecting GitHub"):
+            pr_lookups = observe_status(prepared=(prepared_status,))
+        result = build_status_result(prepared=prepared_status, pr_lookups=pr_lookups)
+        for warning in _local_history_warnings(prepared_status):
+            console.warning(warning)
         if as_json:
-            rendered, incomplete = _json_prepared_status(
+            _warn_about_unavailable_github(result)
+            rendered = _json_status_result(
                 prepared_status=prepared_status,
+                result=result,
+                selector=None,
             )
             console.machine_output(json.dumps(_view_json_payload(stacks=(rendered,)), indent=2))
-            return EXIT_INCOMPLETE if incomplete else 0
-        return _render_prepared_status(
+            return EXIT_INCOMPLETE if result.incomplete else 0
+        _render_prepared_status(
             prepared_status=prepared_status,
+            result=result,
             verbose=verbose,
         )
+        return EXIT_INCOMPLETE if result.incomplete else 0
 
     exit_code = 0
     multi_selector = len(selectors) > 1
-    rendered_stack_keys: set[tuple[str, ...]] = set()
     json_stacks: list[dict[str, object]] = []
     printed_blocks = 0
-    for selector in selectors:
-        try:
-            resolved_selector = _resolve_status_selector(
-                context=context,
-                selector=selector,
+    selections = _prepare_status_selections(context=context, selectors=selectors)
+    with console.spinner(description="Inspecting GitHub"):
+        pr_lookups = observe_status(
+            prepared=tuple(
+                prepared
+                for _, prepared, _ in selections
+                if isinstance(prepared, PreparedLocalStack)
             )
-            prepared_status = _prepare_status_with_spinner(
-                containing_change_id=resolved_selector.containing_change_id,
-                context=context,
-                revset=resolved_selector.revset,
-            )
-        except CliError as error:
-            if not multi_selector:
-                # A single selector that yields no report matches the bare-view
-                # behavior: fail with the error's category code instead of
-                # degrading to an incomplete report.
-                raise
-            if not as_json and printed_blocks:
+        )
+    for selector, prepared_status, notes in selections:
+        if not as_json:
+            if printed_blocks:
                 console.output("")
-            if not as_json:
+            if multi_selector:
                 console.output(_status_heading(selector))
-            console.warning(ui.prefixed_line("Error: ", error_message(error)))
-            hint = error.hint
+            printed_blocks += 1
+        if isinstance(prepared_status, CliError):
+            console.warning(ui.prefixed_line("Error: ", error_message(prepared_status)))
+            hint = prepared_status.hint
             if hint is not None:
                 console.warning(ui.prefixed_line("Hint: ", hint))
             exit_code = EXIT_INCOMPLETE
-            if not as_json:
-                printed_blocks += 1
             continue
 
-        change_ids = tuple(change.change_id for change in prepared_status.stack.changes)
-        stack_key = (prepared_status.stack.base_parent.commit_id, *change_ids)
-        if stack_key in rendered_stack_keys:
-            continue
-        rendered_stack_keys.add(stack_key)
+        for warning in _local_history_warnings(prepared_status):
+            console.warning(warning)
+        result = build_status_result(prepared=prepared_status, pr_lookups=pr_lookups)
+        exit_code = max(exit_code, EXIT_INCOMPLETE if result.incomplete else 0)
         if as_json:
-            rendered, incomplete = _json_prepared_status(
-                prepared_status=prepared_status,
-                selector=selector,
+            _warn_about_unavailable_github(result)
+            json_stacks.append(
+                _json_status_result(
+                    prepared_status=prepared_status,
+                    result=result,
+                    selector=selector,
+                )
             )
-            json_stacks.append(rendered)
-            exit_code = max(exit_code, EXIT_INCOMPLETE if incomplete else 0)
             continue
 
-        if printed_blocks:
-            console.output("")
-        if multi_selector:
-            console.output(_status_heading(selector))
-        if resolved_selector.note is not None:
-            console.note(resolved_selector.note)
-        exit_code = max(
-            exit_code,
-            _render_prepared_status(
-                prepared_status=prepared_status,
-                verbose=verbose,
-            ),
+        for note in notes:
+            console.note(note)
+        _render_prepared_status(
+            prepared_status=prepared_status,
+            result=result,
+            verbose=verbose,
         )
-        printed_blocks += 1
     if as_json:
         console.machine_output(
             json.dumps(
@@ -207,36 +198,69 @@ def _run_status(
                 indent=2,
             )
         )
-        return exit_code
     return exit_code
 
 
-def _resolve_status_selector(
+def _prepare_status_selections(
+    *,
+    context: CommandContext,
+    selectors: tuple[ViewSelector, ...],
+) -> list[tuple[ViewSelector, PreparedLocalStack | CliError, tuple[ui.Message, ...]]]:
+    selections: list[
+        tuple[ViewSelector, PreparedLocalStack | CliError, tuple[ui.Message, ...]]
+    ] = []
+    stack_keys: set[tuple[str, ...]] = set()
+    for selector in selectors:
+        try:
+            prepared, notes = _prepare_status_selector(context=context, selector=selector)
+        except CliError as error:
+            if len(selectors) == 1:
+                # Without a report, preserve the selection error's category.
+                raise
+            selections.append((selector, error, ()))
+            continue
+        stack_key = (
+            prepared.stack.base_parent.commit_id,
+            *(change.change_id for change in prepared.stack.changes),
+        )
+        if stack_key not in stack_keys:
+            stack_keys.add(stack_key)
+            selections.append((selector, prepared, notes))
+    return selections
+
+
+def _prepare_status_selector(
     *,
     context: CommandContext,
     selector: ViewSelector,
-) -> _ResolvedViewSelector:
+) -> tuple[PreparedLocalStack, tuple[ui.Message, ...]]:
     if selector.kind == "pr":
         pr_number, resolved_revset, repo = resolve_linked_change_for_pr(
             jj_client=context.jj_client,
             pr_reference=selector.value,
             revset=None,
         )
-        return _ResolvedViewSelector(
-            note=t"Using {format_pr_label(pr_number, repo=repo)} for change "
-            t"{ui.change_id(resolved_revset)}",
-            revset=None,
+        prepared = _prepare_status_with_spinner(
+            context=context,
             containing_change_id=resolved_revset,
+            revset=None,
+        )
+        return prepared, (
+            t"Using {format_pr_label(pr_number, repo=repo)} for change "
+            t"{ui.change_id(resolved_revset)}",
         )
     resolved_revset = selector.value
     containing_change_id = _change_id_selector(
         context=context,
         value=resolved_revset,
     )
-    return _ResolvedViewSelector(
-        note=None,
-        revset=None if containing_change_id is not None else resolved_revset,
-        containing_change_id=containing_change_id,
+    return (
+        _prepare_status_with_spinner(
+            context=context,
+            revset=None if containing_change_id is not None else resolved_revset,
+            containing_change_id=containing_change_id,
+        ),
+        (),
     )
 
 
@@ -281,8 +305,6 @@ def _prepare_status_with_spinner(
             )
         except UnsupportedStackError as error:
             raise stack_preparation_cli_error(error) from error
-    for warning in _local_history_warnings(prepared_status):
-        console.warning(warning)
     return prepared_status
 
 
@@ -316,28 +338,6 @@ def _status_heading(selector: ViewSelector) -> ui.Message:
     if selector.kind == "pr":
         return f"Status for PR {selector.value}:"
     return t"Status for {ui.revset(selector.value)}:"
-
-
-def _inspect_prepared_status(prepared_status: PreparedLocalStack) -> StatusResult:
-    with console.spinner(description="Inspecting GitHub"):
-        return inspect_status(prepared=prepared_status)
-
-
-def _json_prepared_status(
-    *,
-    prepared_status: PreparedLocalStack,
-    selector: ViewSelector | None = None,
-) -> tuple[dict[str, object], bool]:
-    result = _inspect_prepared_status(prepared_status)
-    _warn_about_unavailable_github(result)
-    return (
-        _json_status_result(
-            prepared_status=prepared_status,
-            result=result,
-            selector=selector,
-        ),
-        result.incomplete,
-    )
 
 
 def _warn_about_unavailable_github(result: StatusResult) -> tuple[ui.Message, ...]:
@@ -394,9 +394,9 @@ def _json_status_result(
 def _render_prepared_status(
     *,
     prepared_status: PreparedLocalStack,
+    result: StatusResult,
     verbose: bool,
-) -> int:
-    result = _inspect_prepared_status(prepared_status)
+) -> None:
     warning_lines = _warn_about_unavailable_github(result)
 
     if not prepared_status.stack.changes:
@@ -405,7 +405,7 @@ def _render_prepared_status(
                 prepared_status=prepared_status,
             )
         )
-        return 0
+        return
 
     with console.spinner(description="Rendering jj log"):
         prerendered_blocks = _prefetch_commit_log_blocks(
@@ -431,8 +431,6 @@ def _render_prepared_status(
             result=result,
         )
     )
-
-    return EXIT_INCOMPLETE if result.incomplete else 0
 
 
 def render_status_summary_lines(

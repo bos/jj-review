@@ -91,30 +91,54 @@ class PreparedChange:
         return self.tracked.pr_identity.head_ref if self.tracked is not None else None
 
 
-def inspect_status(*, prepared: PreparedLocalStack) -> StatusResult:
-    """Inspect GitHub state for a prepared stack."""
+def observe_status(
+    *, prepared: tuple[PreparedLocalStack, ...]
+) -> dict[str, ChangeObservation] | CliError:
+    """Observe the saved PRs of selected stacks in one repository."""
 
-    return asyncio.run(inspect_status_async(prepared=prepared))
+    if not prepared:
+        return {}
+    target = prepared[0].github_target
+    if not isinstance(target, GithubTarget):
+        return {}
+    changes = tuple(
+        change
+        for stack in prepared
+        for change in prepare_status_changes(stack)
+        if change.tracked is not None
+    )
+    if not changes:
+        return {}
+    try:
+        return asyncio.run(
+            lookup_pr_lookups_async(github_repo=target.repo, prepared_changes=changes)
+        )
+    except CliError as error:
+        logger.debug("status github inspection failed: %s", error_message(error))
+        return error
 
 
-async def inspect_status_async(*, prepared: PreparedLocalStack) -> StatusResult:
+def build_status_result(
+    *,
+    prepared: PreparedLocalStack,
+    pr_lookups: dict[str, ChangeObservation] | CliError,
+) -> StatusResult:
+    """Classify one local stack using the shared GitHub observation."""
+
     target = prepared.github_target
     github_repo = target.repo if isinstance(target, GithubTarget) else None
     github_error = target.github_repo_error
-    pr_lookups: dict[str, ChangeObservation] | None = None
-    if github_repo is not None and any(
+    if isinstance(pr_lookups, CliError) and any(
         change.change_id in prepared.state.prs for change in prepared.stack.changes
     ):
-        try:
-            pr_lookups = await lookup_pr_lookups_async(
-                github_repo=github_repo,
-                prepared_changes=prepare_status_changes(prepared),
-            )
-        except CliError as error:
-            github_error = error_message(error)
-            logger.debug("status github inspection failed: %s", github_error)
+        github_error = error_message(pr_lookups)
     changes = tuple(
-        reversed(build_status_changes_for_prepared_stack(prepared, pr_lookups=pr_lookups))
+        reversed(
+            build_status_changes_for_prepared_stack(
+                prepared,
+                pr_lookups={} if isinstance(pr_lookups, CliError) else pr_lookups,
+            )
+        )
     )
     return StatusResult(
         github_error=github_error,
@@ -167,7 +191,15 @@ def _status_change(
 ) -> StackStatusChange:
     change = prepared_change.change
     observation = (
-        replace(lookup, remote_name=remote_name, local=(change,), selected=change)
+        replace(
+            lookup,
+            change_id=change.change_id,
+            tracked=prepared_change.tracked,
+            branch=prepared_change.branch,
+            remote_name=remote_name,
+            local=(change,),
+            selected=change,
+        )
         if lookup is not None
         else _prepared_observation(prepared_change, remote_name=remote_name)
     )

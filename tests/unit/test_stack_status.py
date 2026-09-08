@@ -15,14 +15,15 @@ from jj_stack.stack.change_state import ChangeObservation
 from jj_stack.stack.preparation import PreparedLocalStack
 from jj_stack.stack.status import (
     PreparedChange,
-    inspect_status_async,
+    build_status_result,
+    observe_status,
 )
 from tests.support.change_helpers import make_change
 from tests.support.contexts import fake_command_context
 from tests.support.tracking import make_pr_identity
 
 
-def test_status_falls_back_to_local_data_after_github_abort(monkeypatch) -> None:
+def test_shared_github_failure_leaves_untracked_stack_complete(monkeypatch) -> None:
     change = make_change(
         commit_id="commit-1",
         description="feature 1",
@@ -42,6 +43,14 @@ def test_status_falls_back_to_local_data_after_github_abort(monkeypatch) -> None
         stack=_stack_for_status(change),
         state=state,
     )
+    local = PreparedLocalStack(
+        client=prepared.client,
+        github_target=prepared.github_target,
+        stack=_stack_for_status(
+            make_change(commit_id="local", change_id="local-change", description="local work")
+        ),
+        state=state,
+    )
 
     async def abort_github_inspection(**_kwargs):
         raise CliError("GitHub lookup failed")
@@ -51,15 +60,15 @@ def test_status_falls_back_to_local_data_after_github_abort(monkeypatch) -> None
         abort_github_inspection,
     )
 
-    result = asyncio.run(
-        inspect_status_async(
-            prepared=prepared,
-        )
-    )
+    observation = observe_status(prepared=(prepared, local))
+    result = build_status_result(prepared=prepared, pr_lookups=observation)
+    local_result = build_status_result(prepared=local, pr_lookups=observation)
 
     assert result.github_error == "GitHub lookup failed"
     assert result.incomplete is True
     assert result.changes[0].branch == "jj-stack/feature-1-aaaaaaaa"
+    assert local_result.github_error is None
+    assert local_result.incomplete is False
 
 
 def test_pr_lookup_reports_the_saved_pr_when_another_open_pr_uses_its_branch() -> None:

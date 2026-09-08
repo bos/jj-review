@@ -3,25 +3,25 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
 import jj_stack.commands.view as view_module
 import jj_stack.console as console_module
-from jj_stack.errors import EXIT_INCOMPLETE
+from jj_stack.errors import EXIT_INCOMPLETE, CliError
+from jj_stack.github.client import GithubClient
+from jj_stack.github.resolution import GithubRepoAddress, GithubTarget
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import JjClient
-from jj_stack.models.tracking import TrackingState
+from jj_stack.models.git import GitRemote
+from jj_stack.models.github import GithubBranchRef, GithubPR, GithubPRHead
+from jj_stack.models.stack import LocalStack
+from jj_stack.models.tracking import SubmittedBaseline, TrackedPR, TrackingState
+from jj_stack.stack.preparation import PreparedLocalStack
+from tests.support.change_helpers import make_change
 from tests.support.contexts import fake_command_context
-from tests.support.output_assertions import assert_output_contains
-
-
-def patch_bootstrap(monkeypatch, module, tmp_path: Path) -> None:
-    monkeypatch.setattr(
-        module,
-        "bootstrap_context",
-        lambda **_kwargs: fake_command_context(tmp_path),
-    )
+from tests.support.tracking import make_pr_identity
 
 
 def test_change_id_selector_distinguishes_change_ids_from_revsets_and_bookmarks() -> None:
@@ -48,160 +48,65 @@ def test_change_id_selector_distinguishes_change_ids_from_revsets_and_bookmarks(
     )
 
 
-def test_view_skips_duplicate_stack(
+def test_view_shares_pr_observation_without_losing_selector_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    patch_bootstrap(monkeypatch, view_module, tmp_path)
-    rendered: list[str] = []
-
-    def fake_prepare_status_for_revset(**kwargs):
-        revset = kwargs["revset"]
-        change_ids = ("change-1", "change-2") if revset in {"foo", "bar"} else ("change-3",)
-        return SimpleNamespace(
-            stack=SimpleNamespace(
-                base_parent=SimpleNamespace(
-                    commit_id="shared-base" if revset in {"foo", "bar"} else f"base-{revset}"
-                ),
-                head=SimpleNamespace(change_id=change_ids[-1]),
-                changes=tuple(SimpleNamespace(change_id=change_id) for change_id in change_ids),
-                selected_revset=revset,
-            ),
-            state=TrackingState(),
+    context = fake_command_context(tmp_path)
+    trunk, parent, left, right = (
+        make_change(commit_id=name, change_id=f"{name}-change", description=name)
+        for name in ("trunk", "parent", "left", "right")
+    )
+    prs = tuple(
+        GithubPR(
+            base=GithubBranchRef(ref="main"),
+            head=GithubPRHead(ref=f"jj-stack/{change.subject}", sha=change.commit_id),
+            html_url=f"https://github.com/octo-org/stacked-prs/pull/{number}",
+            node_id=f"PR_{number}",
+            number=number,
+            state="closed" if number == 1 else "open",
+            title=change.subject,
         )
-
-    def fake_render_prepared_status(**kwargs) -> int:
-        prepared_status = kwargs["prepared_status"]
-        rendered.append(prepared_status.stack.selected_revset)
-        return 0
-
-    monkeypatch.setattr(
-        view_module,
-        "_prepare_status_with_spinner",
-        fake_prepare_status_for_revset,
+        for number, change in enumerate((parent, left, right), start=1)
     )
-    monkeypatch.setattr(view_module, "_render_prepared_status", fake_render_prepared_status)
-
-    exit_code = view_module.view(
-        as_json=False,
-        cli_args=JjCliArgs(),
-        debug=False,
-        repo=tmp_path,
-        selectors=(
-            view_module.ViewSelector(kind="revset", value="foo"),
-            view_module.ViewSelector(kind="revset", value="bar"),
-            view_module.ViewSelector(kind="revset", value="baz"),
-        ),
-        verbose=False,
-    )
-
-    assert exit_code == 0
-    assert rendered == ["foo", "baz"]
-
-
-def test_view_continues_after_selector_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    patch_bootstrap(monkeypatch, view_module, tmp_path)
-
-    def fake_prepare_status_for_revset(**kwargs):
-        revset = kwargs["revset"]
-        if revset == "bad":
-            raise view_module.CliError(
-                "bad selector",
-                hint=(
-                    "Refresh the local view and select an exact pull request before "
-                    "retrying this stack inspection."
-                ),
+    state = TrackingState(
+        prs={
+            change.change_id: TrackedPR(
+                pr_identity=make_pr_identity(head_ref=pr.head.ref, pr_number=pr.number),
+                submitted_baseline=SubmittedBaseline(commit_id=change.commit_id),
             )
-        return SimpleNamespace(
-            stack=SimpleNamespace(
-                base_parent=SimpleNamespace(commit_id=f"base-{revset}"),
-                head=SimpleNamespace(change_id=f"{revset}-head"),
-                changes=(SimpleNamespace(change_id=f"{revset}-change"),),
-                selected_revset=revset,
-            ),
-            state=TrackingState(),
-        )
-
-    def fake_render_prepared_status(**kwargs) -> int:
-        selected = kwargs["prepared_status"].stack.selected_revset
-        console_module.output(f"rendered {selected}")
-        return 0
-
-    monkeypatch.setattr(
-        view_module,
-        "_prepare_status_with_spinner",
-        fake_prepare_status_for_revset,
-    )
-    monkeypatch.setattr(view_module, "_render_prepared_status", fake_render_prepared_status)
-
-    stdout = StringIO()
-    stderr = StringIO()
-    with console_module.configured_console(stdout=stdout, stderr=stderr, color_mode="never"):
-        exit_code = view_module.view(
-            as_json=False,
-            cli_args=JjCliArgs(),
-            debug=False,
-            repo=tmp_path,
-            selectors=(
-                view_module.ViewSelector(kind="revset", value="good"),
-                view_module.ViewSelector(kind="revset", value="bad"),
-                view_module.ViewSelector(kind="revset", value="later"),
-            ),
-            verbose=False,
-        )
-
-    assert exit_code == EXIT_INCOMPLETE
-    stdout_lines = stdout.getvalue().splitlines()
-    assert "Status for good:" in stdout_lines
-    assert "rendered good" in stdout_lines
-    assert "Status for bad:" in stdout_lines
-    assert "Status for later:" in stdout_lines
-    assert "rendered later" in stdout_lines
-    assert stdout_lines.index("Status for good:") < stdout_lines.index("rendered good")
-    assert stdout_lines.index("Status for bad:") < stdout_lines.index("Status for later:")
-    assert stdout_lines.index("Status for later:") < stdout_lines.index("rendered later")
-    stderr_lines = stderr.getvalue().splitlines()
-    assert "Error: bad selector" in stderr_lines
-    assert_output_contains(
-        stderr.getvalue(),
-        "Refresh the local view and select an exact pull request before "
-        "retrying this stack inspection.",
+            for change, pr in zip((parent, left, right), prs, strict=True)
+        }
     )
 
-
-def test_view_json_continues_after_selector_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    patch_bootstrap(monkeypatch, view_module, tmp_path)
-
-    def fake_prepare_status_for_revset(**kwargs):
-        revset = kwargs["revset"]
+    def prepare_stack(*, revset, **_kwargs):
         if revset == "bad":
-            raise view_module.CliError("bad selector")
-        return SimpleNamespace(
-            selected_revset=revset,
-            stack=SimpleNamespace(
-                base_parent=SimpleNamespace(commit_id=f"base-{revset}"),
-                head=SimpleNamespace(change_id=f"{revset}-head"),
-                changes=(SimpleNamespace(change_id=f"{revset}-change"),),
+            raise CliError("bad selector")
+        head = left if revset in {"left", "duplicate"} else right
+        return PreparedLocalStack(
+            client=context.jj_client,
+            github_target=_GITHUB_TARGET,
+            stack=LocalStack(
+                base_parent=trunk,
+                head=head,
+                changes=(parent, head),
+                selected_revset=revset,
+                trunk=trunk,
             ),
-            state=TrackingState(),
+            state=state,
         )
 
-    def fake_json_prepared_status(**kwargs):
-        selector = kwargs["selector"]
-        return {"selector": selector.value, "changes": []}, False
-
-    monkeypatch.setattr(
-        view_module,
-        "_prepare_status_with_spinner",
-        fake_prepare_status_for_revset,
-    )
-    monkeypatch.setattr(view_module, "_json_prepared_status", fake_json_prepared_status)
+    github = MagicMock(spec=GithubClient)
+    github.__aenter__.return_value = github
+    github.get_open_prs_by_head_refs.return_value = {
+        prs[0].head.ref: (),
+        prs[1].head.ref: (prs[1],),
+        prs[2].head.ref: (prs[2],),
+    }
+    github.get_prs_by_numbers.return_value = {1: prs[0]}
+    monkeypatch.setattr(view_module, "bootstrap_context", lambda **_kwargs: context)
+    monkeypatch.setattr(view_module, "prepare_local_stack", prepare_stack)
+    monkeypatch.setattr("jj_stack.stack.status.build_github_client", lambda **_kwargs: github)
 
     stdout = StringIO()
     stderr = StringIO()
@@ -211,19 +116,98 @@ def test_view_json_continues_after_selector_error(
             cli_args=JjCliArgs(),
             debug=False,
             repo=tmp_path,
-            selectors=(
-                view_module.ViewSelector(kind="revset", value="good"),
-                view_module.ViewSelector(kind="revset", value="bad"),
-                view_module.ViewSelector(kind="revset", value="later"),
+            selectors=tuple(
+                view_module.ViewSelector(kind="revset", value=value)
+                for value in ("left", "bad", "duplicate", "right")
             ),
             verbose=False,
         )
 
     assert exit_code == EXIT_INCOMPLETE
-    assert json.loads(stdout.getvalue()) == {
-        "stacks": [
-            {"selector": "good", "changes": []},
-            {"selector": "later", "changes": []},
+    stacks = json.loads(stdout.getvalue())["stacks"]
+    assert [stack["selector"] for stack in stacks] == ["left", "right"]
+    assert [
+        [
+            (change["change_id"], change["pr"]["number"], change["status"])
+            for change in stack["changes"]
         ]
-    }
+        for stack in stacks
+    ] == [
+        [(left.change_id, 2, "open"), (parent.change_id, 1, "closed")],
+        [(right.change_id, 3, "open"), (parent.change_id, 1, "closed")],
+    ]
     assert "Error: bad selector" in stderr.getvalue()
+    github.get_open_prs_by_head_refs.assert_awaited_once()
+    assert set(github.get_open_prs_by_head_refs.await_args.kwargs["head_refs"]) == {
+        pr.head.ref for pr in prs
+    }
+    github.get_prs_by_numbers.assert_awaited_once_with(pr_numbers=(1,))
+
+
+def test_view_keeps_selector_errors_between_their_neighboring_reports(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    jj_client = Mock(spec=JjClient)
+    jj_client.resolve_color_when.return_value = "never"
+    jj_client.render_commit_log_blocks.side_effect = lambda changes, **_kwargs: {
+        change.commit_id: (change.commit_id,) for change in changes
+    }
+    context = fake_command_context(tmp_path, jj_client=jj_client)
+    trunk = make_change(commit_id="trunk", change_id="trunk-change", description="base")
+
+    def prepare_stack(*, revset, **_kwargs):
+        if revset == "bad":
+            raise CliError("bad selector", hint="Choose a visible change.")
+        change = make_change(
+            commit_id=f"{revset}-commit", change_id=f"{revset}-change", description=revset
+        )
+        return PreparedLocalStack(
+            client=jj_client,
+            github_target=_GITHUB_TARGET,
+            stack=LocalStack(
+                base_parent=trunk,
+                head=change,
+                changes=(change,),
+                selected_revset=revset,
+                trunk=trunk,
+            ),
+            state=TrackingState(),
+        )
+
+    monkeypatch.setattr(view_module, "bootstrap_context", lambda **_kwargs: context)
+    monkeypatch.setattr(view_module, "prepare_local_stack", prepare_stack)
+
+    output = StringIO()
+    with console_module.configured_console(stdout=output, stderr=output, color_mode="never"):
+        exit_code = view_module.view(
+            as_json=False,
+            cli_args=JjCliArgs(),
+            debug=False,
+            repo=tmp_path,
+            selectors=tuple(
+                view_module.ViewSelector(kind="revset", value=value)
+                for value in ("good", "bad", "later")
+            ),
+            verbose=False,
+        )
+
+    assert exit_code == EXIT_INCOMPLETE
+    text = output.getvalue()
+    assert (
+        text.index("good-commit")
+        < text.index("Status for bad:")
+        < text.index("Error: bad selector")
+        < text.index("Hint: Choose a visible change.")
+        < text.index("later-commit")
+    )
+
+
+_GITHUB_TARGET = GithubTarget(
+    remote=GitRemote(
+        name="origin",
+        fetch_url="git@github.com:octo-org/stacked-prs.git",
+        push_url="git@github.com:octo-org/stacked-prs.git",
+    ),
+    repo=GithubRepoAddress(owner="octo-org", repo="stacked-prs"),
+)
