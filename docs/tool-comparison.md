@@ -60,14 +60,18 @@ changed. Those update commits are squash-merged into one commit when the PR land
 
 `jj-stack` force-pushes the current version of your change and maintains a PR history comment
 with links to earlier versions and the differences between them. You don't need to write an
-update-commit message, but reviewers must use that comment to compare versions: GitHub's
-"Changes since your last review" view is empty with this approach.
+update-commit message, but reviewers must use that comment to compare versions, as the "Changes
+since your last review" view is empty when you use GitHub stacks. (`gh stack` has the same
+problem. Looks like a bug in GitHub!)
 
 ### Dependent and independent changes
 
-`jj-spr` can publish dependent PRs, but GitHub does not treat them as a native stack. Its
-cherry-pick mode also lets you publish changes from a local chain as independent PRs that can
-land in any order.
+`jj-spr` can publish dependent PRs, but is currently incompatible with GitHub's native stacks.
+(It gives each dependent PR a separate base branch containing the preceding change's files;
+[native stacks require][github-stacks] that PR to target the preceding PR's branch.)
+
+Its cherry-pick mode also lets you publish changes from a local chain as independent PRs that
+can land in any order.
 
 `jj-stack` turns a chain of two or more changes into a native GitHub stack and lands it from the
 bottom upward. You rearrange the changes with `jj`, then run `jj-stack submit` to update GitHub.
@@ -119,5 +123,6 @@ The linked project documentation was checked on September 6, 2026. These tools a
 check their current guides for requirements and detailed command behavior.
 
 [jj-spr]: https://github.com/jennings/jj-spr
+[github-stacks]: https://docs.github.com/en/rest/pulls/stacks#create-a-pull-request-stack
 [jj-gh]: https://github.com/mrjones2014/jj-gh
 [gh-stack]: https://github.com/github/gh-stack
