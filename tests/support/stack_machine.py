@@ -72,6 +72,14 @@ def blob(contents: str) -> str:
     return sha1(f"blob {len(data)}\0".encode() + data).hexdigest()
 
 
+def tree_entries(output: str) -> dict[str, str]:
+    return {
+        name: entry.split()[2]
+        for line in output.splitlines()
+        for entry, name in (line.split("\t"),)
+    }
+
+
 class StackMachine(RuleBasedStateMachine):
     def __init__(self) -> None:
         super().__init__()
@@ -83,6 +91,7 @@ class StackMachine(RuleBasedStateMachine):
         self.submitted: dict[str, TrackedPR] = {}
         self.dirty: set[str] = set()
         self.foreign: set[str] = set()
+        self.conflicts: set[str] = set()
         self.contents: dict[str, dict[str, str]] = {}
         self.rebased: dict[str, str] = {}
         self.pr_count = 0
@@ -208,13 +217,18 @@ class StackMachine(RuleBasedStateMachine):
             for i, path in enumerate(self.paths)
             if not self.merged(path)
             and not self.foreign.intersection(path)
+            and not self.conflicts.intersection(path)
             and not self.rebased.keys() & set(path)
         ]
 
     def edits(self) -> list[tuple[int, StackEditOperation]]:
         options = []
         for i, path in enumerate(self.paths):
-            if self.foreign.intersection(path) or self.rebased.keys() & set(path):
+            if (
+                self.foreign.intersection(path)
+                or self.conflicts.intersection(path)
+                or self.rebased.keys() & set(path)
+            ):
                 continue
             merged = self.merged(path)
             for kind in get_args(StackEditOperationKind):
@@ -244,7 +258,17 @@ class StackMachine(RuleBasedStateMachine):
                     if kind == "squash_into_previous" and path[path.index(label) - 1] in merged:
                         continue
                     new = f"c{len(self.ids) + 1}" if kind.startswith("insert") else None
-                    options.append((i, StackEditOperation(kind, label, new, target)))
+                    operation = StackEditOperation(kind, label, new, target)
+                    if kind.startswith("move"):
+                        order = apply_stack_edit(path, operation).live_labels
+                        if any(
+                            self.contents[left].keys() & self.contents[right].keys()
+                            and order.index(left) > order.index(right)
+                            for position, left in enumerate(path)
+                            for right in path[position + 1 :]
+                        ):
+                            continue
+                    options.append((i, operation))
         return options
 
     def ready(self) -> list[int]:
@@ -263,14 +287,17 @@ class StackMachine(RuleBasedStateMachine):
                 for position, label in enumerate(published)
             )
             and self.grouped(published)
+            and not self.sync_conflicts(self.paths[i])
         ]
 
     def grouped(self, path: tuple[str, ...]) -> bool:
         numbers = tuple(self.pr(label).number for label in path)
-        return len(numbers) < 2 or numbers in (
+        groups = [
             tuple(number for number in members if self.fake.prs[number].merged_at is None)
             for members in self.fake.github_stacks.values()
-        )
+            if set(numbers).intersection(members)
+        ]
+        return groups == [numbers] if groups else len(numbers) < 2
 
     def outside(self, selected: tuple[str, ...]) -> dict[str, object]:
         refs = remote_refs(self.fake.git_dir)
@@ -284,6 +311,24 @@ class StackMachine(RuleBasedStateMachine):
             for label, record in self.submitted.items()
             if label not in selected
         }
+
+    def recovery_scope(self, path: tuple[str, ...]) -> tuple[str, ...]:
+        selected = {self.pr(label).number for label in self.published(path)}
+        members = {
+            number
+            for group in self.fake.github_stacks.values()
+            if selected.intersection(group)
+            for number in group
+        }
+        live = {label for path in self.paths for label in path}
+        return (
+            *path,
+            *(
+                label
+                for label in self.merged(tuple(self.submitted))
+                if label not in live and self.pr(label).number in members
+            ),
+        )
 
     def diagnosis(self) -> str | None:
         error: BaseException | None = self.last_error
@@ -323,6 +368,8 @@ class StackMachine(RuleBasedStateMachine):
                 (2, "unsupported_stack:divergent_change"),
                 (2, "unsupported_stack:immutable_commit"),
             }
+        if self.conflicts.intersection(path):
+            return {(3, None)}
         for label in path:
             if label in self.submitted:
                 if self.fake.ref_target(self.pr(label).head_ref) is None:
@@ -387,19 +434,20 @@ class StackMachine(RuleBasedStateMachine):
         path = self.paths[index]
         effect = apply_stack_edit(path, operation)
         label = operation.label
-        cid = self.ids[label]
+        revs = {item: f"change_id({self.ids[item]}) ~ immutable()" for item in path}
+        rev = revs[label]
         if operation.kind in {"move_to_top", "move_after", "move_before"}:
             target = path[-1] if operation.kind == "move_to_top" else operation.target_label
             assert target is not None
             flag = "-B" if operation.kind == "move_before" else "-A"
-            run_command(["jj", "rebase", "-r", cid, flag, self.ids[target]], self.repo)
+            run_command(["jj", "rebase", "-r", rev, flag, revs[target]], self.repo)
         elif operation.kind in {"insert_after", "insert_before"}:
             new = operation.new_label
             assert new is not None
             args = (
-                ["jj", "new", "-B", cid]
+                ["jj", "new", "-B", rev]
                 if operation.kind == "insert_before"
-                else ["jj", "new", cid]
+                else ["jj", "new", rev]
             )
             run_command(args, self.repo)
             commit_file(self.repo, subject(new), filename(new))
@@ -407,18 +455,16 @@ class StackMachine(RuleBasedStateMachine):
             self.contents[new] = {filename(new): subject(new) + "\n"}
             if operation.kind == "insert_after" and path.index(label) + 1 < len(path):
                 child = path[path.index(label) + 1]
-                run_command(
-                    ["jj", "rebase", "-s", self.ids[child], "-d", self.ids[new]], self.repo
-                )
+                run_command(["jj", "rebase", "-s", revs[child], "-d", self.ids[new]], self.repo)
             self.dirty.add(new)
         elif operation.kind == "abandon":
-            run_command(["jj", "abandon", cid], self.repo)
+            run_command(["jj", "abandon", rev], self.repo)
         elif operation.kind == "rewrite":
-            run_command(["jj", "new", cid], self.repo)
-            file = self.repo / filename(label)
-            write_file(file, file.read_text() + "rewritten\n")
-            self.contents[label][filename(label)] += "rewritten\n"
-            run_command(["jj", "squash", "--into", cid, "--use-destination-message"], self.repo)
+            self.write_change(
+                label,
+                filename(label),
+                self.contents[label][filename(label)].rstrip() + " rewritten\n",
+            )
         else:
             previous = path[path.index(label) - 1]
             self.contents[previous].update(self.contents[label])
@@ -427,9 +473,9 @@ class StackMachine(RuleBasedStateMachine):
                     "jj",
                     "squash",
                     "--from",
-                    cid,
+                    rev,
                     "--into",
-                    self.ids[previous],
+                    revs[previous],
                     "--use-destination-message",
                 ],
                 self.repo,
@@ -438,6 +484,64 @@ class StackMachine(RuleBasedStateMachine):
         self.dirty.update(effect.rewritten_labels)
         if effect.removed_label is not None:
             self.dirty.discard(effect.removed_label)
+        self.observe_conflicts()
+
+    def write_change(self, label: str, name: str, text: str) -> None:
+        cid = self.ids[label]
+        run_command(["jj", "new", cid], self.repo)
+        write_file(self.repo / name, text)
+        run_command(["jj", "squash", "--into", cid, "--use-destination-message"], self.repo)
+        self.contents[label][name] = text
+
+    def observe_conflicts(self) -> None:
+        live = tuple(label for path in self.paths for label in path)
+        copies = self.jj.query_commits_by_change_ids(tuple(self.ids[label] for label in live))
+        self.conflicts = {
+            label for label in live if any(copy.conflict for copy in copies[self.ids[label]])
+        }
+
+    def shared_edit(self, index: int, *, server: bool) -> None:
+        path = self.paths[index]
+        name = filename(self.merged(path)[0])
+        if server:
+            text = f"server {self.trunk[name]}\n"
+            self.fake.advance_branch("main", path=name, contents=text)
+            self.trunk[name] = blob(text)
+        else:
+            label = next(
+                (
+                    label
+                    for label in path[len(self.merged(path)) :]
+                    if name in self.contents[label]
+                ),
+                path[-1],
+            )
+            text = self.contents[label].get(name, f"local {label}").rstrip() + " edited\n"
+            self.write_change(label, name, text)
+            self.dirty.update(path[path.index(label) :])
+            self.observe_conflicts()
+
+    def resolve_label(self, label: str) -> None:
+        cid = self.ids[label]
+        names = self.jj._run_jj(("resolve", "--list", "-r", cid)).splitlines()
+        run_command(["jj", "edit", cid], self.repo)
+        for line in names:
+            name = line.split()[0]
+            text = self.contents[label][name].rstrip() + " resolved\n"
+            write_file(self.repo / name, text)
+            self.contents[label][name] = text
+        run_command(["jj", "new"], self.repo)
+        for path in self.paths:
+            if label in path:
+                self.dirty.update(path[path.index(label) :])
+        self.observe_conflicts()
+
+    def rebase_path(self, index: int) -> None:
+        path = self.paths[index]
+        run_command(["jj", "git", "fetch", "--remote", "origin"], self.repo)
+        run_command(["jj", "rebase", "-s", self.ids[path[0]], "-d", "main"], self.repo)
+        self.dirty.update(path)
+        self.observe_conflicts()
 
     def join_paths(self, source: int, target: int) -> None:
         lower, upper = self.paths[target], self.paths[source]
@@ -447,6 +551,7 @@ class StackMachine(RuleBasedStateMachine):
         self.paths[target] = (*lower, *upper)
         self.paths.pop(source)
         self.dirty.update(upper)
+        self.observe_conflicts()
 
     def move_between(
         self, source: int, target: int, position: int, anchor: int, before: bool
@@ -470,6 +575,7 @@ class StackMachine(RuleBasedStateMachine):
         self.dirty.update((*self.paths[source], *target_path))
         if not self.paths[source]:
             self.paths.pop(source)
+        self.observe_conflicts()
 
     def drift(self, kind: Drift, label: str | None = None) -> None:
         if kind == "trunk_advanced":
@@ -571,11 +677,46 @@ class StackMachine(RuleBasedStateMachine):
         assert base is not None
         self.rebased[path[0]] = base
 
+    def sync_conflicts(self, path: tuple[str, ...]) -> set[str]:
+        merged = self.merged(path)
+        if not any(
+            self.contents[label].keys() & self.trunk.keys()
+            for label in path
+            if label not in merged
+        ):
+            return self.conflicts.intersection(path)
+        versions = dict(self.trunk)
+        conflicts: set[str] = set()
+        changes = selected_stack(self.repo, self.ids[path[-1]]).changes
+        published = self.published(path[len(merged) :])
+        adopt = bool(merged and published) and all(
+            change.commit_id == self.submitted[label].submitted_baseline.commit_id
+            for label, change in zip(path, changes, strict=True)
+            if label in published
+        )
+        if adopt:
+            versions = tree_entries(
+                self.fake._run_backing_git("ls-tree", "-r", self.pr(published[-1]).head_ref)
+            )
+        for label, change in zip(path, changes, strict=True):
+            if label in merged or (adopt and label in published):
+                continue
+            if conflicts or label in self.conflicts:
+                conflicts.add(label)
+                continue
+            parent = tree_entries(self.jj._run_git(("ls-tree", "-r", change.parents[0])))
+            for name, text in self.contents[label].items():
+                wanted = blob(text)
+                if versions.get(name) not in {parent.get(name), wanted}:
+                    conflicts.add(label)
+                versions[name] = wanted
+        return conflicts
+
     def sync_blocked(self, path: tuple[str, ...]) -> bool:
         merged = self.merged(path)
         remaining = path[len(merged) :]
         published = self.published(remaining)
-        selected = {self.pr(label).number for label in self.published(path)}
+        selected = tuple(self.pr(label).number for label in self.published(path))
         commits = {
             change.change_id: change.commit_id
             for change in selected_stack(self.repo, self.ids[path[-1]]).changes
@@ -583,11 +724,16 @@ class StackMachine(RuleBasedStateMachine):
         return (
             path[: len(merged)] != merged
             or remaining[: len(published)] != published
+            or any(self.pr(label).state != "open" for label in published)
             or any(
-                set(members) & selected
-                and any(
-                    number not in selected and self.fake.prs[number].merged_at is None
-                    for number in members
+                set(members).intersection(selected)
+                and (
+                    any(
+                        number not in selected and self.fake.prs[number].merged_at is None
+                        for number in members
+                    )
+                    or tuple(number for number in members if number in selected)
+                    != tuple(number for number in selected if number in members)
                 )
                 for members in self.fake.github_stacks.values()
             )
@@ -616,15 +762,46 @@ class StackMachine(RuleBasedStateMachine):
             assert code == 1, (self.last_error, output)
             assert self.snapshot() == before
             return
-        outside = self.outside(path)
+        scope = self.recovery_scope(path)
+        outside = self.outside(scope)
+        conflicts = self.sync_conflicts(path)
+        refs = remote_refs(self.fake.git_dir)
         code, output = self.cli("sync", self.ids[path[-1]])
-        assert code == int(any(self.dependents(label) for label in self.merged(path))), output
+        expected = (
+            3
+            if conflicts & self.submitted.keys()
+            else int(any(self.dependents(label) for label in self.merged(scope)))
+        )
+        assert code == expected, (self.last_error, output)
         if self.rebased.keys() & set(path):
             self.accept_submit(path, publish=False)
             del self.rebased[path[0]]
         else:
-            self.accept_merge(index, len(self.merged(path)))
-        assert self.outside(path) == outside
+            self.accept_sync(index, conflicts, refs)
+        assert self.outside(scope) == outside
+
+    def accept_sync(self, index: int, conflicts: set[str], refs: dict[str, str]) -> None:
+        path = self.paths[index]
+        merged = self.merged(path)
+        self.conflicts.update(conflicts)
+        if not conflicts & self.submitted.keys():
+            self.accept_merge(index, len(merged))
+            return
+        for label in self.published(path):
+            pr = self.pr(label)
+            head = refs[f"refs/heads/{pr.head_ref}"]
+            assert self.fake.ref_target(pr.head_ref) == head
+            if label not in merged:
+                self.submitted[label] = TrackedPR(
+                    pr_identity=self.submitted[label].pr_identity,
+                    submitted_baseline=SubmittedBaseline(commit_id=head),
+                )
+        for label in merged:
+            self.check_removed(label)
+        self.paths[index] = path[len(merged) :]
+        self.dirty.update(self.paths[index])
+        first = selected_stack(self.repo, self.ids[path[-1]]).changes[0]
+        assert first.parents == (self.fake.ref_target("main"),)
 
     def sync_all_paths(self) -> None:
         live = {label for path in self.paths for label in path}
@@ -641,7 +818,11 @@ class StackMachine(RuleBasedStateMachine):
         )
         affected = [i for i, p in enumerate(self.paths) if self.merged(p) and not self.queued(p)]
         ready = [i for i in affected if not self.sync_blocked(self.paths[i])]
-        selected = (*finishes, *(label for i in ready for label in self.paths[i]))
+        conflicts = {i: self.sync_conflicts(self.paths[i]) for i in ready}
+        selected = (
+            *finishes,
+            *(label for i in ready for label in self.recovery_scope(self.paths[i])),
+        )
         untouched = tuple(self.ids[label] for label in live if label not in selected)
         blocked = (
             len(ready) != len(affected)
@@ -655,21 +836,29 @@ class StackMachine(RuleBasedStateMachine):
         run_command(["jj", "git", "fetch", "--remote", "origin"], self.repo)
         outside = self.outside(selected)
         copies = self.jj.query_commits_by_change_ids(untouched)
+        refs = remote_refs(self.fake.git_dir)
         code, output = self.cli("sync", "--all")
-        assert code == int(blocked), (self.last_error, output)
-        for i in reversed(ready):
-            self.accept_merge(i, len(self.merged(self.paths[i])))
+        expected = {1} if blocked else {0}
+        if any(labels & self.submitted.keys() for labels in conflicts.values()):
+            expected = expected | {3} if blocked else {3}
+        assert code in expected, (self.last_error, output)
         for label in finishes:
             assert self.fake.ref_target(self.pr(label).head_ref) is None
             del self.submitted[label]
+        for i in reversed(ready):
+            self.accept_sync(i, conflicts[i], refs)
         assert self.outside(selected) == outside
         assert self.jj.query_commits_by_change_ids(untouched) == copies
 
     def merge_path(self, index: int, count: int, method: MergeMethod) -> None:
         path = self.paths[index]
         boundary = self.submitted[path[count - 1]]
-        outside = self.outside(path)
-        blocked = any(self.dependents(label, excluding=path) for label in path[:count])
+        scope = self.recovery_scope(path)
+        outside = self.outside(scope)
+        blocked = any(
+            self.dependents(label, excluding=path)
+            for label in (*path[:count], *scope[len(path) :])
+        )
         code, output = self.cli(
             "merge", "--method", method, "--pull-request", str(boundary.pr_identity.pr_number)
         )
@@ -682,25 +871,19 @@ class StackMachine(RuleBasedStateMachine):
         )
         self.land(path[:count])
         self.accept_merge(index, count)
-        assert self.outside(path) == outside
+        assert self.outside(scope) == outside
 
     def accept_merge(self, index: int, count: int) -> None:
         path = self.paths[index]
         refs = remote_refs(self.fake.git_dir)
-        for label in path[:count]:
+        for label in (*path[:count], *self.recovery_scope(path)[len(path) :]):
             pr = self.pr(label)
             assert pr.merged_at is not None
             retained = self.dependents(label)
             assert refs.get(f"refs/heads/{pr.head_ref}") == (
                 self.submitted[label].submitted_baseline.commit_id if retained else None
             )
-            copies = self.jj.query_commits_by_change_ids((self.ids[label],))[self.ids[label]]
-            assert not copies or (
-                len(copies) == 1
-                and copies[0].immutable
-                and not copies[0].divergent
-                and copies[0].commit_id == pr.merge_commit_sha
-            )
+            self.check_removed(label)
             if not retained:
                 del self.submitted[label]
             self.dirty.discard(label)
@@ -710,6 +893,15 @@ class StackMachine(RuleBasedStateMachine):
             self.accept_submit(remaining, publish=False)
         else:
             self.paths.pop(index)
+
+    def check_removed(self, label: str) -> None:
+        copies = self.jj.query_commits_by_change_ids((self.ids[label],))[self.ids[label]]
+        assert not copies or (
+            len(copies) == 1
+            and copies[0].immutable
+            and not copies[0].divergent
+            and copies[0].commit_id == self.pr(label).merge_commit_sha
+        )
 
     def cleanup_label(self, label: str) -> None:
         pr = self.pr(label)
@@ -802,11 +994,7 @@ class StackMachine(RuleBasedStateMachine):
         )
 
     def trunk_files(self) -> dict[str, str]:
-        return {
-            name: entry.split()[2]
-            for line in self.fake._run_backing_git("ls-tree", "-r", "main").splitlines()
-            for entry, name in (line.split("\t"),)
-        }
+        return tree_entries(self.fake._run_backing_git("ls-tree", "-r", "main"))
 
     def file_changes(self, commit: str) -> dict[str, tuple[str, str]]:
         diff = self.jj._run_git(("diff-tree", "--no-commit-id", "--no-abbrev", "-r", commit))
@@ -816,10 +1004,20 @@ class StackMachine(RuleBasedStateMachine):
             for entry, name in (line.split("\t"),)
         }
 
-    def check_contents(self, label: str, commit: str) -> None:
-        actual = self.file_changes(commit)
-        expected = {name: ("A", blob(text)) for name, text in self.contents[label].items()}
-        assert actual == expected, (label, actual, expected)
+    def check_contents(self, label: str, commit: str, *, conflict: bool) -> None:
+        lines = self.jj._run_jj(("diff", "--summary", "-r", commit)).splitlines()
+        assert {line[2:] for line in lines} == self.contents[label].keys(), (label, lines)
+        unresolved = (
+            {
+                line.split()[0]
+                for line in self.jj._run_jj(("resolve", "--list", "-r", commit)).splitlines()
+            }
+            if conflict
+            else set()
+        )
+        for name, text in self.contents[label].items():
+            actual = self.jj._run_jj(("file", "show", "-r", commit, name))
+            assert text in actual if name in unresolved else text == actual, (label, name, actual)
 
     @invariant()
     def model_matches(self) -> None:
@@ -836,7 +1034,8 @@ class StackMachine(RuleBasedStateMachine):
                 self.ids[label] for label in path
             )
             for label, change in zip(path, changes, strict=True):
-                self.check_contents(label, change.commit_id)
+                assert change.conflict == (label in self.conflicts), label
+                self.check_contents(label, change.commit_id, conflict=change.conflict)
 
     @precondition(lambda self: len(self.paths) < 3)
     @rule(size=st.integers(1, 3))
@@ -852,6 +1051,46 @@ class StackMachine(RuleBasedStateMachine):
             st.sampled_from([(i, op) for i, op in options if op.kind == kind]), label="change"
         )
         self.apply_edit(index, operation)
+
+    def shared_paths(self) -> list[int]:
+        return [
+            i
+            for i, path in enumerate(self.paths)
+            if (merged := self.merged(path))
+            and path[: len(merged)] == merged
+            and len(merged) < len(path)
+            and not self.foreign.intersection(path)
+            and not self.conflicts.intersection(path)
+            and not self.queued(path)
+        ]
+
+    @precondition(lambda self: bool(self.shared_paths()))
+    @rule(data=st.data(), server=st.booleans())
+    def shared_file(self, data: st.DataObject, server: bool) -> None:
+        index = data.draw(st.sampled_from(self.shared_paths()), label="stack")
+        self.shared_edit(index, server=server)
+
+    @precondition(lambda self: bool(self.conflicts - self.foreign))
+    @rule(data=st.data())
+    def resolve(self, data: st.DataObject) -> None:
+        labels = [
+            next(label for label in path if label in self.conflicts)
+            for path in self.paths
+            if self.conflicts.intersection(path) and not self.foreign.intersection(path)
+        ]
+        if labels:
+            self.resolve_label(data.draw(st.sampled_from(labels), label="change"))
+
+    @precondition(lambda self: bool(self.editable()))
+    @rule(data=st.data())
+    def rebase(self, data: st.DataObject) -> None:
+        indices = [
+            i
+            for i in self.editable()
+            if any(self.contents[label].keys() & self.trunk.keys() for label in self.paths[i])
+        ]
+        if indices:
+            self.rebase_path(data.draw(st.sampled_from(indices), label="stack"))
 
     @precondition(lambda self: any(not self.merged(p) for p in self.paths))
     @rule(data=st.data())

@@ -25,6 +25,12 @@ relinks are separate steps, so local edits and server events can intervene befor
 Submitting a cross-stack move in the wrong order must stop without mutation.
 Repositories can require a merge queue. Enqueueing, queue removal, and server completion are
 separate steps; local history can change while a queued request still names its submitted PRs.
+After a partial merge, surviving changes and trunk can independently edit a file from the merged
+work. Shared-file edits replace one line, allowing the model to predict conflicts from the prior,
+local, and trunk versions. Explicit resolutions are later actions. Local content checks use
+`jj`'s file interface. Generated moves preserve the order of changes that edit the same file;
+the model does not reproduce `jj`'s redistribution of overlapping diffs during reordering.
+Ordinary local rebases can bring shared-file edits onto newer trunk before publication or merge.
 
 Both submitted and unsubmitted setups use the normal PR-branch fetch exclusion. Native rebase
 actions require a changed base; the model does not assume GitHub rewrites a stack that is already
@@ -50,6 +56,8 @@ Check these properties at the boundaries where they apply:
   PRs, and refuses local orderings with unpublished work below merged or surviving submitted work.
 - Each surviving change retains its modeled file additions and contents after rewriting, moving,
   squashing, or syncing. Merges preserve both the submitted contents and unrelated work on trunk.
+- A conflicting sync leaves its local rebase in place without publishing unresolved contents.
+  Resolving and submitting preserves the chosen file contents, change IDs, PRs, and reviews.
 - A native GitHub rebase can be reconciled while preserving local change IDs. If trunk advances
   again, sync refuses that stale rebase without rewriting local work or PR branches.
 - `sync --all` progresses independent stacks despite blocked paths or unrelated orphan PRs.
