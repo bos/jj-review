@@ -57,7 +57,6 @@ def plan_pr_updates(
         pr = prepared.pr
         plan = PRSyncPlan(
             base_branch=base_branch,
-            discovered_pr=pr,
             draft=drafts[prepared.change.change_id],
             generated_description=generated_descriptions[prepared.change.change_id],
             metadata=None,
@@ -106,7 +105,7 @@ async def publish_prepared(
         dict.fromkeys(
             pr.base.ref
             for plan in pr_plans
-            if (pr := plan.discovered_pr) is not None
+            if (pr := plan.prepared.pr) is not None
             and pr.state == "open"
             and pr.base.ref not in planned_branches
             and pr.base.ref not in trunk_targets
@@ -127,7 +126,7 @@ async def publish_prepared(
         else ()
     )
     desired_pr_numbers = tuple(
-        plan.discovered_pr.number if plan.discovered_pr is not None else None for plan in pr_plans
+        plan.prepared.pr.number if plan.prepared.pr is not None else None for plan in pr_plans
     )
     omitted_stack_prs = (
         omitted_active_stack_prs(
@@ -150,7 +149,7 @@ async def publish_prepared(
         pr_numbers_requiring_base_update={
             pr.number
             for plan in pr_plans
-            if (pr := plan.discovered_pr) is not None
+            if (pr := plan.prepared.pr) is not None
             and (pr.base.ref != plan.base_branch or pr in retarget_prs)
         },
         repo=github_client.repo,
@@ -169,7 +168,7 @@ async def publish_prepared(
 
     if dry_run:
         submitted_changes = tuple(
-            SubmittedChange(prepared=plan.prepared, pr_action=plan.action, pr=plan.discovered_pr)
+            SubmittedChange(prepared=plan.prepared, pr_action=plan.action, pr=plan.prepared.pr)
             for plan in pr_plans
         )
     else:

@@ -54,7 +54,7 @@ def predict_prs_auto_closed_by_push(
     }
     candidates: list[tuple[str, str, GithubPR]] = []
     for plan in plans:
-        pr = plan.discovered_pr
+        pr = plan.prepared.pr
         if pr is None or pr.state != "open":
             continue
         head_after_push = push_targets.get(pr.head.ref)

@@ -103,7 +103,6 @@ class PRSyncPlan:
     """Complete desired state for one pull request."""
 
     base_branch: str
-    discovered_pr: GithubPR | None
     draft: bool
     generated_description: GeneratedDescription
     metadata: PRMetadataAction | None
@@ -111,7 +110,7 @@ class PRSyncPlan:
 
     @property
     def action(self) -> PRAction:
-        if self.discovered_pr is None:
+        if self.prepared.pr is None:
             return "created"
         if any(update is not None for update in self.content_updates) or self.draft_action:
             return "updated"
@@ -119,7 +118,7 @@ class PRSyncPlan:
 
     @property
     def content_updates(self) -> tuple[str | None, str | None, str | None]:
-        pr = self.discovered_pr
+        pr = self.prepared.pr
         if pr is None:
             return None, None, None
         return (
@@ -138,7 +137,7 @@ class PRSyncPlan:
 
     @property
     def draft_action(self) -> PRDraftAction | None:
-        pr = self.discovered_pr
+        pr = self.prepared.pr
         if pr is None or pr.state != "open":
             return None
         if pr.is_draft == self.draft:

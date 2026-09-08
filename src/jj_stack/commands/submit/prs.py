@@ -84,7 +84,7 @@ async def _sync_pr(
     prepared_change = plan.prepared
     branch = prepared_change.branch
     change_id = prepared_change.change.change_id
-    pr = plan.discovered_pr
+    pr = plan.prepared.pr
     action = plan.action
     base_update, body_update, title_update = plan.content_updates
 
