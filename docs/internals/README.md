@@ -10,8 +10,8 @@ Each internal document answers a different question:
   changing behavior, starting with the summary, core concepts, and safety rules.
 - [Testing philosophy](testing-philosophy.md): Which risks deserve tests, and at which layer?
   Read before changing tests or fixtures.
-- [Generated integration testing](property-testing.md): How does the scenario harness work, and
-  how can a failure be reproduced?
+- [Generated integration testing](property-testing.md): Why does the harness separate certain
+  actions, restrict file edits, and isolate saved examples?
 - [Code reviews](code-reviews.md): What should a reviewer look for in code, tests, and docs?
 - [Releasing](releasing.md): How are release notes written, candidates checked, and versions
   published?
