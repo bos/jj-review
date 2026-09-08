@@ -12,8 +12,9 @@ setup:
     uv sync --locked
 
 # Run jj-stack from this checkout.
+[positional-arguments]
 run *args:
-    uv run jj-stack {{args}}
+    uv run jj-stack "$@"
 
 # Refresh the sibling website's generated jj-stack documentation snapshot.
 website:
