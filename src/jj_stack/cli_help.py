@@ -425,11 +425,12 @@ def _inline_help_html(text: str) -> str:
     return "".join(parts)
 
 
-def _usage_html(parser: ArgumentParser, usage: ui.Message | str) -> str:
-    text = ui.plain_text(usage) if not isinstance(usage, str) else usage
-    token_classes: dict[str, str] = {parser.prog: "cli-command"}
+def _usage_tokens(
+    parser: ArgumentParser, text: str
+) -> tuple[tuple[re.Match[str], ui.SemanticText], ...]:
+    tokens = {parser.prog: ui.cmd(parser.prog)}
     for action in parser._actions:
-        token_classes.update((option, "cli-option") for option in action.option_strings)
+        tokens.update((option, ui.option(option)) for option in action.option_strings)
         if action.nargs != 0:
             if action.choices is not None and action.metavar is None:
                 metavar = "{" + ",".join(str(choice) for choice in action.choices) + "}"
@@ -437,38 +438,40 @@ def _usage_html(parser: ArgumentParser, usage: ui.Message | str) -> str:
                 metavar = action.metavar or (
                     action.dest.upper() if action.option_strings else action.dest
                 )
-            token_classes[str(metavar)] = "cli-metavar"
-    token_classes["<command>"] = "cli-metavar"
-    alternatives = "|".join(
-        re.escape(token) for token in sorted(token_classes, key=len, reverse=True)
-    )
+            tokens[str(metavar)] = ui.metavar(str(metavar))
+    tokens["<command>"] = ui.metavar("<command>")
+    alternatives = "|".join(re.escape(token) for token in sorted(tokens, key=len, reverse=True))
     pattern = re.compile(rf"(?<![\w-])({alternatives})(?![\w-])")
-    matches = tuple(pattern.finditer(text))
+    return tuple((match, tokens[match.group(1)]) for match in pattern.finditer(text))
+
+
+def _usage_html(parser: ArgumentParser, usage: ui.Message | str) -> str:
+    text = ui.plain_text(usage)
+    tokens = _usage_tokens(parser, text)
     parts: list[str] = []
     last_index = 0
     match_index = 0
-    while match_index < len(matches):
-        match = matches[match_index]
+    while match_index < len(tokens):
+        match, token = tokens[match_index]
         parts.append(escape(text[last_index : match.start()]))
-        token = match.group(1)
-        next_match = matches[match_index + 1] if match_index + 1 < len(matches) else None
+        following = tokens[match_index + 1] if match_index + 1 < len(tokens) else None
         if (
-            token_classes[token] == "cli-option"
-            and next_match is not None
-            and token_classes[next_match.group(1)] == "cli-metavar"
-            and text[match.end() : next_match.start()] == " "
+            "option" in token.labels
+            and following is not None
+            and "metavar" in following[1].labels
+            and text[match.end() : following[0].start()] == " "
         ):
-            next_token = next_match.group(1)
+            next_match, next_token = following
             parts.append(
                 '<span class="cli-argument">'
-                f'<span class="cli-option">{escape(token)}</span> '
-                f'<span class="cli-metavar">{escape(next_token)}</span>'
+                f'<span class="cli-option">{escape(token.text)}</span> '
+                f'<span class="cli-metavar">{escape(next_token.text)}</span>'
                 "</span>"
             )
             last_index = next_match.end()
             match_index += 2
             continue
-        parts.append(f'<span class="{token_classes[token]}">{escape(token)}</span>')
+        parts.append(f'<span class="cli-{token.labels[0]}">{escape(token.text)}</span>')
         last_index = match.end()
         match_index += 1
     parts.append(escape(text[last_index:]))
@@ -507,9 +510,13 @@ def _command_usage_message(parser: ArgumentParser) -> ui.Message | str:
     body = " ".join(parser.format_usage().split())
     body = re.sub(r"^(?:[Uu]sage:\s*)+", "", body)
     body = re.sub(r"\[-h\]", "[--help]", body)
-    if body.startswith(parser.prog):
-        return (ui.cmd(parser.prog), body.removeprefix(parser.prog))
-    return body
+    parts: list[ui.Message] = []
+    last_index = 0
+    for match, token in _usage_tokens(parser, body):
+        parts.extend((body[last_index : match.start()], token))
+        last_index = match.end()
+    parts.append(body[last_index:])
+    return tuple(parts)
 
 
 def _markdown_command_usage_message(parser: ArgumentParser) -> ui.Message | str:
