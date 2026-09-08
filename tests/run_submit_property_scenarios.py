@@ -35,8 +35,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "examples",
         nargs="?",
         type=positive_int,
-        default=20,
-        help="Generated examples per shard (default: 20).",
+        default=5,
+        help="Generated examples per shard (default: 5).",
     )
     parser.add_argument(
         "--steps",
@@ -45,22 +45,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="Maximum actions per example (default: 20).",
     )
     parser.add_argument(
-        "--shards", type=positive_int, default=4, help="Independent seeded searches (default: 4)."
+        "--shards",
+        type=positive_int,
+        help="Independent seeded searches (default: four per worker).",
     )
     seeds = parser.add_mutually_exclusive_group()
     seeds.add_argument("--seed", type=int, default=None)
     seeds.add_argument("--random-seed", action="store_true")
-    parser.add_argument("-n", "--jobs", default="auto", help="pytest workers (default: auto).")
+    parser.add_argument(
+        "-n", "--jobs", default="auto", help="pytest workers (default: available CPUs)."
+    )
     parser.add_argument("--no-sync", action="store_true", help="Skip uv sync --locked.")
     arguments = list(sys.argv[1:] if argv is None else argv)
     separator = arguments.index("--") if "--" in arguments else len(arguments)
     args = parser.parse_args(arguments[:separator])
     pytest_args = arguments[separator + 1 :]
-    if args.jobs != "auto":
+    if args.jobs == "auto":
+        jobs = os.process_cpu_count() or 1
+    else:
         try:
-            positive_int(args.jobs)
+            jobs = positive_int(args.jobs)
         except ArgumentTypeError as error:
             parser.error(f"--jobs: {error}")
+    shards = args.shards if args.shards is not None else 4 * jobs
     chosen_seed = secrets.randbits(32) if args.random_seed else args.seed
     if chosen_seed is None:
         chosen_seed = SEED
@@ -69,7 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         {
             "JJ_STACK_PROPERTY_EXAMPLES": str(args.examples),
             "JJ_STACK_PROPERTY_STEPS": str(args.steps),
-            "JJ_STACK_PROPERTY_SHARDS": str(args.shards),
+            "JJ_STACK_PROPERTY_SHARDS": str(shards),
             "JJ_STACK_PROPERTY_SEED": str(chosen_seed),
         }
     )
@@ -84,11 +91,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--steps",
         str(args.steps),
         "--shards",
-        str(args.shards),
+        str(shards),
         "--seed",
         str(chosen_seed),
         "-n",
-        args.jobs,
+        str(jobs),
     ]
     if pytest_args:
         reproduce.extend(("--", *pytest_args))
@@ -100,7 +107,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "-m",
             "pytest",
             "-n",
-            args.jobs,
+            str(jobs),
+            "--dist=worksteal",
             f"--randomly-seed={chosen_seed}",
             "tests/property/test_submit_property_scenarios.py",
             *pytest_args,

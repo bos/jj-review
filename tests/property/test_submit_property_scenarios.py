@@ -82,6 +82,6 @@ def test_generated_commands(shard: int) -> None:
             max_examples=EXAMPLES,
             stateful_step_count=STEPS,
             deadline=None,
-            database=DirectoryBasedExampleDatabase(".hypothesis/examples"),
+            database=DirectoryBasedExampleDatabase(f".hypothesis/examples/{shard}"),
         ),
     )

@@ -1,100 +1,53 @@
 # Generated integration testing
 
 The generated harness targets failures that emerge when the local `jj` DAG, PR branches,
-GitHub, and local tracking disagree. It supplements focused tests; it is not a second product
-specification.
+GitHub, and local tracking disagree. Follow the [testing philosophy](testing-philosophy.md)
+when extending it; product rules belong in [design.md](design.md).
 
-## Actions and assertions
+## Model and coverage
 
 [The property tests](../../tests/property/test_submit_property_scenarios.py) run fixed regressions
-and Hypothesis searches through the same
-[`StackMachine`](../../tests/support/stack_machine.py). The machine owns the expected local
-paths, change IDs, file contents, and submitted records. The small
-[edit model](../../tests/support/stack_edit_scenarios.py) predicts order changes independently of
-`jj`. Actions execute real `jj` commands and the CLI against cached repositories and the shared
-fake GitHub server.
+and Hypothesis stateful searches through [`StackMachine`](../../tests/support/stack_machine.py).
+Each example uses a fresh copy of a cached repository, real `jj` commands, and the fake GitHub
+server. The machine owns expected paths, change IDs, file contents, and submitted records;
+the [edit model](../../tests/support/stack_edit_scenarios.py) predicts local order changes.
 
-Client commands and server events are separate actions. A server merge updates GitHub without
-syncing the local repository. Hypothesis can choose subsequent commands and events using the
-state left by earlier actions. Local edits, joins, cross-stack moves, interrupted submits, PR
-closure and reopening, orphan cleanup, branch deletion, external refs, metadata changes,
-approvals, merges, native GitHub rebases, and sync share the same assertions. Surviving changes
-can be amended between a server merge and sync. Trunk advances change file contents, including
-repeated updates to the same file. Joins, cross-stack moves, failed submits, retries, and explicit
-relinks are separate steps, so local edits and server events can intervene before recovery.
-Submitting a cross-stack move in the wrong order must stop without mutation.
-Repositories can require a merge queue. Enqueueing, queue removal, and server completion are
-separate steps; local history can change while a queued request still names its submitted PRs.
-After a partial merge, surviving changes and trunk can independently edit a file from the merged
-work. Shared-file edits replace one line, allowing the model to predict conflicts from the prior,
-local, and trunk versions. Explicit resolutions are later actions. Local content checks use
-`jj`'s file interface. Generated moves preserve the order of changes that edit the same file;
-the model does not reproduce `jj`'s redistribution of overlapping diffs during reordering.
-Ordinary local rebases can bring shared-file edits onto newer trunk before publication or merge.
+Keep client commands, server events, and recovery actions separate so Hypothesis can interleave
+them. For example, local edits can happen between a server merge and client sync, or between a
+failed submit and its retry.
 
-Both submitted and unsubmitted setups use the normal PR-branch fetch exclusion. Native rebase
-actions require a changed base; the model does not assume GitHub rewrites a stack that is already
-up to date.
+Assert observable outcomes: content and PR identity survive supported rewrites and recovery,
+publication follows the local DAG, unrelated work stays unchanged, and unsafe operations stop
+without unintended mutation. Predict outcomes from the model and external actions, independently
+of production planning code. Preconditions select applicable actions; they must not exclude
+unsafe attempts whose refusal is worth testing.
 
-Check these properties at the boundaries where they apply:
-
-- A surviving change keeps its PR and review history across rewrites. Fake-server approval
-  preservation does not establish how every GitHub repository policy treats reviews.
-- A new change receives a new PR. An abandoned change retains its PR, branch, and tracking until
-  explicit cleanup makes it eligible for removal.
-- PR branches, submitted commits, and PR bases match the selected `jj` path after publication.
-- Updating a stack does not transiently close, merge, reopen, or replace an existing PR, or alter
-  an unrelated PR or branch.
-- Unsafe drift stops submit with the expected diagnosis and preserves local history, remote
-  refs, GitHub state, and tracking. `view` still produces a report or targeted diagnostic.
-- An interrupted submit can recover without duplicate PRs or lost links, including explicit
-  relink when GitHub created a PR that the client did not acknowledge.
-- Merge and sync preserve surviving change IDs and reviews, and remove eligible merged artifacts.
-- Queued PRs block publication and leave sync unchanged. Queue completion merges the submitted
-  file versions, preserving later local edits for reconciliation or an explicit recovery stop.
-- Merges can leave unpublished trailing changes. Sync preserves their contents without creating
-  PRs, and refuses local orderings with unpublished work below merged or surviving submitted work.
-- Each surviving change retains its modeled file additions and contents after rewriting, moving,
-  squashing, or syncing. Merges preserve both the submitted contents and unrelated work on trunk.
-- A conflicting sync leaves its local rebase in place without publishing unresolved contents.
-  Resolving and submitting preserves the chosen file contents, change IDs, PRs, and reviews.
-- A native GitHub rebase can be reconciled while preserving local change IDs. If trunk advances
-  again, sync refuses that stale rebase without rewriting local work or PR branches.
-- `sync --all` progresses independent stacks despite blocked paths or unrelated orphan PRs.
-  Blocked and unaffected paths retain their commits, PRs, branches, and tracking. A native rebase
-  alone does not make a path eligible for this command.
-
-The test model must predict these outcomes from the actions taken, rather than asking production
-planning code what to expect. Preconditions select applicable actions; deliberately unsafe
-command attempts must remain available where refusal is the behavior under test.
+Shared-file edits use single-line replacements. Generated moves preserve the order of changes
+that edit the same file, keeping conflict expectations independent of `jj`'s merge algorithms.
+Fake GitHub's review preservation does not establish how every repository policy treats reviews.
 
 ## Running and reproducing searches
 
-`just check` runs six fixed regressions and a small generated search. CI runs a larger search
-with a printed random seed. To explore more sequences locally:
+`just check` includes fixed regressions and a small generated search. CI runs a larger search.
+To explore locally:
 
 ```console
-just property 20 --steps 30 --shards 4 --random-seed
+just property --steps 40 --random-seed
 ```
 
-The positional count is the number of Hypothesis examples per shard. Each example starts with a
-fresh copy of a cached repository and runs up to `--steps` actions. Shards are independent seeded
-searches, distributed over pytest workers selected by `-n` (default `auto`). Example counts are
-search budgets, not counts of unique histories; Hypothesis may replay inputs or discard draws.
+The positional count sets examples per shard; `--steps` sets the maximum actions per example.
+Shards are independent seeded searches. [The runner](../../tests/run_submit_property_scenarios.py)
+defaults to all available CPUs, five examples per shard, and four shards per worker. pytest
+redistributes pending searches as workers finish. Use `-n` and `--shards` to override parallelism.
+Smaller shards improve scheduling without shortening sequences; a running search and its shrinking
+stay on one worker. Example counts are search budgets, not counts of unique histories.
 
-The runner prints a reproduction command containing the seed, budgets, and worker count. To
-select just the generated tests, pass pytest arguments after a literal `--`:
+The runner prints a reproduction command with the seed and resolved settings. Pass pytest
+arguments after `--`, for example `-- -k generated_commands` to omit fixed regressions.
+Each shard saves examples separately under `.hypothesis/` so workers do not all replay and shrink
+the same saved failure. Keep the Hypothesis version when replaying encoded inputs; the database
+is not permanent regression coverage.
 
-```console
-just property 20 --steps 30 --shards 4 --seed 8675309 -- -k generated_commands
-```
-
-Hypothesis shrinks failures into short action sequences and saves examples in `.hypothesis/`,
-which is ignored by source control. Keep the seed and settings when reproducing a search, and
-keep the Hypothesis version when replaying its encoded inputs. The example database speeds up
-iteration but is not permanent regression coverage.
-
-Do not de-duplicate by final topology: different histories and contents can reach the same
-abstract path. When a generated sequence catches a bug, retain a reduced representative through
-the shared actions, or add a focused test if the failure belongs at a narrower boundary.
-Consolidate overlapping cases and stay within the checked-in test and code-size limits.
+Do not deduplicate by final topology: different histories can reach the same path. When a search
+finds a bug, retain a reduced representative through the shared actions or a focused test at a
+narrower boundary. Consolidate overlapping coverage and stay within the complexity budgets.

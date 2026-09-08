@@ -13,6 +13,7 @@ def test_reproduction_preserves_search_budgets_seed_and_pytest_filter(
         return runner.subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(runner.subprocess, "run", run)
+    monkeypatch.setattr(runner.os, "process_cpu_count", lambda: 14)
     assert (
         runner.main(
             (
@@ -32,13 +33,14 @@ def test_reproduction_preserves_search_budgets_seed_and_pytest_filter(
         == 0
     )
     command, env = calls[0]
+    assert command[command.index("-n") + 1] == "14"
     assert command[-2:] == ["-k", "generated_commands"]
     assert env["JJ_STACK_PROPERTY_EXAMPLES"] == "10"
     assert env["JJ_STACK_PROPERTY_STEPS"] == "30"
     assert env["JJ_STACK_PROPERTY_SHARDS"] == "2"
     assert env["JJ_STACK_PROPERTY_SEED"] == "424242"
     assert capsys.readouterr().out.strip() == (
-        "Reproduce: just property 10 --steps 30 --shards 2 --seed 424242 -n auto "
+        "Reproduce: just property 10 --steps 30 --shards 2 --seed 424242 -n 14 "
         "-- -k generated_commands"
     )
 

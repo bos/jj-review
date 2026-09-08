@@ -88,4 +88,4 @@ jobs:
 
       - name: Run generated client and server sequences
         run: >-
-          tests/run_submit_property_scenarios.py 10 --steps 20 --shards 4 --random-seed -n auto
+          tests/run_submit_property_scenarios.py 5 --steps 20 --shards 8 --random-seed -n auto
