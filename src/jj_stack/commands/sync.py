@@ -62,7 +62,6 @@ from jj_stack.identifiers import CommitId
 from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import UnsupportedStackError
 from jj_stack.models.github import GithubStack
-from jj_stack.models.stack import LocalCommit
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace
 from jj_stack.stack.convergence import (
     CheckedOutMergedChangeError,
@@ -292,7 +291,8 @@ async def _run_selected_convergence(
     prepared: PreparedLocalStack,
     trunk_branch: str | None,
 ) -> int:
-    target, selected = _selected_target(prepared)
+    target = _require_github_target(prepared.github_target)
+    selected = prepared.stack.changes
     if not selected:
         console.output("Nothing to sync: the selected change is already on trunk.")
         return 0
@@ -374,14 +374,6 @@ async def _run_selected_convergence(
             target=target,
             trunk_commit_id=prepared.stack.trunk.commit_id,
         )
-
-
-def _selected_target(
-    prepared: PreparedLocalStack,
-) -> tuple[GithubTarget, tuple[LocalCommit, ...]]:
-    target = _require_github_target(prepared.github_target)
-
-    return target, prepared.stack.changes
 
 
 def _require_github_target(

@@ -41,7 +41,7 @@ from jj_stack.jj.cli_args import JjCliArgs
 from jj_stack.jj.client import JjClient
 from jj_stack.models.git import GitRemote
 from jj_stack.models.github import GithubPR, GithubRepo, GithubStack
-from jj_stack.models.stack import LocalCommit, LocalStack
+from jj_stack.models.stack import LocalCommit
 from jj_stack.models.tracking import TrackedPR
 from jj_stack.pr_branch_namespace import current_pr_branch_namespace, pr_branch_matches_change
 from jj_stack.stack.change_state import ChangeObservation
@@ -65,7 +65,6 @@ from .models import (
     SubmitDraftMode,
     SubmitOptions,
     SubmitResult,
-    SubmittedChange,
 )
 from .prs import (
     load_re_request_reviewers,
@@ -209,25 +208,6 @@ def _submit_draft_mode(
     if open_:
         return "open"
     return "default"
-
-
-def _build_submit_result(
-    *,
-    client: JjClient,
-    dry_run: bool,
-    changes: tuple[SubmittedChange, ...],
-    github_stack_actions: tuple[str, ...] = (),
-    stack: LocalStack,
-) -> SubmitResult:
-    """Render one submit result from the shared stack context."""
-
-    return SubmitResult(
-        client=client,
-        dry_run=dry_run,
-        changes=changes,
-        trunk=stack.trunk,
-        github_stack_actions=github_stack_actions,
-    )
 
 
 def _pr_metadata(*, context: CommandContext, options: SubmitOptions) -> PRMetadataAction:
@@ -417,11 +397,12 @@ async def run_submit_async(
     base_branch = tracked_base.pr_identity.head_ref if tracked_base is not None else None
 
     if not stack.changes:
-        return _build_submit_result(
+        return SubmitResult(
             client=client,
             dry_run=dry_run,
             changes=(),
-            stack=stack,
+            github_stack_actions=(),
+            trunk=stack.trunk,
         )
 
     github_repo = require_github_repo(remote)

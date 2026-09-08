@@ -80,16 +80,15 @@ class StatusResult:
 
 
 @dataclass(frozen=True, slots=True)
-class PreparedChange[TrackingT: TrackedPR | None = TrackedPR | None]:
+class PreparedChange:
     """Local stack change with its saved tracking, if any."""
 
     change: LocalCommit
-    tracked: TrackingT
+    tracked: TrackedPR | None
 
     @property
     def branch(self) -> str | None:
-        tracked: TrackedPR | None = self.tracked
-        return tracked.pr_identity.head_ref if tracked is not None else None
+        return self.tracked.pr_identity.head_ref if self.tracked is not None else None
 
 
 def inspect_status(*, prepared: PreparedLocalStack) -> StatusResult:
@@ -228,20 +227,14 @@ async def lookup_pr_lookups_async(
     async with build_github_client(repo=github_repo) as github_client:
         return await discover_pr_lookups(
             github_client=github_client,
-            observations=_observations_by_branch(prepared_changes, remote_name=None),
+            observations={
+                change.tracked.pr_identity.head_ref: _prepared_observation(
+                    change, remote_name=None
+                )
+                for change in prepared_changes
+                if change.tracked is not None
+            },
         )
-
-
-def _observations_by_branch(
-    prepared_changes: tuple[PreparedChange, ...], *, remote_name: str | None
-) -> dict[str, ChangeObservation]:
-    return {
-        change.tracked.pr_identity.head_ref: _prepared_observation(
-            change, remote_name=remote_name
-        )
-        for change in prepared_changes
-        if change.tracked is not None
-    }
 
 
 async def discover_pr_lookups(
