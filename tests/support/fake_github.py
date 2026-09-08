@@ -227,6 +227,11 @@ class FakeGithubRepo:
     def full_name(self) -> str:
         return f"{self.owner}/{self.name}"
 
+    def leave_merge_queue(self, pr_numbers: tuple[int, ...]) -> None:
+        for number in pr_numbers:
+            self.prs[number].is_queued = False
+            self.stack_merge_operations.pop(number, None)
+
     def to_payload(self) -> dict[str, object]:
         return {
             "allow_merge_commit": self.allow_merge_commit,
@@ -1167,7 +1172,7 @@ def _register_pr_routes(app: FastAPI, fake_state: FakeGithubState) -> None:
             merge_action=merge_action,
             merge_method=merge_method,
             pr_number=pr_number,
-            uuid=f"fake-stack-merge-{len(repo.stack_merge_operations) + 1}",
+            uuid=f"fake-stack-merge-{len(repo.stack_merge_requests) + 1}",
         )
         repo.stack_merge_operations[pr_number] = operation
         repo.stack_merge_requests.append(

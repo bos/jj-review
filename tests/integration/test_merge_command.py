@@ -77,6 +77,11 @@ def test_merge_queue_accepts_single_and_stacked_prs_without_a_merge_method(
         (stack_size, None, "merge_queue", stack.head.commit_id)
     ]
 
+    fake_repo.leave_merge_queue(tuple(range(1, stack_size + 1)))
+    assert run_main(repo, config_path, "merge") == 0
+    assert len(fake_repo.stack_merge_requests) == 2
+    assert all(fake_repo.prs[number].is_queued for number in range(1, stack_size + 1))
+
 
 def test_signed_changes_require_a_method_even_when_they_are_not_being_merged_yet(
     tmp_path: Path,

@@ -23,6 +23,8 @@ can be amended between a server merge and sync. Trunk advances change file conte
 repeated updates to the same file. Joins, cross-stack moves, failed submits, retries, and explicit
 relinks are separate steps, so local edits and server events can intervene before recovery.
 Submitting a cross-stack move in the wrong order must stop without mutation.
+Repositories can require a merge queue. Enqueueing, queue removal, and server completion are
+separate steps; local history can change while a queued request still names its submitted PRs.
 
 Both submitted and unsubmitted setups use the normal PR-branch fetch exclusion. Native rebase
 actions require a changed base; the model does not assume GitHub rewrites a stack that is already
@@ -42,6 +44,8 @@ Check these properties at the boundaries where they apply:
 - An interrupted submit can recover without duplicate PRs or lost links, including explicit
   relink when GitHub created a PR that the client did not acknowledge.
 - Merge and sync preserve surviving change IDs and reviews, and remove eligible merged artifacts.
+- Queued PRs block publication and leave sync unchanged. Queue completion merges the submitted
+  file versions, preserving later local edits for reconciliation or an explicit recovery stop.
 - Merges can leave unpublished trailing changes. Sync preserves their contents without creating
   PRs, and refuses local orderings with unpublished work below merged or surviving submitted work.
 - Each surviving change retains its modeled file additions and contents after rewriting, moving,
