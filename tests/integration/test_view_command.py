@@ -541,7 +541,10 @@ def test_list_and_view_report_a_missing_pr_without_forgetting_its_link(
     assert change_id[:8] in captured.out
     assert refreshed_state.prs[change_id].pr_identity.pr_number == 1
 
-    assert run_main(repo, config_path, "list") == EXIT_INCOMPLETE
-    listed = capsys.readouterr()
-    assert "missing PR" in listed.out
-    assert "PR 1" in listed.out
+    assert run_main(repo, config_path, "list", "--json") == EXIT_INCOMPLETE
+    payload = json.loads(capsys.readouterr().out)
+    assert_json_output_matches_schema(payload, "list")
+    change = payload["rows"][0]["changes"][0]
+    assert change["status"] == "missing"
+    assert "PR #1" in change["reason"]
+    assert "jj-stack relink" in change["repair"]

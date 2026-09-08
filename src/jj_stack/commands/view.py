@@ -130,7 +130,7 @@ def _run_status(
                 result=result,
                 selector=None,
             )
-            console.machine_output(json.dumps(_view_json_payload(stacks=(rendered,)), indent=2))
+            console.machine_output(json.dumps({"stacks": [rendered]}, indent=2))
             return EXIT_INCOMPLETE if result.incomplete else 0
         _render_prepared_status(
             prepared_status=prepared_status,
@@ -190,14 +190,7 @@ def _run_status(
             verbose=verbose,
         )
     if as_json:
-        console.machine_output(
-            json.dumps(
-                _view_json_payload(
-                    stacks=tuple(json_stacks),
-                ),
-                indent=2,
-            )
-        )
+        console.machine_output(json.dumps({"stacks": json_stacks}, indent=2))
     return exit_code
 
 
@@ -355,15 +348,6 @@ def _warn_about_unavailable_github(result: StatusResult) -> tuple[ui.Message, ..
     )
     _emit_lines(lines, emitter=console.warning, soft_wrap=False)
     return lines
-
-
-def _view_json_payload(
-    *,
-    stacks: tuple[dict[str, object], ...],
-) -> dict[str, object]:
-    return {
-        "stacks": list(stacks),
-    }
 
 
 def _json_status_result(

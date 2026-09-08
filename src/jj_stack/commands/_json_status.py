@@ -5,6 +5,7 @@ from __future__ import annotations
 from jj_stack.models.tracking import PRIdentity
 from jj_stack.stack.reporting import report_change
 from jj_stack.stack.status import StackStatusChange
+from jj_stack.ui import plain_text
 
 
 def stack_change_json(
@@ -22,6 +23,10 @@ def stack_change_json(
         "needs_submit": report.needs_submit,
         "needs_sync": report.needs_sync,
     }
+    if report.reason is not None:
+        payload["reason"] = plain_text(report.reason)
+    if report.repair is not None:
+        payload["repair"] = plain_text(report.repair)
     if change.branch is not None:
         payload["branch"] = change.branch
     if current:

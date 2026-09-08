@@ -41,6 +41,12 @@
         "needs_sync": {
           "type": "boolean"
         },
+        "reason": {
+          "type": "string"
+        },
+        "repair": {
+          "type": "string"
+        },
         "current": {
           "const": true
         },

@@ -48,6 +48,9 @@ is merged and the change remains in the reported local stack.
 `current: true` is present when the change is the current working-copy change and omitted
 otherwise.
 
+When available, `reason` explains a problem with the change's PR and `repair` gives recovery
+guidance. Both are plain text for display; their wording can change. Use `status` for decisions.
+
 `branch` is present only when jj-stack has a saved pull request link for the change. Unsubmitted
 changes omit it. Orphan rows always include it.
 
