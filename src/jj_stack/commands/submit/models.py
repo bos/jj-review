@@ -76,7 +76,7 @@ class SubmitResult:
     dry_run: bool
     changes: tuple[SubmittedChange, ...]
     trunk: LocalCommit
-    # GitHub stack regrouping this submit performed, as phrases such as "dissolved GitHub
+    # GitHub stack changes this submit made, as phrases such as "dissolved GitHub
     # stack #7".
     github_stack_actions: tuple[str, ...]
 

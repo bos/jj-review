@@ -4,7 +4,8 @@ from pathlib import Path
 import pytest
 
 import jj_stack.ui as ui
-from jj_stack.cli import main
+from jj_stack.cli import _find_subcommand_parser, build_parser, main
+from jj_stack.cli_help import _command_usage_message
 from jj_stack.commands.view import ViewSelector
 from jj_stack.errors import EXIT_USAGE, CliError
 from tests.support.output_assertions import assert_output_contains
@@ -66,11 +67,33 @@ def test_cleanup_close_requires_pr_selection(capsys) -> None:
     assert "cleanup --close requires --pull-request" in captured.err
 
 
-def test_help_all_in_one_marks_cli_tokens_for_styling(capsys) -> None:
+def test_command_usage_preserves_semantics_without_ansi(monkeypatch) -> None:
+    monkeypatch.setenv("PYTHON_COLORS", "1")
+    parser = _find_subcommand_parser(build_parser(), "relink")
+    assert parser is not None
+
+    message = _command_usage_message(parser)
+
+    assert "\x1b" not in ui.plain_text(message)
+    assert isinstance(message, tuple)
+    labels = {part.text: part.labels for part in message if isinstance(part, ui.SemanticText)}
+    for token, label in (
+        ("jj-stack relink", "command"),
+        ("--repository", "option"),
+        ("REPO", "metavar"),
+        ("REVSET", "metavar"),
+    ):
+        assert label in labels[token]
+
+
+def test_help_all_in_one_marks_cli_tokens_for_styling(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("PYTHON_COLORS", "1")
+
     exit_code = main(["help", "--all-in-one"])
     captured = capsys.readouterr()
 
     assert exit_code == 0
+    assert "\x1b" not in captured.out
     for class_name in ("cli-command", "cli-option", "cli-metavar"):
         assert f'class="{class_name}"' in captured.out
 

@@ -23,7 +23,7 @@ def _combined_output(captured) -> str:
     return " ".join((captured.out + " " + captured.err).split())
 
 
-def test_unstack_removes_grouping_without_closing_prs_or_forgetting_links(
+def test_unstack_removes_stack_without_closing_prs_or_forgetting_links(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -39,18 +39,18 @@ def test_unstack_removes_grouping_without_closing_prs_or_forgetting_links(
     preview = capsys.readouterr()
 
     assert preview_exit_code == 0
-    assert "Would remove GitHub stack grouping #7" in preview.out
+    assert "Would remove GitHub stack #7" in preview.out
     assert fake_repo.github_stacks == {7: (1, 2)}
 
     exit_code = run_main(repo, config_path, "unstack", change_id)
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Removed GitHub stack grouping #7" in captured.out
+    assert "Removed GitHub stack #7" in captured.out
     assert fake_repo.github_stacks == {}
 
     assert run_main(repo, config_path, "unstack", change_id) == 0
-    assert "No GitHub stack grouping was found" in capsys.readouterr().out
+    assert "No GitHub stack was found" in capsys.readouterr().out
     assert all(pr.state == "open" for pr in fake_repo.prs.values())
     assert state_store.load() == state_before
 
@@ -73,7 +73,7 @@ def test_unstack_by_number_does_not_require_local_tracking(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert "Removed GitHub stack grouping #7" in captured.out
+    assert "Removed GitHub stack #7" in captured.out
     assert fake_repo.github_stacks == {}
     assert all(pr.state == "open" for pr in fake_repo.prs.values())
     assert state_store.load().prs == {}
@@ -82,10 +82,10 @@ def test_unstack_by_number_does_not_require_local_tracking(
     retry = capsys.readouterr()
 
     assert retry_exit_code == 0
-    assert "No GitHub stack grouping #7 was found" in retry.out
+    assert "No GitHub stack #7 was found" in retry.out
 
 
-def test_unstack_by_number_reports_a_grouping_github_keeps_because_it_is_merged(
+def test_unstack_by_number_reports_a_stack_github_keeps_because_it_is_merged(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -103,11 +103,11 @@ def test_unstack_by_number_reports_a_grouping_github_keeps_because_it_is_merged(
 
     assert exit_code == 0
     assert "only merged PRs" in " ".join(captured.out.split())
-    assert "Removed GitHub stack grouping" not in captured.out
+    assert "Removed GitHub stack" not in captured.out
     assert fake_repo.github_stacks == {7: (1, 2)}
 
 
-def test_unstack_locked_grouping_stops_without_closing_or_forgetting(
+def test_unstack_locked_stack_stops_without_closing_or_forgetting(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -146,7 +146,7 @@ def test_unstack_locked_grouping_stops_without_closing_or_forgetting(
     assert state_store.load() == state_before
 
 
-def test_unstack_rechecks_saved_pr_before_removing_grouping(
+def test_unstack_rechecks_saved_pr_before_removing_stack(
     tmp_path: Path,
     monkeypatch,
     capsys,

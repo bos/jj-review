@@ -235,9 +235,11 @@ class _CommandArgumentParser(ArgumentParser):
 def build_parser() -> ArgumentParser:
     """Build the top-level CLI parser and subcommands."""
 
+    # Help rendering owns styling; argparse and its subparsers supply plain usage text.
     parser = _TopLevelArgumentParser(
         prog="jj-stack",
         description=normalized_help_text(_TOP_LEVEL_HELP_DESCRIPTION),
+        color=False,
     )
     _add_common_options(parser, suppress_defaults=False)
     parser.set_defaults(command="view", handler=_default_view_handler)

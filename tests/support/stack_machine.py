@@ -1223,6 +1223,12 @@ class StackMachine(RuleBasedStateMachine):
     @rule(kind=st.sampled_from(get_args(Drift)), data=st.data())
     def server_change(self, kind: Drift, data: st.DataObject) -> None:
         refs = self.fake.branch_heads() if kind == "reopened_pr" else {}
+        queued_members = {
+            number
+            for members in self.fake.github_stacks.values()
+            if any(self.fake.prs[number].is_queued for number in members)
+            for number in members
+        }
         labels = [
             label
             for p in self.paths
@@ -1230,6 +1236,7 @@ class StackMachine(RuleBasedStateMachine):
             for label in p
             if label in self.submitted
             and not self.pr(label).is_queued
+            and self.pr(label).number not in queued_members
             and self.pr(label).state == ("closed" if kind == "reopened_pr" else "open")
             and (
                 kind != "reopened_pr"

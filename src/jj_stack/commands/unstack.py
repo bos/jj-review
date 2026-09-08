@@ -1,7 +1,7 @@
-"""Remove a GitHub stack's grouping without closing its pull requests.
+"""Remove a GitHub stack without closing its pull requests.
 
 The PRs keep their base branches and dependencies. Local changes and saved pull request links
-stay in place. Submitting the same local stack again recreates the GitHub grouping.
+stay in place. Submitting the same local stack again recreates the GitHub stack.
 
 With a revset or pull request, `unstack` uses the matching local stack. Use
 `--stack <number>` when the GitHub stack no longer corresponds to a single local stack.
@@ -42,7 +42,7 @@ from jj_stack.stack.selection import (
 from jj_stack.state.operation_lock import operation_lock_if_mutating
 from jj_stack.ui import plain_text
 
-HELP = "Separate a GitHub stack while leaving its pull requests open"
+HELP = "Remove a GitHub stack without closing its pull requests"
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +135,7 @@ async def _run_github_unstack(
                 stack_number=stack_number,
             )
             if github_stack is None:
-                console.output(t"No GitHub stack grouping #{stack_number} was found.")
+                console.output(t"No GitHub stack #{stack_number} was found.")
                 return 0
             if not github_stack.active_pr_numbers:
                 console.output(
@@ -171,10 +171,10 @@ async def _run_github_unstack(
             await dissolve_github_stack(github_client=github_client, stack=github_stack)
 
     if github_stack is None:
-        console.output("No GitHub stack grouping was found for the selected pull requests.")
+        console.output("No GitHub stack was found for the selected pull requests.")
         return 0
     action = "Would remove" if dry_run else "Removed"
-    console.output(t"{action} GitHub stack grouping #{github_stack.number}.")
+    console.output(t"{action} GitHub stack #{github_stack.number}.")
     return 0
 
 

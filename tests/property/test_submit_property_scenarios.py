@@ -3,12 +3,12 @@
 from collections.abc import Iterator
 
 import pytest
-from hypothesis import seed, settings
+from hypothesis import given, seed, settings, strategies as st
 from hypothesis.database import DirectoryBasedExampleDatabase
 from hypothesis.stateful import run_state_machine_as_test
 from tests.run_submit_property_scenarios import EXAMPLES, SEED, SHARDS, STEPS
 from tests.support.stack_edit_scenarios import StackEditOperation
-from tests.support.stack_machine import StackMachine
+from tests.support.stack_machine import Drift, StackMachine
 
 pytestmark = pytest.mark.fixed_property
 
@@ -68,6 +68,24 @@ def test_partial_rebase_merge_preserves_surviving_ids_and_reviews(machine: Stack
     machine.server_merge(0, 2, "rebase")
     machine.apply_edit(0, StackEditOperation("rewrite", "c5"))
     machine.sync_path(0)
+
+
+@pytest.mark.parametrize("kind", ["pr_base_retargeted", "remote_branch_deleted"])
+@given(data=st.data())
+@settings(max_examples=1, deadline=None)
+def test_generated_drift_leaves_a_queued_stack_available_for_completion(
+    kind: Drift,
+    data: st.DataObject,
+) -> None:
+    machine = StackMachine()
+    try:
+        machine.start(size=3, submitted=True, queue=True)
+        machine.enqueue_path(0, 2)
+        machine.server_change(kind, data)
+        machine.finish_queue(machine.pr("c2").number, "rebase")
+        machine.model_matches()
+    finally:
+        machine.teardown()
 
 
 @pytest.mark.parametrize("shard", range(SHARDS))

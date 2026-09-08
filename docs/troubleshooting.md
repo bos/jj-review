@@ -40,27 +40,55 @@ jj-stack doctor --fix
 With `--fix`, it also repairs local fetch configuration and removes leftovers from interrupted
 commands. Follow the guidance for any checks that still fail. It does not change GitHub.
 
+## You want to use the same PRs again after `unstack --local`
+
+`jj-stack unstack --local` removes the local links between your changes and their PRs. It leaves
+the PRs open on GitHub. If you later want `jj-stack submit` to update those PRs again, restore
+the links with `jj-stack relink`.
+
+Find the PR numbers on GitHub and the matching change IDs with `jj log`. For each PR, run:
+
+```console
+jj-stack relink <pr> <change-id>
+```
+
+Once you have relinked every PR in the stack, submit from its top change:
+
+```console
+jj-stack submit <head-change-id>
+```
+
+`jj-stack relink` only restores the local link. The later submit updates the existing PRs,
+keeping their numbers and discussions. You can use the same steps if you deleted jj-stack's
+local tracking file.
+
+If `jj-stack relink` reports that the local and GitHub versions differ, [choose which work to
+keep](#a-pr-branch-moved-outside-jj-stack) before retrying.
+
 ## A PR branch moved outside jj-stack
 
-This can happen after GitHub merges or rebases a stack, someone pushes to a PR branch from
-another checkout, or a branch is renamed or deleted.
+If someone updates your PR branch from another checkout, your local change may not include
+their work. `jj-stack submit` stops so it does not overwrite that version on GitHub.
 
-Run `jj-stack view <head-change-id>` to inspect the mismatch. If GitHub moved the branch while
-merging or rebasing your stack, run `jj-stack sync <head-change-id>`.
-
-If the PR branch holds work that is not in your change, such as a reviewer's suggestion or a
-version submitted from another clone, decide what to do with it:
+Inspect the PR on GitHub, then decide what to do with the work there:
 
 - To keep the work, run `jj-stack checkout --pull-request <pr>`. It brings the PR's commits into
   your repo. [Compare and combine the versions](guides/continue-a-stack.md), then run
   `jj-stack submit <head-change-id>`.
 - To replace it with your local version, run
   `jj-stack relink --replace-remote <pr> <change-id>`, then `jj-stack submit <head-change-id>`.
-  The submit overwrites the PR branch with your local change.
+  Here, `jj-stack relink --replace-remote` allows the next submit to overwrite the version on
+  GitHub. The submit then pushes your local change to the existing PR.
 
-Without `--replace-remote`, `jj-stack relink <pr> <change-id>` accepts only a branch at your
-change's current commit or the commit jj-stack last recorded as submitted. It refuses other
-versions so that a later submit cannot silently overwrite them.
+If GitHub changed the branch while merging or rebasing your stack, run
+`jj-stack sync <head-change-id>` instead. It brings GitHub's completed merge or rebase into your
+local stack.
+
+`jj-stack relink` reconnects a PR to its original change. Even with `--replace-remote`, it
+cannot transfer the PR to a different change ID.
+
+If you replaced the original change with a new one, run `jj-stack checkout --pull-request <pr>`
+to recover the original change, then move the edits you want to keep onto it.
 
 If the error names a `--base` parent's branch, restore that branch to the commit ID in the error
 before retrying the child submission. Submitting a child stack does not update its parent.
@@ -73,9 +101,9 @@ to create a new PR.
 
 The local `jj` history determines PR order. Compare it with the stack on GitHub. If you want the
 GitHub order, reproduce it locally with `jj`, then submit. If you want the local order, run
-`jj-stack submit <head-change-id>` to update the PR bases and GitHub grouping.
+`jj-stack submit <head-change-id>` to update the PR bases and GitHub stack.
 
-If the error says the PRs do not identify one GitHub stack, remove the grouping named in the
+If the error says the PRs do not identify one GitHub stack, remove the GitHub stack named in the
 error with `jj-stack unstack --stack <number>`, then submit again. This keeps the PRs open.
 
 ## A stack was removed from the merge queue
@@ -190,9 +218,21 @@ After Ctrl-C, lost connectivity, or a terminal closing mid-command, inspect the 
 jj-stack view <head-change-id>
 ```
 
-If GitHub completed a merge, run `jj-stack sync <head-change-id>`. Otherwise, rerun the
-interrupted command with the same selection. jj-stack checks what already succeeded and
-continues from the current state.
+If `jj-stack submit --edit` fails after you edit the pull requests, you can retry without typing
+your edits again. jj-stack keeps the file you edited and prints its location after `Editor file:`
+or in the error's retry command. Use that location in this command:
+
+```console
+jj-stack submit <head-change-id> --resume-edit /path/to/saved-editor-file.md
+```
+
+`--resume-edit` opens your saved edits in the editor again. Use it instead of `--edit`, which
+opens a new file. Include any other options from your original command, such as `--base`.
+See [edit every PR at once](reference/descriptions.md#edit-every-pr-at-once) for more details.
+
+For other interruptions, if GitHub completed a merge, run `jj-stack sync <head-change-id>`.
+Otherwise, rerun your original command. jj-stack checks what already succeeded and continues
+from the current state.
 
 ## Your old PR branches remain
 

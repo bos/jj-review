@@ -935,7 +935,7 @@ def test_submit_split_path_rebuilds_selected_github_stack(
     assert len(fake_repo.prs) == 4
 
 
-def test_submit_shrinking_stack_to_one_pr_dissolves_grouping(
+def test_submit_shrinking_stack_to_one_pr_dissolves_stack(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -983,7 +983,7 @@ def test_submit_selection_below_the_stack_top_does_not_truncate_github_stack(
     assert remote_refs(fake_repo.git_dir) == refs_before
 
 
-def test_submit_nonmaximal_path_dissolves_grouping_around_orphan(
+def test_submit_nonmaximal_path_dissolves_stack_around_orphan(
     tmp_path: Path,
     monkeypatch,
     capsys,

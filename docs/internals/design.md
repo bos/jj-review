@@ -176,7 +176,7 @@ through a merge queue.
 | `sync` | Update a local stack after a merge or native GitHub stack rebase. |
 | `sync --all` | Sync stacks after merges and finish eligible PRs without local copies. |
 | `merge` | Request a GitHub merge; run sync after a direct merge completes. |
-| `unstack` | Remove a GitHub stack grouping; `--local` instead forgets local tracking. |
+| `unstack` | Remove a GitHub stack; `--local` instead forgets local tracking. |
 | `cleanup` | Remove eligible artifacts and links; optionally close explicitly selected PRs. |
 | `checkout` | Adopt existing PRs and edit the selected change in the current workspace. |
 | `relink` | Repair one change's link to a known PR. |
@@ -332,7 +332,7 @@ stops, even if a higher PR in the parent stack remains open. The user syncs the 
 rebases the child and its descendants onto `trunk()` and submits the child without `--base`
 before merging it. Other child stacks wait for the user to select them.
 
-`submit` rebuilds GitHub grouping under the [membership rules](#github-stack-membership). When
+`submit` rebuilds GitHub stacks under the [membership rules](#github-stack-membership). When
 only one active PR remains in its selection, it becomes an ordinary PR.
 
 All selected PR branches move in one atomic push. Every update carries the target
@@ -524,16 +524,16 @@ place and advances no baseline; a retry compares its trees with the current GitH
 
 `merge`, `sync`, and locally selected `unstack` stop before mutation if the selection spans two
 active GitHub stacks or leaves out an active member of a stack it touches. The diagnostic names
-`jj-stack unstack --stack <number>` when removing the grouping would allow the command to proceed.
+`jj-stack unstack --stack <number>` when removing the stack would allow the command to proceed.
 
-`submit` reconciles GitHub grouping from the selected local path. It may dissolve any number of
+`submit` reconciles GitHub stacks from the selected local path. It may dissolve any number of
 GitHub stacks whose active members are all selected. It may also dissolve one partially selected
 GitHub stack when the selection is a maximal local path and touches no other GitHub stack. A
 non-maximal selection could silently truncate a still-valid stack, so it stops before mutation.
 An unselected active member does not trigger that guard when its observed PR number, branch, and
 head still match the saved PR number, branch, and submitted baseline, and its tracked change has
 no visible off-trunk copy. That change cannot be on an extension of the selected path. Rebuilding
-the grouping leaves the orphaned pull request open and retains its tracking.
+the stack leaves the orphaned pull request open and retains its tracking.
 Likewise, a selection that partly overlaps one GitHub stack while including any previously
 submitted PR outside that resource stops; the user submits the source path first, then the
 destination path.
@@ -585,8 +585,8 @@ Markdown block boundaries, code, tables, and explicit hard line breaks remain un
 
 ### Unstack and cleanup
 
-`unstack` removes the selected GitHub stack grouping and leaves every pull request, PR branch,
-overview comment, and tracking record unchanged. Rerunning it after the grouping is gone is safe.
+`unstack` removes the selected GitHub stack and leaves every pull request, PR branch,
+overview comment, and tracking record unchanged. Rerunning it after the stack is gone is safe.
 
 `unstack --local` removes tracking for the selected local stack without checking PR lifecycle or
 trunk evidence. It leaves GitHub and local history unchanged.
@@ -705,15 +705,15 @@ remove its branch and saved link with
 
 #### Cross-stack rewrites
 
-The [membership rules](#github-stack-membership) determine which GitHub groupings a submit
+The [membership rules](#github-stack-membership) determine which GitHub stacks a submit
 replaces:
 
 - **Move changes**: submit the source stack before the destination so the moved PRs leave their
-  old grouping first.
+  old stack first.
 - **Split a stack**: keep the shared fork in the parent stack and submit each child separately
-  with `--base`. The first child submit dissolves the old grouping; the other children wait for
+  with `--base`. The first child submit dissolves the old stack; the other children wait for
   their own submits.
-- **Join stacks**: submit the resulting local chain to replace the old groupings with one stack.
+- **Join stacks**: submit the resulting local chain to replace the old stacks with one stack.
 
 Stacks not yet resubmitted may still show old overview comments. `list` finds PRs that need a
 refresh by comparing each submitted baseline with the current local commit and naming the stack.

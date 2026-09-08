@@ -109,7 +109,7 @@ async def apply_github_stack_plan(
     plan: GithubStackPlan,
     pr_numbers: tuple[int, ...],
 ) -> GithubStack | None:
-    """Create or append the desired grouping after any replaced stacks were dissolved."""
+    """Create the desired stack or append PRs to it after any replaced stacks were dissolved."""
 
     if plan.action == "none":
         return None

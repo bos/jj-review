@@ -86,7 +86,76 @@ across the repo, use [`jj-stack sync --all`](merge-and-sync.md#several-merged-st
 
 ## Move work between stacks
 
-After moving a change with `jj`, submit its original stack first, then its new stack. The change
-keeps its pull request. The first submit removes that PR from its old GitHub stack; the second
-updates its base and adds it to the new stack. If you try the opposite order, jj-stack stops and
-asks you to submit the original stack first.
+During review, you may discover that a change belongs with another piece of work. Suppose you
+have submitted changes A, B, and C as one stack, and D as a separate PR. B now needs code from
+D, while C does not need B. You want to move B onto D and leave A and C together.
+
+Before the move, your local changes and their PRs are arranged like this. Arrows run from a
+parent to the change built on it; the PR numbers are examples:
+
+```mermaid
+flowchart TB
+  T[trunk] --> A["A · PR #101"]
+  A --> B["B · PR #102"]
+  B --> C["C · PR #103"]
+  T --> D["D · PR #104"]
+```
+
+You can update the existing PRs to follow this move. For example, B will still use PR #102,
+with its existing discussion and review history, but that PR will target D's branch instead of
+A's. You do not need to close PR #102 or open a replacement.
+
+### Move B locally
+
+Replace the placeholders below with the change IDs from `jj log`:
+
+```console
+jj rebase -r <B-change-id> --insert-after <D-change-id>
+```
+
+The `-r` option moves B alone. `jj` rebases C onto A, leaving these two local stacks:
+
+```mermaid
+flowchart TB
+  T[trunk] --> A[A]
+  A --> C[C]
+  T --> D[D]
+  D --> B[B]
+```
+
+Resolve any conflicts before continuing. This rebase changes only your local history; the PRs
+on GitHub still have the arrangement shown in the first diagram.
+
+### Update the original stack on GitHub first
+
+B's PR still belongs to the original GitHub stack with A and C. Submitting the new stack ending
+at B cannot also update A and C: those changes are outside the stack you selected. jj-stack
+stops that submission to avoid breaking up a different GitHub stack without updating it.
+
+First, submit the original stack, which now ends at C:
+
+```console
+jj-stack submit <C-change-id>
+```
+
+This updates the GitHub stack to contain A and C, with C's PR targeting A's branch. B's PR
+leaves that stack but stays open, ready to join D's stack.
+
+Now submit the stack ending at B:
+
+```console
+jj-stack submit <B-change-id>
+```
+
+This updates B's PR to target D's branch and creates the GitHub stack containing D and B.
+GitHub now matches your local history, using the same four PRs:
+
+```mermaid
+flowchart TB
+  T[trunk] --> A["A · PR #101"]
+  A --> C["C · PR #103"]
+  T --> D["D · PR #104"]
+  D --> B["B · PR #102"]
+```
+
+If you already tried submitting B first and got an error, submit C, then retry B.

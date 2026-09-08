@@ -241,7 +241,7 @@ def test_cleanup_preserves_a_branch_while_its_closed_dependent_can_be_reopened(
         f"refs/heads/{bookmark}" in remote_refs(fake_repo.git_dir) for bookmark in bookmarks
     )
 
-    # Dissolving the GitHub grouping does not release the base branch. The closed member above
+    # Dissolving the GitHub stack does not release the base branch. The closed member above
     # still names it, so cleaning up the one it does not block leaves the other refused.
     assert run_main(repo, config_path, "unstack", "--stack", "7") == 0
     capsys.readouterr()
