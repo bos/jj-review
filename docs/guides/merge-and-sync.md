@@ -148,12 +148,11 @@ name the stack with `sync <head-change-id>`.
 
 ## If `merge` fails after GitHub merges your pull requests
 
-This should be rare, but might happen if your network connection is interrupted or your power
-fails.
+A failed local update or network interruption can leave work unfinished after the PRs merge.
+Follow the hint in the error. If the local rebase produced conflicts, follow
+[sync conflict recovery](../troubleshooting.md#sync-rebased-your-changes-into-conflicts).
 
-Since the pull requests have already merged, you can finish the local update and GitHub
-cleanup with `sync`. Follow the instructions in the error message, which will normally ask
-you to inspect the stack and sync it:
+For other failures, inspect the stack and rerun `sync` to finish the local update and cleanup:
 
 ```console
 jj-stack view <head-change-id>

@@ -103,12 +103,11 @@ inspect the repo again before retrying; a nonzero exit does not mean nothing hap
 
 Follow the recovery command printed by jj-stack. In particular:
 
-- If GitHub finishes a merge but the local update fails, run `jj-stack sync <head-change-id>`.
+- If `jj-stack sync` rebases changes into conflicts, follow
+  [sync conflict recovery](../troubleshooting.md#sync-rebased-your-changes-into-conflicts) before
+  publishing the remaining changes. This also applies to the automatic sync after a merge.
+- For other failures after GitHub finishes a merge, run `jj-stack sync <head-change-id>`.
   Rerunning `jj-stack merge` does not resume that update.
-- If `jj-stack sync` rebases changes into conflicts, it keeps the local rebase and stops before
-  updating the remaining PRs or cleaning up merged PRs. Resolve the conflicts with `jj`, then run
-  the `jj-stack submit` command it printed. Use `jj-stack cleanup` afterward if unused PR branches
-  and saved links remain.
 
 ## Exit codes
 

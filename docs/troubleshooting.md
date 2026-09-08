@@ -150,7 +150,9 @@ stack while its base is behind trunk when it has no conflicts.
 ## GitHub merged your stack, but `merge` ended with an error
 
 The merge completed, but jj-stack could not finish updating your local stack or cleaning up
-GitHub. This can happen after a network failure or an interrupted local update. Follow the sync
+GitHub. This can happen after a network failure or an interrupted local update. If the local
+rebase produced conflicts, follow
+[sync conflict recovery](#sync-rebased-your-changes-into-conflicts). Otherwise, follow the sync
 command in the error, normally:
 
 ```console
@@ -158,6 +160,27 @@ jj-stack sync <head-change-id>
 ```
 
 Do not retry the merge; the PRs are already merged.
+
+## `sync` rebased your changes into conflicts
+
+If a rebase produces conflicts, `jj-stack sync` keeps the local rebase but stops before updating
+the remaining PRs or cleaning up merged PRs. This can also happen during the automatic sync at
+the end of `jj-stack merge`.
+
+Resolve the conflicts with `jj`, then run the `jj-stack submit` command printed in the hint:
+
+```console
+jj-stack submit <head-change-id>
+```
+
+Use `submit` after resolving these conflicts: the local rebase is already applied, so rerunning
+`sync` may find no merged changes left to process.
+
+If unused branches or saved links remain for merged PRs, clean up each by its PR number:
+
+```console
+jj-stack cleanup --pull-request <merged-pr>
+```
 
 ## A command was interrupted
 
