@@ -98,12 +98,19 @@ async def refresh_selected_prs(
         prepared_changes=changes,
         prior_reviewers={},
     )
+    cleanup_commands = tuple(
+        f"jj-stack cleanup --pull-request {merged.candidate.pr_identity.pr_number}"
+        for merged in actions.on_trunk
+    )
     await publish_prepared(
         context=context,
         github_client=github,
         prepared_inputs=inputs,
         pr_plans=plans,
         remote_targets=remote_targets,
+        retry_hint=t"The local stack has been updated. Finish updating the pull requests with "
+        t"{ui.cmd(f'jj-stack submit {short_change_id(selected_ids[-1])}')}, then clean up "
+        t"the merged pull requests with {ui.join(ui.cmd, cleanup_commands)}.",
         observed_stacks=github_stacks,
         trunk_branch=trunk_branch,
         trunk_targets={trunk_branch: path.stack.trunk.commit_id},

@@ -6,8 +6,11 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 import jj_stack.console as console
+import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext
 from jj_stack.concurrency import DEFAULT_BOUNDED_CONCURRENCY
+from jj_stack.errors import CliError, error_message
+from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient
 from jj_stack.identifiers import CommitId
 from jj_stack.jj.client import PRRefUpdate
@@ -84,6 +87,7 @@ async def publish_prepared(
     prepared_inputs: PublicationInputs,
     pr_plans: tuple[PRSyncPlan, ...],
     remote_targets: dict[str, CommitId],
+    retry_hint: ui.Message,
     observed_stacks: tuple[GithubStack, ...],
     trunk_branch: str,
     trunk_targets: dict[str, CommitId],
@@ -179,6 +183,7 @@ async def publish_prepared(
         pr_plans=pr_plans,
         pr_branch_ref_updates=pr_branch_ref_updates,
         retarget_prs=retarget_prs,
+        retry_hint=retry_hint,
         run=mutation_run,
         stacks_to_dissolve=stacks_to_dissolve,
         trunk_branch=trunk_branch,
@@ -193,6 +198,7 @@ async def _apply_planned_submit(
     pr_plans: tuple[PRSyncPlan, ...],
     pr_branch_ref_updates: tuple[PRRefUpdate, ...],
     retarget_prs: tuple[GithubPR, ...],
+    retry_hint: ui.Message,
     run: SubmitMutationRun,
     stacks_to_dissolve: tuple[GithubStack, ...],
     trunk_branch: str,
@@ -224,11 +230,6 @@ async def _apply_planned_submit(
             run=run,
         )
     pr_numbers = tuple(pr.number for _, pr in submitted)
-    grouped = await apply_github_stack_plan(
-        github_client=github_client,
-        plan=github_stack_plan,
-        pr_numbers=pr_numbers,
-    )
     submitted_force_pushes_by_pr = {
         pr.number: (expected_target, plan.prepared.change.commit_id)
         for plan, pr in submitted
@@ -236,14 +237,29 @@ async def _apply_planned_submit(
         and plan.prepared.remote_action == "pushed"
         and (expected_target := plan.prepared.expected_remote_target) is not None
     }
-    await sync_submit_comments(
-        base_is_another_pr=pr_plans[0].base_branch != trunk_branch,
-        concurrency=DEFAULT_BOUNDED_CONCURRENCY,
-        generated_stack_description=prepared_inputs.generated_stack_description,
-        github_client=github_client,
-        pr_numbers=pr_numbers,
-        submitted_force_pushes_by_pr=submitted_force_pushes_by_pr,
-    )
+    try:
+        grouped = await apply_github_stack_plan(
+            github_client=github_client,
+            plan=github_stack_plan,
+            pr_numbers=pr_numbers,
+        )
+        await sync_submit_comments(
+            base_is_another_pr=pr_plans[0].base_branch != trunk_branch,
+            concurrency=DEFAULT_BOUNDED_CONCURRENCY,
+            generated_stack_description=prepared_inputs.generated_stack_description,
+            github_client=github_client,
+            pr_numbers=pr_numbers,
+            submitted_force_pushes_by_pr=submitted_force_pushes_by_pr,
+        )
+    except CliError as error:
+        published = ui.join(
+            lambda pr: format_pr_label(pr.number, url=pr.html_url),
+            tuple(pr for _, pr in submitted),
+        )
+        raise CliError(
+            (t"Published {published}. ", error_message(error)),
+            hint=(error.hint, " ", retry_hint) if error.hint is not None else retry_hint,
+        ) from error
     print_submitted_changes(inputs=prepared_inputs, changes=submitted)
     actions = [f"dissolved GitHub stack #{stack.number}" for stack in stacks_to_dissolve]
     if grouped is not None:

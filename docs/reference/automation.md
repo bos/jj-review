@@ -106,8 +106,7 @@ Follow the recovery command printed by jj-stack. In particular:
 - If `jj-stack sync` rebases changes into conflicts, follow
   [sync conflict recovery](../troubleshooting.md#sync-rebased-your-changes-into-conflicts) before
   publishing the remaining changes. This also applies to the automatic sync after a merge.
-- For other failures after GitHub finishes a merge, run `jj-stack sync <head-change-id>`.
-  Rerunning `jj-stack merge` does not resume that update.
+- After GitHub finishes a merge, rerunning `jj-stack merge` does not resume the remaining work.
 
 ## Exit codes
 

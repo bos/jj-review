@@ -321,6 +321,19 @@ def _strip_surrounding_quotes(text: str) -> str:
     return text
 
 
+def resume_edit_hint(document_path: Path) -> ui.Message:
+    quoted_document_path = (
+        subprocess.list2cmdline([str(document_path)])
+        if os.name == "nt"
+        else shlex.quote(str(document_path))
+    )
+    retry = f"--resume-edit {quoted_document_path}"
+    return (
+        t"Retry the same {ui.cmd('jj-stack submit')} command with {ui.cmd(retry)} "
+        t"instead of {ui.option('--edit')}, keeping the other options."
+    )
+
+
 def edit_prs_in_editor(
     *,
     descriptions: dict[str, GeneratedDescription],
@@ -358,16 +371,7 @@ def edit_prs_in_editor(
                 t"{ui.code(str(document_path))}: {error}"
             ) from error
 
-    quoted_document_path = (
-        subprocess.list2cmdline([str(document_path)])
-        if os.name == "nt"
-        else shlex.quote(str(document_path))
-    )
-    retry = f"--resume-edit {quoted_document_path}"
-    recovery_hint = (
-        t"Retry the same {ui.cmd('jj-stack submit')} command with {ui.cmd(retry)} "
-        t"instead of {ui.option('--edit')}."
-    )
+    recovery_hint = resume_edit_hint(document_path)
     try:
         completed = subprocess.run(
             [*editor_command, str(document_path)],

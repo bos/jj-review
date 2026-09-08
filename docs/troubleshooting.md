@@ -180,12 +180,8 @@ stack while its base is behind trunk when it has no conflicts.
 The merge completed, but jj-stack could not finish updating your local stack or cleaning up
 GitHub. This can happen after a network failure or an interrupted local update. If the local
 rebase produced conflicts, follow
-[sync conflict recovery](#sync-rebased-your-changes-into-conflicts). Otherwise, follow the sync
-command in the error, normally:
-
-```console
-jj-stack sync <head-change-id>
-```
+[sync conflict recovery](#sync-rebased-your-changes-into-conflicts). Otherwise, follow the
+recovery instructions in the error.
 
 Do not retry the merge; the PRs are already merged.
 

@@ -527,7 +527,7 @@ def test_sync_noop_after_partial_merge_does_not_read_pr_branch_targets_or_submit
     assert fake_repo.prs[2] == pr_before
 
 
-def test_sync_republishes_an_amended_survivor_after_an_external_stack_merge(
+def test_post_merge_sync_recovers_an_amended_survivor_after_comment_failure(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -536,28 +536,39 @@ def test_sync_republishes_an_amended_survivor_after_an_external_stack_merge(
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     state_store = TrackingStore.for_repo(repo)
     on_trunk, survivor = selected_stack(repo).changes
-    remote_survivor = _simulate_stack_partial_merge(fake_repo)
     run_command(["jj", "edit", survivor.change_id], repo)
     write_file(repo / "local-survivor-edit.txt", "keep this edit\n")
     run_command(["jj", "new"], repo)
+    load_comments = GithubClient.find_issue_comments_and_revisions
+    fail_comments = True
 
-    exit_code = run_main(repo, config_path, "sync", survivor.change_id)
+    async def load_comments_or_fail(self, **kwargs):
+        if fail_comments:
+            raise GithubClientError("Comment lookup unavailable", status_code=503)
+        return await load_comments(self, **kwargs)
+
+    monkeypatch.setattr(GithubClient, "find_issue_comments_and_revisions", load_comments_or_fail)
+
+    exit_code = run_main(repo, config_path, "merge", "--pull-request", "1")
     captured = capsys.readouterr()
 
-    assert exit_code == 0, (captured.out, captured.err)
+    assert exit_code == EXIT_GITHUB, (captured.out, captured.err)
+    error = " ".join(captured.err.split())
+    assert "Continue with jj-stack sync" not in error
+    assert f"jj-stack submit {survivor.change_id[:8]}" in error
+    assert "jj-stack cleanup --pull-request 1" in error
+
+    fail_comments = False
+    assert run_main(repo, config_path, "submit", survivor.change_id) == 0
+    assert run_main(repo, config_path, "cleanup", "--pull-request", "1") == 0
     jj = JjClient(repo)
     republished = jj.resolve_commit(survivor.change_id)
     assert republished.parents == (read_remote_ref(fake_repo.git_dir, "main"),)
-    assert republished.commit_id != remote_survivor
     assert (repo / "local-survivor-edit.txt").read_text() == "keep this edit\n"
-    assert (fake_repo.prs[2].head_sha, fake_repo.prs[2].base_ref) == (
-        republished.commit_id,
-        "main",
-    )
-    state = state_store.load()
-    assert on_trunk.change_id not in state.prs
-    assert state.prs[survivor.change_id].submitted_baseline.commit_id == republished.commit_id
+    assert read_remote_ref(fake_repo.git_dir, fake_repo.prs[2].head_ref) == republished.commit_id
+    assert fake_repo.prs[2].base_ref == "main"
     assert jj.query_commits_by_change_ids((on_trunk.change_id,))[on_trunk.change_id] == ()
+    assert on_trunk.change_id not in state_store.load().prs
 
 
 def test_sync_preserves_a_conflict_resolution_that_restores_the_submitted_tree(

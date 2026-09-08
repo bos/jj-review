@@ -34,7 +34,7 @@ import jj_stack.ui as ui
 from jj_stack.bootstrap import CommandContext, bootstrap_context
 from jj_stack.commands.sync import run_stack_convergence
 from jj_stack.config import MergeMethod
-from jj_stack.errors import CliError
+from jj_stack.errors import CliError, error_hint
 from jj_stack.formatting import format_pr_label
 from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
 from jj_stack.github.resolution import GithubTarget, resolve_trunk_branch
@@ -122,7 +122,9 @@ def _run_merge(
             revset=sync_change_id,
         )
     except BaseException as error:
-        _warn_incomplete_post_merge_sync(sync_change_id)
+        _warn_incomplete_post_merge_sync(
+            sync_change_id, has_recovery_hint=error_hint(error) is not None
+        )
         if isinstance(error, GithubClientError):
             raise CliError(
                 "Could not update the local stack after the completed merge.",
@@ -135,11 +137,19 @@ def _run_merge(
     return exit_code
 
 
-def _warn_incomplete_post_merge_sync(sync_change_id: str) -> None:
+def _warn_incomplete_post_merge_sync(
+    sync_change_id: str, *, has_recovery_hint: bool = False
+) -> None:
     console.warning(
-        t"GitHub completed the merge, but the local stack update did not finish. Do not run "
-        t"{ui.cmd('jj-stack merge')} again. Continue with "
-        t"{ui.cmd('jj-stack sync')} {ui.change_id(sync_change_id)}."
+        (
+            t"GitHub completed the merge, but the follow-up work did not finish. Do not run "
+            t"{ui.cmd('jj-stack merge')} again.",
+            (
+                t" Continue with {ui.cmd('jj-stack sync')} {ui.change_id(sync_change_id)}."
+                if not has_recovery_hint
+                else ""
+            ),
+        )
     )
 
 

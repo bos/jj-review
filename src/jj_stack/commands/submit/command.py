@@ -58,7 +58,7 @@ from jj_stack.stack.status import discover_pr_lookups
 from jj_stack.state.operation_lock import operation_lock_if_mutating
 
 from .changes import prepare_submit_changes, require_published_base
-from .descriptions import edit_prs_in_editor, preserve_external_pr_text
+from .descriptions import edit_prs_in_editor, preserve_external_pr_text, resume_edit_hint
 from .inputs import prepare_submit_inputs
 from .models import (
     PRMetadataAction,
@@ -596,6 +596,12 @@ async def run_submit_async(
             prepared_inputs=prepared_inputs,
             pr_plans=pr_plans,
             remote_targets=remote_targets,
+            retry_hint=(
+                resume_edit_hint(generated_edit_path)
+                if generated_edit_path is not None
+                else t"Retry the same {ui.cmd('jj-stack submit')} command, "
+                t"keeping its existing options."
+            ),
             observed_stacks=observed_stacks,
             trunk_branch=trunk_branch,
             trunk_targets=trunk_targets,

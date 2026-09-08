@@ -124,11 +124,7 @@ async def apply_github_stack_plan(
             return None
         return await github_client.create_stack(pr_numbers=pr_numbers)
     except GithubClientError as error:
-        raise CliError(
-            "Could not update the GitHub stack",
-            hint=t"Resolve GitHub's reported error, then retry the same "
-            t"{ui.cmd('jj-stack submit')} command.",
-        ) from error
+        raise CliError("Could not update the GitHub stack") from error
 
 
 def github_stack_pr_snapshot(pr: GithubStackPR) -> GithubStackPRSnapshot:

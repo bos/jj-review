@@ -1706,7 +1706,7 @@ def test_submit_keeps_one_revision_history_comment_per_pull_request(
     assert f"/compare/{second_commit}..{third_commit}" in comments[0].body
 
 
-def test_submit_reports_stack_overview_comment_update_failures_without_traceback(
+def test_submit_reports_published_prs_when_the_overview_update_needs_retrying(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -1722,6 +1722,8 @@ def test_submit_reports_stack_overview_comment_update_failures_without_traceback
     )
     stack_description = tmp_path / "stack.md"
     write_file(stack_description, "New stack overview\n")
+    run_command(["jj", "describe", "-r", change_id, "-m", "feature 2 revised"], repo)
+    fail_update = True
 
     class FailingCommentUpdateClient(GithubClient):
         async def update_issue_comment(
@@ -1730,7 +1732,9 @@ def test_submit_reports_stack_overview_comment_update_failures_without_traceback
             comment_id: int,
             body: str,
         ):
-            raise GithubClientError("GitHub request failed: 404 Not Found", status_code=404)
+            if fail_update:
+                raise GithubClientError("GitHub request failed: 404 Not Found", status_code=404)
+            return await super().update_issue_comment(comment_id=comment_id, body=body)
 
     app = create_app(FakeGithubState.single_repo(fake_repo))
 
@@ -1753,8 +1757,30 @@ def test_submit_reports_stack_overview_comment_update_failures_without_traceback
     captured = capsys.readouterr()
 
     assert exit_code == EXIT_GITHUB
-    assert "Could not update stack overview comment" in captured.err
-    assert "Traceback" not in captured.err
+    error = " ".join(captured.err.split())
+    assert "Published PR #1, PR #2" in error
+    assert "Could not update stack overview comment" in error
+    assert "Retry the same jj-stack submit command" in error
+    assert fake_repo.prs[2].title == "feature 2 revised"
+    assert (
+        read_remote_ref(fake_repo.git_dir, fake_repo.prs[2].head_ref)
+        == selected_stack(repo).head.commit_id
+    )
+    assert "old overview" in _overview_comments(fake_repo, 2)[0].body
+
+    fail_update = False
+    assert (
+        run_main(
+            repo,
+            config_path,
+            "submit",
+            change_id,
+            "--describe",
+            f"stack={stack_description}",
+        )
+        == 0
+    )
+    assert "New stack overview" in _overview_comments(fake_repo, 2)[0].body
 
 
 def test_submit_refreshes_unchanged_pr_text_and_preserves_github_edits(

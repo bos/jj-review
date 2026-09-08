@@ -379,8 +379,8 @@ resolved before the merge request. It does not reinterpret the original revset
 after fetching the changed trunk.
 
 GitHub merge success and local reconciliation are separate outcomes. If GitHub completes the
-merge but the automatic sync stops, `merge` returns the sync failure status, says that the GitHub
-merge must not be retried, and leaves recovery to a later `sync`.
+merge but the automatic sync stops, `merge` returns the sync failure status and says that the
+GitHub merge must not be retried.
 
 For a direct merge, the merge method comes from `--method`, otherwise from `merge_method` in
 repo configuration. Without either choice, `merge` uses the repo's only allowed method when

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import jj_stack.console as console
+import jj_stack.ui as ui
 from jj_stack.concurrency import run_bounded_tasks
 from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient
@@ -108,7 +109,10 @@ def _stack_overview_body(
     if len(existing_bodies) > 1:
         raise CliError(
             "Could not preserve the stack overview because the selected pull requests "
-            "have different managed comments."
+            "have different managed comments.",
+            hint=t"Write the combined stack overview to a file and add "
+            t"{ui.cmd('--describe stack=FILE')} when retrying, replacing {ui.code('FILE')} "
+            t"with that file's path.",
         )
     return next(iter(existing_bodies), None)
 
