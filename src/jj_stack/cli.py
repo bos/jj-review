@@ -25,7 +25,7 @@ from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from inspect import signature
 from pathlib import Path
-from typing import Any, NoReturn, SupportsIndex, cast
+from typing import Any, NoReturn, SupportsIndex
 
 import jj_stack.bootstrap as bootstrap
 import jj_stack.commands.checkout as checkout_command
@@ -788,7 +788,7 @@ def _color_arg_from_argv(argv: Sequence[str]) -> RequestedColorMode | None:
         else:
             continue
         if value in _COLOR_CHOICES:
-            return cast(RequestedColorMode, value)
+            return value
         return None
     return None
 
@@ -817,7 +817,7 @@ def _load_configured_jj_color(
 
     configured = completed.stdout.strip()
     if configured in _COLOR_CHOICES:
-        return cast(RequestedColorMode, configured)
+        return configured
     return None
 
 

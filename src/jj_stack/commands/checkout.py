@@ -637,17 +637,17 @@ def _picker_choices(
             )
         )
         listed_pr_numbers.update(numbers)
-    for stack in local_stacks:
-        tracked = state.prs.get(stack.head.change_id)
+    for path in local_stacks:
+        tracked = state.prs.get(path.head.change_id)
         if tracked is not None and tracked.pr_identity.pr_number in listed_pr_numbers:
             continue
-        count = len(stack.changes)
+        count = len(path.changes)
         noun = "change" if count == 1 else "changes"
         choices.append(
             CheckoutPickerChoice(
-                heading=f"Local stack {stack.head.change_id}",
-                details=(f"Head: {stack.head.subject}", f"Size: {count} {noun}"),
-                revset=stack.head.change_id,
+                heading=f"Local stack {path.head.change_id}",
+                details=(f"Head: {path.head.subject}", f"Size: {count} {noun}"),
+                revset=path.head.change_id,
             )
         )
     return tuple(choices)

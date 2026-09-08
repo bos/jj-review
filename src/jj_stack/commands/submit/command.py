@@ -491,8 +491,8 @@ async def run_submit_async(
             if isinstance(recovery_targets_result, BaseException):
                 raise recovery_targets_result
             remote_targets = {
-                **cast(dict[str, CommitId], exact_remote_targets_result),
-                **cast(dict[str, CommitId], recovery_targets_result),
+                **exact_remote_targets_result,
+                **recovery_targets_result,
             }
             branch_resolutions = _recover_interrupted_first_submissions(
                 client=client,
