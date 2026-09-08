@@ -1,13 +1,25 @@
-"""Reconnect a GitHub pull request to a selected local change.
+"""Reconnect a change to its pull request.
 
-Use it to repair a missing or incorrect saved pull request link. The pull request must be open,
-and its PR branch must match either the selected change's current commit or the commit that
-`jj-stack` last recorded as submitted. Otherwise,
-`relink` refuses and shows what is on the branch. Pass `--replace-remote` to accept that branch
-version and let the next `jj-stack submit` replace it with your local change.
+Use `jj-stack relink` in these situations:
 
-`relink` changes only `jj-stack`'s local tracking data. It does not push or change anything on
-GitHub.
+- You ran `jj-stack unstack --local` and now want to use those PRs again. That command removes
+  the local links between changes and PRs, but leaves the PRs open on GitHub. Run
+  `jj-stack relink <pr> <change-id>` for each PR to restore its link. The same repair applies
+  if you deleted jj-stack's local tracking file.
+
+- Someone pushed another version to your PR branch, and you want to replace it with your
+  local version. `jj-stack submit` stops to avoid overwriting their work. After checking the
+  changes on GitHub, run `jj-stack relink --replace-remote <pr> <change-id>` so the next
+  `jj-stack submit` can overwrite that version. To keep their work instead, bring it into your
+  repo with `jj-stack checkout --pull-request <pr>`.
+
+After relinking, run `jj-stack submit <head-change-id>` to update the stack's PRs. Use the
+change ID for each PR when relinking, and the top change's ID when submitting the stack.
+The existing PRs keep their numbers and discussions.
+
+`jj-stack relink` itself only updates local tracking. `jj-stack submit` changes GitHub.
+`jj-stack relink` works with open PRs for their original changes in this repo. It cannot transfer
+a PR to a different change ID, even with `--replace-remote`.
 """
 
 from __future__ import annotations
@@ -45,7 +57,7 @@ from jj_stack.stack.pr_facts import duplicate_pr_claim_change_ids
 from jj_stack.stack.selected import require_submittable_changes, select_stack_path
 from jj_stack.state.operation_lock import acquire_operation_lock
 
-HELP = "Reconnect an existing pull request to a local change"
+HELP = "Reconnect a change to its pull request"
 
 
 @dataclass(frozen=True, slots=True)

@@ -35,7 +35,7 @@ Running `jj-stack` without a subcommand is equivalent to `jj-stack view` without
 | Command | Use it to |
 |---|---|
 | `checkout` | Fetch an existing PR stack, link it to local changes, and edit the chosen change. |
-| `relink` | Link an existing pull request to a local change. |
+| `relink` | Resume updating PRs after `unstack --local` or a push from another checkout. |
 | `doctor` | Check repo setup, GitHub access, and leftovers from interrupted commands. |
 | `in-use` | Silently check whether this repo has jj-stack tracking data. |
 
