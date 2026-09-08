@@ -3,20 +3,6 @@
 Push the selected changes and create or update one PR per change, in local parent order.
 Existing PRs follow their change IDs. Resolve any conflicts before submitting.
 
-In terminals with hyperlink support, the PR labels in the output are clickable links to GitHub.
-The PR beside "Top of stack" opens the top PR in the submitted stack.
-
-A pull request title comes from a change's subject line, and its body from the rest of the
-description. When a description has no body, `jj-stack` uses the repo's pull request template
-(`.github/PULL_REQUEST_TEMPLATE.md`, `PULL_REQUEST_TEMPLATE.md`, or
-`docs/PULL_REQUEST_TEMPLATE.md`), or repeats the subject line if no template exists.
-
-Later submits refresh the title and body from the change description, provided both still match
-the defaults for the last submitted version. Editing either field on GitHub preserves both.
-
-Use `--describe` to replace one body, or `--describe-with` for titles and bodies from a helper.
-Use `--edit` to edit the planned titles, bodies, and draft states before anything is pushed.
-
 The `--label`, `--reviewers`, and `--team-reviewers` flags accept comma-separated values and may
 be repeated. When passed, they override the corresponding configured defaults for this run.
 
@@ -89,14 +75,23 @@ from .render import print_selected_line, print_submit_result
 
 HELP = "Create or update PRs for a jj stack"
 DESCRIPTION_HELP = """
+A pull request title comes from a change's subject line, and its body from the rest of the
+description. When a description has no body, `jj-stack` uses the repo's pull request template
+(`.github/PULL_REQUEST_TEMPLATE.md`, `PULL_REQUEST_TEMPLATE.md`, or
+`docs/PULL_REQUEST_TEMPLATE.md`), or repeats the subject line if no template exists.
+
+Later submits refresh the title and body from the change description, provided both still match
+the defaults for the last submitted version. Editing either field on GitHub preserves both.
+
 Use `--describe CHANGE=FILE` to read a PR body from a Markdown file, or `--describe stack=FILE`
 to add an overview comment to the head PR of a stack with several changes. Relative paths are
 resolved from the directory where you run `jj-stack`.
 
-With `--edit`, save and close the editor to continue. Invalid text or an editor error stops
-submission before any branches or PRs change. If submission fails, the editor file is kept.
-Retry the same command with `--resume-edit FILE` instead of `--edit`. The file must still name
-exactly the selected changes.
+Use `--edit` to edit the planned titles, bodies, and draft states before anything is pushed.
+Save and close the editor to continue. Invalid text or an editor error stops submission before
+any branches or PRs change. If submission fails, the editor file is kept. Retry the same command
+with `--resume-edit FILE` instead of `--edit`. The file must still name exactly the selected
+changes.
 
 The editor comes from `jj`'s `ui.editor`, then `$VISUAL`, then `$EDITOR`. Neither `--edit` nor
 `--resume-edit` can be combined with `--describe-with`.
