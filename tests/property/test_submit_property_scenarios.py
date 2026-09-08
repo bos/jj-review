@@ -43,6 +43,9 @@ def test_joining_submitted_stacks_preserves_both_sets_of_prs(machine: StackMachi
 def test_submit_recovers_after_an_unacknowledged_push(machine: StackMachine) -> None:
     machine.start(size=3, submitted=False)
     machine.interrupted_submit(0, "after_remote_push", 0)
+    machine.apply_edit(0, StackEditOperation("rewrite", "c2"))
+    machine.drift("trunk_advanced")
+    machine.submit_path(0)
 
 
 def test_a_closed_pr_blocks_publishing_an_inserted_change(machine: StackMachine) -> None:

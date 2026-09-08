@@ -20,8 +20,9 @@ state left by earlier actions. Local edits, joins, cross-stack moves, interrupte
 closure and reopening, orphan cleanup, branch deletion, external refs, metadata changes,
 approvals, merges, native GitHub rebases, and sync share the same assertions. Surviving changes
 can be amended between a server merge and sync. Trunk advances change file contents, including
-repeated updates to the same file. Cross-stack moves refresh the source before the destination,
-and interrupted submit actions complete the applicable retry or explicit relink.
+repeated updates to the same file. Joins, cross-stack moves, failed submits, retries, and explicit
+relinks are separate steps, so local edits and server events can intervene before recovery.
+Submitting a cross-stack move in the wrong order must stop without mutation.
 
 Both submitted and unsubmitted setups use the normal PR-branch fetch exclusion. Native rebase
 actions require a changed base; the model does not assume GitHub rewrites a stack that is already

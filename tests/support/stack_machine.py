@@ -17,8 +17,9 @@ from hypothesis.stateful import RuleBasedStateMachine, initialize, invariant, pr
 
 import jj_stack.cli as cli_module
 from jj_stack.errors import CliError, DriftError
+from jj_stack.identifiers import ChangeId
 from jj_stack.jj.client import JjClient, UnsupportedStackError
-from jj_stack.models.tracking import TrackedPR
+from jj_stack.models.tracking import PRIdentity, SubmittedBaseline, TrackedPR
 from jj_stack.state.store import TrackingStore
 from tests.integration.submit_command_helpers import configure_submit_environment, run_main
 
@@ -78,7 +79,7 @@ class StackMachine(RuleBasedStateMachine):
         self.root = Path(self.resources.enter_context(TemporaryDirectory(prefix="jj-property-")))
         self.patch = self.resources.enter_context(pytest.MonkeyPatch.context())
         self.paths: list[tuple[str, ...]] = []
-        self.ids: dict[str, str] = {}
+        self.ids: dict[str, ChangeId] = {}
         self.submitted: dict[str, TrackedPR] = {}
         self.dirty: set[str] = set()
         self.foreign: set[str] = set()
@@ -180,6 +181,15 @@ class StackMachine(RuleBasedStateMachine):
     def pr(self, label: str):
         return self.fake.prs[self.submitted[label].pr_identity.pr_number]
 
+    def open_pr(self, label: str) -> FakeGithubPR | None:
+        matches = [
+            pr
+            for pr in self.fake.prs.values()
+            if pr.state == "open" and pr.head_ref.endswith(f"-{self.ids[label][:8]}")
+        ]
+        assert len(matches) <= 1, (label, matches)
+        return next(iter(matches), None)
+
     def editable(self) -> list[int]:
         return [
             i
@@ -274,7 +284,7 @@ class StackMachine(RuleBasedStateMachine):
         assert self.outside(path) == outside
         assert all(event.kind != "state" for event in self.fake.pr_events)
 
-    def submit_failures(self, path: tuple[str, ...]) -> set[tuple[int, str]]:
+    def submit_failures(self, path: tuple[str, ...]) -> set[tuple[int, str | None]]:
         if self.foreign.intersection(path):
             return {
                 (2, "unsupported_stack:divergent_change"),
@@ -286,8 +296,20 @@ class StackMachine(RuleBasedStateMachine):
                     return {(1, "remote_branch_missing")}
                 if self.pr(label).state == "closed":
                     return {(1, "pr_not_open")}
+                if self.fake.ref_target(self.pr(label).head_ref) not in {
+                    self.submitted[label].submitted_baseline.commit_id,
+                    self.jj.resolve_commit(self.ids[label]).commit_id,
+                }:
+                    return {(1, "remote_branch_moved")}
+            elif self.open_pr(label) is not None:
+                return {(1, "saved_pr_missing")}
         if self.rebased.keys() & set(path):
             return {(1, "remote_branch_moved")}
+        selected = {self.pr(label).number for label in path if label in self.submitted}
+        for members in self.fake.github_stacks.values():
+            active = {number for number in members if self.fake.prs[number].merged_at is None}
+            if selected & active and active - selected and selected - set(members):
+                return {(1, None)}
         return set()
 
     def accept_submit(
@@ -407,9 +429,6 @@ class StackMachine(RuleBasedStateMachine):
         target_path.insert(anchor if before else anchor + 1, label)
         self.paths[target] = tuple(target_path)
         self.dirty.update((*self.paths[source], *target_path))
-        if self.paths[source]:
-            self.submit_path(source)
-        self.submit_path(target)
         if not self.paths[source]:
             self.paths.pop(source)
 
@@ -547,10 +566,8 @@ class StackMachine(RuleBasedStateMachine):
 
     def interrupted_submit(self, index: int, point: str, position: int) -> None:
         path = self.paths[index]
-        expected_count = self.pr_count + len(set(path) - self.submitted.keys())
         label = path[position]
         if point == "update_pr":
-            self.submit_path(index)
             run_command(
                 [
                     "jj",
@@ -562,47 +579,55 @@ class StackMachine(RuleBasedStateMachine):
                 ],
                 self.repo,
             )
+            self.dirty.update(path[position:])
         numbers = set(self.fake.prs)
+        before = self.store.load()
+        changes = {
+            change.change_id: change
+            for change in selected_stack(self.repo, self.ids[path[-1]]).changes
+        }
         with pytest.MonkeyPatch.context() as patch:
             install_submit_fault(patch, self.fake, point, subject(label))
             code, output = self.cli("submit", self.ids[path[-1]])
             assert code != 0, output
-        if point == "create_pr":
-            before = self.snapshot()
-            code, _ = self.cli("submit", self.ids[path[-1]])
-            assert code != 0
-            assert self.snapshot() == before
-            pr = next(
-                pr
-                for number, pr in self.fake.prs.items()
-                if number not in numbers and pr.title == subject(label)
-            )
-            self.ok("relink", str(pr.number), self.ids[label])
         state = self.store.load()
+        assert before.prs.keys() <= state.prs.keys()
         for item in path:
-            if self.ids[item] in state.prs:
-                record = state.prs[self.ids[item]]
+            cid = self.ids[item]
+            if cid in state.prs:
+                record = state.prs[cid]
                 if item in self.submitted:
                     assert record.pr_identity == self.submitted[item].pr_identity
+                else:
+                    assert record.pr_identity.pr_number not in numbers
+                pr = self.fake.prs[record.pr_identity.pr_number]
+                assert pr.head_ref.endswith(f"-{cid[:8]}")
+                assert record.pr_identity.head_ref == pr.head_ref
+                assert record.submitted_baseline.commit_id in {
+                    changes[cid].commit_id,
+                    before.prs[cid].submitted_baseline.commit_id if cid in before.prs else None,
+                }
                 self.submitted[item] = record
-        self.pr_count = len(self.fake.prs)
-        self.submit_path(index)
-        assert self.pr_count == expected_count
-        self.ok(
-            "submit",
-            "--label",
-            "needs-review",
-            "--reviewers",
-            "alice",
-            "--team-reviewers",
-            "platform",
-            self.ids[path[-1]],
+        created = set(self.fake.prs) - numbers
+        assert not created or point == "create_pr"
+        assert (
+            created
+            == {pr.number for item in path if (pr := self.open_pr(item)) is not None} - numbers
         )
-        for item in path:
-            pr = self.pr(item)
-            assert "needs-review" in pr.labels
-            assert "alice" in pr.requested_reviewers
-            assert "platform" in pr.requested_team_reviewers
+        self.pr_count += len(created)
+
+    def relink_label(self, label: str) -> None:
+        pr = self.open_pr(label)
+        assert pr is not None
+        head = self.fake.ref_target(pr.head_ref)
+        assert head is not None
+        before = self.snapshot()[1:]
+        self.ok("relink", "--replace-remote", str(pr.number), self.ids[label])
+        self.submitted[label] = TrackedPR(
+            pr_identity=PRIdentity(pr_number=pr.number, head_ref=pr.head_ref),
+            submitted_baseline=SubmittedBaseline(commit_id=head),
+        )
+        assert self.snapshot()[1:] == before
 
     def snapshot(self) -> tuple[object, ...]:
         return (
@@ -694,7 +719,6 @@ class StackMachine(RuleBasedStateMachine):
             label="stacks",
         )
         self.join_paths(source, target)
-        self.submit_path(target - (source < target))
 
     @precondition(lambda self: len(self.ready()) >= 2)
     @rule(data=st.data(), before=st.booleans())
@@ -802,11 +826,34 @@ class StackMachine(RuleBasedStateMachine):
             if not self.submit_failures(self.paths[i])
             and (
                 all(label not in self.submitted for label in self.paths[i])
-                if point != "update_pr"
+                if point == "create_pr"
                 else all(label in self.submitted for label in self.paths[i])
+                if point == "update_pr"
+                else any(
+                    self.jj.resolve_commit(self.ids[label]).commit_id
+                    not in self.fake.branch_heads().values()
+                    for label in self.paths[i]
+                )
             )
         ]
         if indices:
             index = data.draw(st.sampled_from(indices), label="stack")
             position = data.draw(st.integers(0, len(self.paths[index]) - 1), label="change")
             self.interrupted_submit(index, point, position)
+
+    @rule(data=st.data())
+    def relink(self, data: st.DataObject) -> None:
+        labels = [
+            label
+            for i in self.editable()
+            for label in self.paths[i]
+            if (pr := self.open_pr(label)) is not None
+            and self.fake.ref_target(pr.head_ref) is not None
+            and (
+                label not in self.submitted
+                or self.submitted[label].submitted_baseline.commit_id
+                != self.fake.ref_target(pr.head_ref)
+            )
+        ]
+        if labels:
+            self.relink_label(data.draw(st.sampled_from(labels), label="change"))
