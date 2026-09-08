@@ -6,9 +6,17 @@ navGroup: Everyday work
 weight: 70
 ---
 
-Use `jj-stack checkout` to continue work submitted from another machine or checkout. It fetches
-the changes you need, saves their pull request links, and switches your working copy to the
-selected change.
+Use `jj-stack checkout` to continue work submitted with jj-stack from another machine or
+checkout. It fetches the changes you need, saves their pull request links, and switches your
+working copy to the selected change.
+
+The PRs and their head branches must belong to the repo selected by your
+[Git remote](../reference/configuration.md#git-remote). Each PR branch must use jj-stack's branch
+naming scheme with the prefix configured in this checkout, normally `jj-stack/`. If the original
+checkout used a custom prefix, set the same
+[`jj-stack.branch_prefix`](../reference/configuration.md#pr-branch-names) here before checking
+out the stack. PRs with head branches in another repository, such as a contributor's fork, are
+not supported.
 
 ## Pick a stack
 

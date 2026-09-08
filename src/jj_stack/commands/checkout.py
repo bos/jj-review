@@ -1,4 +1,10 @@
-"""Check out an existing stack of pull requests.
+"""Check out an existing stack of pull requests submitted with jj-stack.
+
+The PRs and their head branches must belong to the repo selected by your Git remote. PR branches
+must use jj-stack's branch naming scheme with this checkout's configured prefix, normally
+`jj-stack/`. If the original checkout used a custom prefix, set the same `jj-stack.branch_prefix`
+here first. PRs with head branches in another repository, such as a contributor's fork, are
+not supported.
 
 Use `--pull-request` to bring in a PR and the PRs below it. Select the top PR to check out the
 whole stack. Use `--revset` for a locally tracked stack, or `--pick` to choose from local and

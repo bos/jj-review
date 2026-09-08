@@ -56,11 +56,19 @@ uses GitHub's public API. GitHub Enterprise Server is not supported.
 
 ## Authentication
 
-jj-stack uses the first available token from:
+For GitHub API requests, jj-stack uses the first available token from:
 
 1. `GITHUB_TOKEN`
 2. `GH_TOKEN`
 3. `gh auth token`, when the GitHub CLI is installed and authenticated
+
+Pushing PR branches uses your Git remote's authentication: an SSH key for an SSH URL, or Git's
+HTTPS credentials for an HTTPS URL. Setting `GITHUB_TOKEN` or `GH_TOKEN` supplies the API token;
+jj-stack does not configure Git credentials from it.
+
+`jj-stack doctor` checks API access without attempting a push. If it succeeds but `submit`
+cannot push, check the credentials for your remote's push URL and your permission to push to
+that repo.
 
 ## Invoke it as `jj stack`
 
