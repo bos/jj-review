@@ -17,13 +17,13 @@ def require_merged_prefix(stack: GithubStack) -> GithubStack:
 
     GitHub produces that shape when a parent PR branch is pushed to contain its child's head:
     the child is merged into the parent while the parent stays open. Planning indexes on the
-    merged prefix, so such a grouping can only be dissolved.
+    merged prefix, so such a stack can only be dissolved.
     """
 
     if not stack.has_merged_prefix:
         raise CliError(
             t"GitHub stack #{stack.number} lists a merged pull request above an unmerged one.",
-            hint=t"Remove the grouping with "
+            hint=t"Remove the GitHub stack with "
             t"{ui.cmd(f'jj-stack unstack --stack {stack.number}')}, then retry.",
         )
     return stack
@@ -97,7 +97,7 @@ async def dissolve_github_stack(
                 hint=t"Resolve its locked pull requests, then retry "
                 t"{ui.cmd(f'jj-stack unstack --stack {stack.number}')}",
             ) from None
-        raise CliError(t"Could not remove GitHub stack grouping #{stack.number}.") from error
+        raise CliError(t"Could not remove GitHub stack #{stack.number}.") from error
     if remaining is not None and remaining.active_pr_numbers:
         members = ui.join(
             lambda number: format_pr_number(number, repo=github_client.repo),

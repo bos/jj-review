@@ -73,9 +73,9 @@ to create a new PR.
 
 The local `jj` history determines PR order. Compare it with the stack on GitHub. If you want the
 GitHub order, reproduce it locally with `jj`, then submit. If you want the local order, run
-`jj-stack submit <head-change-id>` to update the PR bases and GitHub grouping.
+`jj-stack submit <head-change-id>` to update the PR bases and GitHub stack.
 
-If the error says the PRs do not identify one GitHub stack, remove the grouping named in the
+If the error says the PRs do not identify one GitHub stack, remove the GitHub stack named in the
 error with `jj-stack unstack --stack <number>`, then submit again. This keeps the PRs open.
 
 ## A stack was removed from the merge queue

@@ -45,7 +45,7 @@ it may describe a different release, and do not fetch it for routine stack opera
    `git branch`/`checkout`/`rebase` or manual branch pushes on a jj-stack
    stack, and never create, delete, or force-push its PR branches by
    hand. Closing a known pull request with GitHub or `gh pr close` is supported;
-   use `jj-stack unstack` for GitHub stack grouping.
+   use `jj-stack unstack` to remove a GitHub stack without closing its PRs.
 2. **Honor local adoption.** `jj-stack in-use` exits 0 without output when this local repo
    has valid jj-stack tracking, 1 without output when it does not, and 11 with an error when the
    result cannot be determined. If a runner collapses nonzero exit codes, inspect the underlying
@@ -78,8 +78,8 @@ it may describe a different release, and do not fetch it for routine stack opera
   that would change more than one GitHub stack.
 - Read [recovery workflows](references/recovery.md) after an interrupted or externally completed
   operation, a direct structural GitHub mutation, lost or ambiguous tracking, an orphaned PR,
-  a GitHub grouping mismatch, or any task involving `sync --all`, `unstack --stack`, `checkout`,
-  `relink`, or starting over.
+  a mismatch between local and GitHub stacks, or any task involving `sync --all`,
+  `unstack --stack`, `checkout`, `relink`, or starting over.
 
 ## Using `gh` on a managed stack
 
@@ -96,8 +96,8 @@ overview. Never delete the marker or the managed comment by hand.
 
 **Closing and reopening known pull requests is supported when the user asks.**
 Inspect the stack first, use explicit PR numbers, and leave jj-stack's saved
-links in place so `cleanup` can verify what it removes. Remove GitHub stack
-grouping with `jj-stack unstack` before closing all of a stack's PRs.
+links in place so `cleanup` can verify what it removes. Remove the GitHub stack
+with `jj-stack unstack` before closing all of a stack's PRs.
 
 **Route other structural and lifecycle writes through jj-stack**: merging a PR; retargeting
 base or head; deleting or force-pushing a PR branch; creating a replacement

@@ -8,32 +8,32 @@ navGroup: Everyday work
 weight: 75
 ---
 
-You can remove a GitHub stack's grouping while keeping its pull requests open, or close the PRs
+You can remove a GitHub stack while keeping its pull requests open, or close the PRs
 when you no longer plan to merge them:
 
-- `jj-stack unstack` removes the grouping.
+- `jj-stack unstack` removes the GitHub stack while keeping its PRs and branches.
 - `jj-stack cleanup --pull-request <pr> --close` closes one PR and removes its unused branch,
-  stack overview comment, and saved link.
+  stack overview comment, and saved link between the PR and your local change.
 
 Both commands keep your local changes. Use `jj abandon` separately if you also want to discard
 them locally.
 
-## Remove a stack's GitHub grouping
+## Remove a GitHub stack
 
-To stop grouping the PRs as a GitHub stack, run:
+To remove the stack from GitHub while keeping its PRs open, run:
 
 ```console
 jj-stack unstack <head-change-id>
 ```
 
-The PRs remain open, with the same base branches and dependencies. Removing the grouping does
-not make dependent PRs independently mergeable. You can review, update, or close them
-individually.
+The PRs remain open, with the same base branches and dependencies. You still need to merge them
+from the bottom up, since each PR builds on the one below it. You can review, update, or close
+them individually.
 
-The local stack also stays intact. Submitting it again recreates the GitHub grouping; to split it
+The local stack also stays intact. Submitting it again recreates the GitHub stack; to split it
 into separate stacks, first [rearrange your changes with `jj`](multiple-stacks.md).
 
-If jj-stack says the GitHub grouping no longer matches your local stack, use the
+If jj-stack says the GitHub stack no longer matches your local stack, use the
 `--stack <number>` command printed in the error.
 
 ## Close the PRs in your stack without merging them
@@ -61,19 +61,22 @@ Cleanup keeps a PR branch while another open or reopenable closed PR uses it as 
 message names the dependent PR. Retarget an open PR to trunk. For a closed PR, either reopen and
 retarget it or delete its head branch if you no longer need to reopen it. Then rerun cleanup.
 
-A branch also stays while an unmerged PR in a GitHub stack needs it. Remove that grouping with
+A branch also stays while an unmerged PR in a GitHub stack needs it. Remove that stack with
 `jj-stack unstack` before retrying cleanup.
 
 ## Close an orphaned pull request
 
 If you abandoned a submitted change with `jj abandon`, `jj-stack list` shows its PR as an
-**orphan**: a saved pull request link whose local change is gone. Select that PR directly to
-close and clean it up:
+**orphan**: a saved pull request link whose local change is gone. If other changes from that
+stack remain, [submit those changes first](revise.md#abandon-one-of-your-submitted-changes)
+so its PRs no longer depend on the orphan's branch. Then select the orphaned PR directly to close
+and clean it up:
 
 ```console
 jj-stack cleanup --pull-request <pr> --close
 ```
 
-If the PR is still part of a GitHub stack, first remove the grouping with the
-`jj-stack unstack --stack <number>` command printed in the error. The same branch-retention
-rules apply to orphaned PRs.
+If the PR is still part of a GitHub stack, first remove that stack with the
+`jj-stack unstack --stack <number>` command printed in the error. Cleanup can also keep an
+orphaned PR's branch if another PR still uses it; follow [the guidance above](
+#if-cleanup-keeps-a-branch).

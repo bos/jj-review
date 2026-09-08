@@ -1,14 +1,14 @@
 # Multi-stack workflows
 
-Read this file before changing pull requests whose local topology or GitHub grouping spans more
-than one ordinary linear stack. Keep the universal identity, inspection, explicit-selection, and
-GitHub-write rules from `SKILL.md` in force.
+Read this file before changing pull requests that belong to more than one local or GitHub
+stack. Keep the universal identity, inspection, explicit-selection, and GitHub-write rules from
+`SKILL.md` in force.
 
 ## Distinguish the two shapes
 
-Derive local stack paths from the `jj` DAG. Treat GitHub stacks as remote groupings that
-`jj-stack` reconciles from a selected local path. Do not infer saved boundaries from GitHub or
-from a previous submit: only the current DAG and an explicit command boundary select work.
+Derive local stack paths from the `jj` DAG. `jj-stack` updates GitHub stacks to match the
+selected local path. Do not infer saved boundaries from GitHub or from a previous submit: only
+the current DAG and an explicit command boundary select work.
 
 Use `list` for the repo-wide inventory and `view <head-change-id>` for each affected local
 path. Select every mutation explicitly. Inspection may show one local path whose tracked changes
@@ -60,8 +60,8 @@ Make this transition even when the PR for a higher change in the parent stack re
 ## Move changes between submitted stacks
 
 Rewrite the local DAG with `jj`, then submit the source path before the destination path. The
-source submit releases moved PRs from their old grouping; the destination submit joins them to
-the new grouping. A destination-first attempt should fail before mutation.
+source submit releases moved PRs from their old GitHub stack; the destination submit joins them to
+the new GitHub stack. A destination-first attempt should fail before mutation.
 
 Keep each moved PR attached to its change ID. Use ordinary `submit` when the destination is
 trunk-based, or `submit --base B H` when its lower bound is submitted change `B`. Do not manually
@@ -71,21 +71,21 @@ unstack, close, recreate, or push PR branches unless a jj-stack diagnostic direc
 
 - To split at a fork, treat each maximal linear path separately. Keep the fork in the parent
   stack and submit every child path with its explicit submitted base. The first `submit --base`
-  may dissolve the old grouping; submit the other paths individually.
+  may dissolve the old GitHub stack; submit the other paths individually.
 - To join linear stacks, rewrite them into one local chain and submit its resulting head. The
   submit reuses PRs by change ID, recalculates bases, dissolves completely selected old GitHub
-  stacks, and creates the joined grouping.
+  stacks, and creates the joined stack.
 
 Submit never updates pull requests outside its selected path. Old overview comments or stale PR
 branches on paths not yet resubmitted are expected; use `list` to find each path that still needs
 an explicit refresh.
 
-## Handle grouping stops
+## Handle mismatches between local and GitHub stacks
 
 `merge`, `sync`, and ordinary `unstack` require all active members of the GitHub stack they touch
 to belong to the selected local parent chain. A selection spanning multiple active GitHub stacks,
 or omitting active members of one, stops rather than truncating another valid stack.
 
-When a diagnostic says the remote grouping no longer maps to one local path, follow its
+When a diagnostic says the GitHub stack no longer matches one local stack, follow its
 `unstack --stack <number>` instruction after reading [recovery workflows](recovery.md). Do not
 guess a stack number or alter membership with `gh`.

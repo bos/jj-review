@@ -49,8 +49,8 @@ is supported through `jj-stack sync`, as described above.
 
 Do not change pull request bases or GitHub stack membership by hand. `jj-stack submit` derives
 both from the local `jj` history. To change the base or order, make that change locally and
-submit again. To remove the GitHub stack grouping while leaving the PRs open, see
-[separate a stack](close-or-separate.md#remove-a-stacks-github-grouping).
+submit again. To remove the GitHub stack while leaving the PRs open, see
+[separate a stack](close-or-separate.md#remove-a-github-stack).
 
 For reviewer and repo configuration guidance, see
 [review and merge a stack on GitHub](review-a-stack.md).

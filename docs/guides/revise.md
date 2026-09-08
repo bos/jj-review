@@ -50,16 +50,38 @@ When you split a change, the part that keeps the original change ID also keeps i
 The new change gets a new PR on the next submit.
 
 When you squash your changes, whichever change survives keeps its pull request. PRs for the
-other changes remain open until you close and clean them up, as described below. `jj-stack`
-never reuses those PRs for different work.
+other changes remain open. Submit the changes you kept before closing and cleaning up those PRs,
+following the order for [abandoning a submitted change](#abandon-one-of-your-submitted-changes)
+below. `jj-stack` never reuses those PRs for different work.
 
 ## Abandon one of your submitted changes
 
 After `jj abandon` removes a change from your local history, its pull request and PR branch
-remain on GitHub. To close the PR and remove its branch, run:
+remain on GitHub. Submit the remaining changes first so their PRs no longer depend on that branch,
+then close and clean up the removed change's PR.
+
+For example, to remove B from A → B → C while keeping A and C, first note B's PR number in the
+stack view. Replace the change-ID placeholders with the IDs from `jj log`:
 
 ```console
-jj-stack cleanup --pull-request <pr> --close
+jj-stack view <C-change-id>
+jj abandon <B-change-id>
 ```
 
-For a whole stack, follow [Separate a stack or close pull requests](close-or-separate.md).
+Resolve any conflicts in C with `jj`, then submit the remaining A → C stack and clean up B's PR.
+Replace `<B-pr>` with the PR number you noted:
+
+```console
+jj-stack submit <C-change-id>
+jj-stack cleanup --pull-request <B-pr> --close
+```
+
+Submitting updates C's base to A's PR branch and removes B's PR from the GitHub stack.
+Cleanup then closes B's PR and removes its unused branch and saved link. A and C keep their PRs
+and discussions.
+
+If no changes remain to submit, follow [close an orphaned pull request](
+close-or-separate.md#close-an-orphaned-pull-request). If cleanup keeps the branch, follow
+[what to do when cleanup keeps a branch](close-or-separate.md#if-cleanup-keeps-a-branch).
+
+To close a whole stack, follow [Separate a stack or close pull requests](close-or-separate.md).

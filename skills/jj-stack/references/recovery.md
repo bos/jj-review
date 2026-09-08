@@ -76,11 +76,11 @@ reported `relink` or `unstack --local` path. If a direct structural GitHub mutat
 happened, inspect first and choose among `checkout`, `relink`, `submit`, `unstack`, or `cleanup`
 from observed state; never rebuild changes or PRs by hand.
 
-## Repair grouping and uncommon cleanup
+## Repair mismatched stacks and handle uncommon cleanup
 
-When GitHub grouping no longer maps to one local path, use the stack number from the diagnostic.
+When a GitHub stack no longer matches one local stack, use the stack number from the diagnostic.
 Preview with `unstack --dry-run --stack <number>`, then run `unstack --stack <number>`. This
-removes grouping only and leaves PRs open. Never guess a stack number.
+removes the GitHub stack and leaves PRs open. Never guess a stack number.
 
 To start fresh PRs for the same changes, follow the closing and cleanup procedure in
 `SKILL.md`, then run `submit <head-change-id>`. There is no restart flag; submitting before
@@ -88,8 +88,8 @@ cleanup does not replace the saved PRs.
 
 For an orphan reported by `list`, inspect the named PR on GitHub. If the
 user wants closure and cleanup, run `cleanup --pull-request <pr> --close --dry-run`, then
-`cleanup --pull-request <pr> --close`. Resolve any grouping or dependent-PR blocker named by the
-preview before retrying. Already closed or merged PRs do not need `--close`.
+`cleanup --pull-request <pr> --close`. Resolve any stack membership or dependent-PR blocker named
+by the preview before retrying. Already closed or merged PRs do not need `--close`.
 Use `cleanup --pull-request orphans --close` only when the user requested all saved orphans, and
 preview that same selection first. Orphan rows come from saved tracking and do not by themselves
 report the PR's current state on GitHub.

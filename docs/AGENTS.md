@@ -13,8 +13,9 @@ Use product nouns consistently:
 
 - A **pull request** or **PR** is the GitHub object.
 - A **PR branch** is a Git branch intended to be a PR head. "Remote PR branch" is redundant.
-- A **stack** is an ordered local chain or the corresponding GitHub grouping. Specify which when
-  the distinction matters.
+- A **stack** is an ordered chain of local changes or GitHub pull requests. Say **local stack**
+  or **GitHub stack** when the distinction matters. Use **stack membership** for which PRs belong
+  to a stack.
 - **Review** means human review activity: comments, approvals, requested changes, reviewers, and
   feedback. It is not a synonym for a PR, branch, or stack.
 - A **saved pull request link**, shortened to **saved link**, connects a PR to a local change.
