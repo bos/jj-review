@@ -180,6 +180,7 @@ def test_sync_recovers_a_clean_single_pr_rebase_merge(
     state_store = TrackingStore.for_repo(repo)
     identity = state_store.load().prs[submitted.change_id].pr_identity
     pr_branch = identity.head_ref
+    fake_repo.advance_branch("main", path="upstream.txt", contents="upstream\n")
     landed_commit_id = fake_repo.apply_rebase_merge(fake_repo.prs[identity.pr_number])
 
     exit_code = run_main(repo, config_path, "sync", submitted.change_id)
@@ -192,6 +193,7 @@ def test_sync_recovers_a_clean_single_pr_rebase_merge(
     assert tuple(item.commit_id for item in copies) == (landed_commit_id,)
     assert copies[0].immutable
     assert JjClient(repo).resolve_commit("@").parents == (landed_commit_id,)
+    assert (repo / "upstream.txt").read_text() == "upstream\n"
     assert submitted.change_id not in state_store.load().prs
     assert f"refs/heads/{pr_branch}" not in remote_refs(fake_repo.git_dir)
 

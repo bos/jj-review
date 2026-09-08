@@ -22,9 +22,6 @@ from ..support.integration_helpers import (
     sign_commit,
     update_remote_ref,
 )
-from ..support.submit_property_harness import (
-    advance_remote_trunk,
-)
 from .submit_command_helpers import (
     configure_submit_environment,
     issue_comments,
@@ -242,8 +239,7 @@ def test_stack_merge_preserves_advanced_trunk_and_syncs_the_resolved_head(
     fake_repo.github_stacks = {7: (1, 2)}
     state_store = TrackingStore.for_repo(repo)
     stack = selected_stack(repo)
-    advance_remote_trunk(fake_repo)
-    advanced_trunk = read_remote_ref(fake_repo.git_dir, "main")
+    advanced_trunk = fake_repo.advance_branch("main", path="upstream.txt", contents="upstream\n")
 
     merge_exit_code = run_main(
         repo,
@@ -267,6 +263,7 @@ def test_stack_merge_preserves_advanced_trunk_and_syncs_the_resolved_head(
     assert "submit" not in merged.out
     assert state_store.load().prs == {}
     assert JjClient(repo).resolve_commit("@").parents == (merge_commit,)
+    assert (repo / "upstream.txt").read_text() == "upstream\n"
 
 
 @pytest.mark.parametrize("merge_method", ("rebase", "squash"))

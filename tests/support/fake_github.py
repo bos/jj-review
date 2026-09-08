@@ -290,7 +290,6 @@ class FakeGithubRepo:
     ) -> None:
         # GitHub eventually detects a pushed head reachable from its existing base. This fake
         # observes it synchronously; base edits separately reject an already-reachable head.
-        # Live evidence: voxel-ai/jj-stack-native-stacks-test#351, 2026-09-07.
         if not self.auto_merge_reachable_heads or pr.state != "open":
             return
         if branch_heads is None:
@@ -443,7 +442,9 @@ class FakeGithubRepo:
         base_ref = prs[0].base_ref
         base_commit = heads[base_ref]
         head_commit = heads[prs[-1].head_ref]
-        tree = self._run_backing_git("rev-parse", f"{head_commit}^{{tree}}")
+        tree = self._run_backing_git(
+            "merge-tree", "--write-tree", base_commit, head_commit
+        ).splitlines()[0]
         merge_commit = self._run_backing_git(
             "commit-tree",
             tree,
@@ -524,10 +525,7 @@ class FakeGithubRepo:
         return commit
 
     def rebase_stack_onto_base(self, stack_number: int, *, base_ref: str) -> tuple[str, ...]:
-        """Model GitHub's native stack rebase, which drops jj change-ID headers.
-
-        A live test against GitHub's stack UI confirmed this commit shape on 2026-08-13.
-        """
+        """Model GitHub's native stack rebase, which drops jj change-ID headers."""
 
         members = self.github_stacks[stack_number]
         original_heads = self.branch_heads()
@@ -537,20 +535,11 @@ class FakeGithubRepo:
         for pr_number in members:
             pr = self.prs[pr_number]
             original = original_heads[pr.head_ref]
-            original_parent = self._run_backing_git("rev-parse", f"{original}^")
-            tree = self._run_backing_git(
-                "merge-tree",
-                "--write-tree",
-                f"--merge-base={original_parent}",
-                parent,
-                original,
-            )
             rewritten = self._replay_commit(
                 commit_id=original,
                 drop_change_id=True,
                 extra_header="x-fake-github-stack-rebase true",
                 parent_commit_id=parent,
-                tree_id=tree,
             )
             self._run_backing_git(
                 "update-ref",
@@ -596,7 +585,11 @@ class FakeGithubRepo:
 
     def _tree_with_file(self, tree: str, *, path: str, contents: str) -> str:
         blob = self._run_backing_git("hash-object", "-w", "--stdin", stdin=contents)
-        entries = self._run_backing_git("ls-tree", tree)
+        entries = "\n".join(
+            entry
+            for entry in self._run_backing_git("ls-tree", tree).splitlines()
+            if entry.partition("\t")[2] != path
+        )
         return self._run_backing_git(
             "mktree",
             stdin=f"{entries}\n100644 blob {blob}\t{path}\n",
@@ -633,11 +626,25 @@ class FakeGithubRepo:
         parent_commit_id: str,
         tree_id: str | None = None,
     ) -> str:
-        tree = tree_id or self._run_backing_git("rev-parse", f"{commit_id}^{{tree}}")
+        """Replay the commit's delta onto its new parent unless a replacement tree is supplied."""
+
         raw_commit = self._run_backing_git("cat-file", "commit", commit_id)
         headers, separator, message = raw_commit.partition("\n\n")
+        if tree_id is None:
+            old_parent = next(
+                line.removeprefix("parent ")
+                for line in headers.splitlines()
+                if line.startswith("parent ")
+            )
+            tree_id = self._run_backing_git(
+                "merge-tree",
+                "--write-tree",
+                f"--merge-base={old_parent}",
+                parent_commit_id,
+                commit_id,
+            ).splitlines()[0]
         rewritten_headers = [
-            f"tree {tree}" if line.startswith("tree ") else line
+            f"tree {tree_id}" if line.startswith("tree ") else line
             for line in headers.splitlines()
             if not line.startswith("parent ")
             and not (drop_change_id and line.startswith("change-id "))

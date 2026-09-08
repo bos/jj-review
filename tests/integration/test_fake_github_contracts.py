@@ -1,8 +1,4 @@
-"""Small contract checks grounded in the live #350/#351 audit on 2026-09-07.
-
-Evidence: https://github.com/voxel-ai/jj-stack-native-stacks-test/pull/351.
-These checks keep the shared fake from silently accepting impossible recovery transitions.
-"""
+"""Contract checks for fake GitHub recovery and merge behavior."""
 
 from __future__ import annotations
 
@@ -17,6 +13,7 @@ from ..support.integration_helpers import (
     delete_remote_ref,
     init_fake_github_repo_with_submitted_feature,
     init_fake_github_repo_with_submitted_stack,
+    run_command,
     update_remote_ref,
 )
 
@@ -66,14 +63,16 @@ def test_fake_rejects_retargets_and_reopens_that_github_cannot_apply(tmp_path: P
 
 
 @pytest.mark.merge_recovery
-def test_fake_partial_stack_merge_uses_the_stack_base_and_rewrites_its_survivor(
+def test_fake_partial_stack_merge_preserves_base_changes_in_merge_and_survivor(
     tmp_path: Path,
 ) -> None:
-    _repo, fake = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
+    repo, fake = init_fake_github_repo_with_submitted_stack(tmp_path, size=2)
     trunk = fake.ref_target("main")
     assert trunk is not None
     update_remote_ref(fake, branch="integration", target=trunk)
     fake.update_pr_base(fake.prs[1], base_ref="integration")
+    fake.advance_branch("integration", path="upstream.txt", contents="before\n")
+    advanced = fake.advance_branch("integration", path="upstream.txt", contents="upstream\n")
     bottom, top = fake.prs[1], fake.prs[2]
     submitted_top = top.head_sha
     app = create_app(FakeGithubState.single_repo(fake))
@@ -104,4 +103,12 @@ def test_fake_partial_stack_merge_uses_the_stack_base_and_rewrites_its_survivor(
     assert top.state == "open" and top.merged_at is None
     assert top.head_sha != submitted_top
     assert bottom.merge_commit_sha is not None
+    assert fake.is_ancestor(advanced, bottom.merge_commit_sha)
     assert fake.is_ancestor(bottom.merge_commit_sha, top.head_sha)
+    for commit in (bottom.merge_commit_sha, top.head_sha):
+        assert (
+            run_command(
+                ["git", "--git-dir", str(fake.git_dir), "show", f"{commit}:upstream.txt"], repo
+            ).stdout
+            == "upstream\n"
+        )
