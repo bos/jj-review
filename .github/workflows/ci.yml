@@ -28,7 +28,7 @@ jobs:
             uv run --no-project --python 3.14 python -c \
               'from tools.check_complexity import TOKEI_VERSIONS; print(TOKEI_VERSIONS[-1])'
           )"
-          cargo install tokei --locked --version "$TOKEI_VERSION"
+          cargo install tokei --locked --version "^$TOKEI_VERSION"
 
       - name: Install project environment
         run: uv sync --locked
