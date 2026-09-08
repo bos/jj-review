@@ -64,7 +64,6 @@ def test_output_neutralizes_terminal_escapes_from_change_descriptions(
 ) -> None:
     """No change description can carry an escape introducer to the terminal."""
 
-    monkeypatch.delenv("FORCE_COLOR", raising=False)
     monkeypatch.setattr(console_module, "load_semantic_styles", lambda **_: None)
     coloured = "\x1b[1;36mcoloured\x1b[0m"
 

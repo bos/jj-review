@@ -9,7 +9,7 @@
   supports a conditional write or lease. Re-observe only when an earlier mutation invalidates a
   precondition or when an observed trigger or platform contract requires it.
 - Check the cumulative complexity budgets after each code change. Run `just complexity` locally
-  when the pinned `tokei` is installed; CI invokes the underlying checker. A budget increase is a
+  when a supported `tokei` is installed; CI invokes the underlying checker. A budget increase is a
   design stop that requires explicit review, not routine maintenance of the budget file.
 - If the same subsystem needs a third consecutive hardening change, stop patching it and
   re-derive the design from the core invariants.

@@ -14,9 +14,13 @@ pytest_plugins = ["tests.support.pytest_concurrency"]
 
 @pytest.fixture(autouse=True)
 def _install_default_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Give terminal-rendering tests a deterministic capable terminal."""
+    """Give each test a fixed terminal environment it can override explicitly."""
 
     monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setenv("COLUMNS", "80")
+    monkeypatch.setenv("LINES", "25")
+    for name in ("COLORTERM", "FORCE_COLOR", "NO_COLOR", "TTY_COMPATIBLE", "TTY_INTERACTIVE"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture(autouse=True)

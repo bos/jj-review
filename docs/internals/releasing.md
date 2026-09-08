@@ -65,7 +65,7 @@ The combined check stops at the first failure. Resolve the reported type errors 
 until all three checkers pass. `just release-check` alone runs only the default Pyrefly checks.
 
 `release-check` runs the standard checks, complexity checker, and live GitHub suite. It requires
-the `tokei` version pinned in [the complexity checker](../../tools/check_complexity.py), plus a
+a `tokei` version supported by [the complexity checker](../../tools/check_complexity.py), plus a
 `gh` login that can create and delete a private repo, push to it, and manage its PRs. The live
 runner creates a disposable repo and attempts deletion even on failure; retain its output to
 identify any cleanup failure. `just live --help` describes runner options.

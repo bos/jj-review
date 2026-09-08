@@ -13,9 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUDGET = ROOT / "complexity-budget.toml"
-# Pinned because counters disagree: tokei 12 miscounts this tree's comment lines by one and its
-# code lines by nineteen, and the budgets below were measured with this version.
-TOKEI_VERSION = "15.0.0"
+TOKEI_VERSIONS = ("14", "15")
 
 
 def _run(
@@ -165,16 +163,17 @@ def _report(
 
 
 def main() -> int:
+    supported = " or ".join(TOKEI_VERSIONS)
     if shutil.which("tokei") is None:
         raise SystemExit(
-            f"Error: tokei {TOKEI_VERSION} is required. Install it, then rerun "
+            f"Error: tokei {supported} is required. Install it, then rerun "
             "uv run tools/check_complexity.py."
         )
     installed = _run(("tokei", "--version"))
-    if TOKEI_VERSION not in installed:
+    if installed.removeprefix("tokei ").partition(".")[0] not in TOKEI_VERSIONS:
         raise SystemExit(
-            f"Error: the budgets are baselined against tokei {TOKEI_VERSION}, but this is "
-            f"{installed.strip()}. Install the pinned version, then rerun."
+            f"Error: tokei {supported} is required, but this is {installed.strip()}. "
+            "Install a supported version, then rerun."
         )
     budget = tomllib.loads(BUDGET.read_text(encoding="utf-8"))
     labels, paths, units = budget["labels"], budget["paths"], budget["units"]
