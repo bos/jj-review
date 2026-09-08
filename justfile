@@ -41,8 +41,9 @@ complexity:
     uv run tools/check_complexity.py
 
 # Run generated client and server command sequences; arguments pass through to the runner.
+[positional-arguments]
 property *args:
-    tests/run_submit_property_scenarios.py {{args}}
+    tests/run_submit_property_scenarios.py "$@"
 
 # Run the opt-in release checks against a disposable GitHub repository.
 live *args:
