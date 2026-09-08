@@ -133,7 +133,7 @@ def _run_merge(
             ) from error
         raise
     if exit_code:
-        _warn_incomplete_post_merge_sync(sync_change_id)
+        _warn_incomplete_post_merge_sync(sync_change_id, has_recovery_hint=True)
     return exit_code
 
 

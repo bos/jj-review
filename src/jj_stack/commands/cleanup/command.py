@@ -36,9 +36,15 @@ from jj_stack.commands._cleanup_actions import (
     github_stack_cleanup_blockers,
     plan_pr_cleanup,
 )
-from jj_stack.errors import AmbiguousSelectionError, CliError, UsageError
+from jj_stack.errors import (
+    AmbiguousSelectionError,
+    CliError,
+    UsageError,
+    error_hint,
+    error_message,
+)
 from jj_stack.formatting import format_pr_label
-from jj_stack.github.client import GithubClient, build_github_client
+from jj_stack.github.client import GithubClient, GithubClientError, build_github_client
 from jj_stack.github.error_messages import github_target_unavailable_messages
 from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_MARKER
 from jj_stack.github.resolution import (
@@ -201,15 +207,35 @@ async def cleanup_tracked_prs(
         selected_change_ids=change_ids,
         state=state,
     )
-    return await _run_cleanup_async(
-        github_client=github_client,
-        on_action=_build_action_streamer(
-            header="Cleanup preview:" if dry_run else "Cleanup:",
-        ),
-        prepared_cleanup=prepared_cleanup,
-        preview_detached_dependents=(planned_detached_dependents if dry_run else frozenset()),
-        preview_local_removals=(planned_local_removals if dry_run else frozenset()),
-    )
+
+    def retry_hint() -> ui.Message:
+        remaining = context.state_store.load().prs
+        commands = tuple(
+            f"jj-stack cleanup --pull-request {tracked.pr_identity.pr_number}"
+            for change_id in change_ids
+            if (tracked := remaining.get(change_id)) is not None
+        )
+        if not commands:
+            return t"Inspect remaining work with {ui.cmd('jj-stack list')}."
+        return t"Finish cleanup with {ui.join(ui.cmd, commands)}."
+
+    try:
+        result = await _run_cleanup_async(
+            github_client=github_client,
+            on_action=_build_action_streamer(
+                header="Cleanup preview:" if dry_run else "Cleanup:",
+            ),
+            prepared_cleanup=prepared_cleanup,
+            preview_detached_dependents=(planned_detached_dependents if dry_run else frozenset()),
+            preview_local_removals=(planned_local_removals if dry_run else frozenset()),
+        )
+    except (CliError, GithubClientError) as error:
+        if error_hint(error) is not None:
+            raise
+        raise CliError(error_message(error), hint=retry_hint()) from error
+    if any(action.status == "blocked" for action in result.actions):
+        console.note(retry_hint())
+    return result
 
 
 def _prepare_cleanup(

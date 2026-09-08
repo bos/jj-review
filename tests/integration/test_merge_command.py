@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from jj_stack.errors import CliError
 from jj_stack.github.client import GithubClient, GithubClientError
 from jj_stack.github.overview_comments import STACK_OVERVIEW_COMMENT_MARKER
 from jj_stack.jj.client import JjClient
@@ -186,7 +187,7 @@ def test_merge_draft_blocks_the_candidate_prefix(
     assert read_remote_ref(fake_repo.git_dir, "main") == trunk_before
 
 
-def test_stack_merge_reports_github_failure_during_automatic_sync(
+def test_stack_merge_recovers_after_branch_cleanup_fails(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -194,43 +195,29 @@ def test_stack_merge_reports_github_failure_during_automatic_sync(
     repo, fake_repo = init_fake_github_repo_with_submitted_feature(tmp_path)
     config_path = configure_submit_environment(monkeypatch, tmp_path, fake_repo)
     state_store = TrackingStore.for_repo(repo)
-    stack_before = selected_stack(repo)
-    state_before = state_store.load()
-    trunk_before = read_remote_ref(fake_repo.git_dir, "main")
-    app = create_app(FakeGithubState.single_repo(fake_repo))
+    head_change_id = selected_stack(repo).head.change_id
+    mutate_refs = JjClient.mutate_remote_pr_branch_refs
 
-    class SyncRepoFailureClient(GithubClient):
-        async def get_repo(self):
-            raise GithubClientError("sync repo lookup failed")
+    def fail_deletion(self, *, remote, updates):
+        if any(update.desired_target is None for update in updates):
+            raise CliError("Branch deletion connection failed")
+        return mutate_refs(self, remote=remote, updates=updates)
 
-    patch_github_client_builders(
-        monkeypatch,
-        app=app,
-        fake_repo=fake_repo,
-        modules=("jj_stack.commands.sync",),
-        client_type=SyncRepoFailureClient,
-    )
-
-    exit_code = run_main(repo, config_path, "merge")
+    with monkeypatch.context() as failure:
+        failure.setattr(JjClient, "mutate_remote_pr_branch_refs", fail_deletion)
+        exit_code = run_main(repo, config_path, "merge")
     captured = capsys.readouterr()
 
-    assert exit_code == 4
-    assert fake_repo.stack_merge_requests == [
-        (1, "squash", "direct_merge", stack_before.head.commit_id)
-    ]
-    assert fake_repo.prs[1].state == "closed"
-    assert read_remote_ref(fake_repo.git_dir, "main") != trunk_before
-    assert "final trunk commit" in captured.out
-    assert "Updating the local stack after the completed merge" in captured.out
+    assert exit_code == 1
+    assert read_remote_ref(fake_repo.git_dir, "main") == fake_repo.prs[1].merge_commit_sha
+    jj = JjClient(repo)
+    assert jj.query_commits_by_change_ids((head_change_id,))[head_change_id] == ()
     error = " ".join(captured.err.split())
-    assert f"Continue with jj-stack sync {stack_before.head.change_id[:8]}." in error
-    assert stack_before.head.change_id not in error
-    assert "Could not update the local stack after the completed merge" in error
-    assert "request failed (sync repo lookup failed)" in error
-    assert state_store.load() == state_before
-    assert tuple(change.commit_id for change in selected_stack(repo).changes) == tuple(
-        change.commit_id for change in stack_before.changes
-    )
+    assert "Continue with jj-stack sync" not in error
+    assert "jj-stack cleanup --pull-request 1" in error
+    assert run_main(repo, config_path, "cleanup", "--pull-request", "1") == 0
+    assert state_store.load().prs == {}
+    assert fake_repo.ref_target(fake_repo.prs[1].head_ref) is None
 
 
 def test_stack_merge_preserves_advanced_trunk_and_syncs_the_resolved_head(

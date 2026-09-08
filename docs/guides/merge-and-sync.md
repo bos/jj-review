@@ -152,15 +152,17 @@ A failed local update or network interruption can leave work unfinished after th
 Follow the hint in the error. If the local rebase produced conflicts, follow
 [sync conflict recovery](../troubleshooting.md#sync-rebased-your-changes-into-conflicts).
 
-For other failures, inspect the stack and rerun `sync` to finish the local update and cleanup:
+If the local update has not finished, inspect the stack and rerun `sync`:
 
 ```console
 jj-stack view <head-change-id>
 jj-stack sync <head-change-id>
 ```
 
-Your pull requests are already merged, so do not retry `jj-stack merge`. `jj-stack sync` checks
-the current local and GitHub state and finishes the remaining work.
+If only cleanup failed, run the `jj-stack cleanup --pull-request <pr>` commands in the hint.
+The local changes may already be gone, so their former head cannot select the remaining cleanup.
+
+Your pull requests are already merged, so do not retry `jj-stack merge`.
 
 ## When trunk moves without one of your pull requests merging
 
