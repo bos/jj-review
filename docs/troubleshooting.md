@@ -36,9 +36,10 @@ authentication error:
 jj-stack doctor --fix
 ```
 
-`jj-stack doctor` checks your repo, trunk, Git remote, GitHub access, and Stacks API availability.
-With `--fix`, it also repairs local fetch configuration and removes leftovers from interrupted
-commands. Follow the guidance for any checks that still fail. It does not change GitHub.
+`jj-stack doctor` checks your repo, Git remote, GitHub access and push permission, trunk, and
+Stacks API availability. With `--fix`, it also repairs local fetch configuration and removes
+leftovers from interrupted commands. Follow the guidance for any checks that still fail. It does
+not change GitHub.
 
 ## You want to use the same PRs again after `unstack --local`
 

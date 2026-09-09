@@ -11,6 +11,14 @@ CheckRollupStatus = Literal["failed", "passed", "pending"]
 PRState = Literal["open", "closed", "merged"]
 
 
+class GithubRepoPermissions(BaseModel):
+    """The token's permissions on the repo; GitHub reports them only to authenticated requests."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    push: bool
+
+
 class GithubRepo(BaseModel):
     """Subset of repo fields used by the client."""
 
@@ -21,6 +29,7 @@ class GithubRepo(BaseModel):
     allow_squash_merge: bool | None = None
     default_branch: str | None
     full_name: str
+    permissions: GithubRepoPermissions | None = None
 
 
 class GithubBranchRef(BaseModel):

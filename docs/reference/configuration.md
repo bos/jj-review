@@ -50,6 +50,10 @@ This gives PR branches names beginning with `my-prs/`.
 jj-stack uses the `origin` remote when it exists, or the repo's only Git remote otherwise. The
 remote's fetch and push URLs must contain the same `owner/repo` path.
 
+You need push access to that repo. jj-stack pushes PR branches to the same repo that receives
+the pull requests, and GitHub stacks cannot include branches from a fork. Working from a fork
+against a repo you cannot push to is not supported.
+
 SSH hostname aliases such as `git@github-work:owner/repo.git` are supported. The alias must
 connect to `github.com`: jj-stack takes the `owner/repo` path from the remote URL and always
 uses GitHub's public API. GitHub Enterprise Server is not supported.
@@ -66,9 +70,9 @@ Pushing PR branches uses your Git remote's authentication: an SSH key for an SSH
 HTTPS credentials for an HTTPS URL. Setting `GITHUB_TOKEN` or `GH_TOKEN` supplies the API token;
 jj-stack does not configure Git credentials from it.
 
-`jj-stack doctor` checks API access without attempting a push. If it succeeds but `submit`
-cannot push, check the credentials for your remote's push URL and your permission to push to
-that repo.
+`jj-stack doctor` checks API access and your permission to push to the repo without attempting
+a push. If it succeeds but `submit` cannot push, check the credentials for your remote's push
+URL.
 
 ## Invoke it as `jj stack`
 

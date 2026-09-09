@@ -652,11 +652,11 @@ The remote target must equal the local commit or saved baseline. `--replace-remo
 this check: it records the remote commit as the baseline so a later `submit` can replace it. It
 does not waive identity or branch checks.
 
-`doctor` observes setup, GitHub Stacks API availability, and local leftovers from interrupted
-`checkout` or `sync`. It changes nothing without `--fix`; its repairs are restoring the reserved
-PR-branch exclusion in remote fetch configuration, forgetting untracked remote bookmarks in that
-namespace, and removing the temporary import ref and bookmark. `checkout` and `sync` also remove
-that leftover when they start. It never mutates GitHub.
+`doctor` observes setup, push permission on the selected repo, GitHub Stacks API availability, and
+local leftovers from interrupted `checkout` or `sync`. It changes nothing without `--fix`; its
+repairs are restoring the reserved PR-branch exclusion in remote fetch configuration, forgetting
+untracked remote bookmarks in that namespace, and removing the temporary import ref and bookmark.
+`checkout` and `sync` also remove that leftover when they start. It never mutates GitHub.
 
 ### Inspection
 

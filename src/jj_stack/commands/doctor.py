@@ -1,8 +1,8 @@
 """Check repo setup and GitHub access.
 
-Checks the Git remote, authentication, GitHub access, stacked pull request support, and GitHub's
-default branch. It also reports PR bookmarks imported by a fetch and leftovers from an
-interrupted checkout or sync.
+Checks the Git remote, authentication, GitHub access, your permission to push to the repo, stacked
+pull request support, and GitHub's default branch. It also reports PR bookmarks imported by a
+fetch and leftovers from an interrupted checkout or sync.
 
 Run `jj-stack doctor --fix` to configure fetches to skip PR branches, forget untracked PR
 bookmarks imported by a fetch, and remove checkout or sync leftovers. These repairs affect only
@@ -26,6 +26,7 @@ from jj_stack.bootstrap import CommandContext, bootstrap_context
 from jj_stack.errors import CliError, error_message
 from jj_stack.github.auth import github_token, github_token_from_env
 from jj_stack.github.client import (
+    GithubClient,
     GithubClientError,
     build_github_client,
 )
@@ -52,6 +53,11 @@ class CheckResult:
     label: str
     status: Literal["ok", "warn", "fail", "fixed", "skip"]
     detail: CheckDetail
+
+
+# The checks that need the GitHub API, in report order. The later ones are skipped when the
+# repo cannot be reached.
+_GITHUB_CHECKS = ("connectivity", "push access", "GitHub stacks", "trunk branch")
 
 
 def doctor(
@@ -99,9 +105,7 @@ async def _run_checks(
                 "checkout/sync leftovers",
                 "GitHub remote",
                 "GitHub auth",
-                "connectivity",
-                "GitHub stacks",
-                "trunk branch",
+                *_GITHUB_CHECKS,
             )
         )
         return results
@@ -117,7 +121,7 @@ async def _run_checks(
     results.append(github_result)
 
     if parsed_repo is None:
-        results.extend(_skipped("GitHub auth", "connectivity", "GitHub stacks", "trunk branch"))
+        results.extend(_skipped("GitHub auth", *_GITHUB_CHECKS))
         return results
 
     # Check 3: GitHub auth
@@ -125,21 +129,11 @@ async def _run_checks(
     results.append(auth_result)
 
     if token is None:
-        results.extend(_skipped("connectivity", "GitHub stacks", "trunk branch"))
+        results.extend(_skipped(*_GITHUB_CHECKS))
         return results
 
-    # Checks 4-6: Connectivity, Stacks API availability, and trunk branch
-    connectivity_result, stacks_result, github_repo = await _check_github_connectivity(
-        parsed_repo=parsed_repo,
-    )
-    results.append(connectivity_result)
-    results.append(stacks_result)
-
-    if github_repo is not None:
-        results.append(_check_trunk_branch(github_repo))
-    else:
-        results.append(CheckResult("trunk branch", "skip", "connectivity failed"))
-
+    # Checks 4-7: connectivity, push access, Stacks API availability, and trunk branch
+    results.extend(await _check_github_access(parsed_repo=parsed_repo))
     return results
 
 
@@ -302,57 +296,72 @@ def _check_github_auth() -> tuple[CheckResult, str | None]:
     )
 
 
-async def _check_github_connectivity(
-    *,
-    parsed_repo: GithubRepoAddress,
-) -> tuple[CheckResult, CheckResult, GithubRepo | None]:
+async def _check_github_access(*, parsed_repo: GithubRepoAddress) -> list[CheckResult]:
+    """Run the checks that need the GitHub API, sharing one client."""
+
     async with build_github_client(repo=parsed_repo) as client:
         try:
             github_repo = await client.get_repo()
         except GithubClientError as error:
-            return (
-                CheckResult(
-                    "connectivity",
-                    "fail",
-                    f"{parsed_repo.full_name}: {error.user_facing_reason()}",
-                ),
-                CheckResult("GitHub stacks", "skip", "connectivity failed"),
-                None,
-            )
+            reason = error.user_facing_reason()
         except Exception as error:
-            return (
-                CheckResult(
-                    "connectivity",
-                    "fail",
-                    f"{parsed_repo.full_name}: request failed ({error})",
-                ),
-                CheckResult("GitHub stacks", "skip", "connectivity failed"),
-                None,
-            )
-        try:
-            await client.list_stacks()
-        except GithubClientError as error:
-            unavailable = github_stacks_unavailable_error(
-                error=error,
-                repo=parsed_repo.full_name,
-            )
-            detail: CheckDetail = (
-                (unavailable.message, t" {unavailable.hint}")
-                if unavailable is not None
-                else f"could not inspect stacks: {error.user_facing_reason()}"
-            )
-            stacks_result = CheckResult("GitHub stacks", "fail", detail)
+            reason = f"request failed ({error})"
         else:
-            stacks_result = CheckResult("GitHub stacks", "ok", "stacked pull requests available")
-    return (
-        CheckResult(
-            "connectivity",
-            "ok",
-            f"reached {parsed_repo.full_name}",
-        ),
-        stacks_result,
-        github_repo,
+            return [
+                CheckResult("connectivity", "ok", f"reached {parsed_repo.full_name}"),
+                _check_push_access(github_repo),
+                await _check_github_stacks(client, parsed_repo),
+                _check_trunk_branch(github_repo),
+            ]
+    return [
+        CheckResult("connectivity", "fail", f"{parsed_repo.full_name}: {reason}"),
+        *(CheckResult(label, "skip", "connectivity failed") for label in _GITHUB_CHECKS[1:]),
+    ]
+
+
+def _check_push_access(github_repo: GithubRepo) -> CheckResult:
+    """Report whether the token can push PR branches to the repo that receives the PRs.
+
+    A clone of a repo the user cannot push to, such as an upstream they have only forked, cannot
+    hold PR branches, and GitHub cannot stack PRs whose branches live in a fork.
+    """
+
+    permissions = github_repo.permissions
+    if permissions is None:
+        return CheckResult(
+            "push access",
+            "warn",
+            f"GitHub did not report your permissions for {github_repo.full_name}",
+        )
+    if permissions.push:
+        return CheckResult("push access", "ok", f"can push to {github_repo.full_name}")
+    return CheckResult(
+        "push access",
+        "fail",
+        f"no push access to {github_repo.full_name}; jj-stack pushes PR branches to the repo "
+        f"that receives the PRs, and GitHub stacks cannot span forks. Ask for write access to "
+        f"this repo.",
     )
+
+
+async def _check_github_stacks(
+    client: GithubClient,
+    parsed_repo: GithubRepoAddress,
+) -> CheckResult:
+    try:
+        await client.list_stacks()
+    except GithubClientError as error:
+        unavailable = github_stacks_unavailable_error(
+            error=error,
+            repo=parsed_repo.full_name,
+        )
+        detail: CheckDetail = (
+            (unavailable.message, t" {unavailable.hint}")
+            if unavailable is not None
+            else f"could not inspect stacks: {error.user_facing_reason()}"
+        )
+        return CheckResult("GitHub stacks", "fail", detail)
+    return CheckResult("GitHub stacks", "ok", "stacked pull requests available")
 
 
 def _check_trunk_branch(github_repo: GithubRepo) -> CheckResult:

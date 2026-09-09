@@ -100,5 +100,5 @@ Use `doctor --fix` only when a diagnostic names a repo setup defect that blocks 
 requested task. It can restore the normal fetch exclusion for the reserved PR-branch
 namespace. A visible PR bookmark is acceptable when it matches saved tracking state; repair
 only a collision or mismatch named by the affected command. Do not run `doctor --fix` after a
-successful operation as general cleanup. Use `doctor` for authentication, remote resolution, and
-interrupted checkout or sync leftovers.
+successful operation as general cleanup. Use `doctor` for authentication, remote resolution,
+push permission, and interrupted checkout or sync leftovers.

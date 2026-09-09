@@ -181,6 +181,27 @@ def test_doctor_fix_applies_the_pr_branch_fetch_exclusion(
     assert "stacked pull requests available" in rerun_output
 
 
+def test_doctor_fails_without_push_access_to_the_repo(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    """A clone of a repo the token cannot push to, such as an unforked upstream, cannot
+    receive PR branches, and GitHub cannot stack PRs whose branches live in a fork."""
+    repo, fake_repo = init_fake_github_repo(tmp_path)
+    fake_repo.push_permission = False
+    config_path = _configure_doctor_environment(monkeypatch, tmp_path, fake_repo)
+
+    exit_code = run_main(repo, config_path, "doctor")
+    output = " ".join(capsys.readouterr().out.split())
+
+    assert exit_code == 1
+    assert f"no push access to {fake_repo.full_name}" in output
+    assert "GitHub stacks cannot span forks" in output
+    # The remaining GitHub checks still run, so one report shows the whole picture.
+    assert "stacked pull requests available" in output
+
+
 def test_doctor_shows_skipped_checks_when_remote_fails(
     tmp_path: Path,
     monkeypatch,

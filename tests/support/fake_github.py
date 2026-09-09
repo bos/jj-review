@@ -206,6 +206,8 @@ class FakeGithubRepo:
     allow_rebase_merge: bool = False
     allow_squash_merge: bool = True
     merge_queue_enabled: bool = False
+    # Whether the token may push. A read-only clone of an upstream repo reports False.
+    push_permission: bool = True
     stack_merge_operations: dict[int, FakeStackMergeOperation] = field(default_factory=dict)
     stack_merge_requests: list[tuple[int, str | None, str, str]] = field(default_factory=list)
     auto_merge_reachable_heads: bool = True
@@ -239,6 +241,13 @@ class FakeGithubRepo:
             "allow_squash_merge": self.allow_squash_merge,
             "default_branch": self.default_branch,
             "full_name": self.full_name,
+            "permissions": {
+                "admin": False,
+                "maintain": False,
+                "pull": True,
+                "push": self.push_permission,
+                "triage": False,
+            },
         }
 
     def create_pr(
